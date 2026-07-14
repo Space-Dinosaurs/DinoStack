@@ -616,7 +616,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
-**Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
+**Subagents do not have hooks.** Hooks fire only in the main session. Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Per Claude Code's own worktree documentation and its v2.1.157 changelog, once the agent finishes the harness releases the lock and then auto-cleans the worktree via `git worktree remove` (not a raw directory delete) if it is unchanged, and a periodic orphan sweep also skips any still-locked worktree. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
 ## Protocol Details (read on trigger)
 
@@ -937,7 +937,7 @@ git branch -d <branch-name>
 
 **DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The agentic-engineering repo itself enforces a DCO check, so commits to it require `-s`.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. No worktree coordination is needed between sessions at the conductor level.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session; the lock releases when the agent finishes. This coordination is harness behavior (see Claude Code's own worktree documentation), not a mechanism the conductor or methodology adds.
 
 ## Context Economy
 
@@ -5586,7 +5586,10 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                The --delete-branch flag on gh pr merge may not auto-delete in
                all gh CLI versions; the explicit git branch -D is the fallback.
                The branch prune block never force-deletes unproven work - see
-               Safe boundary note in that section.
+               Safe boundary note in that section. A locked-but-dir-missing
+               worktree admin entry survives a bare `git worktree prune` - the
+               isolation-cleanup and session-start-prune paths both unlock
+               before pruning to reclaim it.
 
 Performance: Standard.
 -->
@@ -5632,13 +5635,30 @@ Run at session start (conductor preflight) - ONCE per session, not before every 
 ```bash
 # Run at session start (conductor preflight):
 git fetch origin
+# Unlock any locked entry whose directory is already gone, so prune can actually clear
+# the stale admin metadata - a locked-but-dir-missing entry is NOT cleared by a bare
+# `git worktree prune`:
+git worktree list --porcelain | awk '
+  /^worktree /{p=$2; locked=0}
+  /^locked/{locked=1}
+  /^$/{if (p && locked) print p; p=""}
+' | while read -r p; do
+  [ -d "$p" ] || git worktree unlock "$p" 2>/dev/null || true
+done
 git worktree prune
 # Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
-# Delete any worktree-agent-* branches not currently checked out in a worktree:
-git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
+# Delete any worktree-agent-* branches not currently checked out in a worktree.
+# NOTE: `git branch` prefixes a branch checked out in ANOTHER linked worktree with `+`
+# (not just `*` for the current one) - the sed must strip both, or the guard below
+# silently misparses the name and the liveness check/delete operate on a malformed string:
+git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
 done
 ```
+
+## Guardrail: never force-override the harness lock
+
+No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
 ## Branch prune (stale local branches)
 
@@ -11513,9 +11533,15 @@ For each isolation worktree, check its status before touching it:
 git -C <worktree-path> status --porcelain
 ```
 
-There are three cases:
+There are three cases. (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around.)
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. Run `git worktree prune` to clean the stale metadata, then delete the branch.
+**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
+
+```bash
+git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree prune
+git branch -D <branch-name>
+```
 
 **Directory exists, clean (no output):** Remove the worktree and delete the branch:
 

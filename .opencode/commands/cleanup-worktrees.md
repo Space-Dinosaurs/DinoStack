@@ -51,9 +51,15 @@ For each isolation worktree, check its status before touching it:
 git -C <worktree-path> status --porcelain
 ```
 
-There are three cases:
+There are three cases. (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around.)
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. Run `git worktree prune` to clean the stale metadata, then delete the branch.
+**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
+
+```bash
+git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree prune
+git branch -D <branch-name>
+```
 
 **Directory exists, clean (no output):** Remove the worktree and delete the branch:
 
