@@ -252,24 +252,28 @@ fi
 echo ""
 echo "Tier..."
 
-# Resolve tier: --tier flag wins; else existing tier; else map from --profile flag;
-# else existing legacy profile defaults to full; else first-time install defaults to minimal.
+# Resolve tier (CLI flag overrides all, per documented precedence):
+#   --tier flag > --profile flag (mapped) > existing tier > existing legacy
+#   profile (-> full for parity) > first-time default minimal.
+# An explicit --profile on a machine with a persisted tier now wins over the
+# stored tier, matching "CLI flag overrides all". The persisted (profile, tier)
+# pair is always derived from the resolved tier below, so it can never mismatch.
 AE_RESOLVED_TIER=""
 AE_EXISTING_TIER="$(ae_read_json_key "$AE_CONFIG_PATH" tier "")"
 
 if [[ -n "$AE_TIER_FLAG" ]]; then
   AE_RESOLVED_TIER="$AE_TIER_FLAG"
   echo "  + tier set to '$AE_RESOLVED_TIER' via --tier flag"
-elif [[ -n "$AE_EXISTING_TIER" ]]; then
-  AE_RESOLVED_TIER="$AE_EXISTING_TIER"
-  echo "  = tier already set to '$AE_RESOLVED_TIER' (keeping)"
 elif [[ -n "$AE_PROFILE_FLAG" ]]; then
   case "$AE_PROFILE_FLAG" in
     relaxed) AE_RESOLVED_TIER="minimal" ;;
     default) AE_RESOLVED_TIER="medium" ;;
     strict)  AE_RESOLVED_TIER="full" ;;
   esac
-  echo "  + tier derived from --profile=$AE_PROFILE_FLAG -> $AE_RESOLVED_TIER"
+  echo "  + tier derived from --profile=$AE_PROFILE_FLAG flag -> $AE_RESOLVED_TIER (flag overrides any stored tier)"
+elif [[ -n "$AE_EXISTING_TIER" ]]; then
+  AE_RESOLVED_TIER="$AE_EXISTING_TIER"
+  echo "  = tier already set to '$AE_RESOLVED_TIER' (keeping stored tier)"
 elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
   # Existing install has a legacy profile but no tier field. Default to FULL for
   # parity (no behavioral change from prior installs). Operator can downgrade
@@ -290,7 +294,7 @@ elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
     echo "    (non-interactive: tier=full preserved)"
   fi
 else
-  # No --tier flag, no existing tier, no --profile flag, no existing legacy
+  # No --tier flag, no --profile flag, no existing tier, no existing legacy
   # profile. First-time install: default to minimal (per the tier-system PR).
   AE_RESOLVED_TIER="minimal"
   echo "  + first-time install: tier=minimal (default; override with --tier=medium|full)"
@@ -298,8 +302,8 @@ fi
 echo "    Override later: bash .claude/install.sh --tier=minimal|medium|full"
 
 # Backwards-compat: also write legacy profile field so older readers don't crash.
-# Map tier -> profile (legacy) for the profile field; if AE_PROFILE_FLAG was passed,
-# respect it; otherwise derive from tier.
+# The profile is ALWAYS derived from the resolved tier, never the raw --profile
+# flag, so the persisted (profile, tier) pair can never mismatch.
 case "$AE_RESOLVED_TIER" in
   minimal) AE_LEGACY_PROFILE="relaxed" ;;
   medium)  AE_LEGACY_PROFILE="default" ;;
@@ -307,29 +311,25 @@ case "$AE_RESOLVED_TIER" in
   *)       AE_LEGACY_PROFILE="default"; AE_RESOLVED_TIER="medium" ;;
 esac
 AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
-ae_write_config "$AE_CURRENT_MODE" "${AE_PROFILE_FLAG:-$AE_LEGACY_PROFILE}" "$AE_RESOLVED_TIER"
+ae_write_config "$AE_CURRENT_MODE" "$AE_LEGACY_PROFILE" "$AE_RESOLVED_TIER"
 
 # Tier-aware source paths. AE_RESOLVED_TIER is "minimal|medium|full".
 # Commands are shared across tiers (the tier resolution is inside each command's body).
 # Agents are tier-specific (smaller agent specs for minimal/medium).
 # Skill directory is tier-specific (built by .claude/build.sh into tier-suffixed dirs).
-# References are tier-specific (subset of full).
 case "$AE_RESOLVED_TIER" in
   medium)
     AGENTS_SRC="$REPO_DIR/.claude/agents-medium"
     SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering-medium"
-    REFS_SRC="$REPO_DIR/content/references-medium"
     ;;
   full)
     AGENTS_SRC="$REPO_DIR/.claude/agents"
     SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
-    REFS_SRC="$REPO_DIR/content/references"
     ;;
   *)
     # minimal (default)
     AGENTS_SRC="$REPO_DIR/.claude/agents-minimal"
     SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering-minimal"
-    REFS_SRC="$REPO_DIR/content/references-minimal"
     ;;
 esac
 COMMANDS_SRC="$REPO_DIR/.claude/commands"
