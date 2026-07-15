@@ -955,7 +955,7 @@
   <div class="note">
     <strong>Variants</strong>
     <ul>
-      <li>Custom install location - set <code>AE_DEST_DIR</code>: <code>AE_DEST_DIR=~/tools/DinoStack curl -fsSL https://docs.dinostack.ai/install.sh | bash</code></li>
+      <li>Custom install location - set <code>AE_DEST_DIR</code>: <code>curl -fsSL https://docs.dinostack.ai/install.sh | AE_DEST_DIR=~/tools/DinoStack bash</code></li>
       <li>Opt-in activation with no prompts: <code>curl -fsSL https://docs.dinostack.ai/install.sh | bash -s -- --mode=opt-in</code></li>
       <li>Already installed? Bootstrap detects an existing install and aborts, printing the update-in-place command instead of creating a second clone.</li>
     </ul>
