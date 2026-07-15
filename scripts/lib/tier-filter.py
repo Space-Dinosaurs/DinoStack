@@ -23,6 +23,13 @@
 #
 # Performance: O(line count); one pass.
 
+# PEP 604 unions (int | None) below are evaluated eagerly at def-time on
+# Python < 3.10 without this; build-methodology.sh shells out to this script
+# once per section per tier, so a bare annotation would break the whole build
+# on any 3.8/3.9 system python3. Deferred evaluation keeps the stdlib-only,
+# no-version-floor contract in the header true.
+from __future__ import annotations
+
 import re
 import sys
 

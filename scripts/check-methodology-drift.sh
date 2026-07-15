@@ -60,9 +60,21 @@ check_one() {
 	return 1
 }
 
-if ! check_one full "$expected_full"; then fail=1; fi
-if [ -n "$expected_medium" ] && ! check_one medium "$expected_medium"; then fail=1; fi
-if [ -n "$expected_minimal" ] && ! check_one minimal "$expected_minimal"; then fail=1; fi
+# A missing baseline entry must FAIL, not skip: the whole point of this gate is
+# to catch unintended drift, so a truncated/dropped line silently disabling a
+# tier's check is the exact failure mode to guard against.
+check_expected() {
+	local tier="$1" expected="$2"
+	if [ -z "$expected" ]; then
+		echo "methodology drift check: $tier MISSING baseline entry in $BASELINE_FILE" >&2
+		return 1
+	fi
+	check_one "$tier" "$expected"
+}
+
+if ! check_expected full "$expected_full"; then fail=1; fi
+if ! check_expected medium "$expected_medium"; then fail=1; fi
+if ! check_expected minimal "$expected_minimal"; then fail=1; fi
 
 if [ "$fail" -ne 0 ]; then
 	echo "" >&2
