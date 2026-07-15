@@ -19,8 +19,12 @@
 #
 # Failure modes: any failing assertion prints and exits 1. Fully hermetic: all
 #                writes land under a throwaway HOME/config dir and the sandboxed
-#                GIT_DIR; stdin is /dev/null so the fresh-install skill_auto_load
-#                prompt cannot block.
+#                GIT_DIR. In a headless/CI run (no controlling terminal) the
+#                fresh-install skill_auto_load prompt's open("/dev/tty") raises
+#                OSError and the installer defaults to false, so it cannot block.
+#                On an interactive local terminal /dev/tty is still reachable
+#                (independent of the redirected stdin), so a local run may hit
+#                the prompt - answer once or run under a headless session.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -46,7 +50,16 @@ CONFIG_JSON="$CFG/agentic-engineering.json"
 # ambient absolute GIT_DIR overrides the `git -C` target, so every git call in
 # the installer resolves against this throwaway repo instead - the pre-commit
 # symlink lands under SANDBOX and the real repo is never touched.
+#
+# NOTE: this same override also neutralizes validate_repo_dir's repo_dir
+# clobber-guard (with GIT_DIR pointed at the fake repo, even a non-repo dir
+# validates as "true"). Benign today - no assertion here exercises that guard -
+# but a future test that does must account for it.
 FAKE_REPO="$SANDBOX/fake-repo"
+# Defensive: clear any ambient GIT_DIR/GIT_WORK_TREE the caller's shell may
+# already export (e.g. running this script from inside a git hook), so the
+# `git init` below targets FAKE_REPO and not some inherited location.
+unset GIT_DIR GIT_WORK_TREE
 git init -q "$FAKE_REPO"
 export GIT_DIR="$FAKE_REPO/.git"
 
@@ -56,10 +69,14 @@ read_key() {
 }
 
 run_install() {
-	# </dev/null detaches the child from this terminal: install.sh's fresh-install
-	# skill_auto_load prompt opens /dev/tty directly, and without this the test
-	# blocks on it interactively. With no tty the open() raises OSError and the
-	# installer defaults skill_auto_load to false - the intended non-interactive path.
+	# </dev/null redirects only stdin, NOT the controlling terminal: install.sh's
+	# fresh-install skill_auto_load prompt opens /dev/tty by path, which is
+	# independent of fd 0. In a headless/CI run there is no controlling terminal,
+	# so that open() raises OSError and the installer defaults skill_auto_load to
+	# false (the intended non-interactive path) - that is what makes this test
+	# non-blocking under CI. On an interactive local terminal /dev/tty is still
+	# reachable and this run CAN prompt once; the </dev/null keeps a bare `read`
+	# on stdin from blocking but does not suppress the /dev/tty prompt.
 	bash "$REPO_DIR/.claude/install.sh" \
 		--config-dir="$CFG" --no-identity --mode=opt-out "$@" \
 		</dev/null >"$SANDBOX/out.log" 2>&1 || true
