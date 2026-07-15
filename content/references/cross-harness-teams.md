@@ -195,6 +195,33 @@ codex this is `--sandbox read-only`. The `agentic-team discover` output records
 This is stronger than the PATH guardrail because it is enforced by the harness
 process itself, not by a wrapper script.
 
+### 2a. Cross-harness escalation (RISK-ACCEPTED note)
+
+Some harnesses have no read-only sandbox flag and must run with permissions
+relaxed to work non-interactively. These are the accepted-risk dispatch paths:
+
+- **opencode** runs with `--dangerously-skip-permissions` (and, where
+  applicable, `--allow-all-tools` / `--allow-all-paths`). This is required for
+  non-interactive dispatch; the workdir fence (§1) and the leaf-worker clause
+  (§4) are the containment for it, not a native sandbox.
+- **copilot** is gated behind an explicit opt-in: a copilot dispatch is
+  refused unless `AGENTIC_TEAM_ALLOW_COPILOT=1` is set, because its
+  non-interactive mode also relaxes permissions.
+
+Two dispatch defaults keep cross-harness escalation from happening silently:
+
+- **`dispatch.failover` defaults to `false`.** Failover re-runs the same brief
+  on a *different* harness (a different sandboxing posture and a different
+  provider's credentials), so it is opt-in per team via `dispatch.failover:
+  true` in `team.yml`. Same-harness retries (`dispatch.retries`) stay on the
+  original harness/model and are unaffected.
+- **The worker environment is an allowlist, not the conductor's full
+  `os.environ`.** A dispatched worker receives shell/locale/runtime basics,
+  recognized provider-auth variables, and the harness/provider prefixes this
+  tool dispatches to - not every unrelated credential in the parent
+  environment. Set `AGENTIC_TEAM_ENV_PASSTHROUGH=<comma-separated names>` to
+  force-forward extra variables for a non-standard setup.
+
 ### 3. PATH guardrail (accidental re-entry -- NOT a security sandbox)
 
 Each worker launch prepends a wrapper directory to `PATH`. Shims in that

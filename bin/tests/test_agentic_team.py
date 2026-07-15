@@ -1857,6 +1857,74 @@ def test_explicit_model_overrides_team_yml(monkeypatch):
 # ===========================================================================
 
 _build_failover_chain = _mod._build_failover_chain
+_dispatch_settings = _mod._dispatch_settings
+_scoped_worker_env = _mod._scoped_worker_env
+
+
+def test_failover_defaults_off_consent_gate():
+    """Cross-harness/model failover is OFF by default: an empty (or dispatch-less)
+    team.yml must resolve failover=False, so cross-harness escalation only
+    happens when the operator explicitly opts in via dispatch.failover: true."""
+    assert _dispatch_settings({}) ["failover"] is False
+    assert _dispatch_settings({"dispatch": {}})["failover"] is False
+    # Explicit opt-in is honored.
+    assert _dispatch_settings({"dispatch": {"failover": True}})["failover"] is True
+    # Same-harness retries stay enabled by default (not gated).
+    assert _dispatch_settings({})["retries"] == 1
+
+
+def test_scoped_worker_env_allowlists_not_full_environ(monkeypatch, tmp_path):
+    """_scoped_worker_env forwards shell/locale basics, provider-auth vars, and
+    harness prefixes - but NOT arbitrary unrelated secrets from os.environ."""
+    monkeypatch.setenv("HOME", "/home/tester")
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("CURSOR_TOKEN", "cur-tok")
+    monkeypatch.setenv("AGENTIC_TEAM_FOO", "1")
+    # Unrelated secrets that must NOT leak to a dispatched worker:
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "leak-aws")
+    monkeypatch.setenv("STRIPE_SECRET", "leak-stripe")
+    monkeypatch.setenv("MY_DATABASE_PASSWORD", "leak-db")
+    monkeypatch.delenv("AGENTIC_TEAM_ENV_PASSTHROUGH", raising=False)
+
+    shim = tmp_path / "shim"; shim.mkdir()
+    env = _scoped_worker_env(shim, None)
+
+    # Forwarded:
+    assert env["HOME"] == "/home/tester"
+    assert env["LANG"] == "en_US.UTF-8"
+    assert env["ANTHROPIC_API_KEY"] == "sk-anthropic"   # provider prefix
+    assert env["OPENAI_API_KEY"] == "sk-openai"         # provider prefix
+    assert env["CURSOR_TOKEN"] == "cur-tok"             # prefix + _TOKEN marker
+    assert env["AGENTIC_TEAM_FOO"] == "1"               # AGENTIC_ prefix
+    assert env["PATH"].startswith(str(shim) + os.pathsep)
+    # Dropped (unrelated credentials):
+    assert "AWS_SECRET_ACCESS_KEY" not in env, "AWS secret leaked to worker env"
+    assert "STRIPE_SECRET" not in env, "Stripe secret leaked to worker env"
+    assert "MY_DATABASE_PASSWORD" not in env, "DB password leaked to worker env"
+
+
+def test_scoped_worker_env_passthrough_escape_hatch(monkeypatch, tmp_path):
+    """AGENTIC_TEAM_ENV_PASSTHROUGH force-forwards named vars the allowlist would
+    otherwise drop, so a non-standard auth setup is never silently broken."""
+    monkeypatch.setenv("WEIRD_PROVIDER_CRED", "needed")
+    monkeypatch.setenv("ALSO_DROP_ME", "nope")
+    monkeypatch.setenv("AGENTIC_TEAM_ENV_PASSTHROUGH", "WEIRD_PROVIDER_CRED")
+    shim = tmp_path / "shim"; shim.mkdir()
+    env = _scoped_worker_env(shim, None)
+    assert env["WEIRD_PROVIDER_CRED"] == "needed", "passthrough var must be forwarded"
+    assert "ALSO_DROP_ME" not in env, "non-listed var must still be dropped"
+
+
+def test_scoped_worker_env_sets_disable_flag(monkeypatch, tmp_path):
+    """The native-subagent-disable flag is set in the scoped env when provided."""
+    monkeypatch.setenv("HOME", "/home/tester")
+    shim = tmp_path / "shim"; shim.mkdir()
+    env = _scoped_worker_env(shim, "SOME_DISABLE_FLAG")
+    assert env["SOME_DISABLE_FLAG"] == "1"
+    env2 = _scoped_worker_env(shim, None)
+    assert "SOME_DISABLE_FLAG" not in env2
 
 
 def test_failover_chain_retries_only_when_failover_false():

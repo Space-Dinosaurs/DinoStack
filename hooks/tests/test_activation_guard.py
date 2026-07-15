@@ -85,6 +85,45 @@ def main() -> int:
         else:
             os.environ.pop("HOME", None)
 
+    # --- Never-activated projects emit a distinct "inactive" notice once ---
+    # (Regression: previously they exited silently, giving no signal that every
+    # enforcement hook is a no-op - only the explicit-tombstone path warned.)
+    import io
+    import contextlib
+    d5 = tempfile.mkdtemp()  # no .agentic, not allowlisted
+    fake_home2 = tempfile.mkdtemp()
+    os.makedirs(os.path.join(fake_home2, ".agentic"))
+    old_home = os.environ.get("HOME")
+    os.environ["HOME"] = fake_home2
+    try:
+        buf = io.StringIO()
+        with contextlib.redirect_stderr(buf):
+            r1 = mod.is_active(d5)
+        first = buf.getvalue()
+        check("never-activated -> dormant", r1 is False)
+        check("never-activated emits INACTIVE notice", "INACTIVE" in first)
+        check("inactive notice names /ds activate", "/ds activate" in first)
+        # Second call for the same project is silent (once-per-project marker).
+        buf2 = io.StringIO()
+        with contextlib.redirect_stderr(buf2):
+            mod.is_active(d5)
+        check("inactive notice emitted only once", "INACTIVE" not in buf2.getvalue())
+        # A tombstone project still gets the DORMANT (not INACTIVE) wording.
+        d6 = tempfile.mkdtemp()
+        os.makedirs(os.path.join(d6, ".agentic"))
+        open(os.path.join(d6, ".agentic", "dormant"), "w").close()
+        buf3 = io.StringIO()
+        with contextlib.redirect_stderr(buf3):
+            mod.is_active(d6)
+        out3 = buf3.getvalue()
+        check("tombstone project -> DORMANT wording, not INACTIVE",
+              "DORMANT" in out3 and "INACTIVE" not in out3)
+    finally:
+        if old_home is not None:
+            os.environ["HOME"] = old_home
+        else:
+            os.environ.pop("HOME", None)
+
     # --- Fail-ACTIVE: indeterminate cwd ---
     check("None cwd -> fail-ACTIVE", mod.is_active(None) is True)
     check("blank cwd -> fail-ACTIVE", mod.is_active("   ") is True)

@@ -57,47 +57,62 @@ import sys
 _DORMANT_NOTICE_ATTEMPTED: set[str] = set()
 
 
-def _dormant_notice_path(cwd: str) -> str:
+def _dormant_notice_path(cwd: str, kind: str = "dormant") -> str:
     """Return the per-project dormant-notice marker path in ~/.agentic/.
 
     The marker lives outside the project directory so a repo-local process
-    cannot suppress the notice by deleting or overwriting it.
+    cannot suppress the notice by deleting or overwriting it. *kind*
+    ("dormant" tombstone vs "inactive" never-opted-in) keys distinct markers so
+    the two notices are emitted independently once each.
     """
     try:
         key = hashlib.sha256(os.path.realpath(cwd).encode("utf-8")).hexdigest()
-        return os.path.join(os.path.expanduser("~"), ".agentic", f".dormant-notice-{key}")
+        return os.path.join(os.path.expanduser("~"), ".agentic", f".{kind}-notice-{key}")
     except Exception:
         # Last-ditch fallback under ~/.agentic; notice emission still attempts.
-        return os.path.join(os.path.expanduser("~"), ".agentic", ".dormant-notice-fallback")
+        return os.path.join(os.path.expanduser("~"), ".agentic", f".{kind}-notice-fallback")
 
 
-def _emit_dormant_notice(cwd: str) -> None:
-    """Print an unsuppressable dormant notice once per project to stderr.
+def _emit_dormant_notice(cwd: str, kind: str = "dormant") -> None:
+    """Print an unsuppressable activation notice once per project to stderr.
 
     Tracks "already noticed" in ~/.agentic/ so a repo-local attacker cannot
     silence it. Any marker creation failure still leaves the warning printed,
     but the failure is recorded in a process-level set so a repeated failure
     does not spam stderr on every subsequent hook call.
+
+    *kind* selects the message: "dormant" (explicit .agentic/dormant tombstone)
+    or "inactive" (project simply never opted in - no marker, no allowlist
+    entry). Both mean the enforcement hooks are no-ops, but they are distinct
+    situations an operator may want to act on differently, so each is surfaced
+    once per project independently.
     """
-    notice_path = _dormant_notice_path(cwd)
+    notice_path = _dormant_notice_path(cwd, kind)
     try:
         if os.path.exists(notice_path):
             return
     except Exception:
         pass
 
-    # Rate-limit failed emission attempts to once per process per project.
-    cwd_key = os.path.realpath(cwd)
+    # Rate-limit failed emission attempts to once per process per project+kind.
+    cwd_key = f"{kind}:{os.path.realpath(cwd)}"
     if cwd_key in _DORMANT_NOTICE_ATTEMPTED:
         return
     _DORMANT_NOTICE_ATTEMPTED.add(cwd_key)
 
     try:
-        print(
-            f"AGENTIC-ENGINEERING DORMANT: enforcement hooks disabled for {cwd} "
-            "by .agentic/dormant tombstone.",
-            file=sys.stderr,
-        )
+        if kind == "inactive":
+            msg = (
+                f"AGENTIC-ENGINEERING INACTIVE: enforcement hooks are no-ops for {cwd} "
+                "- this project has never been activated (no .agentic/ marker, no "
+                "allowlist entry). Run `/ds activate` to enable the methodology."
+            )
+        else:
+            msg = (
+                f"AGENTIC-ENGINEERING DORMANT: enforcement hooks disabled for {cwd} "
+                "by .agentic/dormant tombstone."
+            )
+        print(msg, file=sys.stderr)
     except Exception:
         pass
     try:
@@ -255,6 +270,17 @@ def is_active(cwd) -> bool:
                 return decision
         if _in_allowlist(roots):
             return True
-        return False  # dormant
+        # Never activated: no marker at any root and no allowlist entry. Unlike
+        # the explicit-tombstone path (_decide_at), this case previously exited
+        # silently, so an operator who expected the methodology to be on got no
+        # signal that every enforcement hook is a no-op here. Emit a distinct
+        # "inactive" notice once per project, keyed on the project root (the
+        # outermost git root, not a worktree subdir a subagent runs in).
+        try:
+            notice_root = bound or clean
+            _emit_dormant_notice(notice_root, kind="inactive")
+        except Exception:
+            pass
+        return False  # dormant (never activated)
     except Exception:
         return True  # fail ACTIVE - never silently kill methodology

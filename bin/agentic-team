@@ -1190,11 +1190,18 @@ def _build_shim_dir(run_dir: Path, exempt_binary: str) -> Path:
 # library-internal fallback for callers that omit timeout_seconds entirely.
 # agentic-team always passes an explicit value, so it must supply its own
 # documented default rather than silently inheriting the library's.
+# failover defaults OFF: cross-harness / cross-model fallback re-runs the same
+# brief on a DIFFERENT harness (often a different sandboxing posture and a
+# different provider's credentials) with no per-run confirmation, so it must be
+# an explicit, operator-declared opt-in (`dispatch.failover: true` in team.yml)
+# rather than silent default behavior. Same-harness retries (`retries`) are
+# unaffected - those stay on the same harness/model and carry no cross-harness
+# escalation, so they remain enabled by default.
 _DEFAULT_DISPATCH_SETTINGS: dict[str, object] = {
     "timeout_seconds": 1800,
     "stall_seconds": _sup_mod.DEFAULT_STALL_SECONDS,
     "retries": 1,
-    "failover": True,
+    "failover": False,
 }
 
 def _dispatch_settings(config: dict) -> dict[str, object]:
@@ -1235,6 +1242,75 @@ def _build_failover_chain(
     if harness != "claude":
         chain.append(("claude", None))
     return chain
+
+
+# Environment names always safe to forward to a dispatched worker: the shell/
+# locale/runtime basics every CLI needs, with no credential value.
+_WORKER_ENV_BASE_KEYS: frozenset[str] = frozenset({
+    "PATH", "HOME", "USER", "LOGNAME", "SHELL", "TERM", "TERMINFO",
+    "LANG", "LC_ALL", "LC_CTYPE", "TMPDIR", "TMP", "TEMP", "TZ", "PWD",
+    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "REQUESTS_CA_BUNDLE",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy",
+    "COLUMNS", "LINES",
+})
+
+# Substring markers that flag a var as provider auth/config the worker CLIs
+# legitimately need (a harness cannot authenticate without its key/token). A
+# name matching any of these is forwarded; everything else is dropped.
+# Deliberately NOT a bare "_KEY": that would forward unrelated cloud secrets
+# like AWS_SECRET_ACCESS_KEY. Provider API keys are matched via "API_KEY" or a
+# harness prefix below.
+_WORKER_ENV_AUTH_MARKERS: tuple[str, ...] = (
+    "API_KEY", "APIKEY", "API_TOKEN", "ACCESS_TOKEN", "AUTH_TOKEN",
+    "BASE_URL", "API_BASE", "API_ENDPOINT",
+)
+
+# Prefixes for the harness/provider families this tool dispatches to, plus our
+# own AGENTIC_/AE_ config. A name starting with any of these is forwarded.
+_WORKER_ENV_ALLOWED_PREFIXES: tuple[str, ...] = (
+    "ANTHROPIC", "CLAUDE", "OPENAI", "CODEX", "GEMINI", "GOOGLE", "VERTEX",
+    "CURSOR", "KIMI", "MOONSHOT", "OPENROUTER", "GLM", "ZAI", "Z_AI",
+    "OLLAMA", "AZURE_OPENAI", "GH_", "GITHUB_", "COPILOT", "OMP_", "OPENCODE",
+    "AGENTIC_", "AE_", "CLOUDSDK_",
+)
+
+
+def _scoped_worker_env(shim_dir: Path, disable_flag: str | None) -> dict[str, str]:
+    """Build the dispatched worker's env from an ALLOWLIST, not the full parent.
+
+    Previously the worker inherited ``dict(os.environ)`` verbatim - every
+    credential and token in the conductor's environment, including ones for
+    unrelated services the worker has no business seeing. This scopes the
+    forwarded set to: shell/locale/runtime basics (``_WORKER_ENV_BASE_KEYS``),
+    recognized provider-auth vars (name contains a ``_WORKER_ENV_AUTH_MARKERS``
+    marker), and the harness/provider prefixes this tool dispatches to
+    (``_WORKER_ENV_ALLOWED_PREFIXES``). PATH is rewritten to prepend the shim
+    dir; the native-subagent-disable flag is set when discovery recorded one.
+
+    Escape hatch: ``AGENTIC_TEAM_ENV_PASSTHROUGH`` (comma-separated names) force-
+    forwards extra vars for a non-standard setup, so the allowlist never
+    silently breaks a worker whose auth var we didn't anticipate.
+    """
+    extra = {
+        n.strip()
+        for n in os.environ.get("AGENTIC_TEAM_ENV_PASSTHROUGH", "").split(",")
+        if n.strip()
+    }
+
+    def _allowed(name: str) -> bool:
+        if name in _WORKER_ENV_BASE_KEYS or name in extra:
+            return True
+        upper = name.upper()
+        if any(marker in upper for marker in _WORKER_ENV_AUTH_MARKERS):
+            return True
+        return upper.startswith(_WORKER_ENV_ALLOWED_PREFIXES)
+
+    env = {k: v for k, v in os.environ.items() if _allowed(k)}
+    env["PATH"] = str(shim_dir) + os.pathsep + os.environ.get("PATH", "")
+    if disable_flag:
+        env[disable_flag] = "1"
+    return env
 
 
 def _cmd_dispatch(args: argparse.Namespace) -> int:
@@ -1320,19 +1396,8 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     # to the repo root).
     worker_cwd = workdir
 
-    # PATH guardrail shims (NOT a sandbox - catches accidental bare-name
-    # re-entry only; absolute-path calls bypass this entirely).
-    exempt_binary = HARNESS_BINARY.get(harness, harness)
-    shim_dir = _build_shim_dir(run_dir, exempt_binary)
-    worker_env = dict(os.environ)
-    worker_env["PATH"] = str(shim_dir) + os.pathsep + worker_env.get("PATH", "")
-
-    # Set harness native-subagent-disable flag when discovery recorded one.
-    # In v1 all entries are null, so this is effectively a no-op now.
-    # Wire it so Unit 5 / future discovery can activate it without code changes.
-    disable_flag = HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG.get(harness)
-    if disable_flag:
-        worker_env[disable_flag] = "1"
+    # (Per-attempt shims + scoped env are built inside _spawn_attempt below;
+    # each attempt in the failover chain may target a different harness.)
 
     # Model resolution: an explicit --model always wins; otherwise fall back
     # to the role's model in team.yml (D-1). Without this, a role-only dispatch
@@ -1382,11 +1447,12 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
 
         exempt_binary = HARNESS_BINARY.get(attempt_harness, attempt_harness)
         shim_dir = _build_shim_dir(attempt_dir, exempt_binary)
-        attempt_env = dict(os.environ)
-        attempt_env["PATH"] = str(shim_dir) + os.pathsep + attempt_env.get("PATH", "")
+        # Scope the worker env to an allowlist (shell/locale basics + recognized
+        # provider-auth vars + harness prefixes) instead of handing it the
+        # conductor's full os.environ - so a cross-harness failover attempt does
+        # not leak every unrelated credential to a subprocess.
         disable_flag = HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG.get(attempt_harness)
-        if disable_flag:
-            attempt_env[disable_flag] = "1"
+        attempt_env = _scoped_worker_env(shim_dir, disable_flag)
 
         attempt_argv = _build_worker_argv(attempt_harness, augmented_brief, model=attempt_model)
         stdin_src = subprocess.DEVNULL if attempt_harness in _STDIN_DEVNULL_HARNESSES else None
