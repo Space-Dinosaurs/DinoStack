@@ -28,7 +28,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-06-24: Decided NOT to build a nested "unit-lead" sub-conductor tier** - the existing background-spawn + digest-return pattern already keeps conductor context clean; an Opus Skeptic withheld sign-off (2 Critical, 4 Major) on the full design. Do not re-propose unless conductor context becomes a *measured* bottleneck. (Full rationale archived.)
 
-- **2026-07-08: Live in-session HUD / real-time agent-dashboard UI belongs in Helios, not in agentic-engineering.** agentic-engineering's job is to produce structured telemetry (`.agentic/hud/*.json`); Helios is the intended home for rendering it. Static CLI rollups (`agentic-cost session/team/retro`) stay here.
+- **2026-07-08: Live in-session HUD / real-time agent-dashboard UI belongs in Helios, not in agentic-engineering.** agentic-engineering's job is to produce structured telemetry (`.agentic/hud/*.json`); Helios (the sibling desktop product) is the intended home for rendering it. Static CLI rollups (`agentic-cost session/team/retro`) stay here.
 
 - **2026-06-25: The public installer (`curl | bash`) pulls unpinned `main` HEAD - no checksum, signature, or release tag.** Live hardening gap now that the repo is public (deferred while private). Options: pin install to a release tag with version-bump, and/or publish a checksum/SRI.
 
