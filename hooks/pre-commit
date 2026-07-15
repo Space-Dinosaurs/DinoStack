@@ -93,6 +93,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
   bash "$REPO_DIR/.openclaw/build.sh"
   bash "$REPO_DIR/.opencode/build.sh"
   bash "$REPO_DIR/.pi/build.sh"
+  bash "$REPO_DIR/.copilot/build.sh"
 
   # Stage generated files
   git add \
@@ -122,7 +123,13 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.opencode/commands/"*.md \
     "$REPO_DIR/.pi/skills/agentic-engineering/METHODOLOGY.md" \
     "$REPO_DIR/.pi/skills/agentic-engineering/SKILL.md" \
-    "$REPO_DIR/.pi/prompts/"*.md
+    "$REPO_DIR/.pi/prompts/"*.md \
+    "$REPO_DIR/.github/copilot-instructions.md" \
+    "$REPO_DIR/.github/agents/"*.md \
+    "$REPO_DIR/.github/prompts/"*.prompt.md \
+    "$REPO_DIR/.github/instructions/"*.md \
+    "$REPO_DIR/.github/hooks/"* \
+    "$REPO_DIR/.copilot/references/"*.md
 
   echo "[pre-commit] Generated files staged."
 fi
