@@ -1,0 +1,865 @@
+{
+  "success": true,
+  "issues": [
+    {
+      "type": "file",
+      "name": "scripts/update.js",
+      "file": "scripts/update.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/post-tool-use-capture-nudge.js",
+      "file": "hooks/post-tool-use-capture-nudge.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/pre-tool-use-spawn-emit.js",
+      "file": "hooks/pre-tool-use-spawn-emit.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/session-end-wrap.js",
+      "file": "hooks/session-end-wrap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/stop-context.js",
+      "file": "hooks/stop-context.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/wrap-daemon.js",
+      "file": "hooks/wrap-daemon.js"
+    },
+    {
+      "type": "file",
+      "name": ".codex/hooks/stop-context-codex.js",
+      "file": ".codex/hooks/stop-context-codex.js"
+    },
+    {
+      "type": "file",
+      "name": ".copilot/hooks/stop-context-copilot.js",
+      "file": ".copilot/hooks/stop-context-copilot.js"
+    },
+    {
+      "type": "file",
+      "name": ".gemini/hooks/stop-context-gemini.js",
+      "file": ".gemini/hooks/stop-context-gemini.js"
+    },
+    {
+      "type": "file",
+      "name": ".github/hooks/stop-context-copilot.js",
+      "file": ".github/hooks/stop-context-copilot.js"
+    },
+    {
+      "type": "file",
+      "name": ".opencode/plugins/session-context.ts",
+      "file": ".opencode/plugins/session-context.ts"
+    },
+    {
+      "type": "file",
+      "name": "scripts/test/update-hookstouched.test.js",
+      "file": "scripts/test/update-hookstouched.test.js"
+    },
+    {
+      "type": "file",
+      "name": "scripts/test/update-needsrebuild.test.js",
+      "file": "scripts/test/update-needsrebuild.test.js"
+    },
+    {
+      "type": "file",
+      "name": "scripts/test/update-saveconfig.test.js",
+      "file": "scripts/test/update-saveconfig.test.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/lib/capture-gap.js",
+      "file": "hooks/lib/capture-gap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/lib/skill-candidate-deep-cluster.js",
+      "file": "hooks/lib/skill-candidate-deep-cluster.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/lib/skill-candidate-detector.js",
+      "file": "hooks/lib/skill-candidate-detector.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-capture-gap.js",
+      "file": "hooks/tests/test-capture-gap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-post-tool-use-capture-nudge.js",
+      "file": "hooks/tests/test-post-tool-use-capture-nudge.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-post-tool-use-skill-nudge.js",
+      "file": "hooks/tests/test-post-tool-use-skill-nudge.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-session-end-wrap.js",
+      "file": "hooks/tests/test-session-end-wrap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-skill-candidate-deep-cluster.js",
+      "file": "hooks/tests/test-skill-candidate-deep-cluster.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-skill-candidate-detector.js",
+      "file": "hooks/tests/test-skill-candidate-detector.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-spawn-emit.js",
+      "file": "hooks/tests/test-spawn-emit.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-deferred-wrap.js",
+      "file": "hooks/tests/test-stop-context-deferred-wrap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-health.js",
+      "file": "hooks/tests/test-stop-context-health.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-session-log.js",
+      "file": "hooks/tests/test-stop-context-session-log.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-skill-candidate.js",
+      "file": "hooks/tests/test-stop-context-skill-candidate.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-telemetry.js",
+      "file": "hooks/tests/test-stop-context-telemetry.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-artifact-migration.js",
+      "file": "hooks/tests/test-wrap-artifact-migration.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-context-format-golden.js",
+      "file": "hooks/tests/test-wrap-context-format-golden.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-daemon.js",
+      "file": "hooks/tests/test-wrap-daemon.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-marker-reclaim.js",
+      "file": "hooks/tests/test-wrap-marker-reclaim.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-md-partA-parity.js",
+      "file": "hooks/tests/test-wrap-md-partA-parity.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-partF-skeptic-r1.js",
+      "file": "hooks/tests/test-wrap-partF-skeptic-r1.js"
+    },
+    {
+      "type": "file",
+      "name": ".pi/extensions/agentic-engineering/index.ts",
+      "file": ".pi/extensions/agentic-engineering/index.ts"
+    },
+    {
+      "type": "devDependency",
+      "name": "eslint",
+      "file": "package.json",
+      "line": 3
+    },
+    {
+      "type": "export",
+      "name": "SCHEMA_VERSION",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1090
+    },
+    {
+      "type": "export",
+      "name": "MAX_DAEMON_LOG_BYTES",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1091
+    },
+    {
+      "type": "export",
+      "name": "MAX_CHILD_CAPTURE_BYTES",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1092
+    },
+    {
+      "type": "export",
+      "name": "markerPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1094
+    },
+    {
+      "type": "export",
+      "name": "lastWrapPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1095
+    },
+    {
+      "type": "export",
+      "name": "wrapLockPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1096
+    },
+    {
+      "type": "export",
+      "name": "wrapLockOwnerPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1097
+    },
+    {
+      "type": "export",
+      "name": "daemonPidPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1098
+    },
+    {
+      "type": "export",
+      "name": "wrapDaemonLogPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1099
+    },
+    {
+      "type": "export",
+      "name": "authFailedPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1100
+    },
+    {
+      "type": "export",
+      "name": "claudeHostPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1101
+    },
+    {
+      "type": "export",
+      "name": "heartbeatPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1102
+    },
+    {
+      "type": "export",
+      "name": "stopDeferredActivityPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1103
+    },
+    {
+      "type": "export",
+      "name": "daemonGuardActive",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1105
+    },
+    {
+      "type": "export",
+      "name": "readMarker",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1107
+    },
+    {
+      "type": "export",
+      "name": "listReadyMarkers",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1108
+    },
+    {
+      "type": "export",
+      "name": "listInProgressMarkers",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1109
+    },
+    {
+      "type": "export",
+      "name": "liveMarkerForSession",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1110
+    },
+    {
+      "type": "export",
+      "name": "readLastWrap",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1111
+    },
+    {
+      "type": "export",
+      "name": "wrapLockHeld",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1112
+    },
+    {
+      "type": "export",
+      "name": "wrapLockStale",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1113
+    },
+    {
+      "type": "export",
+      "name": "heartbeatFresh",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1114
+    },
+    {
+      "type": "export",
+      "name": "isClaudeHost",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1115
+    },
+    {
+      "type": "export",
+      "name": "ensureClaudeHost",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1117
+    },
+    {
+      "type": "export",
+      "name": "writeMarker",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1119
+    },
+    {
+      "type": "export",
+      "name": "stagePending",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1120
+    },
+    {
+      "type": "export",
+      "name": "finalizeReady",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1121
+    },
+    {
+      "type": "export",
+      "name": "claimMarker",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1122
+    },
+    {
+      "type": "export",
+      "name": "transitionDone",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1123
+    },
+    {
+      "type": "export",
+      "name": "transitionGaveUp",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1124
+    },
+    {
+      "type": "export",
+      "name": "reclaimAbandonedInProgress",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1126
+    },
+    {
+      "type": "export",
+      "name": "cleanStalePending",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1127
+    },
+    {
+      "type": "export",
+      "name": "acquireWrapLock",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1129
+    },
+    {
+      "type": "export",
+      "name": "releaseWrapLock",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1130
+    },
+    {
+      "type": "export",
+      "name": "readWrapLockOwner",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1131
+    },
+    {
+      "type": "export",
+      "name": "clearProvablyStaleWrapLock",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1132
+    },
+    {
+      "type": "export",
+      "name": "wrapLockProvablyStale",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1133
+    },
+    {
+      "type": "export",
+      "name": "wrapLockProvablyStaleLegacy",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1134
+    },
+    {
+      "type": "export",
+      "name": "touchHeartbeat",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1136
+    },
+    {
+      "type": "export",
+      "name": "removeHeartbeat",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1137
+    }
+  ],
+  "unusedExports": [
+    {
+      "type": "export",
+      "name": "SCHEMA_VERSION",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1090
+    },
+    {
+      "type": "export",
+      "name": "MAX_DAEMON_LOG_BYTES",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1091
+    },
+    {
+      "type": "export",
+      "name": "MAX_CHILD_CAPTURE_BYTES",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1092
+    },
+    {
+      "type": "export",
+      "name": "markerPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1094
+    },
+    {
+      "type": "export",
+      "name": "lastWrapPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1095
+    },
+    {
+      "type": "export",
+      "name": "wrapLockPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1096
+    },
+    {
+      "type": "export",
+      "name": "wrapLockOwnerPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1097
+    },
+    {
+      "type": "export",
+      "name": "daemonPidPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1098
+    },
+    {
+      "type": "export",
+      "name": "wrapDaemonLogPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1099
+    },
+    {
+      "type": "export",
+      "name": "authFailedPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1100
+    },
+    {
+      "type": "export",
+      "name": "claudeHostPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1101
+    },
+    {
+      "type": "export",
+      "name": "heartbeatPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1102
+    },
+    {
+      "type": "export",
+      "name": "stopDeferredActivityPath",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1103
+    },
+    {
+      "type": "export",
+      "name": "daemonGuardActive",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1105
+    },
+    {
+      "type": "export",
+      "name": "readMarker",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1107
+    },
+    {
+      "type": "export",
+      "name": "listReadyMarkers",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1108
+    },
+    {
+      "type": "export",
+      "name": "listInProgressMarkers",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1109
+    },
+    {
+      "type": "export",
+      "name": "liveMarkerForSession",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1110
+    },
+    {
+      "type": "export",
+      "name": "readLastWrap",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1111
+    },
+    {
+      "type": "export",
+      "name": "wrapLockHeld",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1112
+    },
+    {
+      "type": "export",
+      "name": "wrapLockStale",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1113
+    },
+    {
+      "type": "export",
+      "name": "heartbeatFresh",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1114
+    },
+    {
+      "type": "export",
+      "name": "isClaudeHost",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1115
+    },
+    {
+      "type": "export",
+      "name": "ensureClaudeHost",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1117
+    },
+    {
+      "type": "export",
+      "name": "writeMarker",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1119
+    },
+    {
+      "type": "export",
+      "name": "stagePending",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1120
+    },
+    {
+      "type": "export",
+      "name": "finalizeReady",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1121
+    },
+    {
+      "type": "export",
+      "name": "claimMarker",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1122
+    },
+    {
+      "type": "export",
+      "name": "transitionDone",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1123
+    },
+    {
+      "type": "export",
+      "name": "transitionGaveUp",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1124
+    },
+    {
+      "type": "export",
+      "name": "reclaimAbandonedInProgress",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1126
+    },
+    {
+      "type": "export",
+      "name": "cleanStalePending",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1127
+    },
+    {
+      "type": "export",
+      "name": "acquireWrapLock",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1129
+    },
+    {
+      "type": "export",
+      "name": "releaseWrapLock",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1130
+    },
+    {
+      "type": "export",
+      "name": "readWrapLockOwner",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1131
+    },
+    {
+      "type": "export",
+      "name": "clearProvablyStaleWrapLock",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1132
+    },
+    {
+      "type": "export",
+      "name": "wrapLockProvablyStale",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1133
+    },
+    {
+      "type": "export",
+      "name": "wrapLockProvablyStaleLegacy",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1134
+    },
+    {
+      "type": "export",
+      "name": "touchHeartbeat",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1136
+    },
+    {
+      "type": "export",
+      "name": "removeHeartbeat",
+      "file": "hooks/lib/wrap-marker.js",
+      "line": 1137
+    }
+  ],
+  "unusedFiles": [
+    {
+      "type": "file",
+      "name": "scripts/update.js",
+      "file": "scripts/update.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/post-tool-use-capture-nudge.js",
+      "file": "hooks/post-tool-use-capture-nudge.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/pre-tool-use-spawn-emit.js",
+      "file": "hooks/pre-tool-use-spawn-emit.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/session-end-wrap.js",
+      "file": "hooks/session-end-wrap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/stop-context.js",
+      "file": "hooks/stop-context.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/wrap-daemon.js",
+      "file": "hooks/wrap-daemon.js"
+    },
+    {
+      "type": "file",
+      "name": ".codex/hooks/stop-context-codex.js",
+      "file": ".codex/hooks/stop-context-codex.js"
+    },
+    {
+      "type": "file",
+      "name": ".copilot/hooks/stop-context-copilot.js",
+      "file": ".copilot/hooks/stop-context-copilot.js"
+    },
+    {
+      "type": "file",
+      "name": ".gemini/hooks/stop-context-gemini.js",
+      "file": ".gemini/hooks/stop-context-gemini.js"
+    },
+    {
+      "type": "file",
+      "name": ".github/hooks/stop-context-copilot.js",
+      "file": ".github/hooks/stop-context-copilot.js"
+    },
+    {
+      "type": "file",
+      "name": ".opencode/plugins/session-context.ts",
+      "file": ".opencode/plugins/session-context.ts"
+    },
+    {
+      "type": "file",
+      "name": "scripts/test/update-hookstouched.test.js",
+      "file": "scripts/test/update-hookstouched.test.js"
+    },
+    {
+      "type": "file",
+      "name": "scripts/test/update-needsrebuild.test.js",
+      "file": "scripts/test/update-needsrebuild.test.js"
+    },
+    {
+      "type": "file",
+      "name": "scripts/test/update-saveconfig.test.js",
+      "file": "scripts/test/update-saveconfig.test.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/lib/capture-gap.js",
+      "file": "hooks/lib/capture-gap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/lib/skill-candidate-deep-cluster.js",
+      "file": "hooks/lib/skill-candidate-deep-cluster.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/lib/skill-candidate-detector.js",
+      "file": "hooks/lib/skill-candidate-detector.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-capture-gap.js",
+      "file": "hooks/tests/test-capture-gap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-post-tool-use-capture-nudge.js",
+      "file": "hooks/tests/test-post-tool-use-capture-nudge.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-post-tool-use-skill-nudge.js",
+      "file": "hooks/tests/test-post-tool-use-skill-nudge.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-session-end-wrap.js",
+      "file": "hooks/tests/test-session-end-wrap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-skill-candidate-deep-cluster.js",
+      "file": "hooks/tests/test-skill-candidate-deep-cluster.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-skill-candidate-detector.js",
+      "file": "hooks/tests/test-skill-candidate-detector.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-spawn-emit.js",
+      "file": "hooks/tests/test-spawn-emit.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-deferred-wrap.js",
+      "file": "hooks/tests/test-stop-context-deferred-wrap.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-health.js",
+      "file": "hooks/tests/test-stop-context-health.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-session-log.js",
+      "file": "hooks/tests/test-stop-context-session-log.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-skill-candidate.js",
+      "file": "hooks/tests/test-stop-context-skill-candidate.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-stop-context-telemetry.js",
+      "file": "hooks/tests/test-stop-context-telemetry.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-artifact-migration.js",
+      "file": "hooks/tests/test-wrap-artifact-migration.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-context-format-golden.js",
+      "file": "hooks/tests/test-wrap-context-format-golden.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-daemon.js",
+      "file": "hooks/tests/test-wrap-daemon.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-marker-reclaim.js",
+      "file": "hooks/tests/test-wrap-marker-reclaim.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-md-partA-parity.js",
+      "file": "hooks/tests/test-wrap-md-partA-parity.js"
+    },
+    {
+      "type": "file",
+      "name": "hooks/tests/test-wrap-partF-skeptic-r1.js",
+      "file": "hooks/tests/test-wrap-partF-skeptic-r1.js"
+    },
+    {
+      "type": "file",
+      "name": ".pi/extensions/agentic-engineering/index.ts",
+      "file": ".pi/extensions/agentic-engineering/index.ts"
+    }
+  ],
+  "unusedDeps": [
+    {
+      "type": "devDependency",
+      "name": "eslint",
+      "file": "package.json",
+      "line": 3
+    }
+  ],
+  "unlistedDeps": [],
+  "summary": "Found 77 issues"
+}

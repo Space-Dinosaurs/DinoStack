@@ -60,6 +60,30 @@ del _sys, _ilm, _ilu, _lib_mod
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
+def _backfill_allowlist(project_root: str) -> None:
+    """Register an active project in the global activation allowlist.
+
+    Belt-and-suspenders for the resident->dormant install transition: keeps
+    existing projects active if the user later reinstalls the methodology
+    dormant. Imports bin/_activation.py via the resolved script dir (never the
+    symlink dir), and soft-fails so scaffolding-sync is never blocked by it.
+    """
+    try:
+        import importlib.util
+
+        act_path = SCRIPT_DIR / "_activation.py"
+        if not act_path.is_file():
+            return
+        spec = importlib.util.spec_from_file_location("_activation", act_path)
+        if spec is None or spec.loader is None:
+            return
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.add_to_allowlist(project_root)
+    except Exception:
+        return
+
+
 def _find_manifest() -> Path | None:
     """Return the first manifest path that exists, or None."""
     candidates = [
@@ -525,6 +549,14 @@ def cmd_apply(args: argparse.Namespace) -> int:
                     project_root,
                     f"[scaffolding-sync] Applied v{project_version} -> v{manifest_version} migration at {_now_iso()}.",
                 )
+
+        # resident->dormant safety net: a project reached here only because the
+        # methodology is active for it (preflight Step 6 gates on activation).
+        # Register it in the allowlist so that if the user later reinstalls the
+        # global methodology DORMANT, existing projects keep working without a
+        # per-project /ds activate. Auto-detect already covers `.agentic/` dirs;
+        # this is the belt for allowlist-only guards. Soft-fail, never blocks.
+        _backfill_allowlist(project_root)
 
     finally:
         _release_lock(lock_fd)

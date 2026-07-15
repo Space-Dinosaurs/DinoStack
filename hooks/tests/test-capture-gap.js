@@ -34,7 +34,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, execFileSync } = require('child_process');
 
 // ---------------------------------------------------------------------------
 // Load the module under test. detectCaptureGap and appendCaptureGapNoticeToContextMd
@@ -69,6 +69,7 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 // shimmed copy still loads the real lib (no behavior change, just resolution).
 const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
+const libActivationAbs = path.resolve(__dirname, '..', 'lib', 'activation.js');
 const shimmedSource = hookSource
   // Replace the final bare `run();` call so the hook doesn't try to read stdin.
   .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
@@ -85,6 +86,11 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
     `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
+  // Third re-anchor: the activation guard require added by Unit 10.
+  .replace(
+    /require\(['"]\.\/lib\/activation\.js['"]\)/,
+    `require(${JSON.stringify(libActivationAbs)})`
   )
   + `\n
 // Expose helpers for unit tests via a module-level export shim.
@@ -657,11 +663,11 @@ console.log('\nTest 14: standard-exit-path-call-site-arity (run() integration)')
   const payload = JSON.stringify({ cwd, session_id: sessionId, transcript: [] });
   let ran = true;
   try {
-    execSync(`node ${JSON.stringify(hookPath)}`, {
+    execFileSync(process.execPath, [hookPath], {
       input: payload, cwd, timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'],
     });
   } catch (e) {
-    // The hook calls process.exit(0); execSync only throws on non-zero exit.
+    // The hook calls process.exit(0); execFileSync only throws on non-zero exit.
     ran = false;
     console.log(`  SKIP: hook subprocess failed (${(e.message || '').split('\n')[0]})`);
   }

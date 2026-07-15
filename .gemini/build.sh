@@ -131,6 +131,10 @@ mkdir -p "$COMMANDS_DST"
 declare -a generated_tomls=()
 
 for src in "$CONTENT/commands/"*.md; do
+  # Skip the annotated body source - it's an input to scripts/build-commands.sh, not a generated body.
+  case "$(basename "$src")" in
+    implement-ticket-body.md) continue ;;
+  esac
   [ -f "$src" ] || continue
 
   base="$(basename "$src" .md)"

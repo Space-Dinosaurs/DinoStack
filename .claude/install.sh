@@ -12,14 +12,24 @@
 #
 # Public API:
 #   bash .claude/install.sh [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
-#                           [--identity=<handle>] [--no-identity] [--dry-run]
-#                           [--config-dir=<dir>]
+#                           [--tier=minimal|medium|full] [--identity=<handle>]
+#                           [--no-identity] [--dry-run] [--config-dir=<dir>]
+#                           [--non-interactive] [--with-tools=<csv>|--no-tools]
+#                           [--with-mcp=<csv>|--no-mcp] [--permissions=bypass|skip]
 #   --config-dir=<dir> (or AGENTIC_CONFIG_DIR env): redirect the per-harness
 #     config dir (agents/commands/skills/settings/CLAUDE.md/agentic-engineering.json)
 #     to <dir> for per-profile installs. Shared state (~/.agentic, ~/.local/bin,
 #     ~/.claude.json) always stays in the real $HOME. Default: ~/.claude.
 #   --dry-run: print symlink actions and repo_dir write intent without executing
 #              them. Hook wiring, build, and permission phases still execute.
+#   --non-interactive (or AE_NON_INTERACTIVE=1): every optional y/N prompt takes
+#     its documented default (no/skip) with no TTY read; explicit --with-*/
+#     --permissions flags still win. Used by install-tui.sh for prompt-free runs.
+#   --with-tools=<csv> subset of: gh,agent-browser,lc,jira,rclone (install those,
+#     skip the rest). --no-tools skips all. Default (interactive): prompt each.
+#   --with-mcp=<csv> subset of: chrome-devtools,mcp-atlassian. --no-mcp skips all.
+#   --permissions=bypass applies the recommended bypassPermissions allow/deny;
+#     skip leaves permissions untouched.
 #
 # Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink.
 #
@@ -47,6 +57,12 @@ export REPO_DIR
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
 
+# shellcheck source=scripts/lib/dormancy.sh
+[[ -f "$REPO_DIR/scripts/lib/dormancy.sh" ]] && . "$REPO_DIR/scripts/lib/dormancy.sh"
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
+AE_DORMANCY_ARGS=()
+
 # ---------------------------------------------------------------------------
 # Activation mode (shared across all adapters)
 #
@@ -63,9 +79,22 @@ export REPO_DIR
 
 AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
+AE_TIER_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
 AE_DRY_RUN=false
+# Non-interactive master switch + per-feature flags. Driven by install-tui.sh
+# so every answer is collected up front and the adapter runs prompt-free.
+# AE_NON_INTERACTIVE may also be injected via the environment; canonicalize any
+# truthy spelling (1/true/yes/...) to "true" via the shared ae_noninteractive
+# helper (identity.sh, sourced above) so every downstream == "true" gate and
+# the exported value seen by python heredocs agree on one truth.
+if ae_noninteractive; then AE_NON_INTERACTIVE=true; else AE_NON_INTERACTIVE=false; fi
+AE_WITH_MCP=""
+AE_NO_MCP=false
+AE_WITH_TOOLS=""
+AE_NO_TOOLS=false
+AE_PERMISSIONS=""
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -92,8 +121,41 @@ for arg in "$@"; do
     --config-dir=*)
       AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
       ;;
+    --tier=minimal|--tier=medium|--tier=full)
+      AE_TIER_FLAG="${arg#--tier=}"
+      ;;
+    --tier=*)
+      echo "  ! ignoring unknown --tier value: ${arg#--tier=} (expected minimal, medium, or full)"
+      ;;
+    --dormant|--resident)
+      AE_DORMANCY_ARGS+=("$arg")
+      ;;
+    --non-interactive)
+      AE_NON_INTERACTIVE=true
+      ;;
+    --with-mcp=*)
+      AE_WITH_MCP="${arg#--with-mcp=}"
+      ;;
+    --no-mcp)
+      AE_NO_MCP=true
+      ;;
+    --with-tools=*)
+      AE_WITH_TOOLS="${arg#--with-tools=}"
+      ;;
+    --no-tools)
+      AE_NO_TOOLS=true
+      ;;
+    --permissions=bypass|--permissions=skip)
+      AE_PERMISSIONS="${arg#--permissions=}"
+      ;;
+    --permissions=*)
+      echo "  ! ignoring unknown --permissions value: ${arg#--permissions=} (expected bypass or skip)"
+      ;;
   esac
 done
+# Export so sourced helpers (identity.sh: ae_confirm/_ae_setup_identity) and the
+# inline permissions/skill python heredocs honor the master switch.
+export AE_NON_INTERACTIVE
 
 # Harness config directory (redirectable for per-profile installs).
 # Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.claude.
@@ -168,9 +230,10 @@ PYEOF
 ae_write_config() {
   local mode="$1"
   local profile="$2"
-  python3 - "$AE_CONFIG_PATH" "$mode" "$profile" <<'PYEOF'
+  local tier="${3:-}"
+  python3 - "$AE_CONFIG_PATH" "$mode" "$profile" "$tier" <<'PYEOF'
 import json, sys, os, datetime
-path, mode, profile = sys.argv[1], sys.argv[2], sys.argv[3]
+path, mode, profile, tier = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 # Read existing config or start fresh
 if os.path.exists(path):
     try:
@@ -183,17 +246,25 @@ else:
 # Always overwrite these keys
 config["mode"] = mode
 config["profile"] = profile
+# Tier is the canonical knob for methodology scope. Profile is an independent
+# risk-sensitivity setting; it is not an alias for tier.
+if tier and tier in ("minimal", "medium", "full"):
+    config["tier"] = tier
 config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-# skill_auto_load: preserve existing; prompt only on fresh install (key absent)
+# skill_auto_load: preserve existing; prompt only on fresh install (key absent).
+# Under the master non-interactive switch, default off without touching the TTY.
 if "skill_auto_load" not in config:
-    try:
-        with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
-            tty.flush()
-            answer = (tty.readline() or "").strip().lower()
-        config["skill_auto_load"] = answer in ("y", "yes")
-    except OSError:
+    if os.environ.get("AE_NON_INTERACTIVE", "") not in ("", "0", "false", "no"):
         config["skill_auto_load"] = False
+    else:
+        try:
+            with open("/dev/tty", "r+") as tty:
+                tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+                tty.flush()
+                answer = (tty.readline() or "").strip().lower()
+            config["skill_auto_load"] = answer in ("y", "yes")
+        except OSError:
+            config["skill_auto_load"] = False
 # Write back
 # Symlink guard: never write through a symlink (open("w") would follow it and
 # truncate the real target). If the config path is a symlink, refuse.
@@ -213,7 +284,7 @@ if [[ -n "$AE_MODE_FLAG" ]]; then
   echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
   echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
-elif [[ -t 0 ]]; then
+elif [[ -t 0 ]] && [[ "$AE_NON_INTERACTIVE" != "true" ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
   echo "    [2] opt-in           - dormant until a project's AGENTS.md opts in"
@@ -233,23 +304,105 @@ else
 fi
 
 echo ""
-echo "Risk profile..."
-if [[ -n "$AE_PROFILE_FLAG" ]]; then
-  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
-  ae_write_config "$AE_CURRENT_MODE" "$AE_PROFILE_FLAG"
-  echo "  + profile set to '$AE_PROFILE_FLAG' via --profile flag"
+echo "Tier..."
+# Resolve tier: --tier flag wins; else existing tier; else map from profile; else minimal (default).
+AE_RESOLVED_TIER=""
+AE_EXISTING_TIER="$(ae_read_json_key "$AE_CONFIG_PATH" tier "")"
+if [[ -n "$AE_TIER_FLAG" ]]; then
+  AE_RESOLVED_TIER="$AE_TIER_FLAG"
+  echo "  + tier set to '$AE_RESOLVED_TIER' via --tier flag"
+elif [[ -n "$AE_EXISTING_TIER" ]]; then
+  AE_RESOLVED_TIER="$AE_EXISTING_TIER"
+  echo "  = tier already set to '$AE_RESOLVED_TIER' (keeping)"
+elif [[ -n "$AE_PROFILE_FLAG" ]]; then
+  case "$AE_PROFILE_FLAG" in
+    relaxed) AE_RESOLVED_TIER="minimal" ;;
+    default) AE_RESOLVED_TIER="medium" ;;
+    strict)  AE_RESOLVED_TIER="full" ;;
+  esac
+  echo "  + tier derived from --profile=$AE_PROFILE_FLAG -> $AE_RESOLVED_TIER"
 elif [[ -n "$AE_EXISTING_PROFILE" ]]; then
-  echo "  = profile already set to '$AE_EXISTING_PROFILE' (keeping)"
+  # Existing install has a profile but no tier field. Recommend FULL for the
+  # maximal expression; operator can opt into a smaller footprint explicitly.
+  echo "  ! existing profile='$AE_EXISTING_PROFILE' detected (no tier field set)"
+  echo "    Recommended: tier=full (maximal expression of the methodology)."
+  echo "    Use --tier=minimal or --tier=medium to opt into a smaller methodology."
+  if [[ -t 0 ]] && [[ "$AE_NON_INTERACTIVE" != "true" ]]; then
+    if ae_confirm "    Adopt recommended tier=full? [Y/n] "; then
+      AE_RESOLVED_TIER="full"
+      echo "    + tier=full (recommended)"
+    else
+      AE_RESOLVED_TIER="medium"
+      echo "    + tier=medium (smaller footprint)"
+    fi
+  else
+    AE_RESOLVED_TIER="full"
+    echo "    (non-interactive: tier=full recommended)"
+  fi
 else
-  AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
-  ae_write_config "$AE_CURRENT_MODE" "default"
-  echo "  = profile defaulted to 'default' (wrote $AE_CONFIG_PATH)"
-  echo "    Override with: bash .claude/install.sh --profile=relaxed|default|strict"
+  # No --tier flag, no existing tier, no --profile flag, no existing profile.
+  # First-time install: default to medium, with a suggestion toward full.
+  AE_RESOLVED_TIER="medium"
+  echo "  + first-time install: tier=medium (default; override with --tier=minimal|full)"
+fi
+echo "    Override later: bash .claude/install.sh --tier=minimal|medium|full"
+
+# Suggest tier promotion toward full when readiness signals are present and the
+# resolved tier is not already full. Signals: env file, qa.md, or a runnable dev
+# server script. This is advisory only; the user must explicitly rerun with
+# --tier=full (or use /agentic-config) to upgrade.
+if [[ "$AE_RESOLVED_TIER" != "full" ]]; then
+  _ae_upgrade_signals=()
+  [[ -f "$PWD/.env" || -f "$PWD/.env.local" || -f "$PWD/.env.example" ]] && _ae_upgrade_signals+=("env file")
+  [[ -f "$PWD/qa.md" || -f "$PWD/docs/qa.md" || -f "$PWD/QA.md" ]] && _ae_upgrade_signals+=("qa.md")
+  if [[ -f "$PWD/package.json" ]] && grep -q '"dev"\s*:' "$PWD/package.json" 2>/dev/null; then
+    _ae_upgrade_signals+=("dev server script")
+  elif [[ -f "$PWD/Makefile" || -f "$PWD/justfile" ]]; then
+    _ae_upgrade_signals+=("dev server recipe")
+  fi
+  if [[ ${#_ae_upgrade_signals[@]} -ge 1 ]]; then
+    echo "  -> This project looks ready for tier=full (recommended): detected ${_ae_upgrade_signals[*]}."
+    echo "     Rerun with --tier=full to unlock the complete methodology (QA gate, wrap-ticket, telemetry)."
+  fi
+  unset _ae_upgrade_signals
 fi
 
-AGENTS_SRC="$REPO_DIR/.claude/agents"
+# Backwards-compat: also write the profile field so older readers don't crash.
+# Profile is an independent risk-sensitivity setting; the mapping below only
+# ensures a valid profile value is present when the user did not pass --profile.
+case "$AE_RESOLVED_TIER" in
+  minimal) AE_LEGACY_PROFILE="relaxed" ;;
+  medium)  AE_LEGACY_PROFILE="default" ;;
+  full)    AE_LEGACY_PROFILE="strict" ;;
+  *)       AE_LEGACY_PROFILE="default"; AE_RESOLVED_TIER="medium" ;;
+esac
+AE_CURRENT_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode opt-out)"
+ae_write_config "$AE_CURRENT_MODE" "${AE_PROFILE_FLAG:-$AE_LEGACY_PROFILE}" "$AE_RESOLVED_TIER"
+
+# Tier-aware source paths. AE_RESOLVED_TIER is "minimal|medium|full".
+# Commands are shared across tiers (the tier resolution is inside each command's body).
+# Agents are tier-specific (smaller agent specs for minimal/medium).
+# Skill directory is tier-specific (built by .claude/build.sh into tier-suffixed dirs).
+# References are tier-specific (subset of full).
+case "$AE_RESOLVED_TIER" in
+  medium)
+    AGENTS_SRC="$REPO_DIR/.claude/agents-medium"
+    SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering-medium"
+    REFS_SRC="$REPO_DIR/content/references-medium"
+    ;;
+  full)
+    AGENTS_SRC="$REPO_DIR/.claude/agents"
+    SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
+    REFS_SRC="$REPO_DIR/content/references"
+    ;;
+  *)
+    # minimal (default)
+    AGENTS_SRC="$REPO_DIR/.claude/agents-minimal"
+    SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering-minimal"
+    REFS_SRC="$REPO_DIR/content/references-minimal"
+    ;;
+esac
 COMMANDS_SRC="$REPO_DIR/.claude/commands"
-SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
 
 AGENTS_DST="$AE_CONFIG_DIR/agents"
 COMMANDS_DST="$AE_CONFIG_DIR/commands"
@@ -355,6 +508,41 @@ symlink_files() {
 # ---------------------------------------------------------------------------
 # Symlink agents
 # ---------------------------------------------------------------------------
+
+# Tier change cleanup: remove AE-installed agent symlinks that don't belong in
+# the current tier. We consider a symlink "AE-installed" if its target lives in
+# any of the three tier source directories (content/agents*, .claude/agents*).
+# User-added custom agent files/symlinks pointing elsewhere are preserved.
+if [[ -d "$AGENTS_DST" ]]; then
+  for entry in "$AGENTS_DST"/*.md; do
+    [[ -e "$entry" ]] || continue
+    base="$(basename "$entry")"
+
+    if [[ -L "$entry" ]]; then
+      # Symlink: if target is in any AE tier source but NOT in current tier's
+      # source, delete it so switching tiers (e.g. medium -> minimal) does not
+      # leave stale symlinks behind.
+      current_target="$(readlink "$entry")"
+      in_ae_repo=false
+      case "$current_target" in
+        *"$REPO_DIR/content/agents/"*|*"$REPO_DIR/content/agents-medium/"*|*"$REPO_DIR/content/agents-minimal/"*)
+          in_ae_repo=true
+          ;;
+        *"$REPO_DIR/.claude/agents/"*|*"$REPO_DIR/.claude/agents-medium/"*|*"$REPO_DIR/.claude/agents-minimal/"*)
+          in_ae_repo=true
+          ;;
+      esac
+      if [[ ! -e "$AGENTS_SRC/$base" ]] && $in_ae_repo; then
+        if [[ "$AE_DRY_RUN" == "true" ]]; then
+          echo "  - $base (would remove stale tier-mismatch symlink)"
+        else
+          rm -f "$entry"
+          echo "  - $base (removed stale tier-mismatch symlink)"
+        fi
+      fi
+    fi
+  done
+fi
 
 echo "Linking agents..."
 symlink_files "$AGENTS_SRC" "$AGENTS_DST" "agents"
@@ -846,6 +1034,25 @@ fi
 
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
+# Resolve dormant/resident: flags > env > TTY prompt > resident default.
+if declare -f ae_resolve_dormancy >/dev/null 2>&1; then
+  AE_INSTALL_MODE="$(ae_resolve_dormancy "${AE_DORMANCY_ARGS[@]:-}")"
+else
+  AE_INSTALL_MODE="resident"
+fi
+echo "  + install mode: $AE_INSTALL_MODE"
+
+# Tier value is read from env by the python heredoc below.
+export AE_RESOLVED_TIER="${AE_RESOLVED_TIER:-minimal}"
+export AE_INSTALL_MODE
+# Rendered dormant stub body (empty when resident or renderer unavailable).
+if [[ "$AE_INSTALL_MODE" == "dormant" ]] && declare -f ae_stub_body >/dev/null 2>&1; then
+  AE_STUB_BODY="$(ae_stub_body "$AE_CONFIG_DIR/skills/agentic-engineering/METHODOLOGY.md")"
+else
+  AE_STUB_BODY=""
+fi
+export AE_STUB_BODY
+
 AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
 import os, re, sys
 
@@ -853,7 +1060,52 @@ target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
-managed_content = """\
+tier = os.environ.get("AE_RESOLVED_TIER", "minimal")
+install_mode = os.environ.get("AE_INSTALL_MODE", "resident")
+stub_body = os.environ.get("AE_STUB_BODY", "").strip()
+# Dormant: managed block is the stub only — NO @-imports, near-zero session cost.
+# The stub instructs conditional activation; tier content loads only when active.
+if install_mode == "dormant" and stub_body:
+    managed_content = (
+        "<!-- BEGIN managed-by-agentic-engineering -->\n"
+        + stub_body.rstrip("\n")
+        + "\n<!-- END managed-by-agentic-engineering -->"
+    )
+# Medium: imports methodology only (no rules). Full: imports both (legacy behavior).
+elif tier == "minimal":
+    managed_content = """\\
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+
+Tier: minimal (default). For multi-unit work, run `/agentic-config` -> tier=medium.
+<!-- END managed-by-agentic-engineering -->"""
+elif tier == "medium":
+    managed_content = """\\
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+
+@skills/agentic-engineering/METHODOLOGY.md
+Tier: medium. For full kernel (QA gate, wrap-ticket, learning-extractor), run `/agentic-config` -> tier=full.
+<!-- END managed-by-agentic-engineering -->"""
+else:
+    # full (legacy behavior)
+    managed_content = """\\
 <!-- BEGIN managed-by-agentic-engineering -->
 ## Skill Loading
 
@@ -1067,7 +1319,17 @@ for tool_entry in "${CLI_TOOLS[@]}"; do
   if command -v "$cmd" &>/dev/null; then
     echo "  = $cmd already installed"
   else
-    if ae_confirm "  Install $cmd ($desc)? [y/N] "; then
+    _ae_do_tool=false
+    if [[ "$AE_NO_TOOLS" == "true" ]]; then
+      _ae_do_tool=false
+    elif [[ -n "$AE_WITH_TOOLS" ]]; then
+      case ",$AE_WITH_TOOLS," in *",$cmd,"*) _ae_do_tool=true ;; esac
+    elif [[ "$AE_NON_INTERACTIVE" == "true" ]]; then
+      _ae_do_tool=false
+    elif ae_confirm "  Install $cmd ($desc)? [y/N] "; then
+      _ae_do_tool=true
+    fi
+    if [[ "$_ae_do_tool" == "true" ]]; then
       eval "$install_cmd" 2>&1 || echo "  ! $cmd install failed (non-blocking)"
     else
       echo "  - skipped $cmd"
@@ -1097,7 +1359,15 @@ sys.exit(0 if 'chrome-devtools' in d.get('mcpServers', {}) else 1)
 " 2>/dev/null; then
   echo "  = chrome-devtools MCP already configured"
 else
-  if ae_confirm "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "; then
+  _ae_want_chrome=false
+  if [[ ",$AE_WITH_MCP," == *",chrome-devtools,"* ]]; then
+    _ae_want_chrome=true
+  elif [[ "$AE_NO_MCP" != "true" && "$AE_NON_INTERACTIVE" != "true" ]]; then
+    if ae_confirm "  Configure chrome-devtools MCP — inspect, screenshot, and interact with Chrome tabs for debugging and QA? [y/N] "; then
+      _ae_want_chrome=true
+    fi
+  fi
+  if [[ "$_ae_want_chrome" == "true" ]]; then
     python3 - <<'PYEOF'
 import json, os, sys
 
@@ -1141,7 +1411,15 @@ sys.exit(0 if 'mcp-atlassian' in d.get('mcpServers', {}) else 1)
 " 2>/dev/null; then
   echo "  = mcp-atlassian MCP already configured"
 else
-  if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
+  _ae_want_atlassian=false
+  if [[ ",$AE_WITH_MCP," == *",mcp-atlassian,"* ]]; then
+    _ae_want_atlassian=true
+  elif [[ "$AE_NO_MCP" != "true" && "$AE_NON_INTERACTIVE" != "true" ]]; then
+    if ae_confirm "  Configure mcp-atlassian MCP — interact with Jira and Confluence from Claude Code? [y/N] "; then
+      _ae_want_atlassian=true
+    fi
+  fi
+  if [[ "$_ae_want_atlassian" == "true" ]]; then
     python3 - <<'PYEOF'
 import json, os, sys
 
@@ -1185,7 +1463,7 @@ echo "  Note: Enable the 'context7' plugin in Claude Code settings — agents us
 
 echo ""
 
-AE_SETTINGS_PATH="$SETTINGS" AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
+AE_SETTINGS_PATH="$SETTINGS" AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_PERMISSIONS="$AE_PERMISSIONS" python3 - <<'PYEOF'
 import json, os, sys
 
 # Config-dir label for permission scopes: use ~ for the default home dir, else
@@ -1267,10 +1545,17 @@ if already_bypass:
     else:
         print("  = Permissions already configured (bypassPermissions mode)")
 else:
-    print("  Recommended: bypassPermissions mode with deny rules for destructive commands.")
-    print("  Agents work best with uninterrupted tool access. The deny list blocks dangerous")
-    print("  operations (force push, rm -rf, hard reset) as a safety net.")
-    resp = tty_input("  Configure recommended permission settings? [y/N] ").strip().lower()
+    _perm = os.environ.get("AE_PERMISSIONS", "")
+    _nonint = os.environ.get("AE_NON_INTERACTIVE", "") not in ("", "0", "false", "no")
+    if _perm == "bypass":
+        resp = "y"
+    elif _perm == "skip" or _nonint:
+        resp = "n"
+    else:
+        print("  Recommended: bypassPermissions mode with deny rules for destructive commands.")
+        print("  Agents work best with uninterrupted tool access. The deny list blocks dangerous")
+        print("  operations (force push, rm -rf, hard reset) as a safety net.")
+        resp = tty_input("  Configure recommended permission settings? [y/N] ").strip().lower()
     if resp == "y":
         existing_allow = set(perms.get("allow", []))
         existing_deny = set(perms.get("deny", []))

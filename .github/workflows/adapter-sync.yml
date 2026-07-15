@@ -11,6 +11,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: Regenerate command bodies from annotated source
+        run: bash scripts/build-commands.sh
       - name: Rebuild all adapters
         run: |
           bash .claude/build.sh
@@ -32,3 +34,7 @@ jobs:
           fi
       - name: Verify Codex hook commands resolve (DS-57 regression guard)
         run: bash bin/tests/test_codex_hooks_resolve.sh
+      - name: Dormant stub budget (<=2KB per adapter)
+        run: bash scripts/check-stub-budget.sh
+      - name: Activation matrix (dormant/resident install + uninstall)
+        run: bash bin/tests/test_activation.sh

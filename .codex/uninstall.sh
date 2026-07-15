@@ -22,6 +22,9 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
+
 SKILL_SRC="$REPO_DIR/.codex/skill"
 SKILL_DST="$HOME/.agents/skills/agentic-engineering"
 OLD_SKILL_DST="$HOME/.codex/skills/agentic-engineering"
@@ -106,6 +109,16 @@ if [[ -L "$AGENTS_DST" ]]; then
     fi
   else
     echo "  = ~/.codex/AGENTS.md (points to $current_target - not ours, skipping)"
+  fi
+elif declare -f ae_is_stub_file >/dev/null 2>&1 && ae_is_stub_file "$AGENTS_DST"; then
+  # Dormant install wrote a stub file here (not a symlink). Remove it and restore
+  # a backup if one exists; a user's own real file is left untouched.
+  rm "$AGENTS_DST"
+  echo "  - ~/.codex/AGENTS.md dormant stub removed"
+  latest_backup="$(ls -t "${AGENTS_DST}.backup-"* 2>/dev/null | head -1 || true)"
+  if [[ -n "$latest_backup" ]]; then
+    mv "$latest_backup" "$AGENTS_DST"
+    echo "  + Restored backup: $latest_backup -> ~/.codex/AGENTS.md"
   fi
 elif [[ -e "$AGENTS_DST" ]]; then
   echo "  = ~/.codex/AGENTS.md (real file - not removing)"

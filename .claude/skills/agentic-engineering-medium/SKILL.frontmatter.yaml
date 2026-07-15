@@ -1,0 +1,10 @@
+---
+name: "agentic-engineering-medium"
+description: >
+  Medium-tier agentic engineering. Apply when the user mentions any software development work
+  involving multi-file changes, refactors, team coordination, shared utilities, or any task
+  that involves reading, writing, or reasoning about code and systems, and the user has opted
+  into medium tier (via tier=medium in ~/.claude/agentic-engineering.json or --tier=medium on
+  /implement-ticket). Skips QA gate, wrap-ticket, learning-extractor; uses inline Brief in
+  engineer prompt instead of separate artifact.
+---

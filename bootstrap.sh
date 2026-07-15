@@ -176,19 +176,41 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# Delegate to .claude/install.sh
+# Offer the interactive TUI installer (multi-harness). It self-gates on a
+# readable /dev/tty + TTY stdout + absence of --no-tui, and exits 75 to signal
+# "conditions not met - fall through". Any other exit means it owned the
+# install, so we skip the single-adapter delegation below.
 # ---------------------------------------------------------------------------
-INSTALL_SH="$AE_DEST_DIR/.claude/install.sh"
-if [ ! -f "$INSTALL_SH" ]; then
-  echo "bootstrap.sh: install script not found at '$INSTALL_SH'" >&2
-  exit 3
+INSTALL_TUI="$AE_DEST_DIR/scripts/install-tui.sh"
+if [ -f "$INSTALL_TUI" ]; then
+  echo ""
+  set +e
+  bash "$INSTALL_TUI" "$@"
+  TUI_RC=$?
+  set -e
+  if [ "$TUI_RC" -eq 0 ]; then
+    TUI_HANDLED=1
+  elif [ "$TUI_RC" -ne 75 ]; then
+    echo "bootstrap.sh: TUI installer exited with a non-zero status" >&2
+    exit 3
+  fi
 fi
 
-echo ""
-if ! bash "$INSTALL_SH" "$@"; then
-  echo "bootstrap.sh: install.sh exited with a non-zero status" >&2
-  echo "Check the output above for details and re-run after fixing the issue." >&2
-  exit 3
+# Delegate to .claude/install.sh (unless the TUI already handled the install).
+# ---------------------------------------------------------------------------
+if [ "${TUI_HANDLED:-0}" -ne 1 ]; then
+  INSTALL_SH="$AE_DEST_DIR/.claude/install.sh"
+  if [ ! -f "$INSTALL_SH" ]; then
+    echo "bootstrap.sh: install script not found at '$INSTALL_SH'" >&2
+    exit 3
+  fi
+
+  echo ""
+  if ! bash "$INSTALL_SH" "$@"; then
+    echo "bootstrap.sh: install.sh exited with a non-zero status" >&2
+    echo "Check the output above for details and re-run after fixing the issue." >&2
+    exit 3
+  fi
 fi
 
 # ---------------------------------------------------------------------------

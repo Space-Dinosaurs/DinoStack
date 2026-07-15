@@ -45,6 +45,7 @@ const hookPath = path.resolve(__dirname, '..', 'post-tool-use-capture-nudge.js')
 const hookSource = fs.readFileSync(hookPath, 'utf8');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
 const libSkillDetectorAbs = path.resolve(__dirname, '..', 'lib', 'skill-candidate-detector.js');
+const libActivationAbs = path.resolve(__dirname, '..', 'lib', 'activation.js');
 
 let shimmedSource = hookSource
   .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
@@ -55,6 +56,10 @@ let shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/skill-candidate-detector\.js['"]\)/,
     `require(${JSON.stringify(libSkillDetectorAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/activation\.js['"]\)/,
+    `require(${JSON.stringify(libActivationAbs)})`
   );
 
 // Fail loud if any relative ./lib/ require survived re-anchoring.

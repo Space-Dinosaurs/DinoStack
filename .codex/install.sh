@@ -20,6 +20,10 @@ export REPO_DIR
 [[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
+# shellcheck source=scripts/lib/dormancy.sh
+[[ -f "$REPO_DIR/scripts/lib/dormancy.sh" ]] && . "$REPO_DIR/scripts/lib/dormancy.sh"
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
 
 # ---------------------------------------------------------------------------
 # Activation mode (shared across all adapters - see .claude/install.sh)
@@ -30,6 +34,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DORMANCY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out) AE_MODE_FLAG="${arg#--mode=}" ;;
@@ -45,8 +50,18 @@ for arg in "$@"; do
     --config-dir=*)
       AE_CONFIG_DIR_FLAG="${arg#--config-dir=}"
       ;;
+    --dormant|--resident)
+      AE_DORMANCY_ARGS+=("$arg")
+      ;;
   esac
 done
+
+# Resolve dormant/resident (shared helper; --resident wins, CI default resident).
+if declare -f ae_resolve_dormancy >/dev/null 2>&1; then
+  AE_INSTALL_MODE="$(ae_resolve_dormancy "${AE_DORMANCY_ARGS[@]:-}")"
+else
+  AE_INSTALL_MODE="resident"
+fi
 
 # Codex harness config directory (redirectable for per-profile installs).
 # Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.codex.
@@ -154,14 +169,17 @@ config["profile"] = profile
 config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 # skill_auto_load: preserve existing; prompt only on fresh install (key absent)
 if "skill_auto_load" not in config:
-    try:
-        with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
-            tty.flush()
-            answer = (tty.readline() or "").strip().lower()
-        config["skill_auto_load"] = answer in ("y", "yes")
-    except OSError:
+    if os.environ.get("AE_NON_INTERACTIVE", "") not in ("", "0", "false", "no"):
         config["skill_auto_load"] = False
+    else:
+        try:
+            with open("/dev/tty", "r+") as tty:
+                tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+                tty.flush()
+                answer = (tty.readline() or "").strip().lower()
+            config["skill_auto_load"] = answer in ("y", "yes")
+        except OSError:
+            config["skill_auto_load"] = False
 # Write back
 # Symlink guard (see ae_write_mode).
 if os.path.islink(path):
@@ -285,7 +303,17 @@ echo "Linking global AGENTS.md..."
 }
 mkdir -p "$CODEX_CONFIG_DIR"
 
-if [[ -L "$AGENTS_DST" ]]; then
+if [[ "$AE_INSTALL_MODE" == "dormant" ]] && declare -f ae_install_stub_file >/dev/null 2>&1; then
+  # Dormant: replace the full-file symlink with a rendered stub. Codex loads only
+  # the near-zero stub; it instructs conditional read of the full methodology
+  # (installed at $SKILL_DST/METHODOLOGY.md) when the project is active.
+  if [[ -e "$AGENTS_DST" && ! -L "$AGENTS_DST" ]]; then
+    BACKUP="$AGENTS_DST.backup-$(date +%Y%m%d%H%M%S)"
+    mv "$AGENTS_DST" "$BACKUP"
+    echo "  (backed up existing ~/.codex/AGENTS.md to $BACKUP)"
+  fi
+  ae_install_stub_file "$AGENTS_DST" "$SKILL_DST/METHODOLOGY.md"
+elif [[ -L "$AGENTS_DST" ]]; then
   current_target="$(readlink "$AGENTS_DST")"
   if [[ "$current_target" == "$AGENTS_SRC" ]]; then
     echo "  = ~/.codex/AGENTS.md (already linked)"

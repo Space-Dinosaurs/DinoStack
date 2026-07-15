@@ -13,7 +13,10 @@
  *   6. exits-zero:                hook always exits 0
  *   7. fail-open-malformed-stdin: non-JSON stdin -> exit 0, no events.jsonl written
  *   8. fail-open-wrong-tool:      tool_name "Bash" -> exit 0, no events.jsonl written
- *   9. creates-agentic-dir:       .agentic/ does not exist -> mkdir + events.jsonl created
+ *   9. dormant-no-emit:           no .agentic/ marker (dormant project) -> hook
+ *                                  no-ops: does NOT create .agentic/, no events
+ *                                  (activation guard; a never-opted-in project
+ *                                  must not get telemetry infra on first spawn)
  *  10. no-cwd-exits-cleanly:      payload missing cwd -> exit 0, no events.jsonl
  *  11. session-uuid-in-data:      session_id from payload -> data.session_uuid set
  *
@@ -211,18 +214,23 @@ console.log('\nTest 8: fail-open-wrong-tool');
 }
 
 // ---------------------------------------------------------------------------
-// Test 9: creates-agentic-dir
+// Test 9: dormant-no-emit
 // ---------------------------------------------------------------------------
-console.log('\nTest 9: creates-agentic-dir');
+// A project with no .agentic/ marker is DORMANT (activation guard). The hook
+// must no-op: it must NOT create .agentic/ and must NOT emit any event. This
+// prevents a never-opted-in project from acquiring telemetry infra on its
+// first spawn. Active projects are covered by the emit tests above, which each
+// pre-create .agentic/ (mkdirSync) before invoking the hook.
+console.log('\nTest 9: dormant-no-emit');
 {
   const cwd = makeTmpProject();
-  // Deliberately do NOT create .agentic/ - hook should mkdir it.
+  // Deliberately do NOT create .agentic/ - the project is dormant.
   assert(!fs.existsSync(path.join(cwd, '.agentic')), '.agentic/ does not exist before hook');
   const { status } = runHook(taskPayload(cwd, 'sess-009'), cwd);
   assert(status === 0, 'hook exits 0');
-  assert(fs.existsSync(path.join(cwd, '.agentic')), '.agentic/ created by hook');
+  assert(!fs.existsSync(path.join(cwd, '.agentic')), '.agentic/ NOT created (dormant)');
   const events = readEvents(cwd);
-  assert(events.length === 1, 'event appended after mkdir');
+  assert(events.length === 0, 'no event emitted in dormant project');
   cleanup(cwd);
 }
 

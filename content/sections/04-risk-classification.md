@@ -1,3 +1,7 @@
+<!-- tier:begin medium -->
+> **Medium-tier note:** This section is loaded when `tier=medium`. Medium spawns architect + planner + inline 5-line Brief (in the engineer spawn prompt, NOT a separate `docs/planning/<slug>.md` artifact) and uses Skeptic. Medium does NOT spawn `qa-engineer`, `wrap-ticket`, `learning-extractor`, or `security-auditor`. No capability preflight block; warnings only. No `.agentic/events.jsonl` telemetry by default. For the full kernel with QA gate + wrap-ticket + learning-extractor + telemetry + meta-Skeptic, use `tier=full` (`/implement-ticket --tier=full`, or set `agentic_tier: full` in `.agentic/config.json`).
+<!-- tier:end -->
+<!-- tier:begin full medium -->
 ## Risk Classification
 
 Perform a brief risk assessment before starting any task. Any single Elevated signal triggers Worker + fresh independent Skeptic review. Low risk permits direct action with a brief inline self-check. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
@@ -115,3 +119,24 @@ Declare tier at spawn time; Tier 2 is the default for implementation roles, Tier
 **Spawn presets (per-spawn capability bundles):** See `content/references/spawn-presets.md` for the full protocol - bundle format, library locations (`~/.agentic/presets.yml` global; `.agentic/presets.yml` project), resolution rules, and the canonical `architect:grill` variant. Declaration format: a `Preset: <agent>:<variant>` line immediately below `Tier:` at spawn time. Example library: `content/references/spawn-presets-example.yml`.
 
 For default tiers by agent role see the **Role-default tier table** above; for upgrade cases see the **Mandatory Tier-3 review escalation** rule above.
+<!-- tier:end -->
+<!-- tier:begin minimal -->
+# Risk Classification (minimal)
+
+Classify before every spawn. Defaults: when in doubt, Elevated.
+
+| Class | When | Action |
+|---|---|---|
+| Trivial | 1 file (or +colocated test), no behavior/control-flow/API surface change, no shared tokens/config/CI/auth, reversible one-liner | Direct edit (still delegated to worktree-isolated engineer) |
+| Low | 1 file local behavioral edit, no cross-component data flow, no security surface, no shared utility, no exported types | Direct edit + inline self-check |
+| Elevated | Anything else: multi-file, security/auth/crypto/payments, architecture decision, new file exporting public symbol, shared utility, config/CI/env | Worker + Skeptic |
+
+Profile field `profile=relaxed` makes the single-file behavioral edit Low instead of Elevated. Default tier = minimal does not apply this demotion (stays default).
+
+Risk class determines:
+- Trivial -> engineer with no Skeptic, no brief, no worktree brief file.
+- Low -> engineer direct, conductor self-checks diff after return.
+- Elevated -> engineer + Skeptic + worktree isolation. Skeptic reads diff in full.
+
+No promotion-gate (Brief/Plan artifacts) in minimal. If Brief/Plan needed, escalate to `--tier=medium`.
+<!-- tier:end -->

@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""
+Purpose: CLI for the /ds command - activate, deactivate, or inspect
+         agentic-engineering activation state for the current project. Thin
+         argument parser over bin/_activation.py, which owns the marker/allowlist
+         writes and the resolver the hooks/lib/activation.* guards read.
+
+Public API: agentic-ds <subcommand> [flags]
+  activate [--tier=minimal|medium|full] [--session]
+      Write <cwd>/.agentic/active (or active.session with --session), clearing
+      any dormant tombstone and adding the project to ~/.agentic/activation.list.
+  deactivate [--forget]
+      Write the <cwd>/.agentic/dormant tombstone and remove active markers.
+      Data under .agentic/ is left intact. --forget also drops the project from
+      the allowlist.
+  status
+      Print resolved active/dormant state, the layer that decided it, the tier
+      (when an active marker records one), and resident .agentic/ bytes.
+
+  Default cwd is the process working directory; --cwd overrides (used by tests).
+
+Upstream deps: bin/_activation.py (loaded via the .resolve() sibling shim so a
+symlinked bare invocation still finds it - see MEMORY.md).
+
+Exit codes: 0 on success (including `status`). 2 on usage error.
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.machinery as _ilm
+import importlib.util as _ilu
+import os
+import sys as _sys
+from pathlib import Path
+
+# Load bin/_activation.py via the resolved sibling path (symlink-safe).
+_ACT_PATH = Path(__file__).resolve().parent / "_activation.py"
+_loader = _ilm.SourceFileLoader("_activation", str(_ACT_PATH))
+_spec = _ilu.spec_from_loader("_activation", _loader)
+_activation = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+_loader.exec_module(_activation)
+
+
+def _cmd_activate(args) -> int:
+    marker = _activation.activate(
+        args.cwd, tier=args.tier, by="ds", session=args.session,
+        session_id=os.environ.get("CLAUDE_SESSION_ID"),
+    )
+    scope = "session" if args.session else "persistent"
+    print(f"activated ({scope}, tier={args.tier}): {marker}")
+    return 0
+
+
+def _cmd_deactivate(args) -> int:
+    tombstone = _activation.deactivate(args.cwd, remove_from_allowlist_flag=args.forget)
+    print(f"deactivated (tombstone written): {tombstone}")
+    if args.forget:
+        print("removed from ~/.agentic/activation.list")
+    else:
+        print("note: still in the allowlist; pass --forget to remove it")
+    return 0
+
+
+def _cmd_status(args) -> int:
+    state = _activation.resolve_state(args.cwd)
+    active = "active" if state["active"] else "dormant"
+    print(f"agentic-engineering: {active}")
+    print(f"  project: {os.path.abspath(args.cwd)}")
+    print(f"  reason: {state['reason']}")
+    if state.get("tier"):
+        print(f"  tier: {state['tier']}")
+    rb = _activation.resident_bytes(args.cwd)
+    print(f"  resident .agentic/ bytes: {rb}")
+    return 0
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(prog="agentic-ds", description="/ds activation control")
+    parser.add_argument("--cwd", default=os.getcwd(), help="project dir (default: cwd)")
+    sub = parser.add_subparsers(dest="cmd", required=True)
+
+    p_act = sub.add_parser("activate", help="activate methodology for this project")
+    p_act.add_argument("--tier", default="minimal", choices=["minimal", "medium", "full"])
+    p_act.add_argument("--session", action="store_true", help="active for this session only")
+    p_act.set_defaults(func=_cmd_activate)
+
+    p_deact = sub.add_parser("deactivate", help="write dormant tombstone")
+    p_deact.add_argument("--forget", action="store_true", help="also drop from allowlist")
+    p_deact.set_defaults(func=_cmd_deactivate)
+
+    p_status = sub.add_parser("status", help="show active/dormant state")
+    p_status.set_defaults(func=_cmd_status)
+
+    args = parser.parse_args(argv)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    _sys.exit(main())

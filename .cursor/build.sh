@@ -41,6 +41,21 @@ methodology_dst="$RULES_DST/agent-methodology.mdc"
 PREAMBLE_SRC="$REPO_DIR/.cursor/cursor-compat-preamble.md"
 { echo "---"; cat "$methodology_sidecar"; echo "---"; echo; cat "$PREAMBLE_SRC"; echo; echo; bash "$REPO_DIR/scripts/build-methodology.sh"; } > "$methodology_dst"
 
+# Dormant stub (00-dinostack-stub.mdc): the ONLY always-applied Cursor rule.
+# Heavy rules above stay alwaysApply:false, so at rest Cursor loads only this
+# ~1KB stub, which tells the agent how to activate the methodology per-project.
+# shellcheck source=scripts/lib/stub.sh
+. "$REPO_DIR/scripts/lib/stub.sh"
+stub_dst="$RULES_DST/00-dinostack-stub.mdc"
+{
+  echo "---"
+  echo 'description: "agentic-engineering (dormant) — activate per-project with /ds"'
+  echo "alwaysApply: true"
+  echo "---"
+  echo
+  ae_stub_body "the agent-methodology.mdc rule in this directory"
+} > "$stub_dst"
+
 # Rules: prepend YAML frontmatter from sidecar files to produce .mdc.
 # Covers code-standards, conventions, module-manifest (not agent-methodology).
 for src in "$CONTENT/rules/"*.md; do
@@ -73,6 +88,10 @@ done
 
 # Commands: hardlink from content/ (no prerequisite transform for Cursor)
 for src in "$CONTENT/commands/"*.md; do
+  # Skip the annotated body source - it's an input to scripts/build-commands.sh, not a generated body.
+  case "$(basename "$src")" in
+    implement-ticket-body.md) continue ;;
+  esac
   hardlink_from_content "$src" "$COMMANDS_DST/$(basename "$src")"
 done
 

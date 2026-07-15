@@ -24,6 +24,10 @@ Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
                          --project-config) IFF the role's harness (or
                          default_harness) matches the dispatch harness;
                          otherwise the worker uses its own session default.
+                         A role may declare a `models:` list to rotate
+                         round-robin across several models; the cursor is
+                         durable at ~/.agentic/rotation/.
+
             status     <run-id> [--workdir <dir>]  - running|done|failed
             collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
             configure  [--non-interactive] [--assign role=harness:model ...]
@@ -74,11 +78,11 @@ import importlib.util as _ilu
 import json
 import os
 import shutil
-import signal
 import stat
 import subprocess
 import sys
 import threading
+import time
 from pathlib import Path
 
 try:
@@ -102,6 +106,12 @@ _rs_loader.exec_module(_rs_mod)
 normalize_role_spec = _rs_mod.normalize_role_spec
 KNOWN_HARNESSES: frozenset[str] = _rs_mod.KNOWN_HARNESSES
 KNOWN_ROLES: frozenset[str] = _rs_mod.KNOWN_ROLES
+
+_sup_path = Path(__file__).resolve().parent / "_supervise.py"
+_sup_loader = _im.SourceFileLoader("_supervise", str(_sup_path))
+_sup_spec = _ilu.spec_from_loader("_supervise", _sup_loader)
+_sup_mod = _ilu.module_from_spec(_sup_spec)  # type: ignore[arg-type]
+_sup_loader.exec_module(_sup_mod)
 
 # ---------------------------------------------------------------------------
 # Harness binary-name map (Unit 2 - the ONLY hardcoded per-harness fact here;
@@ -153,6 +163,10 @@ HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG: dict[str, str | None] = {
 }
 
 GLOBAL_TEAM_YML = Path(os.path.expanduser("~/.agentic/team.yml"))
+# Durable per-user rotation-cursor dir for round-robin roles (D-2). MUST NOT
+# live under the throwaway per-dispatch --workdir, or the cursor never survives
+# between real dispatches and rotation never advances.
+ROTATION_DIR = Path(os.path.expanduser("~/.agentic/rotation"))
 PROJECT_TEAM_YML = Path(".agentic/team.yml")
 
 # ---------------------------------------------------------------------------
@@ -278,6 +292,33 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
                 f"agentic-team: unknown role {role!r} in {source} "
                 f"(known: {', '.join(sorted(KNOWN_ROLES))})"
             )
+        # Validate the model declaration that will actually be used.
+        # _role_models_list prefers 'models' over 'model', so when both are
+        # present only 'models' is authoritative; an unused-invalid 'model'
+        # field does not block dispatch.
+        if isinstance(spec, dict):
+            if "models" in spec:
+                ml = spec.get("models")
+                if not isinstance(ml, (list, tuple)) or not ml or not all(
+                    isinstance(m, str) and m for m in ml
+                ):
+                    errors.append(
+                        f"agentic-team: role {role!r} 'models' in {source} must "
+                        "be a non-empty list of model-id strings"
+                    )
+            elif "model" in spec:
+                mv = spec.get("model")
+                if isinstance(mv, (list, tuple)):
+                    if not mv or not all(isinstance(m, str) and m for m in mv):
+                        errors.append(
+                            f"agentic-team: role {role!r} 'model' in {source} must "
+                            "be a non-empty list of model-id strings"
+                        )
+                elif not isinstance(mv, str) or not mv:
+                    errors.append(
+                        f"agentic-team: role {role!r} 'model' in {source} must "
+                        "be a non-empty model-id string"
+                    )
         # Normalize to extract harness
         if isinstance(spec, dict):
             harness = spec.get("harness")
@@ -288,6 +329,50 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
             errors.append(
                 f"agentic-team: unknown harness {harness!r} for role {role!r} in {source} "
                 f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
+            )
+
+    # Validate dispatch block types so malformed values are caught at config
+    # validation time rather than crashing dispatch with a bare ValueError.
+    dispatch = config.get("dispatch")
+    if isinstance(dispatch, dict):
+        _ts = dispatch.get("timeout_seconds")
+        if _ts is not None:
+            try:
+                float(_ts)
+            except (TypeError, ValueError):
+                errors.append(
+                    f"agentic-team: dispatch.timeout_seconds in {source} must be numeric"
+                )
+        _ss = dispatch.get("stall_seconds")
+        if _ss is not None:
+            try:
+                float(_ss)
+            except (TypeError, ValueError):
+                errors.append(
+                    f"agentic-team: dispatch.stall_seconds in {source} must be numeric"
+                )
+        _rt = dispatch.get("retries")
+        if _rt is not None:
+            if isinstance(_rt, bool) or isinstance(_rt, float) or not isinstance(_rt, (int, str)):
+                errors.append(
+                    f"agentic-team: dispatch.retries in {source} must be an integer"
+                )
+            elif isinstance(_rt, str):
+                try:
+                    int(_rt)
+                except ValueError:
+                    errors.append(
+                        f"agentic-team: dispatch.retries in {source} must be an integer"
+                    )
+        _fo = dispatch.get("failover")
+        if _fo is not None and not isinstance(_fo, bool):
+            errors.append(
+                f"agentic-team: dispatch.failover in {source} must be boolean"
+            )
+        _of = dispatch.get("output_format")
+        if _of is not None and not isinstance(_of, str):
+            errors.append(
+                f"agentic-team: dispatch.output_format in {source} must be a string"
             )
 
     return errors
@@ -316,24 +401,104 @@ def _role_entry(spec: object) -> dict:
     return {}
 
 
+def _role_models_list(spec: object) -> list[str]:
+    """Return the ordered list of model handles declared for a role.
+
+    Supports three team.yml forms:
+      model: kimi/kimi-k2.7            -> ["kimi/kimi-k2.7"]
+      models: [kimi/..., glm/...]      -> ["kimi/...", "glm/..."]
+      model: [kimi/..., glm/...]       -> ["kimi/...", "glm/..."]  (list under model)
+    Non-string / empty entries are dropped. Returns [] when none declared.
+    """
+    if not isinstance(spec, dict):
+        return []
+    raw = spec.get("models")
+    if raw is None:
+        raw = spec.get("model")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    if isinstance(raw, (list, tuple)):
+        return [m for m in raw if isinstance(m, str) and m]
+    return []
+
+
+def _rotation_cursor_next(role: str, n: int, rotation_dir: Path | None = None) -> int:
+    """Return the next round-robin index for *role* and advance the cursor.
+
+    The cursor is persisted at ~/.agentic/rotation/<role> (a DURABLE per-user
+    location, not the throwaway per-dispatch workdir) as a single integer, so
+    successive real dispatches of the same role rotate deterministically:
+    index i then (i+1) % n.
+
+    The whole read-modify-write is done under an flock on a per-role lock file
+    so concurrent dispatches of the same role (parallel-by-default fan-out)
+    cannot race and duplicate/skip indices. Any I/O or parse error falls back
+    to index 0 (fail-safe: worst case a role restarts its rotation).
+
+    ``rotation_dir`` defaults to the module-level ``ROTATION_DIR`` at call time
+    (not at function-definition time) so tests can monkeypatch it safely.
+    """
+    if n <= 1:
+        return 0
+    rotation_dir = ROTATION_DIR if rotation_dir is None else rotation_dir
+    try:
+        rotation_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return 0
+    # Sanitize role before any filesystem path use. Same pattern as
+    # _make_run_id(): replace path metacharacters so a hostile role
+    # (e.g. "../../outside.txt" via CLI --role) cannot escape the
+    # rotation dir. Cli is not choices-restricted today.
+    safe_role = role.replace("/", "-").replace(os.sep, "-").replace(" ", "-")
+    cursor_file = rotation_dir / safe_role
+    lock_file = rotation_dir / f"{safe_role}.lock"
+    try:
+        import fcntl
+        with open(lock_file, "w") as lf:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+            try:
+                idx = int(cursor_file.read_text(encoding="utf-8").strip()) % n
+            except (OSError, ValueError):
+                idx = 0
+            try:
+                cursor_file.write_text(str((idx + 1) % n), encoding="utf-8")
+            except OSError:
+                pass
+            return idx
+    except (OSError, ImportError):
+        # No flock available (unlikely on POSIX) -> best-effort unlocked path.
+        try:
+            idx = int(cursor_file.read_text(encoding="utf-8").strip()) % n
+        except (OSError, ValueError):
+            idx = 0
+        try:
+            cursor_file.write_text(str((idx + 1) % n), encoding="utf-8")
+        except OSError:
+            pass
+        return idx
+
+
+
 def _resolve_role_model(
     role: str,
     harness: str,
     global_path: Path = GLOBAL_TEAM_YML,
     project_path: Path = PROJECT_TEAM_YML,
 ) -> str | None:
-    """Resolve the model for *role* from team.yml when no explicit --model.
+    """Resolve the model for *role* from team.yml (no explicit --model).
 
-    Reads the merged global+project team.yml (honoring any --global-config /
-    --project-config overrides threaded from main), looks up roles[<role>], and
-    returns its model handle ONLY when the role's resolved harness matches the
-    harness actually being dispatched to. The role's harness is its own entry
-    harness, else default_harness; if NEITHER is set the config is ambiguous
-    and we return None rather than forwarding the model to an arbitrary
-    harness (a team.yml row with no harness and no default_harness must not
-    leak its model). Returns None when there is no team.yml, no entry, no
-    model, or a harness mismatch/ambiguity -- the worker then uses its own
-    session default, exactly as before.
+    Reads the merged global+project team.yml (honoring --global-config /
+    --project-config overrides threaded from main). The role's model applies
+    ONLY when the role's resolved harness -- its own entry harness, else
+    default_harness -- matches the dispatch harness; a role with neither set is
+    ambiguous and returns None (never leaks its model to an arbitrary harness).
+    When the role declares multiple models (models: [...]), rotates round-robin
+    across them using a DURABLE per-role cursor (~/.agentic/rotation/<role>).
+    Returns None when there is no team.yml / no entry / no model / harness
+    mismatch, so the worker falls back to its own session default.
+
     """
     try:
         config = _load_team_config(global_path=global_path, project_path=project_path)
@@ -348,12 +513,16 @@ def _resolve_role_model(
         return None
     entry = _role_entry(spec)
     entry_harness = entry.get("harness") or config.get("default_harness")
-    # Require a POSITIVE harness match. If the role has no harness and there is
-    # no default_harness, entry_harness is None (ambiguous) -> do not forward.
+    # Require a POSITIVE harness match (None entry_harness is ambiguous).
     if entry_harness != harness:
         return None
-    model = entry.get("model")
-    return model if model else None
+    models = _role_models_list(spec)
+    if not models:
+        return None
+    if len(models) == 1:
+        return models[0]
+    return models[_rotation_cursor_next(role, len(models))]
+
 
 
 # ---------------------------------------------------------------------------
@@ -839,9 +1008,6 @@ _MODEL_FLAG_HARNESSES: frozenset[str] = frozenset(_MODEL_FLAG_BY_HARNESS)
 # Harnesses that need stdin from /dev/null to avoid hangs (AC8 / plan table).
 _STDIN_DEVNULL_HARNESSES: frozenset[str] = frozenset({"cursor-agent"})
 
-# cursor-agent default timeout in seconds (documented hang workaround).
-_CURSOR_TIMEOUT_SECONDS: int = 300
-
 
 def _make_run_id(role: str) -> str:
     """Return a collision-free run-id: <role>-<counter>-<pid>-<rand>.
@@ -1018,51 +1184,57 @@ def _build_shim_dir(run_dir: Path, exempt_binary: str) -> Path:
     return shim_dir
 
 
-def _cursor_watchdog(
-    proc: subprocess.Popen,
-    timeout: int,
-    run_dir: Path,
-    timed_out_flag: list[bool],
-) -> None:
-    """Background thread: kill the cursor-agent process group after *timeout* seconds.
+# timeout_seconds default is agentic-team's OWN 1800s (documented in the
+# dispatch: schema comment above and emitted by the configure wizard) - NOT
+# _sup_mod.DEFAULT_TIMEOUT_SECONDS (600s), which is _supervise.py's
+# library-internal fallback for callers that omit timeout_seconds entirely.
+# agentic-team always passes an explicit value, so it must supply its own
+# documented default rather than silently inheriting the library's.
+_DEFAULT_DISPATCH_SETTINGS: dict[str, object] = {
+    "timeout_seconds": 1800,
+    "stall_seconds": _sup_mod.DEFAULT_STALL_SECONDS,
+    "retries": 1,
+    "failover": True,
+}
 
-    Uses os.killpg so the entire process tree (not just the top-level pid) is
-    killed - dispatch uses start_new_session=True which creates a new process
-    group, so killpg is the correct kill primitive.
+def _dispatch_settings(config: dict) -> dict[str, object]:
+    """Merge team.yml's optional dispatch: block over the built-in defaults."""
+    block = config.get("dispatch") if isinstance(config, dict) else None
+    settings = dict(_DEFAULT_DISPATCH_SETTINGS)
+    if isinstance(block, dict):
+        for key in settings:
+            if key in block:
+                settings[key] = block[key]
+    return settings
 
-    Sets timed_out_flag[0] = True before writing exit=124 so the reaper thread
-    can detect the race and not overwrite 124 with the real (likely -9) code.
+def _build_failover_chain(
+    harness: str,
+    model: str | None,
+    role: str,
+    retries: int,
+    failover: bool,
+    config: dict,
+) -> list[tuple[str, str | None]]:
+    """Return the ordered (harness, model) attempts dispatch should try.
 
-    Appends a note to the stderr file and writes exit code 124 (timeout convention).
+    Chain shape: the requested (harness, model) repeated ``1 + retries``
+    times (same-harness retries), then - only when *failover* is true -
+    every other model declared for *role* in team.yml (via
+    _role_models_list, same-harness only), then a terminal ("claude", None)
+    fallback. Same-harness retries are deliberately literal repeats.
     """
-    def _watch() -> None:
-        try:
-            proc.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out_flag[0] = True
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
-            except ProcessLookupError:
-                pass
-            stderr_file = run_dir / "stderr"
-            try:
-                with stderr_file.open("a", encoding="utf-8") as fh:
-                    fh.write(
-                        f"\n[agentic-team watchdog] cursor-agent killed after "
-                        f"{timeout}s timeout\n"
-                    )
-            except OSError:
-                pass
-            exit_file = run_dir / "exit"
-            try:
-                exit_file.write_text("124\n", encoding="utf-8")
-            except OSError:
-                pass
-        except Exception:  # noqa: BLE001
-            pass
-
-    t = threading.Thread(target=_watch, daemon=True)
-    t.start()
+    chain: list[tuple[str, str | None]] = [(harness, model)] * max(1, 1 + retries)
+    if not failover:
+        return chain
+    spec = config.get("roles", {}).get(role) if isinstance(config, dict) else None
+    entry = _role_entry(spec) if spec else {}
+    if entry.get("harness") == harness:
+        for other_model in _role_models_list(spec):
+            if other_model != model:
+                chain.append((harness, other_model))
+    if harness != "claude":
+        chain.append(("claude", None))
+    return chain
 
 
 def _cmd_dispatch(args: argparse.Namespace) -> int:
@@ -1166,71 +1338,155 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     # to the role's model in team.yml (D-1). Without this, a role-only dispatch
     # silently ran on the harness session default (e.g. omp -> claude-opus-4-8),
     # which is why cross-harness dispatch "only used Claude models".
+    global_path = Path(getattr(args, "global_config", None) or GLOBAL_TEAM_YML)
+    project_path = Path(getattr(args, "project_config", None) or PROJECT_TEAM_YML)
+    try:
+        config = _load_team_config(global_path=global_path, project_path=project_path)
+    except (OSError, ValueError, ImportError):
+        config = {}
     resolved_model = getattr(args, "model", None) or _resolve_role_model(
-        role,
-        harness,
-        global_path=Path(getattr(args, "global_config", None) or GLOBAL_TEAM_YML),
-        project_path=Path(getattr(args, "project_config", None) or PROJECT_TEAM_YML),
+        role, harness, global_path=global_path, project_path=project_path,
     )
-    argv = _build_worker_argv(harness, augmented_brief, model=resolved_model)
+    settings = _dispatch_settings(config)
+    try:
+        retries_int = int(settings["retries"])
+        timeout_seconds = float(settings["timeout_seconds"])
+        stall_seconds = float(settings["stall_seconds"])
+    except (TypeError, ValueError) as exc:
+        print(
+            f"agentic-team dispatch: invalid dispatch settings in team.yml: {exc}",
+            file=sys.stderr,
+        )
+        return 2
+    chain = _build_failover_chain(
+        harness, resolved_model, role,
+        retries=retries_int,
+        failover=bool(settings["failover"]),
+        config=config,
+    )
 
-    stdout_file = run_dir / "stdout"
-    stderr_file = run_dir / "stderr"
-    pid_file = run_dir / "pid"
 
-    stdin_src = subprocess.DEVNULL if harness in _STDIN_DEVNULL_HARNESSES else None
+    _sup_mod.write_status(
+        run_dir, run_id=run_id, role=role, state="running",
+        started_at=time.time(), attempt=1,
+    )
 
-    with stdout_file.open("wb") as fout, stderr_file.open("wb") as ferr:
-        proc = subprocess.Popen(
-            argv,
-            cwd=str(worker_cwd),
-            env=worker_env,
-            stdout=fout,
-            stderr=ferr,
-            stdin=stdin_src,
-            # start_new_session detaches the worker from the conductor's
-            # process group so a ctrl-c on the conductor does not kill it.
-            start_new_session=True,
+    def _spawn_attempt(
+        attempt_harness: str, attempt_model: str | None, attempt: int,
+    ) -> tuple[subprocess.Popen, Path, Path, Path]:
+        """Build argv/env/shims and Popen one attempt. Returns (proc, dir, stdout, stderr)."""
+        attempt_dir = run_dir if attempt == 1 else run_dir / f"attempt-{attempt}"
+        attempt_dir.mkdir(parents=True, exist_ok=True)
+        attempt_stdout = attempt_dir / "stdout"
+        attempt_stderr = attempt_dir / "stderr"
+
+        exempt_binary = HARNESS_BINARY.get(attempt_harness, attempt_harness)
+        shim_dir = _build_shim_dir(attempt_dir, exempt_binary)
+        attempt_env = dict(os.environ)
+        attempt_env["PATH"] = str(shim_dir) + os.pathsep + attempt_env.get("PATH", "")
+        disable_flag = HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG.get(attempt_harness)
+        if disable_flag:
+            attempt_env[disable_flag] = "1"
+
+        attempt_argv = _build_worker_argv(attempt_harness, augmented_brief, model=attempt_model)
+        stdin_src = subprocess.DEVNULL if attempt_harness in _STDIN_DEVNULL_HARNESSES else None
+
+        _sup_mod.write_status(
+            run_dir, state="running", attempt=attempt,
+            harness=attempt_harness, model=attempt_model,
         )
 
-    pid_file.write_text(str(proc.pid) + "\n", encoding="utf-8")
-    # Record harness so collect can demux the output shape.
-    (run_dir / "harness").write_text(harness + "\n", encoding="utf-8")
+        with attempt_stdout.open("wb") as fout, attempt_stderr.open("wb") as ferr:
+            proc = subprocess.Popen(
+                attempt_argv,
+                cwd=str(worker_cwd),
+                env=attempt_env,
+                stdout=fout,
+                stderr=ferr,
+                stdin=stdin_src,
+                # start_new_session detaches the worker from the conductor's
+                # process group so a ctrl-c on the conductor does not kill it.
+                start_new_session=True,
+            )
 
-    # Shared flag: watchdog sets True before writing exit=124 so the reaper
-    # does not overwrite the timeout sentinel with the real (killed) code.
-    timed_out_flag: list[bool] = [False]
+        (run_dir / "pid").write_text(str(proc.pid) + "\n", encoding="utf-8")
+        # Record harness so collect can demux the output shape.
+        (run_dir / "harness").write_text(attempt_harness + "\n", encoding="utf-8")
+        return proc, attempt_dir, attempt_stdout, attempt_stderr
 
-    # cursor-agent: start timeout-kill watchdog (documented hang workaround).
-    if harness == "cursor-agent":
-        _cursor_watchdog(proc, _CURSOR_TIMEOUT_SECONDS, run_dir, timed_out_flag)
+    def _supervised_stall_seconds(attempt_harness: str) -> float:
+        if stall_seconds == _DEFAULT_DISPATCH_SETTINGS["stall_seconds"]:
+            return _sup_mod.stall_default(attempt_harness)
+        return stall_seconds
 
-    # Exit reaper: wait for the process and write the real exit code.
-    # Without this, no exit file is ever written on normal completion and
-    # _run_status fabricates exit=1 -> every successful worker reports failed.
-    def _reap() -> None:
-        try:
-            returncode = proc.wait()
-        except Exception:  # noqa: BLE001
-            return
-        # If the watchdog already wrote exit=124, don't clobber it.
-        if timed_out_flag[0]:
-            return
-        exit_file = run_dir / "exit"
-        try:
-            exit_file.write_text(str(returncode) + "\n", encoding="utf-8")
-        except OSError:
-            pass
+    def _supervised_timeout_seconds(attempt_harness: str) -> float:
+        """Return the hard timeout for *attempt_harness*.
 
-    # daemon=False: keeps the dispatch process alive until the worker finishes
-    # so the exit file is written before the process exits.  The run-id has
-    # already been printed to stdout above, so the conductor can proceed; the
-    # dispatch process just lingers until the reaper completes.
-    _reap_thread = threading.Thread(target=_reap, daemon=False)
-    _reap_thread.start()
+        cursor-agent has a known hang bug that can emit periodic output while
+        stuck, so the generic stall detector is insufficient. Preserve the
+        original 300s unconditional watchdog ceiling for cursor-agent.
+        """
+        if attempt_harness == "cursor-agent":
+            return min(timeout_seconds, 300.0)
+        return timeout_seconds
 
-    # Write .active sentinel so Unit 5b hook can suppress native Task/OMC
-    # while at least one run is live.  The sentinel carries the conductor PID.
+    # Attempt 1 is spawned synchronously so a caller inspecting the spawned
+    # process (or a test mocking subprocess.Popen) observes it before
+    # dispatch returns, matching the prior single-attempt contract.
+    proc1, dir1, stdout1, stderr1 = _spawn_attempt(harness, resolved_model, attempt=1)
+
+    # Supervision + any failover retries run in a background thread so
+    # dispatch stays non-blocking; daemon=False keeps the dispatch process
+    # alive until the chain resolves, matching the prior reaper's
+    # lingering-process contract.
+    def _run_chain() -> None:
+        proc, attempt_dir, attempt_stdout, attempt_stderr = proc1, dir1, stdout1, stderr1
+        for attempt, (attempt_harness, attempt_model) in enumerate(chain, start=1):
+            if attempt > 1:
+                proc, attempt_dir, attempt_stdout, attempt_stderr = _spawn_attempt(
+                    attempt_harness, attempt_model, attempt,
+                )
+
+            exit_code = _sup_mod.supervise(
+                proc, attempt_dir, attempt_stdout, attempt_stderr,
+                stall_seconds=_supervised_stall_seconds(attempt_harness),
+                timeout_seconds=_supervised_timeout_seconds(attempt_harness),
+            )
+            if attempt_dir != run_dir:
+                shutil.copyfile(attempt_stdout, run_dir / "stdout")
+                shutil.copyfile(attempt_stderr, run_dir / "stderr")
+
+            if exit_code == 0:
+                _sup_mod.write_status(run_dir, state="done", exit_code=0, attempt=attempt)
+                (run_dir / "exit").write_text("0\n", encoding="utf-8")
+            elif attempt >= len(chain):
+                _sup_mod.write_status(run_dir, state="failed", exit_code=exit_code, attempt=attempt)
+                (run_dir / "exit").write_text(f"{exit_code}\n", encoding="utf-8")
+            else:
+                next_harness = chain[attempt][0]
+                retry_state = "retrying" if next_harness == attempt_harness else "failed_over"
+                _sup_mod.write_status(
+                    run_dir, state=retry_state, exit_code=exit_code, attempt=attempt,
+                    reason=f"attempt {attempt} ({attempt_harness}) exit {exit_code}",
+                )
+
+            # Refresh the shared .active sentinel after each attempt so concurrent
+            # collect scans see a live marker across attempt boundaries.
+            active_sentinel = workdir / ".agentic" / "teamrun" / ".active"
+            try:
+                active_sentinel.write_text(str(os.getpid()) + "\n", encoding="utf-8")
+            except OSError:
+                pass
+
+            if exit_code == 0 or attempt >= len(chain):
+                break
+
+    _chain_thread = threading.Thread(target=_run_chain, daemon=False)
+    _chain_thread.start()
+
+    # Write .active sentinel immediately too, so Unit 5b hook can suppress
+    # native Task/OMC while at least one run is live from the moment dispatch
+    # returns. The background thread refreshes it after each attempt.
     active_sentinel = workdir / ".agentic" / "teamrun" / ".active"
     try:
         active_sentinel.write_text(str(os.getpid()) + "\n", encoding="utf-8")
@@ -1246,8 +1502,29 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
 # ---------------------------------------------------------------------------
 
 def _resolve_run_dir(run_id: str, workdir: Path) -> Path | None:
-    """Return the run directory for *run_id* under *workdir*, or None."""
-    candidate = workdir / ".agentic" / "teamrun" / run_id
+    """Return the run directory for *run_id* under *workdir*, or None.
+
+    Rejects run-ids that could escape ``<workdir>/.agentic/teamrun/`` (path
+    separators, ``.``/``..``, absolute paths, NUL), mirroring the path-
+    metacharacter threat note in ``_make_run_id``/``_rotation_cursor_next``. A
+    rejected id surfaces to status/collect as "unknown run-id" (their existing
+    None branch) rather than resolving outside the teamrun directory.
+    """
+    if not isinstance(run_id, str) or not run_id:
+        return None
+    if "\x00" in run_id or "/" in run_id or "\\" in run_id:
+        return None
+    if run_id in (".", "..") or os.path.isabs(run_id):
+        return None
+    teamrun = workdir / ".agentic" / "teamrun"
+    candidate = teamrun / run_id
+    # Defense in depth: the resolved path must stay inside the teamrun dir.
+    try:
+        base = os.path.abspath(teamrun)
+        if os.path.commonpath([base, os.path.abspath(candidate)]) != base:
+            return None
+    except ValueError:
+        return None
     if candidate.is_dir():
         return candidate
     return None
@@ -1273,11 +1550,24 @@ def _pid_alive(pid: int) -> bool:
 def _is_live_readonly(rd: Path) -> bool:
     """Read-only liveness check for a sibling run dir.
 
-    Returns True only when the run has no exit file AND its recorded PID is
-    still alive. Unlike _run_status, this NEVER writes an exit file as a side
-    effect on dead-PID dirs, so it is safe to call across sibling runs during
+    Returns True when the run's status.json reports an in-progress state
+    (running, retrying, failed_over). Returns False when status.json reports a
+    terminal state (done, failed). Unlike _run_status, this NEVER writes an
+    exit file as a side effect, so it is safe to call across sibling runs during
     sentinel cleanup.
+
+    Only falls back to the legacy "no exit file + PID alive" check when
+    status.json is missing or unreadable (e.g. run dirs from an older version).
     """
+    status = _sup_mod.read_status(rd)
+    if status is not None:
+        state = status.get("state")
+        if state in ("running", "retrying", "failed_over"):
+            return True
+        if state in ("done", "failed", "killed", "unkillable"):
+            return False
+        # Unknown/empty state: fall through to legacy PID+exit check.
+    # Legacy fallback for run dirs created before status.json was introduced.
     if (rd / "exit").exists():
         return False
     pid = _read_pid(rd)
@@ -1285,7 +1575,30 @@ def _is_live_readonly(rd: Path) -> bool:
 
 
 def _run_status(run_dir: Path) -> str:
-    """Return 'running', 'done', or 'failed' for a run directory."""
+    """Return 'running', 'done', or 'failed' for a run directory.
+
+    Checks status.json first (the authoritative state written by _supervise.py):
+    running/retrying/failed_over -> "running"; done/failed -> use exit_code.
+    Falls back to the legacy pid+exit-file behavior only when status.json is
+    missing or unreadable (e.g. run dirs from an older version).
+    """
+    status = _sup_mod.read_status(run_dir)
+    if status is not None:
+        state = status.get("state")
+        if state in ("running", "retrying", "failed_over"):
+            return "running"
+        if state in ("done", "failed", "killed", "unkillable"):
+            code = status.get("exit_code")
+            if code is None:
+                # Older status.json without exit_code: fall back to exit file.
+                try:
+                    code = int((run_dir / "exit").read_text(encoding="utf-8").strip())
+                except (OSError, ValueError):
+                    code = 1
+            return "done" if code == 0 else "failed"
+        # Unknown/empty state: fall through to legacy PID+exit check.
+
+    # Legacy fallback for run dirs created before status.json was introduced.
     exit_file = run_dir / "exit"
     if exit_file.exists():
         try:
@@ -1375,14 +1688,64 @@ def _collect_output(run_dir: Path, harness: str) -> str:
     return raw
 
 
+def _status_rows(workdir: Path) -> list[dict[str, object]]:
+    """Scan <workdir>/.agentic/teamrun/*/status.json into table rows.
+
+    Runs with no status.json (pre-supervision dispatches, or races before the
+    first write_status call lands) are skipped rather than erroring.
+    """
+    teamrun_dir = workdir / ".agentic" / "teamrun"
+    rows: list[dict[str, object]] = []
+    if not teamrun_dir.is_dir():
+        return rows
+    for run_dir in sorted(teamrun_dir.iterdir()):
+        if not run_dir.is_dir() or run_dir.name == ".active":
+            continue
+        status = _sup_mod.read_status(run_dir)
+        if status is None:
+            continue
+        started_at = status.get("started_at")
+        elapsed = f"{time.time() - started_at:.0f}s" if isinstance(started_at, (int, float)) else "?"
+        rows.append(
+            {
+                "role": status.get("role", "?"),
+                "run_id": status.get("run_id", run_dir.name),
+                "state": status.get("state", "?"),
+                "harness": status.get("harness", "?"),
+                "model": status.get("model") or "-",
+                "attempt": status.get("attempt", 1),
+                "last_output_ts": status.get("last_output_ts"),
+                "elapsed": elapsed,
+            }
+        )
+    return rows
+
 def _cmd_status(args: argparse.Namespace) -> int:
-    """Print 'running', 'done', or 'failed' for the given run-id.
+    """Print 'running', 'done', or 'failed' for a specific run-id, or - when
+    run_id is omitted - list every run under --workdir as a table (or
+    --json array of the same rows).
 
     Looks for the run directory under the workdir encoded in the run-id path;
     falls back to CWD/.agentic/teamrun/<run-id>/ when no --workdir is given.
     """
-    run_id = args.run_id
     workdir = Path(getattr(args, "workdir", "."))
+    run_id = getattr(args, "run_id", None)
+
+    if run_id is None:
+        rows = _status_rows(workdir)
+        if getattr(args, "json", False):
+            print(json.dumps(rows, indent=2))
+            return 0
+        header = f"{'ROLE':<12} {'RUN-ID':<28} {'STATE':<12} {'HARNESS-MODEL':<24} {'ATTEMPT':<8} {'ELAPSED':<10}"
+        print(header)
+        for row in rows:
+            harness_model = f"{row['harness']}/{row['model']}" if row["model"] != "-" else str(row["harness"])
+            print(
+                f"{str(row['role']):<12} {str(row['run_id']):<28} {str(row['state']):<12} "
+                f"{harness_model:<24} {str(row['attempt']):<8} {str(row['elapsed']):<10}"
+            )
+        return 0
+
     run_dir = _resolve_run_dir(run_id, workdir)
     if run_dir is None:
         print(f"agentic-team status: unknown run-id {run_id!r}", file=sys.stderr)
@@ -1497,9 +1860,16 @@ def main(argv: list[str]) -> int:
              "Rejected for harnesses without a confirmed --model flag.",
     )
 
-    p_status = sub.add_parser("status", help="check run status (running|done|failed)")
-    p_status.add_argument("run_id")
+    p_status = sub.add_parser(
+        "status",
+        help="check run status (running|done|failed), or list all runs when run_id is omitted",
+    )
+    p_status.add_argument(
+        "run_id", nargs="?", default=None,
+        help="specific run-id (running|done|failed); omit to list all runs as a table",
+    )
     p_status.add_argument("--workdir", default=".", help="workdir used during dispatch")
+    p_status.add_argument("--json", action="store_true", help="machine-readable table output")
 
     p_collect = sub.add_parser("collect", help="retrieve run output")
     p_collect.add_argument("run_id")
@@ -1507,20 +1877,23 @@ def main(argv: list[str]) -> int:
 
     args = ap.parse_args(argv)
 
-    # Load and validate config for all subcommands
-    global_path = Path(args.global_config)
-    project_path = Path(args.project_config)
-    try:
-        config = _load_team_config(global_path, project_path)
-    except ValueError as exc:
-        print(f"agentic-team: config parse error: {exc}", file=sys.stderr)
-        return 2
+    # status/collect operate on an already-dispatched run's on-disk artifacts and
+    # never read team.yml; they must not fail on a malformed/absent config.
+    # Only discover/dispatch load and validate config (validation gate).
+    if args.subcommand in ("discover", "dispatch"):
+        global_path = Path(args.global_config)
+        project_path = Path(args.project_config)
+        try:
+            config = _load_team_config(global_path, project_path)
+        except ValueError as exc:
+            print(f"agentic-team: config parse error: {exc}", file=sys.stderr)
+            return 2
 
-    errors = _validate_config(config)
-    if errors:
-        for err in errors:
-            print(err, file=sys.stderr)
-        return 2
+        errors = _validate_config(config)
+        if errors:
+            for err in errors:
+                print(err, file=sys.stderr)
+            return 2
 
     if args.subcommand == "discover":
         return _cmd_discover(args)

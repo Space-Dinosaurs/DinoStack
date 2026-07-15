@@ -47,6 +47,7 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 
 const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
+const libActivationAbs = path.resolve(__dirname, '..', 'lib', 'activation.js');
 const libSkillDetectorAbs = path.resolve(__dirname, '..', 'lib', 'skill-candidate-detector.js');
 
 const shimmedSource = hookSource
@@ -58,6 +59,10 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
     `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/activation\.js['"]\)/,
+    `require(${JSON.stringify(libActivationAbs)})`
   )
   + `\n
 if (typeof module !== 'undefined') {

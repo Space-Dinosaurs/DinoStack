@@ -1,3 +1,7 @@
+<!-- tier:begin medium -->
+> **Medium-tier note:** This section is loaded when `tier=medium`. Medium spawns architect + planner + inline 5-line Brief (in the engineer spawn prompt, NOT a separate `docs/planning/<slug>.md` artifact) and uses Skeptic. Medium does NOT spawn `qa-engineer`, `wrap-ticket`, `learning-extractor`, or `security-auditor`. No capability preflight block; warnings only. No `.agentic/events.jsonl` telemetry by default. For the full kernel with QA gate + wrap-ticket + learning-extractor + telemetry + meta-Skeptic, use `tier=full` (`/implement-ticket --tier=full`, or set `agentic_tier: full` in `.agentic/config.json`).
+<!-- tier:end -->
+<!-- tier:begin full medium -->
 ## Delegation
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
@@ -14,7 +18,7 @@
 
 **Auto-invoking `/brief` on planning-intent signals is a valid surface-and-proceed conductor behavior - not a stop-and-ask.** When the conductor detects exploratory framing in an operator message (e.g. "I want to build...", "We should add...", "thinking about..."), it announces the `/brief` session and proceeds unless STOP arrives in the very next operator turn. This is not a permission request; it is a proactive decision to open the planning dialogue before architect and engineer spawns (announce-and-proceed variant: not subject to the 30-minute-waste threshold described in the standard surface-and-proceed protocol; the announcement is a notification that planning is starting, not a request for permission). The trigger-detection signals and suppression list (debugging questions, bug reports, explicit ticket references, direct implementation requests) are defined in `content/commands/brief.md` Section 1.
 
-**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn its first implementer (architect, engineer, or orchestration-planner) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/implement-ticket.md` §Tracker Create Helper) before proceeding.
+**Ticket-offer gate.** Trigger: `TRACKER != none` AND `ticket_driven` active AND net-new work that did NOT arrive as an existing ticket ID is about to spawn its first implementer (architect, engineer, or orchestration-planner) -> conductor runs the Tracker Create Helper (cross-ref `content/commands/implement-ticket-full.md` §Tracker Create Helper) before proceeding.
 
 **`ticket_driven` resolution (CRITICAL):** an explicit `ticket_driven` value in `.agentic/config.json` always wins. When the key is ABSENT: `TRACKER != none` -> effective `offer`; `TRACKER == none` -> effective `off`. This makes "tracker connected => offer by default" true with zero migration - no config change needed on existing projects with a connected tracker.
 
@@ -155,3 +159,40 @@ Once `collect` returns the final message, that text is treated identically to a 
 **Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. A future enhancement will also proactively block a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude`, but that check is not yet merged. On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it. See `content/references/cross-harness-teams.md` for the full decision rule, config schema, self-containment guard, per-harness dispatch table, and the per-harness enforcement-status table.
 
 **Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
+<!-- tier:end -->
+<!-- tier:begin minimal -->
+# Delegation (minimal)
+
+Three named agents: `engineer`, `skeptic`, `investigator`. All spawn in worktree isolation.
+
+## Engineer
+
+Owns shippable code. One task, one prompt. Reads file path + symbol, gets diff + commit + PR URL back.
+
+- `isolation: worktree` mandatory. Branch from `origin/main`.
+- Single round by default; Skeptic may bounce back for fixes.
+- Returns: `diff_summary`, `commit_sha`, `pr_url`, `quality_gate_results`.
+
+## Skeptic
+
+Adversarial review. Reads diff in full. Findings: Critical/Major/Minor.
+
+- Critical blocks merge. Major blocks merge unless justified. Minor documented, not blocking.
+- Cap at 3 fix passes. Convergence failure (same finding re-raised) escalates immediately.
+- Reads `git diff origin/$BASE_BRANCH..HEAD` in full before sign-off.
+- Returns: `sign_off: granted | blocked`, `findings[]`.
+
+## Investigator
+
+Read-only code locator. Returns file:line table for "where is X", "what calls Y". Skips fixes.
+
+## Worktree isolation
+
+Every shippable-edit spawn sets `isolation: worktree`. Main checkout reserved for conductor-only artifacts (`.agentic/`, `docs/planning/`). Trivial-tier changes also worktree-isolated.
+
+After Worker returns and PR opens, conductor removes the isolation worktree.
+
+## No QA gate, no wrap-ticket, no architect, no planner
+
+If a task needs them, escalate to `--tier=medium` (architect + planner + inline Brief + Skeptic + loop-state) or `--tier=full` (full Brief/Plan + QA + wrap-ticket + learning-extractor).
+<!-- tier:end -->

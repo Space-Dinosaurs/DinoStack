@@ -55,6 +55,15 @@ const { spawn } = require('child_process');
 
 const wrapMarker = require('./lib/wrap-marker.js');
 
+// Activation guard: dormant projects skip the SessionEnd wrap. Fail-ACTIVE if
+// the lib is missing (a guard bug must never silently kill methodology).
+let _activation = null;
+try {
+  _activation = require('./lib/activation.js');
+} catch (_) {
+  _activation = null;
+}
+
 // Terminal SessionEnd reasons that warrant finalizing a pending marker to
 // `ready`. `resume` is deliberately EXCLUDED: a resumed session may continue, so
 // promoting it could let the daemon resume a live session (CRITICAL-A). Any
@@ -138,6 +147,13 @@ function run() {
     ? payload.cwd.trim()
     : null;
   if (!cwd) return;
+
+  // --- 3a. Activation guard: dormant projects skip the wrap. Fail-ACTIVE. ---
+  if (_activation) {
+    try {
+      if (!_activation.isActive(cwd)) return;
+    } catch (_) { /* fail-ACTIVE: fall through */ }
+  }
 
   const sessionId = (typeof payload.session_id === 'string' && payload.session_id.trim())
     ? payload.session_id.trim()

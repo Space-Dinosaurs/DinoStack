@@ -18,8 +18,13 @@ Downstream consumers: bin/agentic-configure (TUI; ranking input);
 Failure modes: If no role-models.yml exists, the conductor omits model/effort/
                reasoning for every spawn and Pi uses its session default.
                This is not an error - it is the documented no-op path.
-               There are NO hardcoded model catalogs in the repo; suggestions
-               come from the hint dictionaries applied to names you supply.
+               The routing/ranking layer ships NO hardcoded model IDs:
+               bin/agentic-models scores names you supply with substring hint
+               tables. Separately, the installer ships an optional curated
+               suggestion pool (scripts/lib/model-catalog.json) used only to
+               pre-fill the install-time model picker; it is overridable by a
+               Custom id or a live custom-provider fetch and never feeds the
+               runtime ranker directly.
 
 Performance: Standard. Ranking is O(M * R) where M is the model count you
              provide and R is the role count, both small.
@@ -41,7 +46,9 @@ There are three paths - use whichever matches your setup:
 
 **3. Pin by hand.** Skip the wizard. Open `~/.agentic/role-models.yml` and write model names directly. The format is simple: see the schema in `content/references/role-models.md`. Use the harness's exact model handle (the string you would pass to a spawn call). The conductor forwards it verbatim.
 
-There are NO hardcoded model catalogs in this repo. Suggestions from the wizard come from the hint dictionaries in `bin/agentic-models` applied to the names you supply - not from any built-in list.
+The routing/ranking layer ships NO hardcoded model IDs. Suggestions from the wizard come from the hint dictionaries in `bin/agentic-models` applied to the names you supply - not from any list embedded in the ranker.
+
+> Installer-only exception: the install TUI (`scripts/install-tui.sh`) ships an optional curated suggestion pool, `scripts/lib/model-catalog.json`, used solely to pre-fill the model step of its guided role picker. It is a convenience, not authority: the picker also offers a `Custom model id...` entry and an optional live fetch from any OpenAI-compatible `/v1/models` endpoint (e.g. 9Router, LiteLLM), so the names your gateway actually exposes always win. The runtime ranker described above never reads this file.
 
 ## The binary: `bin/agentic-models`
 
