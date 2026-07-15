@@ -1,0 +1,20 @@
+---
+description: "agentic-engineering (dormant) — activate per-project with /ds"
+alwaysApply: true
+---
+
+## agentic-engineering (dormant)
+
+The agentic-engineering methodology is installed on this machine but is **dormant** in this project. No delegation model, risk gates, or review loops apply here until it is activated. This stub costs nothing at rest.
+
+**Activate in this project** (any one of these, first hit wins):
+
+1. Run `/ds activate` (writes `.agentic/active`; `--session` for this session only, `--tier=minimal|medium|full` to pick depth).
+2. Create a `.agentic/` directory in the project root — auto-detected as active on the next turn.
+3. Add this project to the allowlist: `agentic-ds activate` from the project root records it in `~/.agentic/activation.json`.
+
+A `.agentic/dormant` tombstone file overrides auto-detection — remove it (or run `/ds activate`) to re-enable a previously deactivated project.
+
+**When active**, load the full methodology from `the agent-methodology.mdc rule in this directory` and follow it. When dormant, ignore it entirely.
+
+Run `/ds status` to see the current activation state, tier, and resident footprint.

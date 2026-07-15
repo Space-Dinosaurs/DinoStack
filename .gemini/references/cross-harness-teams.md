@@ -1,9 +1,8 @@
 <!--
 Purpose: Documents the cross-harness agent-team layer that lets the conductor
          dispatch leaf workers to entirely different CLIs (codex, gemini,
-         cursor-agent, kimi, pi, omp, opencode, copilot, claude-as-worker)
-         rather than spawning them as native subagents within the conductor's
-         own harness.
+         cursor-agent, kimi, pi, omp, claude-as-worker) rather than spawning
+         them as native subagents within the conductor's own harness.
 
 Public API: Read-only reference. Load when configuring team.yml, deciding
             whether to use cross-harness dispatch vs native delegation,
@@ -36,8 +35,7 @@ Performance: Standard. Dispatch is background shell-out per worker; no blocking
 # Cross-harness agent teams
 
 This layer lets the conductor dispatch leaf workers to entirely different CLI
-harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, opencode, copilot, or
-claude-as-worker --
+harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, or claude-as-worker --
 rather than spawning native subagents within its own harness. It is **OMC-
 independent**: it does not trigger oh-my-claudecode, nor does it use the
 conductor harness's own built-in subagent mechanism.
@@ -100,6 +98,9 @@ roles:
   security-auditor:{ harness: codex,         model: gpt-5.3-codex }
 dispatch:
   timeout_seconds: 1800
+  stall_seconds: 120
+  retries: 1
+  failover: true
   output_format: json
 ```
 
@@ -110,9 +111,13 @@ dispatch:
 | `enabled` | bool | yes | `false` (absent file = feature off) | Set `false` to disable cross-harness dispatch without removing the file. Absent file is equivalent to `enabled: false`. |
 | `default_harness` | string | no | none (unrouted roles fall through to native spawn) | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
 | `roles` | map | no | none (empty - all roles use native spawn unless `default_harness` is set) | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
-| `roles[*].harness` | string | yes (if mapping) | n/a | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
-| `roles[*].model` | string | no | none (harness uses its own session default) | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 9 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
-| `dispatch.timeout_seconds` | int | no | `1800` (30 min) | Per-worker wall-clock timeout. Watchdog kills the process on expiry. |
+| `roles[*].harness` | string | yes (if mapping) | n/a | Must be one of the 7 known harness labels. Unknown value -> non-zero exit. |
+| `roles[*].model` | string | no | none (harness uses its own session default) | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 7 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
+| `roles[*].models` | list | no | none (mutually exclusive with `model`; when both present `models` wins) | Round-robin author pool: a list of model handles the role rotates through, one per successive dispatch. The rotation cursor is persisted durably at `~/.agentic/rotation/<role>` (NOT the throwaway per-dispatch workdir) under an flock, so rotation advances across genuinely separate dispatches and concurrent dispatches of the same role do not race. Mutually exclusive with `model`; when both are present `models` wins. Use for co-author roles, e.g. `engineer: { harness: omp, models: [kimi/kimi-k2.7, glm/glm-5.2] }`. Each entry must be a non-empty string or dispatch config validation fails. |
+| `dispatch.timeout_seconds` | int | no | `1800` (30 min) | Per-worker wall-clock hard cap. Watchdog (`_supervise.py`) kills the process group with `EXIT_TIMEOUT`/124 on expiry. Absent key resolves to `bin/agentic-team:_DEFAULT_DISPATCH_SETTINGS` (`1800`) — deliberately NOT `_supervise.py:DEFAULT_TIMEOUT_SECONDS` (`600`, that constant is `_supervise.py`'s internal fallback for callers that omit the parameter, which `agentic-team` never does). The tool-generated scaffold writes the same `timeout_seconds: 1800` explicitly. |
+| `dispatch.stall_seconds` | int | no | per-harness (`120` baseline; `300` for `claude`/`gemini`/`cursor-agent`) | Max inactivity (no stdout/stderr write) before the worker is killed with `EXIT_STALL`/125. Absent key resolves per-harness via `_supervise.py:_STALL_DEFAULTS`; an explicit value overrides uniformly for all harnesses. |
+| `dispatch.retries` | int | no | `1` | Same-harness re-spawn attempts after a nonzero/stall/timeout exit, before failover. Chain begins with `1 + retries` literal repeats of the requested `(harness, model)`. |
+| `dispatch.failover` | bool | no | `true` | After same-harness retries exhaust, try other models declared for the role in `team.yml`, then a terminal `claude` fallback. Set `false` to stop the chain after retries. |
 | `dispatch.output_format` | string | no | `"json"` | `json` or `text`. Governs the `collect` demux path. |
 
 The scalar-or-mapping normalize logic for role-spec entries is shared with
@@ -142,47 +147,15 @@ map in `bin/agentic-team` (the one allowed per-harness hardcoded fact).
 | **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | `--model <model>` | text (final-message-only) | Binary name is `kimi-cli` (not `kimi`); `--print` is mandatory for non-interactive/auto-dismiss-AskUserQuestion behavior -- bare `-p` alone is interactive-with-prompt. No custom slash commands; methodology loaded via inline skill content in the brief. |
 | **pi** | `pi -p "<brief>"` | `--model <model>` | text (default mode) | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Also supports `--mode text\|json\|rpc`; default text mode is used so `collect()`'s raw-stdout path works. |
 | **omp** | `omp -p "<brief>"` | `--model <model>` | text (default mode) | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. `--mode json` emits streaming JSONL `message_update` events (not a single JSON object), not worth parsing in v1, so default text mode is kept. `omp models ls --json` confirmed (used by discovery model probe). |
-| **opencode** | `opencode run "<brief>" --dangerously-skip-permissions` | `--model <model>` | raw stdout | `--dangerously-skip-permissions` required for non-interactive dispatch (detached worker has no TTY for permission prompts); `--model` forwarded only when a model is configured; final message is raw stdout (no demux). |
-| **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths` | `--model <model>` | raw stdout | `--allow-all-tools --allow-all-paths` required for non-interactive file writes (see RISK-ACCEPTED note below); `--model` forwarded only when configured; final message is raw stdout (no demux). |
 | **claude (worker)** | `claude -p "<brief>"` | `--model <model>` | `--output-format json` | Only as a *dispatched leaf worker*, never re-entering OMC. Harness label is `claude`; binary is `claude`. |
 
 Discovery (`agentic-team discover`) best-effort populates a `models: [...]`
 list per harness: omp via `omp models ls --json` (stdout parsed, stderr
 extension-load warnings tolerated) and cursor-agent via `cursor-agent
---list-models` (line-per-model text). claude/codex/gemini/kimi/pi/opencode/copilot
-have no reliable list command confirmed and always report `models: []`. Every probe
+--list-models` (line-per-model text). claude/codex/gemini/kimi/pi have no
+reliable list command confirmed and always report `models: []`. Every probe
 has a 10s timeout and fails silently to `[]` on any exception -- a broken
 probe never breaks `discover` as a whole.
-
-**RISK-ACCEPTED: copilot's `--allow-all-paths` grant.** Unlike every other
-harness above, copilot is dispatched with `--allow-all-paths` in addition to
-`--allow-all-tools`. Per `copilot --help`, both flags are required to get
-non-interactive operation at all -- copilot exposes no path-scoped equivalent
-(no `--sandbox` flag, no directory allowlist) -- so this is a deliberate
-trade-off of autonomy over sandboxed path-scoping, not an oversight. The
-PATH guardrail (section 3 below) does **not** mitigate this: it only
-intercepts bare-name re-entry to sibling CLIs, it is not a filesystem
-sandbox. `_cmd_dispatch` sets the copilot subprocess's `cwd` to the
-caller-supplied `--workdir` (a throwaway worktree/copy), but setting `cwd`
-only changes how *relative* paths resolve -- it does **not** block
-absolute-path reads or writes (`~/.ssh/id_rsa`, `/etc/...`, any path the
-brief spells out in full), and the subprocess still inherits the full parent
-environment, so ambient credentials in env vars remain reachable. Given the
-threat model is a prompt-influenced `brief_text`, `--allow-all-paths` is a
-genuine, deliberately-accepted risk whenever the brief is not fully trusted
--- it is **not a sandbox**. The disposable workdir limits the *relative*-path
-blast radius and keeps repo mutations isolated to a throwaway tree; it is
-not a filesystem confinement boundary. Operators must still pass a
-genuinely disposable `--workdir` for copilot dispatches and treat the brief
-as untrusted input, since the flag itself enforces nothing.
-
-**Operator opt-in gate.** Because this is the only harness that trades away
-worktree isolation, `_cmd_dispatch` refuses to launch a copilot worker unless
-the operator sets `AGENTIC_TEAM_ALLOW_COPILOT=1`. Merely listing `copilot` in
-`team.yml` is not enough -- dispatch fails fast (exit 2, before any run
-directory is created) with a message naming the env var. This makes the
-`--allow-all-paths` trade-off an explicit, auditable consent rather than an
-implicit side effect of configuration.
 
 **Binary-name map (discovery uses this, not the harness label):**
 
@@ -194,8 +167,6 @@ implicit side effect of configuration.
 | kimi | `kimi-cli` |
 | pi | `pi` |
 | omp | `omp` |
-| opencode | `opencode` |
-| copilot | `copilot` |
 | claude | `claude` |
 
 The binary-name map is the only per-harness hardcoded fact in the repo. It maps
@@ -224,11 +195,38 @@ codex this is `--sandbox read-only`. The `agentic-team discover` output records
 This is stronger than the PATH guardrail because it is enforced by the harness
 process itself, not by a wrapper script.
 
+### 2a. Cross-harness escalation (RISK-ACCEPTED note)
+
+Some harnesses have no read-only sandbox flag and must run with permissions
+relaxed to work non-interactively. These are the accepted-risk dispatch paths:
+
+- **opencode** runs with `--dangerously-skip-permissions` (and, where
+  applicable, `--allow-all-tools` / `--allow-all-paths`). This is required for
+  non-interactive dispatch; the workdir fence (§1) and the leaf-worker clause
+  (§4) are the containment for it, not a native sandbox.
+- **copilot** is gated behind an explicit opt-in: a copilot dispatch is
+  refused unless `AGENTIC_TEAM_ALLOW_COPILOT=1` is set, because its
+  non-interactive mode also relaxes permissions.
+
+Two dispatch defaults keep cross-harness escalation from happening silently:
+
+- **`dispatch.failover` defaults to `false`.** Failover re-runs the same brief
+  on a *different* harness (a different sandboxing posture and a different
+  provider's credentials), so it is opt-in per team via `dispatch.failover:
+  true` in `team.yml`. Same-harness retries (`dispatch.retries`) stay on the
+  original harness/model and are unaffected.
+- **The worker environment is an allowlist, not the conductor's full
+  `os.environ`.** A dispatched worker receives shell/locale/runtime basics,
+  recognized provider-auth variables, and the harness/provider prefixes this
+  tool dispatches to - not every unrelated credential in the parent
+  environment. Set `AGENTIC_TEAM_ENV_PASSTHROUGH=<comma-separated names>` to
+  force-forward extra variables for a non-standard setup.
+
 ### 3. PATH guardrail (accidental re-entry -- NOT a security sandbox)
 
 Each worker launch prepends a wrapper directory to `PATH`. Shims in that
 directory for `git`, `omc`, and all sibling CLI names (`codex`, `gemini`,
-`cursor-agent`, `kimi-cli`, `pi`, `omp`, `opencode`, `copilot`, `claude`) exit 1 and append a line to
+`cursor-agent`, `kimi-cli`, `pi`, `omp`, `claude`) exit 1 and append a line to
 `<workdir>/.agentic/teamrun/<run-id>/violations.log`. The worker's own binary
 is exempt (a codex worker can still run `codex`; its shim is not placed).
 
@@ -241,9 +239,8 @@ guarantee. Do not claim it provides enforcement beyond its design surface.
 
 Every worker brief includes the clause:
 
-> "You are a leaf worker: no sub-agents, no git, no oh-my-claudecode. Write
-> your output to the workdir and exit. Do not spawn any additional processes
-> beyond your own execution."
+> "You are a leaf worker: do not spawn sub-agents, do not run git, do not
+> invoke oh-my-claudecode."
 
 This relies on worker cooperation. It is defense-in-depth, not a hard fence.
 
@@ -338,8 +335,6 @@ returns the final message text:
 | cursor-agent | JSON | `jq '.result'` |
 | kimi | raw text (`--final-message-only`) | raw stdout |
 | pi / omp | raw text (default text mode) | raw stdout |
-| opencode | raw stdout | raw stdout, no demux |
-| copilot | raw stdout | raw stdout, no demux |
 | claude (worker) | JSON `{result: ...}` | `jq '.result'` |
 
 Once `collect` returns the final message, **that text is treated identically to
@@ -355,3 +350,23 @@ standard Skeptic and QA gates unchanged:
 
 No new gate, no bypass, no special case for cross-harness origin. The harness
 boundary is transparent to the Skeptic/QA layer.
+
+## Supervision, stall/timeout detection, and failover
+
+Every dispatched worker (all 9 harnesses, not just `cursor-agent`) runs under
+`bin/_supervise.py`'s `supervise()`: a background poll loop that watches
+stdout/stderr mtimes for a heartbeat, kills the whole process group
+(`os.killpg`) on stall (`EXIT_STALL`/125) or hard timeout (`EXIT_TIMEOUT`/124),
+and records every state transition to `<run-dir>/status.json`. `team.yml`'s
+optional `dispatch:` block (`timeout_seconds`, `stall_seconds`, `retries`,
+`failover`) tunes this per-project; unset keys fall back to
+`_supervise.py`'s per-harness stall defaults.
+
+On a nonzero exit (including a stall/timeout sentinel), dispatch advances a
+failover chain: same-harness retries first, then other models declared for
+the role in `team.yml`, then a terminal `claude` fallback -- writing
+`retrying` or `failed_over` to `status.json` at each step. The conductor
+should poll `agentic-team status --json` (no run-id) rather than raw file
+reads to narrate state transitions to the operator, since it reflects the
+current attempt/harness/model after any failover, not just the original
+dispatch parameters.

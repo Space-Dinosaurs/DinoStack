@@ -18,6 +18,8 @@ COPILOT_DIR="$REPO_DIR/.copilot"
 [[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
+# shellcheck source=scripts/lib/dormancy.sh
+[[ -f "$REPO_DIR/scripts/lib/dormancy.sh" ]] && . "$REPO_DIR/scripts/lib/dormancy.sh"
 
 # ---------------------------------------------------------------------------
 # Activation mode flags (shared across all adapters)
@@ -28,6 +30,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DORMANCY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out) AE_MODE_FLAG="${arg#--mode=}" ;;
@@ -36,8 +39,19 @@ for arg in "$@"; do
     --profile=*) echo "  ! ignoring unknown --profile value: ${arg#--profile=} (expected relaxed, default, or strict)" ;;
     --identity=*) AE_IDENTITY_FLAG="${arg#--identity=}" ;;
     --no-identity) AE_NO_IDENTITY=true ;;
+    --dormant|--resident) AE_DORMANCY_ARGS+=("$arg") ;;
   esac
 done
+
+# Copilot instructions live in the repo's project-scoped .github/, so the adapter
+# is inherently "dormant" per project (never a global always-on injection). We
+# accept --dormant/--resident for CLI uniformity and record the resolved mode,
+# but no separate stub artifact is needed. ponytail: project-scope IS the dormancy.
+if declare -f ae_resolve_dormancy >/dev/null 2>&1; then
+  AE_INSTALL_MODE="$(ae_resolve_dormancy "${AE_DORMANCY_ARGS[@]:-}")"
+else
+  AE_INSTALL_MODE="resident"
+fi
 
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 mkdir -p "$HOME/.claude"

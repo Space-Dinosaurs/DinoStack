@@ -239,6 +239,9 @@ def test_normal_skill_allowed_when_sentinel_live():
 def test_foreground_task_denied_no_sentinel():
     """Existing behavior: Task without run_in_background denied (no sentinel)."""
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Activation guard: .agentic/ dir makes project auto-detect ACTIVE
+        # (without the sentinel file), preserving this test's no-sentinel intent.
+        os.makedirs(os.path.join(tmpdir, ".agentic"), exist_ok=True)
         payload = {
             "tool_name": "Task",
             "cwd": tmpdir,
@@ -485,6 +488,8 @@ def test_agent_denied_when_run_in_background_false():
     spawn.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
+        # Activation guard: .agentic/ makes project auto-detect ACTIVE.
+        os.makedirs(os.path.join(tmpdir, ".agentic"), exist_ok=True)
         payload = {
             "tool_name": "Agent",
             "cwd": tmpdir,

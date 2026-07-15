@@ -41,8 +41,8 @@ Downstream consumers: Claude Code hook runner (Stop event, matcher "*"). Wired
 Failure modes:
     - Malformed stdin: fail-open (exit 0, emit nothing). Hook bugs must never
       brick the session - fail-open preserves default CC behavior.
-    - Missing or malformed config.json: fail-open (exit 0). Guard is on by default
-      (abdication_guard_enabled defaults to true); corrupt/missing config fails open.
+    - Missing or malformed config.json: fail-open (exit 0). Default is opt-out
+      (abdication_guard_enabled not exactly true = exit 0).
     - Missing transcript file or unparseable JSONL: fail-open (exit 0).
     - Any exception: fail-open via outer try/except (exit 0).
     - stop_hook_active=true: exit 0 immediately (primary re-entrancy guard).
@@ -68,6 +68,27 @@ import json
 import os
 import re
 import sys
+from pathlib import Path
+
+
+def _is_active(cwd) -> bool:
+    """Activation guard: True when methodology is active for *cwd* (fail-ACTIVE).
+
+    Loads hooks/lib/activation.py; any error returns True so a guard bug never
+    silently disables enforcement for active users (plan R3).
+    """
+    try:
+        import importlib.machinery as _im
+        import importlib.util as _iu
+
+        lib = Path(__file__).resolve().parent / "lib" / "activation.py"
+        loader = _im.SourceFileLoader("_ae_activation", str(lib))
+        spec = _iu.spec_from_loader("_ae_activation", loader)
+        mod = _iu.module_from_spec(spec)  # type: ignore[arg-type]
+        loader.exec_module(mod)
+        return bool(mod.is_active(cwd))
+    except Exception:
+        return True
 
 # Kill-switch: set this env var to 1 to disable enforcement entirely.
 KILL_SWITCH_ENV = "AE_ABDICATION_GUARD_DISABLE"
@@ -401,8 +422,13 @@ def main() -> None:
         if not cwd:
             sys.exit(0)
 
-        # Read project config. Default on (abdication_guard_enabled defaults to
-        # true). Fail-open on any read/parse error.
+        # Activation guard: no-op in dormant projects (honors .agentic/dormant
+        # tombstone even when config.json is present). Fail-ACTIVE on error.
+        if not _is_active(cwd):
+            sys.exit(0)
+
+        # Read project config. Default off (abdication_guard_enabled not exactly
+        # true = exit 0). Fail-open on any read/parse error.
         config_path = os.path.join(cwd, ".agentic", "config.json")
         try:
             with open(config_path, "r") as f:

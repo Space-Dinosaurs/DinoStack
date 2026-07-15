@@ -223,6 +223,17 @@ const { execSync } = require('child_process');
 // share one atomic, fail-open implementation.
 const wrapMarker = require('./lib/wrap-marker.js');
 
+// Activation guard: dormant projects skip all Stop-hook side effects, including
+// the events.jsonl write. Fail-ACTIVE if the lib is missing (require throws ->
+// caught below at the call site), so a guard bug never silently kills telemetry
+// for active users.
+let _activation = null;
+try {
+  _activation = require('./lib/activation.js');
+} catch (_) {
+  _activation = null;
+}
+
 // Shared capture-gap detector extracted to hooks/lib/capture-gap.js so the
 // Stop-hook backstop below and the in-session PostToolUse(Task) nudge
 // (hooks/post-tool-use-capture-nudge.js) share one implementation. Only
@@ -1180,6 +1191,15 @@ function run() {
   // --- 3. Extract fields (all optional — guard every access) ---
   const cwd = (typeof payload.cwd === 'string' && payload.cwd.trim()) ? payload.cwd.trim() : null;
   if (!cwd) process.exit(0);
+
+  // --- 3a. Activation guard: dormant projects skip ALL Stop side effects,
+  // including the events.jsonl session-total write. Fail-ACTIVE when the lib is
+  // absent (guard bug must never silently kill telemetry for active users). ---
+  if (_activation) {
+    try {
+      if (!_activation.isActive(cwd)) process.exit(0);
+    } catch (_) { /* fail-ACTIVE: fall through and run normally */ }
+  }
 
   const sessionId = (typeof payload.session_id === 'string' && payload.session_id.trim())
     ? payload.session_id.trim()

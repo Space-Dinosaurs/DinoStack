@@ -138,6 +138,10 @@ for existing_dir in "$KIMI_DIR/skills/"*/; do
 done
 
 for cmd_file in "$CONTENT/commands/"*.md; do
+  # Skip the annotated body source - it's an input to scripts/build-commands.sh, not a generated body.
+  case "$(basename "$cmd_file")" in
+    implement-ticket-body.md) continue ;;
+  esac
   cmd_name="$(basename "$cmd_file" .md)"
   cmd_skill_dir="$KIMI_DIR/skills/$cmd_name"
   mkdir -p "$cmd_skill_dir"

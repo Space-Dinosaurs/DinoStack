@@ -49,6 +49,10 @@ export REPO_DIR
 [[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
+# shellcheck source=scripts/lib/dormancy.sh
+[[ -f "$REPO_DIR/scripts/lib/dormancy.sh" ]] && . "$REPO_DIR/scripts/lib/dormancy.sh"
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
 
 # ---------------------------------------------------------------------------
 # Run build first (generates AGENTS.md and symlinks)
@@ -66,6 +70,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_DORMANCY_ARGS=()
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out)
@@ -86,8 +91,17 @@ for arg in "$@"; do
     --no-identity)
       AE_NO_IDENTITY=true
       ;;
+    --dormant|--resident)
+      AE_DORMANCY_ARGS+=("$arg")
+      ;;
   esac
 done
+
+if declare -f ae_resolve_dormancy >/dev/null 2>&1; then
+  AE_INSTALL_MODE="$(ae_resolve_dormancy "${AE_DORMANCY_ARGS[@]:-}")"
+else
+  AE_INSTALL_MODE="resident"
+fi
 
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 mkdir -p "$HOME/.claude"
@@ -283,10 +297,15 @@ link_abs() {
   fi
 }
 
-# SKILL.md: point at the actual content file, not the intermediate repo symlink.
-# Using $REPO_DIR/content/SKILL.md avoids a self-referential link when $SKILL_DST
-# is a stale dir-symlink pointing at $SKILL_SRC.
-link_abs "$REPO_DIR/content/SKILL.md"  "$SKILL_DST/SKILL.md"
+# SKILL.md: resident links the full methodology; dormant writes the stub instead.
+# The stub instructs conditional read of METHODOLOGY.md (in this skill dir) when
+# the project is active. Using $REPO_DIR/content/SKILL-full.md as the link source
+# avoids a self-referential link when $SKILL_DST is a stale dir-symlink.
+if [[ "$AE_INSTALL_MODE" == "dormant" ]] && declare -f ae_install_stub_file >/dev/null 2>&1; then
+  ae_install_stub_file "$SKILL_DST/SKILL.md" "$SKILL_DST/METHODOLOGY.md"
+else
+  link_abs "$REPO_DIR/content/SKILL-full.md"  "$SKILL_DST/SKILL.md"
+fi
 
 link_abs "$REPO_DIR/content/commands"   "$SKILL_DST/commands"
 link_abs "$REPO_DIR/content/references" "$SKILL_DST/references"

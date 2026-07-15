@@ -91,6 +91,10 @@ done
 # ---------------------------------------------------------------------------
 
 for src in "$CONTENT/commands/"*.md; do
+  # Skip the annotated body source - it's an input to scripts/build-commands.sh, not a generated body.
+  case "$(basename "$src")" in
+    implement-ticket-body.md) continue ;;
+  esac
   [[ -e "$src" ]] || continue
   name="$(basename "$src" .md)"
   dst="$COMMANDS_DST/$name.md"

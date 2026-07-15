@@ -28,7 +28,7 @@
  *   Node built-ins: fs, path. No npm dependencies.
  *
  * Downstream consumers: content/commands/wrap.md (Step 6 + mandatory-release
- *   block), content/commands/implement-ticket.md Phase 11b (conductor-run lock
+ *   block), content/commands/implement-ticket-full.md Phase 11b (conductor-run lock
  *   release after wrap-ticket returns). NOT the deferred path: /wrap-deferred and
  *   the daemon clear the lock via clearProvablyStaleWrapLock (Bash removed there).
  *   Lock path: .agentic/wrap/lock (resolved via lib.wrapLockPath; fallback to

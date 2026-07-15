@@ -1,3 +1,4 @@
+<!-- tiers: full medium -->
 ## Capability Preflight
 
 Before every Agent spawn, the conductor reads the target agent's `capabilities:` block (if present) and verifies that all declared tools are available in the current environment. Absent block = no-op for that agent.

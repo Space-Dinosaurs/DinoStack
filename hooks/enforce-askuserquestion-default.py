@@ -44,6 +44,27 @@ Performance: < 1 ms per call (pure in-memory JSON parse + bounded iteration over
 
 import json
 import sys
+from pathlib import Path
+
+
+def _is_active(cwd) -> bool:
+    """Activation guard: True when methodology is active for *cwd* (fail-ACTIVE).
+
+    Loads hooks/lib/activation.py; any error returns True so a guard bug never
+    silently disables enforcement for active users (plan R3).
+    """
+    try:
+        import importlib.machinery as _im
+        import importlib.util as _iu
+
+        lib = Path(__file__).resolve().parent / "lib" / "activation.py"
+        loader = _im.SourceFileLoader("_ae_activation", str(lib))
+        spec = _iu.spec_from_loader("_ae_activation", loader)
+        mod = _iu.module_from_spec(spec)  # type: ignore[arg-type]
+        loader.exec_module(mod)
+        return bool(mod.is_active(cwd))
+    except Exception:
+        return True
 
 
 def _has_recommended_label(options) -> bool:
@@ -64,6 +85,10 @@ def main() -> None:
         try:
             data = json.load(sys.stdin)
         except Exception:
+            sys.exit(0)
+
+        # Activation guard: no-op in dormant projects. cwd absent -> fail-ACTIVE.
+        if not _is_active(data.get("cwd")):
             sys.exit(0)
 
         # Only enforce on AskUserQuestion. All other tools passthrough.

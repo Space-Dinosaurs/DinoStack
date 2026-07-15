@@ -29,6 +29,8 @@ from __future__ import annotations
 import importlib.machinery
 import importlib.util
 import json
+import os
+import subprocess
 import sys
 import textwrap
 from pathlib import Path
@@ -53,6 +55,8 @@ _validate_config = _mod._validate_config
 _role_entry = _mod._role_entry
 _resolve_role_model = _mod._resolve_role_model
 _parse_team_yml = _mod._parse_team_yml
+_rotation_cursor_next = _mod._rotation_cursor_next
+ROTATION_DIR = _mod.ROTATION_DIR
 main = _mod.main
 
 # ---------------------------------------------------------------------------
@@ -870,22 +874,31 @@ def _dispatch_via_subprocess(
     brief_file: Path,
     harness: str = "codex",
     role: str = "engineer",
+    project_config: Path | None = None,
 ) -> tuple[int, str]:
     """Run dispatch as a subprocess with fake_bin_dir prepended to PATH.
 
+    Optionally loads *project_config* as the project team.yml.
     Returns (returncode, run_id_or_stderr).
     """
     import sys as _sys
     env_patch = dict(_os.environ)
     env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
     agentic_team_path = str(_BIN / "agentic-team")
+    argv = [
+        _sys.executable, agentic_team_path,
+    ]
+    if project_config is not None:
+        argv.extend(["--project-config", str(project_config)])
+    argv.extend([
+        "dispatch",
+        "--harness", harness,
+        "--role", role,
+        "--brief", str(brief_file),
+        "--workdir", str(workdir),
+    ])
     result = _subprocess_mod.run(
-        [_sys.executable, agentic_team_path,
-         "dispatch",
-         "--harness", harness,
-         "--role", role,
-         "--brief", str(brief_file),
-         "--workdir", str(workdir)],
+        argv,
         capture_output=True,
         text=True,
         env=env_patch,
@@ -1087,6 +1100,25 @@ def test_make_run_id_contains_role():
     assert "qa-engineer" in rid, f"role not in run-id: {rid!r}"
 
 
+def test_resolve_run_dir_rejects_path_traversal(tmp_path):
+    """_resolve_run_dir must not let a crafted run-id escape teamrun/."""
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    teamrun = workdir / ".agentic" / "teamrun"
+    teamrun.mkdir(parents=True)
+    legit = teamrun / "engineer-0001-12345-abcd"
+    legit.mkdir()
+
+    # A real run-id resolves to its directory.
+    assert _mod._resolve_run_dir("engineer-0001-12345-abcd", workdir) == legit
+    # A missing-but-well-formed id returns None (not an escape).
+    assert _mod._resolve_run_dir("engineer-9999-12345-ffff", workdir) is None
+
+    # Traversal / separator / absolute / NUL / empty inputs are all rejected.
+    for bad in ["../escape", "..", ".", "/abs", "a/b", "a\\b", "", "evil\x00id", "teamrun/.."]:
+        assert _mod._resolve_run_dir(bad, workdir) is None, f"{bad!r} must be rejected"
+
+
 # ===========================================================================
 # New tests: reaper, killpg watchdog, mkdir guard, run-id urandom suffix
 # ===========================================================================
@@ -1102,11 +1134,21 @@ def test_reaper_writes_exit_zero_on_success(tmp_path):
     workdir = tmp_path / "worker_wd"
     workdir.mkdir()
 
+    # Disable retries/failover so a single worker attempt is deterministic.
+    config_file = workdir / ".agentic" / "team.yml"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(
+        "dispatch:\n  retries: 0\n  failover: false\n",
+        encoding="utf-8",
+    )
+
     # _make_fake_exec produces a binary that prints stdout_payload and exits 0.
     fake_bin_dir = _make_fake_exec(tmp_path, "codex", '{"result":"ok"}')
     brief_file = _make_brief_file(tmp_path)
 
-    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    rc, run_id = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file, project_config=config_file
+    )
     assert rc == 0, f"dispatch failed: {run_id}"
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
@@ -1125,6 +1167,14 @@ def test_reaper_writes_exit_nonzero_on_failure(tmp_path):
     workdir = tmp_path / "worker_wd"
     workdir.mkdir()
 
+    # Disable retries/failover so a single failed attempt writes the exit file.
+    config_file = workdir / ".agentic" / "team.yml"
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+    config_file.write_text(
+        "dispatch:\n  retries: 0\n  failover: false\n",
+        encoding="utf-8",
+    )
+
     # Fake codex that exits with code 3.
     fake_bin_dir = tmp_path / "fake_bin_fail"
     fake_bin_dir.mkdir()
@@ -1139,7 +1189,9 @@ def test_reaper_writes_exit_nonzero_on_failure(tmp_path):
 
     brief_file = _make_brief_file(tmp_path)
 
-    rc, run_id = _dispatch_via_subprocess(tmp_path, workdir, fake_bin_dir, brief_file)
+    rc, run_id = _dispatch_via_subprocess(
+        tmp_path, workdir, fake_bin_dir, brief_file, project_config=config_file
+    )
     assert rc == 0, f"dispatch failed: {run_id}"
 
     run_dir = workdir / ".agentic" / "teamrun" / run_id
@@ -1172,62 +1224,6 @@ def test_collect_exit_code_reflects_worker_success(tmp_path, capsys):
     args = _argparse.Namespace(run_id=run_id, workdir=str(workdir))
     collect_rc = _mod._cmd_collect(args)
     assert collect_rc == 0, f"collect must return 0 for a successful run, got {collect_rc}"
-
-
-def test_watchdog_uses_killpg(tmp_path, monkeypatch):
-    """MAJOR regression: _cursor_watchdog calls os.killpg, not proc.kill().
-
-    We verify by monkeypatching os.killpg and confirming it is called when
-    the watchdog fires a timeout, and that exit=124 is written.
-    """
-    import subprocess as _sp
-    import time as _time
-
-    run_dir = tmp_path / "run_watchdog"
-    run_dir.mkdir()
-
-    killpg_calls: list[tuple[int, int]] = []
-
-    def fake_killpg(pgid: int, sig: int) -> None:
-        killpg_calls.append((pgid, sig))
-
-    monkeypatch.setattr(_mod._os if hasattr(_mod, "_os") else _os, "killpg", fake_killpg, raising=False)
-    # Also patch on the os module that agentic-team imported at load time.
-    import os as _real_os
-    original_killpg = _real_os.killpg
-    _real_os.killpg = fake_killpg  # type: ignore[assignment]
-
-    try:
-        # Spawn a real long-running process so proc.pid and pgid are valid.
-        proc = _sp.Popen(
-            ["sleep", "60"],
-            stdout=_sp.DEVNULL,
-            stderr=_sp.DEVNULL,
-            start_new_session=True,
-        )
-        timed_out_flag: list[bool] = [False]
-        # Use timeout=0 so the watchdog fires immediately.
-        _mod._cursor_watchdog(proc, timeout=0, run_dir=run_dir, timed_out_flag=timed_out_flag)
-
-        # Give the watchdog thread time to fire.
-        deadline = _time.monotonic() + 3.0
-        while not (run_dir / "exit").exists() and _time.monotonic() < deadline:
-            _time.sleep(0.05)
-
-        # Clean up the process in case killpg was bypassed.
-        try:
-            proc.kill()
-            proc.wait(timeout=2)
-        except Exception:
-            pass
-    finally:
-        _real_os.killpg = original_killpg  # type: ignore[assignment]
-
-    assert killpg_calls, "os.killpg must be called by the watchdog on timeout"
-    assert timed_out_flag[0] is True, "timed_out_flag must be set by watchdog"
-    assert (run_dir / "exit").exists(), "watchdog must write exit file"
-    exit_val = (run_dir / "exit").read_text(encoding="utf-8").strip()
-    assert exit_val == "124", f"watchdog must write exit=124, got {exit_val!r}"
 
 
 def test_dispatch_mkdir_guard_unwritable_parent(tmp_path, monkeypatch):
@@ -1337,12 +1333,13 @@ def test_dispatch_model_accepted_for_kimi_no_reject(tmp_path, monkeypatch):
 
     class _FakeProc:
         pid = 12345
+        returncode = 0
 
         def poll(self):
-            return 0
+            return self.returncode
 
         def wait(self, timeout=None):
-            return 0
+            return self.returncode
 
     def _fake_popen(argv, *a, **k):
         captured["argv"] = argv
@@ -1451,6 +1448,105 @@ def test_is_live_readonly_pure():
         # exit file present -> terminal -> not live, regardless of pid
         (rd / "exit").write_text("0\n", encoding="utf-8")
         assert _is_live_readonly(rd) is False
+
+# --- status.json-driven liveness (new supervisor states) -------------------
+
+import json as _json
+
+
+def _make_status_run(tmp_path: Path, run_id: str, status: dict) -> Path:
+    """Create a run dir whose liveness is governed solely by status.json.
+
+    No pid file: any answer from this dir must come from status.json, never
+    from the legacy PID fallback.
+    """
+    rd = tmp_path / run_id
+    rd.mkdir(parents=True, exist_ok=True)
+    (rd / "status.json").write_text(_json.dumps(status), encoding="utf-8")
+    return rd
+
+
+@pytest.mark.parametrize(
+    "state,expected_live",
+    [
+        ("running", True),
+        ("retrying", True),
+        ("failed_over", True),
+        ("done", False),
+        ("failed", False),
+        ("killed", False),
+        ("unkillable", False),
+    ],
+)
+def test_is_live_readonly_status_json_states(tmp_path, state, expected_live):
+    """status.json drives liveness for every documented supervisor state."""
+    rd = _make_status_run(tmp_path, f"engineer-{state}-1", {"state": state})
+    assert _is_live_readonly(rd) is expected_live, (
+        f"state={state!r}: expected live={expected_live}"
+    )
+
+
+def test_is_live_readonly_status_json_overrides_dead_pid(tmp_path):
+    """An in-progress status.json beats a dead-pid legacy signal."""
+    rd = _make_status_run(tmp_path, "engineer-retry-1", {"state": "retrying"})
+    (rd / "pid").write_text("999999\n", encoding="utf-8")  # dead pid
+    assert _is_live_readonly(rd) is True
+
+
+def test_is_live_readonly_status_json_overrides_live_pid(tmp_path):
+    """A terminal status.json beats a live pid with no exit file."""
+    rd = _make_status_run(tmp_path, "engineer-done-1", {"state": "done", "exit_code": 0})
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")  # alive
+    assert _is_live_readonly(rd) is False
+
+
+def test_is_live_readonly_malformed_status_json_falls_back(tmp_path):
+    """Corrupt status.json -> legacy fallback (read_status returns None)."""
+    rd = tmp_path / "engineer-corrupt-1"
+    rd.mkdir(parents=True)
+    (rd / "status.json").write_text("{not valid json", encoding="utf-8")
+    # Live pid, no exit file -> legacy path reports live.
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
+    # Exit file present -> legacy path reports terminal.
+    (rd / "exit").write_text("0\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is False
+
+
+def test_is_live_readonly_status_json_missing_state_falls_back(tmp_path):
+    """status.json without a 'state' key -> legacy fallback."""
+    rd = tmp_path / "engineer-nostate-1"
+    rd.mkdir(parents=True)
+    (rd / "status.json").write_text(
+        _json.dumps({"run_id": "engineer-nostate-1", "attempt": 1}),
+        encoding="utf-8",
+    )
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
+    (rd / "exit").write_text("1\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is False
+
+
+def test_is_live_readonly_status_json_unknown_state_falls_back(tmp_path):
+    """Unknown/empty state value -> legacy fallback, not a guessed answer."""
+    rd = tmp_path / "engineer-bogus-1"
+    rd.mkdir(parents=True)
+    (rd / "status.json").write_text(
+        _json.dumps({"state": "hibernating"}), encoding="utf-8"
+    )
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
+    (rd / "exit").write_text("0\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is False
+
+
+def test_is_live_readonly_status_json_empty_file_falls_back(tmp_path):
+    """Empty status.json -> read_status None -> legacy fallback."""
+    rd = tmp_path / "engineer-empty-1"
+    rd.mkdir(parents=True)
+    (rd / "status.json").write_text("", encoding="utf-8")
+    (rd / "pid").write_text(str(_os.getpid()) + "\n", encoding="utf-8")
+    assert _is_live_readonly(rd) is True
 
 
 # ===========================================================================
@@ -1754,3 +1850,477 @@ def test_explicit_model_overrides_team_yml(monkeypatch):
     explicit = "glm/glm-5.2"
     resolved = explicit or _resolve_role_model("engineer", "omp")
     assert resolved == "glm/glm-5.2"
+
+
+# ===========================================================================
+# Failover chain: _build_failover_chain shape + e2e chain advancement
+# ===========================================================================
+
+_build_failover_chain = _mod._build_failover_chain
+_dispatch_settings = _mod._dispatch_settings
+_scoped_worker_env = _mod._scoped_worker_env
+
+
+def test_failover_defaults_off_consent_gate():
+    """Cross-harness/model failover is OFF by default: an empty (or dispatch-less)
+    team.yml must resolve failover=False, so cross-harness escalation only
+    happens when the operator explicitly opts in via dispatch.failover: true."""
+    assert _dispatch_settings({}) ["failover"] is False
+    assert _dispatch_settings({"dispatch": {}})["failover"] is False
+    # Explicit opt-in is honored.
+    assert _dispatch_settings({"dispatch": {"failover": True}})["failover"] is True
+    # Same-harness retries stay enabled by default (not gated).
+    assert _dispatch_settings({})["retries"] == 1
+
+
+def test_scoped_worker_env_allowlists_not_full_environ(monkeypatch, tmp_path):
+    """_scoped_worker_env forwards shell/locale basics, provider-auth vars, and
+    harness prefixes - but NOT arbitrary unrelated secrets from os.environ."""
+    monkeypatch.setenv("HOME", "/home/tester")
+    monkeypatch.setenv("LANG", "en_US.UTF-8")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-anthropic")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    monkeypatch.setenv("CURSOR_TOKEN", "cur-tok")
+    monkeypatch.setenv("AGENTIC_TEAM_FOO", "1")
+    # Unrelated secrets that must NOT leak to a dispatched worker:
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "leak-aws")
+    monkeypatch.setenv("STRIPE_SECRET", "leak-stripe")
+    monkeypatch.setenv("MY_DATABASE_PASSWORD", "leak-db")
+    monkeypatch.delenv("AGENTIC_TEAM_ENV_PASSTHROUGH", raising=False)
+
+    shim = tmp_path / "shim"; shim.mkdir()
+    env = _scoped_worker_env(shim, None)
+
+    # Forwarded:
+    assert env["HOME"] == "/home/tester"
+    assert env["LANG"] == "en_US.UTF-8"
+    assert env["ANTHROPIC_API_KEY"] == "sk-anthropic"   # provider prefix
+    assert env["OPENAI_API_KEY"] == "sk-openai"         # provider prefix
+    assert env["CURSOR_TOKEN"] == "cur-tok"             # prefix + _TOKEN marker
+    assert env["AGENTIC_TEAM_FOO"] == "1"               # AGENTIC_ prefix
+    assert env["PATH"].startswith(str(shim) + os.pathsep)
+    # Dropped (unrelated credentials):
+    assert "AWS_SECRET_ACCESS_KEY" not in env, "AWS secret leaked to worker env"
+    assert "STRIPE_SECRET" not in env, "Stripe secret leaked to worker env"
+    assert "MY_DATABASE_PASSWORD" not in env, "DB password leaked to worker env"
+
+
+def test_scoped_worker_env_passthrough_escape_hatch(monkeypatch, tmp_path):
+    """AGENTIC_TEAM_ENV_PASSTHROUGH force-forwards named vars the allowlist would
+    otherwise drop, so a non-standard auth setup is never silently broken."""
+    monkeypatch.setenv("WEIRD_PROVIDER_CRED", "needed")
+    monkeypatch.setenv("ALSO_DROP_ME", "nope")
+    monkeypatch.setenv("AGENTIC_TEAM_ENV_PASSTHROUGH", "WEIRD_PROVIDER_CRED")
+    shim = tmp_path / "shim"; shim.mkdir()
+    env = _scoped_worker_env(shim, None)
+    assert env["WEIRD_PROVIDER_CRED"] == "needed", "passthrough var must be forwarded"
+    assert "ALSO_DROP_ME" not in env, "non-listed var must still be dropped"
+
+
+def test_scoped_worker_env_sets_disable_flag(monkeypatch, tmp_path):
+    """The native-subagent-disable flag is set in the scoped env when provided."""
+    monkeypatch.setenv("HOME", "/home/tester")
+    shim = tmp_path / "shim"; shim.mkdir()
+    env = _scoped_worker_env(shim, "SOME_DISABLE_FLAG")
+    assert env["SOME_DISABLE_FLAG"] == "1"
+    env2 = _scoped_worker_env(shim, None)
+    assert "SOME_DISABLE_FLAG" not in env2
+
+
+def test_failover_chain_retries_only_when_failover_false():
+    """failover=false -> just the same (harness, model) repeated 1+retries times;
+    no other-model or terminal-claude fallback is appended."""
+    chain = _build_failover_chain(
+        "omp", "glm/glm-5.2", "engineer", retries=2, failover=False, config={})
+    assert chain == [("omp", "glm/glm-5.2")] * 3, chain
+
+
+def test_failover_chain_zero_retries_single_attempt():
+    """retries=0, failover=false -> exactly one attempt (the max(1, 1+retries) floor)."""
+    chain = _build_failover_chain(
+        "omp", "glm/glm-5.2", "engineer", retries=0, failover=False, config={})
+    assert chain == [("omp", "glm/glm-5.2")], chain
+
+
+def test_failover_chain_appends_other_models_then_claude():
+    """failover=true -> same-harness retries, then every OTHER model declared for
+    the role (same harness), then a terminal ('claude', None) fallback."""
+    config = {
+        "roles": {
+            "engineer": {"harness": "omp", "models": ["glm/glm-5.2", "kimi/kimi-k2.7"]},
+        }
+    }
+    chain = _build_failover_chain(
+        "omp", "glm/glm-5.2", "engineer", retries=1, failover=True, config=config)
+    # 1+retries same-harness attempts, then the other model, then claude terminal.
+    assert chain == [
+        ("omp", "glm/glm-5.2"),
+        ("omp", "glm/glm-5.2"),
+        ("omp", "kimi/kimi-k2.7"),
+        ("claude", None),
+    ], chain
+
+
+def test_failover_chain_no_terminal_claude_when_already_claude():
+    """A claude-harness role does not get a redundant ('claude', None) terminal."""
+    chain = _build_failover_chain(
+        "claude", None, "engineer", retries=1, failover=True, config={})
+    assert chain == [("claude", None), ("claude", None)], chain
+
+
+def _make_seq_exec(tmp_path: Path, binary_name: str, exit_codes: list[int]) -> Path:
+    """Fake binary that fails/succeeds by attempt number.
+
+    Uses a shared counter file so successive invocations (across dispatch's
+    failover attempts) return successive *exit_codes* entries; the final entry
+    is reused once the list is exhausted. Lets an e2e test force attempt 1 to
+    fail and attempt 2 to succeed without any real CLI.
+    """
+    bin_dir = tmp_path / f"seq_bin_{binary_name}"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    counter = bin_dir / "count"
+    counter.write_text("0", encoding="utf-8")
+    codes = " ".join(str(c) for c in exit_codes)
+    script = bin_dir / binary_name
+    script.write_text(
+        "#!/bin/sh\n"
+        f'CF="{counter}"\n'
+        f'CODES="{codes}"\n'
+        'n=$(cat "$CF" 2>/dev/null || echo 0)\n'
+        'i=0; sel=""\n'
+        'for c in $CODES; do\n'
+        '  if [ "$i" -eq "$n" ]; then sel="$c"; fi\n'
+        '  i=$((i+1))\n'
+        'done\n'
+        '[ -z "$sel" ]  && sel="$c"\n'   # exhausted: reuse last
+        'echo $((n+1)) > "$CF"\n'
+        'printf \'{"done":true}\'\n'
+        'exit "$sel"\n',
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+    return bin_dir
+
+
+def _wait_for_terminal_status(run_dir: Path, timeout: float = 15.0):
+    """Poll status.json until state is a terminal (done/failed), or timeout.
+
+    Returns the parsed status dict (or None if never terminal)."""
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        st = _mod._sup_mod.read_status(run_dir)
+        if st and st.get("state") in ("done", "failed"):
+            return st
+        _time.sleep(0.05)
+    return _mod._sup_mod.read_status(run_dir)
+
+
+def test_dispatch_failover_advances_chain_on_first_attempt_failure(tmp_path):
+    """e2e: with retries>=1, a first-attempt failure advances the chain and the
+    run ultimately succeeds - the reliability feature this PR is built around.
+
+    Attempt 1 (omp) exits 1; attempt 2 (omp retry) exits 0. Asserts:
+      - final status is 'done' at attempt 2,
+      - a 'retrying' transition was recorded for the failed attempt 1,
+      - the exit file reflects success (0).
+    """
+    proj = tmp_path / "proj"; proj.mkdir()
+    (proj / ".agentic").mkdir()
+    (proj / ".agentic" / "team.yml").write_text(
+        "enabled: true\n"
+        "default_harness: omp\n"
+        "dispatch:\n"
+        "  retries: 1\n"
+        "  failover: true\n"
+        "  stall_seconds: 30\n"
+        "  timeout_seconds: 60\n"
+        "roles:\n"
+        "  engineer:\n"
+        "    harness: omp\n"
+        "    model: glm/glm-5.2\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "wd"; workdir.mkdir()
+    # Attempt 1 fails (exit 1); attempt 2 succeeds (exit 0).
+    fake_bin_dir = _make_seq_exec(tmp_path, "omp", [1, 0])
+    brief_file = _make_brief_file(tmp_path)
+
+    import sys as _sys
+    env_patch = dict(_os.environ)
+    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    result = _subprocess_mod.run(
+        [_sys.executable, str(_BIN / "agentic-team"),
+         "--project-config", str(proj / ".agentic" / "team.yml"),
+         "dispatch", "--harness", "omp", "--role", "engineer",
+         "--brief", str(brief_file), "--workdir", str(workdir)],
+        capture_output=True, text=True, cwd=str(proj), env=env_patch,
+    )
+    assert result.returncode == 0, result.stderr
+    run_dir = workdir / ".agentic" / "teamrun" / result.stdout.strip()
+
+    status = _wait_for_terminal_status(run_dir, timeout=15.0)
+    assert status is not None, "status.json never reached a terminal state"
+    assert status.get("state") == "done", (
+        f"expected final state 'done' after failover, got {status.get('state')!r}"
+    )
+    assert status.get("attempt") == 2, (
+        f"expected success on attempt 2, got attempt {status.get('attempt')!r}"
+    )
+    # The failed attempt 1 must have recorded a retrying transition (same harness).
+    transitions = status.get("transitions") or []
+    states = [t.get("to") for t in transitions]
+    assert "retrying" in states, (
+        f"expected a 'retrying' transition after attempt 1's failure, got {states}"
+    )
+    _wait_for_exit_file(run_dir, timeout=10.0)
+    assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0", (
+        "exit file must reflect the successful retry"
+    )
+
+
+# ===========================================================================
+# D-2: round-robin rotation cursor tests
+# ===========================================================================
+
+def _use_tmp_rotation(monkeypatch, tmp_path: Path) -> Path:
+    """Redirect module-level ROTATION_DIR to a temp dir for hermetic tests."""
+    rotation_dir = tmp_path / "rotation"
+    monkeypatch.setattr(_mod, "ROTATION_DIR", rotation_dir)
+    return rotation_dir
+
+
+def test_single_model_unchanged(monkeypatch, tmp_path):
+    """A one-entry models list always resolves to index 0 and does not rotate."""
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    assert _rotation_cursor_next("engineer", 1) == 0
+    assert _rotation_cursor_next("engineer", 1) == 0
+    # No cursor file should be created for n <= 1.
+    assert not (tmp_path / "rotation" / "engineer").exists()
+
+
+def test_round_robin_rotation_is_deterministic(monkeypatch, tmp_path):
+    """Successive calls of the same role rotate deterministically through indices."""
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    got = [_rotation_cursor_next("engineer", 3) for _ in range(5)]
+    assert got == [0, 1, 2, 0, 1]
+
+
+def test_round_robin_per_role_independent(monkeypatch, tmp_path):
+    """Each role has its own durable cursor file."""
+    _use_tmp_rotation(monkeypatch, tmp_path)
+    assert _rotation_cursor_next("engineer", 3) == 0
+    assert _rotation_cursor_next("skeptic", 3) == 0
+    assert _rotation_cursor_next("engineer", 3) == 1
+    assert _rotation_cursor_next("skeptic", 3) == 1
+
+
+def test_rotation_cursor_next_reads_rot_dir_at_call_time(monkeypatch, tmp_path):
+    """The default rotation_dir is resolved at call time, not import time."""
+    # Without monkeypatching, the function uses the real ROTATION_DIR.
+    rotation_dir = _use_tmp_rotation(monkeypatch, tmp_path)
+    # The function must observe the monkeypatched ROTATION_DIR.
+    _rotation_cursor_next("engineer", 3)
+    assert (rotation_dir / "engineer").exists()
+
+
+def test_models_list_harness_mismatch_returns_none(monkeypatch):
+    """A role with a models list for a different harness must not leak models."""
+    _patch_team_config(monkeypatch, {
+        "roles": {"engineer": {"harness": "codex", "models": ["gpt-5.5", "gpt-5.6"]}},
+    })
+    assert _resolve_role_model("engineer", "omp") is None
+
+
+def test_models_wins_over_invalid_model(monkeypatch, tmp_path):
+    """When both 'model' (invalid) and 'models' (valid) are present, models wins
+    and validation ignores the unused invalid model field."""
+    team_yml = _write(tmp_path, "team.yml", """
+        enabled: true
+        default_harness: omp
+        roles:
+          engineer:
+            harness: omp
+            model: []
+            models:
+              - kimi/kimi-k2.7
+              - glm/glm-5.2
+    """)
+    config = _load_team_config(global_path=Path("/dev/null"), project_path=team_yml)
+    errors = _validate_config(config, source=str(team_yml))
+    assert not errors, f"expected no errors, got: {errors}"
+    # _resolve_role_model uses _role_models_list which prefers models over model.
+    assert _resolve_role_model("engineer", "omp", project_path=team_yml) in (
+        "kimi/kimi-k2.7", "glm/glm-5.2"
+    )
+
+
+# ---------------------------------------------------------------------------
+# E2e regression: rotation cursor survives different --workdir values
+# ---------------------------------------------------------------------------
+
+def test_dispatch_rotation_across_different_workdirs(tmp_path):
+    """Two dispatches with different --workdir and default (unset) project-config rotate.
+
+    Regression for the #414 _project_hash/workdir-relative-path bug: the rotation
+    cursor must be durable across separate dispatch subprocesses regardless of
+    which throwaway workdir each uses. Project team.yml is discovered from cwd.
+    A private HOME keeps the test hermetic.
+    """
+    home_dir = tmp_path / "home"
+    home_dir.mkdir()
+    (home_dir / ".agentic").mkdir()
+
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / ".agentic").mkdir()
+    (proj / ".agentic" / "team.yml").write_text(
+        "enabled: true\n"
+        "default_harness: omp\n"
+        "roles:\n"
+        "  engineer:\n"
+        "    harness: omp\n"
+        "    models:\n"
+        "      - kimi/kimi-k2.7\n"
+        "      - glm/glm-5.2\n"
+        "dispatch:\n"
+        "  retries: 0\n"
+        "  failover: false\n",
+        encoding="utf-8",
+    )
+
+    workdir1 = tmp_path / "wd1"
+    workdir1.mkdir()
+    workdir2 = tmp_path / "wd2"
+    workdir2.mkdir()
+
+    argv_out1 = tmp_path / "omp_argv_1.txt"
+    argv_out2 = tmp_path / "omp_argv_2.txt"
+
+    def _dispatch(workdir: Path, argv_out: Path) -> str:
+        fake_bin_dir = _make_argv_recording_exec(tmp_path, "omp", argv_out)
+        brief_file = _make_brief_file(tmp_path)
+        env_patch = dict(os.environ)
+        env_patch["HOME"] = str(home_dir)
+        env_patch["PATH"] = str(fake_bin_dir) + os.pathsep + env_patch.get("PATH", "")
+        # No --project-config: rely on default .agentic/team.yml resolved from cwd.
+        result = subprocess.run(
+            [
+                sys.executable, str(_BIN / "agentic-team"),
+                "dispatch", "--harness", "omp", "--role", "engineer",
+                "--brief", str(brief_file), "--workdir", str(workdir),
+            ],
+            capture_output=True, text=True, cwd=str(proj), env=env_patch,
+        )
+        assert result.returncode == 0, result.stderr
+        run_id = result.stdout.strip()
+        _wait_for_exit_file(workdir / ".agentic" / "teamrun" / run_id, timeout=10.0)
+        return run_id
+
+    _dispatch(workdir1, argv_out1)
+    _dispatch(workdir2, argv_out2)
+
+    recorded1 = argv_out1.read_text(encoding="utf-8") if argv_out1.exists() else ""
+    recorded2 = argv_out2.read_text(encoding="utf-8") if argv_out2.exists() else ""
+
+    def _extract_model(recorded: str) -> str | None:
+        lines = recorded.splitlines()
+        for i, line in enumerate(lines):
+            if line == "--model" and i + 1 < len(lines):
+                return lines[i + 1]
+        return None
+
+    model1 = _extract_model(recorded1)
+    model2 = _extract_model(recorded2)
+    assert model1 == "kimi/kimi-k2.7", f"first dispatch model was {model1!r}"
+    assert model2 == "glm/glm-5.2", f"second dispatch model was {model2!r}"
+
+
+# ---------------------------------------------------------------------------
+# Dispatch settings validation
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize(
+    "field,bad_value,expected_snippet",
+    [
+        ("retries", 1.5, "retries"),
+        ("retries", "notanumber", "retries"),
+        ("stall_seconds", "notanumber", "stall_seconds"),
+        ("timeout_seconds", "notanumber", "timeout_seconds"),
+        ("failover", "maybe", "failover"),
+        ("output_format", 123, "output_format"),
+    ],
+)
+def test_validate_config_rejects_malformed_dispatch(tmp_path, field, bad_value, expected_snippet):
+    """Malformed dispatch values produce clean validation errors."""
+    team_yml = _write(tmp_path, "team.yml", f"""
+        dispatch:
+          {field}: {bad_value}
+    """)
+    config = _load_team_config(global_path=Path("/dev/null"), project_path=team_yml)
+    errors = _validate_config(config, source=str(team_yml))
+    assert any(expected_snippet in e for e in errors), f"expected {expected_snippet} error, got {errors}"
+
+
+def test_cmd_dispatch_rejects_invalid_dispatch_settings(tmp_path, monkeypatch):
+    """_cmd_dispatch exits cleanly with a config error when dispatch settings are invalid."""
+    import argparse as _argparse
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    team_yml = _write(tmp_path, "team.yml", """
+        dispatch:
+          retries: notanumber
+    """)
+    brief_file = _make_brief_file(tmp_path)
+
+    args = _argparse.Namespace(
+        harness="omp", role="engineer",
+        brief=str(brief_file), workdir=str(workdir), model=None,
+        project_config=str(team_yml), global_config=str(tmp_path / "absent.yml"),
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc == 2, "expected exit 2 for invalid dispatch settings"
+
+
+def test_cmd_dispatch_cursor_agent_timeout_capped(monkeypatch, tmp_path):
+    """cursor-agent dispatches use a 300s hard ceiling regardless of team.yml."""
+    import argparse as _argparse
+
+    workdir = tmp_path / "wd"
+    workdir.mkdir()
+    team_yml = _write(tmp_path, "team.yml", """
+        dispatch:
+          timeout_seconds: 3600
+          retries: 0
+          failover: false
+    """)
+    brief_file = _make_brief_file(tmp_path)
+
+    captured: dict = {}
+
+    class _FakeProc:
+        pid = 12345
+        def poll(self):
+            return 0
+        def wait(self, timeout=None):
+            return 0
+
+    def _fake_supervise(proc, run_dir, stdout, stderr, stall_seconds, timeout_seconds):
+        captured["timeout_seconds"] = timeout_seconds
+        return 0
+
+    monkeypatch.setattr(_mod.subprocess, "Popen", lambda *a, **k: _FakeProc())
+    monkeypatch.setattr(_mod._sup_mod, "supervise", _fake_supervise)
+    monkeypatch.setattr(_mod._sup_mod, "write_status", lambda *a, **k: None)
+
+    args = _argparse.Namespace(
+        harness="cursor-agent", role="engineer",
+        brief=str(brief_file), workdir=str(workdir), model=None,
+        project_config=str(team_yml), global_config=str(tmp_path / "absent.yml"),
+    )
+    rc = _mod._cmd_dispatch(args)
+    assert rc == 0
+    assert captured.get("timeout_seconds") == 300.0, (
+        f"cursor-agent timeout should be capped at 300s, got {captured.get('timeout_seconds')!r}"
+    )

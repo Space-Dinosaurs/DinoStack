@@ -10,6 +10,8 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 GEMINI_DIR="$REPO_DIR/.gemini"
+# shellcheck source=scripts/lib/stub.sh
+[[ -f "$REPO_DIR/scripts/lib/stub.sh" ]] && . "$REPO_DIR/scripts/lib/stub.sh"
 
 GEMINI_MD_SRC="$GEMINI_DIR/GEMINI.md"
 GEMINI_MD_DST="$HOME/.gemini/GEMINI.md"
@@ -42,6 +44,14 @@ if [[ -L "$GEMINI_MD_DST" ]]; then
     fi
   else
     echo "  = ~/.gemini/GEMINI.md (points to $current_target - not ours, skipping)"
+  fi
+elif declare -f ae_is_stub_file >/dev/null 2>&1 && ae_is_stub_file "$GEMINI_MD_DST"; then
+  rm "$GEMINI_MD_DST"
+  echo "  - ~/.gemini/GEMINI.md dormant stub removed"
+  latest_backup="$(ls -t "${GEMINI_MD_DST}.backup-"* 2>/dev/null | head -1 || true)"
+  if [[ -n "$latest_backup" ]]; then
+    mv "$latest_backup" "$GEMINI_MD_DST"
+    echo "  + Restored backup: $latest_backup -> ~/.gemini/GEMINI.md"
   fi
 elif [[ -e "$GEMINI_MD_DST" ]]; then
   echo "  = ~/.gemini/GEMINI.md (real file - not removing)"
