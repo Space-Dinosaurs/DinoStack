@@ -1853,6 +1853,165 @@ def test_explicit_model_overrides_team_yml(monkeypatch):
 
 
 # ===========================================================================
+# Failover chain: _build_failover_chain shape + e2e chain advancement
+# ===========================================================================
+
+_build_failover_chain = _mod._build_failover_chain
+
+
+def test_failover_chain_retries_only_when_failover_false():
+    """failover=false -> just the same (harness, model) repeated 1+retries times;
+    no other-model or terminal-claude fallback is appended."""
+    chain = _build_failover_chain(
+        "omp", "glm/glm-5.2", "engineer", retries=2, failover=False, config={})
+    assert chain == [("omp", "glm/glm-5.2")] * 3, chain
+
+
+def test_failover_chain_zero_retries_single_attempt():
+    """retries=0, failover=false -> exactly one attempt (the max(1, 1+retries) floor)."""
+    chain = _build_failover_chain(
+        "omp", "glm/glm-5.2", "engineer", retries=0, failover=False, config={})
+    assert chain == [("omp", "glm/glm-5.2")], chain
+
+
+def test_failover_chain_appends_other_models_then_claude():
+    """failover=true -> same-harness retries, then every OTHER model declared for
+    the role (same harness), then a terminal ('claude', None) fallback."""
+    config = {
+        "roles": {
+            "engineer": {"harness": "omp", "models": ["glm/glm-5.2", "kimi/kimi-k2.7"]},
+        }
+    }
+    chain = _build_failover_chain(
+        "omp", "glm/glm-5.2", "engineer", retries=1, failover=True, config=config)
+    # 1+retries same-harness attempts, then the other model, then claude terminal.
+    assert chain == [
+        ("omp", "glm/glm-5.2"),
+        ("omp", "glm/glm-5.2"),
+        ("omp", "kimi/kimi-k2.7"),
+        ("claude", None),
+    ], chain
+
+
+def test_failover_chain_no_terminal_claude_when_already_claude():
+    """A claude-harness role does not get a redundant ('claude', None) terminal."""
+    chain = _build_failover_chain(
+        "claude", None, "engineer", retries=1, failover=True, config={})
+    assert chain == [("claude", None), ("claude", None)], chain
+
+
+def _make_seq_exec(tmp_path: Path, binary_name: str, exit_codes: list[int]) -> Path:
+    """Fake binary that fails/succeeds by attempt number.
+
+    Uses a shared counter file so successive invocations (across dispatch's
+    failover attempts) return successive *exit_codes* entries; the final entry
+    is reused once the list is exhausted. Lets an e2e test force attempt 1 to
+    fail and attempt 2 to succeed without any real CLI.
+    """
+    bin_dir = tmp_path / f"seq_bin_{binary_name}"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    counter = bin_dir / "count"
+    counter.write_text("0", encoding="utf-8")
+    codes = " ".join(str(c) for c in exit_codes)
+    script = bin_dir / binary_name
+    script.write_text(
+        "#!/bin/sh\n"
+        f'CF="{counter}"\n'
+        f'CODES="{codes}"\n'
+        'n=$(cat "$CF" 2>/dev/null || echo 0)\n'
+        'i=0; sel=""\n'
+        'for c in $CODES; do\n'
+        '  if [ "$i" -eq "$n" ]; then sel="$c"; fi\n'
+        '  i=$((i+1))\n'
+        'done\n'
+        '[ -z "$sel" ]  && sel="$c"\n'   # exhausted: reuse last
+        'echo $((n+1)) > "$CF"\n'
+        'printf \'{"done":true}\'\n'
+        'exit "$sel"\n',
+        encoding="utf-8",
+    )
+    script.chmod(script.stat().st_mode | _stat.S_IEXEC | _stat.S_IXGRP | _stat.S_IXOTH)
+    return bin_dir
+
+
+def _wait_for_terminal_status(run_dir: Path, timeout: float = 15.0):
+    """Poll status.json until state is a terminal (done/failed), or timeout.
+
+    Returns the parsed status dict (or None if never terminal)."""
+    import time as _time
+    deadline = _time.monotonic() + timeout
+    while _time.monotonic() < deadline:
+        st = _mod._sup_mod.read_status(run_dir)
+        if st and st.get("state") in ("done", "failed"):
+            return st
+        _time.sleep(0.05)
+    return _mod._sup_mod.read_status(run_dir)
+
+
+def test_dispatch_failover_advances_chain_on_first_attempt_failure(tmp_path):
+    """e2e: with retries>=1, a first-attempt failure advances the chain and the
+    run ultimately succeeds - the reliability feature this PR is built around.
+
+    Attempt 1 (omp) exits 1; attempt 2 (omp retry) exits 0. Asserts:
+      - final status is 'done' at attempt 2,
+      - a 'retrying' transition was recorded for the failed attempt 1,
+      - the exit file reflects success (0).
+    """
+    proj = tmp_path / "proj"; proj.mkdir()
+    (proj / ".agentic").mkdir()
+    (proj / ".agentic" / "team.yml").write_text(
+        "enabled: true\n"
+        "default_harness: omp\n"
+        "dispatch:\n"
+        "  retries: 1\n"
+        "  failover: true\n"
+        "  stall_seconds: 30\n"
+        "  timeout_seconds: 60\n"
+        "roles:\n"
+        "  engineer:\n"
+        "    harness: omp\n"
+        "    model: glm/glm-5.2\n",
+        encoding="utf-8",
+    )
+    workdir = tmp_path / "wd"; workdir.mkdir()
+    # Attempt 1 fails (exit 1); attempt 2 succeeds (exit 0).
+    fake_bin_dir = _make_seq_exec(tmp_path, "omp", [1, 0])
+    brief_file = _make_brief_file(tmp_path)
+
+    import sys as _sys
+    env_patch = dict(_os.environ)
+    env_patch["PATH"] = str(fake_bin_dir) + _os.pathsep + env_patch.get("PATH", "")
+    result = _subprocess_mod.run(
+        [_sys.executable, str(_BIN / "agentic-team"),
+         "--project-config", str(proj / ".agentic" / "team.yml"),
+         "dispatch", "--harness", "omp", "--role", "engineer",
+         "--brief", str(brief_file), "--workdir", str(workdir)],
+        capture_output=True, text=True, cwd=str(proj), env=env_patch,
+    )
+    assert result.returncode == 0, result.stderr
+    run_dir = workdir / ".agentic" / "teamrun" / result.stdout.strip()
+
+    status = _wait_for_terminal_status(run_dir, timeout=15.0)
+    assert status is not None, "status.json never reached a terminal state"
+    assert status.get("state") == "done", (
+        f"expected final state 'done' after failover, got {status.get('state')!r}"
+    )
+    assert status.get("attempt") == 2, (
+        f"expected success on attempt 2, got attempt {status.get('attempt')!r}"
+    )
+    # The failed attempt 1 must have recorded a retrying transition (same harness).
+    transitions = status.get("transitions") or []
+    states = [t.get("to") for t in transitions]
+    assert "retrying" in states, (
+        f"expected a 'retrying' transition after attempt 1's failure, got {states}"
+    )
+    _wait_for_exit_file(run_dir, timeout=10.0)
+    assert (run_dir / "exit").read_text(encoding="utf-8").strip() == "0", (
+        "exit file must reflect the successful retry"
+    )
+
+
+# ===========================================================================
 # D-2: round-robin rotation cursor tests
 # ===========================================================================
 
