@@ -339,6 +339,29 @@ console.log('\n[SYM] symlink escape rejected (realpath containment)');
 }
 
 // ---------------------------------------------------------------------------
+// TILDE: a ~-prefixed config-dir env value is expanded to $HOME, matching
+// Python's os.path.expanduser (regression for the cross-language divergence
+// where Node did path.resolve('~/...') -> <cwd>/~/... and read a different
+// identity.yml than the Python CLI for the same env var).
+// ---------------------------------------------------------------------------
+console.log('\n[TILDE] ~-prefixed AGENTIC_CONFIG_DIR expands to $HOME');
+{
+  const { tmpDir, fakeHome, projectDir, globalIdentityDir } = makeTmp('ae-id-tilde-');
+  // Real profile dir under $HOME; env references it via the ~ shorthand.
+  const profDir = path.join(fakeHome, '.claude-tenant');
+  writeIdentity(profDir, 'tilde-dev', false);
+  writeIdentity(globalIdentityDir, 'global-dev', false);
+
+  runHook(projectDir, fakeHome, 'tilde-uuid', { AGENTIC_CONFIG_DIR: '~/.claude-tenant' });
+
+  assert(fs.existsSync(sessionLogFor(projectDir, 'tilde-dev')),
+    '~-prefixed env expands to $HOME/.claude-tenant (profile identity used)');
+  assert(!fs.existsSync(sessionLogFor(projectDir, 'global-dev')),
+    'did NOT fall back to global (tilde resolved, not treated as <cwd>/~/...)');
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
 console.log(`\n${passed} passed, ${failed} failed.`);

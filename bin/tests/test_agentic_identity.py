@@ -934,6 +934,31 @@ def test_env_precedence_nonexistent_highest_wins():
         print("PASS test_env_precedence_nonexistent_highest_wins")
 
 
+def test_tilde_prefixed_env_expanded():
+    """(M3) a literal ~-prefixed config-dir env value is expanded to $HOME
+    (os.path.expanduser), matching the JS _expandUser mirror. Regression for
+    the cross-language divergence where Python expanded ~ but Node resolved it
+    to <cwd>/~/... - the two then read different identity.yml for one env var."""
+    prof = Path.home() / f".claude-tenant-tilde-{os.getpid()}"
+    prof.mkdir()
+    try:
+        _write_identity_file(prof / "identity.yml", "tilde-dev", provisional=False)
+        restore = _patch_environ(
+            set_pairs={"AGENTIC_CONFIG_DIR": f"~/{prof.name}"},
+            clear_keys=["CLAUDE_CONFIG_DIR", "CODEX_HOME"])
+        try:
+            cfg = _profile_config_dir()
+            p = _profile_identity_path()
+        finally:
+            restore()
+        assert cfg == prof.resolve(), \
+            f"~-prefixed env must expand to $HOME/{prof.name}, got {cfg}"
+        assert p == prof.resolve() / "identity.yml", f"identity path mismatch: {p}"
+    finally:
+        (prof / "identity.yml").unlink(missing_ok=True)
+        prof.rmdir()
+    print("PASS test_tilde_prefixed_env_expanded")
+
 def test_symlink_escape_rejected():
     """(Minor1) a symlink under $HOME pointing OUTSIDE $HOME is rejected by
     the containment check, via both the env scan and --profile-dir.
@@ -1318,6 +1343,7 @@ if __name__ == "__main__":
     test_global_flush_still_attributes_untagged_legacy_records()
     test_no_env_profile_scope_absent()
     test_env_precedence_nonexistent_highest_wins()
+    test_tilde_prefixed_env_expanded()
     test_symlink_escape_rejected()
     test_flush_non_string_config_dir_no_crash()
     test_cli_auto_profile_writes_provisional()

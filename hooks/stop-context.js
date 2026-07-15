@@ -726,6 +726,25 @@ function _realpathNonStrict(p) {
 }
 
 /**
+ * Expand a leading ~ to $HOME, mirroring Python's os.path.expanduser which the
+ * CLI side (bin/agentic-identity:_profile_config_dir) applies to the same env
+ * values. Only the bare `~` and `~/rest` forms are expanded (the `~user` form
+ * is not - these env values name the current user's own config dir); every
+ * other string is returned unchanged. Without this, a value like
+ * `AGENTIC_CONFIG_DIR=~/.claude-tenant` resolves to `<cwd>/~/.claude-tenant`
+ * on the JS side while Python resolves it to `$HOME/.claude-tenant`, so the
+ * two languages silently read/write different identity.yml files.
+ *
+ * @param {string} raw
+ * @returns {string}
+ */
+function _expandUser(raw) {
+  if (raw === '~') return os.homedir();
+  if (raw.startsWith('~/')) return path.join(os.homedir(), raw.slice(2));
+  return raw;
+}
+
+/**
  * Return the active profile's config dir (resolved path), or null.
  * Scans PROFILE_CONFIG_DIR_ENV in order; the FIRST (highest-precedence) set
  * var whose non-strict realpath resolves under the realpathed $HOME wins and
@@ -751,7 +770,7 @@ function _profileConfigDir() {
   for (const v of PROFILE_CONFIG_DIR_ENV) {
     const raw = (process.env[v] || '').trim();
     if (!raw) continue;
-    const resolved = _realpathNonStrict(path.resolve(raw));
+    const resolved = _realpathNonStrict(path.resolve(_expandUser(raw)));
     // TOCTOU: check-to-use window accepted (attacker needs write access inside victim's own $HOME).
     if (resolved === homeReal || resolved.startsWith(homeReal + path.sep)) {
       return resolved; // highest-precedence qualifying var wins; scan stops
