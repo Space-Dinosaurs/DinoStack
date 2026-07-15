@@ -3,6 +3,12 @@
 
 # Changelog
 
+## 2026-07-14
+
+### Documentation
+
+- **#452** [correct cross-session safety description + fix locked-dir-missing prune](https://github.com/Space-Dinosaurs/DinoStack/pull/452) - tyson-solara6
+
 ## 2026-07-11
 
 ### Documentation
