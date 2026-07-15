@@ -1,7 +1,10 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Purpose: Tests for .cursor/install.sh and .opencode/install.sh
-#          symlink-convergence behaviour (mirrors .claude/tests/install-converge.test.sh).
+#          symlink-convergence behaviour (mirrors .claude/tests/install-converge.test.sh),
+#          plus .cursor/install.sh's hooks.json stop-hook converge behaviour
+#          (absolute-path substitution and narrow, path-segment-anchored
+#          rewrite of only the AE-managed stop entry).
 #
 # Public API: bash .cursor/tests/install-converge.test.sh
 #             Exits 0 on all pass, non-zero on any failure.
@@ -22,6 +25,15 @@
 #   - Real file at dst is left untouched (skip).
 #   - Symlink pointing outside any methodology checkout is skipped.
 #   - --dry-run makes no filesystem changes.
+#   - Fresh install: hooks.json stop[0].command converges to the absolute
+#     stop-context-cursor.js path (case f).
+#   - Stale hooks.json converges narrowly: only the AE-managed stop entry
+#     is rewritten; beforeSubmitPrompt and custom stop entries (including
+#     two anchoring-regression entries whose command merely CONTAINS the
+#     "stop-context.js" substring, e.g. ".../my-stop-context.js" and
+#     "nonstop-context.js") all survive byte-for-byte (case g).
+#   - A second install run is idempotent: reports "already current" and
+#     leaves hooks.json byte-for-byte unchanged (case h).
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -270,20 +282,28 @@ PYEOF
 
   # -------------------------------------------------------------------------
   # Cursor (g): stale existing hooks.json converges narrowly - only the
-  # AE-managed stop entry is rewritten; beforeSubmitPrompt and a custom
-  # stop entry are left unchanged (compared by parsed JSON value).
+  # AE-managed stop entry is rewritten; beforeSubmitPrompt and custom stop
+  # entries are left unchanged (compared by parsed JSON value). Includes
+  # two anchoring-regression entries whose command merely CONTAINS the
+  # "stop-context.js" substring without being a genuine AE-managed hook -
+  # an unanchored regex would have falsely matched and clobbered these.
   # -------------------------------------------------------------------------
   FAKE_HOME="$(mktemp -d)"
   mkdir -p "$FAKE_HOME/.cursor"
   CURSOR_HOOKS_TEMPLATE="$REPO_DIR/.cursor/hooks.json"
   CUSTOM_STOP_CMD='bash "/tmp/my-custom-hook.sh"'
+  SUBSTRING_STOP_CMD='bash "/home/u/my-stop-context.js"'
+  SUBSTRING_NONSTOP_CMD='node scripts/nonstop-context.js'
 
-  python3 - "$CURSOR_HOOKS_TEMPLATE" "$FAKE_HOME/.cursor/hooks.json" "$CUSTOM_STOP_CMD" <<'PYEOF'
+  python3 - "$CURSOR_HOOKS_TEMPLATE" "$FAKE_HOME/.cursor/hooks.json" \
+    "$CUSTOM_STOP_CMD" "$SUBSTRING_STOP_CMD" "$SUBSTRING_NONSTOP_CMD" <<'PYEOF'
 import json, sys
-src, dst, custom_cmd = sys.argv[1], sys.argv[2], sys.argv[3]
+src, dst, custom_cmd, substring_stop_cmd, substring_nonstop_cmd = sys.argv[1:6]
 with open(src) as f:
     data = json.load(f)
 data["hooks"]["stop"].append({"command": custom_cmd})
+data["hooks"]["stop"].append({"command": substring_stop_cmd})
+data["hooks"]["stop"].append({"command": substring_nonstop_cmd})
 with open(dst, "w") as f:
     json.dump(data, f, indent=2)
     f.write("\n")
@@ -294,20 +314,18 @@ PYEOF
   _run_cursor "$FAKE_HOME" || true
 
   if [[ -f "$FAKE_HOME/.cursor/hooks.json" ]]; then
-    ACTUAL_STOP0_G="$(python3 - "$FAKE_HOME/.cursor/hooks.json" <<'PYEOF'
+    ACTUAL_STOP_LIST_G="$(python3 - "$FAKE_HOME/.cursor/hooks.json" <<'PYEOF'
 import json, sys
 with open(sys.argv[1]) as f:
     data = json.load(f)
-print(data["hooks"]["stop"][0]["command"])
+for entry in data["hooks"]["stop"]:
+    print(entry["command"])
 PYEOF
 )"
-    ACTUAL_STOP1_G="$(python3 - "$FAKE_HOME/.cursor/hooks.json" <<'PYEOF'
-import json, sys
-with open(sys.argv[1]) as f:
-    data = json.load(f)
-print(data["hooks"]["stop"][1]["command"])
-PYEOF
-)"
+    ACTUAL_STOP0_G="$(echo "$ACTUAL_STOP_LIST_G" | sed -n '1p')"
+    ACTUAL_STOP1_G="$(echo "$ACTUAL_STOP_LIST_G" | sed -n '2p')"
+    ACTUAL_STOP2_G="$(echo "$ACTUAL_STOP_LIST_G" | sed -n '3p')"
+    ACTUAL_STOP3_G="$(echo "$ACTUAL_STOP_LIST_G" | sed -n '4p')"
     ACTUAL_BEFORE_EQ_G="$(python3 - "$FAKE_HOME/.cursor/hooks.json" "$CURSOR_HOOKS_TEMPLATE" <<'PYEOF'
 import json, sys
 with open(sys.argv[1]) as f:
@@ -328,6 +346,18 @@ PYEOF
       _pass "cursor (g): custom stop entry left unchanged"
     else
       _fail "cursor (g): custom stop entry was altered - got '$ACTUAL_STOP1_G'"
+    fi
+
+    if [[ "$ACTUAL_STOP2_G" == "$SUBSTRING_STOP_CMD" ]]; then
+      _pass "cursor (g): anchor regression - 'my-stop-context.js' substring entry survives byte-for-byte"
+    else
+      _fail "cursor (g): anchor regression - 'my-stop-context.js' entry was clobbered - got '$ACTUAL_STOP2_G'"
+    fi
+
+    if [[ "$ACTUAL_STOP3_G" == "$SUBSTRING_NONSTOP_CMD" ]]; then
+      _pass "cursor (g): anchor regression - 'nonstop-context.js' substring entry survives byte-for-byte"
+    else
+      _fail "cursor (g): anchor regression - 'nonstop-context.js' entry was clobbered - got '$ACTUAL_STOP3_G'"
     fi
 
     if [[ "$ACTUAL_BEFORE_EQ_G" == "EQUAL" ]]; then

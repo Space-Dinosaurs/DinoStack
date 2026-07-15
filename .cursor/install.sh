@@ -416,7 +416,14 @@ _ae_cursor_converge_hooks_stop() {
 import json, os, re, sys, tempfile
 
 dst, new_cmd = sys.argv[1], sys.argv[2]
-pattern = re.compile(r"stop-context(-cursor)?\.js")
+# Path-segment anchored: the filename must start at a path/quote/space
+# boundary (or string start) and end at a quote/space boundary (or string
+# end). An unanchored search would also clobber a user's own entry whose
+# command merely CONTAINS the substring, e.g. a custom
+# 'bash "/home/u/my-stop-context.js"' or 'node scripts/nonstop-context.js'
+# hook - both false-positive-matched under the prior unanchored .search().
+# \x22/\x27 (=" and ') avoid quote-nesting inside this raw string.
+pattern = re.compile(r'(?:^|[/\\\x22\x27 ])stop-context(-cursor)?\.js(?:[\x22\x27]|$| )')
 
 try:
     with open(dst) as f:
