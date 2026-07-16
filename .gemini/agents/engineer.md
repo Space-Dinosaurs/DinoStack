@@ -112,10 +112,6 @@ learnings_candidate:     # optional; default []; cap 5 entries; omit when empty
     domain_tag: <slug>
     fact: <1-2 sentences: what was discovered>
     why: <why a cold future agent would re-derive this>
-regression_tests:       # optional; default []; populate on fix rounds (Skeptic Critical/Major or QA FAIL fixes); omit when not a fix round
-  - finding_id: <string>                  # the Critical/Major finding ID or QA scenario id being covered
-    test_path: <repo-relative path>
-    confirmed_failing_pre_fix: true | false
 ```
 
 JSON-Schema fragment (informative; the conductor uses this to validate):
@@ -165,19 +161,6 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
           "domain_tag": { "type": "string" },
           "fact":       { "type": "string" },
           "why":        { "type": "string" }
-        }
-      }
-    },
-    "regression_tests": {
-      "type": "array",
-      "default": [],
-      "items": {
-        "type": "object",
-        "required": ["finding_id", "test_path", "confirmed_failing_pre_fix"],
-        "properties": {
-          "finding_id":                { "type": "string" },
-          "test_path":                 { "type": "string" },
-          "confirmed_failing_pre_fix": { "type": "boolean" }
         }
       }
     }
