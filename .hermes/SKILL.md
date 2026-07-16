@@ -250,9 +250,9 @@ Upstream deps: METHODOLOGY.md §Delegation (architect plan + Skeptic gate, Open
                METHODOLOGY.md §Cross-session loop resume (loop-state.json
                schema for brief_path / plan_path / promotion_tier);
                content/rules/module-manifest.md (manifest header contract);
-               content/agents/architect.md, content/agents/orchestration-planner.md
-               (the acceptance_criteria array field from orchestration-planner
-               JSONL output is consumed by the cross-artifact alignment step).
+               content/references/planning-artifacts.md (trigger table,
+               gate-semantics authoring sequences, and Brief/Plan templates
+               that this section's body defers to for authoring detail).
 
 Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       brief_path / plan_path); METHODOLOGY.md §Task
@@ -261,103 +261,32 @@ Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       loop resume (records brief_path / plan_path /
                       promotion_tier); METHODOLOGY.md §Risk Classification
                       (Declaration format optionally includes Brief / Plan);
-                      METHODOLOGY.md §Protocol Details (cross-link entry);
-                      /implement-ticket command (Gate semantics step ordering
-                      is referenced by Phase 3b cross-artifact alignment check).
+                      METHODOLOGY.md §Protocol Details (cross-link entry).
 
 Failure modes: Prose; does not execute. Drift between this section and the
                cross-references above is a Major Skeptic finding (stale
-               manifest or stale cross-reference). Stale step numbering in
-               Gate semantics causes misrouted cross-references across phases;
-               update inline step references whenever steps are renumbered.
-               Operator failure mode this section exists to prevent: multi-unit
-               Elevated work proceeding without a committed problem statement,
-               success criteria, non-goals, and verification plan.
+               manifest or stale cross-reference). Operator failure mode this
+               section exists to prevent: multi-unit Elevated work proceeding
+               without a committed problem statement, success criteria,
+               non-goals, and verification plan.
 
 Performance: Standard.
 -->
 
 ## Planning Artifacts
 
-The promotion gate that sits between orchestration-planner output and the first engineer spawn. The architect produces "what to build", the orchestration-planner produces "how to decompose it"; this section produces "what problem are we actually solving and how will we know it is solved" - a commitment that survives multi-unit fan-out and cross-session resume.
-
-### Ordering
-
-The promotion check is downstream of architect+planner, upstream of engineer:
-
-```
-Risk classified Elevated
-  -> architect (existing behavior; investigator-before-architect rules apply)
-  -> Skeptic on architect plan (METHODOLOGY.md §Delegation)
-  -> Open Questions on architect plan resolved (METHODOLOGY.md §Delegation)
-  -> orchestration-planner (METHODOLOGY.md §Task Decomposition)
-  -> [PROMOTION CHECK] count Elevated-or-above units, check track span, check session span
-       -> 0-1 Elevated units: no Brief required (current behavior)
-       -> 2-5 Elevated units: author Brief, Skeptic the Brief, then engineer
-       -> 6+ Elevated units OR cross-track OR multi-session OR auto-promote-at-3rd-resume: assemble Plan, Skeptic the Plan, then engineer
-  -> engineer(s) spawned with brief_path / plan_path in execution contract
-```
-
-The Brief is authored after the planner has returned a unit count, so "do we need a Brief?" is a mechanical check, not a guess. The architect plan and planner output are inputs the conductor uses to draft the Brief - the Brief is not asking the conductor to predict what will exist; it is asking the conductor to commit to the framing now that the shape is known. This mechanical restatement is a comprehension-artifact step: the act of restating the architect and planner output forces the conductor to demonstrate it understood both. The Skeptic reviewing the Brief asks a different question than the Skeptic that reviewed the architect plan - not "is the design sound?" but "did the conductor actually understand what was produced upstream, and is the verification real?" This catches implicit architect assumptions that do not survive being stated plainly, planner units that do not compose coherently when described together, and verification criteria that seemed obvious until someone had to write them down.
-
-### Trigger table
-
-All triggers are mechanical. Operator judgment is not a field. Triggers are evaluated after orchestration-planner returns.
-
-| Condition | Artifact required |
-|---|---|
-| Risk = Trivial or Low | None |
-| Risk = Elevated AND orchestration-planner returns 0-1 Elevated-or-above units (or planner skipped per the existing single-unit exception) | None (architect plan only - current behavior) |
-| Risk = Elevated AND orchestration-planner returns 2-5 Elevated-or-above units | Brief + architect plan |
-| Risk = Elevated AND orchestration-planner returns 6+ Elevated-or-above units | Plan (Brief + architect + orchestration JSONL + risk register + rollback + verification gate) |
-| Any unit's `output_paths` spans 2+ tracks (see "Track" definition below) | Plan |
-| Work spans 2+ sessions (declared at planning time, OR auto-promoted when `.agentic/loop-state.json` resumes a Brief-tier task into a third session) | Plan |
-| Cross-track OR triggers an "Architecture decision constraining future choices" risk signal | Plan + ADR |
-
-**Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
-
-**"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
-
-- Worked example A: a repo with `agentic-engineering/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `agentic-engineering/...` is cross-track and triggers Plan + ADR.
-- Worked example B: a change touching `helios/factory/foo.ts` and `helios/ui/bar.tsx` is single-track (`helios`); the nested `factory/AGENTS.md` does not split the track.
-
-**Other notes:**
-- Unit count comes from the orchestration-planner's JSONL output, counted by `unit_slug` entries with risk >= Elevated.
-- Track span is computed by mapping each `output_paths` entry to its depth-1 ancestor and checking for `AGENTS.md` at that depth.
-- Session span is initially declared, then auto-promoted by the resume hook when the threshold is hit (see Promotion mechanics below).
-- A task can be promoted upward mid-work. It cannot be demoted.
-
-### Gate semantics
-
-**Authoring sequence (Brief tier):**
-1. Architect runs (existing behavior).
-2. Skeptic on architect plan.
-3. Open Questions on architect plan resolved.
-4. Orchestration-planner runs.
-5. Promotion check against the trigger table.
-6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
-7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements — does not replace — the adversarial Skeptic-on-Brief.
-8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
-9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
-
-**Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
-- Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
-- A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries).
-- Workers spawn only after assembled-Plan sign-off, with both `brief_path` and `plan_path` in their execution contract.
-
-**ADR tier:** ADR is authored alongside the Brief, not after, because the architectural decision shapes the Brief's constraints. ADR review follows the project's existing ADR process; if none exists, the ADR goes through the same "Document synthesis, architecture, and planning" Skeptic review as the Brief.
+The promotion gate that sits between orchestration-planner output and the first engineer spawn: 0-1 Elevated units -> no Brief; 2-5 -> Brief; 6+ or cross-track or multi-session -> Plan. See `content/references/planning-artifacts.md` for the trigger table, track definition, gate-semantics authoring sequences, Brief template, Plan-tier directory layout, promotion mechanics, and `qa_default_skip` definition.
 
 **What blocks engineer spawn:**
 - Missing required artifact at any tier.
 - Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
-- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation). This section explicitly extends the existing rule rather than restating it. A non-empty "Deferred defaults" section does not trigger this gate.
+- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation).
 - Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
 - Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
 
 **What does not block:**
-- Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact. This preserves current behavior for the dominant Elevated case (single-file behavioral edits, single new file, single-config changes).
-
-For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `content/references/planning-artifacts.md`. Outcome rubric: operator-confirmed pass/fail lines, each tagged `verification_type: deterministic | judgment`; required for Elevated; full schema and field guidance in `content/references/planning-artifacts.md`.
+- Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact.
+- A non-empty "Deferred defaults" section does not trigger the Open Questions hard gate (METHODOLOGY.md §Delegation).
 
 ## Risk Classification
 
@@ -479,67 +408,9 @@ For default tiers by agent role see the **Role-default tier table** above; for u
 
 ## QA Gate
 
-**Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (Brief/architect plan present, `qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. This eliminates the sequential Skeptic-then-QA delay for UI-visible changes and aligns with the parallel-by-default philosophy.
+**QA fires for every Elevated unit unless `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`.** The rationale is logged in the Brief / architect plan. A project having no `qa.md` is NOT a reason to skip QA. The `qa_default_skip` key in `.agentic/config.json` is reserved and inert (canonical definition in `content/references/planning-artifacts.md`).
 
-For changes whose `qa_criteria` does not match the concurrent path (or where the diff is unknown at planning time), the post-Skeptic QA flow described below remains in effect.
-
-**Pre-spawn trigger check:** Before spawning Workers, the conductor inspects the unit's `qa_criteria` (from the Brief or, if no Brief, from the architect plan). If `qa_criteria` is present AND `qa_skip == null` AND `scenarios[]` is non-empty, mark the unit for concurrent QA at review time. The architect's `qa_criteria` is the authoritative trigger - the qa.md trigger patterns are a SUPPLEMENTAL match-set: when both `qa_criteria` and a qa.md trigger match exist, qa-engineer receives both inputs (the scenarios as the test plan, and any matched qa.md project-knowledge entries as supplemental context). qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`. If `qa_criteria` is absent at planning time and the diff is unknown, defer the check to post-Worker (standard flow).
-
-**When QA is skipped:**
-- The change is Trivial risk (direct action; existing carve-out preserved).
-- `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`. The rationale is logged in the Brief / architect plan; QA does not fire.
-
-Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision. The `qa_default_skip` key in `.agentic/config.json` is a reserved, documented-but-inert schema key (canonical definition in §Planning Artifacts); it does NOT override or weaken this invariant.
-
-**QA gate flow (UI-visible - concurrent):**
-1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
-2. If yes: spawn Skeptic AND `qa-engineer` in a single message (parallel, background). Both receive the diff and the unit's `qa_criteria`. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
-3. Wait for both to return.
-4. If both pass: unit is complete.
-5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
-6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`.
-
-**QA gate flow (non-UI - post-sign-off):**
-1. Skeptic grants sign-off (minor fixes applied if any)
-2. Conductor inspects the unit's `qa_criteria` (from Brief or architect plan).
-3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
-4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
-5. On PASS: unit is complete.
-6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `/implement-ticket` Phase 6b §"QA regressions curator").
-
-**Phase breadcrumb:** `[phase: qa-review]`
-
-### Per-ticket, in-flow (anti-pattern: end-of-batch QA sweep)
-
-**Phase 6b is a per-ticket, in-flow gate. Conductor MUST NOT aggregate Phase 6b across multiple tickets to run as a final batch step.** Each ticket's QA fires inside that ticket's own loop, before Phase 7. If runtime QA cannot run for ticket N at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for ticket N specifically, not deferred work to triage at batch end.
-
-When QA cannot run for ticket N, set the unit's QA result to `qa_blocked` and surface the blocker to the operator with the specific cause and the three options:
-
-- **Provide the missing input** (env file, credentials, working preview URL) and re-run Phase 6b.
-- **Accept INCONCLUSIVE** with `qa_unverified=true` recorded on the unit (see classification rules below). The PR can still merge, but the ticket carries a known unverified-runtime flag.
-- **Abandon the ticket** - close the PR or revert.
-
-Per-ticket QA scales via parallel-by-worktree (see below) - that is the mechanism for "many tickets in flight without a serial QA queue", not batching.
-
-### Conductor preflight before any qa-engineer spawn
-
-Before spawning `qa-engineer` for any unit, the conductor verifies the project env file exists at the path that the dev server will load. The exact path and pull command come from the resolved qa.md (`env_file:` and `env_pull_command:` fields if present) or from project config (e.g. an `env:pull:<app>` script in `package.json`). If the env file is missing, do NOT spawn qa-engineer. Instead surface the verbatim message to the operator:
-
-```
-QA env preflight FAILED: <env_file> is missing.
-Pull it with: <env_pull_command>
-Then re-run Phase 6b for this ticket.
-```
-
-Wait for the operator to provide the env file (or accept INCONCLUSIVE per the classification rules below) before proceeding. Spawning qa-engineer just to discover the env is missing wastes a worker turn - the dev server will fail to boot and the qa-engineer will return BLOCKED with no useful signal.
-
-### INCONCLUSIVE classification (no static-only auto-pass)
-
-Static-only QA on an Elevated UI-visible change is approximately zero signal. State hooks, prop-sync bugs, missing render branches, and conditional rendering bugs are invisible to source review. Source verification of an Elevated UI-visible criterion is NOT progress on that criterion.
-
-When the qa-engineer cannot reach a runtime path - preview deploy is blocked AND local-env runtime is unavailable - the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor surfaces this state to the operator with the same three options as `qa_blocked` above (provide env / accept the unverified state / abandon). The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge.
-
-For parallel-by-worktree multi-PR fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern (curl-until loop, boot command resolution order), see `content/references/qa-gate.md`.
+**Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (`qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. For non-UI or deferred-QA paths, the post-Skeptic QA flow applies. See `content/references/qa-gate.md` for the full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, and the dev-server boot pattern.
 
 ### Diff-read rule and review ordering
 
@@ -616,7 +487,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
-**Subagents do not have hooks.** Hooks fire only in the main session. Isolation worktrees with no changes are auto-cleaned by the Agent tool. Isolation worktrees with changes persist until the conductor explicitly removes them.
+**Subagents do not have hooks.** Hooks fire only in the main session. Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Per Claude Code's own worktree documentation and its v2.1.157 changelog, once the agent finishes the harness releases the lock and then auto-cleans the worktree via `git worktree remove` (not a raw directory delete) if it is unchanged, and a periodic orphan sweep also skips any still-locked worktree. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
 ## Protocol Details (read on trigger)
 
@@ -624,7 +495,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 Read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the sentinel write contract, TTY/QUIET gate, and `agentic-migrate` flow.
 
 **Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
-See `content/sections/03-planning-artifacts.md` for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
+See `content/sections/03-planning-artifacts.md` for the blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
 
 **Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules:
 Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, and §Digest-Return Discipline.
@@ -669,7 +540,7 @@ Read `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligat
 See `content/sections/06-capability-preflight.md` for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
-See `content/sections/05-qa-gate.md` for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
+See `content/sections/05-qa-gate.md` for the QA-fires invariant, skip enums, diff-read rule, and re-route limits. Full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, and the dev-server boot pattern live in `content/references/qa-gate.md`.
 
 **Events log schema** - full V1 telemetry event-type field shapes and operational notes:
 Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.)
@@ -937,7 +808,7 @@ git branch -d <branch-name>
 
 **DCO sign-off when the repo enforces it.** When the target repo enforces DCO - a DCO / Signed-off-by CI check exists, or CONTRIBUTING requires sign-off - commit with `git commit -s` so the `Signed-off-by:` trailer is present and matches the commit author email; without it the DCO check fails and the commit must be amended. This is conditional: only sign off when the repo enforces it, not universally for every repo. The agentic-engineering repo itself enforces a DCO check, so commits to it require `-s`.
 
-**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. No worktree coordination is needed between sessions at the conductor level.
+**Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session; the lock releases when the agent finishes. This coordination is harness behavior (see Claude Code's own worktree documentation), not a mechanism the conductor or methodology adds.
 
 ## Context Economy
 
@@ -1193,7 +1064,7 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 - Skip when a shallow CVE check as part of a security audit is sufficient - the `security-auditor` covers that path
 
 **Use `qa-engineer` when:**
-- The diff matches QA trigger patterns (UI, frontend routes, visible behavior) - spawn IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. See `content/sections/05-qa-gate.md` for the full concurrent flow.
+- The diff matches QA trigger patterns (UI, frontend routes, visible behavior) - spawn IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent flow.
 - For non-UI changes: Skeptic has signed off AND the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff.
 - User explicitly asks to verify, test, or QA a change ("run QA", "check the feature works", "verify in the browser", "does it work")
 - Do NOT use when: no qa.md exists at either resolver path, the change is backend-only (no matching patterns), or the change is Low risk
@@ -1286,8 +1157,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/12-protocol-details.md (Protocol Details entry);
             content/agents/qa-engineer.md (populated capabilities block).
 
-Upstream deps: content/sections/05-qa-gate.md (preflight runs before every
-               Agent spawn, after QA gate decision, before worker boot);
+Upstream deps: content/sections/05-qa-gate.md (QA gate invariant; preflight
+               runs before every agent spawn, after QA gate decision, before worker boot);
                .agentic/config.json (capability_preflight_mode key);
                .agentic/.capability-cache.json (runtime hit cache, TTL 30 min).
 
@@ -3298,17 +3169,19 @@ The rules in `content/rules/conventions.md` (Git Workflow) address one developer
 <!--
 Purpose: Full reference for planning-artifact templates, directory layouts, and
          promotion mechanics extracted from METHODOLOGY.md §Planning Artifacts.
-         Contains the Brief template (including outcome_rubric field), Plan-tier
+         Contains ordering, trigger table, gate-semantics authoring sequences,
+         the Brief template (including outcome_rubric field), Plan-tier
          directory layout, verification-gate template (including rubric-resolved
          subsection), promotion mechanics, product-intent layer rules, and the
          canonical qa_default_skip definition.
 
 Public API: Read-only reference document. Cross-referenced from:
-            content/sections/03-planning-artifacts.md (Gate semantics pointer),
+            content/sections/03-planning-artifacts.md (pointer),
             content/sections/12-protocol-details.md (Protocol Details entry).
 
 Upstream deps: content/sections/03-planning-artifacts.md (parent section;
-               read that section first for triggers and ordering);
+               read that section first for the promotion-threshold summary
+               and blocking/non-blocking rules);
                content/rules/module-manifest.md (manifest header contract);
                content/rules/conventions.md §Project Overview Layer.
 
@@ -3321,15 +3194,84 @@ Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
 
 Failure modes: Prose; does not execute. Drift between this file and the parent
                section (03-planning-artifacts.md) is a Major Skeptic finding.
-               Stale field guidance misleads Brief authors; keep in sync with
-               any changes to the Brief template fields.
+               Stale step numbering in Gate semantics causes misrouted
+               cross-references across phases; update inline step references
+               whenever steps are renumbered. Stale field guidance misleads
+               Brief authors; keep in sync with any changes to the Brief
+               template fields.
 
 Performance: Standard.
 -->
 
-> Parent section: METHODOLOGY.md §Planning Artifacts. Read that section first for triggers and ordering.
+> Parent section: METHODOLOGY.md §Planning Artifacts.
 
 # Planning Artifacts - Full Reference
+
+## Ordering
+
+The promotion check is downstream of architect+planner, upstream of engineer:
+
+```
+Risk classified Elevated
+  -> architect (existing behavior; investigator-before-architect rules apply)
+  -> Skeptic on architect plan (METHODOLOGY.md §Delegation)
+  -> Open Questions on architect plan resolved (METHODOLOGY.md §Delegation)
+  -> orchestration-planner (METHODOLOGY.md §Task Decomposition)
+  -> [PROMOTION CHECK] count Elevated-or-above units, check track span, check session span
+       -> 0-1 Elevated units: no Brief required (current behavior)
+       -> 2-5 Elevated units: author Brief, Skeptic the Brief, then engineer
+       -> 6+ Elevated units OR cross-track OR multi-session OR auto-promote-at-3rd-resume: assemble Plan, Skeptic the Plan, then engineer
+  -> engineer(s) spawned with brief_path / plan_path in execution contract
+```
+
+The Brief is authored after the planner has returned a unit count, so "do we need a Brief?" is a mechanical check, not a guess. The architect plan and planner output are inputs the conductor uses to draft the Brief - the Brief is not asking the conductor to predict what will exist; it is asking the conductor to commit to the framing now that the shape is known. This mechanical restatement is a comprehension-artifact step: the act of restating the architect and planner output forces the conductor to demonstrate it understood both. The Skeptic reviewing the Brief asks a different question than the Skeptic that reviewed the architect plan - not "is the design sound?" but "did the conductor actually understand what was produced upstream, and is the verification real?" This catches implicit architect assumptions that do not survive being stated plainly, planner units that do not compose coherently when described together, and verification criteria that seemed obvious until someone had to write them down.
+
+## Trigger table
+
+All triggers are mechanical. Operator judgment is not a field. Triggers are evaluated after orchestration-planner returns.
+
+| Condition | Artifact required |
+|---|---|
+| Risk = Trivial or Low | None |
+| Risk = Elevated AND orchestration-planner returns 0-1 Elevated-or-above units (or planner skipped per the existing single-unit exception) | None (architect plan only - current behavior) |
+| Risk = Elevated AND orchestration-planner returns 2-5 Elevated-or-above units | Brief + architect plan |
+| Risk = Elevated AND orchestration-planner returns 6+ Elevated-or-above units | Plan (Brief + architect + orchestration JSONL + risk register + rollback + verification gate) |
+| Any unit's `output_paths` spans 2+ tracks (see "Track" definition below) | Plan |
+| Work spans 2+ sessions (declared at planning time, OR auto-promoted when `.agentic/loop-state.json` resumes a Brief-tier task into a third session) | Plan |
+| Cross-track OR triggers an "Architecture decision constraining future choices" risk signal | Plan + ADR |
+
+**Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
+
+**"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
+
+- Worked example A: a repo with `agentic-engineering/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `agentic-engineering/...` is cross-track and triggers Plan + ADR.
+- Worked example B: a change touching `helios/factory/foo.ts` and `helios/ui/bar.tsx` is single-track (`helios`); the nested `factory/AGENTS.md` does not split the track.
+
+**Other notes:**
+- Unit count comes from the orchestration-planner's JSONL output, counted by `unit_slug` entries with risk >= Elevated.
+- Track span is computed by mapping each `output_paths` entry to its depth-1 ancestor and checking for `AGENTS.md` at that depth.
+- Session span is initially declared, then auto-promoted by the resume hook when the threshold is hit (see Promotion mechanics below).
+- A task can be promoted upward mid-work. It cannot be demoted.
+
+## Gate semantics
+
+**Authoring sequence (Brief tier):**
+1. Architect runs (existing behavior).
+2. Skeptic on architect plan.
+3. Open Questions on architect plan resolved.
+4. Orchestration-planner runs.
+5. Promotion check against the trigger table.
+6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
+7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements - does not replace - the adversarial Skeptic-on-Brief.
+8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
+9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
+
+**Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
+- Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
+- A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries).
+- Workers spawn only after assembled-Plan sign-off, with both `brief_path` and `plan_path` in their execution contract.
+
+**ADR tier:** ADR is authored alongside the Brief, not after, because the architectural decision shapes the Brief's constraints. ADR review follows the project's existing ADR process; if none exists, the ADR goes through the same "Document synthesis, architecture, and planning" Skeptic review as the Brief.
 
 ## Brief template
 
@@ -3474,17 +3416,19 @@ The key is reserved so projects and tooling can rely on a stable schema; any fut
 
 <!--
 Purpose: Full reference for QA gate operational details extracted from
-         METHODOLOGY.md §QA Gate. Contains parallel-by-worktree fan-out
-         commands, architect-plan-driven scenarios deep prose, and the
-         dev-server boot pattern with curl-until loop.
+         METHODOLOGY.md §QA Gate. Contains step-by-step gate flows
+         (concurrent UI-visible and post-sign-off), per-ticket in-flow rules,
+         conductor env preflight, INCONCLUSIVE classification,
+         parallel-by-worktree fan-out commands, architect-plan-driven
+         scenarios deep prose, and the dev-server boot pattern.
 
 Public API: Read-only reference document. Cross-referenced from:
-            content/sections/05-qa-gate.md (pointer before Re-route limits),
+            content/sections/05-qa-gate.md (pointer),
             content/sections/12-protocol-details.md (QA gate Protocol Details entry).
 
 Upstream deps: content/sections/05-qa-gate.md (parent section; read that
-               section first for the concurrent-vs-sequential flow, skip enums,
-               conductor preflight, and INCONCLUSIVE classification);
+               section first for the QA-fires invariant, skip enums,
+               diff-read rule, and re-route limits);
                content/agents/qa-engineer.md (track-scoped qa.md resolution).
 
 Downstream consumers: qa-engineer spawns (boot pattern, fan-out commands);
@@ -3498,9 +3442,61 @@ Failure modes: Prose; does not execute. The curl-until loop is the canonical
 Performance: Standard.
 -->
 
-> Parent section: METHODOLOGY.md §QA Gate. Read that section first for the concurrent-vs-sequential flow, skip enums, conductor preflight, and INCONCLUSIVE classification.
+> Parent section: METHODOLOGY.md §QA Gate. Read that section first for the QA-fires invariant, skip enums, diff-read rule, and re-route limits.
 
 # QA Gate - Full Reference
+
+## QA gate flow (UI-visible - concurrent)
+
+**Pre-spawn trigger check:** Before spawning Workers, the conductor inspects the unit's `qa_criteria` (from the Brief or, if no Brief, from the architect plan). If `qa_criteria` is present AND `qa_skip == null` AND `scenarios[]` is non-empty, mark the unit for concurrent QA at review time. The architect's `qa_criteria` is the authoritative trigger - the qa.md trigger patterns are a SUPPLEMENTAL match-set: when both `qa_criteria` and a qa.md trigger match exist, qa-engineer receives both inputs (the scenarios as the test plan, and any matched qa.md project-knowledge entries as supplemental context). qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`. If `qa_criteria` is absent at planning time and the diff is unknown, defer the check to post-Worker (standard flow).
+
+1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
+2. If yes: spawn Skeptic AND `qa-engineer` in a single message (parallel, background). Both receive the diff and the unit's `qa_criteria`. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
+3. Wait for both to return.
+4. If both pass: unit is complete.
+5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
+6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`.
+
+**Phase breadcrumb:** `[phase: qa-review]`
+
+## QA gate flow (non-UI - post-sign-off)
+
+1. Skeptic grants sign-off (minor fixes applied if any)
+2. Conductor inspects the unit's `qa_criteria` (from Brief or architect plan).
+3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
+4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
+5. On PASS: unit is complete.
+6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `/implement-ticket` Phase 6b §"QA regressions curator").
+
+## Per-ticket, in-flow (anti-pattern: end-of-batch QA sweep)
+
+**Phase 6b is a per-ticket, in-flow gate. Conductor MUST NOT aggregate Phase 6b across multiple tickets to run as a final batch step.** Each ticket's QA fires inside that ticket's own loop, before Phase 7. If runtime QA cannot run for ticket N at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for ticket N specifically, not deferred work to triage at batch end.
+
+When QA cannot run for ticket N, set the unit's QA result to `qa_blocked` and surface the blocker to the operator with the specific cause and the three options:
+
+- **Provide the missing input** (env file, credentials, working preview URL) and re-run Phase 6b.
+- **Accept INCONCLUSIVE** with `qa_unverified=true` recorded on the unit (see classification rules below). The PR can still merge, but the ticket carries a known unverified-runtime flag.
+- **Abandon the ticket** - close the PR or revert.
+
+Per-ticket QA scales via parallel-by-worktree (see below) - that is the mechanism for "many tickets in flight without a serial QA queue", not batching.
+
+## Conductor preflight before any qa-engineer spawn
+
+Before spawning `qa-engineer` for any unit, the conductor verifies the project env file exists at the path that the dev server will load. The exact path and pull command come from the resolved qa.md (`env_file:` and `env_pull_command:` fields if present) or from project config (e.g. an `env:pull:<app>` script in `package.json`). If the env file is missing, do NOT spawn qa-engineer. Instead surface the verbatim message to the operator:
+
+```
+QA env preflight FAILED: <env_file> is missing.
+Pull it with: <env_pull_command>
+Then re-run Phase 6b for this ticket.
+```
+
+Wait for the operator to provide the env file (or accept INCONCLUSIVE per the classification rules below) before proceeding. Spawning qa-engineer just to discover the env is missing wastes a worker turn - the dev server will fail to boot and the qa-engineer will return BLOCKED with no useful signal.
+
+## INCONCLUSIVE classification (no static-only auto-pass)
+
+Static-only QA on an Elevated UI-visible change is approximately zero signal. State hooks, prop-sync bugs, missing render branches, and conditional rendering bugs are invisible to source review. Source verification of an Elevated UI-visible criterion is NOT progress on that criterion.
+
+When the qa-engineer cannot reach a runtime path - preview deploy is blocked AND local-env runtime is unavailable - the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor surfaces this state to the operator with the same three options as `qa_blocked` above (provide env / accept the unverified state / abandon). The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge.
 
 ## Multi-PR / multi-ticket parallel-by-worktree
 
@@ -3797,7 +3793,7 @@ Spawning security-auditor.
 
 This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes opus, the Opus request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that Opus is unavailable rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Opus `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal). It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
 
-**Mandatory Tier-3 authoring escalation (Plan+ADR-tier units).** When a unit reaches **Plan+ADR tier** - cross-track OR "Architecture decision constraining future choices", per the Planning Artifacts trigger table (`content/sections/03-planning-artifacts.md`) - the AUTHORING agent (architect, adr-generator, or product-discovery) producing the Plan or ADR for that unit MUST be Tier 3 (Opus), regardless of the agent's Sonnet role default. Unlike the reviewing-role escalation above, the Plan+ADR trigger is a **structural, conductor-computed decision** (cross-track span, architecture-constraining signal) that is not present in the spawn's `tool_input` - the PreToolUse hook cannot see it. The PRIMARY control is therefore prose, not mechanical: the conductor passes `model: opus` EXPLICITLY on the architect/adr-generator/product-discovery spawn for a Plan+ADR-tier unit, symmetric to the existing `architect:grill` preset convention. On Claude Code, `hooks/enforce-tier.py` provides a BACKSTOP (not the primary control) mirroring the skeptic marker-gated branch, not the security-auditor unconditional branch: it denies an explicit sub-Opus `model` param on an architect/adr-generator/product-discovery spawn whose brief matches an ADR/architecture marker (e.g. "ADR", "cross-track", "architecture decision constraining future choices", "Plan+ADR", "Plan-tier", "novel architecture"). This backstop is best-effort and has two known limitations: (1) it misses an ADR-tier authoring spawn whose brief does not name the escalation signal in recognizable vocabulary; (2) it does nothing when the `model` param is OMITTED - an omitted param resolves to the Sonnet frontmatter default (per the Role-default tier table below) and the hook ALLOWS it, because omission is indistinguishable from a routine non-ADR authoring spawn. The conductor's explicit `model: opus` param remains the only reliable enforcement mechanism for this rule.
+**Mandatory Tier-3 authoring escalation (Plan+ADR-tier units).** When a unit reaches **Plan+ADR tier** - cross-track OR "Architecture decision constraining future choices", per the Planning Artifacts trigger table (`content/references/planning-artifacts.md` §Trigger table) - the AUTHORING agent (architect, adr-generator, or product-discovery) producing the Plan or ADR for that unit MUST be Tier 3 (Opus), regardless of the agent's Sonnet role default. Unlike the reviewing-role escalation above, the Plan+ADR trigger is a **structural, conductor-computed decision** (cross-track span, architecture-constraining signal) that is not present in the spawn's `tool_input` - the PreToolUse hook cannot see it. The PRIMARY control is therefore prose, not mechanical: the conductor passes `model: opus` EXPLICITLY on the architect/adr-generator/product-discovery spawn for a Plan+ADR-tier unit, symmetric to the existing `architect:grill` preset convention. On Claude Code, `hooks/enforce-tier.py` provides a BACKSTOP (not the primary control) mirroring the skeptic marker-gated branch, not the security-auditor unconditional branch: it denies an explicit sub-Opus `model` param on an architect/adr-generator/product-discovery spawn whose brief matches an ADR/architecture marker (e.g. "ADR", "cross-track", "architecture decision constraining future choices", "Plan+ADR", "Plan-tier", "novel architecture"). This backstop is best-effort and has two known limitations: (1) it misses an ADR-tier authoring spawn whose brief does not name the escalation signal in recognizable vocabulary; (2) it does nothing when the `model` param is OMITTED - an omitted param resolves to the Sonnet frontmatter default (per the Role-default tier table below) and the hook ALLOWS it, because omission is indistinguishable from a routine non-ADR authoring spawn. The conductor's explicit `model: opus` param remains the only reliable enforcement mechanism for this rule.
 
 **Role-default tier table (committed; each agent's frontmatter `model:` MUST agree with this table).**
 
@@ -4155,7 +4151,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 10. **QA gate check (conditional).** Two paths, depending on whether the diff matches UI-visible trigger patterns:
 
-    - **UI-visible changes (concurrent path):** When QA trigger patterns match a UI-visible diff, spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. If the Skeptic raises Critical/Major findings, enter the standard fix loop; QA re-runs after Skeptic sign-off is achieved. If QA fails after Skeptic sign-off, spawn a fix engineer and re-run QA only. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+    - **UI-visible changes (concurrent path):** When QA trigger patterns match a UI-visible diff, spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. If the Skeptic raises Critical/Major findings, enter the standard fix loop; QA re-runs after Skeptic sign-off is achieved. If QA fails after Skeptic sign-off, spawn a fix engineer and re-run QA only. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent QA spec.
 
     - **Non-UI changes (sequential path):** After sign-off is granted and any minor fixes are applied, check the QA gate condition (see METHODOLOGY.md §QA Gate). If the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff, spawn `qa-engineer` before reporting back. QA failure routes back to an engineer for fixes, then re-runs QA.
 
@@ -4298,7 +4294,7 @@ Cleanup: after Phase 6 loop terminates with sign-off, run `rm -f .agentic/.spawn
 
 ### Plan-tier second-pass overflow fallback
 
-When the combined Global-context input set for a Plan-tier second-pass Skeptic exceeds 60K input tokens, the conductor switches to per-unit second-pass mode: one Skeptic per unit (each with that unit's Global-context subset) plus one lightweight integration Skeptic receiving the combined findings list only (not the full Global-context). Documented in `content/sections/03-planning-artifacts.md`. The 60K limit is a prompt-assembly threshold for review focus, not a model context constraint; it applies regardless of the underlying model's window size, because adversarial review signal degrades as the assembled prompt grows.
+When the combined Global-context input set for a Plan-tier second-pass Skeptic exceeds 60K input tokens, the conductor switches to per-unit second-pass mode: one Skeptic per unit (each with that unit's Global-context subset) plus one lightweight integration Skeptic receiving the combined findings list only (not the full Global-context). Documented in `content/references/planning-artifacts.md` §Gate semantics. The 60K limit is a prompt-assembly threshold for review focus, not a model context constraint; it applies regardless of the underlying model's window size, because adversarial review signal degrades as the assembled prompt grows.
 
 ### Supplemental-context block for multi-dimensional supplemental reviewers
 
@@ -5586,7 +5582,10 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                The --delete-branch flag on gh pr merge may not auto-delete in
                all gh CLI versions; the explicit git branch -D is the fallback.
                The branch prune block never force-deletes unproven work - see
-               Safe boundary note in that section.
+               Safe boundary note in that section. A locked-but-dir-missing
+               worktree admin entry survives a bare `git worktree prune` - the
+               isolation-cleanup and session-start-prune paths both unlock
+               before pruning to reclaim it.
 
 Performance: Standard.
 -->
@@ -5632,13 +5631,30 @@ Run at session start (conductor preflight) - ONCE per session, not before every 
 ```bash
 # Run at session start (conductor preflight):
 git fetch origin
+# Unlock any locked entry whose directory is already gone, so prune can actually clear
+# the stale admin metadata - a locked-but-dir-missing entry is NOT cleared by a bare
+# `git worktree prune`:
+git worktree list --porcelain | awk '
+  /^worktree /{p=$2; locked=0}
+  /^locked/{locked=1}
+  /^$/{if (p && locked) print p; p=""}
+' | while read -r p; do
+  [ -d "$p" ] || git worktree unlock "$p" 2>/dev/null || true
+done
 git worktree prune
 # Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
-# Delete any worktree-agent-* branches not currently checked out in a worktree:
-git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
+# Delete any worktree-agent-* branches not currently checked out in a worktree.
+# NOTE: `git branch` prefixes a branch checked out in ANOTHER linked worktree with `+`
+# (not just `*` for the current one) - the sed must strip both, or the guard below
+# silently misparses the name and the liveness check/delete operate on a malformed string:
+git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" || git branch -D "$b"
 done
 ```
+
+## Guardrail: never force-override the harness lock
+
+No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
 
 ## Branch prune (stale local branches)
 
@@ -7375,7 +7391,7 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 
 ---
 name: learning-extractor
-model: sonnet
+model: haiku
 description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
 tools: Read, Edit, Write
 ---
@@ -9906,7 +9922,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 
 ---
 name: wrap-ticket
-model: sonnet
+model: haiku
 description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b. Constrained subset of /wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
@@ -11072,7 +11088,7 @@ Public API: /brief [topic] | /brief --from <path>
             Invoked explicitly by the operator or auto-triggered by the conductor on
             planning-intent signals per Section 1.
 
-Upstream deps: content/sections/03-planning-artifacts.md (Brief template and field guidance,
+Upstream deps: content/references/planning-artifacts.md (Brief template and field guidance,
                including Outcome rubric field schema);
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
@@ -11081,7 +11097,7 @@ Upstream deps: content/sections/03-planning-artifacts.md (Brief template and fie
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/implement-ticket.md Phase 0b (brief_path check);
-                      content/sections/03-planning-artifacts.md (Skeptic variant selection);
+                      content/references/planning-artifacts.md §Gate semantics (Skeptic variant selection);
                       architect agent (receives brief_path in execution contract);
                       Skeptic (receives operator-confirmed variant from Section 6; evaluates
                       Outcome rubric field per step 3.5 in skeptic.md).
@@ -11232,7 +11248,7 @@ One exchange per selected gray area (`selected: true` in the state file):
 ### Turn N+1 - Brief draft
 
 Conductor synthesizes the Brief from intent + dialogue, formats per the Brief template
-in `content/sections/03-planning-artifacts.md`, and includes the **Outcome rubric** field:
+in `content/references/planning-artifacts.md` §Brief template, and includes the **Outcome rubric** field:
 
 - **If `docs/overview/_proposed/outcome-rubric.md` exists** (product-discovery ran before /brief): copy its lines verbatim into the rubric field and note "copied from discovery draft - confirm or adjust."
 - **Otherwise**: prompt the operator inline: "List the 3-6 things that would make this 'done' - one per line, most critical first." For each criterion the operator provides, assign a `verification_type`: `deterministic` if a gate is nameable, `judgment` otherwise. Present the assigned types for confirmation before writing.
@@ -11513,9 +11529,15 @@ For each isolation worktree, check its status before touching it:
 git -C <worktree-path> status --porcelain
 ```
 
-There are three cases:
+There are three cases. (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around.)
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. Run `git worktree prune` to clean the stale metadata, then delete the branch.
+**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
+
+```bash
+git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree prune
+git branch -D <branch-name>
+```
 
 **Directory exists, clean (no output):** Remove the worktree and delete the branch:
 
@@ -11889,6 +11911,51 @@ This command intentionally does NOT:
 # Implement Ticket
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+> **Context-size preflight (run immediately after Activation, before any other step):** Assess the current session's context load against the soft and hard limits defined in `content/references/subagent-protocol.md` Section 13.
+>
+> **Hard limit check (Section 13.2) - checked first:** If the session has reached the hard limit, Section 13.2 governs absolutely - there is no `yes`/proceed override at or above the hard limit. Do the following in this order: (1) print the hard-limit block below verbatim, (2) invoke `/wrap` automatically to preserve state via `context.md` and `MEMORY.md` updates (or instruct the operator to run `/wrap` if auto-invoke is unavailable in the current harness), (3) exit - refusing further implementation work, Skeptic rounds, and subagent spawns for the remainder of this session. Do not print the soft-limit warning block below or the "Proceed anyway?" prompt.
+>
+> **Hard-limit block (print verbatim - this is a plain print, not an `AskUserQuestion` tool call, and does not wait for operator confirmation):**
+> ```
+> Context-size hard limit reached: this session has reached the conductor
+>    context hard limit (Section 13.2 of the Subagent Protocol). The hard
+>    limit is absolute - there is no override, and further implementation
+>    work, Skeptic rounds, and subagent spawns are refused for the rest of
+>    this session.
+>
+>    Why: the hard limit exists to protect output quality. A conductor
+>    operating past this point risks missing details from earlier turns,
+>    re-introducing bugs already fixed, and producing stale crash-recovery
+>    state. A fresh session is required to continue - this is not optional.
+>
+>    Next steps:
+>      1. /wrap          - save session state and generate a hand-off summary
+>      2. Start a new session (on Claude Code, /clear also works)
+>      3. /implement-ticket <your input>   - in the fresh session
+> ```
+>
+> **Danger signals below the hard limit (any one triggers the soft-limit warning, per Section 13.1):**
+> - Session turn count at or above the soft limit with substantive tool-call results still in context.
+> - Any prior subagent result block, of substantive size, is visible and was produced in this same session before `/implement-ticket` was invoked.
+>
+> **If a danger signal is detected below the hard limit, print verbatim (this is a plain print-and-wait for the operator's next message, not an `AskUserQuestion` tool call):**
+> ```
+> Context-size warning: your current session carries significant prior context
+>    (a long turn history and/or one or more prior subagent result blocks still
+>    visible). Running /implement-ticket now risks exhausting your token budget
+>    before the architect-plan-review phase completes.
+>
+>    Recommended safe pattern:
+>      1. /wrap          - save session state and generate a hand-off summary
+>      2. Start a new session (on Claude Code, /clear also works)
+>      3. /implement-ticket <your input>   - in the fresh session
+>
+>    Proceed anyway? (yes / no)
+> ```
+> On `no`: exit immediately. On `yes`: continue with a one-line note: `Context-size warning acknowledged - proceeding in large session.` This `yes` override is valid only below the hard limit - it never applies once the hard limit is reached (see Hard limit check above).
+>
+> **If no danger signals are present:** continue silently (no output).
 
 Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted back to the ticket.
 
@@ -12887,7 +12954,7 @@ The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVE
 
 **On full coverage:** emit `[phase: cross-artifact-aligned | N/N criteria covered]` and proceed to the promotion gate.
 
-See `content/sections/03-planning-artifacts.md` Gate semantics for where this step sits relative to the Skeptic-on-Brief.
+See `content/references/planning-artifacts.md` §Gate semantics for where this step sits relative to the Skeptic-on-Brief.
 
 **ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
 
@@ -13378,13 +13445,13 @@ After normalization, re-evaluate the trigger conditions (with `qa_skip` now null
 
 **qa.md is supplemental, not gating.** Whether `.agentic/qa.md` (or legacy `.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
 
-**Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `content/sections/05-qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `content/sections/05-qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
+**Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `content/references/qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `content/references/qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
 
-**Conductor preflight before any qa-engineer spawn.** Before spawning qa-engineer for this unit, verify the project env file exists at the path the dev server will load (resolved from qa.md `env_file:` + `env_pull_command:` fields, or from project config such as a `package.json` `env:pull:<app>` script). If the env file is missing, do NOT spawn qa-engineer - surface the verbatim message defined in `content/sections/05-qa-gate.md` §"Conductor preflight before any qa-engineer spawn" with the resolved `<env_pull_command>` and wait for the operator. Spawning qa-engineer just to discover the env is missing wastes a worker turn.
+**Conductor preflight before any qa-engineer spawn.** Before spawning qa-engineer for this unit, verify the project env file exists at the path the dev server will load (resolved from qa.md `env_file:` + `env_pull_command:` fields, or from project config such as a `package.json` `env:pull:<app>` script). If the env file is missing, do NOT spawn qa-engineer - surface the verbatim message defined in `content/references/qa-gate.md` §"Conductor preflight before any qa-engineer spawn" with the resolved `<env_pull_command>` and wait for the operator. Spawning qa-engineer just to discover the env is missing wastes a worker turn.
 
-**Multi-PR / multi-ticket parallel-by-worktree.** When more than one PR or unit is awaiting QA, default to spawning one qa-engineer per worktree in parallel (single message, background, each on a unique port `PORT=$((3000 + N))`). See `content/sections/05-qa-gate.md` §"Multi-PR / multi-ticket parallel-by-worktree".
+**Multi-PR / multi-ticket parallel-by-worktree.** When more than one PR or unit is awaiting QA, default to spawning one qa-engineer per worktree in parallel (single message, background, each on a unique port `PORT=$((3000 + N))`). See `content/references/qa-gate.md` §"Multi-PR / multi-ticket parallel-by-worktree".
 
-- **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+- **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent QA spec.
 - **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
 - **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7.
 
@@ -17400,13 +17467,42 @@ Conductor-direct (no subagent). For each entry in `normalized_input.entries[]`, 
 - **Jira:** `mcp__mcp-atlassian__jira_get_issue` - capture `priority`, `status`, `story_points` (or `timeestimate`), `labels`, `components`, `assignee`, and `issuelinks` (blocks / is-blocked-by / relates-to).
 - **Linear:** `mcp__linear__get_issue` - capture `priority`, `state`, `estimate`, `labels`, `assignee`, and relations (blocks / blocked-by / related).
 
-The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates only the display-only "Est" column in the Phase 4a per-ticket summary table. No distribution rule consumes it; estimate-aware lane sizing is a deferred default.
+The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates the display-only "Est" column in the Phase 4a per-ticket summary table; no distribution rule consumes it, and estimate-aware lane sizing is a deferred default. Only `story_points` and Linear `estimate` trigger the story-size preflight below - `timeestimate` is Jira's time-tracking field (denominated in seconds), display-only, and is never compared against the preflight threshold.
 
 **Soft-fail per ticket:** on any fetch error, mark `fetch_failed: true` on that entry and proceed. Fetch-failed tickets are treated as independent (no known deps, no known metadata) in all downstream phases.
 
 **Terminal-status detection:** tickets whose status maps to a Done/Cancelled/Won't-do state are marked `terminal: true`. They are added to the deferred set in Phase 3 Rule 1 without further analysis.
 
 **In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true`. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts).
+
+> **Story-size preflight** - runs once, immediately after all metadata is collected.
+>
+> For each ticket whose estimate is available (`story_points` or Linear `estimate` is a number) AND that is not `terminal: true` or `in_progress: true` (those are deferred / excluded from lane assignment regardless of size - warning them here would flag tickets that never reach `/implement-ticket`), check:
+> - **≥ 5 points:** print the following warning (once per oversized ticket):
+>   ```
+>   ⚠ [DS-XX] Est: N pts - large story. Recommend decomposing into ≤ 3-point sub-tickets
+>     before running /implement-ticket. A single 5+ point story can exhaust the context
+>     window before the loop completes. Split strategy: one sub-ticket per independent
+>     deliverable; use /ticket-triage on the sub-set to re-sequence.
+>   ```
+>   Then append a `context_risk: high` flag to that entry. Lane assignment proceeds normally; the operator decides whether to decompose.
+>
+> - **3-4 points:** no warning. `context_risk` is unset.
+> - **≤ 2 points or estimate absent:** no warning. Safe to run as-is.
+>
+> **Token-reduction reminder** - if any ticket has `context_risk: high`, append this one-time callout at the end of the story-size preflight output:
+> ```
+> 💡 Token-reduction tools: if your harness supports ctx_* context-mode tools
+>    (ctx_execute, ctx_batch_execute), prefer them over raw shell output for any
+>    operation producing > 20 lines - they reduce context consumption by ~98%
+>    (see content/rules/code-standards.md §Context Window Management).
+>    If context fills mid-session, /wrap → /clear → re-invoke /implement-ticket
+>    with the remaining ticket IDs to continue in a fresh window.
+> ```
+>
+> **Silent on clean sets:** if no ticket has `context_risk: high`, print nothing. No output on safe sessions.
+>
+> The `context_risk` flags are display-only; no distribution rule consumes them.
 
 `[phase: ticket-triage | phase=metadata]`
 
@@ -17501,14 +17597,15 @@ Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investiga
 ## Per-ticket summary
 
 <!-- Est column: shows the captured estimate (story points / time estimate) or "-" when absent.
-     Display-only; no distribution rule consumes it. -->
+     Display-only; no distribution rule consumes it.
+     ⚠ column: populated with "⚠ large" when context_risk: high (≥5 pts); otherwise empty. -->
 
-| Ticket | Priority | Status | Est | Lane | Notes |
-|--------|----------|--------|-----|------|-------|
-| A | High | To Do | 3 | Lane 1 | |
-| B | Med | To Do | 2 | Lane 1 | blocked by A |
-| C | High | To Do | - | Lane 2 | |
-| ... | | | | | |
+| Ticket | Priority | Status | Est | ⚠ | Lane | Notes |
+|--------|----------|--------|-----|---|------|-------|
+| A | High | To Do | 3 | | Lane 1 | |
+| B | Med | To Do | 2 | | Lane 1 | blocked by A |
+| C | High | To Do | 8 | ⚠ large | Lane 2 | |
+| ... | | | | | | |
 
 ## Dependency notes
 
@@ -17789,7 +17886,7 @@ If `HOOK_CHANGES` is empty, skip silently.
 Spawn a Worker subagent with instructions:
 1. Read the current file(s) to be changed.
 2. Apply the edit using the Edit tool.
-3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/agentic-engineering/` and `.claude/agents/` paths are symlinks pointing into `content/` - but because the Worker runs in an isolation worktree, the edit lives in the worktree branch and is NOT live in the conductor's checkout until Step 2.5 cherry-picks it in. (On the permission-blocked in-place path where the conductor edits directly, the symlinks do make the change live immediately - but that is the exception, not the rule.) The other nine adapters are built artifacts, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.
+3. If editing `content/rules/`, `content/references/`, or `content/agents/`: edit only the `content/` path. The corresponding `.claude/skills/agentic-engineering/` and `.claude/agents/` paths are symlinks pointing into `content/` - but because the Worker runs in an isolation worktree, the edit lives in the worktree branch and is NOT live in the conductor's checkout until Step 2.5 cherry-picks it in. (On the permission-blocked in-place path where the conductor edits directly, the symlinks do make the change live immediately - but that is the exception, not the rule.) The other ten adapters are built artifacts, so the Step 3 build is still required before commit - the `adapter-sync` CI gate fails otherwise.
 4. If editing `content/commands/`: edit only the `content/commands/` path. The `.claude/commands/*.md` copies are build artifacts - `build.sh` prepends the `/agentic-engineering` prerequisite blockquote and writes the result to `.claude/commands/`. The build must be run after approval for the change to take effect.
 5. Commit the edit to the isolation worktree branch with `git commit -s` and a short message describing the change.
 6. Return the full diff, the commit SHA (full 40-character), and the worktree branch name.
@@ -17869,7 +17966,8 @@ After approval, if the diff touches ANY file under `content/`, rebuild every ada
 cd "$AE_REPO_DIR" && \
 bash .claude/build.sh && bash .cursor/build.sh && bash .codex/build.sh && \
 bash .gemini/build.sh && bash .kimi/build.sh && bash .opencode/build.sh && \
-bash .omp/build.sh && bash .pi/build.sh && bash .hermes/build.sh && bash .openclaw/build.sh
+bash .omp/build.sh && bash .pi/build.sh && bash .hermes/build.sh && bash .openclaw/build.sh && \
+bash .copilot/build.sh
 ```
 
 Then run `git status --porcelain` and confirm the only changes are the `content/` source file(s) plus their regenerated adapter copies. If any unrelated source file shows as modified, STOP and show the user - a build script can silently revert an out-of-date source file (the adapter-rebuild revert hazard).
@@ -17880,7 +17978,7 @@ If the diff touches `content/sections/`, also regenerate the methodology baselin
 bash scripts/build-methodology.sh | shasum -a 256 | awk '{print $1}' > scripts/.methodology-baseline.sha256
 ```
 
-Note: `.claude/skills/agentic-engineering/` and `.claude/agents/` are symlinks into `content/`, so `content/rules/`, `content/references/`, and `content/agents/` edits are immediately live in your own Claude session with no build. The build above is still required so the other nine adapters' committed artifacts match `content/`.
+Note: `.claude/skills/agentic-engineering/` and `.claude/agents/` are symlinks into `content/`, so `content/rules/`, `content/references/`, and `content/agents/` edits are immediately live in your own Claude session with no build. The build above is still required so the other ten adapters' committed artifacts match `content/`.
 
 ## Step 3.5 - Docs update check
 

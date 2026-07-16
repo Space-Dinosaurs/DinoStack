@@ -13,7 +13,7 @@ Public API: /brief [topic] | /brief --from <path>
             Invoked explicitly by the operator or auto-triggered by the conductor on
             planning-intent signals per Section 1.
 
-Upstream deps: content/sections/03-planning-artifacts.md (Brief template and field guidance,
+Upstream deps: content/references/planning-artifacts.md (Brief template and field guidance,
                including Outcome rubric field schema);
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
@@ -22,7 +22,7 @@ Upstream deps: content/sections/03-planning-artifacts.md (Brief template and fie
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/implement-ticket.md Phase 0b (brief_path check);
-                      content/sections/03-planning-artifacts.md (Skeptic variant selection);
+                      content/references/planning-artifacts.md §Gate semantics (Skeptic variant selection);
                       architect agent (receives brief_path in execution contract);
                       Skeptic (receives operator-confirmed variant from Section 6; evaluates
                       Outcome rubric field per step 3.5 in skeptic.md).
@@ -173,7 +173,7 @@ One exchange per selected gray area (`selected: true` in the state file):
 ### Turn N+1 - Brief draft
 
 Conductor synthesizes the Brief from intent + dialogue, formats per the Brief template
-in `content/sections/03-planning-artifacts.md`, and includes the **Outcome rubric** field:
+in `content/references/planning-artifacts.md` §Brief template, and includes the **Outcome rubric** field:
 
 - **If `docs/overview/_proposed/outcome-rubric.md` exists** (product-discovery ran before /brief): copy its lines verbatim into the rubric field and note "copied from discovery draft - confirm or adjust."
 - **Otherwise**: prompt the operator inline: "List the 3-6 things that would make this 'done' - one per line, most critical first." For each criterion the operator provides, assign a `verification_type`: `deterministic` if a gate is nameable, `judgment` otherwise. Present the assigned types for confirmation before writing.
