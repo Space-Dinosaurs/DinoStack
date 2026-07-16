@@ -1,194 +1,104 @@
-#!/usr/bin/env node
-'use strict';
+#!/usr/bin/env python3
+"""
+Purpose: Poll for the descriptor-safe project wrap lock while recording the
+         long-lived direct parent as its owner.
 
-/**
- * Purpose: Poll-wait for the /wrap directory lock (.agentic/wrap/lock),
- *          exiting once the lock is acquired or the timeout elapses. Designed
- *          to be invoked as a BACKGROUND command (run_in_background: true) so
- *          the conductor stays available while the wait runs in-process, avoiding
- *          the "foreground sleep is blocked; model gives up" failure mode of the
- *          previous prose-directed poll loop.
- *
- * Public API: CLI. `agentic-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N]`
- *   - cwd defaults to process.cwd(). Resolved to absolute via path.resolve.
- *   - --timeout-ms: total wait budget in milliseconds (default 1200000 = 20 min).
- *   - --poll-ms: interval between poll attempts in milliseconds (default 5000 = 5 s).
- *   - On success, prints exactly one line to stdout, then exits:
- *       "acquired <lockPath>"                    exit 0  lock acquired
- *       "timeout elapsed=<N>s"                   exit 2  timed out without acquiring
- *       "unreadable-owner <lockPath>"            exit 3  lock held but owner unparseable
- *       "stale-needs-manual pid=<P> started=<T>" exit 4  lock >30min old (NOT removed)
- *       "WARNING: ..."                           exit 1  unexpected failure (lib load etc.)
- *   - During the wait loop, prints a "waiting ..." line before each retry so the
- *     conductor knows the process is alive and can surface progress.
- *
- * Exit codes (each maps to a distinct conductor action in wrap.md):
- *   0 - acquired: lock is now held; /wrap may proceed normally.
- *   1 - unexpected failure: lib not loadable or fatal error; surface the WARNING line.
- *   2 - timeout (20 min elapsed): conductor reports and aborts without touching the lock.
- *   3 - unreadable owner: conductor reports the same message as the unreadable-owner
- *       sub-case in wrap.md and aborts.
- *   4 - stale-needs-manual (owner ts >30 min): conductor reports the same >30-minute
- *       message as wrap.md's stale sub-case; this binary did NOT remove the lock - that
- *       is the lock owner's (or human operator's) responsibility.
- *
- * Design decisions (deliberate, do NOT change without updating wrap.md):
- *
- *   1. NEVER auto-removes a lock, including stale ones. acquireWrapLock is called with
- *      staleMs=Number.MAX_SAFE_INTEGER so its mtime-based auto-steal branch never fires.
- *      The binary exits 4 when it detects a >30-minute owner timestamp, letting the
- *      conductor surface a human-readable prompt rather than silently clobbering a lock
- *      that might still belong to a live but slow /wrap run. This mirrors wrap.md's
- *      documented rationale: "only the process that wrote the lock should remove it -
- *      auto-removal risks clobbering a live run if the 30-minute heuristic is wrong."
- *
- *   2. PID liveness check is deliberately omitted. wrap.md §Pre-flight step 5:
- *      "Do not perform a PID liveness check. PID reuse makes the check unreliable for
- *      Claude Code processes - the timestamp is the authoritative signal." The >30-min
- *      timestamp is the staleness heuristic; this binary follows that convention.
- *
- *   3. Poll loop uses recursive setTimeout (not setInterval) with a single exit funnel
- *      so a slow synchronous fs call can never stack timers. startMs is captured once
- *      before the first attempt.
- *
- * Upstream dependencies: hooks/lib/wrap-marker.js (REPO copy, resolved via a
- *   __dirname-relative require so a symlinked bin still loads the repo lib, NOT a
- *   cwd-relative copy). Exports used: acquireWrapLock, readWrapLockOwner, wrapLockPath.
- *   Node built-ins: path. No npm dependencies.
- *
- * Downstream consumers: content/commands/wrap.md "Pre-flight lock acquisition" step 4
- *   (live-lock sub-case). Conductor invokes via run_in_background: true; branches on
- *   the exit code returned in the completion notification.
- *
- * Failure modes: exit 1 on lib load failure; exit 2 on timeout; exit 3 on unreadable
- *   owner (empty/missing/symlink owner file); exit 4 on >30-min owner timestamp (stale
- *   signal but no auto-clear). A genuine fs failure inside the poll loop is swallowed
- *   and treated as "lock still held", continuing to poll until the timeout is reached.
- *   This is fail-open: the lock is never wrongly cleared by a transient error.
- *
- * Performance: standard. Synchronous fs only inside each poll tick; recursive setTimeout
- *   with configurable interval (default 5 s). No network, no subprocess, no git.
- */
+Public API: agentic-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N].
+            Exit 0 prints `acquired <path> token=<token>`; exit 2 is timeout;
+            exit 3 is unreadable/invalid owner; exit 4 is a valid dead owner
+            that could not be reclaimed; exit 1 is an unexpected failure.
 
-const path = require('path');
+Upstream deps: hooks/lib/context-safe-io.py and the Python standard library.
 
-function main() {
-  // -------------------------------------------------------------------------
-  // Parse argv
-  // -------------------------------------------------------------------------
-  const cwd = path.resolve(process.argv[2] && !process.argv[2].startsWith('--')
-    ? process.argv[2]
-    : process.cwd());
+Downstream consumers: interactive /wrap and implement-ticket wrap ownership.
 
-  let timeoutMs = 1200000; // 20 minutes
-  let pollMs = 5000;       // 5 seconds
+Failure modes: never removes malformed, legacy, symlink, special-file, EPERM,
+               or age-only locks. The returned token is required for release.
 
-  for (let i = 2; i < process.argv.length; i++) {
-    const arg = process.argv[i];
-    const tmMatch = arg.match(/^--timeout-ms=(\d+)$/);
-    const pmMatch = arg.match(/^--poll-ms=(\d+)$/);
-    if (tmMatch) timeoutMs = Number(tmMatch[1]);
-    if (pmMatch) pollMs = Number(pmMatch[1]);
-  }
+Performance: local polling, default five-second cadence for up to 20 minutes.
+"""
 
-  // -------------------------------------------------------------------------
-  // Load lib
-  // -------------------------------------------------------------------------
-  let lib;
-  try {
-    // __dirname-relative require: resolves to the REPO's lib even when this
-    // file is invoked through a symlink in ~/.local/bin (Node resolves symlinks
-    // by default, so __dirname is <repo>/bin). Never cwd-relative.
-    lib = require(path.join(__dirname, '..', 'hooks', 'lib', 'wrap-marker.js'));
-  } catch (_) {
-    process.stdout.write('WARNING: agentic-wrap-acquire-lock could not load wrap-marker lib; cannot poll for lock\n');
-    process.exit(1);
-  }
+from __future__ import annotations
 
-  // -------------------------------------------------------------------------
-  // Owner string written to the lock/owner file on successful acquisition.
-  // Two-line format: PID on line 0, ISO timestamp on line 1.
-  // readWrapLockOwner parses both lines back into { pid, ts }.
-  // -------------------------------------------------------------------------
-  const ownerStr = process.pid + '\n' + new Date().toISOString();
+import importlib.util
+import os
+import pathlib
+import sys
+import time
 
-  // Staleness threshold for exit 4: owner timestamp older than this is
-  // reported as "stale-needs-manual" (binary does NOT remove the lock).
-  const STALE_MANUAL_MS = 30 * 60 * 1000; // 30 minutes
 
-  let lockPath;
-  try {
-    lockPath = lib.wrapLockPath(cwd);
-  } catch (_) {
-    lockPath = path.join(cwd, '.agentic', 'wrap', 'lock');
-  }
+DEFAULT_TIMEOUT_MS = 1_200_000
+DEFAULT_POLL_MS = 5_000
 
-  // -------------------------------------------------------------------------
-  // Poll loop (recursive setTimeout - single exit funnel)
-  // -------------------------------------------------------------------------
-  const startMs = Date.now();
 
-  function attempt() {
-    // 1. Try to acquire. Pass MAX_SAFE_INTEGER so the lib's mtime-auto-steal
-    //    branch NEVER fires - this binary controls all staleness decisions.
-    let acquired = false;
-    try {
-      acquired = lib.acquireWrapLock(cwd, ownerStr, Number.MAX_SAFE_INTEGER);
-    } catch (_) {
-      acquired = false;
-    }
+def _load_helper():
+    helper_path = pathlib.Path(__file__).resolve().parent.parent / "hooks" / "lib" / "context-safe-io.py"
+    spec = importlib.util.spec_from_file_location("dinostack_context_safe_io", helper_path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("context-safe I/O helper is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
-    if (acquired) {
-      process.stdout.write('acquired ' + lockPath + '\n');
-      process.exit(0);
-      return;
-    }
 
-    // 2. Read owner to classify the held lock.
-    let owner = { pid: null, ts: null };
-    try {
-      owner = lib.readWrapLockOwner(cwd);
-    } catch (_) {
-      owner = { pid: null, ts: null };
-    }
+def _positive_flag(argv: list[str], name: str, default: int) -> int:
+    prefix = f"--{name}="
+    for arg in argv:
+        if arg.startswith(prefix):
+            try:
+                value = int(arg[len(prefix) :])
+                return value if value >= 0 else default
+            except ValueError:
+                return default
+    return default
 
-    // 3. Unreadable owner (both null).
-    if (owner.pid === null && owner.ts === null) {
-      process.stdout.write('unreadable-owner ' + lockPath + '\n');
-      process.exit(3);
-      return;
-    }
 
-    // 4. Stale-needs-manual: owner ts present and >30 minutes old.
-    //    The binary deliberately does NOT remove the lock (see design decision 1).
-    if (owner.ts !== null) {
-      const ownerTsMs = Date.parse(owner.ts);
-      if (Number.isFinite(ownerTsMs) && (Date.now() - ownerTsMs) > STALE_MANUAL_MS) {
-        const pidLabel = owner.pid !== null ? String(owner.pid) : 'null';
-        process.stdout.write('stale-needs-manual pid=' + pidLabel + ' started=' + owner.ts + '\n');
-        process.exit(4);
-        return;
-      }
-    }
+def main(argv: list[str]) -> int:
+    positional = [arg for arg in argv if not arg.startswith("--")]
+    project_root = os.path.abspath(positional[0] if positional else os.getcwd())
+    timeout_ms = _positive_flag(argv, "timeout-ms", DEFAULT_TIMEOUT_MS)
+    poll_ms = _positive_flag(argv, "poll-ms", DEFAULT_POLL_MS)
+    owner_pid = os.getppid()
+    lock_path = os.path.join(project_root, ".agentic", "wrap", "lock")
+    try:
+        helper = _load_helper()
+    except Exception:
+        print("WARNING: agentic-wrap-acquire-lock could not load context-safe I/O helper; cannot poll for lock")
+        return 1
 
-    // 5. Timeout check.
-    const elapsedMs = Date.now() - startMs;
-    if (elapsedMs >= timeoutMs) {
-      const elapsedS = Math.round(elapsedMs / 1000);
-      process.stdout.write('timeout elapsed=' + elapsedS + 's\n');
-      process.exit(2);
-      return;
-    }
+    started = time.monotonic()
+    while True:
+        try:
+            result = helper.acquire_lock(project_root, "interactive-wrap", owner_pid=owner_pid)
+        except Exception:
+            result = {"status": "invalid"}
+        status = result.get("status")
+        if status == "acquired":
+            print(f"acquired {lock_path} token={result['token']}")
+            return 0
+        if status == "invalid":
+            print(f"unreadable-owner {lock_path}")
+            return 3
+        if status == "held" and result.get("owner_state") == "dead":
+            print(
+                "stale-needs-manual "
+                f"pid={result.get('owner_pid', 'null')} started={result.get('acquired_at', 'null')}"
+            )
+            return 4
 
-    // 6. Still waiting - print a progress line and schedule the next attempt.
-    const elapsedS = Math.round(elapsedMs / 1000);
-    const pidLabel = owner.pid !== null ? String(owner.pid) : 'null';
-    const tsLabel = owner.ts !== null ? owner.ts : 'null';
-    process.stdout.write('waiting pid=' + pidLabel + ' started=' + tsLabel + ' elapsed=' + elapsedS + 's\n');
-    setTimeout(attempt, pollMs);
-  }
+        elapsed_ms = int((time.monotonic() - started) * 1000)
+        if elapsed_ms >= timeout_ms:
+            print(f"timeout elapsed={round(elapsed_ms / 1000)}s")
+            return 2
+        print(
+            "waiting "
+            f"pid={result.get('owner_pid', 'null')} "
+            f"started={result.get('acquired_at', 'null')} "
+            f"elapsed={round(elapsed_ms / 1000)}s",
+            flush=True,
+        )
+        time.sleep(poll_ms / 1000)
 
-  attempt();
-}
 
-main();
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

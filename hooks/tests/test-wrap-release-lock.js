@@ -1,18 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-/**
- * Unit tests for bin/agentic-wrap-release-lock.
- *
- * Tests the CLI helper that replaces the inline `rm -rf .agentic/wrap/lock`
- * denied by Claude Code's permission system. Four cases:
- *   1. Planted lock - lock exists, gets released, stdout says "released <path>"
- *   2. No lock     - nothing to remove, stdout says "no lock present"
- *   3. Idempotent  - second call on already-clean dir, stdout says "no lock present"
- *   4. Bare-name via symlink - portability proof from a non-repo cwd
- *
- * Run with: node hooks/tests/test-wrap-release-lock.js
- */
+/** Regression tests for the token-required agentic-wrap-release-lock CLI. */
 
 const fs = require('fs');
 const os = require('os');
@@ -22,143 +11,78 @@ const lib = require('../lib/wrap-marker.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'bin', 'agentic-wrap-release-lock');
-
+const tmpDirs = [];
 let passed = 0;
 let failed = 0;
-const tmpDirs = [];
 
-function assert(condition, message) {
-  if (condition) {
-    console.log(`  PASS: ${message}`);
-    passed++;
-  } else {
-    console.error(`  FAIL: ${message}`);
-    failed++;
-  }
+function assert(value, message) {
+  if (value) { console.log(`  PASS: ${message}`); passed++; }
+  else { console.error(`  FAIL: ${message}`); failed++; }
 }
 
-function makeTmp(prefix) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
-  tmpDirs.push(dir);
-  return dir;
+function temp(prefix) {
+  const value = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tmpDirs.push(value);
+  return value;
 }
 
-function plantLock(dir) {
-  const lockDir = lib.wrapLockPath(dir);
-  fs.mkdirSync(lockDir, { recursive: true });
-  fs.writeFileSync(path.join(lockDir, 'owner'), '12345\n' + new Date().toISOString() + '\n');
-  return lockDir;
+function run(script, args) {
+  return execFileSync(script, args, { encoding: 'utf8' });
 }
 
-function runHelper(scriptOrBin, args, opts) {
-  return execFileSync('node', [scriptOrBin, ...args], { encoding: 'utf8', ...opts });
-}
-
-// ---------------------------------------------------------------------------
-// Pre-flight: script exists and is readable
-// ---------------------------------------------------------------------------
-console.log('\n[pre] script exists');
-assert(fs.existsSync(SCRIPT_PATH), `bin/agentic-wrap-release-lock exists at ${SCRIPT_PATH}`);
-
-// ---------------------------------------------------------------------------
-// Case 1: Planted lock — lock exists, gets released
-// ---------------------------------------------------------------------------
-console.log('\n[1] planted lock — expect "released <path>"');
+console.log('\n[1] correct token releases verified lock');
 {
-  const tmp = makeTmp('wrl-case1-');
-  const lockDir = plantLock(tmp);
-  let stdout;
-  let threw = false;
-  try {
-    stdout = runHelper(SCRIPT_PATH, [tmp]);
-  } catch (e) {
-    threw = true;
-    console.error('  threw:', e.message);
-  }
-  assert(!threw, 'case 1: helper exited 0 (no throw)');
-  assert(typeof stdout === 'string' && stdout.includes('released'), `case 1: stdout includes "released" (got: ${JSON.stringify(stdout)})`);
-  assert(!fs.existsSync(lockDir), 'case 1: lock dir no longer exists after release');
+  const project = temp('wrap-release-ok-');
+  const token = lib.acquireWrapLock(project, 'release-test');
+  const output = run(SCRIPT_PATH, [project, `--token=${token}`]);
+  assert(output.includes('released'), 'release reports released');
+  assert(!fs.existsSync(lib.wrapLockPath(project)), 'verified lock is absent');
 }
 
-// ---------------------------------------------------------------------------
-// Case 2: No lock — nothing to remove
-// ---------------------------------------------------------------------------
-console.log('\n[2] no lock — expect "no lock present"');
+console.log('\n[2] absent lock remains idempotent with a token-shaped capability');
 {
-  const tmp = makeTmp('wrl-case2-');
-  let stdout;
-  let threw = false;
-  try {
-    stdout = runHelper(SCRIPT_PATH, [tmp]);
-  } catch (e) {
-    threw = true;
-    console.error('  threw:', e.message);
-  }
-  assert(!threw, 'case 2: helper exited 0 (no throw)');
-  assert(typeof stdout === 'string' && stdout.includes('no lock present'), `case 2: stdout includes "no lock present" (got: ${JSON.stringify(stdout)})`);
+  const project = temp('wrap-release-absent-');
+  const output = run(SCRIPT_PATH, [project, `--token=${'0'.repeat(64)}`]);
+  assert(output.includes('no lock present'), 'absent lock reports no lock present');
 }
 
-// ---------------------------------------------------------------------------
-// Case 3: Idempotent — second call after case-1 cleanup
-// ---------------------------------------------------------------------------
-console.log('\n[3] idempotent — second call on clean dir');
+console.log('\n[3] missing and wrong tokens never release');
 {
-  // Re-use a fresh tmp (case 1 dir was cleaned by the release)
-  const tmp = makeTmp('wrl-case3-');
-  plantLock(tmp);
-  // First call
-  runHelper(SCRIPT_PATH, [tmp]);
-  // Second call — lock already gone
-  let stdout;
-  let threw = false;
-  try {
-    stdout = runHelper(SCRIPT_PATH, [tmp]);
-  } catch (e) {
-    threw = true;
-    console.error('  threw:', e.message);
-  }
-  assert(!threw, 'case 3: second call exited 0 (no throw)');
-  assert(typeof stdout === 'string' && stdout.includes('no lock present'), `case 3: second call says "no lock present" (got: ${JSON.stringify(stdout)})`);
+  const project = temp('wrap-release-wrong-');
+  const token = lib.acquireWrapLock(project, 'release-test');
+  const missing = run(SCRIPT_PATH, [project]);
+  const wrong = run(SCRIPT_PATH, [project, `--token=${'0'.repeat(64)}`]);
+  assert(missing.includes('token is required'), 'missing token is diagnosed');
+  assert(wrong.includes('WARNING'), 'wrong token is diagnosed');
+  assert(fs.existsSync(lib.wrapLockPath(project)), 'wrong-token attempts retain lock');
+  assert(lib.releaseWrapLock(project, token), 'correct token still releases afterward');
 }
 
-// ---------------------------------------------------------------------------
-// Case 4: Bare-name via symlink from a non-repo cwd (portability proof)
-// ---------------------------------------------------------------------------
-console.log('\n[4] bare-name via symlink from non-repo cwd');
+console.log('\n[4] replacement inode is refused');
 {
-  const bindir = makeTmp('wrl-bindir-');
-  const proj = makeTmp('wrl-proj-');
-  const symlinkPath = path.join(bindir, 'agentic-wrap-release-lock');
-  fs.symlinkSync(SCRIPT_PATH, symlinkPath);
-  plantLock(proj);
-  const lockDir = lib.wrapLockPath(proj);
-
-  let stdout;
-  let threw = false;
-  try {
-    // Invoke the symlink directly (not relying on shell PATH resolution);
-    // pass cwd via process.argv[2] rather than leaving it to process.cwd()
-    stdout = runHelper(symlinkPath, [proj]);
-  } catch (e) {
-    threw = true;
-    console.error('  threw:', e.message);
-  }
-  assert(!threw, 'case 4: symlinked helper exited 0 (no throw)');
-  assert(typeof stdout === 'string' && stdout.includes('released'), `case 4: stdout includes "released" (got: ${JSON.stringify(stdout)})`);
-  assert(!fs.existsSync(lockDir), 'case 4: lock dir removed when called via symlink');
-  // No MODULE_NOT_FOUND means the lib loaded from the REPO correctly through the symlink
-  assert(typeof stdout === 'string' && !stdout.includes('MODULE_NOT_FOUND'), 'case 4: no MODULE_NOT_FOUND (lib resolved via symlink-aware __dirname)');
+  const project = temp('wrap-release-replace-');
+  const token = lib.acquireWrapLock(project, 'release-test');
+  const lock = lib.wrapLockPath(project);
+  const saved = lock + '.saved';
+  fs.renameSync(lock, saved);
+  fs.mkdirSync(lock);
+  fs.copyFileSync(path.join(saved, 'owner'), path.join(lock, 'owner'));
+  const output = run(SCRIPT_PATH, [project, `--token=${token}`]);
+  assert(output.includes('WARNING'), 'replacement inode reports warning');
+  assert(fs.existsSync(lock) && fs.existsSync(saved), 'replacement and original are retained');
 }
 
-// ---------------------------------------------------------------------------
-// Cleanup
-// ---------------------------------------------------------------------------
-for (const d of tmpDirs) {
-  try { fs.rmSync(d, { recursive: true, force: true }); } catch (_) { /* best-effort */ }
+console.log('\n[5] symlinked executable resolves repository implementation');
+{
+  const binDir = temp('wrap-release-bin-');
+  const project = temp('wrap-release-project-');
+  const linked = path.join(binDir, 'agentic-wrap-release-lock');
+  fs.symlinkSync(SCRIPT_PATH, linked);
+  const token = lib.acquireWrapLock(project, 'release-test');
+  const output = run(linked, [project, `--token=${token}`]);
+  assert(output.includes('released'), 'symlinked executable releases with token');
 }
 
-// ---------------------------------------------------------------------------
-// Summary
-// ---------------------------------------------------------------------------
+for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed > 0 ? 1 : 0);

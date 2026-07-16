@@ -43,16 +43,17 @@
  *     reclaimAbandonedInProgress(cwd, staleMs) -> {reclaimed:[], gaveUp:[]}
  *     cleanStalePending(cwd, ttlMs) -> {deleted:[]}
  *   Lock (NEVER prompts):
- *     acquireWrapLock(cwd, owner, staleMs) -> boolean, releaseWrapLock(cwd)
- *     readWrapLockOwner(cwd) -> { pid, ts } (symlink-guarded: guards both parent lock
- *       dir AND leaf owner against symlinks, no-follow; safe for any caller),
+ *     acquireWrapLock(cwd, ownerKind) -> token|null,
+ *     releaseWrapLock(cwd, token) -> boolean,
+ *     readWrapLockOwner(cwd) -> { pid, ts, kind, state } (descriptor-safe),
  *     clearProvablyStaleWrapLock(cwd, staleMs) -> boolean (daemon-side stale-lock clear)
  *     wrapLockProvablyStale(cwd, staleMs) -> boolean (staleness predicate, NEW path)
  *     wrapLockProvablyStaleLegacy(cwd, staleMs) -> boolean (staleness predicate, OLD path)
  *   Heartbeat:
  *     touchHeartbeat(cwd, sessionId) (NO-OP under guard), removeHeartbeat(cwd, sessionId)
  *
- * Upstream deps: Node built-ins only (fs, path). No npm dependencies.
+ * Upstream deps: Node built-ins only (fs, path, child_process) and the sibling
+ *                Python descriptor-safe helper. No npm dependencies.
  *                Reads/writes under [cwd]/.agentic/wrap/: pending-<id>.json markers,
  *                last-wrap, lock (directory) + lock/owner, daemon.pid,
  *                daemon-auth-failed, heartbeats/<id>, deferred-activity.jsonl.
@@ -95,27 +96,16 @@
  *                caps the number processed per tick (MAX_MARKERS_PER_SCAN, SEC-M3),
  *                so a hostile repo cannot wedge a poll tick with a giant marker or a
  *                directory of tens of thousands of files. Both remain fail-open.
- *                LOCK CLEAR (daemon-side): clearProvablyStaleWrapLock removes the
- *                wrap/lock DIRECTORY (so the headless deferred-`/wrap` child, which runs
- *                with Bash removed and cannot `rm`, no longer re-flags a stale lock) but
- *                ONLY when the lock is PROVABLY dead/stale: a dead owner PID, OR (no PID)
- *                an owner timestamp older than staleMs. An ALIVE owner PID is
- *                authoritative-LIVE and the lock is KEPT regardless of timestamp age, so
- *                it NEVER removes a live lock. It is symlink-safe (CWE-59): lstat
- *                no-follow at the lock path, a symlink AT wrap/lock is unlinked (link
- *                only, never its target), a plain file is left alone, and rmSync runs
- *                ONLY on a confirmed real directory. readWrapLockOwner is likewise
- *                symlink-safe (CWE-59) at BOTH levels: (1) the parent lock dir is
- *                lstat-guarded - a wrap/lock symlink returns {null,null} before any child
- *                path is opened; (2) the leaf owner is lstat-guarded - a planted
- *                `wrap/lock/owner -> /etc/passwd` is detected and never read through.
- *                Both are fail-open (never throw), and (1) makes the reader self-sufficient
- *                for any caller without requiring a prior parent-level lstat.
- *                The ownerIsStale(owner, staleMs) helper is shared between
- *                wrapLockProvablyStale (new path) and wrapLockProvablyStaleLegacy (old
- *                path), single-sourcing the CWE-59 symlink-guarded owner read.
+ *                LOCK CLEAR (daemon-side): the Python helper is the sole production
+ *                lock implementation. It opens every owned component with
+ *                O_DIRECTORY|O_NOFOLLOW, verifies token and inode identity, and
+ *                reclaims only a schema-valid owner whose PID returns ESRCH.
+ *                Malformed, legacy, symlink, special-file, EPERM, and age-only cases
+ *                are retained. Release is token-required and never recursively deletes.
  *
- * Performance: standard. Synchronous fs only; no git, no network, no subprocess.
+ * Performance: standard. Marker operations remain synchronous filesystem I/O;
+ *              ordinary lock operations invoke one bounded local Python
+ *              subprocess; stale-clear performs inspect, acquire, and release.
  *              listReadyMarkers / listInProgressMarkers glob one directory
  *              (readdirSync), filter names to the UUID shape, then stat-read at most
  *              MAX_MARKERS_PER_SCAN pending-<uuid>.json files once each.
@@ -125,6 +115,30 @@
 
 const fs = require('fs');
 const path = require('path');
+const { spawnSync } = require('child_process');
+
+const CONTEXT_SAFE_IO = path.join(__dirname, 'context-safe-io.py');
+const CONTEXT_SAFE_IO_MAX_OUTPUT = 256 * 1024;
+
+/** Invoke the descriptor-safe helper and parse its one sorted-JSON response. */
+function runContextSafeIo(cwd, args, input) {
+  const safe = safeCwd(cwd);
+  if (!safe) return null;
+  try {
+    const result = spawnSync('python3', [CONTEXT_SAFE_IO, '--project-root', safe, ...args], {
+      encoding: 'utf8',
+      input: input === undefined ? undefined : JSON.stringify(input),
+      maxBuffer: CONTEXT_SAFE_IO_MAX_OUTPUT,
+      timeout: 30000,
+      windowsHide: true,
+    });
+    if (result.error || result.status !== 0 || typeof result.stdout !== 'string') return null;
+    const parsed = JSON.parse(result.stdout);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch (_) {
+    return null;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -424,8 +438,8 @@ function readLastWrap(cwd) {
  * created by atomic mkdir). Fail-open: false (treat unreadable as not-held).
  */
 function wrapLockHeld(cwd) {
-  try { return fs.existsSync(wrapLockPath(cwd)); }
-  catch (_) { return false; }
+  const inspected = runContextSafeIo(cwd, ['lock', 'inspect']);
+  return !!(inspected && inspected.status !== 'absent');
 }
 
 /**
@@ -433,14 +447,9 @@ function wrapLockHeld(cwd) {
  * staleMs (so it is safe to clear). Fail-open: false (never wrongly clear).
  */
 function wrapLockStale(cwd, staleMs) {
-  try {
-    const p = wrapLockPath(cwd);
-    const st = fs.statSync(p); // throws if absent
-    const age = Date.now() - st.mtimeMs;
-    return age > staleMs;
-  } catch (_) {
-    return false;
-  }
+  void staleMs;
+  const inspected = runContextSafeIo(cwd, ['lock', 'inspect']);
+  return !!(inspected && inspected.status === 'held' && inspected.owner_state === 'dead');
 }
 
 /**
@@ -811,145 +820,46 @@ function cleanStalePending(cwd, ttlMs) {
 // Lock management (NEVER prompts)
 // ---------------------------------------------------------------------------
 
-/**
- * Acquire the wrap.lock directory via atomic mkdir (O_EXCL semantics). On
- * collision, if the existing lock is stale (older than staleMs) it is force-cleared
- * (rm -rf) and acquisition is retried ONCE; otherwise acquisition fails. NEVER
- * prompts. Writes an owner file inside the lock dir for diagnostics. Returns true
- * on acquisition, false otherwise. Fail-open: false.
- */
-function acquireWrapLock(cwd, owner, staleMs) {
-  const safe = safeCwd(cwd);
-  if (!safe) return false;
-  const lockDir = wrapLockPath(safe);
-  const tryMkdir = () => {
-    try {
-      fs.mkdirSync(path.dirname(lockDir), { recursive: true });
-      fs.mkdirSync(lockDir); // throws EEXIST if held
-      try {
-        fs.writeFileSync(wrapLockOwnerPath(safe), String(owner == null ? '' : owner), 'utf8');
-      } catch (_) {}
-      return true;
-    } catch (err) {
-      if (err && err.code === 'EEXIST') return false;
-      return false; // any other fs error -> treat as not acquired
-    }
+/** Acquire through the sole Python implementation. Returns its opaque token. */
+function acquireWrapLock(cwd, ownerKind, staleMs) {
+  void staleMs;
+  const kind = (typeof ownerKind === 'string' && ownerKind.trim())
+    ? ownerKind.trim().slice(0, 128)
+    : 'wrap-marker';
+  const result = runContextSafeIo(cwd, [
+    'lock', 'acquire', '--owner-pid', String(process.pid), '--owner-kind', kind,
+  ]);
+  return result && result.status === 'acquired' && typeof result.token === 'string'
+    ? result.token
+    : null;
+}
+
+/** Release only the lock identified by the opaque acquisition token. */
+function releaseWrapLock(cwd, token) {
+  if (typeof token !== 'string' || !token) return false;
+  const result = runContextSafeIo(cwd, ['lock', 'release', '--token', token]);
+  return !!(result && (result.status === 'released' || result.status === 'absent'));
+}
+
+/** Inspect the validated owner without exposing its token. */
+function readWrapLockOwner(cwd) {
+  const result = runContextSafeIo(cwd, ['lock', 'inspect']);
+  if (!result || result.status !== 'held') {
+    return { pid: null, ts: null, kind: null, state: null };
+  }
+  return {
+    pid: Number.isInteger(result.owner_pid) ? result.owner_pid : null,
+    ts: typeof result.acquired_at === 'string' ? result.acquired_at : null,
+    kind: typeof result.owner_kind === 'string' ? result.owner_kind : null,
+    state: typeof result.owner_state === 'string' ? result.owner_state : null,
   };
-
-  if (tryMkdir()) return true;
-
-  // Collision: clear if stale, then retry once.
-  if (wrapLockStale(safe, staleMs)) {
-    try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch (_) {}
-    return tryMkdir();
-  }
-  return false;
 }
 
-/** Release the wrap.lock directory (rm -rf, idempotent). Fail-open. */
-function releaseWrapLock(cwd) {
-  const safe = safeCwd(cwd);
-  if (!safe) return false;
-  try {
-    fs.rmSync(wrapLockPath(safe), { recursive: true, force: true });
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-// Local cap on the lock/owner read. The owner file is at most two short lines
-// (a PID and an ISO timestamp); cap the read so a giant planted owner file cannot
-// wedge a daemon tick. Mirrors the SEC-M2 stat-then-read discipline.
-const MAX_OWNER_BYTES = 4 * 1024;
-
-// ---------------------------------------------------------------------------
-// Shared lock-staleness helpers (single-sourced, CWE-59 symlink-guarded)
-// ---------------------------------------------------------------------------
-
-/**
- * Symlink-guarded, CWE-59-safe owner-file reader. Reads the two-line owner body
- * at ownerPath under lockPath, guarding against symlinks at BOTH levels.
- * Returns { pid, ts } on success, { pid: null, ts: null } on any guard or error.
- * This is the ONE canonical reader used by readWrapLockOwner, wrapLockProvablyStale,
- * and wrapLockProvablyStaleLegacy so symlink protection is never copy-pasted.
- *
- * @param {string} lockPath - The lock directory path (lstat-checked no-follow).
- * @param {string} ownerPath - The owner file path inside the lock dir.
- */
-function readOwnerAt(lockPath, ownerPath) {
-  const empty = { pid: null, ts: null };
-  try {
-    // (1) PARENT guard: if the lock dir itself is a symlink, bail immediately.
-    const lockSt = fs.lstatSync(lockPath); // throws if absent -> caught -> empty
-    if (lockSt.isSymbolicLink()) return empty;
-
-    // (2) LEAF guard: if the owner file is a symlink, bail without reading.
-    const st = fs.lstatSync(ownerPath); // no-follow; throws ENOENT when absent -> empty
-    if (st.isSymbolicLink()) return empty;
-    if (!st.isFile()) return empty;
-    if (st.size > MAX_OWNER_BYTES) return empty;
-    const raw = fs.readFileSync(ownerPath, 'utf8');
-    const lines = raw.split('\n');
-    const pidNum = Number((lines[0] || '').trim());
-    const pid = (Number.isInteger(pidNum) && pidNum > 0) ? pidNum : null;
-    const tsRaw = (lines.length > 1 ? lines[1] : '').trim();
-    const ts = tsRaw ? tsRaw : null;
-    return { pid, ts };
-  } catch (_) {
-    return empty;
-  }
-}
-
-/**
- * Evaluate the lock staleness predicate given an already-read owner object.
- * Returns true ONLY when the lock is PROVABLY stale:
- *   - dead owner PID (pidIsDead returns true), OR
- *   - no PID AND a parseable ts older than staleMs.
- * Returns false (KEEP) when:
- *   - PID is alive (authoritative-live),
- *   - no usable signal: no PID AND no parseable ts (mkdir-before-owner race),
- *   - both pid and ts are null (empty owner).
- * This predicate is the single source of truth shared by clearProvablyStaleWrapLock,
- * wrapLockProvablyStale, and wrapLockProvablyStaleLegacy.
- *
- * @param {{ pid: number|null, ts: string|null }} owner
- * @param {number} staleMs
- */
-function ownerIsStale(owner, staleMs) {
-  if (owner.pid !== null) {
-    return pidIsDead(owner.pid); // alive -> KEEP; dead -> CLEAR
-  }
-  if (owner.ts !== null) {
-    const tms = tsMs(owner.ts);
-    return (tms !== null) && ((Date.now() - tms) > staleMs);
-  }
-  return false; // no usable signal -> KEEP (fail-open)
-}
-
-/**
- * Staleness predicate for the NEW lock path (.agentic/wrap/lock). Evaluates
- * whether the current lock is provably stale without performing any removal.
- * Returns false (KEEP) on: alive PID, no-usable-signal, any fs error, or a
- * symlink at the lock path. Returns true ONLY on dead PID OR (no PID + ts older
- * than staleMs). Used by session-start-wrap.sh's migration node one-liner.
- * Fail-open: false.
- *
- * @param {string} cwd
- * @param {number} staleMs
- */
+/** New-path staleness is exclusively a valid owner whose PID is ESRCH. */
 function wrapLockProvablyStale(cwd, staleMs) {
-  try {
-    const lockPath = wrapLockPath(cwd);
-    let st;
-    try { st = fs.lstatSync(lockPath); } catch (_) { return false; } // absent -> KEEP (no lock)
-    if (st.isSymbolicLink()) return false; // symlink -> KEEP (hostile artifact, not our lock)
-    if (!st.isDirectory()) return false;   // plain file -> KEEP
-    const owner = readOwnerAt(lockPath, wrapLockOwnerPath(cwd));
-    return ownerIsStale(owner, staleMs);
-  } catch (_) {
-    return false; // fail-open
-  }
+  void staleMs;
+  const result = runContextSafeIo(cwd, ['lock', 'inspect']);
+  return !!(result && result.status === 'held' && result.owner_state === 'dead');
 }
 
 /**
@@ -962,85 +872,15 @@ function wrapLockProvablyStale(cwd, staleMs) {
  * @param {number} staleMs
  */
 function wrapLockProvablyStaleLegacy(cwd, staleMs) {
-  const legacyLockPath = path.join(agenticDir(cwd), 'wrap.lock');
-  const legacyOwnerPath = path.join(agenticDir(cwd), 'wrap.lock', 'owner');
-  try {
-    let st;
-    try { st = fs.lstatSync(legacyLockPath); } catch (_) { return false; }
-    if (st.isSymbolicLink()) return false;
-    if (!st.isDirectory()) return false;
-    const owner = readOwnerAt(legacyLockPath, legacyOwnerPath);
-    return ownerIsStale(owner, staleMs);
-  } catch (_) {
-    return false; // fail-open
-  }
+  void cwd;
+  void staleMs;
+  return false; // Legacy two-line owners are never authoritative for reclaim.
 }
 
-/**
- * Read the wrap/lock/owner file into { pid, ts }. The owner body is 2-line
- * (PID + ISO timestamp, written by the interactive `/wrap`), 1-line (PID-only,
- * written by acquireWrapLock), empty, or absent.
- *   - line0 -> a positive integer PID, else null
- *   - line1 (if present) -> a trimmed non-empty ISO string, else null
- * Fail-open: { pid: null, ts: null } on any error.
- *
- * SECURITY (CWE-59, defense-in-depth): delegates to readOwnerAt which guards
- * against symlinks at BOTH levels (parent lock dir AND leaf owner file) so it is
- * safe for any caller, not just the parent-validating one.
- */
-function readWrapLockOwner(cwd) {
-  return readOwnerAt(wrapLockPath(cwd), wrapLockOwnerPath(cwd));
-}
-
-/**
- * Clear a PROVABLY-stale wrap.lock DIRECTORY (the headless deferred-`/wrap` child
- * runs with Bash removed and cannot `rm` it; the trusted daemon clears it instead).
- * Returns true IFF a real stale lock directory was removed; false otherwise. Never
- * throws (fail-open).
- *
- * Stale predicate (exact): CLEAR iff
- *   (owner.pid !== null && pidIsDead(owner.pid))                                 -- dead owner PID
- *   OR (owner.pid === null && owner.ts !== null && tsMs(owner.ts) !== null
- *       && (Date.now() - tsMs(owner.ts)) > staleMs)                              -- no PID + old timestamp
- * An ALIVE pid is authoritative-LIVE -> KEEP regardless of timestamp age (this is the
- * live-lock corruption guard: liveness, not age, drives the clear). No usable owner
- * signal (no PID and no parseable timestamp) -> KEEP, covering the interactive `/wrap`
- * mkdir-before-owner race. This must NEVER clear a live lock.
- *
- * SECURITY (CWE-59, models appendToLog's symlink discipline): the removal sequence
- * lstats the lock path no-follow and refuses to rmSync anything that is not a confirmed
- * real directory. A symlink AT wrap.lock is unlinked (link only, never its target); a
- * plain file is left alone. readWrapLockOwner is itself symlink-guarded.
- */
 function clearProvablyStaleWrapLock(cwd, staleMs) {
-  try {
-    const lockPath = wrapLockPath(cwd);
-    let st;
-    try {
-      st = fs.lstatSync(lockPath); // no-follow; ENOENT -> caught -> return false
-    } catch (_) {
-      return false; // no lock present
-    }
-    if (st.isSymbolicLink()) {
-      // A symlink AT wrap.lock is a hostile artifact, not our lock. unlink removes ONLY
-      // the link (never follows it / touches the target). Do NOT rmSync.
-      try { fs.unlinkSync(lockPath); } catch (_) {}
-      return false; // removed a hostile artifact, not a real lock
-    }
-    if (!st.isDirectory()) {
-      return false; // a plain file at wrap.lock is not our (mkdir-created) lock; leave it
-    }
-    // Real directory: evaluate the stale predicate via the single-sourced helper.
-    const owner = readWrapLockOwner(cwd);
-    if (!ownerIsStale(owner, staleMs)) return false; // live / no usable signal -> KEEP
-    // Confirmed real, stale directory. Step's lstat already proved the top-level path is
-    // a directory (not a symlink), so rmSync(recursive) recurses into a directory we own;
-    // any symlinks encountered DURING recursion are unlinked, not followed (rm -rf semantics).
-    fs.rmSync(lockPath, { recursive: true, force: true });
-    return true;
-  } catch (_) {
-    return false; // fail-open: never throw, never wrongly report a clear
-  }
+  if (!wrapLockProvablyStale(cwd, staleMs)) return false;
+  const token = acquireWrapLock(cwd, 'stale-lock-clear', staleMs);
+  return typeof token === 'string' && releaseWrapLock(cwd, token);
 }
 
 // ---------------------------------------------------------------------------
