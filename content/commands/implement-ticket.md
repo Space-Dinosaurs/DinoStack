@@ -2618,3 +2618,88 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 **On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
 > Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the Stop hook on session-exit crash. These are two distinct paths; `last_summary` is only populated on graceful pause (the Stop hook cannot synthesize it).
+
+---
+
+## Phase 12b: Operator Runbook
+
+**Trigger:** fires once per session, at the point the session's ticket-processing work concludes - not once per ticket. Single-ticket mode: once, after Phase 12a for the one ticket. Batch mode (including single-ticket-capped and open-goal): once, after the LAST ticket processed in this session, when the outer loop is about to exit because all tickets in `batch-state.json.tickets[]` have reached a terminal state (no `pending` or `in_progress` remaining) and Phase 12a did not pause the batch. Do NOT print the runbook after every individual ticket's Phase 12a evaluation while more tickets remain to process in this session - a 5-ticket batch prints ONE runbook, not five.
+
+**Skip conditions:**
+- Phase 9 was skipped (no PR was opened, e.g. open-goal dry-run): skip silently.
+- Phase 12a already exited the outer loop (goal-met short-circuit fired): skip - the goal-met exit already prints a terminal summary.
+- Phase 12a triggered a pause this session (any of the four triggers, any mode - batch, single-ticket-capped, or open-goal): skip - Phase 12a's own pause summary (`BATCH PAUSED` / `OPEN-GOAL LOOP PAUSED` / `SINGLE-TICKET WALLCLOCK CAP REACHED`) already states what completed so far and the correct resume command; a second, differently-worded next-command block from Phase 12b would contradict it (12a's `Resume: /implement-ticket from this directory` resumes the paused batch cursor - a different operation from a fresh `/implement-ticket <ticket_id>` invocation).
+
+**Failure semantics:** soft-fail throughout. Any error reading state files is swallowed; the runbook degrades gracefully to whatever information is available. Phase 12b NEVER blocks Phase 12 cleanup, PR completion, or batch advancement.
+
+**Output format:** the runbook is printed as plain operator-readable text, not structured JSON. It is plan-only - it suggests commands, never invokes them (yolo-guard applies). All file paths in pasted command lines are absolute (operator handoff convention).
+
+---
+
+**What to render:**
+
+### 1. What landed
+
+For each PR opened this session (collected from Phase 9 across all completed tickets), print one line:
+
+```
+✓  PR #<number>  <ticket_id>  → <pr_url>
+```
+
+Derive the list from the session's completed `tickets[]` entries in `.agentic/batch-state.json` (fields `pr_number` and `ticket_id` - the actual schema; there is no `pr_url` or `ticket_title` field). Construct `pr_url` as `https://github.com/$GH_REPO/pull/<pr_number>`, matching the pattern used at Phase 11 (`PR_URL`: `https://github.com/[GH_REPO]/pull/[PR_NUMBER]`). Do not print a ticket title - it is not a `batch-state.json` field, and adding one is a schema change out of scope for this change. For single-ticket mode (no `batch-state.json`), derive from the in-context `PR_NUMBER` set at Phase 9 and the `PR_URL` constructed at Phase 11.
+
+### 2. Next command
+
+This phase's own trigger condition (see above) guarantees every ticket in `.agentic/batch-state.json.tickets[]`, when the file exists, has already reached a terminal state - no `pending` or `in_progress` entries remain to resume. So the next command is always derived from a triage artifact, never from an in-batch "remaining tickets" scan.
+
+Check for a triage artifact: glob `docs/planning/triage-*.md` - pick the newest by mtime. `.agentic/triage-*.md` is not a valid fallback path: `/ticket-triage` explicitly writes no `.agentic/` state (`content/commands/ticket-triage.md`'s header and Phase 0 both state "No `.agentic/` state writes"), so no file can ever exist there. If a triage artifact is found, extract the next recommended lane's ticket IDs from its "## Kickoff prompts" section (heuristic: first lane block not covered by tickets already landed this session). Each lane block already contains a literal copy-pasteable `/implement-ticket <ticket_ids>` code fence (see `content/commands/ticket-triage.md` Phase 4a artifact skeleton) - reuse it verbatim rather than reconstructing the command. Do not look for a `lanes[]` field on the artifact: `lanes[]` is the in-memory `triage_result` structure Phase 0a builds during triage (`{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`), not a field of the rendered markdown - the on-disk artifact has no such field.
+
+```
+Next:  /implement-ticket <lane_tickets>
+       (from: <absolute_path_to_repo>)
+       Triage artifact: <absolute_path_to_triage_file>
+```
+
+If no triage artifact exists, print:
+
+```
+Next:  /ticket-triage   # no outstanding work detected; re-triage to pick next batch
+       (from: <absolute_path_to_repo>)
+```
+
+### 3. Blockers and deferred items
+
+Collect any blockers surfaced during this session:
+
+- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `content/references/qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log). **Known gap:** neither `qa_blocked` nor `qa_unverified=true` is written to any durable state file (`.agentic/loop-state.json`'s `qa_failures_log` tracks Skeptic-visible QA fail/retry cycles, not the blocked/INCONCLUSIVE terminal outcome, and it is ticket-scoped - overwritten by the next ticket and cleared at that ticket's own Phase 12, both before this phase runs). This item is therefore best-effort within the current session only and does not survive a resumed session: a batch that hits `qa_blocked` in session A and is resumed and finished in session B will not re-surface that blocker here.
+- Batch-escalated tickets: any ticket in `.agentic/batch-state.json.tickets[]` with `status: "blocked"` (written by the "Batch-mode escalation routing (mark-blocked-and-continue)" path on Skeptic/QA `cap_reached`) - print the ticket ID and its `last_summary`. This is the one blocker class that IS durable (written directly to `tickets[]`), so include it even on a resumed session.
+
+Print:
+
+```
+Blockers / deferred:
+  · <item description>
+```
+
+If no blockers, omit this section entirely (keep output clean for smooth runs).
+
+---
+
+**Full runbook example output:**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPERATOR RUNBOOK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+What landed:
+  ✓  PR #451  DS-69  → https://github.com/…/pull/451
+  ✓  PR #452  DS-52  → https://github.com/…/pull/452
+
+Next:
+  /implement-ticket DS-45, DS-50
+  (from: /Users/dev/project)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+Emit breadcrumb: `[phase: operator-runbook | tickets_landed=<k> | blockers=<n>]`
