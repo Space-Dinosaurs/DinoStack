@@ -257,6 +257,15 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertEqual(3, len(simplify))
         self.assertTrue(all(item["resolution_mode"] == "cleanup-resource-contract" for item in simplify))
 
+    def test_proceed_tokens_remain_display_only(self) -> None:
+        generated = (self.repo / ".codex/skills/implement-ticket/SKILL.md").read_text(encoding="utf-8")
+        self.assertIn("`yes`/proceed override", generated)
+        payload = json.loads((self.repo / ".codex/skill-compatibility.yml").read_text())
+        proceed = [item for item in payload["occurrences"] if item["source_token"] == "/proceed"]
+        self.assertEqual(1, len(proceed))
+        self.assertTrue(all(item["kind"] == "display-only" for item in proceed))
+        self.assertTrue(all(item["resolution_mode"] == "display-only" for item in proceed))
+
     def test_unsupported_spawn_fields_and_operational_slash_fail_closed(self) -> None:
         source = self.repo / "content/SKILL.md"
         original = source.read_text(encoding="utf-8")

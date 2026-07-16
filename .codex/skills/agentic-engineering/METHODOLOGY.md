@@ -235,9 +235,9 @@ Upstream deps: $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation (architect plan +
                $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Cross-session loop resume (loop-state.json
                schema for brief_path / plan_path / promotion_tier);
                $AE_REPO_DIR/content/rules/module-manifest.md (manifest header contract);
-               $AE_REPO_DIR/content/agents/architect.md, $AE_REPO_DIR/content/agents/orchestration-planner.md
-               (the acceptance_criteria array field from orchestration-planner
-               JSONL output is consumed by the cross-artifact alignment step).
+               $AE_REPO_DIR/content/references/planning-artifacts.md (trigger table,
+               gate-semantics authoring sequences, and Brief/Plan templates
+               that this section's body defers to for authoring detail).
 
 Downstream consumers: $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation (Worker preamble references
                       brief_path / plan_path); $AE_CORE_SKILL_ROOT/METHODOLOGY.md §spawn_agent
@@ -246,103 +246,32 @@ Downstream consumers: $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation (Worker pr
                       loop resume (records brief_path / plan_path /
                       promotion_tier); $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Risk Classification
                       (Declaration format optionally includes Brief / Plan);
-                      $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Protocol Details (cross-link entry);
-                      $implement-ticket command (Gate semantics step ordering
-                      is referenced by Phase 3b cross-artifact alignment check).
+                      $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Protocol Details (cross-link entry).
 
 Failure modes: Prose; does not execute. Drift between this section and the
                cross-references above is a Major Skeptic finding (stale
-               manifest or stale cross-reference). Stale step numbering in
-               Gate semantics causes misrouted cross-references across phases;
-               update inline step references whenever steps are renumbered.
-               Operator failure mode this section exists to prevent: multi-unit
-               Elevated work proceeding without a committed problem statement,
-               success criteria, non-goals, and verification plan.
+               manifest or stale cross-reference). Operator failure mode this
+               section exists to prevent: multi-unit Elevated work proceeding
+               without a committed problem statement, success criteria,
+               non-goals, and verification plan.
 
 Performance: Standard.
 -->
 
 ## Planning Artifacts
 
-The promotion gate that sits between orchestration-planner output and the first engineer spawn. The architect produces "what to build", the orchestration-planner produces "how to decompose it"; this section produces "what problem are we actually solving and how will we know it is solved" - a commitment that survives multi-unit fan-out and cross-session resume.
-
-### Ordering
-
-The promotion check is downstream of architect+planner, upstream of engineer:
-
-```
-Risk classified Elevated
-  -> architect (existing behavior; investigator-before-architect rules apply)
-  -> Skeptic on architect plan ($AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation)
-  -> Open Questions on architect plan resolved ($AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation)
-  -> orchestration-planner ($AE_CORE_SKILL_ROOT/METHODOLOGY.md §Task Decomposition)
-  -> [PROMOTION CHECK] count Elevated-or-above units, check track span, check session span
-       -> 0-1 Elevated units: no Brief required (current behavior)
-       -> 2-5 Elevated units: author Brief, Skeptic the Brief, then engineer
-       -> 6+ Elevated units OR cross-track OR multi-session OR auto-promote-at-3rd-resume: assemble Plan, Skeptic the Plan, then engineer
-  -> engineer(s) spawned with brief_path / plan_path in execution contract
-```
-
-The Brief is authored after the planner has returned a unit count, so "do we need a Brief?" is a mechanical check, not a guess. The architect plan and planner output are inputs the conductor uses to draft the Brief - the Brief is not asking the conductor to predict what will exist; it is asking the conductor to commit to the framing now that the shape is known. This mechanical restatement is a comprehension-artifact step: the act of restating the architect and planner output forces the conductor to demonstrate it understood both. The Skeptic reviewing the Brief asks a different question than the Skeptic that reviewed the architect plan - not "is the design sound?" but "did the conductor actually understand what was produced upstream, and is the verification real?" This catches implicit architect assumptions that do not survive being stated plainly, planner units that do not compose coherently when described together, and verification criteria that seemed obvious until someone had to write them down.
-
-### Trigger table
-
-All triggers are mechanical. Operator judgment is not a field. Triggers are evaluated after orchestration-planner returns.
-
-| Condition | Artifact required |
-|---|---|
-| Risk = Trivial or Low | None |
-| Risk = Elevated AND orchestration-planner returns 0-1 Elevated-or-above units (or planner skipped per the existing single-unit exception) | None (architect plan only - current behavior) |
-| Risk = Elevated AND orchestration-planner returns 2-5 Elevated-or-above units | Brief + architect plan |
-| Risk = Elevated AND orchestration-planner returns 6+ Elevated-or-above units | Plan (Brief + architect + orchestration JSONL + risk register + rollback + verification gate) |
-| Any unit's `output_paths` spans 2+ tracks (see "Track" definition below) | Plan |
-| Work spans 2+ sessions (declared at planning time, OR auto-promoted when `$AE_PROJECT_DIR/.agentic/loop-state.json` resumes a Brief-tier task into a third session) | Plan |
-| Cross-track OR triggers an "Architecture decision constraining future choices" risk signal | Plan + ADR |
-
-**Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
-
-**"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `$AE_REPO_DIR/content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
-
-- Worked example A: a repo with `agentic-engineering/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `agentic-engineering/...` is cross-track and triggers Plan + ADR.
-- Worked example B: a change touching `helios/factory/foo.ts` and `helios/ui/bar.tsx` is single-track (`helios`); the nested `factory/AGENTS.md` does not split the track.
-
-**Other notes:**
-- Unit count comes from the orchestration-planner's JSONL output, counted by `unit_slug` entries with risk >= Elevated.
-- Track span is computed by mapping each `output_paths` entry to its depth-1 ancestor and checking for `AGENTS.md` at that depth.
-- Session span is initially declared, then auto-promoted by the resume hook when the threshold is hit (see Promotion mechanics below).
-- A task can be promoted upward mid-work. It cannot be demoted.
-
-### Gate semantics
-
-**Authoring sequence (Brief tier):**
-1. Architect runs (existing behavior).
-2. Skeptic on architect plan.
-3. Open Questions on architect plan resolved.
-4. Orchestration-planner runs.
-5. Promotion check against the trigger table.
-6. If 2-5 Elevated-or-above units: check whether `$AE_PROJECT_DIR/.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
-7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `$implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements — does not replace — the adversarial Skeptic-on-Brief.
-8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `$AE_REPO_DIR/content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
-9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
-
-**Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
-- Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
-- A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries).
-- Workers spawn only after assembled-Plan sign-off, with both `brief_path` and `plan_path` in their execution contract.
-
-**ADR tier:** ADR is authored alongside the Brief, not after, because the architectural decision shapes the Brief's constraints. ADR review follows the project's existing ADR process; if none exists, the ADR goes through the same "Document synthesis, architecture, and planning" Skeptic review as the Brief.
+The promotion gate that sits between orchestration-planner output and the first engineer spawn: 0-1 Elevated units -> no Brief; 2-5 -> Brief; 6+ or cross-track or multi-session -> Plan. See `$AE_REPO_DIR/content/references/planning-artifacts.md` for the trigger table, track definition, gate-semantics authoring sequences, Brief template, Plan-tier directory layout, promotion mechanics, and `qa_default_skip` definition.
 
 **What blocks engineer spawn:**
 - Missing required artifact at any tier.
 - Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
-- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions ($AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation). This section explicitly extends the existing rule rather than restating it. A non-empty "Deferred defaults" section does not trigger this gate.
+- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions ($AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation).
 - Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
 - Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
 
 **What does not block:**
-- Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact. This preserves current behavior for the dominant Elevated case (single-file behavioral edits, single new file, single-config changes).
-
-For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `$AE_REPO_DIR/content/references/planning-artifacts.md`. Outcome rubric: operator-confirmed pass/fail lines, each tagged `verification_type: deterministic | judgment`; required for Elevated; full schema and field guidance in `$AE_REPO_DIR/content/references/planning-artifacts.md`.
+- Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact.
+- A non-empty "Deferred defaults" section does not trigger the Open Questions hard gate ($AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation).
 
 ## Risk Classification
 
@@ -464,67 +393,9 @@ For default tiers by agent role see the **Role-default tier table** above; for u
 
 ## QA Gate
 
-**Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (Brief/architect plan present, `qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. This eliminates the sequential Skeptic-then-QA delay for UI-visible changes and aligns with the parallel-by-default philosophy.
+**QA fires for every Elevated unit unless `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`.** The rationale is logged in the Brief / architect plan. A project having no `qa.md` is NOT a reason to skip QA. The `qa_default_skip` key in `$AE_PROJECT_DIR/.agentic/config.json` is reserved and inert (canonical definition in `$AE_REPO_DIR/content/references/planning-artifacts.md`).
 
-For changes whose `qa_criteria` does not match the concurrent path (or where the diff is unknown at planning time), the post-Skeptic QA flow described below remains in effect.
-
-**Pre-spawn trigger check:** Before spawning Workers, the conductor inspects the unit's `qa_criteria` (from the Brief or, if no Brief, from the architect plan). If `qa_criteria` is present AND `qa_skip == null` AND `scenarios[]` is non-empty, mark the unit for concurrent QA at review time. The architect's `qa_criteria` is the authoritative trigger - the qa.md trigger patterns are a SUPPLEMENTAL match-set: when both `qa_criteria` and a qa.md trigger match exist, qa-engineer receives both inputs (the scenarios as the test plan, and any matched qa.md project-knowledge entries as supplemental context). qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`. If `qa_criteria` is absent at planning time and the diff is unknown, defer the check to post-Worker (standard flow).
-
-**When QA is skipped:**
-- The change is Trivial risk (direct action; existing carve-out preserved).
-- `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`. The rationale is logged in the Brief / architect plan; QA does not fire.
-
-Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision. The `qa_default_skip` key in `$AE_PROJECT_DIR/.agentic/config.json` is a reserved, documented-but-inert schema key (canonical definition in §Planning Artifacts); it does NOT override or weaken this invariant.
-
-**QA gate flow (UI-visible - concurrent):**
-1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
-2. If yes: spawn Skeptic AND `qa-engineer` in a single message (parallel, background). Both receive the diff and the unit's `qa_criteria`. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
-3. Wait for both to return.
-4. If both pass: unit is complete.
-5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
-6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only. The fix engineer's brief MUST cite `$AE_REPO_DIR/content/references/qa-regression-obligation.md`.
-
-**QA gate flow (non-UI - post-sign-off):**
-1. Skeptic grants sign-off (minor fixes applied if any)
-2. Conductor inspects the unit's `qa_criteria` (from Brief or architect plan).
-3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
-4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
-5. On PASS: unit is complete.
-6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `$AE_REPO_DIR/content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `$AE_PROJECT_DIR/.agentic/qa-regressions.md` (see `$implement-ticket` Phase 6b §"QA regressions curator").
-
-**Phase breadcrumb:** `[phase: qa-review]`
-
-### Per-ticket, in-flow (anti-pattern: end-of-batch QA sweep)
-
-**Phase 6b is a per-ticket, in-flow gate. Conductor MUST NOT aggregate Phase 6b across multiple tickets to run as a final batch step.** Each ticket's QA fires inside that ticket's own loop, before Phase 7. If runtime QA cannot run for ticket N at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for ticket N specifically, not deferred work to triage at batch end.
-
-When QA cannot run for ticket N, set the unit's QA result to `qa_blocked` and surface the blocker to the operator with the specific cause and the three options:
-
-- **Provide the missing input** (env file, credentials, working preview URL) and re-run Phase 6b.
-- **Accept INCONCLUSIVE** with `qa_unverified=true` recorded on the unit (see classification rules below). The PR can still merge, but the ticket carries a known unverified-runtime flag.
-- **Abandon the ticket** - close the PR or revert.
-
-Per-ticket QA scales via parallel-by-worktree (see below) - that is the mechanism for "many tickets in flight without a serial QA queue", not batching.
-
-### Conductor preflight before any qa-engineer spawn
-
-Before spawning `qa-engineer` for any unit, the conductor verifies the project env file exists at the path that the dev server will load. The exact path and pull command come from the resolved qa.md (`env_file:` and `env_pull_command:` fields if present) or from project config (e.g. an `env:pull:<app>` script in `package.json`). If the env file is missing, do NOT spawn qa-engineer. Instead surface the verbatim message to the operator:
-
-```
-QA env preflight FAILED: <env_file> is missing.
-Pull it with: <env_pull_command>
-Then re-run Phase 6b for this ticket.
-```
-
-Wait for the operator to provide the env file (or accept INCONCLUSIVE per the classification rules below) before proceeding. Spawning qa-engineer just to discover the env is missing wastes a worker turn - the dev server will fail to boot and the qa-engineer will return BLOCKED with no useful signal.
-
-### INCONCLUSIVE classification (no static-only auto-pass)
-
-Static-only QA on an Elevated UI-visible change is approximately zero signal. State hooks, prop-sync bugs, missing render branches, and conditional rendering bugs are invisible to source review. Source verification of an Elevated UI-visible criterion is NOT progress on that criterion.
-
-When the qa-engineer cannot reach a runtime path - preview deploy is blocked AND local-env runtime is unavailable - the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor surfaces this state to the operator with the same three options as `qa_blocked` above (provide env / accept the unverified state / abandon). The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge.
-
-For parallel-by-worktree multi-PR fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern (curl-until loop, boot command resolution order), see `$AE_REPO_DIR/content/references/qa-gate.md`.
+**Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (`qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. For non-UI or deferred-QA paths, the post-Skeptic QA flow applies. See `$AE_REPO_DIR/content/references/qa-gate.md` for the full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, and the dev-server boot pattern.
 
 ### Diff-read rule and review ordering
 
@@ -609,7 +480,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 Read `$AE_REPO_DIR/content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the sentinel write contract, TTY/QUIET gate, and `agentic-migrate` flow.
 
 **Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
-See `$AE_REPO_DIR/content/sections/03-planning-artifacts.md` for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `$AE_REPO_DIR/content/references/planning-artifacts.md`.
+See `$AE_REPO_DIR/content/sections/03-planning-artifacts.md` for the blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `$AE_REPO_DIR/content/references/planning-artifacts.md`.
 
 **Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules:
 Read `$AE_REPO_DIR/content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, and §Digest-Return Discipline.
@@ -654,7 +525,7 @@ Read `$AE_CORE_SKILL_ROOT/references/doc-sync-obligation.md` for the trigger pre
 See `$AE_REPO_DIR/content/sections/06-capability-preflight.md` for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `$AE_REPO_DIR/content/references/capability-preflight.md`.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
-See `$AE_REPO_DIR/content/sections/05-qa-gate.md` for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `$AE_REPO_DIR/content/references/qa-gate.md`.
+See `$AE_REPO_DIR/content/sections/05-qa-gate.md` for the QA-fires invariant, skip enums, diff-read rule, and re-route limits. Full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, and the dev-server boot pattern live in `$AE_REPO_DIR/content/references/qa-gate.md`.
 
 **Events log schema** - full V1 telemetry event-type field shapes and operational notes:
 Read `$AE_REPO_DIR/content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in `$AE_REPO_DIR/content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `$AE_REPO_DIR/content/references/events-log.md` for historical reference.)

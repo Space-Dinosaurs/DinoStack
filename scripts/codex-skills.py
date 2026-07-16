@@ -462,7 +462,8 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
     all_slashes = re.compile(r"(?<![\w./:-])/([a-z][a-z0-9-]+)\b")
     display_slashes = {
         "attachments", "blob", "browse", "dev", "issue", "issues", "jira", "null",
-        "operators", "pull", "rest", "staleness", "tmp", "unavailable", "view", "wrap-internal",
+        "operators", "proceed", "pull", "rest", "staleness", "tmp", "unavailable", "view",
+        "wrap-internal",
     }
     for match in all_slashes.finditer(doc.text):
         if any(match.start() < right and match.end() > left for left, right in occupied):
