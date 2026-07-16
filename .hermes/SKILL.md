@@ -250,9 +250,9 @@ Upstream deps: METHODOLOGY.md §Delegation (architect plan + Skeptic gate, Open
                METHODOLOGY.md §Cross-session loop resume (loop-state.json
                schema for brief_path / plan_path / promotion_tier);
                content/rules/module-manifest.md (manifest header contract);
-               content/agents/architect.md, content/agents/orchestration-planner.md
-               (the acceptance_criteria array field from orchestration-planner
-               JSONL output is consumed by the cross-artifact alignment step).
+               content/references/planning-artifacts.md (trigger table,
+               gate-semantics authoring sequences, and Brief/Plan templates
+               that this section's body defers to for authoring detail).
 
 Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       brief_path / plan_path); METHODOLOGY.md §Task
@@ -261,18 +261,14 @@ Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       loop resume (records brief_path / plan_path /
                       promotion_tier); METHODOLOGY.md §Risk Classification
                       (Declaration format optionally includes Brief / Plan);
-                      METHODOLOGY.md §Protocol Details (cross-link entry);
-                      /implement-ticket command (Gate semantics step ordering
-                      is referenced by Phase 3b cross-artifact alignment check).
+                      METHODOLOGY.md §Protocol Details (cross-link entry).
 
 Failure modes: Prose; does not execute. Drift between this section and the
                cross-references above is a Major Skeptic finding (stale
-               manifest or stale cross-reference). Stale step numbering in
-               Gate semantics causes misrouted cross-references across phases;
-               update inline step references whenever steps are renumbered.
-               Operator failure mode this section exists to prevent: multi-unit
-               Elevated work proceeding without a committed problem statement,
-               success criteria, non-goals, and verification plan.
+               manifest or stale cross-reference). Operator failure mode this
+               section exists to prevent: multi-unit Elevated work proceeding
+               without a committed problem statement, success criteria,
+               non-goals, and verification plan.
 
 Performance: Standard.
 -->
@@ -290,7 +286,7 @@ The promotion gate that sits between orchestration-planner output and the first 
 
 **What does not block:**
 - Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact.
-- A non-empty "Deferred defaults" section does not trigger this gate.
+- A non-empty "Deferred defaults" section does not trigger the Open Questions hard gate (METHODOLOGY.md §Delegation).
 
 ## Risk Classification
 
@@ -3198,8 +3194,11 @@ Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
 
 Failure modes: Prose; does not execute. Drift between this file and the parent
                section (03-planning-artifacts.md) is a Major Skeptic finding.
-               Stale field guidance misleads Brief authors; keep in sync with
-               any changes to the Brief template fields.
+               Stale step numbering in Gate semantics causes misrouted
+               cross-references across phases; update inline step references
+               whenever steps are renumbered. Stale field guidance misleads
+               Brief authors; keep in sync with any changes to the Brief
+               template fields.
 
 Performance: Standard.
 -->
@@ -3263,7 +3262,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 4. Orchestration-planner runs.
 5. Promotion check against the trigger table.
 6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
-7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements — does not replace — the adversarial Skeptic-on-Brief.
+7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements - does not replace - the adversarial Skeptic-on-Brief.
 8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
 9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
 

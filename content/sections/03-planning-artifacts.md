@@ -19,9 +19,9 @@ Upstream deps: METHODOLOGY.md §Delegation (architect plan + Skeptic gate, Open
                METHODOLOGY.md §Cross-session loop resume (loop-state.json
                schema for brief_path / plan_path / promotion_tier);
                content/rules/module-manifest.md (manifest header contract);
-               content/agents/architect.md, content/agents/orchestration-planner.md
-               (the acceptance_criteria array field from orchestration-planner
-               JSONL output is consumed by the cross-artifact alignment step).
+               content/references/planning-artifacts.md (trigger table,
+               gate-semantics authoring sequences, and Brief/Plan templates
+               that this section's body defers to for authoring detail).
 
 Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       brief_path / plan_path); METHODOLOGY.md §Task
@@ -30,18 +30,14 @@ Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       loop resume (records brief_path / plan_path /
                       promotion_tier); METHODOLOGY.md §Risk Classification
                       (Declaration format optionally includes Brief / Plan);
-                      METHODOLOGY.md §Protocol Details (cross-link entry);
-                      /implement-ticket command (Gate semantics step ordering
-                      is referenced by Phase 3b cross-artifact alignment check).
+                      METHODOLOGY.md §Protocol Details (cross-link entry).
 
 Failure modes: Prose; does not execute. Drift between this section and the
                cross-references above is a Major Skeptic finding (stale
-               manifest or stale cross-reference). Stale step numbering in
-               Gate semantics causes misrouted cross-references across phases;
-               update inline step references whenever steps are renumbered.
-               Operator failure mode this section exists to prevent: multi-unit
-               Elevated work proceeding without a committed problem statement,
-               success criteria, non-goals, and verification plan.
+               manifest or stale cross-reference). Operator failure mode this
+               section exists to prevent: multi-unit Elevated work proceeding
+               without a committed problem statement, success criteria,
+               non-goals, and verification plan.
 
 Performance: Standard.
 -->
@@ -59,4 +55,4 @@ The promotion gate that sits between orchestration-planner output and the first 
 
 **What does not block:**
 - Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact.
-- A non-empty "Deferred defaults" section does not trigger this gate.
+- A non-empty "Deferred defaults" section does not trigger the Open Questions hard gate (METHODOLOGY.md §Delegation).
