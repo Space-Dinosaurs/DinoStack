@@ -96,6 +96,8 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-09: Some `content/` source files are hardlinked (not copied) into their adapter destinations, inconsistently - check before assuming a build script alone keeps things in sync.** E.g. `content/agents/skeptic.md`/`.claude/agents/skeptic.md` share an inode; `.hermes/SKILL.md` is a verbatim embed, not a hardlink. `bash scripts/build-all.sh` is still required regardless. (DS-78)
 
+- **2026-07-15: `.github/workflows/adapter-sync.yml` is the source of truth for the 11-script adapter build set (including `.copilot/build.sh`).** At least two other enumerations had drifted to only 10 scripts (missing `.copilot`): the `/update-agentic-engineering` Step 3 build block (fixed) and the installed `.git/hooks/pre-commit` hook (fix in progress). Cross-check any future change to the adapter build set against the CI workflow, not against a duplicated list.
+
 ## Hooks & Subagent Mechanics
 
 - **2026-07-08: PreToolUse hook mechanics for Agent/Task spawns.** `tool_input` exposes `subagent_type`, `prompt`, `description`, `model` (absent when omitted); model precedence is env var > spawn-call `model` > frontmatter `model:` > session default. Deny: print `permissionDecision:"deny"` JSON, exit 0. Warn without blocking: `"allow"` + a `permissionDecisionReason`.
