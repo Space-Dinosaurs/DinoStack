@@ -12,7 +12,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/12-protocol-details.md (Protocol Details entry).
 
 Upstream deps: content/sections/03-planning-artifacts.md (parent section;
-               read that section first for triggers and ordering);
+               read that section first for the promotion-threshold summary
+               and blocking/non-blocking rules);
                content/rules/module-manifest.md (manifest header contract);
                content/rules/conventions.md §Project Overview Layer.
 
