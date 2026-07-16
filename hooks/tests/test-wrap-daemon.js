@@ -523,6 +523,29 @@ console.log('\n[10] acquireWrapLock: auto-clears a stale lock, defers on a fresh
   cleanup(base);
 }
 
+console.log('\n[10b] legacy daemon APIs never reclaim a live signed lock by old mtime');
+{
+  const { base, projectDir } = makeProject('ae-wd-signed-coexist-');
+  const lockDir = lib.wrapLockPath(projectDir);
+  const STALE_MS = 30 * 60 * 1000;
+  const token = lib.acquireWrapLockToken(projectDir, 'live-signed-marker-owner');
+  assert(typeof token === 'string', 'precondition: signed marker owner acquired the lock');
+  const ownerBefore = fs.readFileSync(lib.wrapLockOwnerPath(projectDir), 'utf8');
+  const old = new Date(Date.now() - 40 * 60 * 1000);
+  fs.utimesSync(lockDir, old, old);
+  assert(lib.wrapLockStale(projectDir, STALE_MS) === true,
+    'precondition: signed lock directory mtime is older than the legacy threshold');
+  assert(lib.clearProvablyStaleWrapLock(projectDir, STALE_MS) === false,
+    'legacy daemon stale-clear refuses the live signed owner');
+  assert(lib.acquireWrapLock(projectDir, String(process.pid), STALE_MS) === false,
+    'legacy daemon acquisition does not reclaim a live signed owner by mtime');
+  assert(fs.readFileSync(lib.wrapLockOwnerPath(projectDir), 'utf8') === ownerBefore,
+    'signed owner bytes remain unchanged after legacy coexistence checks');
+  assert(lib.releaseWrapLockToken(projectDir, token) === true,
+    'signed owner retains authority to release its lock');
+  cleanup(base);
+}
+
 // ---------------------------------------------------------------------------
 // (11/toggle) daemon does nothing destructive when there is nothing ready
 // ---------------------------------------------------------------------------

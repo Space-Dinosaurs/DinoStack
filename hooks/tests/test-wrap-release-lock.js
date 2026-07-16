@@ -30,6 +30,61 @@ function run(script, args) {
   return execFileSync(script, args, { encoding: 'utf8' });
 }
 
+function releaseWithHelperFailure(mode, ownerBody) {
+  const project = temp(`wrap-release-helper-${mode}-`);
+  const lock = path.join(project, '.agentic', 'wrap', 'lock');
+  fs.mkdirSync(lock, { recursive: true });
+  fs.writeFileSync(path.join(lock, 'owner'), ownerBody, 'utf8');
+  let libraryPath = path.join(REPO_ROOT, 'hooks', 'lib', 'wrap-marker.js');
+  if (mode === 'missing-helper') {
+    const isolatedLib = path.join(project, 'isolated-lib');
+    fs.mkdirSync(isolatedLib);
+    libraryPath = path.join(isolatedLib, 'wrap-marker.js');
+    fs.copyFileSync(path.join(REPO_ROOT, 'hooks', 'lib', 'wrap-marker.js'), libraryPath);
+  }
+  const child = `
+    const fs = require('fs');
+    const childProcess = require('child_process');
+    const path = require('path');
+    const project = ${JSON.stringify(project)};
+    const mode = ${JSON.stringify(mode)};
+    if (mode === 'missing-interpreter') {
+      const realRealpath = fs.realpathSync;
+      fs.realpathSync = function(candidate) {
+        if (candidate === '/usr/bin/python3'
+          || candidate === '/usr/local/bin/python3'
+          || candidate === '/opt/homebrew/bin/python3') {
+          const error = new Error('missing');
+          error.code = 'ENOENT';
+          throw error;
+        }
+        return realRealpath.apply(this, arguments);
+      };
+    } else if (mode === 'timeout') {
+      childProcess.spawnSync = () => ({
+        error: Object.assign(new Error('timed out'), { code: 'ETIMEDOUT' }),
+        status: null,
+        stdout: '',
+      });
+    } else if (mode === 'helper-error') {
+      childProcess.spawnSync = () => ({ error: null, status: 1, stdout: '' });
+    } else if (mode === 'ambiguous') {
+      childProcess.spawnSync = () => ({
+        error: null,
+        status: 0,
+        stdout: JSON.stringify({ status: 'invalid', reason: 'invalid-owner-json' }),
+      });
+    }
+    const lib = require(${JSON.stringify(libraryPath)});
+    const released = lib.releaseWrapLock(project);
+    process.stdout.write(JSON.stringify({
+      released,
+      exists: fs.existsSync(path.join(project, '.agentic', 'wrap', 'lock')),
+    }));
+  `;
+  return JSON.parse(execFileSync(process.execPath, ['-e', child], { encoding: 'utf8' }));
+}
+
 console.log('\n[1] correct token releases verified lock');
 {
   const project = temp('wrap-release-ok-');
@@ -94,10 +149,23 @@ console.log('\n[6] tokenless compatibility release refuses signed locks');
 console.log('\n[7] tokenless compatibility release preserves legacy cleanup');
 {
   const project = temp('wrap-release-legacy-compat-');
-  assert(lib.acquireWrapLock(project, 'legacy-owner', 1000), 'legacy lock acquisition succeeds');
+  assert(lib.acquireWrapLock(project, String(process.pid), 1000), 'legacy lock acquisition succeeds');
   const output = run(SCRIPT_PATH, [project]);
   assert(output.includes('released'), 'tokenless compatibility release reports legacy cleanup');
   assert(!fs.existsSync(lib.wrapLockPath(project)), 'legacy lock is removed');
+}
+
+console.log('\n[8] tokenless release refuses every unavailable or ambiguous classifier path');
+{
+  const validLegacy = `${process.pid}\n${new Date().toISOString()}\n`;
+  for (const mode of ['missing-helper', 'missing-interpreter', 'timeout', 'helper-error']) {
+    const result = releaseWithHelperFailure(mode, validLegacy);
+    assert(result.released === false, `${mode}: release returns refusal`);
+    assert(result.exists === true, `${mode}: lock remains intact`);
+  }
+  const ambiguous = releaseWithHelperFailure('ambiguous', 'not-a-positive-legacy-owner\n');
+  assert(ambiguous.released === false, 'ambiguous classification returns refusal');
+  assert(ambiguous.exists === true, 'ambiguous classification leaves the lock intact');
 }
 
 for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });

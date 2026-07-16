@@ -24,7 +24,7 @@ module-group map, not a duplicate of those manifests.
 | `agentic-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
 | `agentic-status` | Python | Read-only dump of the activation resolver state with provenance and plain-English explainer. |
 | `agentic-update` | Python | Non-interactive updater: fetch origin, rebuild adapters, reset version-check cache, run `agentic-doctor --fix`. |
-| `agentic-wrap-acquire-lock` | Python | Poll-wait (background) for the signed /wrap directory lock, returning its release token when acquired. |
+| `agentic-wrap-acquire-lock` | Python | Poll-wait (background) for the /wrap directory lock. Default mode preserves the current tokenless wrapper sequence; `--token-mode` returns the signed release token for migrated consumers. |
 | `agentic-wrap-release-lock` | Node | Release the `/wrap` directory lock (`.agentic/wrap/lock`) safely where `rm -rf` is permission-denied. |
 
 ## Upstream dependencies

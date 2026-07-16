@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-/** Regression tests for the tokenized agentic-wrap-acquire-lock CLI. */
+/** Regression tests for compatibility and tokenized acquire-lock CLI modes. */
 
 const fs = require('fs');
 const os = require('os');
@@ -11,6 +11,7 @@ const lib = require('../lib/wrap-marker.js');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const SCRIPT_PATH = path.join(REPO_ROOT, 'bin', 'agentic-wrap-acquire-lock');
+const RELEASE_SCRIPT_PATH = path.join(REPO_ROOT, 'bin', 'agentic-wrap-release-lock');
 const tmpDirs = [];
 let passed = 0;
 let failed = 0;
@@ -39,10 +40,10 @@ function tokenFrom(output) {
   return match ? match[1] : null;
 }
 
-console.log('\n[1] free acquisition returns an opaque release token');
+console.log('\n[1] explicit token mode returns an opaque release token');
 {
   const project = temp('wrap-acquire-free-');
-  const result = run([project, '--timeout-ms=1000', '--poll-ms=20']);
+  const result = run([project, '--token-mode', '--timeout-ms=1000', '--poll-ms=20']);
   const token = tokenFrom(result.out);
   assert(result.code === 0, `free acquisition exits 0 (got ${result.code})`);
   assert(typeof token === 'string', 'free acquisition prints a 64-hex token');
@@ -58,7 +59,7 @@ console.log('\n[2] live owner blocks, then waiter acquires after token release')
     const project = ${JSON.stringify(project)};
     const token = lib.acquireWrapLockToken(project, 'test-holder');
     if (!token) process.exit(9);
-    const child = spawn(${JSON.stringify(SCRIPT_PATH)}, [project, '--timeout-ms=5000', '--poll-ms=50'], {
+    const child = spawn(${JSON.stringify(SCRIPT_PATH)}, [project, '--token-mode', '--timeout-ms=5000', '--poll-ms=50'], {
       stdio: ['ignore', 'pipe', 'inherit'],
     });
     let output = '';
@@ -99,7 +100,7 @@ console.log('\n[4] malformed legacy owner is retained and classified unreadable'
   const project = temp('wrap-acquire-malformed-');
   fs.mkdirSync(lib.wrapLockPath(project), { recursive: true });
   fs.writeFileSync(lib.wrapLockOwnerPath(project), '123\nold-format\n');
-  const result = run([project, '--timeout-ms=1000', '--poll-ms=20']);
+  const result = run([project, '--token-mode', '--timeout-ms=1000', '--poll-ms=20']);
   assert(result.code === 3, `malformed owner exits 3 (got ${result.code})`);
   assert(result.out.includes('unreadable-owner'), 'malformed owner is reported');
   assert(fs.existsSync(lib.wrapLockPath(project)), 'malformed lock is retained');
@@ -115,7 +116,7 @@ console.log('\n[5] valid dead owner is reclaimed automatically');
     process.stdout.write(token);
   `;
   execFileSync(process.execPath, ['-e', childScript], { encoding: 'utf8' });
-  const result = run([project, '--timeout-ms=1000', '--poll-ms=20']);
+  const result = run([project, '--token-mode', '--timeout-ms=1000', '--poll-ms=20']);
   const token = tokenFrom(result.out);
   assert(result.code === 0, `dead-owner reclaim exits 0 (got ${result.code})`);
   assert(typeof token === 'string', 'dead-owner reclaim returns a fresh token');
@@ -143,7 +144,7 @@ console.log('\n[7] symlinked executable resolves repository helper');
   const linked = path.join(binDir, 'agentic-wrap-acquire-lock');
   fs.symlinkSync(SCRIPT_PATH, linked);
   const result = (() => {
-    try { return { code: 0, out: execFileSync(linked, [project, '--timeout-ms=1000'], { encoding: 'utf8' }) }; }
+    try { return { code: 0, out: execFileSync(linked, [project, '--token-mode', '--timeout-ms=1000'], { encoding: 'utf8' }) }; }
     catch (error) { return { code: error.status, out: error.stdout || '' }; }
   })();
   const token = tokenFrom(result.out);
@@ -191,6 +192,19 @@ console.log('\n[9] attacker-controlled PATH cannot substitute the Python helper'
   assert(!fs.existsSync(invoked), 'fake python3 earlier in PATH is never executed');
   assert(fs.existsSync(lib.wrapLockPath(project)), 'trusted helper created the real signed lock');
   lib.releaseWrapLockToken(project, token);
+}
+
+console.log('\n[10] current /wrap sequence ignores acquire output then releases tokenlessly');
+{
+  const project = temp('wrap-acquire-current-sequence-');
+  const acquired = run([project, '--timeout-ms=1000', '--poll-ms=20']);
+  assert(acquired.code === 0, `default compatibility acquisition exits 0 (got ${acquired.code})`);
+  assert(acquired.out.includes('acquired '), 'default compatibility acquisition reports success');
+  assert(tokenFrom(acquired.out) === null, 'default compatibility acquisition does not require token capture');
+  const released = execFileSync(RELEASE_SCRIPT_PATH, [project], { encoding: 'utf8' });
+  assert(released.includes('released'), 'current tokenless release reports success');
+  assert(!fs.existsSync(lib.wrapLockPath(project)),
+    'ignored acquire output followed by tokenless release leaves no lock leak');
 }
 
 for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });

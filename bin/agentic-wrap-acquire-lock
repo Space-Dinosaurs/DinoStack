@@ -1,19 +1,24 @@
 #!/usr/bin/env python3
 """
-Purpose: Poll for the descriptor-safe project wrap lock while recording the
-         long-lived direct parent as its owner.
+Purpose: Poll for the project wrap lock while recording the long-lived direct
+         parent as its owner.
 
-Public API: agentic-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N].
-            Exit 0 prints `acquired <path> token=<token>`; exit 2 is timeout;
-            exit 3 is unreadable/invalid owner; exit 4 is a valid dead owner
-            that could not be reclaimed; exit 1 is an unexpected failure.
+Public API:
+            agentic-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N]
+              preserves the current tokenless /wrap compatibility sequence and
+              prints `acquired <path>`.
+            Add --token-mode for the signed helper contract; success then prints
+              `acquired <path> token=<token>`.
+            Exit 2 is timeout; exit 3 is unreadable/invalid owner; exit 4 is a
+            valid dead owner that could not be reclaimed; exit 1 is unexpected.
 
 Upstream deps: hooks/lib/context-safe-io.py and the Python standard library.
 
 Downstream consumers: interactive /wrap and implement-ticket wrap ownership.
 
-Failure modes: never removes malformed, legacy, symlink, special-file, EPERM,
-               or age-only locks. The returned token is required for release.
+Failure modes: never removes malformed, symlink, special-file, EPERM, or
+               age-only locks. Signed owners are reclaimed only on ESRCH. The
+               token returned by explicit --token-mode is required for release.
 
 Performance: local polling, default five-second cadence for up to 20 minutes.
 """
@@ -23,12 +28,16 @@ from __future__ import annotations
 import importlib.util
 import os
 import pathlib
+import stat
 import sys
 import time
+from datetime import datetime, timezone
+from typing import Optional
 
 
 DEFAULT_TIMEOUT_MS = 1_200_000
 DEFAULT_POLL_MS = 5_000
+MAX_OWNER_BYTES = 4 * 1024
 
 
 def _load_helper():
@@ -53,13 +62,119 @@ def _positive_flag(argv: list[str], name: str, default: int) -> int:
     return default
 
 
+def _create_legacy_lock(lock_path: pathlib.Path, owner_pid: int) -> bool:
+    try:
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        lock_path.mkdir()
+    except FileExistsError:
+        return False
+    except OSError:
+        return False
+    owner_path = lock_path / "owner"
+    body = f"{owner_pid}\n{datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')}\n"
+    try:
+        with owner_path.open("x", encoding="utf-8") as handle:
+            handle.write(body)
+            handle.flush()
+            os.fsync(handle.fileno())
+        return True
+    except OSError:
+        try:
+            owner_path.unlink()
+        except OSError:
+            pass
+        try:
+            lock_path.rmdir()
+        except OSError:
+            pass
+        return False
+
+
+def _parse_timestamp(value: str) -> bool:
+    try:
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _inspect_legacy_lock(lock_path: pathlib.Path) -> Optional[dict[str, object]]:
+    owner_path = lock_path / "owner"
+    try:
+        lock_st = lock_path.lstat()
+        owner_st = owner_path.lstat()
+        if (
+            not stat.S_ISDIR(lock_st.st_mode)
+            or stat.S_ISLNK(lock_st.st_mode)
+            or not stat.S_ISREG(owner_st.st_mode)
+            or stat.S_ISLNK(owner_st.st_mode)
+            or owner_st.st_nlink != 1
+            or owner_st.st_size <= 0
+            or owner_st.st_size > MAX_OWNER_BYTES
+            or sorted(entry.name for entry in lock_path.iterdir()) != ["owner"]
+        ):
+            return None
+        raw = owner_path.read_bytes()
+        text = raw.decode("utf-8")
+        lines = text[:-1].split("\n") if text.endswith("\n") else text.split("\n")
+        if len(lines) != 2 or not lines[0].strip().isdigit():
+            return None
+        owner_pid = int(lines[0].strip())
+        timestamp = lines[1].strip()
+        if owner_pid <= 0 or not _parse_timestamp(timestamp):
+            return None
+        return {
+            "owner_pid": owner_pid,
+            "acquired_at": timestamp,
+            "lock_identity": (lock_st.st_dev, lock_st.st_ino),
+            "owner_identity": (owner_st.st_dev, owner_st.st_ino),
+            "owner_bytes": raw,
+        }
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+
+
+def _pid_state(pid: int) -> str:
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return "dead"
+    except PermissionError:
+        return "permission-denied"
+    except OSError:
+        return "unknown"
+    return "alive"
+
+
+def _remove_dead_legacy_lock(lock_path: pathlib.Path, inspected: dict[str, object]) -> bool:
+    if _pid_state(int(inspected["owner_pid"])) != "dead":
+        return False
+    owner_path = lock_path / "owner"
+    try:
+        lock_st = lock_path.lstat()
+        owner_st = owner_path.lstat()
+        if (
+            (lock_st.st_dev, lock_st.st_ino) != inspected["lock_identity"]
+            or (owner_st.st_dev, owner_st.st_ino) != inspected["owner_identity"]
+            or owner_path.read_bytes() != inspected["owner_bytes"]
+            or sorted(entry.name for entry in lock_path.iterdir()) != ["owner"]
+        ):
+            return False
+        owner_path.unlink()
+        lock_path.rmdir()
+        return True
+    except OSError:
+        return False
+
+
 def main(argv: list[str]) -> int:
     positional = [arg for arg in argv if not arg.startswith("--")]
     project_root = os.path.abspath(positional[0] if positional else os.getcwd())
     timeout_ms = _positive_flag(argv, "timeout-ms", DEFAULT_TIMEOUT_MS)
     poll_ms = _positive_flag(argv, "poll-ms", DEFAULT_POLL_MS)
+    token_mode = "--token-mode" in argv
     owner_pid = os.getppid()
-    lock_path = os.path.join(project_root, ".agentic", "wrap", "lock")
+    lock_path = pathlib.Path(project_root, ".agentic", "wrap", "lock")
     try:
         helper = _load_helper()
     except Exception:
@@ -68,10 +183,33 @@ def main(argv: list[str]) -> int:
 
     started = time.monotonic()
     while True:
-        try:
-            result = helper.acquire_lock(project_root, "interactive-wrap", owner_pid=owner_pid)
-        except Exception:
-            result = {"status": "invalid"}
+        if token_mode:
+            try:
+                result = helper.acquire_lock(project_root, "interactive-wrap", owner_pid=owner_pid)
+            except Exception:
+                result = {"status": "invalid"}
+        elif _create_legacy_lock(lock_path, owner_pid):
+            print(f"acquired {lock_path}")
+            return 0
+        else:
+            try:
+                result = helper.inspect_lock(project_root)
+            except Exception:
+                result = {"status": "invalid"}
+            if result.get("status") == "absent":
+                continue
+            if result.get("status") == "invalid":
+                legacy = _inspect_legacy_lock(lock_path)
+                if legacy is None:
+                    print(f"unreadable-owner {lock_path}")
+                    return 3
+                result = {
+                    "status": "held",
+                    "owner_pid": legacy["owner_pid"],
+                    "owner_state": _pid_state(int(legacy["owner_pid"])),
+                    "acquired_at": legacy["acquired_at"],
+                    "_legacy": legacy,
+                }
         status = result.get("status")
         if status == "acquired":
             print(f"acquired {lock_path} token={result['token']}")
@@ -80,6 +218,29 @@ def main(argv: list[str]) -> int:
             print(f"unreadable-owner {lock_path}")
             return 3
         if status == "held" and result.get("owner_state") == "dead":
+            reclaimed = False
+            if token_mode:
+                print(
+                    "stale-needs-manual "
+                    f"pid={result.get('owner_pid', 'null')} started={result.get('acquired_at', 'null')}"
+                )
+                return 4
+            if result.get("_legacy"):
+                reclaimed = _remove_dead_legacy_lock(lock_path, result["_legacy"])
+            else:
+                try:
+                    temporary = helper.acquire_lock(
+                        project_root,
+                        "legacy-wrap-reclaim",
+                        owner_pid=owner_pid,
+                    )
+                    if temporary.get("status") == "acquired":
+                        helper.release_lock(project_root, temporary["token"])
+                        reclaimed = True
+                except Exception:
+                    reclaimed = False
+            if reclaimed:
+                continue
             print(
                 "stale-needs-manual "
                 f"pid={result.get('owner_pid', 'null')} started={result.get('acquired_at', 'null')}"

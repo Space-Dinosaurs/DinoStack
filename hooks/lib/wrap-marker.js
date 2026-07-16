@@ -102,9 +102,11 @@
  *                so a hostile repo cannot wedge a poll tick with a giant marker or a
  *                directory of tens of thousands of files. Both remain fail-open.
  *                LOCK COMPATIBILITY: acquireWrapLock and tokenless
- *                releaseWrapLock retain legacy lock behavior, but tokenless
- *                release refuses a schema-valid signed lock. Migrated consumers
- *                use acquireWrapLockToken / releaseWrapLockToken, which delegate
+ *                releaseWrapLock retain legacy lock behavior. Tokenless release
+ *                requires a successful helper classification plus a positive
+ *                legacy owner classification; signed, unavailable, and ambiguous
+ *                cases are retained. Migrated consumers use
+ *                acquireWrapLockToken / releaseWrapLockToken, which delegate
  *                to the Python helper through a fixed, validated system Python
  *                path rather than inherited PATH.
  *                The token path opens every owned component with
@@ -872,8 +874,14 @@ function acquireWrapLock(cwd, owner, staleMs) {
       fs.mkdirSync(path.dirname(lockDir), { recursive: true });
       fs.mkdirSync(lockDir);
       try {
-        fs.writeFileSync(wrapLockOwnerPath(safe), String(owner == null ? '' : owner), 'utf8');
-      } catch (_) {}
+        fs.writeFileSync(wrapLockOwnerPath(safe), legacyOwnerBody(owner), {
+          encoding: 'utf8',
+          flag: 'wx',
+        });
+      } catch (_) {
+        try { fs.rmdirSync(lockDir); } catch (_) {}
+        return false;
+      }
       return true;
     } catch (err) {
       if (err && err.code === 'EEXIST') return false;
@@ -881,25 +889,36 @@ function acquireWrapLock(cwd, owner, staleMs) {
     }
   };
   if (tryMkdir()) return true;
-  if (wrapLockStale(safe, staleMs)) {
+
+  const inspected = runContextSafeIo(safe, ['lock', 'inspect']);
+  if (!inspected) return false;
+  if (inspected.status === 'absent') return tryMkdir();
+  if (inspected.status === 'held') {
+    if (inspected.owner_state !== 'dead') return false;
+    if (!clearProvablyStaleWrapLockTokenized(safe, staleMs)) return false;
+    return tryMkdir();
+  }
+  if (inspected.status === 'invalid' && wrapLockStale(safe, staleMs)) {
     try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch (_) {}
     return tryMkdir();
   }
   return false;
 }
 
-/** Compatibility tokenless release. Schema-valid signed locks are refused. */
+/**
+ * Compatibility tokenless release. Deletion requires both a successful signed
+ * classifier response and a positive legacy-format classification.
+ */
 function releaseWrapLock(cwd) {
   const safe = safeCwd(cwd);
   if (!safe) return false;
   const signedOwner = runContextSafeIo(safe, ['lock', 'inspect']);
+  if (!signedOwner) return false;
   if (signedOwner && signedOwner.status === 'held') return false;
-  try {
-    fs.rmSync(wrapLockPath(safe), { recursive: true, force: true });
-    return true;
-  } catch (_) {
-    return false;
-  }
+  if (signedOwner.status === 'absent') return !wrapLockHeld(safe);
+  if (signedOwner.status !== 'invalid') return false;
+  const legacy = readPositiveLegacyWrapLock(safe);
+  return legacy ? removePositiveLegacyWrapLock(safe, legacy) : false;
 }
 
 /** Acquire through the signed Python implementation. Returns its opaque token. */
@@ -938,6 +957,87 @@ function readValidatedWrapLockOwner(cwd) {
 }
 
 const MAX_OWNER_BYTES = 4 * 1024;
+
+function legacyOwnerBody(owner) {
+  const lines = String(owner == null ? '' : owner).split('\n');
+  const candidatePid = Number((lines[0] || '').trim());
+  const pid = Number.isSafeInteger(candidatePid) && candidatePid > 0
+    ? candidatePid
+    : process.pid;
+  const candidateTs = (lines[1] || '').trim();
+  const timestamp = tsMs(candidateTs) === null ? new Date().toISOString() : candidateTs;
+  return `${pid}\n${timestamp}\n`;
+}
+
+/**
+ * Positively identify the two-line legacy owner format and pin the bytes/inodes
+ * needed for a final pre-delete identity check.
+ */
+function readPositiveLegacyWrapLock(cwd) {
+  const safe = safeCwd(cwd);
+  if (!safe) return null;
+  const agenticPath = agenticDir(safe);
+  const wrapPath = wrapDir(safe);
+  const lockPath = wrapLockPath(safe);
+  const ownerPath = wrapLockOwnerPath(safe);
+  try {
+    const agenticSt = fs.lstatSync(agenticPath);
+    const wrapSt = fs.lstatSync(wrapPath);
+    const lockSt = fs.lstatSync(lockPath);
+    const ownerSt = fs.lstatSync(ownerPath);
+    if (
+      agenticSt.isSymbolicLink() || !agenticSt.isDirectory()
+      || wrapSt.isSymbolicLink() || !wrapSt.isDirectory()
+      || lockSt.isSymbolicLink() || !lockSt.isDirectory()
+      || ownerSt.isSymbolicLink() || !ownerSt.isFile()
+      || ownerSt.nlink !== 1 || ownerSt.size <= 0 || ownerSt.size > MAX_OWNER_BYTES
+    ) return null;
+    const entries = fs.readdirSync(lockPath);
+    if (entries.length !== 1 || entries[0] !== 'owner') return null;
+    const raw = fs.readFileSync(ownerPath);
+    const text = raw.toString('utf8');
+    if (!Buffer.from(text, 'utf8').equals(raw) || text.includes('\0')) return null;
+    const lines = text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n');
+    if (lines.length !== 2) return null;
+    const pidText = lines[0].trim();
+    const timestamp = lines[1].trim();
+    if (!/^[1-9][0-9]*$/.test(pidText) || tsMs(timestamp) === null) return null;
+    const pid = Number(pidText);
+    if (!Number.isSafeInteger(pid) || pid <= 0) return null;
+    return {
+      lockDev: lockSt.dev,
+      lockIno: lockSt.ino,
+      ownerDev: ownerSt.dev,
+      ownerIno: ownerSt.ino,
+      ownerRaw: raw,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function removePositiveLegacyWrapLock(cwd, expected) {
+  const lockPath = wrapLockPath(cwd);
+  const ownerPath = wrapLockOwnerPath(cwd);
+  try {
+    const lockSt = fs.lstatSync(lockPath);
+    const ownerSt = fs.lstatSync(ownerPath);
+    if (
+      lockSt.isSymbolicLink() || !lockSt.isDirectory()
+      || ownerSt.isSymbolicLink() || !ownerSt.isFile()
+      || lockSt.dev !== expected.lockDev || lockSt.ino !== expected.lockIno
+      || ownerSt.dev !== expected.ownerDev || ownerSt.ino !== expected.ownerIno
+      || !fs.readFileSync(ownerPath).equals(expected.ownerRaw)
+    ) return false;
+    const entries = fs.readdirSync(lockPath);
+    if (entries.length !== 1 || entries[0] !== 'owner') return false;
+    fs.unlinkSync(ownerPath);
+    fs.rmdirSync(lockPath);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
 
 function readOwnerAt(lockPath, ownerPath) {
   const empty = { pid: null, ts: null };
@@ -1011,7 +1111,15 @@ function clearProvablyStaleWrapLock(cwd, staleMs) {
       try { fs.unlinkSync(lockPath); } catch (_) {}
       return false;
     }
-    if (!st.isDirectory() || !wrapLockProvablyStale(cwd, staleMs)) return false;
+    if (!st.isDirectory()) return false;
+    const inspected = runContextSafeIo(cwd, ['lock', 'inspect']);
+    if (!inspected) return false;
+    if (inspected.status === 'held') {
+      return inspected.owner_state === 'dead'
+        ? clearProvablyStaleWrapLockTokenized(cwd, staleMs)
+        : false;
+    }
+    if (inspected.status !== 'invalid' || !wrapLockProvablyStale(cwd, staleMs)) return false;
     fs.rmSync(lockPath, { recursive: true, force: true });
     return true;
   } catch (_) {
