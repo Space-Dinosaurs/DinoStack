@@ -3,7 +3,8 @@
 # Public API: invoked as `bash .claude/build.sh`; idempotent.
 # Upstream deps: content/commands/, content/references/, content/sections/, content/SKILL.md,
 #               content/project-scaffolding.yml, content/templates/,
-#               scripts/build-methodology.sh, .claude/skills/agentic-engineering/SKILL.frontmatter.yaml.
+#               scripts/build-methodology.sh, .claude/skills/agentic-engineering/SKILL.frontmatter.yaml,
+#               .claude/commands.frontmatter/ (optional per-command frontmatter sidecars).
 # Downstream consumers: .claude/commands/, .claude/skills/agentic-engineering/{SKILL.md,METHODOLOGY.md,references/,
 #                       project-scaffolding.yml,templates/}.
 # Failure modes: exits non-zero on missing inputs, broken hardlinks, or assembly script failure.
@@ -50,10 +51,21 @@ fi
   perl -0pe 's/\A<!--.*?-->\n\n?//s' "$CONTENT/SKILL.md"
 } > "$SKILL_DST/SKILL.md"
 
-# Commands: prepend prerequisite blockquote
+# Commands: prepend prerequisite blockquote. If an adapter-private frontmatter
+# sidecar exists at .claude/commands.frontmatter/<name>.yaml, prepend it as a
+# YAML frontmatter block before the prereq. Sidecars let a single command get
+# a cheaper model on this adapter without touching the shared content/commands/
+# source (other adapters consume that file verbatim or wrap it themselves).
+FRONTMATTER_DIR="$REPO_DIR/.claude/commands.frontmatter"
 for src in "$CONTENT/commands/"*.md; do
   name="$(basename "$src")"
-  { echo "$PREREQ"; echo; cat "$src"; } > "$COMMANDS_DST/$name"
+  base="${name%.md}"
+  sidecar="$FRONTMATTER_DIR/$base.yaml"
+  if [[ -f "$sidecar" ]]; then
+    { echo "---"; cat "$sidecar"; echo "---"; echo; echo "$PREREQ"; echo; cat "$src"; } > "$COMMANDS_DST/$name"
+  else
+    { echo "$PREREQ"; echo; cat "$src"; } > "$COMMANDS_DST/$name"
+  fi
 done
 
 # References: hardlink from content/ so edits stay in sync across adapters

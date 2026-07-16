@@ -45,7 +45,7 @@ This clones the repo into `DinoStack/` inside your current directory, runs the i
 
 ```bash
 # Install to ~/tools/DinoStack instead of the current directory
-AE_DEST_DIR=~/tools/DinoStack curl -fsSL https://docs.dinostack.ai/install.sh | bash
+curl -fsSL https://docs.dinostack.ai/install.sh | AE_DEST_DIR=~/tools/DinoStack bash
 ```
 
 **Pass flags through to the installer** (e.g. to set activation mode without prompts):
