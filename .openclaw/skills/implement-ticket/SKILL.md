@@ -2610,14 +2610,9 @@ Derive the list from the session's completed `tickets[]` entries in `.agentic/ba
 
 ### 2. Next command
 
-Inspect `.agentic/batch-state.json` for remaining tickets (status `pending` or `failed`). If any remain:
+This phase's own trigger condition (see above) guarantees every ticket in `.agentic/batch-state.json.tickets[]`, when the file exists, has already reached a terminal state - no `pending` or `in_progress` entries remain to resume. So the next command is always derived from a triage artifact, never from an in-batch "remaining tickets" scan.
 
-```
-Next:  /implement-ticket <ticket_id_1>, <ticket_id_2>, ...
-       (from: <absolute_path_to_repo>)
-```
-
-If no batch-state.json exists (single-ticket run) or all tickets are complete, check for a triage artifact: glob `docs/planning/triage-*.md` (or `.agentic/triage-*.md`) - pick the newest by mtime. If a triage artifact is found, extract its next recommended lane's ticket IDs (heuristic: first unstarted lane not covered by just-merged tickets, from the lane's own `lanes[]` entry). `/ticket-triage` takes no lane-selector argument (its Public API is `/ticket-triage <input>` or `/ticket-triage --lanes <N> <input>`, never a bare lane key - see `content/commands/ticket-triage.md`), so the copy-pasteable next command must be `/implement-ticket` with the lane's ticket IDs, not `/ticket-triage <lane_key>`:
+Check for a triage artifact: glob `docs/planning/triage-*.md` - pick the newest by mtime. `.agentic/triage-*.md` is not a valid fallback path: `/ticket-triage` explicitly writes no `.agentic/` state (`content/commands/ticket-triage.md`'s header and Phase 0 both state "No `.agentic/` state writes"), so no file can ever exist there. If a triage artifact is found, extract the next recommended lane's ticket IDs from its "## Kickoff prompts" section (heuristic: first lane block not covered by tickets already landed this session). Each lane block already contains a literal copy-pasteable `/implement-ticket <ticket_ids>` code fence (see `content/commands/ticket-triage.md` Phase 4a artifact skeleton) - reuse it verbatim rather than reconstructing the command. Do not look for a `lanes[]` field on the artifact: `lanes[]` is the in-memory `triage_result` structure Phase 0a builds during triage (`{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`), not a field of the rendered markdown - the on-disk artifact has no such field.
 
 ```
 Next:  /implement-ticket <lane_tickets>
@@ -2625,7 +2620,7 @@ Next:  /implement-ticket <lane_tickets>
        Triage artifact: <absolute_path_to_triage_file>
 ```
 
-If neither remaining tickets nor a triage artifact exists, print:
+If no triage artifact exists, print:
 
 ```
 Next:  /ticket-triage   # no outstanding work detected; re-triage to pick next batch
@@ -2636,8 +2631,9 @@ Next:  /ticket-triage   # no outstanding work detected; re-triage to pick next b
 
 Collect any blockers surfaced during this session:
 
-- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `content/sections/05-qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log).
-- Operator decisions noted during implementation: check `.agentic/memory.md` (the `/wrap`-internal rolling scratch store, gitignored - see `content/rules/conventions.md` §Session Context and Memory) last 50 lines for any line beginning `Decision needed:` or `⚠` added this session. Heuristic, soft-fail if the file is absent or unreadable. (Tickets deferred at batch setup - not lane-assigned - were already surfaced by Phase 0a step 2's own print at batch start and are not re-listed here.)
+- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `content/references/qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log). **Known gap:** neither `qa_blocked` nor `qa_unverified=true` is written to any durable state file (`.agentic/loop-state.json`'s `qa_failures_log` tracks Skeptic-visible QA fail/retry cycles, not the blocked/INCONCLUSIVE terminal outcome, and it is ticket-scoped - overwritten by the next ticket and cleared at that ticket's own Phase 12, both before this phase runs). This item is therefore best-effort within the current session only and does not survive a resumed session: a batch that hits `qa_blocked` in session A and is resumed and finished in session B will not re-surface that blocker here.
+- Batch-escalated tickets: any ticket in `.agentic/batch-state.json.tickets[]` with `status: "blocked"` (written by the "Batch-mode escalation routing (mark-blocked-and-continue)" path on Skeptic/QA `cap_reached`) - print the ticket ID and its `last_summary`. This is the one blocker class that IS durable (written directly to `tickets[]`), so include it even on a resumed session.
+- Operator decisions noted during implementation: accumulate in-context, one ticket at a time, from the `MEMORY_APPENDS_JSON` / `DECISIONS_APPENDS_JSON` variables Phase 11c parses from each ticket's `wrap-ticket` return (see Phase 11b's "Post-return path parse"). Those variables hold the actual entries `wrap-ticket` appended to `MEMORY.md` and `decisions.md` for that ticket - append each non-empty entry to a running per-session list as its ticket's Phase 11c completes. Do not read `.agentic/memory.md`: that file is `/wrap`-internal rolling scratch, written exclusively by `/wrap` (`content/commands/wrap.md`), and `/implement-ticket` never invokes `/wrap` - it invokes `wrap-ticket`, which writes `MEMORY.md` and `decisions.md`, not `.agentic/memory.md`. Soft-fail if no ticket this session produced any appends. (Tickets deferred at batch setup - not lane-assigned - were already surfaced by Phase 0a step 2's own print at batch start and are not re-listed here.)
 
 Print:
 
