@@ -6,7 +6,26 @@
 
 > **Context-size preflight (run immediately after Activation, before any other step):** Assess the current session's context load against the soft and hard limits defined in `content/references/subagent-protocol.md` Section 13.
 >
-> **Hard limit check (Section 13.2) - checked first:** If the session has reached the hard limit, Section 13.2 governs absolutely: refuse further implementation work, invoke `/wrap` automatically (or instruct the operator to do so), and stop. There is no `yes`/proceed override at or above the hard limit - print the warning below for context, then exit; do not print the "Proceed anyway?" prompt.
+> **Hard limit check (Section 13.2) - checked first:** If the session has reached the hard limit, Section 13.2 governs absolutely - there is no `yes`/proceed override at or above the hard limit. Do the following in this order: (1) print the hard-limit block below verbatim, (2) invoke `/wrap` automatically to preserve state via `context.md` and `MEMORY.md` updates (or instruct the operator to run `/wrap` if auto-invoke is unavailable in the current harness), (3) exit - refusing further implementation work, Skeptic rounds, and subagent spawns for the remainder of this session. Do not print the soft-limit warning block below or the "Proceed anyway?" prompt.
+>
+> **Hard-limit block (print verbatim - this is a plain print, not an `AskUserQuestion` tool call, and does not wait for operator confirmation):**
+> ```
+> Context-size hard limit reached: this session has reached the conductor
+>    context hard limit (Section 13.2 of the Subagent Protocol). The hard
+>    limit is absolute - there is no override, and further implementation
+>    work, Skeptic rounds, and subagent spawns are refused for the rest of
+>    this session.
+>
+>    Why: the hard limit exists to protect output quality. A conductor
+>    operating past this point risks missing details from earlier turns,
+>    re-introducing bugs already fixed, and producing stale crash-recovery
+>    state. A fresh session is required to continue - this is not optional.
+>
+>    Next steps:
+>      1. /wrap          - save session state and generate a hand-off summary
+>      2. Start a new session (on Claude Code, /clear also works)
+>      3. /implement-ticket <your input>   - in the fresh session
+> ```
 >
 > **Danger signals below the hard limit (any one triggers the soft-limit warning, per Section 13.1):**
 > - Session turn count at or above the soft limit with substantive tool-call results still in context.
