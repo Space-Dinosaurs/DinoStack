@@ -3,6 +3,16 @@
 
 # Changelog
 
+## 2026-07-15
+
+### Documentation
+
+- **#456** [install section with video walkthrough up front, fix AE_DEST_DIR install command](https://github.com/Space-Dinosaurs/DinoStack/pull/456) - tyson-solara6
+
+### Maintenance
+
+- **#457** [CLAUDE.md import pattern + MEMORY.md two-tier prune](https://github.com/Space-Dinosaurs/DinoStack/pull/457) - tyson-solara6
+
 ## 2026-07-14
 
 ### Documentation
