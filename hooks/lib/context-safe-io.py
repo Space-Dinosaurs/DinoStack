@@ -17,6 +17,8 @@ Failure modes: rejects symlinks, non-directories, non-regular files, multiply
                inodes. Mutations are descriptor-relative and fsynced. A valid
                dead-owner lock may be quarantined and reclaimed; ambiguous
                locks are retained. Context transaction callers may retry.
+               Failed publication retains the verified original at its
+               randomized hold path.
 
 Performance: local synchronous filesystem I/O. Lock inspection is constant
              work and context operations are linear in the context body size.
@@ -48,6 +50,7 @@ SPILL_NAME = "deferred-activity.jsonl"
 MAX_OWNER_BYTES = 16 * 1024
 MAX_CONTEXT_BYTES = 16 * 1024 * 1024
 MAX_SPILL_BYTES = 1024 * 1024
+MAX_CLI_INPUT_BYTES = (6 * (MAX_CONTEXT_BYTES + MAX_SPILL_BYTES)) + (64 * 1024)
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
 RENAME_NOREPLACE_LINUX = 1
 RENAME_EXCL_DARWIN = 0x00000004
@@ -494,7 +497,11 @@ def _read_context_at(agentic_fd: int) -> Tuple[str, Optional[Tuple[int, int]]]:
         return "", None
     _require_regular_single_link(st, "context.md")
     try:
-        fd = os.open(CONTEXT_NAME, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=agentic_fd)
+        fd = os.open(
+            CONTEXT_NAME,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=agentic_fd,
+        )
     except OSError as exc:
         raise SafeIOError("context-open-failed", f"cannot open context.md: {exc.strerror}") from exc
     try:
@@ -603,7 +610,11 @@ def _verified_regular_identity_at(
         raise SafeIOError("replacement-inode", f"{label} disappeared")
     _require_regular_single_link(before, label)
     try:
-        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+        fd = os.open(
+            name,
+            os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK,
+            dir_fd=parent_fd,
+        )
     except OSError as exc:
         raise SafeIOError(
             "replacement-inode",
@@ -698,15 +709,9 @@ def _publish_context_no_clobber(
         try:
             _rename_noreplace(agentic_fd, temp_name, agentic_fd, CONTEXT_NAME)
         except FileExistsError as exc:
-            # A concurrent writer won after the verified original was moved.
-            # Its destination survives. The old verified inode was already
-            # superseded by that writer and may be discarded safely.
-            os.unlink(hold_name, dir_fd=agentic_fd)
-            hold_name = ""
-            os.fsync(agentic_fd)
             raise SafeIOError(
-                "replacement-inode",
-                "context.md reappeared during no-clobber publication",
+                "replacement-preserved",
+                f"context.md reappeared; verified original retained at {hold_name!r}",
             ) from exc
         except FileNotFoundError as exc:
             _restore_displaced_context(agentic_fd, hold_name)
@@ -727,13 +732,6 @@ def _publish_context_no_clobber(
                     _restore_displaced_context(agentic_fd, hold_name)
                     hold_name = ""
                 except SafeIOError:
-                    pass
-            else:
-                try:
-                    os.unlink(hold_name, dir_fd=agentic_fd)
-                    hold_name = ""
-                    os.fsync(agentic_fd)
-                except OSError:
                     pass
         raise
 
@@ -887,9 +885,19 @@ def _emit(value: Dict[str, Any]) -> None:
 
 def _read_request() -> Dict[str, Any]:
     try:
-        value = json.load(sys.stdin)
+        raw = sys.stdin.buffer.read(MAX_CLI_INPUT_BYTES + 1)
+    except OSError as exc:
+        raise SafeIOError("invalid-input", "cannot read JSON request") from exc
+    if len(raw) > MAX_CLI_INPUT_BYTES:
+        raise SafeIOError("oversized-input", "stdin JSON request exceeds size limit")
+    try:
+        text = raw.decode("utf-8")
+        request = text.lstrip()
+        value, end = json.JSONDecoder().raw_decode(request)
     except (UnicodeDecodeError, json.JSONDecodeError) as exc:
         raise SafeIOError("invalid-input", "stdin must contain one JSON object") from exc
+    if request[end:].strip():
+        raise SafeIOError("invalid-input", "stdin contains trailing data")
     if not isinstance(value, dict):
         raise SafeIOError("invalid-input", "stdin must contain one JSON object")
     return value

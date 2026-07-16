@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import io
 import importlib.util
 import inspect
 import json
@@ -270,6 +271,44 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertEqual(list(context.parent.glob(".context.md.hold.*")), [])
         self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
 
+    @adversarial_test
+    def test_context_commit_retains_original_when_hostile_destination_reappears(self) -> None:
+        acquired = self.acquire("context-hostile-reappearance")
+        context = self.project / ".agentic" / "context.md"
+        original = b"original-context-must-survive\n"
+        context.write_bytes(original)
+        outside = self.base / "outside-context"
+        outside.write_bytes(b"outside-unchanged\n")
+        real_rename = safeio._rename_noreplace
+        injected = False
+
+        def inject_symlink_after_quarantine(src_fd, src_name, dst_fd, dst_name):
+            nonlocal injected
+            result = real_rename(src_fd, src_name, dst_fd, dst_name)
+            if (
+                not injected
+                and src_name == safeio.CONTEXT_NAME
+                and dst_name.startswith(".context.md.hold.")
+            ):
+                injected = True
+                context.symlink_to(outside)
+            return result
+
+        safeio._rename_noreplace = inject_symlink_after_quarantine
+        try:
+            with self.assertRaisesRegex(safeio.SafeIOError, "verified original retained"):
+                safeio.commit_context(str(self.project), acquired["token"], "new-context\n")
+        finally:
+            safeio._rename_noreplace = real_rename
+
+        holds = list(context.parent.glob(".context.md.hold.*"))
+        self.assertTrue(injected)
+        self.assertTrue(context.is_symlink())
+        self.assertEqual(outside.read_bytes(), b"outside-unchanged\n")
+        self.assertEqual(len(holds), 1)
+        self.assertEqual(holds[0].read_bytes(), original)
+        self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
+
     @barrier_test
     def test_context_transaction_retries_after_replacement_and_remerges(self) -> None:
         context = self.project / ".agentic" / "context.md"
@@ -456,6 +495,60 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
 
     @adversarial_test
+    def test_regular_file_reopen_races_to_fifo_fail_without_blocking(self) -> None:
+        acquired = self.acquire("fifo-reopen-race")
+        context = self.project / ".agentic" / "context.md"
+        context.write_text("regular\n", encoding="utf-8")
+        real_lstat = safeio._lstat_at
+        replaced_context = False
+
+        def replace_context_after_lstat(parent_fd, name):
+            nonlocal replaced_context
+            st = real_lstat(parent_fd, name)
+            if name == safeio.CONTEXT_NAME and st is not None and not replaced_context:
+                replaced_context = True
+                context.unlink()
+                os.mkfifo(context)
+            return st
+
+        safeio._lstat_at = replace_context_after_lstat
+        started = time.monotonic()
+        try:
+            with self.assertRaisesRegex(safeio.SafeIOError, "regular file"):
+                safeio.commit_context(str(self.project), acquired["token"], "body")
+        finally:
+            safeio._lstat_at = real_lstat
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertTrue(stat.S_ISFIFO(os.lstat(context).st_mode))
+
+        context.unlink()
+        hold = context.parent / ".context.md.hold.fifo-race"
+        hold.write_text("regular\n", encoding="utf-8")
+        replaced_hold = False
+
+        def replace_hold_after_lstat(parent_fd, name):
+            nonlocal replaced_hold
+            st = real_lstat(parent_fd, name)
+            if name == hold.name and st is not None and not replaced_hold:
+                replaced_hold = True
+                hold.unlink()
+                os.mkfifo(hold)
+            return st
+
+        agentic_fd = os.open(context.parent, safeio.DIR_FLAGS)
+        safeio._lstat_at = replace_hold_after_lstat
+        started = time.monotonic()
+        try:
+            with self.assertRaisesRegex(safeio.SafeIOError, "regular file"):
+                safeio._verified_regular_identity_at(agentic_fd, hold.name, "held context")
+        finally:
+            safeio._lstat_at = real_lstat
+            os.close(agentic_fd)
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertTrue(stat.S_ISFIFO(os.lstat(hold).st_mode))
+        self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
+
+    @adversarial_test
     def test_context_symlink_and_hardlink_are_refused(self) -> None:
         acquired = self.acquire()
         context = self.project / ".agentic" / "context.md"
@@ -544,6 +637,26 @@ class ContextSafeIOTests(unittest.TestCase):
         (self.lock_dir / "owner").write_text("123\nold\n", encoding="utf-8")
         self.assertEqual(safeio.acquire_lock(str(self.project), "contender")["status"], "invalid")
         self.assertTrue(self.lock_dir.exists())
+
+    def test_cli_request_reader_rejects_oversize_and_trailing_data(self) -> None:
+        real_stdin = safeio.sys.stdin
+        real_limit = safeio.MAX_CLI_INPUT_BYTES
+        try:
+            safeio.MAX_CLI_INPUT_BYTES = 16
+            safeio.sys.stdin = io.TextIOWrapper(io.BytesIO(b'{"body":"0123456789"}'))
+            with self.assertRaisesRegex(safeio.SafeIOError, "size limit"):
+                safeio._read_request()
+
+            safeio.MAX_CLI_INPUT_BYTES = real_limit
+            safeio.sys.stdin = io.TextIOWrapper(io.BytesIO(b'{"body":"ok"} trailing'))
+            with self.assertRaisesRegex(safeio.SafeIOError, "trailing data"):
+                safeio._read_request()
+
+            safeio.sys.stdin = io.TextIOWrapper(io.BytesIO(b' \n\t{"body":"ok"} \n\t'))
+            self.assertEqual(safeio._read_request(), {"body": "ok"})
+        finally:
+            safeio.sys.stdin = real_stdin
+            safeio.MAX_CLI_INPUT_BYTES = real_limit
 
     @barrier_test
     def test_contention_workers_serialize_and_release(self) -> None:

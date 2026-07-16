@@ -81,16 +81,23 @@ console.log('\n[5] symlinked executable resolves repository implementation');
   assert(output.includes('released'), 'symlinked executable releases with token');
 }
 
-console.log('\n[6] tokenless compatibility release keeps current main callers working');
+console.log('\n[6] tokenless compatibility release refuses signed locks');
 {
-  const project = temp('wrap-release-compat-');
-  const acquireScript = path.join(REPO_ROOT, 'bin', 'agentic-wrap-acquire-lock');
-  const acquired = run(acquireScript, [project, '--timeout-ms=1000', '--poll-ms=20']);
-  assert(acquired.includes('acquired'), 'current acquire CLI obtains the lock');
+  const project = temp('wrap-release-signed-refusal-');
+  const token = lib.acquireWrapLockToken(project, 'signed-release-refusal');
   const output = run(SCRIPT_PATH, [project]);
-  assert(output.includes('released'), 'tokenless compatibility release reports released');
-  assert(!fs.existsSync(lib.wrapLockPath(project)),
-    'tokenless compatibility release leaves no lock residue');
+  assert(output.includes('WARNING'), 'tokenless release reports refusal for a signed lock');
+  assert(fs.existsSync(lib.wrapLockPath(project)), 'tokenless release retains the signed lock');
+  assert(lib.releaseWrapLockToken(project, token), 'signed token still releases the lock');
+}
+
+console.log('\n[7] tokenless compatibility release preserves legacy cleanup');
+{
+  const project = temp('wrap-release-legacy-compat-');
+  assert(lib.acquireWrapLock(project, 'legacy-owner', 1000), 'legacy lock acquisition succeeds');
+  const output = run(SCRIPT_PATH, [project]);
+  assert(output.includes('released'), 'tokenless compatibility release reports legacy cleanup');
+  assert(!fs.existsSync(lib.wrapLockPath(project)), 'legacy lock is removed');
 }
 
 for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });

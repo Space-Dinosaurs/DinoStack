@@ -101,18 +101,18 @@
  *                caps the number processed per tick (MAX_MARKERS_PER_SCAN, SEC-M3),
  *                so a hostile repo cannot wedge a poll tick with a giant marker or a
  *                directory of tens of thousands of files. Both remain fail-open.
- *                LOCK COMPATIBILITY: acquireWrapLock/releaseWrapLock and the
- *                staleness helpers retain the current main behavior until the
- *                dependent context-writer migration lands, so the daemon and
- *                artifact migration remain independently functional. New
- *                migrated consumers use acquireWrapLockToken /
- *                releaseWrapLockToken, which delegate to the Python helper.
+ *                LOCK COMPATIBILITY: acquireWrapLock and tokenless
+ *                releaseWrapLock retain legacy lock behavior, but tokenless
+ *                release refuses a schema-valid signed lock. Migrated consumers
+ *                use acquireWrapLockToken / releaseWrapLockToken, which delegate
+ *                to the Python helper through a fixed, validated system Python
+ *                path rather than inherited PATH.
  *                The token path opens every owned component with
  *                O_DIRECTORY|O_NOFOLLOW, verifies token and inode identity,
  *                and reclaims only a schema-valid owner whose PID returns
- *                ESRCH. Malformed, legacy, symlink, special-file, EPERM, and
- *                age-only cases are retained. Token release never recursively
- *                deletes.
+ *                ESRCH. Malformed, legacy, symlink, special-file, EPERM,
+ *                age-only, and ambiguous cases are retained. Token release
+ *                never recursively deletes.
  *
  * Performance: standard. Marker operations remain synchronous filesystem I/O;
  *              ordinary lock operations invoke one bounded local Python
@@ -130,13 +130,37 @@ const { spawnSync } = require('child_process');
 
 const CONTEXT_SAFE_IO = path.join(__dirname, 'context-safe-io.py');
 const CONTEXT_SAFE_IO_MAX_OUTPUT = 256 * 1024;
+const TRUSTED_PYTHON_CANDIDATES = process.platform === 'win32'
+  ? []
+  : ['/usr/bin/python3', '/usr/local/bin/python3', '/opt/homebrew/bin/python3'];
+
+/**
+ * Resolve Python only from fixed platform installation locations. The resolved
+ * executable must be a non-group/world-writable regular file.
+ */
+function trustedPythonPath() {
+  for (const candidate of TRUSTED_PYTHON_CANDIDATES) {
+    try {
+      const resolved = fs.realpathSync(candidate);
+      const st = fs.statSync(resolved);
+      if (!st.isFile() || (st.mode & 0o022) !== 0) continue;
+      fs.accessSync(resolved, fs.constants.X_OK);
+      return resolved;
+    } catch (_) {
+      // Try the next fixed candidate.
+    }
+  }
+  return null;
+}
 
 /** Invoke the descriptor-safe helper and parse its one sorted-JSON response. */
 function runContextSafeIo(cwd, args, input) {
   const safe = safeCwd(cwd);
   if (!safe) return null;
+  const python = trustedPythonPath();
+  if (!python) return null;
   try {
-    const result = spawnSync('python3', [CONTEXT_SAFE_IO, '--project-root', safe, ...args], {
+    const result = spawnSync(python, [CONTEXT_SAFE_IO, '--project-root', safe, ...args], {
       encoding: 'utf8',
       input: input === undefined ? undefined : JSON.stringify(input),
       maxBuffer: CONTEXT_SAFE_IO_MAX_OUTPUT,
@@ -836,8 +860,8 @@ function cleanStalePending(cwd, ttlMs) {
 // ---------------------------------------------------------------------------
 
 /**
- * Compatibility boundary for current main consumers. This preserves the
- * boolean acquire and tokenless release contract until those consumers migrate.
+ * Compatibility boundary for legacy consumers. This preserves boolean acquire
+ * and tokenless release for legacy-format locks until those consumers migrate.
  */
 function acquireWrapLock(cwd, owner, staleMs) {
   const safe = safeCwd(cwd);
@@ -864,10 +888,12 @@ function acquireWrapLock(cwd, owner, staleMs) {
   return false;
 }
 
-/** Compatibility tokenless release for current main consumers. */
+/** Compatibility tokenless release. Schema-valid signed locks are refused. */
 function releaseWrapLock(cwd) {
   const safe = safeCwd(cwd);
   if (!safe) return false;
+  const signedOwner = runContextSafeIo(safe, ['lock', 'inspect']);
+  if (signedOwner && signedOwner.status === 'held') return false;
   try {
     fs.rmSync(wrapLockPath(safe), { recursive: true, force: true });
     return true;

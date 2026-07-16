@@ -165,6 +165,34 @@ console.log('\n[8] compatibility boundary preserves boolean acquire and tokenles
     'compatibility release leaves no lock residue');
 }
 
+console.log('\n[9] attacker-controlled PATH cannot substitute the Python helper');
+{
+  const project = temp('wrap-acquire-trusted-python-project-');
+  const fakeBin = temp('wrap-acquire-fake-python-bin-');
+  const invoked = path.join(fakeBin, 'fake-python-invoked');
+  const fakePython = path.join(fakeBin, 'python3');
+  fs.writeFileSync(
+    fakePython,
+    '#!/bin/sh\n'
+      + `touch ${JSON.stringify(invoked)}\n`
+      + `printf '${JSON.stringify({ status: 'acquired', token: 'b'.repeat(64) })}\\n'\n`,
+    { mode: 0o700 },
+  );
+  const originalPath = process.env.PATH;
+  process.env.PATH = fakeBin + path.delimiter + (originalPath || '');
+  let token;
+  try {
+    token = lib.acquireWrapLockToken(project, 'trusted-python-test');
+  } finally {
+    process.env.PATH = originalPath;
+  }
+  assert(typeof token === 'string' && token !== 'b'.repeat(64),
+    'signed acquisition ignores the forged helper response');
+  assert(!fs.existsSync(invoked), 'fake python3 earlier in PATH is never executed');
+  assert(fs.existsSync(lib.wrapLockPath(project)), 'trusted helper created the real signed lock');
+  lib.releaseWrapLockToken(project, token);
+}
+
 for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });
 console.log(`\n${passed} passed, ${failed} failed.`);
 process.exit(failed > 0 ? 1 : 0);
