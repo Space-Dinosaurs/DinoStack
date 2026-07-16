@@ -116,7 +116,7 @@ Conductor-direct (no subagent). For each entry in `normalized_input.entries[]`, 
 - **Jira:** `mcp__mcp-atlassian__jira_get_issue` - capture `priority`, `status`, `story_points` (or `timeestimate`), `labels`, `components`, `assignee`, and `issuelinks` (blocks / is-blocked-by / relates-to).
 - **Linear:** `mcp__linear__get_issue` - capture `priority`, `state`, `estimate`, `labels`, `assignee`, and relations (blocks / blocked-by / related).
 
-The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates the display-only "Est" column in the Phase 4a per-ticket summary table AND triggers the story-size preflight below.
+The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates the display-only "Est" column in the Phase 4a per-ticket summary table; no distribution rule consumes it, and estimate-aware lane sizing is a deferred default. Only `story_points` and Linear `estimate` trigger the story-size preflight below - `timeestimate` is Jira's time-tracking field (denominated in seconds), display-only, and is never compared against the preflight threshold.
 
 **Soft-fail per ticket:** on any fetch error, mark `fetch_failed: true` on that entry and proceed. Fetch-failed tickets are treated as independent (no known deps, no known metadata) in all downstream phases.
 
@@ -124,26 +124,27 @@ The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) popu
 
 **In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true`. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts).
 
-> **Story-size preflight** — runs once, immediately after all metadata is collected.
+> **Story-size preflight** - runs once, immediately after all metadata is collected.
 >
-> For each ticket whose estimate is available (`story_points` or Linear `estimate` is a number), check:
+> For each ticket whose estimate is available (`story_points` or Linear `estimate` is a number) AND that is not `terminal: true` or `in_progress: true` (those are deferred / excluded from lane assignment regardless of size - warning them here would flag tickets that never reach `/implement-ticket`), check:
 > - **≥ 5 points:** print the following warning (once per oversized ticket):
 >   ```
->   ⚠ [DS-XX] Est: N pts — large story. Recommend decomposing into ≤ 3-point sub-tickets
+>   ⚠ [DS-XX] Est: N pts - large story. Recommend decomposing into ≤ 3-point sub-tickets
 >     before running /implement-ticket. A single 5+ point story can exhaust the context
 >     window before the loop completes. Split strategy: one sub-ticket per independent
 >     deliverable; use /ticket-triage on the sub-set to re-sequence.
 >   ```
 >   Then append a `context_risk: high` flag to that entry. Lane assignment proceeds normally; the operator decides whether to decompose.
 >
-> - **3–4 points:** no warning. `context_risk` is unset.
+> - **3-4 points:** no warning. `context_risk` is unset.
 > - **≤ 2 points or estimate absent:** no warning. Safe to run as-is.
 >
-> **Token-reduction reminder** — if any `context_risk: high` ticket is lane-assigned (not deferred), append this one-time callout at the end of the story-size preflight output:
+> **Token-reduction reminder** - if any ticket has `context_risk: high`, append this one-time callout at the end of the story-size preflight output:
 > ```
 > 💡 Token-reduction tools: if your harness supports ctx_* context-mode tools
 >    (ctx_execute, ctx_batch_execute), prefer them over raw shell output for any
->    operation producing > 20 lines — they reduce context consumption by ~98%.
+>    operation producing > 20 lines - they reduce context consumption by ~98%
+>    (see content/rules/code-standards.md §Context Window Management).
 >    If context fills mid-session, /wrap → /clear → re-invoke /implement-ticket
 >    with the remaining ticket IDs to continue in a fresh window.
 > ```
