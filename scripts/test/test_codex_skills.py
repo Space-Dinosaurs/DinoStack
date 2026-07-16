@@ -354,7 +354,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("## Task-state file", methodology)
         self.assertNotIn("spawn_agent-state", ticket + methodology)
 
-    def test_base_branch_resolver_prefers_explicit_then_develop(self) -> None:
+    def test_base_branch_resolver_explicit_develop_development_and_absence(self) -> None:
         project = Path(self.temporary.name) / "base-branch-project"
         project.mkdir()
         execute(["git", "init", "-q", str(project)], cwd=Path(self.temporary.name))
@@ -375,6 +375,21 @@ class CodexSkillGenerationTests(unittest.TestCase):
             cwd=self.repo,
         )
         self.assertEqual("develop", fallback.stdout.strip())
+        execute(["git", "branch", "-D", "develop"], cwd=project)
+        execute(["git", "branch", "development"], cwd=project)
+        secondary_fallback = execute(
+            [sys.executable, str(dispatcher), "base-branch", str(project.resolve())],
+            cwd=self.repo,
+        )
+        self.assertEqual("development", secondary_fallback.stdout.strip())
+        execute(["git", "branch", "-D", "development"], cwd=project)
+        absent = execute(
+            [sys.executable, str(dispatcher), "base-branch", str(project.resolve())],
+            cwd=self.repo,
+            expected=2,
+        )
+        self.assertIn("no BASE_BRANCH declaration", absent.stderr)
+        self.assertIn("ask whether to use main", absent.stderr)
 
     def test_dispatch_rejects_escaping_and_wrong_type_descriptors(self) -> None:
         dispatcher = self.repo / "bin/agentic-codex-dispatch"
@@ -465,7 +480,12 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn('"$REPO_DIR/.codex/hooks/skill-auto-load-check.sh"', precommit)
 
         stale = re.compile(r"\.codex/skill(?:/|\*\*)")
-        checked = [self.repo / "AGENTS.md", self.repo / ".codex/install.sh", self.repo / ".codex/uninstall.sh"]
+        checked = [
+            self.repo / "AGENTS.md",
+            self.repo / ".codex/README.md",
+            self.repo / ".codex/install.sh",
+            self.repo / ".codex/uninstall.sh",
+        ]
         checked.extend((self.repo / "content").rglob("*.md"))
         checked.extend((self.repo / ".codex/skills").rglob("*.md"))
         offenders = [
@@ -474,6 +494,167 @@ class CodexSkillGenerationTests(unittest.TestCase):
             if stale.search(path.read_text(encoding="utf-8"))
         ]
         self.assertEqual([], offenders)
+        readme = (self.repo / ".codex/README.md").read_text(encoding="utf-8")
+        self.assertIn("exactly four native Codex skills", readme)
+        self.assertIn("~/.agents/skills/agentic-engineering", readme)
+        self.assertIn("~/.agents/skills/brief", readme)
+        self.assertIn("~/.agents/skills/wrap", readme)
+        self.assertIn("~/.agents/skills/implement-ticket", readme)
+        self.assertIn("relative resource symlinks", readme)
+        self.assertIn("bash scripts/check-codex-skill-sync.sh", readme)
+
+    def test_vision_alignment_workflow_executes_canonical_codex_paths(self) -> None:
+        workflow = (
+            self.repo / ".github/workflows/vision-alignment-check.yml"
+        ).read_text(encoding="utf-8")
+        match = re.search(
+            r'case "\$f" in\s*\n\s*([^\n]+)\)\s*\n\s*TRIGGERED=true',
+            workflow,
+        )
+        self.assertIsNotNone(match, "vision workflow case pattern is discoverable")
+        pattern = match.group(1).strip() if match else ""
+        matcher = f'case "$1" in {pattern}) exit 0 ;; *) exit 1 ;; esac'
+
+        triggered = (
+            "content/sections/02-delegation.md",
+            "hooks/pre-commit",
+            ".codex/hooks/stop-context-codex.js",
+            ".codex/skill-frontmatter/brief.yml",
+            ".codex/skill-compatibility.yml",
+            ".codex/skills/brief/SKILL.md",
+            "scripts/codex-skills.py",
+            ".codex/config/hooks.json",
+            ".gemini/hooks/stop-context-gemini.js",
+            ".kimi/hooks/session-start.sh",
+            ".claude/build.sh",
+            ".codex/build.sh",
+            ".cursor/build.sh",
+            "bin/agentic-codex-dispatch",
+            ".codex/install.sh",
+            "scripts/install-profiles.sh",
+            "docs/overview/vision.md",
+            "docs/overview/requirements.md",
+        )
+        not_triggered = (
+            ".codex/skill/SKILL.md",
+            ".codex/skill-frontmatter-old/brief.yml",
+            ".codex/skills-old/brief/SKILL.md",
+            "scripts/codex-skills.py.bak",
+            "docs/codex-permissions.md",
+            "README.md",
+        )
+        for path in triggered:
+            with self.subTest(triggered=path):
+                result = subprocess.run(
+                    ["bash", "-c", matcher, "vision-trigger", path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+        for path in not_triggered:
+            with self.subTest(not_triggered=path):
+                result = subprocess.run(
+                    ["bash", "-c", matcher, "vision-trigger", path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(1, result.returncode, result.stderr)
+
+    def test_precommit_behavior_uses_staged_codex_skill_paths(self) -> None:
+        precommit_source = (self.repo / "hooks/pre-commit").read_text(encoding="utf-8")
+        match = re.search(
+            r'case "\$staged_path" in\s*\n(.*?)\)\s*\n'
+            r'\s*CODEX_SKILL_SYNC_REQUIRED=true',
+            precommit_source,
+            re.DOTALL,
+        )
+        self.assertIsNotNone(match, "pre-commit Codex path matcher is discoverable")
+        pattern = re.sub(r"\\\s*\n\s*", "", match.group(1)).strip() if match else ""
+        matcher = f'case "$1" in {pattern}) exit 0 ;; *) exit 1 ;; esac'
+        relevant_paths = (
+            "content/SKILL.md",
+            "content/sections/02-delegation.md",
+            "content/commands/brief.md",
+            "scripts/build-methodology.sh",
+            "scripts/codex-skills.py",
+            "scripts/check-codex-skill-sync.sh",
+            "scripts/test/test_codex_skills.py",
+            ".codex/build.sh",
+            ".codex/skill-frontmatter/brief.yml",
+            ".codex/skill-compatibility.yml",
+            ".codex/skills/brief/SKILL.md",
+            ".codex/commands/brief.md",
+            ".codex/references/skeptic-protocol.md",
+            ".codex/hooks/skill-auto-load-check.sh",
+            "hooks/skill-auto-load-check.sh",
+            "hooks/pre-commit",
+            ".github/workflows/codex-skill-sync.yml",
+            ".github/workflows/vision-alignment-check.yml",
+        )
+        for path in relevant_paths:
+            with self.subTest(relevant_path=path):
+                result = subprocess.run(
+                    ["bash", "-c", matcher, "precommit-trigger", path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(0, result.returncode, result.stderr)
+        for path in ("README.md", ".codex/README.md", "docs/codex-permissions.md"):
+            with self.subTest(unrelated_path=path):
+                result = subprocess.run(
+                    ["bash", "-c", matcher, "precommit-trigger", path],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(1, result.returncode, result.stderr)
+
+        execute(["git", "init", "-q"], cwd=self.repo)
+        execute(["git", "config", "user.email", "test@example.com"], cwd=self.repo)
+        execute(["git", "config", "user.name", "Test"], cwd=self.repo)
+        execute(["git", "add", "-A"], cwd=self.repo)
+        execute(["git", "commit", "-qm", "fixture"], cwd=self.repo)
+        precommit = ["bash", str(self.repo / "hooks/pre-commit")]
+
+        generated = self.repo / ".codex/skills/brief/SKILL.md"
+        original_generated = generated.read_bytes()
+        generated.write_text(
+            generated.read_text(encoding="utf-8") + "\nstaged corruption\n",
+            encoding="utf-8",
+        )
+        execute(["git", "add", str(generated.relative_to(self.repo))], cwd=self.repo)
+        generated.write_bytes(original_generated)
+        corruption = execute(precommit, cwd=self.repo, expected=1)
+        self.assertIn("Checking staged Codex native skill sync", corruption.stdout)
+        self.assertIn("generated skill drift", corruption.stderr)
+
+        execute(["git", "reset", "--hard", "HEAD"], cwd=self.repo)
+        generator = self.repo / "scripts/codex-skills.py"
+        generator.write_text(
+            generator.read_text(encoding="utf-8") + "\n# staged generator regression\n",
+            encoding="utf-8",
+        )
+        execute(["git", "add", str(generator.relative_to(self.repo))], cwd=self.repo)
+        generator_result = execute(precommit, cwd=self.repo)
+        self.assertIn("Checking staged Codex native skill sync", generator_result.stdout)
+        self.assertIn("Codex skill check: OK (4 skills)", generator_result.stdout)
+
+        execute(["git", "reset", "--hard", "HEAD"], cwd=self.repo)
+        unrelated = self.repo / "README.md"
+        unrelated.write_text(
+            unrelated.read_text(encoding="utf-8") + "\nunrelated staged path\n",
+            encoding="utf-8",
+        )
+        execute(["git", "add", str(unrelated.relative_to(self.repo))], cwd=self.repo)
+        unrelated_result = execute(precommit, cwd=self.repo)
+        self.assertNotIn("Checking staged Codex native skill sync", unrelated_result.stdout)
 
     def test_simplify_uses_explicit_cleanup_resource_contract(self) -> None:
         generated = "\n".join(

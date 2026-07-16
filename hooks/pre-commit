@@ -69,6 +69,53 @@ if [ -n "$STAGED_JS" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Codex native-skill drift gate
+#
+# This check runs before the worktree build skip so isolated engineer commits
+# receive the same read-only drift protection as the primary checkout. The
+# path set includes canonical prose/resources, generator configuration and CI
+# workflow inputs, tracked mirrors, and every generated native-skill output.
+# ---------------------------------------------------------------------------
+
+CODEX_SKILL_SYNC_REQUIRED=false
+while IFS= read -r staged_path; do
+  case "$staged_path" in
+    content/*|\
+    scripts/build-methodology.sh|\
+    scripts/codex-skills.py|\
+    scripts/check-codex-skill-sync.sh|\
+    scripts/test/test_codex_skills.py|\
+    .codex/build.sh|\
+    .codex/skill-frontmatter/*|\
+    .codex/skill-compatibility.yml|\
+    .codex/skills/*|\
+    .codex/commands/*|\
+    .codex/references/*|\
+    .codex/hooks/skill-auto-load-check.sh|\
+    hooks/skill-auto-load-check.sh|\
+    hooks/pre-commit|\
+    .github/workflows/codex-skill-sync.yml|\
+    .github/workflows/vision-alignment-check.yml)
+      CODEX_SKILL_SYNC_REQUIRED=true
+      break
+      ;;
+  esac
+done <<< "$(git diff --cached --name-only --diff-filter=ACMR)"
+
+if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
+  echo "[pre-commit] Checking staged Codex native skill sync..."
+  CODEX_SKILL_INDEX_SNAPSHOT="$(mktemp -d)"
+  cleanup_codex_skill_snapshot() {
+    rm -rf "$CODEX_SKILL_INDEX_SNAPSHOT"
+  }
+  trap cleanup_codex_skill_snapshot EXIT
+  git checkout-index --all --prefix="$CODEX_SKILL_INDEX_SNAPSHOT/"
+  bash "$CODEX_SKILL_INDEX_SNAPSHOT/scripts/check-codex-skill-sync.sh"
+  cleanup_codex_skill_snapshot
+  trap - EXIT
+fi
+
+# ---------------------------------------------------------------------------
 # Adapter builds and staging (skipped in worktrees - build scripts assume
 # primary checkout; worktree engineers commit bin/hooks changes only)
 # ---------------------------------------------------------------------------

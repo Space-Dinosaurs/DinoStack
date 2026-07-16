@@ -21,7 +21,7 @@ jobs:
           # also updating that file and the PR-template comment.
           while IFS= read -r f; do
             case "$f" in
-              content/*|hooks/*|.codex/hooks/*|.codex/skill/*|.codex/config/hooks.json|.gemini/hooks/*|.kimi/hooks/*|.claude/build.sh|.codex/build.sh|.cursor/build.sh|bin/*|*/install.sh|scripts/install*.sh|docs/overview/vision.md|docs/overview/requirements.md)
+              content/*|hooks/*|.codex/hooks/*|.codex/skill-frontmatter/*|.codex/skill-compatibility.yml|.codex/skills/*|scripts/codex-skills.py|.codex/config/hooks.json|.gemini/hooks/*|.kimi/hooks/*|.claude/build.sh|.codex/build.sh|.cursor/build.sh|bin/*|*/install.sh|scripts/install*.sh|docs/overview/vision.md|docs/overview/requirements.md)
                 TRIGGERED=true
                 ;;
             esac
