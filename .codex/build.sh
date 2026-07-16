@@ -73,8 +73,6 @@ echo "Built AGENTS.md"
 # atomically synchronizes the exact generated allowlist.
 # ---------------------------------------------------------------------------
 
-python3 "$REPO_DIR/scripts/codex-skills.py" build --repo "$REPO_DIR" --output "$SKILLS_DST"
-
 # ---------------------------------------------------------------------------
 # Build .codex/hooks/skill-auto-load-check.sh
 #
@@ -129,11 +127,17 @@ sync_link_directory "$CONTENT/commands" "$COMMANDS_DST" "../../content/commands"
 if [[ -e "$CODEX_DIR/hooks/skill-auto-load-check.sh" && ! -L "$CODEX_DIR/hooks/skill-auto-load-check.sh" ]]; then
   rm "$CODEX_DIR/hooks/skill-auto-load-check.sh"
 fi
+if [[ -L "$CODEX_DIR/hooks/skill-auto-load-check.sh" && \
+      "$(readlink "$CODEX_DIR/hooks/skill-auto-load-check.sh")" != "../../hooks/skill-auto-load-check.sh" ]]; then
+  rm "$CODEX_DIR/hooks/skill-auto-load-check.sh"
+fi
 if [[ ! -L "$CODEX_DIR/hooks/skill-auto-load-check.sh" ]]; then
   ln -s "../../hooks/skill-auto-load-check.sh" "$CODEX_DIR/hooks/skill-auto-load-check.sh"
 fi
 
 echo "Rebuilt command, reference, and shared-hook symlinks"
+
+python3 "$REPO_DIR/scripts/codex-skills.py" build --repo "$REPO_DIR" --output "$SKILLS_DST"
 
 # ---------------------------------------------------------------------------
 # Build .codex/agents/ (generated TOML files from content/agents/*.md)

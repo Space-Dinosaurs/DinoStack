@@ -31,11 +31,17 @@ Other DinoStack workflows remain manual command resources loaded with
 isolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):
 
 1. `git fetch origin`.
-2. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
-3. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" origin/main`.
-4. Load the named role instructions with
+2. Resolve `BASE_BRANCH` with
+   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   canonical precedence: the first `BASE_BRANCH:` declaration in project `AGENTS.md`, then local
+   `develop`, then local `development`. If none exists, the helper fails closed; ask the operator
+   whether to use `main` (recommended, falling back to `master`) or establish a develop-based
+   workflow, exactly as required by the base-branch resolution protocol.
+3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
+4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
+5. Load the named role instructions with
    `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
-5. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
+6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
    worktree and must not edit the conductor checkout.
@@ -296,7 +302,7 @@ Produce this exact structure. Include only temporary session state here (current
     ## Recent Focus
     [1–3 sentences: what was being worked on when $wrap was invoked]
 
-    ## Current spawn_agent / Next Steps
+    ## Current Task / Next Steps
     [Specific next steps: file paths, branch names, open PRs, exact commands. Concrete enough to act on without reading the chat history.]
 
     ## Key File Paths

@@ -36,7 +36,8 @@ if [ -n "$STAGED_PY" ]; then
     # Python CLI to bin/. Only bin/agentic-* files with a python3 shebang are
     # eligible (e.g. bin/agentic-emit is bash and must NOT be added).
     MYPY_PY_ARGS=(
-      bin/agentic-calibrate bin/agentic-configure bin/agentic-cost bin/agentic-disable
+      bin/agentic-calibrate bin/agentic-codex-dispatch bin/agentic-codex-session-id
+      bin/agentic-configure bin/agentic-cost bin/agentic-disable
       bin/agentic-doctor bin/agentic-help bin/agentic-identity bin/agentic-memory
       bin/agentic-migrate bin/agentic-models bin/agentic-parse-subagent-usage
       bin/agentic-status bin/agentic-team bin/agentic-update
@@ -94,6 +95,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
   bash "$REPO_DIR/.opencode/build.sh"
   bash "$REPO_DIR/.pi/build.sh"
   bash "$REPO_DIR/.copilot/build.sh"
+  bash "$REPO_DIR/scripts/check-codex-skill-sync.sh"
 
   # Stage generated files
   git add \
@@ -101,6 +103,9 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.claude/skills/agentic-engineering/METHODOLOGY.md" \
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/agents/"*.toml \
+    "$REPO_DIR/.codex/skills" \
+    "$REPO_DIR/.codex/skill-compatibility.yml" \
+    "$REPO_DIR/.codex/hooks/skill-auto-load-check.sh" \
     "$REPO_DIR/.codex/references/"*.md \
     "$REPO_DIR/.codex/commands/"*.md \
     "$REPO_DIR/.cursor/rules/"*.mdc \
@@ -154,4 +159,3 @@ if git diff --cached --name-only | grep -q "^content/"; then
     echo ""
   fi
 fi
-

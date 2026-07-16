@@ -4,16 +4,19 @@ Purpose: Resolve manual DinoStack commands, named-agent prompts, and logical
          Codex skill resources through one repository-owned compatibility shim.
 
 Public API: agentic-codex-dispatch command NAME | agent NAME | path LOGICAL |
-            legacy-cli NAME [ARGS...]. Command and agent modes print canonical
-            resource bytes; path prints the resolved absolute path.
+            base-branch PROJECT_ROOT | legacy-cli NAME [ARGS...]. Command and
+            agent modes print canonical resource bytes; path and base-branch
+            print one validated value.
 
 Upstream deps: repository content/SKILL.md signature, content/commands, content/agents,
                and generated agentic-engineering RESOURCE-MAP.json.
 
 Downstream consumers: generated Codex compatibility prose and operator tooling.
 
-Failure modes: rejects traversal, missing resources, invalid maps, and unsupported
-               legacy CLIs with a nonzero actionable error. Read-only.
+Failure modes: rejects traversal, absolute or escaping descriptors, descriptor
+               type mismatches, invalid project roots, unresolved base-branch
+               policy, missing resources, invalid maps, and unsupported legacy
+               CLIs with a nonzero actionable error. Read-only.
 
 Performance: constant-time path validation plus one bounded file read.
 """
@@ -21,6 +24,10 @@ Performance: constant-time path validation plus one bounded file read.
 from __future__ import annotations
 
 import json
+import os
+import re
+import stat
+import subprocess
 import sys
 from pathlib import Path
 
@@ -52,8 +59,98 @@ def emit(path: Path) -> None:
     sys.stdout.buffer.write(data)
 
 
+def resolve_logical_resource(root: Path, logical: str) -> Path:
+    map_path = root / ".codex/skills/agentic-engineering/RESOURCE-MAP.json"
+    try:
+        map_mode = os.lstat(map_path).st_mode
+        if not stat.S_ISREG(map_mode):
+            fail(f"resource map is not a regular file: {map_path}")
+        payload = json.loads(map_path.read_text(encoding="utf-8"))
+        descriptor = payload["resources"][logical]
+        if not isinstance(descriptor, dict):
+            fail(f"logical resource {logical!r} has a non-object descriptor")
+        descriptor_path = descriptor.get("path")
+        descriptor_type = descriptor.get("type")
+        if not isinstance(descriptor_path, str) or not descriptor_path:
+            fail(f"logical resource {logical!r} has an invalid path")
+        relative = Path(descriptor_path)
+        if relative.is_absolute() or ".." in relative.parts:
+            fail(f"logical resource {logical!r} has an escaping path")
+        if descriptor_type not in {"file", "directory"}:
+            fail(f"logical resource {logical!r} has invalid type {descriptor_type!r}")
+        physical = map_path.parent.resolve(strict=True)
+        target = (physical / relative).resolve(strict=True)
+        repository = root.resolve(strict=True)
+        if not target.is_relative_to(repository):
+            fail(f"logical resource {logical!r} escapes the DinoStack repository")
+        target_mode = os.stat(target, follow_symlinks=True).st_mode
+        if descriptor_type == "file" and not stat.S_ISREG(target_mode):
+            fail(f"logical resource {logical!r} is not a regular file")
+        if descriptor_type == "directory" and not stat.S_ISDIR(target_mode):
+            fail(f"logical resource {logical!r} is not a directory")
+        return target
+    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
+        fail(f"cannot resolve logical resource {logical!r}: {exc}")
+
+
+def git_output(project: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(project), *arguments],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+
+
+def resolve_project(value: str) -> Path:
+    supplied = Path(value)
+    if not supplied.is_absolute():
+        fail("project root must be an absolute path")
+    try:
+        project = supplied.resolve(strict=True)
+    except OSError as exc:
+        fail(f"cannot resolve project root {value!r}: {exc}")
+    if not project.is_dir():
+        fail(f"project root is not a directory: {project}")
+    top = git_output(project, "rev-parse", "--show-toplevel")
+    if top.returncode or Path(top.stdout.strip()).resolve(strict=True) != project:
+        fail(f"project root is not a repository top level: {project}")
+    return project
+
+
+def valid_branch(project: Path, branch: str) -> str:
+    result = git_output(project, "check-ref-format", "--branch", branch)
+    if result.returncode:
+        fail(f"invalid BASE_BRANCH declaration {branch!r}")
+    return branch
+
+
+def resolve_base_branch(project: Path) -> str:
+    agents = project / "AGENTS.md"
+    if agents.is_file() and not agents.is_symlink():
+        try:
+            text = agents.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            fail(f"cannot read project AGENTS.md: {exc}")
+        match = re.search(r"(?m)^.*?BASE_BRANCH:\s*([A-Za-z0-9._/-]+)", text)
+        if match:
+            return valid_branch(project, match.group(1))
+    for branch in ("develop", "development"):
+        result = git_output(project, "show-ref", "--verify", "--quiet", f"refs/heads/{branch}")
+        if result.returncode == 0:
+            return branch
+    fail(
+        "no BASE_BRANCH declaration or local develop/development branch; "
+        "ask whether to use main (falling back to master) or establish a develop-based workflow"
+    )
+
+
 if len(sys.argv) < 3:
-    fail("usage: command NAME | agent NAME | path LOGICAL | legacy-cli NAME")
+    fail(
+        "usage: command NAME | agent NAME | path LOGICAL | "
+        "base-branch PROJECT_ROOT | legacy-cli NAME"
+    )
 
 root = repo_root()
 mode, value = sys.argv[1], sys.argv[2]
@@ -62,13 +159,9 @@ if mode == "command":
 elif mode == "agent":
     emit(root / "content/agents" / f"{safe_name(value)}.md")
 elif mode == "path":
-    map_path = root / ".codex/skills/agentic-engineering/RESOURCE-MAP.json"
-    try:
-        descriptor = json.loads(map_path.read_text(encoding="utf-8"))["resources"][value]
-        target = (map_path.parent / descriptor["path"]).resolve(strict=True)
-    except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        fail(f"cannot resolve logical resource {value!r}: {exc}")
-    print(target)
+    print(resolve_logical_resource(root, value))
+elif mode == "base-branch":
+    print(resolve_base_branch(resolve_project(value)))
 elif mode == "legacy-cli":
     fail(f"unsupported Claude-oriented CLI {value!r}; use the mapped Codex workflow resource")
 else:

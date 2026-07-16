@@ -61,11 +61,17 @@ CODEX_SPAWN_CONTRACT = """**Codex spawn contract.** Delegate with `spawn_agent` 
 isolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):
 
 1. `git fetch origin`.
-2. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
-3. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" origin/main`.
-4. Load the named role instructions with
+2. Resolve `BASE_BRANCH` with
+   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   canonical precedence: the first `BASE_BRANCH:` declaration in project `AGENTS.md`, then local
+   `develop`, then local `development`. If none exists, the helper fails closed; ask the operator
+   whether to use `main` (recommended, falling back to `master`) or establish a develop-based
+   workflow, exactly as required by the base-branch resolution protocol.
+3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
+4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
+5. Load the named role instructions with
    `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
-5. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
+6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
    worktree and must not edit the conductor checkout.
@@ -527,22 +533,12 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
     semantic_pattern = r"\b(Agent|Task|Read|Glob|Grep|Bash|Edit|Write|AskUserQuestion)\b"
     for match in re.finditer(semantic_pattern, doc.text):
         token = match.group(1)
-        if token == "Task" and doc.text[match.end():].startswith(" Decomposition"):
-            add_occurrence(found, occupied, doc, match.start(1), match.end(1), "agent-tool",
-                           token, token, "semantic-reference", "section-title",
-                           "Task Decomposition", "canonical-source")
-            continue
-        line_start = doc.text.rfind("\n", 0, match.start()) + 1
-        line_end = doc.text.find("\n", match.end())
-        if line_end < 0:
-            line_end = len(doc.text)
-        line = doc.text[line_start:line_end]
         if token in {"Agent", "Task"}:
-            historical = bool(re.search(r"Claude Code|PreToolUse|hook|legacy", line, re.I))
-            generated = ("Claude Agent" if token == "Agent" else "legacy Claude Task") if historical else "spawn_agent"
-            mode = "claude-harness-reference" if historical else "codex-spawn-contract"
-        else:
-            generated, mode = token, "compatibility-preamble"
+            add_occurrence(found, occupied, doc, match.start(1), match.end(1), "agent-tool",
+                           token, token, "semantic-reference", "canonical-prose",
+                           token, "canonical-source")
+            continue
+        generated, mode = token, "compatibility-preamble"
         add_occurrence(found, occupied, doc, match.start(1), match.end(1), "agent-tool",
                        token, generated, "semantic-reference", mode, TOOL_MAP[token], "codex-harness")
 
@@ -741,6 +737,7 @@ def scan_tree(root: Path) -> dict[str, tuple[str, bytes | str]]:
 
 
 def validate_resources(root: Path) -> None:
+    generated_root = root.resolve(strict=True)
     repository = (root / "agentic-engineering/bin").resolve(strict=True).parent
     for name in SKILLS:
         skill = root / name
@@ -755,8 +752,53 @@ def validate_resources(root: Path) -> None:
                 raise SkillError(f"resource {name}:{logical} is not a file")
             if descriptor["type"] == "directory" and not resolved.is_dir():
                 raise SkillError(f"resource {name}:{logical} is not a directory")
-            if not resolved.is_relative_to(repository) and not resolved.is_relative_to(physical):
+            if (
+                not resolved.is_relative_to(repository)
+                and not resolved.is_relative_to(physical)
+                and not resolved.is_relative_to(physical.parent)
+                and not resolved.is_relative_to(generated_root)
+            ):
                 raise SkillError(f"resource escapes validated repository: {name}:{logical}")
+
+
+def validate_link_mirror(source: Path, destination: Path, relative_prefix: str) -> None:
+    if destination.is_symlink() or not destination.is_dir():
+        raise SkillError(f"Codex mirror must be a real directory: {destination}")
+    expected = {path.name for path in source.glob("*.md")}
+    actual = {path.name for path in destination.iterdir()}
+    if actual != expected:
+        raise SkillError(
+            f"Codex mirror drift at {destination}: "
+            f"missing={sorted(expected - actual)}, unexpected={sorted(actual - expected)}"
+        )
+    for name in sorted(expected):
+        link = destination / name
+        if not link.is_symlink():
+            raise SkillError(f"Codex mirror entry must be a symlink: {link}")
+        expected_target = f"{relative_prefix}/{name}"
+        if os.readlink(link) != expected_target:
+            raise SkillError(
+                f"Codex mirror target drift at {link}: "
+                f"expected={expected_target!r}, actual={os.readlink(link)!r}"
+            )
+
+
+def validate_adapter_mirrors(repo: Path) -> None:
+    validate_link_mirror(
+        repo / "content/commands", repo / ".codex/commands", "../../content/commands"
+    )
+    validate_link_mirror(
+        repo / "content/references", repo / ".codex/references", "../../content/references"
+    )
+    hook = repo / ".codex/hooks/skill-auto-load-check.sh"
+    if not hook.is_symlink():
+        raise SkillError(f"Codex shared hook mirror must be a symlink: {hook}")
+    expected_target = "../../hooks/skill-auto-load-check.sh"
+    if os.readlink(hook) != expected_target:
+        raise SkillError(
+            f"Codex shared hook target drift: expected={expected_target!r}, "
+            f"actual={os.readlink(hook)!r}"
+        )
 
 
 def sync_tree(staging: Path, output: Path) -> None:
@@ -817,6 +859,7 @@ def build(repo: Path, output: Path) -> None:
 
 def check(repo: Path, output: Path) -> None:
     load_compatibility(repo)
+    validate_adapter_mirrors(repo)
     if not output.exists() or output.is_symlink() or not output.is_dir():
         raise SkillError(f"generated root missing or unsafe: {output}")
     with tempfile.TemporaryDirectory(prefix="codex-skills-check-") as temp:
@@ -857,7 +900,8 @@ def main(argv: list[str] | None = None) -> int:
     if output is None:
         output = repo / ".codex/skills"
     elif not output.is_absolute():
-        output = (Path.cwd() / output).resolve()
+        output = Path.cwd() / output
+    output = output.expanduser().resolve(strict=False)
     try:
         if args.command == "inventory":
             sys.stdout.buffer.write(inventory_json(compatibility_payload(repo)))

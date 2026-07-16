@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -34,6 +35,30 @@ def run(repo: Path, *arguments: str, expected: int = 0, cwd: Path | None = None)
     if result.returncode != expected:
         raise AssertionError(
             f"expected exit {expected}, got {result.returncode}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+    return result
+
+
+def execute(
+    arguments: list[str],
+    *,
+    cwd: Path,
+    expected: int = 0,
+    env: dict[str, str] | None = None,
+) -> subprocess.CompletedProcess[str]:
+    result = subprocess.run(
+        arguments,
+        cwd=cwd,
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    if result.returncode != expected:
+        raise AssertionError(
+            f"expected exit {expected}, got {result.returncode}\n"
+            f"command: {arguments}\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
         )
     return result
 
@@ -83,6 +108,9 @@ class CodexSkillGenerationTests(unittest.TestCase):
     def build(self) -> subprocess.CompletedProcess[str]:
         return run(self.repo, "build", "--repo", str(self.repo))
 
+    def public_build(self) -> subprocess.CompletedProcess[str]:
+        return execute(["bash", str(self.repo / ".codex/build.sh")], cwd=self.repo)
+
     def test_exact_four_valid_skills_and_unrelated_cwd(self) -> None:
         skills = self.repo / ".codex/skills"
         self.assertEqual(SKILL_NAMES, {entry.name for entry in skills.iterdir()})
@@ -110,6 +138,26 @@ class CodexSkillGenerationTests(unittest.TestCase):
         (self.repo / "content/commands/brief.md").unlink()
         self.check(expected=1)
 
+    def test_every_generated_output_class_is_mutation_checked(self) -> None:
+        mutations = (
+            ("skill body", ".codex/skills/brief/SKILL.md", "file"),
+            ("marker", ".codex/skills/wrap/.dinostack-skill.json", "file"),
+            ("resource map", ".codex/skills/implement-ticket/RESOURCE-MAP.json", "file"),
+            ("core resource link", ".codex/skills/agentic-engineering/rules", "link"),
+            ("workflow resource link", ".codex/skills/brief/resources", "link"),
+        )
+        for label, relative, kind in mutations:
+            with self.subTest(output_class=label):
+                path = self.repo / relative
+                if kind == "file":
+                    path.write_bytes(path.read_bytes() + b"\nmutation\n")
+                else:
+                    path.unlink()
+                    path.symlink_to("../../../../outside")
+                self.check(expected=1)
+                self.build()
+                self.check()
+
     def test_frontmatter_and_link_mutations_fail(self) -> None:
         frontmatter = self.repo / ".codex/skill-frontmatter/brief.yml"
         frontmatter.write_text("---\nname: wrong\ndescription: broken\n---\n", encoding="utf-8")
@@ -119,6 +167,21 @@ class CodexSkillGenerationTests(unittest.TestCase):
         link.unlink()
         link.symlink_to("../../../../outside")
         self.check(expected=1)
+
+    def test_command_reference_and_hook_mirror_mutations_fail_and_repair(self) -> None:
+        links = (
+            ".codex/commands/brief.md",
+            ".codex/references/skeptic-protocol.md",
+            ".codex/hooks/skill-auto-load-check.sh",
+        )
+        for relative in links:
+            with self.subTest(mirror=relative):
+                link = self.repo / relative
+                link.unlink()
+                link.symlink_to("../../../../outside")
+                self.check(expected=1)
+                self.public_build()
+                self.check()
 
     def test_unexpected_paths_fail_then_build_prunes_and_repairs(self) -> None:
         stale_file = self.repo / ".codex/skills/stale.txt"
@@ -228,7 +291,12 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertNotIn("legacy Claude Task Decomposition", generated)
         self.assertNotIn(".agentic$wrap", generated)
         self.assertIn("git worktree add", generated)
-        self.assertIn("origin/main", generated)
+        self.assertNotIn('origin/main"', generated)
+        self.assertIn('origin/$BASE_BRANCH"', generated)
+        self.assertIn('agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"', generated)
+        self.assertIn("then local", generated)
+        self.assertIn("`develop`, then local", generated)
+        self.assertIn("`development`", generated)
         self.assertIn("Work only in the pre-created worktree", generated)
         self.assertIn("$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>", generated)
         self.assertIn("spawn_agent", generated)
@@ -243,6 +311,169 @@ class CodexSkillGenerationTests(unittest.TestCase):
             item["resolution_mode"] in {"codex-spawn-contract", "codex-session-polling"}
             for item in unsupported
         ))
+
+    def test_ordinary_capitalized_task_nouns_are_not_rewritten(self) -> None:
+        module_name = f"codex_skills_fixture_{id(self)}"
+        spec = importlib.util.spec_from_file_location(module_name, self.repo / GENERATOR)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        self.addCleanup(sys.modules.pop, module_name, None)
+        spec.loader.exec_module(module)
+        fixture = module.Document(
+            "fixture.md",
+            "\n".join(
+                (
+                    'issue_type mapped from TICKET_TYPE: "Story", "Bug", or "Task".',
+                    "### Task-state initialization",
+                    "## Current Task / Next Steps",
+                    "## Task entries (machine-readable)",
+                    "Use the `Task` tool for an actual delegated call.",
+                )
+            ),
+        )
+        occurrences = module.inventory_document(fixture, self.repo)
+        rendered = module.transform(fixture.text, occurrences)
+        self.assertIn('"Story", "Bug", or "Task"', rendered)
+        self.assertIn("### Task-state initialization", rendered)
+        self.assertIn("## Current Task / Next Steps", rendered)
+        self.assertIn("## Task entries (machine-readable)", rendered)
+        self.assertIn("Use the `spawn_agent` tool", rendered)
+
+    def test_generated_skills_preserve_task_nouns(self) -> None:
+        ticket = (self.repo / ".codex/skills/implement-ticket/SKILL.md").read_text(encoding="utf-8")
+        wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
+        methodology = (
+            self.repo / ".codex/skills/agentic-engineering/METHODOLOGY.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn('task -> "Task"; omit to accept project default', ticket)
+        self.assertIn("### Task-state initialization", ticket)
+        self.assertIn("## Task entries (machine-readable)", ticket)
+        self.assertIn("## Current Task / Next Steps", wrap)
+        self.assertIn("## Task-state file", methodology)
+        self.assertNotIn("spawn_agent-state", ticket + methodology)
+
+    def test_base_branch_resolver_prefers_explicit_then_develop(self) -> None:
+        project = Path(self.temporary.name) / "base-branch-project"
+        project.mkdir()
+        execute(["git", "init", "-q", str(project)], cwd=Path(self.temporary.name))
+        execute(["git", "config", "user.email", "test@example.com"], cwd=project)
+        execute(["git", "config", "user.name", "Test"], cwd=project)
+        execute(["git", "commit", "--allow-empty", "-qm", "base"], cwd=project)
+        (project / "AGENTS.md").write_text("BASE_BRANCH: release/integration\n", encoding="utf-8")
+        dispatcher = self.repo / "bin/agentic-codex-dispatch"
+        explicit = execute(
+            [sys.executable, str(dispatcher), "base-branch", str(project.resolve())],
+            cwd=self.repo,
+        )
+        self.assertEqual("release/integration", explicit.stdout.strip())
+        (project / "AGENTS.md").unlink()
+        execute(["git", "branch", "develop"], cwd=project)
+        fallback = execute(
+            [sys.executable, str(dispatcher), "base-branch", str(project.resolve())],
+            cwd=self.repo,
+        )
+        self.assertEqual("develop", fallback.stdout.strip())
+
+    def test_dispatch_rejects_escaping_and_wrong_type_descriptors(self) -> None:
+        dispatcher = self.repo / "bin/agentic-codex-dispatch"
+        map_path = self.repo / ".codex/skills/agentic-engineering/RESOURCE-MAP.json"
+        original = map_path.read_bytes()
+        hostile = self.repo / ".codex/skills/agentic-engineering/dispatch-fifo"
+        cases = (
+            ("absolute", {"path": str((Path(self.temporary.name) / "outside").resolve()), "type": "file"}),
+            ("traversal", {"path": "../../../../outside", "type": "file"}),
+            ("directory as file", {"path": "references", "type": "file"}),
+            ("file as directory", {"path": "METHODOLOGY.md", "type": "directory"}),
+            ("invalid type", {"path": "METHODOLOGY.md", "type": "socket"}),
+        )
+        try:
+            for label, descriptor in cases:
+                with self.subTest(descriptor=label):
+                    payload = json.loads(original)
+                    payload["resources"]["hostile"] = descriptor
+                    map_path.write_text(json.dumps(payload), encoding="utf-8")
+                    execute(
+                        [sys.executable, str(dispatcher), "path", "hostile"],
+                        cwd=self.repo,
+                        expected=2,
+                    )
+            if hasattr(os, "mkfifo"):
+                os.mkfifo(hostile)
+                payload = json.loads(original)
+                payload["resources"]["hostile"] = {"path": "dispatch-fifo", "type": "file"}
+                map_path.write_text(json.dumps(payload), encoding="utf-8")
+                execute(
+                    [sys.executable, str(dispatcher), "path", "hostile"],
+                    cwd=self.repo,
+                    expected=2,
+                )
+        finally:
+            map_path.write_bytes(original)
+            if hostile.exists():
+                hostile.unlink()
+
+    def test_absolute_output_resolves_logical_physical_alias(self) -> None:
+        physical = Path(self.temporary.name) / "physical-output"
+        physical.mkdir()
+        logical = Path(self.temporary.name) / "logical-output"
+        logical.symlink_to(physical, target_is_directory=True)
+        requested = logical / "skills"
+        result = run(
+            self.repo,
+            "build",
+            "--repo",
+            str(self.repo),
+            "--output",
+            str(requested),
+        )
+        self.assertIn(str((physical / "skills").resolve()), result.stdout)
+        self.assertTrue((physical / "skills/agentic-engineering/SKILL.md").is_file())
+
+    def test_isolated_install_update_and_uninstall_owns_exactly_four_skills(self) -> None:
+        home = Path(self.temporary.name) / "home"
+        home.mkdir()
+        env = os.environ.copy()
+        env["HOME"] = str(home)
+        env.pop("AGENTIC_CONFIG_DIR", None)
+        install = [
+            "bash", str(self.repo / ".codex/install.sh"),
+            "--mode=opt-out", "--profile=default", "--no-identity",
+        ]
+        execute(install, cwd=self.repo, env=env)
+        execute(install, cwd=self.repo, env=env)
+        skill_home = home / ".agents/skills"
+        self.assertEqual(SKILL_NAMES, {entry.name for entry in skill_home.iterdir()})
+        for name in SKILL_NAMES:
+            link = skill_home / name
+            self.assertTrue(link.is_symlink())
+            self.assertEqual(str(self.repo / ".codex/skills" / name), os.readlink(link))
+            self.assertTrue((link / "SKILL.md").is_file())
+        execute(["bash", str(self.repo / ".codex/uninstall.sh")], cwd=self.repo, env=env)
+        self.assertEqual(set(), {entry.name for entry in skill_home.iterdir()})
+
+    def test_ci_precommit_and_public_docs_cover_native_skill_surface(self) -> None:
+        workflow = (self.repo / ".github/workflows/codex-skill-sync.yml").read_text(encoding="utf-8")
+        self.assertIn("python3 scripts/test/test_codex_skills.py --clean-clone", workflow)
+        self.assertIn("bash .codex/build.sh", workflow)
+        self.assertIn("git diff --exit-code", workflow)
+        precommit = (self.repo / "hooks/pre-commit").read_text(encoding="utf-8")
+        self.assertIn('scripts/check-codex-skill-sync.sh"', precommit)
+        self.assertIn('"$REPO_DIR/.codex/skills"', precommit)
+        self.assertIn('"$REPO_DIR/.codex/skill-compatibility.yml"', precommit)
+        self.assertIn('"$REPO_DIR/.codex/hooks/skill-auto-load-check.sh"', precommit)
+
+        stale = re.compile(r"\.codex/skill(?:/|\*\*)")
+        checked = [self.repo / "AGENTS.md", self.repo / ".codex/install.sh", self.repo / ".codex/uninstall.sh"]
+        checked.extend((self.repo / "content").rglob("*.md"))
+        checked.extend((self.repo / ".codex/skills").rglob("*.md"))
+        offenders = [
+            str(path.relative_to(self.repo))
+            for path in checked
+            if stale.search(path.read_text(encoding="utf-8"))
+        ]
+        self.assertEqual([], offenders)
 
     def test_simplify_uses_explicit_cleanup_resource_contract(self) -> None:
         generated = "\n".join(
@@ -295,6 +526,7 @@ def clean_clone_test() -> None:
         run(clone, "check", "--repo", str(clone))
         run(clone, "build", "--repo", str(clone))
         run(clone, "check", "--repo", str(clone))
+        execute(["bash", str(clone / ".codex/build.sh")], cwd=clone)
         diff = subprocess.run(["git", "diff", "--exit-code"], cwd=clone, check=False,
                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
         if diff.returncode:

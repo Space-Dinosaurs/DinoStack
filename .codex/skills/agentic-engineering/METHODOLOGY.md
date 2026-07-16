@@ -49,11 +49,17 @@ Run this check once at the top of the first skill invocation in a session (and a
 isolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):
 
 1. `git fetch origin`.
-2. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
-3. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" origin/main`.
-4. Load the named role instructions with
+2. Resolve `BASE_BRANCH` with
+   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   canonical precedence: the first `BASE_BRANCH:` declaration in project `AGENTS.md`, then local
+   `develop`, then local `development`. If none exists, the helper fails closed; ask the operator
+   whether to use `main` (recommended, falling back to `master`) or establish a develop-based
+   workflow, exactly as required by the base-branch resolution protocol.
+3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
+4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
+5. Load the named role instructions with
    `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
-5. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
+6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
    worktree and must not edit the conductor checkout.
@@ -173,7 +179,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Permission-blocked fallback (non-methodology files only).** When a spawned Worker returns BLOCKED explicitly citing an Edit permission denial by the Claude Code permission system, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Permission-blocked fallback before applying any edit directly. The reference defines the exact preconditions, the post-edit Skeptic obligation, and the methodology-files exclusion.
 
-**Editing methodology files under `$AE_REPO_DIR/`.** Before editing any file under `content/**`, `$AE_REPO_DIR/.codex/skill/**`, build scripts, or hooks, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `manual workflow 'update-agentic-engineering' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command update-agentic-engineering`` instead of direct Edit/Write.
+**Editing methodology files under `$AE_REPO_DIR/`.** Before editing any file under `content/**`, Codex native-skill generation inputs or outputs (`$AE_REPO_DIR/.codex/skill-frontmatter/**`, `$AE_REPO_DIR/.codex/skill-compatibility.yml`, `$AE_REPO_DIR/scripts/codex-skills.py`, `$AE_REPO_DIR/.codex/skills/**`), build scripts, or hooks, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `manual workflow 'update-agentic-engineering' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command update-agentic-engineering`` instead of direct Edit/Write.
 
 **Investigator-Before-Architect Rules** - when about to spawn the architect on unfamiliar territory or a shared-utility surface: read `$AE_REPO_DIR/content/references/delegation-detail.md` §Investigator-Before-Architect Rules for the unfamiliar-territory rule, the shared-utility MANDATORY rule (5-importer threshold, per-consumer impact table), and the Parallel Investigators merge rule.
 
@@ -240,7 +246,7 @@ Upstream deps: $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation (architect plan +
                that this section's body defers to for authoring detail).
 
 Downstream consumers: $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Delegation (Worker preamble references
-                      brief_path / plan_path); $AE_CORE_SKILL_ROOT/METHODOLOGY.md §spawn_agent
+                      brief_path / plan_path); $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Task
                       Decomposition (cites this section for Plan-tier
                       pre-worker authoring); $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Cross-session
                       loop resume (records brief_path / plan_path /
@@ -415,7 +421,7 @@ For Low or Trivial units, the Skeptic applies its inline self-check. QA is not s
 
 ## Capability Preflight
 
-Before every spawn_agent spawn, the conductor reads the target agent's `capabilities:` block (if present) and verifies that all declared tools are available in the current environment. Absent block = no-op for that agent.
+Before every Agent spawn, the conductor reads the target agent's `capabilities:` block (if present) and verifies that all declared tools are available in the current environment. Absent block = no-op for that agent.
 
 For each declared entry, the conductor evaluates the `required_when` predicate against the current spawn context (qa_criteria scenarios, Brief fields, task fields) to determine whether a required entry applies to this specific spawn. Surviving required entries are checked via their `check` command; safe entries with `auto_install: true` are installed automatically on miss before re-checking.
 
@@ -427,9 +433,9 @@ For the full YAML schema, `required_when` predicate grammar, `auto_install` safe
 
 Long-running `$implement-ticket` loops survive via `$AE_PROJECT_DIR/.agentic/loop-state.json` written at every phase transition; read `$AE_REPO_DIR/content/references/cross-session-loop-resume.md` §Cross-session loop resume at session start when loop-state.json exists.
 
-## spawn_agent-state file
+## Task-state file
 
-For multi-unit plans the conductor maintains `$AE_PROJECT_DIR/.agentic/tasks.jsonl` (sole writer); read `$AE_REPO_DIR/content/references/task-state-file.md` §spawn_agent-state file for schema and protocol (incl author_model).
+For multi-unit plans the conductor maintains `$AE_PROJECT_DIR/.agentic/tasks.jsonl` (sole writer); read `$AE_REPO_DIR/content/references/task-state-file.md` §Task-state file for schema and protocol (incl author_model).
 
 ## Events log
 
@@ -506,10 +512,10 @@ Run `manual workflow 'skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch comm
 **Parallel spawning and worktrees** - when decomposing work into multiple agents:
 Read `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` (Sections 2, 5, 7) for parallel-by-default, worktree isolation rules, and check-in behavior.
 
-**spawn_agent decomposition and review scope** - when breaking work into multiple Workers:
+**Task decomposition and review scope** - when breaking work into multiple Workers:
 Read `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` (Section 6) for decomposition rules and `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 9) for review scope guidance.
 
-**spawn_agent team composition** - which agent to use and how they compose:
+**Agent team composition** - which agent to use and how they compose:
 Read `$AE_CORE_SKILL_ROOT/references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
 
 **Regression test obligation** - when a Worker fixes a Critical or Major Skeptic finding:
@@ -521,7 +527,7 @@ Read `$AE_CORE_SKILL_ROOT/references/qa-regression-obligation.md` for the engine
 **Doc-sync obligation** - when a change alters a count, list, path, convention, or behavior an intent-layer doc asserts:
 Read `$AE_CORE_SKILL_ROOT/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
 
-**Capability preflight** - before every spawn_agent spawn:
+**Capability preflight** - before every Agent spawn:
 See `$AE_REPO_DIR/content/sections/06-capability-preflight.md` for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `$AE_REPO_DIR/content/references/capability-preflight.md`.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
@@ -536,8 +542,8 @@ Read `$AE_REPO_DIR/content/references/worktree-lifecycle.md` for the full bash c
 **Cross-session loop resume** - when `$implement-ticket` loop state must be resumed:
 Read `$AE_REPO_DIR/content/references/cross-session-loop-resume.md` §Cross-session loop resume for disk-write discipline, resumable phases, Brief/Plan path recording, and batch-state coexistence.
 
-**spawn_agent-state file** - when managing multi-unit plan orchestration state:
-Read `$AE_REPO_DIR/content/references/task-state-file.md` §spawn_agent-state file for schema, file-absent/present behavior, orphan detection, field-level merge algorithm, and `author_model` field semantics.
+**Task-state file** - when managing multi-unit plan orchestration state:
+Read `$AE_REPO_DIR/content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, field-level merge algorithm, and `author_model` field semantics.
 
 **Code standards detail** - when implementing or modifying code in a specific language:
 Read `$AE_REPO_DIR/content/references/code-standards-detail.md` §Per-Language Strict Defaults for TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs, and §Browser Verification for `agent-browser` usage patterns.
