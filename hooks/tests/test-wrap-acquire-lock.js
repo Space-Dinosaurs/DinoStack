@@ -46,7 +46,7 @@ console.log('\n[1] free acquisition returns an opaque release token');
   const token = tokenFrom(result.out);
   assert(result.code === 0, `free acquisition exits 0 (got ${result.code})`);
   assert(typeof token === 'string', 'free acquisition prints a 64-hex token');
-  assert(lib.releaseWrapLock(project, token) === true, 'returned token releases the lock');
+  assert(lib.releaseWrapLockToken(project, token) === true, 'returned token releases the lock');
 }
 
 console.log('\n[2] live owner blocks, then waiter acquires after token release');
@@ -56,14 +56,14 @@ console.log('\n[2] live owner blocks, then waiter acquires after token release')
     const { spawn } = require('child_process');
     const lib = require(${JSON.stringify(path.join(REPO_ROOT, 'hooks', 'lib', 'wrap-marker.js'))});
     const project = ${JSON.stringify(project)};
-    const token = lib.acquireWrapLock(project, 'test-holder');
+    const token = lib.acquireWrapLockToken(project, 'test-holder');
     if (!token) process.exit(9);
     const child = spawn(${JSON.stringify(SCRIPT_PATH)}, [project, '--timeout-ms=5000', '--poll-ms=50'], {
       stdio: ['ignore', 'pipe', 'inherit'],
     });
     let output = '';
     child.stdout.on('data', (chunk) => { output += chunk.toString(); });
-    setTimeout(() => { lib.releaseWrapLock(project, token); }, 250);
+    setTimeout(() => { lib.releaseWrapLockToken(project, token); }, 250);
     child.on('exit', (code) => { process.stdout.write(output); process.exit(code || 0); });
   `;
   let output = '';
@@ -78,19 +78,20 @@ console.log('\n[2] live owner blocks, then waiter acquires after token release')
   assert(exitCode === 0, `waiter exits 0 after release (got ${exitCode})`);
   assert(output.includes('waiting'), 'waiter reports progress while held');
   assert(typeof acquiredToken === 'string', 'waiter returns its own token');
-  lib.releaseWrapLock(project, acquiredToken);
+  lib.releaseWrapLockToken(project, acquiredToken);
 }
 
 console.log('\n[3] live owner times out without mutation');
 {
   const project = temp('wrap-acquire-timeout-');
-  const heldToken = lib.acquireWrapLock(project, 'test-holder');
-  assert(lib.clearProvablyStaleWrapLock(project, 0) === false, 'stale clear refuses a live owner');
+  const heldToken = lib.acquireWrapLockToken(project, 'test-holder');
+  assert(lib.clearProvablyStaleWrapLockTokenized(project, 0) === false,
+    'signed stale clear refuses a live owner');
   const result = run([project, '--timeout-ms=180', '--poll-ms=30'], { timeout: 3000 });
   assert(result.code === 2, `timeout exits 2 (got ${result.code})`);
   assert(result.out.includes('timeout'), 'timeout status is printed');
   assert(fs.existsSync(lib.wrapLockPath(project)), 'live lock remains present');
-  lib.releaseWrapLock(project, heldToken);
+  lib.releaseWrapLockToken(project, heldToken);
 }
 
 console.log('\n[4] malformed legacy owner is retained and classified unreadable');
@@ -109,7 +110,7 @@ console.log('\n[5] valid dead owner is reclaimed automatically');
   const project = temp('wrap-acquire-dead-');
   const childScript = `
     const lib = require(${JSON.stringify(path.join(REPO_ROOT, 'hooks', 'lib', 'wrap-marker.js'))});
-    const token = lib.acquireWrapLock(${JSON.stringify(project)}, 'dead-child');
+    const token = lib.acquireWrapLockToken(${JSON.stringify(project)}, 'dead-child');
     if (!token) process.exit(2);
     process.stdout.write(token);
   `;
@@ -118,7 +119,7 @@ console.log('\n[5] valid dead owner is reclaimed automatically');
   const token = tokenFrom(result.out);
   assert(result.code === 0, `dead-owner reclaim exits 0 (got ${result.code})`);
   assert(typeof token === 'string', 'dead-owner reclaim returns a fresh token');
-  lib.releaseWrapLock(project, token);
+  lib.releaseWrapLockToken(project, token);
 }
 
 console.log('\n[6] daemon stale clear uses acquisition-internal reclaim');
@@ -126,11 +127,12 @@ console.log('\n[6] daemon stale clear uses acquisition-internal reclaim');
   const project = temp('wrap-clear-dead-');
   const childScript = `
     const lib = require(${JSON.stringify(path.join(REPO_ROOT, 'hooks', 'lib', 'wrap-marker.js'))});
-    const token = lib.acquireWrapLock(${JSON.stringify(project)}, 'dead-clear-child');
+    const token = lib.acquireWrapLockToken(${JSON.stringify(project)}, 'dead-clear-child');
     if (!token) process.exit(2);
   `;
   execFileSync(process.execPath, ['-e', childScript], { encoding: 'utf8' });
-  assert(lib.clearProvablyStaleWrapLock(project, 0) === true, 'stale clear reclaims through acquire and releases its token');
+  assert(lib.clearProvablyStaleWrapLockTokenized(project, 0) === true,
+    'signed stale clear reclaims through acquire and releases its token');
   assert(!fs.existsSync(lib.wrapLockPath(project)), 'stale clear leaves no replacement lock');
 }
 
@@ -147,7 +149,20 @@ console.log('\n[7] symlinked executable resolves repository helper');
   const token = tokenFrom(result.out);
   assert(result.code === 0, `symlinked executable exits 0 (got ${result.code})`);
   assert(typeof token === 'string', 'symlinked executable returns a token');
-  lib.releaseWrapLock(project, token);
+  lib.releaseWrapLockToken(project, token);
+}
+
+console.log('\n[8] compatibility boundary preserves boolean acquire and tokenless release');
+{
+  const project = temp('wrap-acquire-compat-');
+  assert(lib.acquireWrapLock(project, 'legacy-daemon-owner', 1000) === true,
+    'legacy acquire returns strict boolean true for current daemon consumers');
+  assert(lib.acquireWrapLock(project, 'legacy-contender', 1000) === false,
+    'legacy contention returns strict boolean false');
+  assert(lib.releaseWrapLock(project) === true,
+    'legacy tokenless release removes the compatibility lock');
+  assert(!fs.existsSync(lib.wrapLockPath(project)),
+    'compatibility release leaves no lock residue');
 }
 
 for (const dir of tmpDirs) fs.rmSync(dir, { recursive: true, force: true });

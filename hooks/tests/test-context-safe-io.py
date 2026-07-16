@@ -14,6 +14,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import threading
 import time
 import unittest
 
@@ -31,6 +32,16 @@ def load_helper():
 
 
 safeio = load_helper()
+
+
+def barrier_test(test):
+    test._context_safe_io_mode = "barrier"
+    return test
+
+
+def adversarial_test(test):
+    test._context_safe_io_mode = "adversarial"
+    return test
 
 
 def holder_process(project: str, conn) -> None:
@@ -180,6 +191,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertFalse((self.project / ".agentic" / "wrap" / safeio.SPILL_NAME).exists())
         self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
 
+    @barrier_test
     def test_context_commit_fsyncs_temp_before_publish_and_parent_after(self) -> None:
         acquired = self.acquire("durability-order")
         agentic = self.project / ".agentic"
@@ -188,7 +200,7 @@ class ContextSafeIOTests(unittest.TestCase):
         agentic_identity = (agentic.stat().st_dev, agentic.stat().st_ino)
         events = []
         real_fsync = safeio.os.fsync
-        real_rename = safeio.os.rename
+        real_rename = safeio._rename_noreplace
 
         def recording_fsync(fd):
             st = os.fstat(fd)
@@ -196,16 +208,16 @@ class ContextSafeIOTests(unittest.TestCase):
             return real_fsync(fd)
 
         def recording_rename(*args, **kwargs):
-            events.append(("rename", args[0], args[1]))
+            events.append(("rename", args[1], args[3]))
             return real_rename(*args, **kwargs)
 
         safeio.os.fsync = recording_fsync
-        safeio.os.rename = recording_rename
+        safeio._rename_noreplace = recording_rename
         try:
             result = safeio.commit_context(str(self.project), acquired["token"], "durable\n")
         finally:
             safeio.os.fsync = real_fsync
-            safeio.os.rename = real_rename
+            safeio._rename_noreplace = real_rename
 
         self.assertEqual(result["status"], "written")
         rename_index = next(index for index, event in enumerate(events) if event[0] == "rename")
@@ -220,6 +232,102 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertEqual(guessed_temp.read_text(encoding="utf-8"), "external")
         self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
 
+    @barrier_test
+    def test_context_commit_refuses_verification_to_publication_replacement(self) -> None:
+        acquired = self.acquire("context-race")
+        context = self.project / ".agentic" / "context.md"
+        context.write_text("original\n", encoding="utf-8")
+        window_open = threading.Event()
+        replacement_done = threading.Event()
+        replacement = "replacement-from-legacy-writer\n"
+
+        def replace_in_exact_window():
+            self.assertTrue(window_open.wait(timeout=5))
+            replacement_temp = context.with_name("legacy-writer.tmp")
+            replacement_temp.write_text(replacement, encoding="utf-8")
+            os.replace(replacement_temp, context)
+            replacement_done.set()
+
+        worker = threading.Thread(target=replace_in_exact_window, daemon=True)
+        worker.start()
+        real_verify = safeio._verify_context_identity
+
+        def synchronized_verify(agentic_fd, identity):
+            real_verify(agentic_fd, identity)
+            window_open.set()
+            self.assertTrue(replacement_done.wait(timeout=5))
+
+        safeio._verify_context_identity = synchronized_verify
+        try:
+            with self.assertRaisesRegex(safeio.SafeIOError, "verification-to-publication"):
+                safeio.commit_context(str(self.project), acquired["token"], "unsafe-overwrite\n")
+        finally:
+            safeio._verify_context_identity = real_verify
+            worker.join(timeout=5)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(context.read_text(encoding="utf-8"), replacement)
+        self.assertEqual(list(context.parent.glob(".context.md.hold.*")), [])
+        self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
+
+    @barrier_test
+    def test_context_transaction_retries_after_replacement_and_remerges(self) -> None:
+        context = self.project / ".agentic" / "context.md"
+        context.parent.mkdir()
+        context.write_text("old non-wrap context\n", encoding="utf-8")
+        replacement_base = (
+            "# Session Context\n"
+            "*Written by /wrap on 2026-07-16.*\n\n"
+            "## Recent Focus\n"
+            "- replacement won the first publication race"
+        )
+        window_open = threading.Event()
+        replacement_done = threading.Event()
+
+        def replace_once():
+            self.assertTrue(window_open.wait(timeout=5))
+            replacement_temp = context.with_name("legacy-writer.tmp")
+            replacement_temp.write_text(replacement_base, encoding="utf-8")
+            os.replace(replacement_temp, context)
+            replacement_done.set()
+
+        worker = threading.Thread(target=replace_once, daemon=True)
+        worker.start()
+        real_verify = safeio._verify_context_identity
+        injected = False
+
+        def synchronized_verify(agentic_fd, identity):
+            nonlocal injected
+            real_verify(agentic_fd, identity)
+            if not injected:
+                injected = True
+                window_open.set()
+                self.assertTrue(replacement_done.wait(timeout=5))
+
+        safeio._verify_context_identity = synchronized_verify
+        try:
+            result = safeio.transact_context(
+                str(self.project),
+                {
+                    "mode": "coexist",
+                    "body": "fallback\n",
+                    "activity_block": "fresh activity after retry\n",
+                },
+            )
+        finally:
+            safeio._verify_context_identity = real_verify
+            worker.join(timeout=5)
+
+        self.assertEqual(result["status"], "written")
+        expected = (
+            replacement_base
+            + safeio.ACTIVITY_SENTINEL
+            + "fresh activity after retry\n"
+        )
+        self.assertEqual(context.read_text(encoding="utf-8"), expected)
+        self.assertFalse(worker.is_alive())
+
+    @barrier_test
     def test_live_parent_survives_helper_exit_then_dead_owner_reclaims(self) -> None:
         parent_conn, child_conn = mp.Pipe()
         holder = mp.Process(target=holder_process, args=(str(self.project), child_conn))
@@ -239,6 +347,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertNotEqual(first["token"], replacement["token"])
         self.assertTrue(safeio.release_lock(str(self.project), replacement["token"])["released"])
 
+    @barrier_test
     def test_crashed_owner_is_reclaimed(self) -> None:
         parent_conn, child_conn = mp.Pipe()
         holder = mp.Process(target=crash_holder, args=(str(self.project), child_conn))
@@ -250,6 +359,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertNotEqual(first["token"], replacement["token"])
         self.assertTrue(safeio.release_lock(str(self.project), replacement["token"])["released"])
 
+    @adversarial_test
     def test_wrong_token_never_releases(self) -> None:
         acquired = self.acquire()
         with self.assertRaisesRegex(safeio.SafeIOError, "token"):
@@ -257,6 +367,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertTrue(self.lock_dir.is_dir())
         self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
 
+    @adversarial_test
     def test_replacement_inode_is_refused(self) -> None:
         acquired = self.acquire()
         saved = self.lock_dir.with_name("saved-lock")
@@ -269,6 +380,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertEqual((saved / "owner").read_bytes(), before)
         self.assertTrue(self.lock_dir.is_dir())
 
+    @adversarial_test
     def test_symlink_agentic_parent_is_rejected_without_touching_target(self) -> None:
         outside = self.base / "outside"
         outside.mkdir()
@@ -281,6 +393,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertEqual(sentinel.read_text(encoding="utf-8"), "unchanged")
         self.assertFalse((outside / "wrap").exists())
 
+    @adversarial_test
     def test_symlink_project_and_wrap_parents_are_rejected(self) -> None:
         outside_project = self.base / "outside-project"
         outside_project.mkdir()
@@ -299,6 +412,7 @@ class ContextSafeIOTests(unittest.TestCase):
             safeio.acquire_lock(str(self.project), "symlink-wrap")
         self.assertEqual(list(outside_wrap.iterdir()), [])
 
+    @adversarial_test
     def test_symlink_lock_and_owner_are_retained(self) -> None:
         wrap = self.project / ".agentic" / "wrap"
         wrap.mkdir(parents=True)
@@ -324,6 +438,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertEqual(result["status"], "invalid")
         self.assertTrue(stat.S_ISFIFO(os.lstat(wrap / "lock" / "owner").st_mode))
 
+    @adversarial_test
     def test_special_lock_and_context_targets_are_refused(self) -> None:
         wrap = self.project / ".agentic" / "wrap"
         wrap.mkdir(parents=True)
@@ -340,6 +455,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertTrue(stat.S_ISFIFO(os.lstat(context).st_mode))
         self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
 
+    @adversarial_test
     def test_context_symlink_and_hardlink_are_refused(self) -> None:
         acquired = self.acquire()
         context = self.project / ".agentic" / "context.md"
@@ -391,6 +507,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertEqual(spill.read_bytes(), safeio._json_bytes(record))
         self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
 
+    @adversarial_test
     def test_spill_symlink_and_fifo_do_not_touch_external_target(self) -> None:
         acquired = self.acquire("live-wrap")
         spill = self.project / ".agentic" / "wrap" / safeio.SPILL_NAME
@@ -413,6 +530,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertTrue(stat.S_ISFIFO(os.lstat(spill).st_mode))
         self.assertTrue(safeio.release_lock(str(self.project), acquired["token"])["released"])
 
+    @adversarial_test
     def test_age_never_reclaims_live_or_malformed_owner(self) -> None:
         acquired = self.acquire("long-running")
         owner_path = self.lock_dir / "owner"
@@ -427,6 +545,7 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertEqual(safeio.acquire_lock(str(self.project), "contender")["status"], "invalid")
         self.assertTrue(self.lock_dir.exists())
 
+    @barrier_test
     def test_contention_workers_serialize_and_release(self) -> None:
         processes = []
         parents = []
@@ -442,14 +561,74 @@ class ContextSafeIOTests(unittest.TestCase):
         self.assertEqual(results, [True] * 6)
         self.assertEqual(safeio.inspect_lock(str(self.project))["status"], "absent")
 
+    def test_mode_selection_has_distinct_barrier_and_adversarial_coverage(self) -> None:
+        barrier_ids = set(_selected_test_ids(barriers=True, adversarial=False))
+        adversarial_ids = set(_selected_test_ids(barriers=False, adversarial=True))
+        self.assertNotEqual(barrier_ids, adversarial_ids)
+        self.assertIn(
+            f"{self.__class__.__module__}.{self.__class__.__qualname__}."
+            "test_context_commit_refuses_verification_to_publication_replacement",
+            barrier_ids,
+        )
+        self.assertNotIn(
+            f"{self.__class__.__module__}.{self.__class__.__qualname__}."
+            "test_context_commit_refuses_verification_to_publication_replacement",
+            adversarial_ids,
+        )
+        self.assertIn(
+            f"{self.__class__.__module__}.{self.__class__.__qualname__}."
+            "test_symlink_agentic_parent_is_rejected_without_touching_target",
+            adversarial_ids,
+        )
+        self.assertNotIn(
+            f"{self.__class__.__module__}.{self.__class__.__qualname__}."
+            "test_symlink_agentic_parent_is_rejected_without_touching_target",
+            barrier_ids,
+        )
+
+
+def _all_tests():
+    suite = unittest.defaultTestLoader.loadTestsFromTestCase(ContextSafeIOTests)
+    return list(suite)
+
+
+def _selected_tests(barriers: bool, adversarial: bool):
+    selected = []
+    for test in _all_tests():
+        method = getattr(test, test._testMethodName)
+        mode = getattr(method, "_context_safe_io_mode", None)
+        if not barriers and not adversarial:
+            selected.append(test)
+        elif mode is None:
+            selected.append(test)
+        elif mode == "barrier" and barriers:
+            selected.append(test)
+        elif mode == "adversarial" and adversarial:
+            selected.append(test)
+    return selected
+
+
+def _selected_test_ids(barriers: bool, adversarial: bool):
+    return [test.id() for test in _selected_tests(barriers, adversarial)]
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--barriers", action="store_true")
     parser.add_argument("--adversarial", action="store_true")
-    _, remaining = parser.parse_known_args()
-    unittest.main(argv=[__file__, *remaining], verbosity=2)
-    return 0
+    args, remaining = parser.parse_known_args()
+    selected = _selected_tests(args.barriers, args.adversarial)
+    print(
+        "[mode] "
+        f"barriers={int(args.barriers)} "
+        f"adversarial={int(args.adversarial)} "
+        f"selected={len(selected)}"
+    )
+    suite = unittest.TestSuite(selected)
+    result = unittest.TextTestRunner(verbosity=2).run(suite)
+    if remaining:
+        raise SystemExit(f"unsupported unittest arguments: {remaining}")
+    return 0 if result.wasSuccessful() else 1
 
 
 if __name__ == "__main__":

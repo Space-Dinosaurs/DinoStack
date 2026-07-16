@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import ctypes
 import datetime as dt
 import errno
 import json
@@ -48,6 +49,9 @@ MAX_OWNER_BYTES = 16 * 1024
 MAX_CONTEXT_BYTES = 16 * 1024 * 1024
 MAX_SPILL_BYTES = 1024 * 1024
 DIR_FLAGS = os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW
+RENAME_NOREPLACE_LINUX = 1
+RENAME_EXCL_DARWIN = 0x00000004
+CONTEXT_COMMIT_RETRIES = 3
 
 
 class SafeIOError(RuntimeError):
@@ -519,6 +523,221 @@ def _verify_context_identity(agentic_fd: int, identity: Optional[Tuple[int, int]
         raise SafeIOError("replacement-inode", "context.md inode changed before commit")
 
 
+def _rename_noreplace(
+    src_dir_fd: int,
+    src_name: str,
+    dst_dir_fd: int,
+    dst_name: str,
+) -> None:
+    """Descriptor-relative atomic rename that refuses an existing destination."""
+    libc = ctypes.CDLL(None, use_errno=True)
+    src = os.fsencode(src_name)
+    dst = os.fsencode(dst_name)
+    if sys.platform.startswith("linux"):
+        rename = getattr(libc, "renameat2", None)
+        if rename is None:
+            raise SafeIOError(
+                "noreplace-unsupported",
+                "renameat2(RENAME_NOREPLACE) is unavailable",
+            )
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(
+            src_dir_fd,
+            src,
+            dst_dir_fd,
+            dst,
+            RENAME_NOREPLACE_LINUX,
+        )
+    elif sys.platform == "darwin":
+        rename = getattr(libc, "renameatx_np", None)
+        if rename is None:
+            raise SafeIOError(
+                "noreplace-unsupported",
+                "renameatx_np(RENAME_EXCL) is unavailable",
+            )
+        rename.argtypes = [
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_int,
+            ctypes.c_char_p,
+            ctypes.c_uint,
+        ]
+        rename.restype = ctypes.c_int
+        result = rename(
+            src_dir_fd,
+            src,
+            dst_dir_fd,
+            dst,
+            RENAME_EXCL_DARWIN,
+        )
+    else:
+        raise SafeIOError(
+            "noreplace-unsupported",
+            f"atomic no-replace rename is unsupported on {sys.platform}",
+        )
+
+    if result == 0:
+        return
+    error_number = ctypes.get_errno()
+    if error_number in (errno.EEXIST, errno.ENOTEMPTY):
+        raise FileExistsError(error_number, os.strerror(error_number), dst_name)
+    if error_number == errno.ENOENT:
+        raise FileNotFoundError(error_number, os.strerror(error_number), src_name)
+    raise OSError(error_number, os.strerror(error_number), src_name, dst_name)
+
+
+def _verified_regular_identity_at(
+    parent_fd: int,
+    name: str,
+    label: str,
+) -> Tuple[int, int]:
+    before = _lstat_at(parent_fd, name)
+    if before is None:
+        raise SafeIOError("replacement-inode", f"{label} disappeared")
+    _require_regular_single_link(before, label)
+    try:
+        fd = os.open(name, os.O_RDONLY | os.O_NOFOLLOW, dir_fd=parent_fd)
+    except OSError as exc:
+        raise SafeIOError(
+            "replacement-inode",
+            f"cannot pin {label}: {exc.strerror}",
+        ) from exc
+    try:
+        pinned = os.fstat(fd)
+        _require_regular_single_link(pinned, label)
+        if (pinned.st_dev, pinned.st_ino) != (before.st_dev, before.st_ino):
+            raise SafeIOError("replacement-inode", f"{label} changed while opening")
+        return pinned.st_dev, pinned.st_ino
+    finally:
+        os.close(fd)
+
+
+def _restore_displaced_context(agentic_fd: int, hold_name: str) -> None:
+    try:
+        _rename_noreplace(agentic_fd, hold_name, agentic_fd, CONTEXT_NAME)
+    except FileExistsError as exc:
+        raise SafeIOError(
+            "replacement-preserved",
+            f"concurrent context replacement retained at {hold_name!r}",
+        ) from exc
+    except FileNotFoundError as exc:
+        raise SafeIOError(
+            "replacement-inode",
+            "displaced context disappeared before restoration",
+        ) from exc
+    os.fsync(agentic_fd)
+
+
+def _publish_context_no_clobber(
+    agentic_fd: int,
+    temp_name: str,
+    expected_identity: Optional[Tuple[int, int]],
+) -> None:
+    """
+    Publish without overwriting a path that changed after verification.
+
+    An absent destination is handled directly with no-replace rename. For an
+    existing destination, first move the current entry to a unique no-replace
+    hold, pin and verify that displaced inode, then publish the temp with a
+    second no-replace rename. A raced replacement is restored and retained.
+    """
+    if expected_identity is None:
+        try:
+            _rename_noreplace(agentic_fd, temp_name, agentic_fd, CONTEXT_NAME)
+        except FileExistsError as exc:
+            raise SafeIOError(
+                "replacement-inode",
+                "context.md appeared during no-clobber publication",
+            ) from exc
+        except FileNotFoundError as exc:
+            raise SafeIOError(
+                "replacement-inode",
+                "context temp disappeared before publication",
+            ) from exc
+        os.fsync(agentic_fd)
+        return
+
+    hold_name = f".context.md.hold.{secrets.token_hex(24)}"
+    hold_contains_original = False
+    try:
+        try:
+            _rename_noreplace(agentic_fd, CONTEXT_NAME, agentic_fd, hold_name)
+        except FileExistsError as exc:
+            raise SafeIOError(
+                "quarantine-conflict",
+                "context publication hold unexpectedly exists",
+            ) from exc
+        except FileNotFoundError as exc:
+            raise SafeIOError(
+                "replacement-inode",
+                "context.md disappeared before publication",
+            ) from exc
+        os.fsync(agentic_fd)
+
+        displaced_identity = _verified_regular_identity_at(
+            agentic_fd,
+            hold_name,
+            "displaced context.md",
+        )
+        if displaced_identity != expected_identity:
+            _restore_displaced_context(agentic_fd, hold_name)
+            hold_name = ""
+            raise SafeIOError(
+                "replacement-inode",
+                "context.md changed in the verification-to-publication window",
+            )
+        hold_contains_original = True
+
+        try:
+            _rename_noreplace(agentic_fd, temp_name, agentic_fd, CONTEXT_NAME)
+        except FileExistsError as exc:
+            # A concurrent writer won after the verified original was moved.
+            # Its destination survives. The old verified inode was already
+            # superseded by that writer and may be discarded safely.
+            os.unlink(hold_name, dir_fd=agentic_fd)
+            hold_name = ""
+            os.fsync(agentic_fd)
+            raise SafeIOError(
+                "replacement-inode",
+                "context.md reappeared during no-clobber publication",
+            ) from exc
+        except FileNotFoundError as exc:
+            _restore_displaced_context(agentic_fd, hold_name)
+            hold_name = ""
+            raise SafeIOError(
+                "replacement-inode",
+                "context temp disappeared before publication",
+            ) from exc
+
+        os.unlink(hold_name, dir_fd=agentic_fd)
+        hold_name = ""
+        os.fsync(agentic_fd)
+    except Exception:
+        if hold_name and hold_contains_original:
+            current = _lstat_at(agentic_fd, CONTEXT_NAME)
+            if current is None:
+                try:
+                    _restore_displaced_context(agentic_fd, hold_name)
+                    hold_name = ""
+                except SafeIOError:
+                    pass
+            else:
+                try:
+                    os.unlink(hold_name, dir_fd=agentic_fd)
+                    hold_name = ""
+                    os.fsync(agentic_fd)
+                except OSError:
+                    pass
+        raise
+
+
 def _commit_at(agentic_fd: int, wrap_fd: int, token: str, body: str) -> Dict[str, Any]:
     if not isinstance(body, str):
         raise SafeIOError("invalid-body", "context body must be a string")
@@ -545,9 +764,8 @@ def _commit_at(agentic_fd: int, wrap_fd: int, token: str, body: str) -> Dict[str
         _verify_context_identity(agentic_fd, identity)
         if not _lock_path_matches(wrap_fd, os.fstat(lock_fd).st_dev, os.fstat(lock_fd).st_ino):
             raise SafeIOError("replacement-inode", "lock changed before context commit")
-        os.rename(temp_name, CONTEXT_NAME, src_dir_fd=agentic_fd, dst_dir_fd=agentic_fd)
+        _publish_context_no_clobber(agentic_fd, temp_name, identity)
         temp_name = ""
-        os.fsync(agentic_fd)
         return {"status": "written", "written": True, "bytes": len(body_raw)}
     finally:
         if temp_fd >= 0:
@@ -642,9 +860,18 @@ def transact_context(
             return result
         token = acquired["token"]
         try:
-            existing, _ = _read_context_at(agentic_fd)
-            body = _merge_context(existing, request)
-            return _commit_at(agentic_fd, wrap_fd, token, body)
+            for attempt in range(CONTEXT_COMMIT_RETRIES):
+                existing, _ = _read_context_at(agentic_fd)
+                body = _merge_context(existing, request)
+                try:
+                    return _commit_at(agentic_fd, wrap_fd, token, body)
+                except SafeIOError as exc:
+                    if (
+                        exc.code != "replacement-inode"
+                        or attempt + 1 >= CONTEXT_COMMIT_RETRIES
+                    ):
+                        raise
+            raise SafeIOError("replacement-inode", "context transaction did not converge")
         finally:
             try:
                 _remove_verified_lock(wrap_fd, token, "release")

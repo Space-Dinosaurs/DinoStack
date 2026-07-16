@@ -2,12 +2,15 @@
 'use strict';
 
 /**
- * Purpose: Token-authenticated release of the descriptor-safe /wrap directory
- *          lock without recursive deletion or pathname-following cleanup.
+ * Purpose: Release the /wrap directory lock through either the current
+ *          tokenless compatibility contract or the signed token contract.
  *
- * Public API: CLI. `agentic-wrap-release-lock [cwd] --token=<token>`
+ * Public API: CLI. `agentic-wrap-release-lock [cwd] [--token=<token>]`
  *   - cwd defaults to process.cwd() (the project root during /wrap). Resolved to
- *     absolute before use (releaseWrapLock -> safeCwd rejects non-absolute paths).
+ *     absolute before use.
+ *   - With --token, releaseWrapLockToken performs descriptor/inode verification.
+ *   - Without --token, releaseWrapLock preserves the current main compatibility
+ *     contract until the dependent /wrap caller migration lands.
  *   - Always exits 0 (fail-open). Prints exactly one status line to stdout:
  *       "released <lockPath>"            lock existed and was removed
  *       "no lock present"               nothing to remove
@@ -16,8 +19,9 @@
  *
  * Upstream dependencies: hooks/lib/wrap-marker.js (REPO copy, resolved via a
  *   __dirname-relative require so a symlinked bin still loads the repo lib, NOT a
- *   cwd-relative copy). releaseWrapLock verifies the persisted token, lock inode,
- *   owner inode/bytes, and quarantine identity before unlinking owned entries.
+ *   cwd-relative copy). releaseWrapLockToken verifies the persisted token, lock inode,
+ *   owner inode/bytes, and quarantine identity before unlinking owned entries;
+ *   releaseWrapLock retains the existing tokenless compatibility behavior.
  *   Node built-ins: fs, path. No npm dependencies.
  *
  * Downstream consumers: content/commands/wrap.md (Step 6 + mandatory-release
@@ -27,8 +31,8 @@
  *   Lock path: .agentic/wrap/lock (resolved via lib.wrapLockPath; fallback to
  *   hardcoded path.join(cwd, '.agentic', 'wrap', 'lock')).
  *
- * Failure modes: fail-open. Any error (missing/wrong token, require failure, fs
- *   error, bad cwd, replacement inode) is
+ * Failure modes: fail-open. Any error (wrong token, require failure, fs error,
+ *   bad cwd, replacement inode) is
  *   swallowed and the process still exits 0 so a release failure never aborts the
  *   caller's exit path. A valid dead owner can be reclaimed by the next acquire;
  *   ambiguous owner state remains for diagnosis.
@@ -61,7 +65,7 @@ function main() {
   } catch (_) { /* fall back to the joined path */ }
 
   // Defense-in-depth: reject any resolved path not ending in the expected suffix.
-  // safeCwd/releaseWrapLock already block traversal; this is an additional guard
+  // safeCwd and both release helpers already block traversal; this is an additional guard
   // so a misconfigured or tampered lib cannot redirect the release to an unexpected path.
   const LOCK_SUFFIX = path.join('.agentic', 'wrap', 'lock');
   if (!lockPath.endsWith(LOCK_SUFFIX)) {
@@ -69,13 +73,8 @@ function main() {
     process.exit(0);
   }
 
-  if (!token) {
-    process.stdout.write('WARNING: lock release failed, acquisition token is required for ' + lockPath + '\n');
-    process.exit(0);
-  }
-
   // Inspect before release only for user-facing absent-vs-released messaging. The
-  // mutation itself is authenticated and descriptor-relative in the helper.
+  // signed mutation is authenticated and descriptor-relative in the helper.
   let existedBefore = false;
   try {
     const fs = require('fs');
@@ -84,7 +83,9 @@ function main() {
 
   let released = false;
   try {
-    released = lib.releaseWrapLock(cwd, token) === true;
+    released = token
+      ? lib.releaseWrapLockToken(cwd, token) === true
+      : lib.releaseWrapLock(cwd) === true;
   } catch (_) {
     released = false;
   }

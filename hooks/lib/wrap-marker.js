@@ -43,9 +43,14 @@
  *     reclaimAbandonedInProgress(cwd, staleMs) -> {reclaimed:[], gaveUp:[]}
  *     cleanStalePending(cwd, ttlMs) -> {deleted:[]}
  *   Lock (NEVER prompts):
- *     acquireWrapLock(cwd, ownerKind) -> token|null,
- *     releaseWrapLock(cwd, token) -> boolean,
- *     readWrapLockOwner(cwd) -> { pid, ts, kind, state } (descriptor-safe),
+ *     Compatibility API for current production consumers:
+ *       acquireWrapLock(cwd, owner, staleMs) -> boolean,
+ *       releaseWrapLock(cwd) -> boolean,
+ *       readWrapLockOwner(cwd) -> { pid, ts }.
+ *     Token API for migrated consumers:
+ *       acquireWrapLockToken(cwd, ownerKind) -> token|null,
+ *       releaseWrapLockToken(cwd, token) -> boolean,
+ *       readValidatedWrapLockOwner(cwd) -> { pid, ts, kind, state }.
  *     clearProvablyStaleWrapLock(cwd, staleMs) -> boolean (daemon-side stale-lock clear)
  *     wrapLockProvablyStale(cwd, staleMs) -> boolean (staleness predicate, NEW path)
  *     wrapLockProvablyStaleLegacy(cwd, staleMs) -> boolean (staleness predicate, OLD path)
@@ -96,12 +101,18 @@
  *                caps the number processed per tick (MAX_MARKERS_PER_SCAN, SEC-M3),
  *                so a hostile repo cannot wedge a poll tick with a giant marker or a
  *                directory of tens of thousands of files. Both remain fail-open.
- *                LOCK CLEAR (daemon-side): the Python helper is the sole production
- *                lock implementation. It opens every owned component with
- *                O_DIRECTORY|O_NOFOLLOW, verifies token and inode identity, and
- *                reclaims only a schema-valid owner whose PID returns ESRCH.
- *                Malformed, legacy, symlink, special-file, EPERM, and age-only cases
- *                are retained. Release is token-required and never recursively deletes.
+ *                LOCK COMPATIBILITY: acquireWrapLock/releaseWrapLock and the
+ *                staleness helpers retain the current main behavior until the
+ *                dependent context-writer migration lands, so the daemon and
+ *                artifact migration remain independently functional. New
+ *                migrated consumers use acquireWrapLockToken /
+ *                releaseWrapLockToken, which delegate to the Python helper.
+ *                The token path opens every owned component with
+ *                O_DIRECTORY|O_NOFOLLOW, verifies token and inode identity,
+ *                and reclaims only a schema-valid owner whose PID returns
+ *                ESRCH. Malformed, legacy, symlink, special-file, EPERM, and
+ *                age-only cases are retained. Token release never recursively
+ *                deletes.
  *
  * Performance: standard. Marker operations remain synchronous filesystem I/O;
  *              ordinary lock operations invoke one bounded local Python
@@ -438,8 +449,8 @@ function readLastWrap(cwd) {
  * created by atomic mkdir). Fail-open: false (treat unreadable as not-held).
  */
 function wrapLockHeld(cwd) {
-  const inspected = runContextSafeIo(cwd, ['lock', 'inspect']);
-  return !!(inspected && inspected.status !== 'absent');
+  try { return fs.existsSync(wrapLockPath(cwd)); }
+  catch (_) { return false; }
 }
 
 /**
@@ -447,9 +458,13 @@ function wrapLockHeld(cwd) {
  * staleMs (so it is safe to clear). Fail-open: false (never wrongly clear).
  */
 function wrapLockStale(cwd, staleMs) {
-  void staleMs;
-  const inspected = runContextSafeIo(cwd, ['lock', 'inspect']);
-  return !!(inspected && inspected.status === 'held' && inspected.owner_state === 'dead');
+  try {
+    const p = wrapLockPath(cwd);
+    const st = fs.statSync(p);
+    return (Date.now() - st.mtimeMs) > staleMs;
+  } catch (_) {
+    return false;
+  }
 }
 
 /**
@@ -820,8 +835,49 @@ function cleanStalePending(cwd, ttlMs) {
 // Lock management (NEVER prompts)
 // ---------------------------------------------------------------------------
 
-/** Acquire through the sole Python implementation. Returns its opaque token. */
-function acquireWrapLock(cwd, ownerKind, staleMs) {
+/**
+ * Compatibility boundary for current main consumers. This preserves the
+ * boolean acquire and tokenless release contract until those consumers migrate.
+ */
+function acquireWrapLock(cwd, owner, staleMs) {
+  const safe = safeCwd(cwd);
+  if (!safe) return false;
+  const lockDir = wrapLockPath(safe);
+  const tryMkdir = () => {
+    try {
+      fs.mkdirSync(path.dirname(lockDir), { recursive: true });
+      fs.mkdirSync(lockDir);
+      try {
+        fs.writeFileSync(wrapLockOwnerPath(safe), String(owner == null ? '' : owner), 'utf8');
+      } catch (_) {}
+      return true;
+    } catch (err) {
+      if (err && err.code === 'EEXIST') return false;
+      return false;
+    }
+  };
+  if (tryMkdir()) return true;
+  if (wrapLockStale(safe, staleMs)) {
+    try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch (_) {}
+    return tryMkdir();
+  }
+  return false;
+}
+
+/** Compatibility tokenless release for current main consumers. */
+function releaseWrapLock(cwd) {
+  const safe = safeCwd(cwd);
+  if (!safe) return false;
+  try {
+    fs.rmSync(wrapLockPath(safe), { recursive: true, force: true });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Acquire through the signed Python implementation. Returns its opaque token. */
+function acquireWrapLockToken(cwd, ownerKind, staleMs) {
   void staleMs;
   const kind = (typeof ownerKind === 'string' && ownerKind.trim())
     ? ownerKind.trim().slice(0, 128)
@@ -835,14 +891,14 @@ function acquireWrapLock(cwd, ownerKind, staleMs) {
 }
 
 /** Release only the lock identified by the opaque acquisition token. */
-function releaseWrapLock(cwd, token) {
+function releaseWrapLockToken(cwd, token) {
   if (typeof token !== 'string' || !token) return false;
   const result = runContextSafeIo(cwd, ['lock', 'release', '--token', token]);
   return !!(result && (result.status === 'released' || result.status === 'absent'));
 }
 
-/** Inspect the validated owner without exposing its token. */
-function readWrapLockOwner(cwd) {
+/** Inspect a signed owner without exposing its token. */
+function readValidatedWrapLockOwner(cwd) {
   const result = runContextSafeIo(cwd, ['lock', 'inspect']);
   if (!result || result.status !== 'held') {
     return { pid: null, ts: null, kind: null, state: null };
@@ -855,11 +911,49 @@ function readWrapLockOwner(cwd) {
   };
 }
 
-/** New-path staleness is exclusively a valid owner whose PID is ESRCH. */
+const MAX_OWNER_BYTES = 4 * 1024;
+
+function readOwnerAt(lockPath, ownerPath) {
+  const empty = { pid: null, ts: null };
+  try {
+    const lockSt = fs.lstatSync(lockPath);
+    if (lockSt.isSymbolicLink()) return empty;
+    const st = fs.lstatSync(ownerPath);
+    if (st.isSymbolicLink() || !st.isFile() || st.size > MAX_OWNER_BYTES) return empty;
+    const lines = fs.readFileSync(ownerPath, 'utf8').split('\n');
+    const pidNumber = Number((lines[0] || '').trim());
+    const pid = Number.isInteger(pidNumber) && pidNumber > 0 ? pidNumber : null;
+    const timestamp = (lines.length > 1 ? lines[1] : '').trim();
+    return { pid, ts: timestamp || null };
+  } catch (_) {
+    return empty;
+  }
+}
+
+function ownerIsStale(owner, staleMs) {
+  if (owner.pid !== null) return pidIsDead(owner.pid);
+  if (owner.ts !== null) {
+    const parsed = tsMs(owner.ts);
+    return parsed !== null && (Date.now() - parsed) > staleMs;
+  }
+  return false;
+}
+
+/** Compatibility owner reader for the current two-line owner format. */
+function readWrapLockOwner(cwd) {
+  return readOwnerAt(wrapLockPath(cwd), wrapLockOwnerPath(cwd));
+}
+
+/** Current production staleness predicate for the new legacy-format path. */
 function wrapLockProvablyStale(cwd, staleMs) {
-  void staleMs;
-  const result = runContextSafeIo(cwd, ['lock', 'inspect']);
-  return !!(result && result.status === 'held' && result.owner_state === 'dead');
+  try {
+    const lockPath = wrapLockPath(cwd);
+    const st = fs.lstatSync(lockPath);
+    if (st.isSymbolicLink() || !st.isDirectory()) return false;
+    return ownerIsStale(readWrapLockOwner(cwd), staleMs);
+  } catch (_) {
+    return false;
+  }
 }
 
 /**
@@ -872,15 +966,42 @@ function wrapLockProvablyStale(cwd, staleMs) {
  * @param {number} staleMs
  */
 function wrapLockProvablyStaleLegacy(cwd, staleMs) {
-  void cwd;
-  void staleMs;
-  return false; // Legacy two-line owners are never authoritative for reclaim.
+  const legacyLockPath = path.join(agenticDir(cwd), 'wrap.lock');
+  const legacyOwnerPath = path.join(legacyLockPath, 'owner');
+  try {
+    const st = fs.lstatSync(legacyLockPath);
+    if (st.isSymbolicLink() || !st.isDirectory()) return false;
+    return ownerIsStale(readOwnerAt(legacyLockPath, legacyOwnerPath), staleMs);
+  } catch (_) {
+    return false;
+  }
 }
 
 function clearProvablyStaleWrapLock(cwd, staleMs) {
-  if (!wrapLockProvablyStale(cwd, staleMs)) return false;
-  const token = acquireWrapLock(cwd, 'stale-lock-clear', staleMs);
-  return typeof token === 'string' && releaseWrapLock(cwd, token);
+  try {
+    const lockPath = wrapLockPath(cwd);
+    const st = fs.lstatSync(lockPath);
+    if (st.isSymbolicLink()) {
+      try { fs.unlinkSync(lockPath); } catch (_) {}
+      return false;
+    }
+    if (!st.isDirectory() || !wrapLockProvablyStale(cwd, staleMs)) return false;
+    fs.rmSync(lockPath, { recursive: true, force: true });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/** Signed stale clear for migrated consumers only. */
+function clearProvablyStaleWrapLockTokenized(cwd, staleMs) {
+  void staleMs;
+  const inspected = runContextSafeIo(cwd, ['lock', 'inspect']);
+  if (!inspected || inspected.status !== 'held' || inspected.owner_state !== 'dead') {
+    return false;
+  }
+  const token = acquireWrapLockToken(cwd, 'stale-lock-clear', staleMs);
+  return typeof token === 'string' && releaseWrapLockToken(cwd, token);
 }
 
 // ---------------------------------------------------------------------------
@@ -968,8 +1089,12 @@ module.exports = {
   // lock
   acquireWrapLock,
   releaseWrapLock,
+  acquireWrapLockToken,
+  releaseWrapLockToken,
   readWrapLockOwner,
+  readValidatedWrapLockOwner,
   clearProvablyStaleWrapLock,
+  clearProvablyStaleWrapLockTokenized,
   wrapLockProvablyStale,
   wrapLockProvablyStaleLegacy,
   // heartbeat
