@@ -8,13 +8,15 @@ prompt = """
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
-> **Context-size preflight (run immediately after Activation, before any other step):** Assess the current session's context load. If any of the following danger signals are present, warn the operator and recommend starting fresh:
+> **Context-size preflight (run immediately after Activation, before any other step):** Assess the current session's context load against the soft and hard limits defined in `content/references/subagent-protocol.md` Section 13.
 >
-> **Danger signals (any one triggers the warning):**
-> - Session turn count >= 20 turns with substantive tool-call results still in context.
-> - Any prior subagent result block is visible and was produced in this same session before `/implement-ticket` was invoked.
+> **Hard limit check (Section 13.2) - checked first:** If the session has reached the hard limit, Section 13.2 governs absolutely: refuse further implementation work, invoke `/wrap` automatically (or instruct the operator to do so), and stop. There is no `yes`/proceed override at or above the hard limit - print the warning below for context, then exit; do not print the "Proceed anyway?" prompt.
 >
-> **If danger is detected, print verbatim (this is a plain print-and-wait for the operator's next message, not an `AskUserQuestion` tool call):**
+> **Danger signals below the hard limit (any one triggers the soft-limit warning, per Section 13.1):**
+> - Session turn count at or above the soft limit with substantive tool-call results still in context.
+> - Any prior subagent result block, of substantive size, is visible and was produced in this same session before `/implement-ticket` was invoked.
+>
+> **If a danger signal is detected below the hard limit, print verbatim (this is a plain print-and-wait for the operator's next message, not an `AskUserQuestion` tool call):**
 > ```
 > Context-size warning: your current session carries significant prior context
 >    (a long turn history and/or one or more prior subagent result blocks still
@@ -28,7 +30,7 @@ prompt = """
 >
 >    Proceed anyway? (yes / no)
 > ```
-> On `no`: exit immediately. On `yes`: continue with a one-line note: `Context-size warning acknowledged - proceeding in large session.`
+> On `no`: exit immediately. On `yes`: continue with a one-line note: `Context-size warning acknowledged - proceeding in large session.` This `yes` override is valid only below the hard limit - it never applies once the hard limit is reached (see Hard limit check above).
 >
 > **If no danger signals are present:** continue silently (no output).
 
