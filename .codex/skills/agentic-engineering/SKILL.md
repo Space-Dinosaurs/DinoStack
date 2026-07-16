@@ -99,12 +99,12 @@ files on every session and the reference docs on the triggers described in $AE_C
 
 ## Commands (invoke by name)
 
-- `manual workflow 'agentic-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command agentic-help`` - static, zero-token command reference; lists every slash command with a one-line description.
-- `manual workflow 'agentic-status' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command agentic-status`` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
+- manual workflow 'agentic-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command agentic-help` - static, zero-token command reference; lists every slash command with a one-line description.
+- manual workflow 'agentic-status' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command agentic-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
 - `$brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `$brief --from <path>` to extract a Brief from an existing PRD.
-- `manual workflow 'pull-and-install' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command pull-and-install`` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
+- manual workflow 'pull-and-install' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command pull-and-install` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
 
-Run `manual workflow 'agentic-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command agentic-help`` for the full command inventory.
+Run manual workflow 'agentic-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command agentic-help` for the full command inventory.
 
 ## Reference Docs (read on trigger - see Protocol Details in $AE_CORE_SKILL_ROOT/METHODOLOGY.md)
 

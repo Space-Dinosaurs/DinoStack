@@ -7,10 +7,11 @@
 # Public API: bash scripts/build-methodology.sh [--output <destination>]
 #             With no option, writes the assembled body to stdout.
 #
-# Upstream deps: content/sections/[0-9][0-9]-*.md files; bash; coreutils sort+ls.
+# Upstream deps: regular depth-one content/sections/[0-9][0-9]-*.md files selected
+#                with find, then byte-order sorted; bash and coreutils.
 #
 # Downstream consumers: .claude/build.sh, .hermes/build.sh, scripts/check-methodology-drift.sh,
-#                       future .codex/build.sh, future .cursor/build.sh.
+#                       .codex/build.sh, and .cursor/build.sh.
 #
 # Failure modes: exits non-zero if no section files match the glob (catches
 #                accidental deletion or a misnamed renumber) or if an atomic

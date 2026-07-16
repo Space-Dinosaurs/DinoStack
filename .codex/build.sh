@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+# Purpose: Deterministically rebuild every tracked Codex adapter artifact.
+#
+# Public API: bash .codex/build.sh
+#
+# Upstream deps: content methodology/rules/agents/commands/references, Codex
+#                frontmatter and compatibility inventory, and shared hook sources.
+#
+# Downstream consumers: .codex/install.sh, pre-commit, CI sync checks, and developers.
+#
+# Failure modes: exits non-zero on methodology assembly, mirror replacement,
+#                native-skill validation, or named-agent generation failure.
+#
+# Performance: linear in canonical content and generated Codex artifact size.
+
 set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"

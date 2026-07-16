@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+# Purpose: Enforce staged static-analysis, Codex native-skill drift, and adapter build gates.
+#
+# Public API: Git pre-commit hook invoked with no arguments from a DinoStack checkout.
+#
+# Upstream deps: the staged Git index, project lint/type tools when installed,
+#                scripts/check-codex-skill-sync.sh, and all adapter build scripts.
+#
+# Downstream consumers: local Git commits and worktree-isolated engineer commits.
+#
+# Failure modes: exits non-zero on lint, type, native-skill drift, or adapter build
+#                failures; skips unavailable optional linters and worktree builds.
+#
+# Performance: staged-path scoped until canonical content requires full adapter builds.
+
 set -euo pipefail
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
@@ -11,14 +25,23 @@ REPO_DIR="$(git rev-parse --show-toplevel)"
 
 # Only run when bin/ or hooks/ Python/JS files are staged.
 # Extension-less Python CLIs in bin/ match ^bin/agentic-[a-z-]+$ (e.g. bin/agentic-cost).
-STAGED_PY=$(git diff --cached --name-only | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-[a-z-]+$' | grep -v '/tests/' | grep -v '/lib/' || true)
+STAGED_PY=()
+while IFS= read -r staged_python; do
+  [[ -n "$staged_python" ]] && STAGED_PY+=("$staged_python")
+done < <(
+  git diff --cached --name-only \
+    | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-[a-z-]+$' \
+    | grep -v '/tests/' \
+    | grep -v '/lib/' \
+    || true
+)
 STAGED_JS=$(git diff --cached --name-only | grep -E '^hooks/.*\.js$' | grep -v '/tests/' | grep -v '\.test\.js$' || true)
 
 # ruff lint (Python CLIs + hooks) - scoped to staged files only.
-if [ -n "$STAGED_PY" ]; then
+if [[ ${#STAGED_PY[@]} -gt 0 ]]; then
   if command -v ruff >/dev/null 2>&1; then
     echo "[pre-commit] Running ruff check on staged Python files..."
-    if ! ruff check $STAGED_PY 2>&1; then
+    if ! ruff check "${STAGED_PY[@]}" 2>&1; then
       echo "[pre-commit] ruff check failed - commit blocked."
       exit 1
     fi
@@ -29,7 +52,7 @@ if [ -n "$STAGED_PY" ]; then
 fi
 
 # mypy type-check (Python CLIs + hooks)
-if [ -n "$STAGED_PY" ]; then
+if [[ ${#STAGED_PY[@]} -gt 0 ]]; then
   if command -v mypy >/dev/null 2>&1; then
     echo "[pre-commit] Running mypy on staged Python files..."
     # PROMINENT: this list must be updated when adding a new extension-less
@@ -100,7 +123,7 @@ while IFS= read -r staged_path; do
       break
       ;;
   esac
-done <<< "$(git diff --cached --name-only --diff-filter=ACMR)"
+done <<< "$(git diff --cached --name-only --diff-filter=ACMRD)"
 
 if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
   echo "[pre-commit] Checking staged Codex native skill sync..."

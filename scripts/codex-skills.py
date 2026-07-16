@@ -455,6 +455,9 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
     slash_pattern = r"(?<![\w./-])/((?:" + "|".join(map(re.escape, mapped_slashes)) + r"))\b"
     for match in re.finditer(slash_pattern, doc.text):
         name = match.group(1)
+        source_start = match.start()
+        source_end = match.end()
+        source_token = match.group(0)
         if name in WORKFLOWS or name == "agentic-engineering":
             generated, mode, target = f"${name}", "native-skill", name
         elif name == "simplify":
@@ -462,8 +465,18 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         else:
             generated = f"manual workflow '{name}' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command {name}`"
             mode, target = "manual-command-resource", f"content/commands/{name}.md"
-        add_occurrence(found, occupied, doc, match.start(), match.end(), "slash-workflow",
-                       match.group(0), generated, "operational", mode, target, "dinostack-repository")
+            if (
+                source_start > 0
+                and source_end < len(doc.text)
+                and doc.text[source_start - 1] == "`"
+                and doc.text[source_end] == "`"
+            ):
+                source_start -= 1
+                source_end += 1
+                source_token = doc.text[source_start:source_end]
+        add_occurrence(found, occupied, doc, source_start, source_end, "slash-workflow",
+                       source_token, generated, "operational", mode, target,
+                       "dinostack-repository")
 
     all_slashes = re.compile(r"(?<![\w./:-])/([a-z][a-z0-9-]+)\b")
     display_slashes = {
@@ -718,9 +731,11 @@ def render_tree(repo: Path, output: Path, staging: Path) -> None:
 
 def scan_tree(root: Path) -> dict[str, tuple[str, bytes | str]]:
     result: dict[str, tuple[str, bytes | str]] = {}
+    if root.is_symlink():
+        raise SkillError(f"generated root must be a real directory: {root}")
     if not root.exists():
         return result
-    if root.is_symlink() or not root.is_dir():
+    if not root.is_dir():
         raise SkillError(f"generated root must be a real directory: {root}")
     for path in sorted(root.rglob("*")):
         rel = path.relative_to(root).as_posix()
@@ -801,9 +816,21 @@ def validate_adapter_mirrors(repo: Path) -> None:
         )
 
 
-def sync_tree(staging: Path, output: Path) -> None:
-    if output.exists() and (output.is_symlink() or not output.is_dir()):
+def validate_generated_root_path(output: Path, *, required: bool) -> None:
+    try:
+        mode = os.lstat(output).st_mode
+    except FileNotFoundError:
+        if required:
+            raise SkillError(f"generated root missing or unsafe: {output}")
+        return
+    except OSError as exc:
+        raise SkillError(f"cannot inspect generated root {output}: {exc}") from exc
+    if stat.S_ISLNK(mode) or not stat.S_ISDIR(mode):
         raise SkillError(f"generated root must be a real directory: {output}")
+
+
+def sync_tree(staging: Path, output: Path) -> None:
+    validate_generated_root_path(output, required=False)
     output.mkdir(parents=True, exist_ok=True)
     expected = scan_tree(staging)
     actual = scan_tree(output)
@@ -847,6 +874,7 @@ def sync_tree(staging: Path, output: Path) -> None:
 
 
 def build(repo: Path, output: Path) -> None:
+    validate_generated_root_path(output, required=False)
     output_parent = output.parent
     output_parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix=".codex-skills-render-", dir=output_parent) as temp:
@@ -860,8 +888,7 @@ def build(repo: Path, output: Path) -> None:
 def check(repo: Path, output: Path) -> None:
     load_compatibility(repo)
     validate_adapter_mirrors(repo)
-    if not output.exists() or output.is_symlink() or not output.is_dir():
-        raise SkillError(f"generated root missing or unsafe: {output}")
+    validate_generated_root_path(output, required=True)
     with tempfile.TemporaryDirectory(prefix="codex-skills-check-") as temp:
         expected_root = Path(temp)
         render_tree(repo, output, expected_root)
@@ -901,7 +928,8 @@ def main(argv: list[str] | None = None) -> int:
         output = repo / ".codex/skills"
     elif not output.is_absolute():
         output = Path.cwd() / output
-    output = output.expanduser().resolve(strict=False)
+    output = output.expanduser()
+    output = output.parent.resolve(strict=False) / output.name
     try:
         if args.command == "inventory":
             sys.stdout.buffer.write(inventory_json(compatibility_payload(repo)))

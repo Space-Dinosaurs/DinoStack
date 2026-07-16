@@ -349,7 +349,7 @@ Your tracker config is missing fields $implement-ticket needs. Run manual workfl
 discovery will fill in most fields automatically.
 ```
 
-Do not continue. Do not attempt to write the migration. All config-mutation logic lives in `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project``.
+Do not continue. Do not attempt to write the migration. All config-mutation logic lives in manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`.
 
 Print a summary of resolved values before Phase 1:
 
@@ -910,7 +910,7 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- The project's `MEMORY.md` (already in context via the `@MEMORY.md` import in the project root `CLAUDE.md`, added by `manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project``) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- The project's `MEMORY.md` (already in context via the `@MEMORY.md` import in the project root `CLAUDE.md`, added by manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
 - Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.

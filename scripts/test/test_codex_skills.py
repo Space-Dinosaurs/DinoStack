@@ -1,5 +1,19 @@
 #!/usr/bin/env python3
-"""Regression tests for deterministic Codex native-skill generation and checking."""
+"""
+Purpose: Exercise deterministic Codex native-skill generation, validation, and lifecycle behavior.
+
+Public API: ``python3 scripts/test/test_codex_skills.py [--clean-clone]``.
+
+Upstream deps: scripts/codex-skills.py, Codex adapter build/install sources, Git,
+               and the canonical/generated skill trees copied into isolated fixtures.
+
+Downstream consumers: Codex skill-sync CI, pre-commit regression coverage, and release verification.
+
+Failure modes: exits non-zero on generation drift, unsafe path handling, lifecycle
+               ownership violations, hook trigger gaps, or compatibility regressions.
+
+Performance: integration-heavy; copies the repository per test and optionally clones it.
+"""
 
 from __future__ import annotations
 
@@ -107,6 +121,22 @@ class CodexSkillGenerationTests(unittest.TestCase):
 
     def build(self) -> subprocess.CompletedProcess[str]:
         return run(self.repo, "build", "--repo", str(self.repo))
+
+    def build_at_output(
+        self,
+        output: Path,
+        *,
+        expected: int = 0,
+    ) -> subprocess.CompletedProcess[str]:
+        return run(
+            self.repo,
+            "build",
+            "--repo",
+            str(self.repo),
+            "--output",
+            str(output),
+            expected=expected,
+        )
 
     def public_build(self) -> subprocess.CompletedProcess[str]:
         return execute(["bash", str(self.repo / ".codex/build.sh")], cwd=self.repo)
@@ -446,6 +476,39 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn(str((physical / "skills").resolve()), result.stdout)
         self.assertTrue((physical / "skills/agentic-engineering/SKILL.md").is_file())
 
+    def test_default_and_explicit_symlinked_output_roots_are_rejected_without_target_mutation(
+        self,
+    ) -> None:
+        for label, output in (
+            ("default", self.repo / ".codex/skills"),
+            ("explicit", Path(self.temporary.name) / "explicit-skills"),
+        ):
+            with self.subTest(output_root=label):
+                target = Path(self.temporary.name) / f"{label}-target"
+                target.mkdir()
+                sentinel = target / "unrelated.txt"
+                sentinel.write_text("preserve me\n", encoding="utf-8")
+                before = fingerprint(target)
+                if output.exists() and not output.is_symlink():
+                    shutil.rmtree(output)
+                output.symlink_to(target, target_is_directory=True)
+
+                if label == "default":
+                    result = run(
+                        self.repo,
+                        "build",
+                        "--repo",
+                        str(self.repo),
+                        expected=1,
+                    )
+                else:
+                    result = self.build_at_output(output, expected=1)
+
+                self.assertIn("generated root must be a real directory", result.stderr)
+                self.assertTrue(output.is_symlink())
+                self.assertEqual(before, fingerprint(target))
+                self.assertEqual("preserve me\n", sentinel.read_text(encoding="utf-8"))
+
     def test_isolated_install_update_and_uninstall_owns_exactly_four_skills(self) -> None:
         home = Path(self.temporary.name) / "home"
         home.mkdir()
@@ -502,6 +565,50 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("~/.agents/skills/implement-ticket", readme)
         self.assertIn("relative resource symlinks", readme)
         self.assertIn("bash scripts/check-codex-skill-sync.sh", readme)
+
+    def test_touched_nontrivial_modules_have_current_leading_manifests(self) -> None:
+        required_fields = (
+            "Purpose:",
+            "Public API:",
+            "Upstream deps:",
+            "Downstream consumers:",
+            "Failure modes:",
+            "Performance:",
+        )
+        for relative in (
+            "scripts/test/test_codex_skills.py",
+            ".codex/build.sh",
+            "hooks/pre-commit",
+        ):
+            with self.subTest(module=relative):
+                leading = "\n".join(
+                    (self.repo / relative).read_text(encoding="utf-8").splitlines()[:35]
+                )
+                for field in required_fields:
+                    self.assertIn(field, leading)
+
+        methodology_manifest = "\n".join(
+            (self.repo / "scripts/build-methodology.sh")
+            .read_text(encoding="utf-8")
+            .splitlines()[:35]
+        )
+        self.assertIn("find", methodology_manifest)
+        self.assertIn(".codex/build.sh", methodology_manifest)
+        self.assertNotIn("future .codex/build.sh", methodology_manifest)
+        self.assertNotIn("sort+ls", methodology_manifest)
+
+    def test_manual_workflow_references_have_balanced_inline_code(self) -> None:
+        generated = "\n".join(
+            path.read_text(encoding="utf-8")
+            for path in sorted((self.repo / ".codex/skills").rglob("*.md"))
+        )
+        self.assertNotRegex(generated, r"manual workflow '[^']+'.*?``")
+        self.assertIn(
+            "added by manual workflow 'init-project' via "
+            "`$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project`) "
+            "for architectural decisions",
+            generated,
+        )
 
     def test_vision_alignment_workflow_executes_canonical_codex_paths(self) -> None:
         workflow = (
@@ -645,6 +752,21 @@ class CodexSkillGenerationTests(unittest.TestCase):
         generator_result = execute(precommit, cwd=self.repo)
         self.assertIn("Checking staged Codex native skill sync", generator_result.stdout)
         self.assertIn("Codex skill check: OK (4 skills)", generator_result.stdout)
+
+        execute(["git", "reset", "--hard", "HEAD"], cwd=self.repo)
+        canonical = self.repo / "content/commands/brief.md"
+        canonical.unlink()
+        execute(["git", "add", "-u", str(canonical.relative_to(self.repo))], cwd=self.repo)
+        canonical_deletion = execute(precommit, cwd=self.repo, expected=1)
+        self.assertIn("Checking staged Codex native skill sync", canonical_deletion.stdout)
+
+        execute(["git", "reset", "--hard", "HEAD"], cwd=self.repo)
+        generated.unlink()
+        execute(["git", "add", "-u", str(generated.relative_to(self.repo))], cwd=self.repo)
+        generated_deletion = execute(precommit, cwd=self.repo, expected=1)
+        self.assertIn("Checking staged Codex native skill sync", generated_deletion.stdout)
+        self.assertIn("generated skill drift", generated_deletion.stderr)
+        self.assertIn("brief/SKILL.md", generated_deletion.stderr)
 
         execute(["git", "reset", "--hard", "HEAD"], cwd=self.repo)
         unrelated = self.repo / "README.md"

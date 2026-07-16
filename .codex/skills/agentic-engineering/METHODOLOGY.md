@@ -179,7 +179,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Permission-blocked fallback (non-methodology files only).** When a spawned Worker returns BLOCKED explicitly citing an Edit permission denial by the Claude Code permission system, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Permission-blocked fallback before applying any edit directly. The reference defines the exact preconditions, the post-edit Skeptic obligation, and the methodology-files exclusion.
 
-**Editing methodology files under `$AE_REPO_DIR/`.** Before editing any file under `content/**`, Codex native-skill generation inputs or outputs (`$AE_REPO_DIR/.codex/skill-frontmatter/**`, `$AE_REPO_DIR/.codex/skill-compatibility.yml`, `$AE_REPO_DIR/scripts/codex-skills.py`, `$AE_REPO_DIR/.codex/skills/**`), build scripts, or hooks, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `manual workflow 'update-agentic-engineering' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command update-agentic-engineering`` instead of direct Edit/Write.
+**Editing methodology files under `$AE_REPO_DIR/`.** Before editing any file under `content/**`, Codex native-skill generation inputs or outputs (`$AE_REPO_DIR/.codex/skill-frontmatter/**`, `$AE_REPO_DIR/.codex/skill-compatibility.yml`, `$AE_REPO_DIR/scripts/codex-skills.py`, `$AE_REPO_DIR/.codex/skills/**`), build scripts, or hooks, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking manual workflow 'update-agentic-engineering' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command update-agentic-engineering` instead of direct Edit/Write.
 
 **Investigator-Before-Architect Rules** - when about to spawn the architect on unfamiliar territory or a shared-utility surface: read `$AE_REPO_DIR/content/references/delegation-detail.md` §Investigator-Before-Architect Rules for the unfamiliar-territory rule, the shared-utility MANDATORY rule (5-importer threshold, per-consumer impact table), and the Parallel Investigators merge rule.
 
@@ -498,7 +498,7 @@ Read `$AE_REPO_DIR/content/references/risk-config-and-tiers.md` §Config Toggle 
 Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` Rule 6.
 
 **Skeptic loop orchestration** - when Elevated risk is declared:
-Run `manual workflow 'skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command skeptic`` for the full orchestration template, or read `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Sections 2-5) for loop steps, state management, re-route limits, and escalation. For findings accumulation rules across loop iterations (findings_log schema, re-raise detection, auto-close rule), see `$implement-ticket` Phase 6.
+Run manual workflow 'skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command skeptic` for the full orchestration template, or read `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Sections 2-5) for loop steps, state management, re-route limits, and escalation. For findings accumulation rules across loop iterations (findings_log schema, re-raise detection, auto-close rule), see `$implement-ticket` Phase 6.
 
 **Findings classification and sign-off** - when reviewing Skeptic output:
 Read `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Sections 6, 11) for Critical/Major/Minor definitions, required sign-off format, and validation rules.
@@ -507,7 +507,7 @@ Read `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Sections 6, 11) for C
 Read `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 12) for the the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review) integration workflow and second Skeptic narrow-scope review.
 
 **Adversarial briefs** - when writing the brief for a Skeptic:
-Run `manual workflow 'skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command skeptic`` (includes brief selection table) or read `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 8) for domain-specific templates.
+Run manual workflow 'skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command skeptic` (includes brief selection table) or read `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 8) for domain-specific templates.
 
 **Parallel spawning and worktrees** - when decomposing work into multiple agents:
 Read `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` (Sections 2, 5, 7) for parallel-by-default, worktree isolation rules, and check-in behavior.
