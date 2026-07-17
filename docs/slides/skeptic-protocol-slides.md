@@ -316,7 +316,7 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 
 ---
 
-## Three new Skeptic obligations (1/2)
+## Four new Skeptic obligations (1/2)
 
 <style scoped>
   .columns { gap: 1.2em; margin-bottom: 0.5em; }
@@ -328,7 +328,7 @@ Fresh context for independence. Preflight list for efficiency. findings_log for 
 <div class="columns">
 <div class="card">
 <strong>Module manifest check</strong><br/>
-On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file.<br/><br/>
+On any non-trivial file touched by the Worker (exports a public symbol, ~50+ LOC, or side-effecting): verify a module manifest header exists and reflects the current file. The result is output-required via a fixed <code>Manifest check:</code> sign-off line.<br/><br/>
 Tiered: missing = <strong>Minor</strong> (non-blocking, hygiene); stale = <strong>Major</strong> (blocks sign-off); stale-on-correctness/security path = <strong>Critical</strong>.
 </div>
 <div class="card">
@@ -339,27 +339,35 @@ Missing test without a documented exception = <strong>Major</strong> finding.
 </div>
 
 <div class="callout">
-These checks run alongside existing findings classification - not instead of it. Comprehension, regression, and observability gates layered on top of Critical/Major/Minor.
+These checks run alongside existing findings classification - not instead of it. Comprehension, regression, CI-wiring, and observability gates layered on top of Critical/Major/Minor.
 </div>
 
 ---
 
-## Three new Skeptic obligations (2/2)
+## Four new Skeptic obligations (2/2)
 
 <style scoped>
-  .card { font-size: 0.84em; line-height: 1.4; padding: 0.9em 1.2em; max-width: 60%; }
-  .card strong { font-size: 1.05em; }
+  .columns { gap: 1.2em; margin-bottom: 0.5em; }
+  .columns .card { font-size: 0.82em; line-height: 1.4; padding: 0.9em 1.1em; }
+  .columns .card strong { font-size: 1.05em; }
   .callout { font-size: 0.82em; padding: 0.5em 1em; margin-top: 0.6em; }
 </style>
 
+<div class="columns">
 <div class="card">
 <strong>Telemetry emit check</strong><br/>
 At every instrumented boundary (engineer/skeptic/qa spawn or Trivial-path direct edit): verify <code>.agentic/events.jsonl</code> received the matching <code>spawn_start</code>/<code>spawn_complete</code> or <code>conductor_direct</code> events.<br/><br/>
 Missing emit = <strong>Minor</strong> (non-blocking; keeps <code>/agentic-cost</code> dashboards accurate).
 </div>
+<div class="card">
+<strong>New-test-CI-wiring check</strong><br/>
+For each new test file in the diff: verify a matching reference exists in a CI workflow (an exact file reference, a covering glob, or an auto-discovering runner). The result is output-required via a fixed <code>Test-CI-wiring check:</code> sign-off line.<br/><br/>
+No matching CI invocation = <strong>Major</strong> finding - a test that never runs provides no regression protection.
+</div>
+</div>
 
 <div class="callout">
-All three obligations run alongside the standard Skeptic pass. Manifest enforcement catches comprehension drift; regression tests close the fix loop; telemetry keeps cost and calibration dashboards accurate.
+All four obligations run alongside the standard Skeptic pass. Manifest enforcement catches comprehension drift; regression tests close the fix loop; CI-wiring checks close the "silent dead test" gap; telemetry keeps cost and calibration dashboards accurate.
 </div>
 
 ---

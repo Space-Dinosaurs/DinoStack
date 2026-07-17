@@ -466,6 +466,8 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **Fire-and-forget async work without an error path is a finding.** Passing typecheck and unit tests does not establish that an un-awaited async call handles failure - those gates do not exercise the rejection path. See `content/agents/skeptic.md` Step 4.6 for the check and severity default (Major).
 
+**A new test file with no CI wiring is a finding.** A test that never runs provides no regression protection. See `content/agents/skeptic.md` Step 11.5 for the check and severity default (Major).
+
 ### Review depth
 
 Adversarial review applies whenever risk is classified as Elevated. The main agent always uses a fresh independent Skeptic — there is no degraded self-review path for Elevated work. The exchange log is mandatory for all Elevated tasks. The escalation protocol is active for all Elevated tasks.
@@ -590,6 +592,8 @@ Findings: Critical: N, Major: N, Minor: N
 If all counts are zero, write instead: Findings: No findings.
 [If any Minor finding is a spec-deviation downgrade, include the three-criterion "Spec deviation downgrade justification" block here - see format below]
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
+Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
+Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 No unresolved Critical or Major findings. Sign-off granted.
 ```
 
@@ -643,7 +647,7 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains all four mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation. (f) For PR reviews specifically: the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
+The primary agent treats a Skeptic response as a valid sign-off only when it contains all six mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation. (f) For PR reviews specifically: the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant. (g) A "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8). (h) A "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5). Omission of either (g) or (h) is format-noncompliant and triggers the same format re-invocation.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
