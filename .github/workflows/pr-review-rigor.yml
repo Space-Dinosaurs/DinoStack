@@ -1,0 +1,94 @@
+# Advisory check: large PRs should carry review-rigor evidence, and a PR should never
+# bundle commits that are the head of another still-open PR (a superseded/duplicate PR).
+#
+# This is advisory-only - it is NOT a merge blocker. It is never registered as a required
+# status check; it exists to surface a red-X signal for human reviewers to weigh, same as
+# vision-alignment-check.yml.
+#
+# Keep the label regex in sync with the "## Review rigor" section in
+# .github/PULL_REQUEST_TEMPLATE.md.
+name: pr-review-rigor
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+permissions:
+  contents: read
+  pull-requests: read
+jobs:
+  check-review-rigor:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check large-PR review evidence and superset-diff
+        run: |
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          GH_REPO="${{ github.repository }}"
+          FAILED=false
+
+          # --- Condition (a): large PR without review-rigor evidence -----------------
+          FILES="$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json files -q '.files[].path')"
+          COUNT=0
+          # Keep this case pattern in sync with the 11 adapter directories tracked
+          # elsewhere in this repo (see content/agents/skeptic.md step 3.6 and
+          # vision-alignment-check.yml for related sync-marker conventions).
+          while IFS= read -r f; do
+            [ -z "$f" ] && continue
+            case "$f" in
+              .claude/*|.cursor/*|.codex/*|.gemini/*|.kimi/*|.opencode/*|.omp/*|.pi/*|.hermes/*|.openclaw/*|.copilot/*)
+                ;;
+              *)
+                COUNT=$((COUNT + 1))
+                ;;
+            esac
+          done <<< "$FILES"
+
+          BODY="$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json body -q '.body')"
+
+          HAS_PLANNING_REF=false
+          case "$BODY" in
+            *docs/planning/*) HAS_PLANNING_REF=true ;;
+          esac
+
+          HAS_CONTRACT_LABEL=false
+          if printf '%s\n' "$BODY" | grep -Eq '^- (Brief / Plan path|Skeptic rounds \(tier\)|Findings summary):[[:space:]]*[^[:space:]]'; then
+            HAS_CONTRACT_LABEL=true
+          fi
+
+          if [ "$COUNT" -gt 30 ] && [ "$HAS_PLANNING_REF" != "true" ] && [ "$HAS_CONTRACT_LABEL" != "true" ]; then
+            echo "::error::This PR changes $COUNT non-adapter files but the PR body has no review-rigor evidence - no docs/planning/ reference and no filled-in 'Brief / Plan path', 'Skeptic rounds (tier)', or 'Findings summary' line (see .github/PULL_REQUEST_TEMPLATE.md '## Review rigor' section). Large PRs need traceable review evidence. This is an advisory check, not a merge blocker."
+            FAILED=true
+          else
+            echo "OK: condition (a) - large-PR review evidence check passed ($COUNT non-adapter files changed)."
+          fi
+
+          # --- Condition (b): superset-diff detection (bundled/superseded PR commits) -
+          # Note: --json commits returns a single page (~250 commits); sufficient for
+          # this repo's PR sizes.
+          PR_COMMITS="$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json commits -q '.commits[].oid')"
+          OTHER_HEADS="$(gh pr list --repo "$GH_REPO" --state open --json number,headRefOid -q '.[] | select(.number != '"$PR_NUMBER"') | "\(.number) \(.headRefOid)"')"
+
+          # GitHub's PR commit list is compare-scoped (base..head), so main-reachable
+          # commits never appear here - no extra filtering needed.
+          SUPERSET_HIT=false
+          if [ -n "$OTHER_HEADS" ]; then
+            while IFS= read -r pair; do
+              [ -z "$pair" ] && continue
+              OTHER_NUM="${pair%% *}"
+              OTHER_SHA="${pair#* }"
+              if printf '%s\n' "$PR_COMMITS" | grep -qx "$OTHER_SHA"; then
+                echo "::error::This PR's branch includes the head commit ($OTHER_SHA) of still-open PR #$OTHER_NUM - this PR appears to bundle or supersede it. Close #$OTHER_NUM and rebase this branch (or vice versa) per the supersede convention. This is an advisory check, not a merge blocker."
+                SUPERSET_HIT=true
+              fi
+            done <<< "$OTHER_HEADS"
+          fi
+
+          if [ "$SUPERSET_HIT" = "true" ]; then
+            FAILED=true
+          else
+            echo "OK: condition (b) - no superset-diff against other open PRs."
+          fi
+
+          if [ "$FAILED" = "true" ]; then
+            exit 1
+          fi
