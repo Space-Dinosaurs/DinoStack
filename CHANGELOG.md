@@ -3,6 +3,19 @@
 
 # Changelog
 
+## 2026-07-16
+
+### Documentation
+
+- **#451** [add Phase 12b Operator Runbook to /implement-ticket](https://github.com/Space-Dinosaurs/DinoStack/pull/451) - tyson-solara6
+- **#450** [defer sections 03 & 05 detail to reference files (~15k chars / ~3.9k tokens always-on reduction)](https://github.com/Space-Dinosaurs/DinoStack/pull/450) - tyson-solara6
+- **#447** [add story-size preflight and token-reduction callout to /ticket-triage](https://github.com/Space-Dinosaurs/DinoStack/pull/447) - tyson-solara6
+- **#441** [add context-size preflight to /implement-ticket](https://github.com/Space-Dinosaurs/DinoStack/pull/441) - tyson-solara6
+
+### Uncategorized
+
+- **#445** [DS-78: Skeptic evidence hardening - execute regression tests, validate raw_output substance](https://github.com/Space-Dinosaurs/DinoStack/pull/445) - tyson-solara6
+
 ## 2026-07-15
 
 ### Documentation
