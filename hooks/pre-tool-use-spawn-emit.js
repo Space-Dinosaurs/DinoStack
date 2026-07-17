@@ -60,9 +60,15 @@
  *                chains `.catch(() => process.exit(0))` (still no stdout
  *                write, ever).
  *
- * Performance: ~1-3 ms typical (one JSON parse, one mkdir, one appendFileSync).
- *              Runs synchronously on the PreToolUse critical path but is bounded
- *              and fail-open, so latency impact is negligible.
+ * Performance: Bounded by hooks/lib/stdin-guard.js's read path (first-byte
+ *              timeout, inactivity timeout, absolute deadline, and a
+ *              max-bytes cap - see that module for current defaults) rather
+ *              than a single synchronous read; run() is async end-to-end
+ *              (await readStdinGuarded(), then one JSON.parse, one mkdir,
+ *              one appendFileSync). Runs on the PreToolUse critical path but
+ *              never blocks it indefinitely - a slow or silent stdin
+ *              resolves via one of stdin-guard's bounded routes instead of
+ *              hanging.
  */
 
 'use strict';

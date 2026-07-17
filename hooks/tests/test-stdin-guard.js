@@ -37,6 +37,17 @@
  *   9.  multi-byte UTF-8 codepoint split mid-sequence across two raw-Buffer
  *       chunks -> the resolved string is intact (locks the
  *       setEncoding('utf8') / StringDecoder claim in the manifest).
+ *   10. REGRESSION (Major 1 - absolute deadline): continuous non-JSON
+ *       chunks, each gap smaller than inactivityTimeoutMs, with total
+ *       duration exceeding an overridden small absoluteTimeoutMs -> resolves
+ *       via the absolute deadline, not the inactivity window or EOF. Hangs
+ *       past the deadline on pre-fix code (no absolute-timeout concept
+ *       existed), which this case's elapsed-time bound catches.
+ *   11. REGRESSION (Major 1 - byte cap): a payload larger than an
+ *       overridden small maxStdinBytes -> resolves early with whatever has
+ *       accumulated once the cap is crossed, not at EOF. Resolves much later
+ *       (via EOF) on pre-fix code (no byte-cap concept existed), which this
+ *       case's elapsed-time bound catches.
  *
  * Run with: node hooks/tests/test-stdin-guard.js
  */
@@ -412,6 +423,84 @@ async function testMultiByteCodepointSplitAcrossChunks() {
 }
 
 // ---------------------------------------------------------------------------
+// Case 10 (Major-1 regression): absolute deadline backstop. A writer that
+// keeps sending non-JSON chunks faster than inactivityTimeoutMs would keep
+// the pre-fix reader alive forever (or until EOF/pipe-close). With an
+// overridden small absoluteTimeoutMs, resolution must happen at the
+// deadline, independent of chunk activity and well before the pipe is
+// eventually closed.
+// ---------------------------------------------------------------------------
+
+async function testAbsoluteDeadlineBackstop() {
+  const chunks = ['not-json-', 'still-not-json-', 'never-parses-'];
+  const fullContent = chunks.join('');
+  const result = await spawnDelayedChunks({
+    cmd: process.execPath,
+    args: fixtureArgs({ absoluteTimeoutMs: 300, inactivityTimeoutMs: 5000 }),
+    chunks,
+    gapMs: 100, // each gap well under the 5000ms inactivity window
+    holdOpenMs: 3000, // pipe held open well past the 300ms absolute deadline
+  });
+  assert(result.code === 0, 'case 10 (Major-1 regression): child exits 0');
+  assert(
+    result.elapsedMs < 1500,
+    `case 10 (Major-1 regression): resolves via the absolute deadline, not the 5000ms ` +
+    `inactivity window or the 3000ms hold-open/EOF (${result.elapsedMs}ms)`
+  );
+  const parsed = parseFixtureStdout(result.stdout);
+  assert(!!parsed, 'case 10 (Major-1 regression): fixture printed valid JSON result');
+  if (parsed) {
+    assert(
+      parsed.elapsedMs >= 250 && parsed.elapsedMs < 1200,
+      `case 10 (Major-1 regression): resolved via the absolute-deadline window (~300ms), not ` +
+      `instantly and not after the full 3000ms hold-open (${parsed.elapsedMs}ms)`
+    );
+    assert(
+      parsed.content === fullContent,
+      'case 10 (Major-1 regression): resolves with all chunks accumulated before the deadline fired'
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Case 11 (Major-1 regression): byte-cap backstop. A payload larger than an
+// overridden small maxStdinBytes must resolve early with whatever has
+// accumulated, rather than growing unboundedly until EOF/pipe-close.
+// ---------------------------------------------------------------------------
+
+async function testMaxStdinBytesBackstop() {
+  const chunk1 = 'a'.repeat(80);
+  const chunk2 = 'b'.repeat(80); // total 160 bytes > overridden 100-byte cap
+  const result = await spawnDelayedChunks({
+    cmd: process.execPath,
+    args: fixtureArgs({ maxStdinBytes: 100 }),
+    chunks: [chunk1, chunk2],
+    gapMs: 50,
+    holdOpenMs: 2000, // pipe held open well past when the byte cap should fire
+  });
+  assert(result.code === 0, 'case 11 (Major-1 regression): child exits 0');
+  assert(
+    result.elapsedMs < 1500,
+    `case 11 (Major-1 regression): resolves via the byte cap, not the 2000ms hold-open/EOF or ` +
+    `the 750/5000ms default timers (${result.elapsedMs}ms)`
+  );
+  const parsed = parseFixtureStdout(result.stdout);
+  assert(!!parsed, 'case 11 (Major-1 regression): fixture printed valid JSON result');
+  if (parsed) {
+    assert(
+      parsed.content === chunk1 + chunk2,
+      'case 11 (Major-1 regression): resolves with all bytes accumulated up to and including ' +
+      'the chunk that crossed the cap (no truncation mid-chunk)'
+    );
+    assert(
+      parsed.length > 100,
+      `case 11 (Major-1 regression): accumulated length (${parsed.length}) exceeds the ` +
+      `overridden 100-byte cap, proving the cap is a backstop, not a hard truncation`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sanity: module loads clean with no side effects at require time
 // ---------------------------------------------------------------------------
 
@@ -420,6 +509,8 @@ function testModuleExports() {
   assert(typeof mod.readStdinGuarded === 'function', 'sanity: readStdinGuarded is exported as a function');
   assert(mod.DEFAULT_FIRST_BYTE_TIMEOUT_MS === 750, 'sanity: DEFAULT_FIRST_BYTE_TIMEOUT_MS is 750');
   assert(mod.DEFAULT_INACTIVITY_TIMEOUT_MS === 5000, 'sanity: DEFAULT_INACTIVITY_TIMEOUT_MS is 5000');
+  assert(mod.DEFAULT_ABSOLUTE_TIMEOUT_MS === 10000, 'sanity: DEFAULT_ABSOLUTE_TIMEOUT_MS is 10000');
+  assert(mod.DEFAULT_MAX_STDIN_BYTES === 10 * 1024 * 1024, 'sanity: DEFAULT_MAX_STDIN_BYTES is 10 MiB');
 }
 
 // ---------------------------------------------------------------------------
@@ -459,6 +550,12 @@ async function main() {
 
     console.log('Case 9: multi-byte UTF-8 codepoint split across two chunks');
     await testMultiByteCodepointSplitAcrossChunks();
+
+    console.log('Case 10: REGRESSION - absolute deadline backstop (Major 1)');
+    await testAbsoluteDeadlineBackstop();
+
+    console.log('Case 11: REGRESSION - byte-cap backstop (Major 1)');
+    await testMaxStdinBytesBackstop();
   } finally {
     try { fs.unlinkSync(fixturePath); } catch (_) { /* ignore */ }
     try { fs.unlinkSync(fixtureNoExitPath); } catch (_) { /* ignore */ }
