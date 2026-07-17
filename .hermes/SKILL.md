@@ -810,6 +810,8 @@ git branch -d <branch-name>
 
 **Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session; the lock releases when the agent finishes. This coordination is harness behavior (see Claude Code's own worktree documentation), not a mechanism the conductor or methodology adds.
 
+**Superseding an open PR's work means close + rebase, never bundle.** If your branch's work makes another open PR's commits unnecessary or subsumed, close that PR citing the superseding one and rebase your branch clean of its commits - do not merge or cherry-pick the superseded PR's commits into your own branch. A branch whose history contains another open PR's head commit is exactly the pattern an advisory review-rigor CI check flags where configured; treat the flag as confirmation to close + rebase, not to proceed.
+
 ## Context Economy
 
 Read `content/references/conventions-detail.md` §Context Economy for context-window discipline rules (no duplicate file contents, minimal diffs, no verbatim tool output, structured blocks over prose) and multi-developer coordination guidance.
@@ -4455,6 +4457,8 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **Fire-and-forget async work without an error path is a finding.** Passing typecheck and unit tests does not establish that an un-awaited async call handles failure - those gates do not exercise the rejection path. See `content/agents/skeptic.md` Step 4.6 for the check and severity default (Major).
 
+**A new test file with no CI wiring is a finding.** A test that never runs provides no regression protection. See `content/agents/skeptic.md` Step 11.5 for the check and severity default (Major).
+
 ### Review depth
 
 Adversarial review applies whenever risk is classified as Elevated. The main agent always uses a fresh independent Skeptic — there is no degraded self-review path for Elevated work. The exchange log is mandatory for all Elevated tasks. The escalation protocol is active for all Elevated tasks.
@@ -4579,6 +4583,8 @@ Findings: Critical: N, Major: N, Minor: N
 If all counts are zero, write instead: Findings: No findings.
 [If any Minor finding is a spec-deviation downgrade, include the three-criterion "Spec deviation downgrade justification" block here - see format below]
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
+Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
+Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 No unresolved Critical or Major findings. Sign-off granted.
 ```
 
@@ -4632,7 +4638,7 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains all four mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation. (f) For PR reviews specifically: the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
+The primary agent treats a Skeptic response as a valid sign-off only when it contains all six mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation. (f) For PR reviews specifically: the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant. (g) A "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8). (h) A "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5). Omission of either (g) or (h) is format-noncompliant and triggers the same format re-invocation.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
@@ -9872,7 +9878,7 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
 5. Search broadly for other Critical or Major issues beyond what the brief explicitly names.
 6. **Brief coverage check** - re-read the adversarial brief one more time, concern by concern. For each specific failure mode the brief names, confirm you have either raised a finding for it or can explicitly state you checked and found no issue. Do not let a named concern go unaddressed.
 7. **Per-consumer impact check** - if the per-consumer impact table (field 4) is present and not `n/a`, verify that each consumer row's `new_behavior` is reflected in the diff. A consumer row whose `new_behavior` is not addressed by the Worker is a **Major** finding unless the architect plan explicitly defers it.
-8. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. Apply tiered classification: a **missing** manifest is a **Minor finding** (does not block sign-off); a **stale** manifest (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics) is a **Major finding** (blocks sign-off absent a compelling documented reason to defer); a stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path is a **Critical finding**. List every manifest issue in the findings so the author can address it.
+8. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. Apply tiered classification: a **missing** manifest is a **Minor finding** (does not block sign-off); a **stale** manifest (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics) is a **Major finding** (blocks sign-off absent a compelling documented reason to defer); a stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path is a **Critical finding**. List every manifest issue in the findings so the author can address it. Emit the result of this check via the fixed `Manifest check:` sign-off line defined below - do not fold it into free-form prose.
 9. **Regression test check** - if this is a fix round (the spawn prompt identifies Critical or Major findings that were addressed), verify each fixed finding has a corresponding regression test, or a documented reason why one is not possible. A missing test without explanation is a **Major** finding: `Missing regression test for [finding title] — a test that would have caught this failure mode is required before sign-off.`
 
    **The pre-fix-failure property is required, and post-fix execution alone does not establish it.** Executing the test against the fixed code only proves the test currently passes - it does not prove the test would have failed before the fix, which is exactly the property that distinguishes a real regression test from a vacuous one. This property is established by one of two means, either of which is sufficient: (a) the Worker's summary explicitly attests to having run the test against the unfixed code first and observed it fail, or (b) you (the Skeptic) execute the test against the pre-fix code yourself in an **ephemeral scratch worktree at a run-unique path** - `<scratch>` must be unique per invocation (e.g. `mktemp -d` or `.agentic/skeptic-scratch/$(date +%s)-$$`), never a fixed literal path, so a successive fix round or a concurrent `skeptic_strategy: multi-dimensional` peer reviewing the same diff cannot collide on it - (where feasible - e.g. `git worktree add <scratch> <base-sha>` to create it at the pre-fix base, `git -C <scratch> checkout <head-sha> -- <test-paths>` to apply only the test file(s) from the diff on top of it - not the fix itself - then run the test inside `<scratch>`, confirm it fails for the reason the finding describes, then `git worktree remove --force <scratch>` - `--force` is required because the prior checkout step leaves the scratch worktree with staged changes, which a plain `git worktree remove` refuses to delete) and confirm the failure directly. Never check out the pre-fix base in place in the tree you are reviewing from - that mutates a working tree the Skeptic does not own, and is unsafe when the tree is shared across parallel Skeptic strategies (e.g. `skeptic_strategy: multi-dimensional` fanning a correctness-Skeptic, security-auditor, and perf-analyst out onto the same diff in a single message - one reviewer's in-place checkout would corrupt what the others read). With a scratch worktree there is nothing to restore afterward; removing the worktree is sufficient. **A collection, import, or file-not-found error is NOT a pre-fix failure and does not satisfy (b).** When a fix and its regression test are committed together (the normal case), reverting the fix in place also deletes the test - the run then errors on a missing file, not on the bug the fix addressed, and that error must never be recorded as independent verification. **Deriving `<base-sha>` inline (no PR base-sha guaranteed):** per the Review-environment freshness precondition, `<base-sha>` is only guaranteed on a PR-against-base-branch review - the common `/implement-ticket` inline fix-round case (Step 9's own trigger) has no guaranteed handover. Derive it yourself: identify the fix commit (the Worker's stated `commit_sha`, or the tip of the worktree branch via `git log --oneline -n 5`) and take its parent as `<base-sha>` - `git rev-parse <fix-commit>^` - with `git rev-parse HEAD` (or the fix commit itself) as `<head-sha>`.
@@ -9886,6 +9892,7 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
    - Regardless of whether execution was possible, continue to Step 12's `raw_output` spot-check below - a Worker's pasted transcript is never proof by itself.
 10. **Doc-sync check** - a **standing check** applied every round (not fix-round-only). Apply the trigger predicate from `content/references/doc-sync-obligation.md` to the diff: ask whether any sentence, count, or list in README.md, CONTRIBUTING.md, or content/SKILL.md (or an affected `content/sections`/`content/references` cross-reference) becomes false or incomplete because of this diff. Not tripped -> no finding. Tripped and correctly updated -> no finding. Tripped and missing/incomplete -> classify per the tiered model: **Minor** (non-misleading omission, no stated count wrong), **Major** (a count/list/path/convention/behavior assertion now stale or false), **Critical** (a stale assertion on a load-bearing public-facing doc that actively misleads on how to use, install, or extend the system). Uncertainty is not an exemption - grep the docs for the changed identifier or count and resolve.
 11. **Smoke-test gate check** - when reviewing an Elevated engineer return, check `quality_gate_results.smoke_test`. If the value is `not_run` and the diff has a runtime path (i.e. the change is not one of the documented skip reasons: pure-backend-library, config-only, type-only-refactor, docs-only), that is a **Major** finding. `skipped` with a stated valid reason from that list is acceptable.
+11.5. **New-test-CI-wiring check** - for each NEW test file in the diff (matches `*/tests/*`, `test_*.py`, `*.test.*`, `*.spec.*`, or a file added to an existing test-only directory), grep `.github/workflows/*.yml` and `.github/workflows/*.yaml` for a reference to that file, its containing glob, or an auto-discovering runner covering its directory (e.g. a `pytest <dir>` invocation). A new test file with no matching CI invocation is a **Major** finding: "New test file [path] is not wired into any CI workflow - a test that never runs provides no regression protection." Emit the result via the `Test-CI-wiring check:` sign-off line defined below.
 12. **`raw_output` substance spot-check.** This is a standalone step with its own trigger, independent of Step 11 - run it on EVERY Worker return, whether or not a `quality_gate_results` block or any other structured enum field is present. Its trigger is the presence of ANY pasted evidence or transcript in a Worker return - a structured `quality_gate_results` block, a free-form "Quality gates:" section, or any inline command transcript. A return with no `quality_gate_results` block does not exempt it from this step; the free-form-transcript case is exactly what this step exists to catch. Do not accept the enum value (`pass`/`fail`/`skipped`/`not_run`) or a pasted transcript at face value - verify the `raw_output` content is actually consistent with the claim it supports. For every concrete artifact the raw output names, cross-check it against the diff and the repository (via Read/Grep/Glob, or Bash execution per Step 9 when available). The artifact types below are split by which rule governs each:
     - **Test file path or test function name:** if it does not appear anywhere in the diff and does not exist in the repository, this is **fabricated evidence**, not merely an unverifiable claim. Raise exactly ONE finding for it, and raise it as **Critical** - never Major, never Minor, and never as a second, separately-numbered finding restating the same fabrication: `Fabricated raw output - claimed test [file/name] does not exist in the diff or repository; the transcript describes an execution that could not have happened.` This is an integrity violation, not a missing-test gap - it supersedes and subsumes any missing-test-without-explanation concern (Step 9) for the same artifact, including Step 9's "Regression test unverified" Major - do not additionally raise Step 9's missing-regression-test Major or its "Regression test unverified" Major for the identical fabricated test. If sign-off is withheld, reference this Critical finding by name in the resolution list, retaining its `- Critical:` prefix there (the "Sign-off format" section's resolution list below requires the classification prefix on every entry) - do not re-emit it as a second, separately-numbered `Critical -`/`Major -`/`Minor -`-prefixed finding bullet earlier in the findings list.
     - **Specific assertion result or specific log line:** these are not independently cross-checkable against the diff or repository the way a named file or function is - a legitimate passing assertion or log line may appear nowhere else in the repo. Do not apply the fabrication rule to these. Instead, apply the internal-consistency rule: a raw output that is internally inconsistent with its own enum claim (e.g. `smoke_test: pass` but the pasted output shows a failure, or a referenced assertion result or log line that contradicts the claimed outcome, or paths that don't correspond to anything in the diff) is at minimum a **Major** finding, and Critical if it masks a real failure.
@@ -9904,6 +9911,8 @@ Findings: Critical: N, Major: N, Minor: N
 [Each finding on its own line: Critical - description (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
+Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
+Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 No unresolved Critical or Major findings. Sign-off granted.
 ```
 
@@ -9926,8 +9935,9 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Style preferences, non-critical naming choices, and minor documentation gaps belong in Minor.
 - The goal is to catch genuine problems, not to find something to flag. "Looks fine but could be improved" is a Minor, not a Major.
 - Do not block on hypothetical future scenarios that are not present in the actual requirements.
-- **Module manifests:** Apply tiered classification. **Missing** manifests are **Minor** (does not block sign-off) - comprehension hygiene, treat as a recommendation. **Stale** manifests are **Major** (blocks sign-off absent a compelling documented reason to defer) - a manifest that no longer reflects the file is active misinformation. **Stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical.** List every manifest issue regardless of tier.
+- **Module manifests:** Apply tiered classification. **Missing** manifests are **Minor** (does not block sign-off) - comprehension hygiene, treat as a recommendation. **Stale** manifests are **Major** (blocks sign-off absent a compelling documented reason to defer) - a manifest that no longer reflects the file is active misinformation. **Stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical.** List every manifest issue regardless of tier. Report the result via the `Manifest check:` sign-off line (Step 8).
 - **Doc-sync:** Apply the trigger predicate. Most diffs do not trip it. A now-false count/list/path/behavior assertion is **Major**; a misleading public install/usage/extension assertion is **Critical**; a non-misleading omission is **Minor**.
+- **New-test-CI-wiring:** A new test file with no matching CI invocation is **Major** by default (Step 11.5) - a test that never runs provides no regression protection. Report the result via the `Test-CI-wiring check:` sign-off line.
 
 ## Rules
 
@@ -13232,6 +13242,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
     "phase": "skeptic",
     "iteration": 1,
     "max_iterations": 3,
+    "tier": 2,
     "findings_log": [],
     "qa_failures_log": [],
     "last_engineer_summary": null,
@@ -13242,13 +13253,14 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 
 **Field notes:**
 - `session_id` is the conductor session uuid. Every conductor write to `loop-state.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
+- `loop_state.tier` is written at loop initialization from the conductor's declared tier for the Skeptic spawn (default 2, per the existing tier-declaration prose). Readers treat an ABSENT `tier` key (pre-DS-87 state files) as `"2 (default, undeclared)"` - the same back-compat pattern used for `session_id` above.
 - `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
 - `status` values: `"active"` (loop running), `"interrupted"` (Stop hook or crash), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
 
 **Write triggers for Phase 6 Skeptic loop (overwrite using atomic write at each transition):**
-- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`
+- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`. The conductor also records its declared tier for this Skeptic spawn into `loop_state.tier` at this same write.
 - After Skeptic returns, before Engineer spawn: `last_phase=skeptic`, `last_phase_action=returned`
 - After Engineer spawned (fix pass): `last_phase=engineer`, `last_phase_action=spawned`
 - After Engineer returns: `last_phase=engineer`, `last_phase_action=returned`; update `loop_state.last_engineer_summary` (verbatim, capped 2000 chars)
@@ -14442,6 +14454,67 @@ Note on `worktree prune`: prune clears stale git administration entries (dead sy
 
 **Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state.json`.
 
+### Review-rigor PR-body evidence (soft-fail)
+
+**This is an INDEPENDENT top-level step - it is NOT nested inside, and NOT gated by, the knowledge-file-commit block above.** It does not check `MEMORY_MD_PATH`, `DECISIONS_MD_PATH`, or the knowledge-commit block's `STATUS` variable. Most tickets produce no `MEMORY.md`/`decisions.md` appends (`STATUS=skipped` is the common case) - nesting this step inside that block's emptiness check would skip review-rigor evidence on the majority of PRs, reproducing the exact coverage gap DS-87 closes. This step fires on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
+
+**Trigger:** runs after the knowledge-file-commit step above (same Phase 11c). Skip entirely when Phase 9 was skipped (no PR was opened) - same top-level Phase 11c trigger.
+
+**Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state.json` or the session transcript.
+
+**Ordering dependency:** this step reads `.agentic/loop-state.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+
+```bash
+# Phase 11c: Review-rigor PR-body evidence (soft-fail, independent of knowledge-commit)
+# BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
+# brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
+# spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
+
+# Gate 1: PR resolvability only.
+RR_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
+
+if [ -n "$RR_PR_NUMBER" ]; then
+  RR_EXISTING_BODY=$(gh pr view "$RR_PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+
+  # Gate 2: idempotency - skip if body already has a filled contract line.
+  if ! printf '%s' "$RR_EXISTING_BODY" | grep -qE '^- (Brief / Plan path|Skeptic rounds \(tier\)|Findings summary):[[:space:]]*[^[:space:]]'; then
+    RR_BRIEF_OR_PLAN="n/a - single-unit Elevated"
+    if [ -n "$BRIEF_PATH" ] && [ "$BRIEF_PATH" != "n/a" ]; then
+      RR_BRIEF_OR_PLAN="$BRIEF_PATH"
+    elif [ -n "$ARCHITECT_PLAN_PATH" ] && [ "$ARCHITECT_PLAN_PATH" != "n/a" ]; then
+      RR_BRIEF_OR_PLAN="$ARCHITECT_PLAN_PATH"
+    fi
+
+    TIER_DISPLAY=$(jq -r 'if (.loop_state | has("tier")) then (.loop_state.tier|tostring) else "2 (default, undeclared)" end' .agentic/loop-state.json 2>/dev/null || echo "2 (default, undeclared)")
+    ROUNDS=$(jq -r '.loop_state.iteration // "n/a"' .agentic/loop-state.json 2>/dev/null || echo "n/a")
+
+    # Findings tally: count final findings_log entries by severity (all should be status:closed here).
+    RR_CRITICAL=$(jq '[.loop_state.findings_log[]? | select(.severity=="Critical")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_MAJOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Major")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_MINOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Minor")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    if [ "${RR_CRITICAL:-0}" = "0" ] && [ "${RR_MAJOR:-0}" = "0" ] && [ "${RR_MINOR:-0}" = "0" ]; then
+      RR_FINDINGS_SUMMARY="No findings"
+    else
+      RR_FINDINGS_SUMMARY="Critical: ${RR_CRITICAL:-0}, Major: ${RR_MAJOR:-0}, Minor: ${RR_MINOR:-0}"
+    fi
+
+    RR_APPEND_FILE="/tmp/review-rigor-pr-body-$$"
+    {
+      printf '\n\n## Review rigor\n\n'
+      printf -- '- Brief / Plan path: %s\n' "$RR_BRIEF_OR_PLAN"
+      printf -- '- Skeptic rounds (tier): %s (Tier: %s)\n' "$ROUNDS" "$TIER_DISPLAY"
+      printf -- '- Findings summary: %s\n' "$RR_FINDINGS_SUMMARY"
+    } > "$RR_APPEND_FILE"
+
+    printf '%s%s' "$RR_EXISTING_BODY" "$(cat "$RR_APPEND_FILE")" > "/tmp/review-rigor-full-body-$$"
+    gh pr edit "$RR_PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
+    rm -f "$RR_APPEND_FILE" "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
+  fi
+fi
+```
+
+**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state.json` never blocks Phase 12. Does NOT write `loop-state.json`.
+
 ---
 
 ## Phase 12: Loop state cleanup
@@ -14986,7 +15059,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
    > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
 
-   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted.`
+   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted.`
 
    **PRESENT the three-way split to the user BEFORE applying** (diff-style preview):
 
@@ -16907,11 +16980,13 @@ The Skeptic is always a fresh spawn - never resumed, never continued from a prio
 
 ## Step 3 - Read findings
 
-A valid sign-off contains all four mandatory elements as distinct lines:
+A valid sign-off contains all six mandatory elements as distinct lines:
 - (a) a line beginning "Reviewed:"
 - (b) a line beginning "Findings:"
 - (c) an "Active search:" line
 - (d) the exact phrase "No unresolved Critical or Major findings. Sign-off granted."
+- (g) a "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8)
+- (h) a "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5)
 
 If any element is missing: spawn a new Skeptic with explicit format instructions ("Your previous response did not conform to the required sign-off format. Please restate your findings and sign-off using the required format."). This format re-invocation is not counted as a new adversarial round. Limit: 3 format re-invocations. If still noncompliant after 3, escalate to the human.
 
@@ -18513,7 +18588,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires all four elements: (a) "Reviewed:", (b) "Findings:", (c) "Active search:", (d) "No unresolved Critical or Major findings. Sign-off granted." If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires all six elements: (a) "Reviewed:", (b) "Findings:", (c) "Active search:", (d) "No unresolved Critical or Major findings. Sign-off granted.", (g) "Manifest check:", (h) "Test-CI-wiring check:". If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -18721,9 +18796,9 @@ Otherwise skip that target silently.
    >
    > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output."
    >
-   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted."
+   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted."
 
-3. Validate sign-off format the same way Step 3 does (all four elements: "Reviewed:", "Findings:", "Active search:", "No unresolved Critical or Major findings. Sign-off granted."). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
+3. Validate sign-off format the same way Step 3 does (all six elements: "Reviewed:", "Findings:", "Active search:", "Manifest check:", "Test-CI-wiring check:", "No unresolved Critical or Major findings. Sign-off granted."). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
    If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
 

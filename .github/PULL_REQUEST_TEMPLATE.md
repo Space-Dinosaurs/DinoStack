@@ -17,6 +17,18 @@
 - Pillar(s) advanced (see docs/overview/vision.md):
 - Trade-off or pillar this could regress, if any:
 
+## Review rigor
+
+<!-- Required for all PRs. Fill in Brief/Plan path (if any), Skeptic rounds
+     completed + tier, and the final findings summary. Trivial-risk changes
+     (single Worker, no Skeptic per AE risk classification) may write
+     "N/A - Trivial risk, no Skeptic per AE risk classification" instead.
+     Keep this comment in sync with .github/workflows/pr-review-rigor.yml. -->
+
+- Brief / Plan path:
+- Skeptic rounds (tier):
+- Findings summary:
+
 ## Related issues
 
 <!-- e.g. Closes #123, Refs #456 -->

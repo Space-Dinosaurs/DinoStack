@@ -1420,7 +1420,8 @@
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
           <h4 style="color: #b06bff;">New Skeptic Obligations</h4>
           <ul>
-            <li><strong>Module manifest check</strong> - tiered enforcement on non-trivial modules (exports a public symbol, ~50+ LOC, or side-effecting): missing manifests are <strong>Minor</strong> (comprehension hygiene, non-blocking); <strong>stale</strong> manifests (no longer reflect purpose, public API, dependencies, or failure modes) are <strong style="color: var(--gold);">Major</strong> (blocks sign-off absent a compelling documented reason to defer); stale manifests whose inaccuracy could mislead a caller on a correctness or security path are <strong style="color: #c0392b;">Critical</strong>.</li>
+            <li><strong>Module manifest check</strong> - tiered enforcement on non-trivial modules (exports a public symbol, ~50+ LOC, or side-effecting): missing manifests are <strong>Minor</strong> (comprehension hygiene, non-blocking); <strong>stale</strong> manifests (no longer reflect purpose, public API, dependencies, or failure modes) are <strong style="color: var(--gold);">Major</strong> (blocks sign-off absent a compelling documented reason to defer); stale manifests whose inaccuracy could mislead a caller on a correctness or security path are <strong style="color: #c0392b;">Critical</strong>. The result is now output-required via a fixed <code>Manifest check:</code> sign-off line.</li>
+            <li><strong>New-test-CI-wiring check</strong> - for each new test file in the diff, verifies a matching reference exists in a CI workflow (an exact file reference, a covering glob, or an auto-discovering runner). A new test file wired into no CI workflow is a <strong style="color: var(--gold);">Major</strong> finding - a test that never runs provides no regression protection. The result is output-required via a fixed <code>Test-CI-wiring check:</code> sign-off line.</li>
             <li><strong>Regression test verification</strong> - before granting sign-off when a Critical/Major finding was fixed, verifies a regression test was added (or a documented exception given). Missing test without explanation is a <strong style="color: var(--gold);">Major</strong> finding. The same verification applies to QA-fix iterations: a fix engineer addressing a qa-engineer FAIL must add a regression test or append a documented exception to <code>.agentic/qa-regressions.md</code> (see <code>qa-regression-obligation.md</code>).</li>
           </ul>
         </div>
@@ -1471,7 +1472,7 @@
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
       <strong>Core thesis:</strong> "The value of an adversarial reviewer is independence. A reviewer who has already heard the implementer's justifications is no longer independent."
-      The brief must be passed verbatim - never softened. Sign-off requires 4 elements: Reviewed, Findings, Active search attestation, and explicit sign-off statement.
+      The brief must be passed verbatim - never softened. Sign-off requires 6 elements: Reviewed, Findings, Active search attestation, Manifest check, Test-CI-wiring check, and explicit sign-off statement.
     </div>
     <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
       <strong>Regression Test Obligation:</strong> Every Critical or Major finding that gets fixed without a regression test is a latent regression. The Worker adds a test that would have caught the failure; the Skeptic verifies it exists before sign-off. The test lives in the project's normal test suite, alongside existing tests for the affected module, so the same bug cannot silently reappear in a future change.

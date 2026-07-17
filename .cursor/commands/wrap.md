@@ -357,7 +357,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires all four elements: (a) "Reviewed:", (b) "Findings:", (c) "Active search:", (d) "No unresolved Critical or Major findings. Sign-off granted." If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires all six elements: (a) "Reviewed:", (b) "Findings:", (c) "Active search:", (d) "No unresolved Critical or Major findings. Sign-off granted.", (g) "Manifest check:", (h) "Test-CI-wiring check:". If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -565,9 +565,9 @@ Otherwise skip that target silently.
    >
    > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output."
    >
-   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted."
+   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted."
 
-3. Validate sign-off format the same way Step 3 does (all four elements: "Reviewed:", "Findings:", "Active search:", "No unresolved Critical or Major findings. Sign-off granted."). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
+3. Validate sign-off format the same way Step 3 does (all six elements: "Reviewed:", "Findings:", "Active search:", "Manifest check:", "Test-CI-wiring check:", "No unresolved Critical or Major findings. Sign-off granted."). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
    If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
 

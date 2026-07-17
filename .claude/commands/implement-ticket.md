@@ -1302,6 +1302,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
     "phase": "skeptic",
     "iteration": 1,
     "max_iterations": 3,
+    "tier": 2,
     "findings_log": [],
     "qa_failures_log": [],
     "last_engineer_summary": null,
@@ -1312,13 +1313,14 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 
 **Field notes:**
 - `session_id` is the conductor session uuid. Every conductor write to `loop-state.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
+- `loop_state.tier` is written at loop initialization from the conductor's declared tier for the Skeptic spawn (default 2, per the existing tier-declaration prose). Readers treat an ABSENT `tier` key (pre-DS-87 state files) as `"2 (default, undeclared)"` - the same back-compat pattern used for `session_id` above.
 - `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
 - `status` values: `"active"` (loop running), `"interrupted"` (Stop hook or crash), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
 
 **Write triggers for Phase 6 Skeptic loop (overwrite using atomic write at each transition):**
-- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`
+- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`. The conductor also records its declared tier for this Skeptic spawn into `loop_state.tier` at this same write.
 - After Skeptic returns, before Engineer spawn: `last_phase=skeptic`, `last_phase_action=returned`
 - After Engineer spawned (fix pass): `last_phase=engineer`, `last_phase_action=spawned`
 - After Engineer returns: `last_phase=engineer`, `last_phase_action=returned`; update `loop_state.last_engineer_summary` (verbatim, capped 2000 chars)
@@ -2511,6 +2513,67 @@ fi
 Note on `worktree prune`: prune clears stale git administration entries (dead symlinks) for worktrees whose directories no longer exist. It does NOT remove PID-suffixed directories left behind by interrupted runs - those must be manually removed or will be reused/overwritten by a subsequent `worktree add` with the same path. The `$$`-suffixed path ensures unique naming per run, limiting orphan accumulation.
 
 **Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state.json`.
+
+### Review-rigor PR-body evidence (soft-fail)
+
+**This is an INDEPENDENT top-level step - it is NOT nested inside, and NOT gated by, the knowledge-file-commit block above.** It does not check `MEMORY_MD_PATH`, `DECISIONS_MD_PATH`, or the knowledge-commit block's `STATUS` variable. Most tickets produce no `MEMORY.md`/`decisions.md` appends (`STATUS=skipped` is the common case) - nesting this step inside that block's emptiness check would skip review-rigor evidence on the majority of PRs, reproducing the exact coverage gap DS-87 closes. This step fires on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
+
+**Trigger:** runs after the knowledge-file-commit step above (same Phase 11c). Skip entirely when Phase 9 was skipped (no PR was opened) - same top-level Phase 11c trigger.
+
+**Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state.json` or the session transcript.
+
+**Ordering dependency:** this step reads `.agentic/loop-state.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+
+```bash
+# Phase 11c: Review-rigor PR-body evidence (soft-fail, independent of knowledge-commit)
+# BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
+# brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
+# spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
+
+# Gate 1: PR resolvability only.
+RR_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
+
+if [ -n "$RR_PR_NUMBER" ]; then
+  RR_EXISTING_BODY=$(gh pr view "$RR_PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+
+  # Gate 2: idempotency - skip if body already has a filled contract line.
+  if ! printf '%s' "$RR_EXISTING_BODY" | grep -qE '^- (Brief / Plan path|Skeptic rounds \(tier\)|Findings summary):[[:space:]]*[^[:space:]]'; then
+    RR_BRIEF_OR_PLAN="n/a - single-unit Elevated"
+    if [ -n "$BRIEF_PATH" ] && [ "$BRIEF_PATH" != "n/a" ]; then
+      RR_BRIEF_OR_PLAN="$BRIEF_PATH"
+    elif [ -n "$ARCHITECT_PLAN_PATH" ] && [ "$ARCHITECT_PLAN_PATH" != "n/a" ]; then
+      RR_BRIEF_OR_PLAN="$ARCHITECT_PLAN_PATH"
+    fi
+
+    TIER_DISPLAY=$(jq -r 'if (.loop_state | has("tier")) then (.loop_state.tier|tostring) else "2 (default, undeclared)" end' .agentic/loop-state.json 2>/dev/null || echo "2 (default, undeclared)")
+    ROUNDS=$(jq -r '.loop_state.iteration // "n/a"' .agentic/loop-state.json 2>/dev/null || echo "n/a")
+
+    # Findings tally: count final findings_log entries by severity (all should be status:closed here).
+    RR_CRITICAL=$(jq '[.loop_state.findings_log[]? | select(.severity=="Critical")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_MAJOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Major")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_MINOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Minor")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    if [ "${RR_CRITICAL:-0}" = "0" ] && [ "${RR_MAJOR:-0}" = "0" ] && [ "${RR_MINOR:-0}" = "0" ]; then
+      RR_FINDINGS_SUMMARY="No findings"
+    else
+      RR_FINDINGS_SUMMARY="Critical: ${RR_CRITICAL:-0}, Major: ${RR_MAJOR:-0}, Minor: ${RR_MINOR:-0}"
+    fi
+
+    RR_APPEND_FILE="/tmp/review-rigor-pr-body-$$"
+    {
+      printf '\n\n## Review rigor\n\n'
+      printf -- '- Brief / Plan path: %s\n' "$RR_BRIEF_OR_PLAN"
+      printf -- '- Skeptic rounds (tier): %s (Tier: %s)\n' "$ROUNDS" "$TIER_DISPLAY"
+      printf -- '- Findings summary: %s\n' "$RR_FINDINGS_SUMMARY"
+    } > "$RR_APPEND_FILE"
+
+    printf '%s%s' "$RR_EXISTING_BODY" "$(cat "$RR_APPEND_FILE")" > "/tmp/review-rigor-full-body-$$"
+    gh pr edit "$RR_PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
+    rm -f "$RR_APPEND_FILE" "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
+  fi
+fi
+```
+
+**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state.json` never blocks Phase 12. Does NOT write `loop-state.json`.
 
 ---
 
