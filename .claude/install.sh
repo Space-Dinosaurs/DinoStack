@@ -1264,14 +1264,14 @@ if already_bypass:
         with open(settings_path, "w") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")
-        added = []
+        parts = []
         if missing_allow:
-            added.append(f"{len(missing_allow)} allow")
+            parts.append(f"added {len(missing_allow)} allow rules")
         if missing_deny:
-            added.append(f"{len(missing_deny)} deny")
+            parts.append(f"added {len(missing_deny)} deny rules")
         if stale_allow:
-            added.append(f"removed {len(stale_allow)} legacy Write rules")
-        print(f"  ~ Permissions: bypassPermissions already set, added {' and '.join(added)} rules")
+            parts.append(f"removed {len(stale_allow)} legacy Write rules")
+        print(f"  ~ Permissions: bypassPermissions already set, {' and '.join(parts)}")
     else:
         print("  = Permissions already configured (bypassPermissions mode)")
 else:
