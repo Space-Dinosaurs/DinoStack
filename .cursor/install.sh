@@ -482,8 +482,12 @@ if [[ -e "$HOOKS_DST" ]]; then
   fi
 else
   cp "$HOOKS_SRC" "$HOOKS_DST"
-  _ae_cursor_converge_hooks_stop "$HOOKS_DST" "$CURSOR_STOP_CMD" >/dev/null
-  echo "  + hooks.json copied to $HOOKS_DST (stop -> $CURSOR_STOP_CMD)"
+  _ae_changed="$(_ae_cursor_converge_hooks_stop "$HOOKS_DST" "$CURSOR_STOP_CMD")"
+  if [[ "${_ae_changed:-0}" -gt 0 ]]; then
+    echo "  + hooks.json copied to $HOOKS_DST (stop -> $CURSOR_STOP_CMD)"
+  else
+    echo "  ! hooks.json copied to $HOOKS_DST but stop hook NOT converged - fix manually (stop still -> old command)"
+  fi
 fi
 unset _ae_changed
 
