@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Purpose: Tests for .claude/install.sh symlink-convergence and guarded
-#          repo_dir write (Changes 1-3 in the converging-symlinks PR).
+# Purpose: Tests for .claude/install.sh symlink-convergence, guarded
+#          repo_dir write (Changes 1-3 in the converging-symlinks PR), and
+#          the legacy path-scoped Write() permission-rule migration.
 #
 # Public API: bash .claude/tests/install-converge.test.sh
 #             Exits 0 on all pass, non-zero on any failure.
@@ -25,6 +26,12 @@
 #   - Change 2: --dry-run makes no filesystem changes.
 #   - Change 3: clobber guard - valid DIFFERENT repo_dir is NOT overwritten;
 #     absent/invalid repo_dir IS written.
+#   - Case (g): legacy path-scoped Write(<cfg>/**) / Write(<cfg>/projects/**)
+#     allow rules (ignored by Claude Code's file-permission checks, only
+#     Edit(path) rules match) are migrated out of an existing
+#     bypassPermissions settings.json; recommended Edit path rules and the
+#     bare Write/Edit tool rules are retained; the write fires even when
+#     nothing else is missing.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -359,6 +366,79 @@ if [[ -n "$actual_repo_dir" ]] && [[ "$actual_repo_dir" != "/nonexistent/path/th
   _pass "case (f3): invalid repo_dir overwritten (new value: $actual_repo_dir)"
 else
   _fail "case (f3): invalid repo_dir was not overwritten (got '$actual_repo_dir')"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (g): permissions migration - legacy path-scoped Write() allow rules
+#           are removed from an existing bypassPermissions settings.json;
+#           recommended Edit path rules and bare Write/Edit are retained;
+#           the write fires even when nothing else is missing.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude"
+python3 - "$FAKE_HOME/.claude/settings.json" <<'PYEOF'
+import json, sys
+
+settings = {
+    "permissions": {
+        "defaultMode": "bypassPermissions",
+        "allow": [
+            "Bash(*)",
+            "Write",
+            "Write(~/.claude/**)",
+            "Edit",
+            "Edit(~/.claude/**)",
+            "Write(~/.claude/projects/**)",
+            "Edit(~/.claude/projects/**)"
+        ],
+        "deny": [
+            "Bash(git push --force*)",
+            "Bash(rm -rf*)",
+            "Bash(git reset --hard*)",
+            "Bash(git clean -f*)",
+            "Bash(sudo rm*)",
+            "Bash(dd if=*)",
+            "Bash(shutdown*)",
+            "Bash(reboot*)"
+        ],
+        "additionalDirectories": ["~/.claude/projects"]
+    }
+}
+with open(sys.argv[1], "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+PYEOF
+
+_run_install "$FAKE_HOME" || true
+
+result_allow="$(python3 -c "
+import json
+with open('$FAKE_HOME/.claude/settings.json') as f:
+    print(json.dumps(json.load(f)['permissions']['allow']))
+")"
+
+if [[ "$result_allow" != *"Write(~/.claude/**)"* ]] && [[ "$result_allow" != *"Write(~/.claude/projects/**)"* ]]; then
+  _pass "case (g): legacy path-scoped Write() rules removed"
+else
+  _fail "case (g): legacy path-scoped Write() rules still present: $result_allow"
+fi
+
+if [[ "$result_allow" == *'"Edit(~/.claude/**)"'* ]] \
+   && [[ "$result_allow" == *'"Edit(~/.claude/projects/**)"'* ]] \
+   && [[ "$result_allow" == *'"Write"'* ]] \
+   && [[ "$result_allow" == *'"Edit"'* ]]; then
+  _pass "case (g): recommended Edit path rules and bare Write/Edit retained"
+else
+  _fail "case (g): expected recommended allow rules missing: $result_allow"
+fi
+
+if grep -q "removed 2 legacy Write rules" "$FAKE_HOME/.install_out" 2>/dev/null; then
+  _pass "case (g): install output reports legacy-rule removal"
+else
+  _fail "case (g): install output did not report legacy-rule removal"
 fi
 
 rm -rf "$FAKE_HOME"

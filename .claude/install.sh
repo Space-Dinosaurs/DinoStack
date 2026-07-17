@@ -1222,11 +1222,16 @@ perms = settings.get("permissions", {})
 recommended_allow = [
     "Bash(*)",
     "Write",
-    f"Write({_cfg_label}/**)",
     "Edit",
     f"Edit({_cfg_label}/**)",
-    f"Write({_cfg_label}/projects/**)",
     f"Edit({_cfg_label}/projects/**)"
+]
+# Legacy rules from older installs: path-scoped Write() rules are ignored by
+# Claude Code's file-permission checks (only Edit(path) rules match) and
+# trigger a startup warning. Strip them wherever found.
+legacy_allow = [
+    f"Write({_cfg_label}/**)",
+    f"Write({_cfg_label}/projects/**)"
 ]
 recommended_deny = [
     "Bash(git push --force*)",
@@ -1248,9 +1253,10 @@ if already_bypass:
     missing_allow = set(recommended_allow) - existing_allow
     missing_deny = set(recommended_deny) - existing_deny
     missing_dir = f"{_cfg_label}/projects" not in perms.get("additionalDirectories", [])
+    stale_allow = existing_allow & set(legacy_allow)
 
-    if missing_allow or missing_deny or missing_dir:
-        perms["allow"] = list(existing_allow | set(recommended_allow))
+    if missing_allow or missing_deny or missing_dir or stale_allow:
+        perms["allow"] = list((existing_allow | set(recommended_allow)) - set(legacy_allow))
         perms["deny"] = list(existing_deny | set(recommended_deny))
         if os.path.islink(settings_path):
             sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
@@ -1263,6 +1269,8 @@ if already_bypass:
             added.append(f"{len(missing_allow)} allow")
         if missing_deny:
             added.append(f"{len(missing_deny)} deny")
+        if stale_allow:
+            added.append(f"removed {len(stale_allow)} legacy Write rules")
         print(f"  ~ Permissions: bypassPermissions already set, added {' and '.join(added)} rules")
     else:
         print("  = Permissions already configured (bypassPermissions mode)")
@@ -1275,7 +1283,7 @@ else:
         existing_allow = set(perms.get("allow", []))
         existing_deny = set(perms.get("deny", []))
 
-        perms["allow"] = list(existing_allow | set(recommended_allow))
+        perms["allow"] = list((existing_allow | set(recommended_allow)) - set(legacy_allow))
         perms["deny"] = list(existing_deny | set(recommended_deny))
         perms["defaultMode"] = "bypassPermissions"
         perms.setdefault("additionalDirectories", [])
