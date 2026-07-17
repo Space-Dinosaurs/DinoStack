@@ -70,7 +70,8 @@
  *
  * Performance: Bounded by hooks/lib/stdin-guard.js's own timers (~3-20ms on
  *              the common EOF/early-parse paths, worst case
- *              firstByteTimeoutMs/inactivityTimeoutMs). The transcript read,
+ *              firstByteTimeoutMs/inactivityTimeoutMs/absoluteTimeoutMs, plus
+ *              a maxStdinBytes cap on total stdin size). The transcript read,
  *              when attempted, is a single statSync plus (only when under
  *              the 256 KB cap) a single readFileSync - never proportional to
  *              a transcript larger than the cap.

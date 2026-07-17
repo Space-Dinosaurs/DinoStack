@@ -9,11 +9,12 @@
  *          parse gated behind a cheap tail precheck, so a hook exits fast
  *          when no payload is coming while a slow-but-legitimate payload is
  *          still read in full. Extracted from the blocking
- *          `fs.readFileSync(0, 'utf8')` pattern shared by seven hooks
- *          (round-1 Skeptic Finding 1 / plan-Skeptic M1 on
- *          docs/planning/cursor-stop-hook-plan.md), which hangs indefinitely
- *          when the spawning harness (e.g. Cursor's composer session-end
- *          path) never closes stdin.
+ *          `fs.readFileSync(0, 'utf8')` pattern originally shared by seven
+ *          hooks (round-1 Skeptic Finding 1 / plan-Skeptic M1 on
+ *          docs/planning/cursor-stop-hook-plan.md; see Downstream consumers
+ *          below for the current count), which hangs indefinitely when the
+ *          spawning harness (e.g. Cursor's composer session-end path) never
+ *          closes stdin.
  *
  * Public API (CommonJS, all exported on module.exports):
  *   readStdinGuarded(options) -> Promise<string>
