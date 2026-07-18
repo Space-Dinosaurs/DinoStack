@@ -3,6 +3,18 @@
 
 # Changelog
 
+## 2026-07-18
+
+### Uncategorized
+
+- **#461** [DS-88: Wire orphaned hooks/tests into CI via glob auto-discovery](https://github.com/Space-Dinosaurs/DinoStack/pull/461) - tyson-solara6
+
+## 2026-07-17
+
+### Uncategorized
+
+- **#458** [DS-87: Close the pre-PR review gap - PR-boundary backstops + skeptic checklist hardening](https://github.com/Space-Dinosaurs/DinoStack/pull/458) - tyson-solara6
+
 ## 2026-07-16
 
 ### Documentation
