@@ -67,7 +67,7 @@ const path = require('path');
 function run() {
   try {
     // Read full stdin synchronously.
-    const raw = fs.readFileSync('/dev/stdin', 'utf8');
+    const raw = fs.readFileSync(0, 'utf8');
     let payload;
     try { payload = JSON.parse(raw); } catch (_) { process.exit(0); }
 
