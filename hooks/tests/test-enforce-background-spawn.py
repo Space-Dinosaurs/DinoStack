@@ -102,14 +102,15 @@ cases = [
         "ALLOW",
     ),
     # --- tool_name="Agent" cases ---
-    # Agent spawns are NOT background-enforced by this hook. The Claude Code
-    # harness strips run_in_background from the Agent PreToolUse hook payload
-    # (verified by live payload capture: tool_input keys for Agent are exactly
-    # ['description', 'prompt', 'subagent_type'] - run_in_background is absent).
-    # Agent is background-by-default at the harness level; enforcing it here
-    # would brick every Agent spawn. Background enforcement applies to legacy
-    # Task only. Sentinel suppression still applies to Agent (tested in
-    # bin/tests/test_enforce_background_spawn.py).
+    # Live payload capture 2026-07-07 confirmed the harness DOES pass
+    # run_in_background through for Agent spawns (see
+    # hooks/enforce-background-spawn.py docstring and MEMORY.md - this
+    # corrected an earlier assumption that the field was stripped). The hook
+    # enforces an asymmetric rule for Agent: only an explicit
+    # run_in_background=False is denied; an absent field allows (Agent is
+    # already background-by-default at the harness level, so omitting it is
+    # the correct norm) and True also allows. Sentinel suppression still
+    # applies to Agent (tested in bin/tests/test_enforce_background_spawn.py).
     (
         "Agent: realistic harness payload (no run_in_background) - ALLOW",
         json.dumps({
@@ -123,9 +124,9 @@ cases = [
         "ALLOW",
     ),
     (
-        "Agent: run_in_background=false - ALLOW (not enforced for Agent; harness strips this field)",
+        "Agent: run_in_background=false - DENY (only exact boolean False is denied for Agent)",
         json.dumps({"tool_name": "Agent", "tool_input": {"run_in_background": False}}),
-        "ALLOW",
+        "DENY",
     ),
     (
         "Agent: run_in_background absent - ALLOW (mirrors real harness payload shape)",
