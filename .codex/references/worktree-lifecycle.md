@@ -39,22 +39,28 @@ Performance: Standard.
 
 ## Isolation worktree cleanup commands
 
-Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately:
+Isolation worktrees are removed inline after the branch has been pushed to
+origin. Once commits are on origin, the PR/branch is backed by the remote ref,
+so the local worktree is redundant. Cleaning up at push time avoids the
+branch-rename mapping problem that makes "after PR open" cleanup unreliable.
 
 ```bash
-# Verify no uncommitted changes before removing:
-git -C <worktree-path> status --porcelain
-# If clean (no output), remove the worktree and its branch:
-git worktree remove <worktree-path>
-git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; safe to delete once worktree is removed
-# Safe even with a PR open: the PR is backed by the branch on origin, not this local ref.
-# Only the redundant local branch is removed; the pushed commits and the PR are unaffected.
-# (If you might still push follow-up commits to the PR from this checkout, keep the branch until the PR merges.)
-# If the above fails (modified tracked files exist), inspect them first,
-# then force-remove only after confirming nothing important is uncommitted:
-# git worktree remove --force <worktree-path>
-# git branch -D <branch-name>
+# Resolve worktree path from branch name (works even if the branch was renamed).
+# Requires scripts/lib/worktree.sh to be sourced.
+source "${REPO_DIR}/scripts/lib/worktree.sh"
+WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
+
+# Verify no uncommitted changes in the isolated worktree:
+[ -n "$WORKTREE_PATH" ] && git -C "$WORKTREE_PATH" status --porcelain
+
+# If clean, remove the isolated worktree and its local branch:
+[ -n "$WORKTREE_PATH" ] && git -C "$REPO_DIR" worktree remove "$WORKTREE_PATH"
+git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 ```
+
+If the worktree is still locked by a running agent, `git worktree remove` will
+refuse until the agent finishes. That is expected and safe; the session-start
+prune script below remains a backstop.
 
 ## Feature worktree cleanup commands
 

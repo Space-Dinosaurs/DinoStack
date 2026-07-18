@@ -481,7 +481,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
-**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
+**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
@@ -5608,22 +5608,28 @@ Performance: Standard.
 
 ## Isolation worktree cleanup commands
 
-Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately:
+Isolation worktrees are removed inline after the branch has been pushed to
+origin. Once commits are on origin, the PR/branch is backed by the remote ref,
+so the local worktree is redundant. Cleaning up at push time avoids the
+branch-rename mapping problem that makes "after PR open" cleanup unreliable.
 
 ```bash
-# Verify no uncommitted changes before removing:
-git -C <worktree-path> status --porcelain
-# If clean (no output), remove the worktree and its branch:
-git worktree remove <worktree-path>
-git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; safe to delete once worktree is removed
-# Safe even with a PR open: the PR is backed by the branch on origin, not this local ref.
-# Only the redundant local branch is removed; the pushed commits and the PR are unaffected.
-# (If you might still push follow-up commits to the PR from this checkout, keep the branch until the PR merges.)
-# If the above fails (modified tracked files exist), inspect them first,
-# then force-remove only after confirming nothing important is uncommitted:
-# git worktree remove --force <worktree-path>
-# git branch -D <branch-name>
+# Resolve worktree path from branch name (works even if the branch was renamed).
+# Requires scripts/lib/worktree.sh to be sourced.
+source "${REPO_DIR}/scripts/lib/worktree.sh"
+WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
+
+# Verify no uncommitted changes in the isolated worktree:
+[ -n "$WORKTREE_PATH" ] && git -C "$WORKTREE_PATH" status --porcelain
+
+# If clean, remove the isolated worktree and its local branch:
+[ -n "$WORKTREE_PATH" ] && git -C "$REPO_DIR" worktree remove "$WORKTREE_PATH"
+git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 ```
+
+If the worktree is still locked by a running agent, `git worktree remove` will
+refuse until the agent finishes. That is expected and safe; the session-start
+prune script below remains a backstop.
 
 ## Feature worktree cleanup commands
 
@@ -7118,7 +7124,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **No suppression.** Never use `// @ts-ignore`, `# noqa`, `eslint-disable`, or similar to silence errors. Fix the code.
 - **Match conventions.** Read before you write. Use the same naming style, file structure, and patterns as the surrounding code.
 - **If context is missing** - no file paths, no task description, or the task requires an architecture decision you were not given - say so at the top of your output before attempting anything. Do not invent assumptions to fill the gap.
-- **Never commit or push.** Implement and report. The orchestrator handles version control.
+- **Do not initiate commit or push yourself.** In the `/implement-ticket` flow, commit and push are orchestrated by the conductor via the `git_finalization` contract; the engineer's job is to implement, run quality gates, and report. For non-`/implement-ticket` spawns where the contract does not include `git_finalization`, implement and report only and leave VCS operations to the caller.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
 - **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
 - **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Before claiming it as a regression test, run it against the unfixed code and confirm it fails - a test that passes without the fix does not count. Reference it in the fix summary, including that pre-fix attestation: `[finding ID] → fixed by [description]. Regression test: [file, test name]. Confirmed failing pre-fix: [what was observed when run against the unfixed code].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
@@ -11555,27 +11561,31 @@ Categorize each remaining entry by its branch name:
 
 ## Step 3: Remove isolation worktrees
 
-For each isolation worktree, check its status before touching it:
+For each isolation worktree, resolve its path from the branch name and check its status before touching it:
 
 ```bash
-git -C <worktree-path> status --porcelain
+source "${REPO_DIR:-.}/scripts/lib/worktree.sh" 2>/dev/null || true
+WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$b" 2>/dev/null || true)
+git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 ```
+
+where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
 There are three cases. (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around.)
 
 **Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
 
 ```bash
-git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree unlock "$WORKTREE_PATH" 2>/dev/null || true
 git worktree prune
-git branch -D <branch-name>
+git branch -D "$b"
 ```
 
 **Directory exists, clean (no output):** Remove the worktree and delete the branch:
 
 ```bash
-git worktree remove <worktree-path>
-git branch -D <branch-name>
+git worktree remove "$WORKTREE_PATH"
+git branch -D "$b"
 ```
 
 **Directory exists, dirty (output present):** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
@@ -13077,7 +13087,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
-- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence.
+- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
 - `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 
@@ -13190,8 +13200,12 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 ```bash
 # For each unit:
-git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
-git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+if [ -z "$(git -C ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} status --porcelain 2>/dev/null)" ]; then
+  git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
+  git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+else
+  echo "WARNING: worktree ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} has uncommitted changes; skipping cleanup"
+fi
 git -C $REPO worktree prune
 ```
 
@@ -13742,6 +13756,24 @@ fi
 # --- End telemetry commit ---
 
 git -C $REPO push -u origin [BRANCH_NAME]
+
+# --- Isolation worktree cleanup (post-push) ---
+# The branch now lives on origin; the engineer's isolated worktree is redundant.
+# Resolve the worktree from the branch name so renames do not break cleanup.
+git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
+if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+  WORKTREE_PATH=$("$REPO_DIR/bin/agentic-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+  if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+    if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
+      git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>/dev/null || true
+      git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+      echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+    else
+      echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
+    fi
+  fi
+fi
+# --- End isolation worktree cleanup ---
 ```
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).

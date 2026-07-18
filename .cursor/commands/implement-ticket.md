@@ -1135,7 +1135,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
-- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence.
+- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
 - `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 
@@ -1248,8 +1248,12 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 ```bash
 # For each unit:
-git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
-git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+if [ -z "$(git -C ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} status --porcelain 2>/dev/null)" ]; then
+  git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
+  git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+else
+  echo "WARNING: worktree ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} has uncommitted changes; skipping cleanup"
+fi
 git -C $REPO worktree prune
 ```
 
@@ -1800,6 +1804,24 @@ fi
 # --- End telemetry commit ---
 
 git -C $REPO push -u origin [BRANCH_NAME]
+
+# --- Isolation worktree cleanup (post-push) ---
+# The branch now lives on origin; the engineer's isolated worktree is redundant.
+# Resolve the worktree from the branch name so renames do not break cleanup.
+git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
+if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+  WORKTREE_PATH=$("$REPO_DIR/bin/agentic-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+  if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+    if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
+      git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>/dev/null || true
+      git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+      echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+    else
+      echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
+    fi
+  fi
+fi
+# --- End isolation worktree cleanup ---
 ```
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).

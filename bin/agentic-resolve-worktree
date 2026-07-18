@@ -1,0 +1,65 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Module manifest
+# Purpose: CLI wrapper around scripts/lib/worktree.sh.
+#
+# Public API:
+#   agentic-resolve-worktree <repo> <branch-name>
+#     Prints the absolute worktree path for the branch to stdout.
+#     Exits 0 on success, 1 when no worktree matches or on error.
+#
+# Upstream deps: scripts/lib/worktree.sh, bash, git (only to validate repo),
+#                pwd/cd/coreutils.
+#
+# Downstream consumers: content/commands/implement-ticket.md Phase 8 cleanup.
+#
+# Failure modes:
+#   - Exits 1 with stderr message if <repo> is not a directory.
+#   - Exits 1 with stderr message if <repo> is not a valid git repository.
+#   - Exits 1 silently when the branch has no matching worktree.
+#   - Does not match detached-HEAD worktrees or remote-tracking refs.
+#
+# Performance: standard - one git invocation plus the sourced helper.
+# ---------------------------------------------------------------------------
+
+set -u
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: agentic-resolve-worktree <repo> <branch-name>" >&2
+  exit 1
+fi
+
+if [ ! -d "$1" ]; then
+  echo "agentic-resolve-worktree: not a directory: $1" >&2
+  exit 1
+fi
+
+REPO_DIR="$(cd "$1" 2>/dev/null && pwd -P)"
+if [ -z "$REPO_DIR" ]; then
+  echo "agentic-resolve-worktree: cannot resolve path: $1" >&2
+  exit 1
+fi
+
+if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "agentic-resolve-worktree: not a git repository: $REPO_DIR" >&2
+  exit 1
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)"
+LIB_DIR="$(cd "$SCRIPT_DIR/../scripts/lib" 2>/dev/null && pwd -P)"
+
+if [ ! -f "$LIB_DIR/worktree.sh" ]; then
+  echo "agentic-resolve-worktree: worktree.sh not found at $LIB_DIR/worktree.sh" >&2
+  exit 1
+fi
+
+# shellcheck source=../scripts/lib/worktree.sh
+. "$LIB_DIR/worktree.sh"
+
+WORKTREE_PATH="$(resolve_branch_worktree "$REPO_DIR" "$2")"
+
+if [ -n "$WORKTREE_PATH" ]; then
+  printf '%s\n' "$WORKTREE_PATH"
+else
+  exit 1
+fi
