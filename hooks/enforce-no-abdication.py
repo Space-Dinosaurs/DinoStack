@@ -158,6 +158,14 @@ _NEGATIVE_GATE_PATTERNS = re.compile(
 )
 
 
+# Sentence boundary: split right after a terminator (./?/!) that is followed
+# by whitespace. Deliberately naive (does not special-case abbreviations or
+# numbered-list markers like "1.") - false splits only produce extra sentence
+# chunks, they never merge a question with unrelated text, so they cannot
+# cause a false negative or false positive here.
+_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.?!])\s+")
+
+
 def _is_abdication(text: str) -> bool:
     """Return True if the tail of text looks like a permission-seeking abdication.
 
@@ -172,17 +180,25 @@ def _is_abdication(text: str) -> bool:
     if _NEGATIVE_GATE_PATTERNS.search(tail):
         return False
 
-    # Require a permission phrase.
+    # Require a permission phrase somewhere in the tail (cheap pre-filter
+    # before the more expensive sentence segmentation below).
     if not _PERMISSION_PHRASES.search(tail):
         return False
 
-    # Require the final non-empty sentence to end with "?".
-    lines = tail.splitlines()
-    # Scan backwards for a non-empty line ending with "?"
-    for line in reversed(lines):
-        stripped = line.strip()
-        if stripped:
-            return stripped.endswith("?")
+    # Sentence-granularity check: the SAME sentence must both end with "?"
+    # AND contain a permission phrase. A permission-seeking question followed
+    # by trailing declarative sentences ("Want me to file this? Learnings
+    # captured.") must still fire - checking only the final line missed this
+    # because trailing text pushed the question mark off the last line.
+    # Conversely, a permission phrase appearing in one (non-question)
+    # sentence while an unrelated "?" appears in a later sentence must NOT
+    # fire.
+    for sentence in _SENTENCE_SPLIT_RE.split(tail):
+        stripped = sentence.strip()
+        if not stripped:
+            continue
+        if stripped.endswith("?") and _PERMISSION_PHRASES.search(stripped):
+            return True
 
     return False
 
