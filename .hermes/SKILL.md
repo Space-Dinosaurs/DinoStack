@@ -810,6 +810,8 @@ git branch -d <branch-name>
 
 **Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session; the lock releases when the agent finishes. This coordination is harness behavior (see Claude Code's own worktree documentation), not a mechanism the conductor or methodology adds.
 
+**Temp-file ownership.** Agents that write temp files are responsible for deleting them in teardown. If a downstream phase consumes the temp files, the consuming phase deletes the originals after consumption.
+
 **Superseding an open PR's work means close + rebase, never bundle.** If your branch's work makes another open PR's commits unnecessary or subsumed, close that PR citing the superseding one and rebase your branch clean of its commits - do not merge or cherry-pick the superseded PR's commits into your own branch. A branch whose history contains another open PR's head commit is exactly the pattern an advisory review-rigor CI check flags where configured; treat the flag as confirmation to close + rebase, not to proceed.
 
 ## Context Economy
@@ -8139,7 +8141,7 @@ Choose profiling tools appropriate to the runtime:
 - **HTTP endpoints**: `wrk`, `hey`, `ab`, `autocannon`, or `hyperfine` for command-line benchmarks.
 - **Generic**: `hyperfine` for command-level benchmarking across any language.
 
-If none of these are available, write a minimal timing wrapper in `/tmp/` and run it via Bash. Do not modify files in the project tree.
+If none of these are available, write a minimal timing wrapper in `/tmp/` and run it via Bash. Do not modify files in the project tree. Delete any `/tmp/` profiling scripts you created before returning.
 
 Instrument at the boundary first (the entry point), then narrow inward to find the hotspot. Do not instrument every function - start coarse and refine.
 
@@ -8597,6 +8599,17 @@ kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
 
 The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it.
 
+**Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Delete all `/tmp/qa_*` files and `/tmp/qa_devserver.log` on every exit path **except** when the overall result is PASS. On PASS, leave `/tmp/qa_*.png` screenshots in place so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Delete `/tmp/qa_devserver.log` even on PASS - it is not consumed by Phase 8.5. Run in teardown after the browser/dev-server steps above:
+
+```bash
+if [ "$OVERALL_RESULT" != "PASS" ]; then
+  rm -f /tmp/qa_*.png 2>/dev/null || true
+fi
+rm -f /tmp/qa_devserver.log 2>/dev/null || true
+```
+
+The `|| true` guards ensure a missing file never errors the run. `OVERALL_RESULT` is the final result reported in the output (`PASS`, `FAIL`, `PARTIAL`, or `BLOCKED`).
+
 **Applying project knowledge:**
 
 If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) contains a `## Knowledge` section, read all entries before starting pre-flight. Apply them automatically:
@@ -8617,7 +8630,7 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 
 ## Workflow
 
-> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the teardown from the Dev server section (`agent-browser close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional.
+> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the teardown from the Dev server section (`agent-browser close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional. This also includes the temp-file cleanup block: delete `/tmp/qa_*` (except PASS screenshots) and `/tmp/qa_devserver.log` on every exit path.
 
 ### 1. Pre-flight
 
@@ -8857,7 +8870,7 @@ Always capture:
 - After each key interaction or state change
 - Any failure state
 
-Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
+Screenshot files remain in `/tmp/` on PASS so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Delete them on all other exit paths during teardown. Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
 
 ## Output format
 
@@ -13920,6 +13933,18 @@ Clean up temp dir:
 
 ```bash
 rm -rf "$SCREENSHOTS_SRC" 2>/dev/null || true
+```
+
+Clean up the original `/tmp/qa_*` source files that were consumed. Run this unconditionally after the copy loop and temp-dir cleanup, but only when `QA_SCREENSHOT_PATHS` is non-empty. Use the parsed paths so only copied files are deleted. Also delete `/tmp/qa_devserver.log` if it exists. Guard with `|| true` so Phase 8.5 remains soft-fail.
+
+```bash
+if [ "${#QA_SCREENSHOT_PATHS[@]}" -gt 0 ]; then
+  for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
+    SRC_PATH=$(echo "$entry" | jq -r '.path')
+    rm -f "$SRC_PATH" 2>/dev/null || true
+  done
+  rm -f /tmp/qa_devserver.log 2>/dev/null || true
+fi
 ```
 
 Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]`
