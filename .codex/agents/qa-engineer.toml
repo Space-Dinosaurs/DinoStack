@@ -111,16 +111,22 @@ kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
 
 The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it.
 
-**Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Delete all `/tmp/qa_*` files and `/tmp/qa_devserver.log` on every exit path **except** when the overall result is PASS. On PASS, leave `/tmp/qa_*.png` screenshots in place so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Delete `/tmp/qa_devserver.log` even on PASS - it is not consumed by Phase 8.5. Run in teardown after the browser/dev-server steps above:
+**Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Run this in teardown after the browser/dev-server steps above, choosing the branch that matches the result you are about to report:
 
-```bash
-if [ "$OVERALL_RESULT" != "PASS" ]; then
+- If the result you are reporting is **PASS**: do NOT delete `/tmp/qa_*.png`. Leave the screenshots in place so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Still delete the dev-server log:
+
+  ```bash
+  rm -f /tmp/qa_devserver.log 2>/dev/null || true
+  ```
+
+- For any other result (**FAIL**, **PARTIAL**, **BLOCKED**, **INCONCLUSIVE**, or error): delete both the screenshots and the dev-server log:
+
+  ```bash
   rm -f /tmp/qa_*.png 2>/dev/null || true
-fi
-rm -f /tmp/qa_devserver.log 2>/dev/null || true
-```
+  rm -f /tmp/qa_devserver.log 2>/dev/null || true
+  ```
 
-The `|| true` guards ensure a missing file never errors the run. `OVERALL_RESULT` is the final result reported in the output (`PASS`, `FAIL`, `PARTIAL`, or `BLOCKED`).
+The `|| true` guards ensure a missing file never errors the run. The agent decides which branch to take based on the top-line result it is about to report; do not rely on a shell variable.
 
 **Applying project knowledge:**
 
@@ -382,7 +388,7 @@ Always capture:
 - After each key interaction or state change
 - Any failure state
 
-Screenshot files remain in `/tmp/` on PASS so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Delete them on all other exit paths during teardown. Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
+Screenshot files remain in `/tmp/` on PASS so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Delete them on all other exit paths during teardown. **Note:** Screenshot and diff-image paths referenced in this report may be stale after teardown. On non-PASS exits, `qa-engineer` deletes `/tmp/qa_*` files as part of temp-file cleanup. The paths remain in the report for reference only. Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
 
 ## Output format
 

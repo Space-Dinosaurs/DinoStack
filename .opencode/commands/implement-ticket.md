@@ -1974,7 +1974,7 @@ Clean up temp dir:
 rm -rf "$SCREENSHOTS_SRC" 2>/dev/null || true
 ```
 
-Clean up the original `/tmp/qa_*` source files that were consumed. Run this unconditionally after the copy loop and temp-dir cleanup, but only when `QA_SCREENSHOT_PATHS` is non-empty. Use the parsed paths so only copied files are deleted. Also delete `/tmp/qa_devserver.log` if it exists. Guard with `|| true` so Phase 8.5 remains soft-fail.
+Clean up the original `/tmp/qa_*` source files that were consumed. Run this unconditionally after the copy loop and temp-dir cleanup, but only when `QA_SCREENSHOT_PATHS` is non-empty. Use the parsed paths so only copied files are deleted. Guard with `|| true` so Phase 8.5 remains soft-fail.
 
 ```bash
 if [ "${#QA_SCREENSHOT_PATHS[@]}" -gt 0 ]; then
@@ -1982,8 +1982,13 @@ if [ "${#QA_SCREENSHOT_PATHS[@]}" -gt 0 ]; then
     SRC_PATH=$(echo "$entry" | jq -r '.path')
     rm -f "$SRC_PATH" 2>/dev/null || true
   done
-  rm -f /tmp/qa_devserver.log 2>/dev/null || true
 fi
+```
+
+Also delete `/tmp/qa_devserver.log` if it exists. Run this unconditionally at the end of Phase 8.5, regardless of whether screenshots were consumed:
+
+```bash
+rm -f /tmp/qa_devserver.log 2>/dev/null || true
 ```
 
 Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]`
