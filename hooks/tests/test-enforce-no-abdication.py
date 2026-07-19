@@ -376,6 +376,82 @@ def build_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | None]]:
         None,
     ))
 
+    # --- Sentence-granularity regression (line-vs-sentence false negative) ---
+    # REGRESSION: the exact failing shape reported against the pre-fix hook.
+    # _is_abdication used to check only the final non-empty LINE for a
+    # trailing "?". A permission-seeking question followed by declarative
+    # sentences on the same line (or subsequent lines) defeated it because
+    # the last line ended in "." rather than "?".
+    trailing_declaratives_dir = os.path.join(tmp_dir, "trailing_declaratives_cwd")
+    os.makedirs(trailing_declaratives_dir, exist_ok=True)
+    make_config_file(trailing_declaratives_dir, enabled=True)
+    cases.append((
+        "REGRESSION: permission question + trailing declaratives on same line -> BLOCK",
+        make_payload(
+            trailing_declaratives_dir,
+            last_assistant_message=(
+                "Two pre-existing bugs surfaced during QA:\n"
+                "1. An operator hits an infinite redirect loop on a gated page.\n"
+                "2. App-wide WCAG AA form-hint contrast debt.\n\n"
+                "Want me to file those two as Linear tickets? Learnings captured "
+                "to memory. Awaiting the deploy confirmation."
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # Non-regression: a permission question with NO trailing text must still
+    # fire (sentence-splitting must not weaken the original detection path).
+    no_trailing_dir = os.path.join(tmp_dir, "no_trailing_cwd")
+    os.makedirs(no_trailing_dir, exist_ok=True)
+    make_config_file(no_trailing_dir, enabled=True)
+    cases.append((
+        "Permission question with no trailing text -> BLOCK (no regression)",
+        make_payload(
+            no_trailing_dir,
+            last_assistant_message="I've finished the analysis. Should I proceed with the fix?",
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # Trailing declarative text with NO permission question anywhere -> ALLOW.
+    no_permission_dir = os.path.join(tmp_dir, "no_permission_cwd")
+    os.makedirs(no_permission_dir, exist_ok=True)
+    make_config_file(no_permission_dir, enabled=True)
+    cases.append((
+        "Trailing declaratives, no permission question -> ALLOW",
+        make_payload(
+            no_permission_dir,
+            last_assistant_message=(
+                "Filed the two tickets as DS-100 and DS-101. Learnings captured "
+                "to memory. Awaiting the deploy confirmation."
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # Precision guard: a permission phrase in a non-question sentence, with an
+    # unrelated "?" appearing in a LATER sentence, must NOT fire. Same-sentence
+    # co-occurrence is required, not mere tail co-presence.
+    precision_dir = os.path.join(tmp_dir, "precision_cwd")
+    os.makedirs(precision_dir, exist_ok=True)
+    make_config_file(precision_dir, enabled=True)
+    cases.append((
+        "Precision: permission phrase and unrelated later '?' in different sentences -> ALLOW",
+        make_payload(
+            precision_dir,
+            last_assistant_message=(
+                "Should I proceed was my first instinct, but I went ahead and "
+                "shipped it myself. Did the CI run finish yet?"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
     return cases
 
 
