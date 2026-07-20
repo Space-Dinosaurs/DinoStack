@@ -66,7 +66,14 @@ Only `Edit(path)` rules are matched by Claude Code's file-permission checks -
 path-scoped `Write(path)` rules are silently ignored and trigger a startup
 warning, so the installer no longer adds them and migrates them out of
 existing `~/.claude/settings.json` files that still have them (`legacy_allow`
-in the same script).
+in the same script). The strip only runs when the bare `Write` rule is
+already present in the pre-migration config; if it is absent, the scoped
+rule is left in place. This does not change effective permissions either
+way - bare `Write` is added by the recommended-merge regardless, and the
+scoped rule is inert - it only avoids the installer editing a config a
+user may have deliberately narrowed without their input. The trade-off is
+that Claude Code's startup warning about the inert scoped rule persists
+for that edge case.
 
 ## Hooks
 

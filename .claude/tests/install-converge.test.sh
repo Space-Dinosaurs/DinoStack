@@ -29,12 +29,24 @@
 #   - Case (g): legacy path-scoped Write(<cfg>/**) / Write(<cfg>/projects/**)
 #     allow rules (ignored by Claude Code's file-permission checks, only
 #     Edit(path) rules match) are migrated out of an existing
-#     bypassPermissions settings.json; recommended Edit path rules and the
-#     bare Write/Edit tool rules are retained; the write fires even when
-#     nothing else is missing. The migration is single-sourced in the
-#     install.sh `_migrated_allow()` helper, so this case's assertions
-#     cover both the already-bypass branch and the fresh-configure branch
-#     (both call the same helper).
+#     bypassPermissions settings.json when the bare "Write" rule is already
+#     present pre-migration; recommended Edit path rules and the bare
+#     Write/Edit tool rules are retained; the write fires even when nothing
+#     else is missing. Also asserts idempotency: running install a second
+#     time against the already-migrated state reports "already configured"
+#     and does not attempt to remove legacy rules again. The migration is
+#     single-sourced in the install.sh `_migrated_allow()` helper, so this
+#     case's assertions cover both the already-bypass branch and the
+#     fresh-configure branch (both call the same helper).
+#   - Case (h): legacy path-scoped Write(<cfg>/**) allow rule is RETAINED
+#     (not stripped) when the bare "Write" rule is ABSENT pre-migration.
+#     This does not change effective permissions either way (the scoped
+#     rule is inert; bare Write is added by the recommended-merge
+#     regardless) - retaining it instead avoids the installer making a
+#     surprising-looking edit to a config a user may have deliberately
+#     narrowed, at the cost of leaving Claude Code's startup warning about
+#     the inert scoped rule in place for that edge case. The install
+#     output reports added rules, not a legacy-rule removal.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -375,13 +387,17 @@ rm -rf "$FAKE_HOME"
 
 # ---------------------------------------------------------------------------
 # Case (g): permissions migration - legacy path-scoped Write() allow rules
-#           are removed from an existing bypassPermissions settings.json;
+#           are removed from an existing bypassPermissions settings.json
+#           when the bare "Write" rule is already present pre-migration;
 #           recommended Edit path rules and bare Write/Edit are retained;
 #           the write fires even when nothing else is missing. Exercises
 #           install.sh's single-sourced `_migrated_allow()` helper, which
 #           the fresh-configure (interactive) branch also calls - that
 #           branch reads /dev/tty and cannot be exercised directly in CI,
 #           so this case is the sole coverage for both branches' migration.
+#           Also verifies idempotency: a second install run against the
+#           now-migrated state reports "already configured" and does not
+#           attempt to remove legacy rules a second time.
 # ---------------------------------------------------------------------------
 
 FAKE_HOME="$(mktemp -d)"
@@ -446,6 +462,113 @@ if grep -q "removed 2 legacy Write rules" "$FAKE_HOME/.install_out" 2>/dev/null;
   _pass "case (g): install output reports legacy-rule removal"
 else
   _fail "case (g): install output did not report legacy-rule removal"
+fi
+
+# Idempotency: running install a second time against the now-migrated state
+# must NOT report removing legacy rules again (there are none left to
+# remove) and must report the already-configured no-op path.
+_run_install "$FAKE_HOME" || true
+
+result_allow_second="$(python3 -c "
+import json
+with open('$FAKE_HOME/.claude/settings.json') as f:
+    print(json.dumps(json.load(f)['permissions']['allow']))
+")"
+
+if [[ "$result_allow_second" != *"Write(~/.claude/**)"* ]] && [[ "$result_allow_second" != *"Write(~/.claude/projects/**)"* ]]; then
+  _pass "case (g): idempotent second run keeps legacy rules absent"
+else
+  _fail "case (g): idempotent second run reintroduced legacy rules: $result_allow_second"
+fi
+
+if grep -q "already configured" "$FAKE_HOME/.install_out" 2>/dev/null; then
+  _pass "case (g): idempotent second run reports already configured"
+else
+  _fail "case (g): idempotent second run did not report already configured"
+fi
+
+if grep -q "legacy Write rules" "$FAKE_HOME/.install_out" 2>/dev/null; then
+  _fail "case (g): idempotent second run should not mention legacy Write rules again"
+else
+  _pass "case (g): idempotent second run does not re-report legacy-rule removal"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (h): permissions migration - legacy path-scoped Write() allow rule is
+#           RETAINED when the bare "Write" rule is ABSENT pre-migration.
+#           This does not change effective permissions either way (the
+#           scoped rule is inert; the bare "Write" rule IS added by the
+#           recommended-merge regardless) - retaining it instead avoids the
+#           installer making a surprising-looking edit to a config a user
+#           may have deliberately narrowed. The install output reports
+#           added rules, not a legacy-rule removal.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude"
+python3 - "$FAKE_HOME/.claude/settings.json" <<'PYEOF'
+import json, sys
+
+settings = {
+    "permissions": {
+        "defaultMode": "bypassPermissions",
+        "allow": [
+            "Bash(*)",
+            "Write(~/.claude/**)",
+            "Edit",
+            "Edit(~/.claude/**)",
+            "Edit(~/.claude/projects/**)"
+        ],
+        "deny": [
+            "Bash(git push --force*)",
+            "Bash(rm -rf*)",
+            "Bash(git reset --hard*)",
+            "Bash(git clean -f*)",
+            "Bash(sudo rm*)",
+            "Bash(dd if=*)",
+            "Bash(shutdown*)",
+            "Bash(reboot*)"
+        ],
+        "additionalDirectories": ["~/.claude/projects"]
+    }
+}
+with open(sys.argv[1], "w") as f:
+    json.dump(settings, f, indent=2)
+    f.write("\n")
+PYEOF
+
+_run_install "$FAKE_HOME" || true
+
+result_allow_h="$(python3 -c "
+import json
+with open('$FAKE_HOME/.claude/settings.json') as f:
+    print(json.dumps(json.load(f)['permissions']['allow']))
+")"
+
+if [[ "$result_allow_h" == *'"Write(~/.claude/**)"'* ]]; then
+  _pass "case (h): legacy scoped Write() rule retained when bare Write was absent pre-migration"
+else
+  _fail "case (h): legacy scoped Write() rule was stripped despite bare Write being absent pre-migration: $result_allow_h"
+fi
+
+if [[ "$result_allow_h" == *'"Write"'* ]]; then
+  _pass "case (h): bare Write rule added by recommended-merge"
+else
+  _fail "case (h): bare Write rule was not added: $result_allow_h"
+fi
+
+if grep -q "legacy Write rules" "$FAKE_HOME/.install_out" 2>/dev/null; then
+  _fail "case (h): install output should not report removing legacy Write rules"
+else
+  _pass "case (h): install output does not report legacy-rule removal"
+fi
+
+if grep -q "added" "$FAKE_HOME/.install_out" 2>/dev/null; then
+  _pass "case (h): install output reports added rules"
+else
+  _fail "case (h): install output did not report added rules"
 fi
 
 rm -rf "$FAKE_HOME"

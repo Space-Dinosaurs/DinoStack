@@ -1245,11 +1245,30 @@ recommended_deny = [
 ]
 
 def _migrated_allow(existing_allow):
-    """Merge recommended allow rules in and strip legacy path-scoped
-    Write() rules out. Single-sourced so both the already-bypass and the
+    """Merge recommended allow rules in and, conservatively, strip legacy
+    path-scoped Write() rules out.
+
+    Bare "Write" is unioned in from recommended_allow on every path
+    regardless of this gate - the installer always grants it. Path-scoped
+    Write(path) rules are ignored by Claude Code's file-permission checks
+    (inert either way), so keeping or removing them changes no effective
+    permission. What the gate actually controls is only whether the
+    installer edits the redundant scoped rule out of the config text: the
+    strip fires only when the bare "Write" rule is already present in
+    existing_allow (i.e. present in the user's PRE-migration config). This
+    avoids the installer making a surprising-looking edit - replacing a
+    scoped rule with a broad one in the config text - to a config a user
+    may have deliberately narrowed, without their input. Trade-off: for a
+    user who removed bare Write but kept the scoped rule, the scoped rule
+    (and Claude Code's startup warning about it) is left in place rather
+    than cleaned up. Single-sourced so both the already-bypass and the
     fresh-configure branches apply the identical migration (regression
-    case (g) in install-converge.test.sh covers this helper for both)."""
-    return list((existing_allow | set(recommended_allow)) - set(legacy_allow))
+    cases (g) and (h) in install-converge.test.sh cover both branches of
+    this gate)."""
+    merged = existing_allow | set(recommended_allow)
+    if "Write" in existing_allow:
+        merged -= set(legacy_allow)
+    return list(merged)
 
 already_bypass = perms.get("defaultMode") == "bypassPermissions"
 
@@ -1260,7 +1279,11 @@ if already_bypass:
     missing_allow = set(recommended_allow) - existing_allow
     missing_deny = set(recommended_deny) - existing_deny
     missing_dir = f"{_cfg_label}/projects" not in perms.get("additionalDirectories", [])
-    stale_allow = existing_allow & set(legacy_allow)
+    # Mirror _migrated_allow()'s gate: only count legacy rules as "stale" (and
+    # report them as removed) when the bare "Write" rule is already present
+    # pre-migration - otherwise _migrated_allow() will not strip them, and
+    # reporting a removal here would be inaccurate.
+    stale_allow = (existing_allow & set(legacy_allow)) if "Write" in existing_allow else set()
 
     if missing_allow or missing_deny or missing_dir or stale_allow:
         perms["allow"] = _migrated_allow(existing_allow)
