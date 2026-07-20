@@ -334,16 +334,16 @@ Close the session cleanly so the Stop hook can finish writing <code>.agentic/con
 
 You can run **multiple sessions in parallel** - open separate terminals, each with `claude` in the same project directory. They share the same persistent memory and AGENTS.md.
 
-When you `/wrap` each session, they merge into a shared `.agentic/context.md` using a **rolling window of five slots** (Session A through E):
+When you `/wrap` each session, they merge into a shared `.agentic/context.md` using a **rolling window of ten slots** (Session A through J):
 
 - First wrap writes Session A. Second wrap labels the existing as A, adds B.
-- At five sessions, the oldest (A) drops off and everything shifts down.
+- At ten sessions, the oldest (A) drops off and everything shifts down.
 - Non-focus sections (next steps, file paths, gotchas) merge across all sessions - duplicates removed.
 
-This means you can work on five parallel streams in a project and `/wrap` each one. The next session that starts sees a merged view of all recent work.
+This means you can work on ten parallel streams in a project and `/wrap` each one. The next session that starts sees a merged view of all recent work.
 
 <div class="callout">
-The rolling window keeps <code>.agentic/context.md</code> bounded. Five slots is enough to capture active workstreams without drowning the next session in stale history.
+The rolling window keeps <code>.agentic/context.md</code> bounded. Ten slots capture even heavily parallel workflows while keeping the file bounded.
 </div>
 
 ---

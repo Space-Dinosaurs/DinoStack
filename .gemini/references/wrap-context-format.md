@@ -54,7 +54,17 @@ The merged write always begins with the pinned header prefix above (the matcher 
 
 First, check how many session labels are already present in the existing file's Recent Focus section.
 
-- **Five labels present (`[Session A]` through `[Session E]`)**: apply a rolling-window merge. Discard the `[Session A]` content from Recent Focus, relabel `[Session B]` as `[Session A]`, `[Session C]` as `[Session B]`, `[Session D]` as `[Session C]`, `[Session E]` as `[Session D]`, and use the new draft as `[Session E]`. For all other sections (Current Task / Next Steps, Key File Paths, Watch Out For, Tools Used), treat the full existing content as the prior session and apply the standard merge rules below.
+- **Ten labels present (`[Session A]` through `[Session J]`)**: apply a rolling-window merge. Discard the `[Session A]` content from Recent Focus, relabel `[Session B]` as `[Session A]`, `[Session C]` as `[Session B]`, `[Session D]` as `[Session C]`, `[Session E]` as `[Session D]`, `[Session F]` as `[Session E]`, `[Session G]` as `[Session F]`, `[Session H]` as `[Session G]`, `[Session I]` as `[Session H]`, `[Session J]` as `[Session I]`, and use the new draft as `[Session J]`. For all other sections (Current Task / Next Steps, Key File Paths, Watch Out For, Tools Used), treat the full existing content as the prior session and apply the standard merge rules below.
+
+- **Nine labels present (`[Session A]` through `[Session I]`)**: label the new draft entry `[Session J]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Eight labels present (`[Session A]` through `[Session H]`)**: label the new draft entry `[Session I]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Seven labels present (`[Session A]` through `[Session G]`)**: label the new draft entry `[Session H]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Six labels present (`[Session A]` through `[Session F]`)**: label the new draft entry `[Session G]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Five labels present (`[Session A]` through `[Session E]`)**: label the new draft entry `[Session F]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
 
 - **Four labels present (`[Session A]` through `[Session D]`)**: label the new draft entry `[Session E]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
 

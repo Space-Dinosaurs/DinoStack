@@ -1843,7 +1843,7 @@
         <h4>Persistence Hierarchy</h4>
         <ul>
           <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. Stable architecture, key paths, and preferences with rationale.</li>
-          <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 3 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
+          <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 10 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
           <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
