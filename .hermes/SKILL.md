@@ -250,9 +250,9 @@ Upstream deps: METHODOLOGY.md §Delegation (architect plan + Skeptic gate, Open
                METHODOLOGY.md §Cross-session loop resume (loop-state.json
                schema for brief_path / plan_path / promotion_tier);
                content/rules/module-manifest.md (manifest header contract);
-               content/agents/architect.md, content/agents/orchestration-planner.md
-               (the acceptance_criteria array field from orchestration-planner
-               JSONL output is consumed by the cross-artifact alignment step).
+               content/references/planning-artifacts.md (trigger table,
+               gate-semantics authoring sequences, and Brief/Plan templates
+               that this section's body defers to for authoring detail).
 
 Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       brief_path / plan_path); METHODOLOGY.md §Task
@@ -261,103 +261,32 @@ Downstream consumers: METHODOLOGY.md §Delegation (Worker preamble references
                       loop resume (records brief_path / plan_path /
                       promotion_tier); METHODOLOGY.md §Risk Classification
                       (Declaration format optionally includes Brief / Plan);
-                      METHODOLOGY.md §Protocol Details (cross-link entry);
-                      /implement-ticket command (Gate semantics step ordering
-                      is referenced by Phase 3b cross-artifact alignment check).
+                      METHODOLOGY.md §Protocol Details (cross-link entry).
 
 Failure modes: Prose; does not execute. Drift between this section and the
                cross-references above is a Major Skeptic finding (stale
-               manifest or stale cross-reference). Stale step numbering in
-               Gate semantics causes misrouted cross-references across phases;
-               update inline step references whenever steps are renumbered.
-               Operator failure mode this section exists to prevent: multi-unit
-               Elevated work proceeding without a committed problem statement,
-               success criteria, non-goals, and verification plan.
+               manifest or stale cross-reference). Operator failure mode this
+               section exists to prevent: multi-unit Elevated work proceeding
+               without a committed problem statement, success criteria,
+               non-goals, and verification plan.
 
 Performance: Standard.
 -->
 
 ## Planning Artifacts
 
-The promotion gate that sits between orchestration-planner output and the first engineer spawn. The architect produces "what to build", the orchestration-planner produces "how to decompose it"; this section produces "what problem are we actually solving and how will we know it is solved" - a commitment that survives multi-unit fan-out and cross-session resume.
-
-### Ordering
-
-The promotion check is downstream of architect+planner, upstream of engineer:
-
-```
-Risk classified Elevated
-  -> architect (existing behavior; investigator-before-architect rules apply)
-  -> Skeptic on architect plan (METHODOLOGY.md §Delegation)
-  -> Open Questions on architect plan resolved (METHODOLOGY.md §Delegation)
-  -> orchestration-planner (METHODOLOGY.md §Task Decomposition)
-  -> [PROMOTION CHECK] count Elevated-or-above units, check track span, check session span
-       -> 0-1 Elevated units: no Brief required (current behavior)
-       -> 2-5 Elevated units: author Brief, Skeptic the Brief, then engineer
-       -> 6+ Elevated units OR cross-track OR multi-session OR auto-promote-at-3rd-resume: assemble Plan, Skeptic the Plan, then engineer
-  -> engineer(s) spawned with brief_path / plan_path in execution contract
-```
-
-The Brief is authored after the planner has returned a unit count, so "do we need a Brief?" is a mechanical check, not a guess. The architect plan and planner output are inputs the conductor uses to draft the Brief - the Brief is not asking the conductor to predict what will exist; it is asking the conductor to commit to the framing now that the shape is known. This mechanical restatement is a comprehension-artifact step: the act of restating the architect and planner output forces the conductor to demonstrate it understood both. The Skeptic reviewing the Brief asks a different question than the Skeptic that reviewed the architect plan - not "is the design sound?" but "did the conductor actually understand what was produced upstream, and is the verification real?" This catches implicit architect assumptions that do not survive being stated plainly, planner units that do not compose coherently when described together, and verification criteria that seemed obvious until someone had to write them down.
-
-### Trigger table
-
-All triggers are mechanical. Operator judgment is not a field. Triggers are evaluated after orchestration-planner returns.
-
-| Condition | Artifact required |
-|---|---|
-| Risk = Trivial or Low | None |
-| Risk = Elevated AND orchestration-planner returns 0-1 Elevated-or-above units (or planner skipped per the existing single-unit exception) | None (architect plan only - current behavior) |
-| Risk = Elevated AND orchestration-planner returns 2-5 Elevated-or-above units | Brief + architect plan |
-| Risk = Elevated AND orchestration-planner returns 6+ Elevated-or-above units | Plan (Brief + architect + orchestration JSONL + risk register + rollback + verification gate) |
-| Any unit's `output_paths` spans 2+ tracks (see "Track" definition below) | Plan |
-| Work spans 2+ sessions (declared at planning time, OR auto-promoted when `.agentic/loop-state.json` resumes a Brief-tier task into a third session) | Plan |
-| Cross-track OR triggers an "Architecture decision constraining future choices" risk signal | Plan + ADR |
-
-**Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
-
-**"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
-
-- Worked example A: a repo with `agentic-engineering/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `agentic-engineering/...` is cross-track and triggers Plan + ADR.
-- Worked example B: a change touching `helios/factory/foo.ts` and `helios/ui/bar.tsx` is single-track (`helios`); the nested `factory/AGENTS.md` does not split the track.
-
-**Other notes:**
-- Unit count comes from the orchestration-planner's JSONL output, counted by `unit_slug` entries with risk >= Elevated.
-- Track span is computed by mapping each `output_paths` entry to its depth-1 ancestor and checking for `AGENTS.md` at that depth.
-- Session span is initially declared, then auto-promoted by the resume hook when the threshold is hit (see Promotion mechanics below).
-- A task can be promoted upward mid-work. It cannot be demoted.
-
-### Gate semantics
-
-**Authoring sequence (Brief tier):**
-1. Architect runs (existing behavior).
-2. Skeptic on architect plan.
-3. Open Questions on architect plan resolved.
-4. Orchestration-planner runs.
-5. Promotion check against the trigger table.
-6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
-7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements — does not replace — the adversarial Skeptic-on-Brief.
-8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
-9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
-
-**Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
-- Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
-- A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries).
-- Workers spawn only after assembled-Plan sign-off, with both `brief_path` and `plan_path` in their execution contract.
-
-**ADR tier:** ADR is authored alongside the Brief, not after, because the architectural decision shapes the Brief's constraints. ADR review follows the project's existing ADR process; if none exists, the ADR goes through the same "Document synthesis, architecture, and planning" Skeptic review as the Brief.
+The promotion gate that sits between orchestration-planner output and the first engineer spawn: 0-1 Elevated units -> no Brief; 2-5 -> Brief; 6+ or cross-track or multi-session -> Plan. See `content/references/planning-artifacts.md` for the trigger table, track definition, gate-semantics authoring sequences, Brief template, Plan-tier directory layout, promotion mechanics, and `qa_default_skip` definition.
 
 **What blocks engineer spawn:**
 - Missing required artifact at any tier.
 - Brief or Plan Skeptic finds Critical or Major findings: same loop semantics as architect-plan Skeptic (re-route limits apply, max 3 fix passes).
-- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation). This section explicitly extends the existing rule rather than restating it. A non-empty "Deferred defaults" section does not trigger this gate.
+- Brief or Plan Open Questions section non-empty: same hard gate as architect Open Questions (METHODOLOGY.md §Delegation).
 - Verification gate field set to "cannot specify": blocks Skeptic sign-off until resolved.
 - Cross-artifact alignment check has an unresolved UNCOVERED success criterion: blocks the Skeptic-on-Brief from running until resolved.
 
 **What does not block:**
-- Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact. This preserves current behavior for the dominant Elevated case (single-file behavioral edits, single new file, single-config changes).
-
-For the Brief template, Plan-tier directory layout, verification-gate template, promotion mechanics (mid-flight escalation, auto-promotion at 3rd resume), product-intent layer rules, and the canonical `qa_default_skip` definition, see `content/references/planning-artifacts.md`. Outcome rubric: operator-confirmed pass/fail lines, each tagged `verification_type: deterministic | judgment`; required for Elevated; full schema and field guidance in `content/references/planning-artifacts.md`.
+- Risk class = Elevated single-unit: no Brief required. The architect plan is the artifact.
+- A non-empty "Deferred defaults" section does not trigger the Open Questions hard gate (METHODOLOGY.md §Delegation).
 
 ## Risk Classification
 
@@ -479,67 +408,9 @@ For default tiers by agent role see the **Role-default tier table** above; for u
 
 ## QA Gate
 
-**Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (Brief/architect plan present, `qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. This eliminates the sequential Skeptic-then-QA delay for UI-visible changes and aligns with the parallel-by-default philosophy.
+**QA fires for every Elevated unit unless `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`.** The rationale is logged in the Brief / architect plan. A project having no `qa.md` is NOT a reason to skip QA. The `qa_default_skip` key in `.agentic/config.json` is reserved and inert (canonical definition in `content/references/planning-artifacts.md`).
 
-For changes whose `qa_criteria` does not match the concurrent path (or where the diff is unknown at planning time), the post-Skeptic QA flow described below remains in effect.
-
-**Pre-spawn trigger check:** Before spawning Workers, the conductor inspects the unit's `qa_criteria` (from the Brief or, if no Brief, from the architect plan). If `qa_criteria` is present AND `qa_skip == null` AND `scenarios[]` is non-empty, mark the unit for concurrent QA at review time. The architect's `qa_criteria` is the authoritative trigger - the qa.md trigger patterns are a SUPPLEMENTAL match-set: when both `qa_criteria` and a qa.md trigger match exist, qa-engineer receives both inputs (the scenarios as the test plan, and any matched qa.md project-knowledge entries as supplemental context). qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`. If `qa_criteria` is absent at planning time and the diff is unknown, defer the check to post-Worker (standard flow).
-
-**When QA is skipped:**
-- The change is Trivial risk (direct action; existing carve-out preserved).
-- `qa_skip` is one of the 5 valid enum values: `pure-backend-library`, `config-only`, `type-only-refactor`, `dep-bump-no-runtime-change`, `docs-only`. The rationale is logged in the Brief / architect plan; QA does not fire.
-
-Note: a project having no qa.md is NOT a reason to skip QA. The default is QA fires for every Elevated unit unless the architect explicitly committed to one of the 5 `qa_skip` enum values. qa.md is supplemental project-knowledge that qa-engineer reads for context (dev server config, project quirks); its absence does not change the QA gate decision. The `qa_default_skip` key in `.agentic/config.json` is a reserved, documented-but-inert schema key (canonical definition in §Planning Artifacts); it does NOT override or weaken this invariant.
-
-**QA gate flow (UI-visible - concurrent):**
-1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
-2. If yes: spawn Skeptic AND `qa-engineer` in a single message (parallel, background). Both receive the diff and the unit's `qa_criteria`. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
-3. Wait for both to return.
-4. If both pass: unit is complete.
-5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
-6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`.
-
-**QA gate flow (non-UI - post-sign-off):**
-1. Skeptic grants sign-off (minor fixes applied if any)
-2. Conductor inspects the unit's `qa_criteria` (from Brief or architect plan).
-3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
-4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
-5. On PASS: unit is complete.
-6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `/implement-ticket` Phase 6b §"QA regressions curator").
-
-**Phase breadcrumb:** `[phase: qa-review]`
-
-### Per-ticket, in-flow (anti-pattern: end-of-batch QA sweep)
-
-**Phase 6b is a per-ticket, in-flow gate. Conductor MUST NOT aggregate Phase 6b across multiple tickets to run as a final batch step.** Each ticket's QA fires inside that ticket's own loop, before Phase 7. If runtime QA cannot run for ticket N at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for ticket N specifically, not deferred work to triage at batch end.
-
-When QA cannot run for ticket N, set the unit's QA result to `qa_blocked` and surface the blocker to the operator with the specific cause and the three options:
-
-- **Provide the missing input** (env file, credentials, working preview URL) and re-run Phase 6b.
-- **Accept INCONCLUSIVE** with `qa_unverified=true` recorded on the unit (see classification rules below). The PR can still merge, but the ticket carries a known unverified-runtime flag.
-- **Abandon the ticket** - close the PR or revert.
-
-Per-ticket QA scales via parallel-by-worktree (see below) - that is the mechanism for "many tickets in flight without a serial QA queue", not batching.
-
-### Conductor preflight before any qa-engineer spawn
-
-Before spawning `qa-engineer` for any unit, the conductor verifies the project env file exists at the path that the dev server will load. The exact path and pull command come from the resolved qa.md (`env_file:` and `env_pull_command:` fields if present) or from project config (e.g. an `env:pull:<app>` script in `package.json`). If the env file is missing, do NOT spawn qa-engineer. Instead surface the verbatim message to the operator:
-
-```
-QA env preflight FAILED: <env_file> is missing.
-Pull it with: <env_pull_command>
-Then re-run Phase 6b for this ticket.
-```
-
-Wait for the operator to provide the env file (or accept INCONCLUSIVE per the classification rules below) before proceeding. Spawning qa-engineer just to discover the env is missing wastes a worker turn - the dev server will fail to boot and the qa-engineer will return BLOCKED with no useful signal.
-
-### INCONCLUSIVE classification (no static-only auto-pass)
-
-Static-only QA on an Elevated UI-visible change is approximately zero signal. State hooks, prop-sync bugs, missing render branches, and conditional rendering bugs are invisible to source review. Source verification of an Elevated UI-visible criterion is NOT progress on that criterion.
-
-When the qa-engineer cannot reach a runtime path - preview deploy is blocked AND local-env runtime is unavailable - the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor surfaces this state to the operator with the same three options as `qa_blocked` above (provide env / accept the unverified state / abandon). The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge.
-
-For parallel-by-worktree multi-PR fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern (curl-until loop, boot command resolution order), see `content/references/qa-gate.md`.
+**Concurrent QA + Skeptic for UI-visible changes.** When a unit's `qa_criteria` indicates QA fires (`qa_skip == null`, scenarios non-empty), spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. For non-UI or deferred-QA paths, the post-Skeptic QA flow applies. See `content/references/qa-gate.md` for the full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, and the dev-server boot pattern.
 
 ### Diff-read rule and review ordering
 
@@ -610,7 +481,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
-**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
+**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
 
 **Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
 
@@ -624,7 +495,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 Read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the sentinel write contract, TTY/QUIET gate, and `agentic-migrate` flow.
 
 **Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
-See `content/sections/03-planning-artifacts.md` for the trigger table, ordering, and gate semantics. Templates (Brief, Plan-tier directory, verification-gate), promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
+See `content/sections/03-planning-artifacts.md` for the blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
 
 **Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules:
 Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, and §Digest-Return Discipline.
@@ -669,7 +540,7 @@ Read `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligat
 See `content/sections/06-capability-preflight.md` for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
 
 **QA gate** - when Skeptic sign-off is granted on a UI-visible change:
-See `content/sections/05-qa-gate.md` for the concurrent-vs-sequential flow, when-QA-skipped enums, conductor preflight, and INCONCLUSIVE classification. Parallel-by-worktree fan-out commands, architect-plan-driven scenarios deep prose, and the dev-server boot pattern live in `content/references/qa-gate.md`.
+See `content/sections/05-qa-gate.md` for the QA-fires invariant, skip enums, diff-read rule, and re-route limits. Full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, and the dev-server boot pattern live in `content/references/qa-gate.md`.
 
 **Events log schema** - full V1 telemetry event-type field shapes and operational notes:
 Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.)
@@ -939,6 +810,10 @@ git branch -d <branch-name>
 
 **Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session; the lock releases when the agent finishes. This coordination is harness behavior (see Claude Code's own worktree documentation), not a mechanism the conductor or methodology adds.
 
+**Temp-file ownership.** Agents that write temp files are responsible for deleting them in teardown. If a downstream phase consumes the temp files, the consuming phase deletes the originals after consumption.
+
+**Superseding an open PR's work means close + rebase, never bundle.** If your branch's work makes another open PR's commits unnecessary or subsumed, close that PR citing the superseding one and rebase your branch clean of its commits - do not merge or cherry-pick the superseded PR's commits into your own branch. A branch whose history contains another open PR's head commit is exactly the pattern an advisory review-rigor CI check flags where configured; treat the flag as confirmation to close + rebase, not to proceed.
+
 ## Context Economy
 
 Read `content/references/conventions-detail.md` §Context Economy for context-window discipline rules (no duplicate file contents, minimal diffs, no verbatim tool output, structured blocks over prose) and multi-developer coordination guidance.
@@ -1193,7 +1068,7 @@ Use `orchestration-planner` when the right agent combination is not obvious, whe
 - Skip when a shallow CVE check as part of a security audit is sufficient - the `security-auditor` covers that path
 
 **Use `qa-engineer` when:**
-- The diff matches QA trigger patterns (UI, frontend routes, visible behavior) - spawn IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. See `content/sections/05-qa-gate.md` for the full concurrent flow.
+- The diff matches QA trigger patterns (UI, frontend routes, visible behavior) - spawn IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent flow.
 - For non-UI changes: Skeptic has signed off AND the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff.
 - User explicitly asks to verify, test, or QA a change ("run QA", "check the feature works", "verify in the browser", "does it work")
 - Do NOT use when: no qa.md exists at either resolver path, the change is backend-only (no matching patterns), or the change is Low risk
@@ -1286,8 +1161,8 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/12-protocol-details.md (Protocol Details entry);
             content/agents/qa-engineer.md (populated capabilities block).
 
-Upstream deps: content/sections/05-qa-gate.md (preflight runs before every
-               Agent spawn, after QA gate decision, before worker boot);
+Upstream deps: content/sections/05-qa-gate.md (QA gate invariant; preflight
+               runs before every agent spawn, after QA gate decision, before worker boot);
                .agentic/config.json (capability_preflight_mode key);
                .agentic/.capability-cache.json (runtime hit cache, TTL 30 min).
 
@@ -3298,17 +3173,19 @@ The rules in `content/rules/conventions.md` (Git Workflow) address one developer
 <!--
 Purpose: Full reference for planning-artifact templates, directory layouts, and
          promotion mechanics extracted from METHODOLOGY.md §Planning Artifacts.
-         Contains the Brief template (including outcome_rubric field), Plan-tier
+         Contains ordering, trigger table, gate-semantics authoring sequences,
+         the Brief template (including outcome_rubric field), Plan-tier
          directory layout, verification-gate template (including rubric-resolved
          subsection), promotion mechanics, product-intent layer rules, and the
          canonical qa_default_skip definition.
 
 Public API: Read-only reference document. Cross-referenced from:
-            content/sections/03-planning-artifacts.md (Gate semantics pointer),
+            content/sections/03-planning-artifacts.md (pointer),
             content/sections/12-protocol-details.md (Protocol Details entry).
 
 Upstream deps: content/sections/03-planning-artifacts.md (parent section;
-               read that section first for triggers and ordering);
+               read that section first for the promotion-threshold summary
+               and blocking/non-blocking rules);
                content/rules/module-manifest.md (manifest header contract);
                content/rules/conventions.md §Project Overview Layer.
 
@@ -3321,15 +3198,84 @@ Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
 
 Failure modes: Prose; does not execute. Drift between this file and the parent
                section (03-planning-artifacts.md) is a Major Skeptic finding.
-               Stale field guidance misleads Brief authors; keep in sync with
-               any changes to the Brief template fields.
+               Stale step numbering in Gate semantics causes misrouted
+               cross-references across phases; update inline step references
+               whenever steps are renumbered. Stale field guidance misleads
+               Brief authors; keep in sync with any changes to the Brief
+               template fields.
 
 Performance: Standard.
 -->
 
-> Parent section: METHODOLOGY.md §Planning Artifacts. Read that section first for triggers and ordering.
+> Parent section: METHODOLOGY.md §Planning Artifacts.
 
 # Planning Artifacts - Full Reference
+
+## Ordering
+
+The promotion check is downstream of architect+planner, upstream of engineer:
+
+```
+Risk classified Elevated
+  -> architect (existing behavior; investigator-before-architect rules apply)
+  -> Skeptic on architect plan (METHODOLOGY.md §Delegation)
+  -> Open Questions on architect plan resolved (METHODOLOGY.md §Delegation)
+  -> orchestration-planner (METHODOLOGY.md §Task Decomposition)
+  -> [PROMOTION CHECK] count Elevated-or-above units, check track span, check session span
+       -> 0-1 Elevated units: no Brief required (current behavior)
+       -> 2-5 Elevated units: author Brief, Skeptic the Brief, then engineer
+       -> 6+ Elevated units OR cross-track OR multi-session OR auto-promote-at-3rd-resume: assemble Plan, Skeptic the Plan, then engineer
+  -> engineer(s) spawned with brief_path / plan_path in execution contract
+```
+
+The Brief is authored after the planner has returned a unit count, so "do we need a Brief?" is a mechanical check, not a guess. The architect plan and planner output are inputs the conductor uses to draft the Brief - the Brief is not asking the conductor to predict what will exist; it is asking the conductor to commit to the framing now that the shape is known. This mechanical restatement is a comprehension-artifact step: the act of restating the architect and planner output forces the conductor to demonstrate it understood both. The Skeptic reviewing the Brief asks a different question than the Skeptic that reviewed the architect plan - not "is the design sound?" but "did the conductor actually understand what was produced upstream, and is the verification real?" This catches implicit architect assumptions that do not survive being stated plainly, planner units that do not compose coherently when described together, and verification criteria that seemed obvious until someone had to write them down.
+
+## Trigger table
+
+All triggers are mechanical. Operator judgment is not a field. Triggers are evaluated after orchestration-planner returns.
+
+| Condition | Artifact required |
+|---|---|
+| Risk = Trivial or Low | None |
+| Risk = Elevated AND orchestration-planner returns 0-1 Elevated-or-above units (or planner skipped per the existing single-unit exception) | None (architect plan only - current behavior) |
+| Risk = Elevated AND orchestration-planner returns 2-5 Elevated-or-above units | Brief + architect plan |
+| Risk = Elevated AND orchestration-planner returns 6+ Elevated-or-above units | Plan (Brief + architect + orchestration JSONL + risk register + rollback + verification gate) |
+| Any unit's `output_paths` spans 2+ tracks (see "Track" definition below) | Plan |
+| Work spans 2+ sessions (declared at planning time, OR auto-promoted when `.agentic/loop-state.json` resumes a Brief-tier task into a third session) | Plan |
+| Cross-track OR triggers an "Architecture decision constraining future choices" risk signal | Plan + ADR |
+
+**Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
+
+**"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
+
+- Worked example A: a repo with `agentic-engineering/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `agentic-engineering/...` is cross-track and triggers Plan + ADR.
+- Worked example B: a change touching `helios/factory/foo.ts` and `helios/ui/bar.tsx` is single-track (`helios`); the nested `factory/AGENTS.md` does not split the track.
+
+**Other notes:**
+- Unit count comes from the orchestration-planner's JSONL output, counted by `unit_slug` entries with risk >= Elevated.
+- Track span is computed by mapping each `output_paths` entry to its depth-1 ancestor and checking for `AGENTS.md` at that depth.
+- Session span is initially declared, then auto-promoted by the resume hook when the threshold is hit (see Promotion mechanics below).
+- A task can be promoted upward mid-work. It cannot be demoted.
+
+## Gate semantics
+
+**Authoring sequence (Brief tier):**
+1. Architect runs (existing behavior).
+2. Skeptic on architect plan.
+3. Open Questions on architect plan resolved.
+4. Orchestration-planner runs.
+5. Promotion check against the trigger table.
+6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
+7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements - does not replace - the adversarial Skeptic-on-Brief.
+8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
+9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
+
+**Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
+- Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
+- A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries).
+- Workers spawn only after assembled-Plan sign-off, with both `brief_path` and `plan_path` in their execution contract.
+
+**ADR tier:** ADR is authored alongside the Brief, not after, because the architectural decision shapes the Brief's constraints. ADR review follows the project's existing ADR process; if none exists, the ADR goes through the same "Document synthesis, architecture, and planning" Skeptic review as the Brief.
 
 ## Brief template
 
@@ -3474,17 +3420,19 @@ The key is reserved so projects and tooling can rely on a stable schema; any fut
 
 <!--
 Purpose: Full reference for QA gate operational details extracted from
-         METHODOLOGY.md §QA Gate. Contains parallel-by-worktree fan-out
-         commands, architect-plan-driven scenarios deep prose, and the
-         dev-server boot pattern with curl-until loop.
+         METHODOLOGY.md §QA Gate. Contains step-by-step gate flows
+         (concurrent UI-visible and post-sign-off), per-ticket in-flow rules,
+         conductor env preflight, INCONCLUSIVE classification,
+         parallel-by-worktree fan-out commands, architect-plan-driven
+         scenarios deep prose, and the dev-server boot pattern.
 
 Public API: Read-only reference document. Cross-referenced from:
-            content/sections/05-qa-gate.md (pointer before Re-route limits),
+            content/sections/05-qa-gate.md (pointer),
             content/sections/12-protocol-details.md (QA gate Protocol Details entry).
 
 Upstream deps: content/sections/05-qa-gate.md (parent section; read that
-               section first for the concurrent-vs-sequential flow, skip enums,
-               conductor preflight, and INCONCLUSIVE classification);
+               section first for the QA-fires invariant, skip enums,
+               diff-read rule, and re-route limits);
                content/agents/qa-engineer.md (track-scoped qa.md resolution).
 
 Downstream consumers: qa-engineer spawns (boot pattern, fan-out commands);
@@ -3498,9 +3446,61 @@ Failure modes: Prose; does not execute. The curl-until loop is the canonical
 Performance: Standard.
 -->
 
-> Parent section: METHODOLOGY.md §QA Gate. Read that section first for the concurrent-vs-sequential flow, skip enums, conductor preflight, and INCONCLUSIVE classification.
+> Parent section: METHODOLOGY.md §QA Gate. Read that section first for the QA-fires invariant, skip enums, diff-read rule, and re-route limits.
 
 # QA Gate - Full Reference
+
+## QA gate flow (UI-visible - concurrent)
+
+**Pre-spawn trigger check:** Before spawning Workers, the conductor inspects the unit's `qa_criteria` (from the Brief or, if no Brief, from the architect plan). If `qa_criteria` is present AND `qa_skip == null` AND `scenarios[]` is non-empty, mark the unit for concurrent QA at review time. The architect's `qa_criteria` is the authoritative trigger - the qa.md trigger patterns are a SUPPLEMENTAL match-set: when both `qa_criteria` and a qa.md trigger match exist, qa-engineer receives both inputs (the scenarios as the test plan, and any matched qa.md project-knowledge entries as supplemental context). qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`. If `qa_criteria` is absent at planning time and the diff is unknown, defer the check to post-Worker (standard flow).
+
+1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
+2. If yes: spawn Skeptic AND `qa-engineer` in a single message (parallel, background). Both receive the diff and the unit's `qa_criteria`. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
+3. Wait for both to return.
+4. If both pass: unit is complete.
+5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
+6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`.
+
+**Phase breadcrumb:** `[phase: qa-review]`
+
+## QA gate flow (non-UI - post-sign-off)
+
+1. Skeptic grants sign-off (minor fixes applied if any)
+2. Conductor inspects the unit's `qa_criteria` (from Brief or architect plan).
+3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
+4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
+5. On PASS: unit is complete.
+6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `/implement-ticket` Phase 6b §"QA regressions curator").
+
+## Per-ticket, in-flow (anti-pattern: end-of-batch QA sweep)
+
+**Phase 6b is a per-ticket, in-flow gate. Conductor MUST NOT aggregate Phase 6b across multiple tickets to run as a final batch step.** Each ticket's QA fires inside that ticket's own loop, before Phase 7. If runtime QA cannot run for ticket N at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for ticket N specifically, not deferred work to triage at batch end.
+
+When QA cannot run for ticket N, set the unit's QA result to `qa_blocked` and surface the blocker to the operator with the specific cause and the three options:
+
+- **Provide the missing input** (env file, credentials, working preview URL) and re-run Phase 6b.
+- **Accept INCONCLUSIVE** with `qa_unverified=true` recorded on the unit (see classification rules below). The PR can still merge, but the ticket carries a known unverified-runtime flag.
+- **Abandon the ticket** - close the PR or revert.
+
+Per-ticket QA scales via parallel-by-worktree (see below) - that is the mechanism for "many tickets in flight without a serial QA queue", not batching.
+
+## Conductor preflight before any qa-engineer spawn
+
+Before spawning `qa-engineer` for any unit, the conductor verifies the project env file exists at the path that the dev server will load. The exact path and pull command come from the resolved qa.md (`env_file:` and `env_pull_command:` fields if present) or from project config (e.g. an `env:pull:<app>` script in `package.json`). If the env file is missing, do NOT spawn qa-engineer. Instead surface the verbatim message to the operator:
+
+```
+QA env preflight FAILED: <env_file> is missing.
+Pull it with: <env_pull_command>
+Then re-run Phase 6b for this ticket.
+```
+
+Wait for the operator to provide the env file (or accept INCONCLUSIVE per the classification rules below) before proceeding. Spawning qa-engineer just to discover the env is missing wastes a worker turn - the dev server will fail to boot and the qa-engineer will return BLOCKED with no useful signal.
+
+## INCONCLUSIVE classification (no static-only auto-pass)
+
+Static-only QA on an Elevated UI-visible change is approximately zero signal. State hooks, prop-sync bugs, missing render branches, and conditional rendering bugs are invisible to source review. Source verification of an Elevated UI-visible criterion is NOT progress on that criterion.
+
+When the qa-engineer cannot reach a runtime path - preview deploy is blocked AND local-env runtime is unavailable - the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor surfaces this state to the operator with the same three options as `qa_blocked` above (provide env / accept the unverified state / abandon). The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge.
 
 ## Multi-PR / multi-ticket parallel-by-worktree
 
@@ -3580,7 +3580,7 @@ When the conductor spawns a fix engineer in response to a qa-engineer FAIL, the 
 
 1. Implement the fix.
 2. Add a regression test - a unit, integration, e2e, or eval case in the project's normal test suite, alongside existing tests for the affected module, that would have **failed** without the fix and **passes** with it.
-3. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [test file path, test name].`
+3. Reference the test in the fix summary, including the pre-fix attestation: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [test file path, test name]. Confirmed failing pre-fix: [what was observed when the test was run against the unfixed code].`
 
 If adding a regression test is genuinely impossible (no test infrastructure exists for the affected surface; a visual conformance failure has no headless-testable observable; etc.), the engineer must state this explicitly with a reason AND append an entry to `.agentic/qa-regressions.md` using the schema below so the architect catches the surface next time via `qa_criteria`. A missing test with no explanation and no curated-index entry is a Major finding in the next Skeptic round.
 
@@ -3594,7 +3594,11 @@ The parallel Skeptic on the QA-fix iteration (concurrent QA flow) verifies, befo
 
 If the test is absent without explanation and no `.agentic/qa-regressions.md` entry was appended, raise it as a **Major** finding: `Missing regression test for QA scenario [id: title] - a test that would have caught this failure mode is required before sign-off.`
 
-**Verification scope:** Skeptic cannot independently verify that the test fails on the unfixed code (parallel to the Skeptic-side rule). Its obligation is to verify the test targets the correct scenario and that the Worker's summary explicitly attests to having run the test against the unfixed code first. A Worker summary that does not include this attestation is insufficient - the Skeptic should treat the absence as though no confirmation was given.
+**The pre-fix-failure property is required, and post-fix execution alone does not establish it.** Executing the test against the fixed code only proves the test currently passes - it does not prove the test would have failed against the FAIL scenario before the fix, which is exactly the property that distinguishes a real regression test from a vacuous one. This property is established by one of two means, either of which is sufficient: (a) the engineer's summary explicitly attests to having run the test against the unfixed code first and observed it fail, or (b) the Skeptic itself executes the test against the pre-fix code in an **ephemeral scratch worktree at a run-unique path** - `<scratch>` must be unique per invocation (e.g. `mktemp -d` or `.agentic/skeptic-scratch/$(date +%s)-$$`), never a fixed literal path, so a successive fix round or a concurrent `skeptic_strategy: multi-dimensional` peer reviewing the same diff cannot collide on it - (where feasible - e.g. `git worktree add <scratch> <base-sha>` to create it at the pre-fix base, `git -C <scratch> checkout <head-sha> -- <test-paths>` to apply only the test file(s) from the diff on top of it - not the fix itself - run the test inside `<scratch>`, confirm it fails for the reason the scenario describes, then `git worktree remove --force <scratch>` - `--force` is required because the prior checkout step leaves the scratch worktree with staged changes, which a plain `git worktree remove` refuses to delete) and confirms the failure directly. Never check out the pre-fix base in place in the tree you are reviewing from - that mutates a working tree the Skeptic does not own, and is unsafe when the tree is shared across parallel Skeptic strategies (e.g. `skeptic_strategy: multi-dimensional`). With a scratch worktree there is nothing to restore afterward; removing the worktree is sufficient. A collection, import, or file-not-found error is NOT a pre-fix failure and does not satisfy (b) - when the fix and its regression test are committed together, reverting the fix in place also deletes the test, so the resulting error proves only that the test file is missing, not that the pre-fix code exhibits the bug.
+
+**Attempt execution before falling back to attestation.** If the test command is runnable in the Skeptic's review environment (Bash access plus the test's dependencies are present), execute it against the post-fix code and record the raw command and output in the sign-off - do not rely on the engineer's self-report when you are able to check it yourself. Where feasible, also verify (b) directly using an ephemeral scratch worktree at a run-unique `<scratch>` path: `git worktree add <scratch> <base-sha>`, then `git -C <scratch> checkout <head-sha> -- <test-paths>` to apply only the test file(s) from the diff (not the fix), run the same command inside `<scratch>`, confirm it fails for the reason the scenario describes, then `git worktree remove --force <scratch>`. Do not check out the pre-fix base or stash/revert the fix in place in the tree you are reviewing from - that mutates a working tree the Skeptic does not own and, when the test shipped in the same commit, also removes the test, producing a collection/import/file-not-found error that is NOT a pre-fix failure. Only when pre-fix execution is genuinely not possible (no Bash access in this review context, missing infra, an external dependency the review environment cannot reach, or reverting the fix is impractical) does the Skeptic rely on attestation alone for (a).
+
+**Verification scope (post-execution-attempt):** the Skeptic's obligation is, in order: (1) attempt to execute the test against the post-fix code and report the raw result; (2) where feasible, also execute it against the pre-fix code to independently confirm the failure - see (b) above; (3) if pre-fix execution was not performed, fall back to the engineer's attestation - see (a) above; (4) if NEITHER (a) nor (b) holds, distinguish two cases: (4a) no genuine attempt was made - the engineer gave no pre-fix attestation and the Skeptic did not attempt to execute the test against the pre-fix code at all - raise a **Major** finding: `Regression test unverified for QA scenario [id: title] - neither the engineer's attestation nor the Skeptic's own execution confirms the test fails against the unfixed code; an unverified regression test provides no more assurance than no test at all.`; (4b) a genuine attempt at (b) was made but was infeasible - the Skeptic attempted the pre-fix-execution procedure above (created the scratch worktree at the pre-fix base, applied only the test file(s), attempted to run) and it was genuinely not possible (missing infra, an external dependency the review environment cannot reach, or reverting the fix is impractical) - do not block; paste the attempted command and its actual error output and raise a **Minor** finding instead: `Regression test unverified for QA scenario [id: title] - the engineer gave no pre-fix attestation and pre-fix execution was attempted but not possible in this review environment ([reason]); relying on post-fix execution alone. Attempted: [command]. Error: [pasted error output].` This Minor does not block sign-off but must always be listed. (No-Bash-access falls under case (4a) above, not here - without Bash there is no command to attempt and no error output to paste, so it cannot satisfy this case's own precondition.); (5) if (a) holds but (b) was not performed, do not settle for a prose excuse - paste the attempted command and its actual error output alongside the stated reason, then raise a **Minor** finding instead: `Regression test attestation unverified by execution for QA scenario [id: title] - execution against the pre-fix code was not possible in this review environment ([reason]). Attempted: [command]. Error: [pasted error output]; relying on engineer self-report.` This Minor does not block sign-off but must always be listed; (6) regardless of the above, spot-check the test's target and the engineer's `raw_output` for fabricated evidence (a named test file/function that does not exist in the diff or repository) - fabrication is a **Critical** finding, not a Minor one, per `content/agents/skeptic.md` Step 12's `raw_output` spot-check.
 
 ## What counts as a regression test
 
@@ -3631,7 +3635,7 @@ Curated index of QA-found behavioral regressions. Architects read this when auth
 
 ## Cross-reference
 
-The Skeptic-side equivalent for fixed Critical/Major Skeptic findings lives in `content/references/regression-test-obligation.md`. The two obligations are symmetric: both require a regression test (or a documented exception with curated-index entry) before sign-off, both verify target alignment without re-executing the test on the unfixed code, and both treat a missing test without explanation as a Major finding in the next round.
+The Skeptic-side equivalent for fixed Critical/Major Skeptic findings lives in `content/references/regression-test-obligation.md`. The two obligations are symmetric: both require a regression test (or a documented exception with curated-index entry) before sign-off, both attempt execution before falling back to attestation, both verify target alignment, and both treat a missing test without explanation as a Major finding in the next round.
 
 ---
 
@@ -3653,7 +3657,7 @@ When a Worker fixes a Critical or Major Skeptic finding, it must:
 
 1. Implement the fix.
 2. Add a regression test — a test case (unit, integration, or eval) that would have **failed** without the fix and **passes** with it. The test lives in the project's normal test suite, alongside existing tests for the affected module.
-3. Reference the test in the fix summary: `C1 (finding title) → fixed by [description]. Regression test added: [test file path, test name/description].`
+3. Reference the test in the fix summary, including the pre-fix attestation: `C1 (finding title) → fixed by [description]. Regression test added: [test file path, test name/description]. Confirmed failing pre-fix: [what was observed when the test was run against the unfixed code].`
 
 If adding a regression test is genuinely not possible (e.g., the project has no test infrastructure, or the failure mode is a documentation error with no executable path), the Worker must state this explicitly with a reason. A missing test without explanation is a Major finding in the next Skeptic round.
 
@@ -3664,7 +3668,9 @@ Before granting sign-off on a round where a Critical or Major finding was fixed:
 - Verify a regression test was added (or a documented exception was given).
 - Spot-check that the test actually targets the failure mode described in the finding — not a superficial test that happens to pass.
 - If the test is absent without explanation, raise it as a **Major** finding: `Missing regression test for [finding title] — a test that would have caught this failure mode is required before sign-off.`
-- **Verification scope:** Skeptic cannot independently verify that the test fails on the unfixed code. Its obligation is to verify the test targets the correct failure mode and that the Worker's summary explicitly attests to having run the test against the unfixed code first. A Worker summary that does not include this attestation is insufficient - the Skeptic should treat the absence as though no confirmation was given.
+- **The pre-fix-failure property is required, and post-fix execution alone does not establish it.** Executing the test against the fixed code only proves the test currently passes - it does not prove the test would have failed before the fix, which is exactly the property that distinguishes a real regression test from a vacuous one. This property is established by one of two means, either of which is sufficient: (a) the Worker's summary explicitly attests to having run the test against the unfixed code first and observed it fail, or (b) the Skeptic itself executes the test against the pre-fix code in an **ephemeral scratch worktree at a run-unique path** - `<scratch>` must be unique per invocation (e.g. `mktemp -d` or `.agentic/skeptic-scratch/$(date +%s)-$$`), never a fixed literal path, so a successive fix round or a concurrent `skeptic_strategy: multi-dimensional` peer reviewing the same diff cannot collide on it - (where feasible - e.g. `git worktree add <scratch> <base-sha>` to create it at the pre-fix base, `git -C <scratch> checkout <head-sha> -- <test-paths>` to apply only the test file(s) from the diff on top of it - not the fix itself - run the test inside `<scratch>`, confirm it fails for the reason the finding describes, then `git worktree remove --force <scratch>` - `--force` is required because the prior checkout step leaves the scratch worktree with staged changes, which a plain `git worktree remove` refuses to delete) and confirms the failure directly. Never check out the pre-fix base in place in the tree you are reviewing from - that mutates a working tree the Skeptic does not own, and is unsafe when the tree is shared across parallel Skeptic strategies (e.g. `skeptic_strategy: multi-dimensional`). With a scratch worktree there is nothing to restore afterward; removing the worktree is sufficient. A collection, import, or file-not-found error is NOT a pre-fix failure and does not satisfy (b) - when the fix and its regression test are committed together, reverting the fix in place also deletes the test, so the resulting error proves only that the test file is missing, not that the pre-fix code exhibits the bug.
+- **Attempt execution before falling back to attestation.** If the test command is runnable in the Skeptic's review environment (Bash access plus the test's dependencies are present), execute it against the post-fix code and record the raw command and output in the sign-off - do not rely on the Worker's self-report when you are able to check it yourself. Where feasible, also verify (b) directly using an ephemeral scratch worktree at a run-unique `<scratch>` path: `git worktree add <scratch> <base-sha>`, then `git -C <scratch> checkout <head-sha> -- <test-paths>` to apply only the test file(s) from the diff (not the fix), run the same command inside `<scratch>`, confirm it fails for the reason the finding describes, then `git worktree remove --force <scratch>`. Do not check out the pre-fix base or stash/revert the fix in place in the tree you are reviewing from - that mutates a working tree the Skeptic does not own and, when the test shipped in the same commit, also removes the test, producing a collection/import/file-not-found error that is NOT a pre-fix failure. Only when pre-fix execution is genuinely not possible (no Bash access in this review context, missing infra, an external dependency the review environment cannot reach, or reverting the fix is impractical) does the Skeptic rely on attestation alone for (a).
+- **Verification scope (post-execution-attempt):** the Skeptic's obligation is, in order: (1) attempt to execute the test against the post-fix code and report the raw result; (2) where feasible, also execute it against the pre-fix code to independently confirm the failure - see (b) above; (3) if pre-fix execution was not performed, fall back to the Worker's attestation - see (a) above; (4) if NEITHER (a) nor (b) holds, distinguish two cases: (4a) no genuine attempt was made - the Worker gave no pre-fix attestation and the Skeptic did not attempt to execute the test against the pre-fix code at all - raise a **Major** finding: `Regression test unverified for [finding title] - neither the Worker's attestation nor the Skeptic's own execution confirms the test fails against the unfixed code; an unverified regression test provides no more assurance than no test at all.`; (4b) a genuine attempt at (b) was made but was infeasible - the Skeptic attempted the pre-fix-execution procedure above (created the scratch worktree at the pre-fix base, applied only the test file(s), attempted to run) and it was genuinely not possible (missing infra, an external dependency the review environment cannot reach, or reverting the fix is impractical) - do not block; paste the attempted command and its actual error output and raise a **Minor** finding instead: `Regression test unverified for [finding title] - the Worker gave no pre-fix attestation and pre-fix execution was attempted but not possible in this review environment ([reason]); relying on post-fix execution alone. Attempted: [command]. Error: [pasted error output].` This Minor does not block sign-off but must always be listed. (No-Bash-access falls under case (4a) above, not here - without Bash there is no command to attempt and no error output to paste, so it cannot satisfy this case's own precondition.); (5) if (a) holds but (b) was not performed, do not settle for a prose excuse - paste the attempted command and its actual error output alongside the stated reason, then raise a **Minor** finding instead: `Regression test attestation unverified by execution - execution against the pre-fix code was not possible in this review environment ([reason]). Attempted: [command]. Error: [pasted error output]; relying on Worker self-report.` This Minor does not block sign-off but must always be listed; (6) regardless of the above, spot-check the test's target and the Worker's `raw_output` for fabricated evidence (a named test file/function that does not exist in the diff or repository) - fabrication is a **Critical** finding, not a Minor one, per `content/agents/skeptic.md` Step 12's `raw_output` spot-check.
 
 ## What counts as a regression test
 
@@ -3797,7 +3803,7 @@ Spawning security-auditor.
 
 This reuses the Elevated risk-signal vocabulary above. The conductor passes `model: opus` explicitly on these Skeptic spawns even though the skeptic frontmatter already defaults to Opus: the explicit param documents the mandate, survives a session whose model was overridden, and guards against an accidental downgrade param. `model_profile: budget` NEVER downgrades a mandated-Tier-3 Skeptic. Note the one case neither frontmatter nor the explicit param can rescue: if the org `availableModels` allowlist excludes opus, the Opus request is silently dropped and the agent inherits the session model - on a mandated-Tier-3 unit the conductor must surface that Opus is unavailable rather than proceed on an inherited model. On Claude Code this rule is mechanically backstopped by `hooks/enforce-tier.py` (escalate-only, fail-open): it denies an explicit sub-Opus `model` param on a mandated-Tier-3 review spawn (security-auditor always; skeptic when the brief matches an escalation signal). It backstops four of the five signal categories - the novel-architecture signal is not keyword-detectable, and the hook guards the spawn-call param only, not the `CLAUDE_CODE_SUBAGENT_MODEL` env override.
 
-**Mandatory Tier-3 authoring escalation (Plan+ADR-tier units).** When a unit reaches **Plan+ADR tier** - cross-track OR "Architecture decision constraining future choices", per the Planning Artifacts trigger table (`content/sections/03-planning-artifacts.md`) - the AUTHORING agent (architect, adr-generator, or product-discovery) producing the Plan or ADR for that unit MUST be Tier 3 (Opus), regardless of the agent's Sonnet role default. Unlike the reviewing-role escalation above, the Plan+ADR trigger is a **structural, conductor-computed decision** (cross-track span, architecture-constraining signal) that is not present in the spawn's `tool_input` - the PreToolUse hook cannot see it. The PRIMARY control is therefore prose, not mechanical: the conductor passes `model: opus` EXPLICITLY on the architect/adr-generator/product-discovery spawn for a Plan+ADR-tier unit, symmetric to the existing `architect:grill` preset convention. On Claude Code, `hooks/enforce-tier.py` provides a BACKSTOP (not the primary control) mirroring the skeptic marker-gated branch, not the security-auditor unconditional branch: it denies an explicit sub-Opus `model` param on an architect/adr-generator/product-discovery spawn whose brief matches an ADR/architecture marker (e.g. "ADR", "cross-track", "architecture decision constraining future choices", "Plan+ADR", "Plan-tier", "novel architecture"). This backstop is best-effort and has two known limitations: (1) it misses an ADR-tier authoring spawn whose brief does not name the escalation signal in recognizable vocabulary; (2) it does nothing when the `model` param is OMITTED - an omitted param resolves to the Sonnet frontmatter default (per the Role-default tier table below) and the hook ALLOWS it, because omission is indistinguishable from a routine non-ADR authoring spawn. The conductor's explicit `model: opus` param remains the only reliable enforcement mechanism for this rule.
+**Mandatory Tier-3 authoring escalation (Plan+ADR-tier units).** When a unit reaches **Plan+ADR tier** - cross-track OR "Architecture decision constraining future choices", per the Planning Artifacts trigger table (`content/references/planning-artifacts.md` §Trigger table) - the AUTHORING agent (architect, adr-generator, or product-discovery) producing the Plan or ADR for that unit MUST be Tier 3 (Opus), regardless of the agent's Sonnet role default. Unlike the reviewing-role escalation above, the Plan+ADR trigger is a **structural, conductor-computed decision** (cross-track span, architecture-constraining signal) that is not present in the spawn's `tool_input` - the PreToolUse hook cannot see it. The PRIMARY control is therefore prose, not mechanical: the conductor passes `model: opus` EXPLICITLY on the architect/adr-generator/product-discovery spawn for a Plan+ADR-tier unit, symmetric to the existing `architect:grill` preset convention. On Claude Code, `hooks/enforce-tier.py` provides a BACKSTOP (not the primary control) mirroring the skeptic marker-gated branch, not the security-auditor unconditional branch: it denies an explicit sub-Opus `model` param on an architect/adr-generator/product-discovery spawn whose brief matches an ADR/architecture marker (e.g. "ADR", "cross-track", "architecture decision constraining future choices", "Plan+ADR", "Plan-tier", "novel architecture"). This backstop is best-effort and has two known limitations: (1) it misses an ADR-tier authoring spawn whose brief does not name the escalation signal in recognizable vocabulary; (2) it does nothing when the `model` param is OMITTED - an omitted param resolves to the Sonnet frontmatter default (per the Role-default tier table below) and the hook ALLOWS it, because omission is indistinguishable from a routine non-ADR authoring spawn. The conductor's explicit `model: opus` param remains the only reliable enforcement mechanism for this rule.
 
 **Role-default tier table (committed; each agent's frontmatter `model:` MUST agree with this table).**
 
@@ -4155,7 +4161,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 10. **QA gate check (conditional).** Two paths, depending on whether the diff matches UI-visible trigger patterns:
 
-    - **UI-visible changes (concurrent path):** When QA trigger patterns match a UI-visible diff, spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. If the Skeptic raises Critical/Major findings, enter the standard fix loop; QA re-runs after Skeptic sign-off is achieved. If QA fails after Skeptic sign-off, spawn a fix engineer and re-run QA only. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+    - **UI-visible changes (concurrent path):** When QA trigger patterns match a UI-visible diff, spawn `qa-engineer` IN PARALLEL with the Skeptic in a single message (both background). Sign-off requires both to pass. If the Skeptic raises Critical/Major findings, enter the standard fix loop; QA re-runs after Skeptic sign-off is achieved. If QA fails after Skeptic sign-off, spawn a fix engineer and re-run QA only. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent QA spec.
 
     - **Non-UI changes (sequential path):** After sign-off is granted and any minor fixes are applied, check the QA gate condition (see METHODOLOGY.md §QA Gate). If the project has qa.md (resolved via `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) with trigger patterns matching the diff, spawn `qa-engineer` before reporting back. QA failure routes back to an engineer for fixes, then re-runs QA.
 
@@ -4298,7 +4304,7 @@ Cleanup: after Phase 6 loop terminates with sign-off, run `rm -f .agentic/.spawn
 
 ### Plan-tier second-pass overflow fallback
 
-When the combined Global-context input set for a Plan-tier second-pass Skeptic exceeds 60K input tokens, the conductor switches to per-unit second-pass mode: one Skeptic per unit (each with that unit's Global-context subset) plus one lightweight integration Skeptic receiving the combined findings list only (not the full Global-context). Documented in `content/sections/03-planning-artifacts.md`. The 60K limit is a prompt-assembly threshold for review focus, not a model context constraint; it applies regardless of the underlying model's window size, because adversarial review signal degrades as the assembled prompt grows.
+When the combined Global-context input set for a Plan-tier second-pass Skeptic exceeds 60K input tokens, the conductor switches to per-unit second-pass mode: one Skeptic per unit (each with that unit's Global-context subset) plus one lightweight integration Skeptic receiving the combined findings list only (not the full Global-context). Documented in `content/references/planning-artifacts.md` §Gate semantics. The 60K limit is a prompt-assembly threshold for review focus, not a model context constraint; it applies regardless of the underlying model's window size, because adversarial review signal degrades as the assembled prompt grows.
 
 ### Supplemental-context block for multi-dimensional supplemental reviewers
 
@@ -4453,6 +4459,8 @@ When reviewing, check spec compliance first - does the implementation do what wa
 
 **Fire-and-forget async work without an error path is a finding.** Passing typecheck and unit tests does not establish that an un-awaited async call handles failure - those gates do not exercise the rejection path. See `content/agents/skeptic.md` Step 4.6 for the check and severity default (Major).
 
+**A new test file with no CI wiring is a finding.** A test that never runs provides no regression protection. See `content/agents/skeptic.md` Step 11.5 for the check and severity default (Major).
+
 ### Review depth
 
 Adversarial review applies whenever risk is classified as Elevated. The main agent always uses a fresh independent Skeptic — there is no degraded self-review path for Elevated work. The exchange log is mandatory for all Elevated tasks. The escalation protocol is active for all Elevated tasks.
@@ -4577,6 +4585,8 @@ Findings: Critical: N, Major: N, Minor: N
 If all counts are zero, write instead: Findings: No findings.
 [If any Minor finding is a spec-deviation downgrade, include the three-criterion "Spec deviation downgrade justification" block here - see format below]
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
+Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
+Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 No unresolved Critical or Major findings. Sign-off granted.
 ```
 
@@ -4630,7 +4640,7 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains all four mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation. (f) For PR reviews specifically: the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
+The primary agent treats a Skeptic response as a valid sign-off only when it contains all six mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation. (f) For PR reviews specifically: the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant. (g) A "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8). (h) A "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5). Omission of either (g) or (h) is format-noncompliant and triggers the same format re-invocation.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
@@ -5600,22 +5610,28 @@ Performance: Standard.
 
 ## Isolation worktree cleanup commands
 
-Once the agent returns its output and the conductor has opened a PR (or confirmed no PR is needed), the isolation worktree is redundant - the branch holds the commits. The conductor must remove it immediately:
+Isolation worktrees are removed inline after the branch has been pushed to
+origin. Once commits are on origin, the PR/branch is backed by the remote ref,
+so the local worktree is redundant. Cleaning up at push time avoids the
+branch-rename mapping problem that makes "after PR open" cleanup unreliable.
 
 ```bash
-# Verify no uncommitted changes before removing:
-git -C <worktree-path> status --porcelain
-# If clean (no output), remove the worktree and its branch:
-git worktree remove <worktree-path>
-git branch -D <branch-name> 2>/dev/null || true   # branch lingers otherwise; safe to delete once worktree is removed
-# Safe even with a PR open: the PR is backed by the branch on origin, not this local ref.
-# Only the redundant local branch is removed; the pushed commits and the PR are unaffected.
-# (If you might still push follow-up commits to the PR from this checkout, keep the branch until the PR merges.)
-# If the above fails (modified tracked files exist), inspect them first,
-# then force-remove only after confirming nothing important is uncommitted:
-# git worktree remove --force <worktree-path>
-# git branch -D <branch-name>
+# Resolve worktree path from branch name (works even if the branch was renamed).
+# Requires scripts/lib/worktree.sh to be sourced.
+source "${REPO_DIR}/scripts/lib/worktree.sh"
+WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
+
+# Verify no uncommitted changes in the isolated worktree:
+[ -n "$WORKTREE_PATH" ] && git -C "$WORKTREE_PATH" status --porcelain
+
+# If clean, remove the isolated worktree and its local branch:
+[ -n "$WORKTREE_PATH" ] && git -C "$REPO_DIR" worktree remove "$WORKTREE_PATH"
+git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 ```
+
+If the worktree is still locked by a running agent, `git worktree remove` will
+refuse until the agent finishes. That is expected and safe; the session-start
+prune script below remains a backstop.
 
 ## Feature worktree cleanup commands
 
@@ -7110,13 +7126,13 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **No suppression.** Never use `// @ts-ignore`, `# noqa`, `eslint-disable`, or similar to silence errors. Fix the code.
 - **Match conventions.** Read before you write. Use the same naming style, file structure, and patterns as the surrounding code.
 - **If context is missing** - no file paths, no task description, or the task requires an architecture decision you were not given - say so at the top of your output before attempting anything. Do not invent assumptions to fill the gap.
-- **Never commit or push.** Implement and report. The orchestrator handles version control.
+- **Do not initiate commit or push yourself.** In the `/implement-ticket` flow, commit and push are orchestrated by the conductor via the `git_finalization` contract; the engineer's job is to implement, run quality gates, and report. For non-`/implement-ticket` spawns where the contract does not include `git_finalization`, implement and report only and leave VCS operations to the caller.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
 - **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
-- **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Reference it in the fix summary: `[finding ID] → fixed by [description]. Regression test: [file, test name].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
+- **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Before claiming it as a regression test, run it against the unfixed code and confirm it fails - a test that passes without the fix does not count. Reference it in the fix summary, including that pre-fix attestation: `[finding ID] → fixed by [description]. Regression test: [file, test name]. Confirmed failing pre-fix: [what was observed when run against the unfixed code].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
 - **Regression discipline.** Two symmetric obligations apply when fixing a flagged failure mode:
   - When fixing a Critical or Major Skeptic finding: see `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for the regression-test obligation (also stated above).
-  - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name].`
+  - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary, including the pre-fix attestation: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name]. Confirmed failing pre-fix: [what was observed when run against the unfixed code].`
 - **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` for required fields and language-specific examples.
 - **Populate `learnings_candidate` for internal discoveries.** When you work around a tool/command failure, hit a dead-end that cost non-trivial effort, discover a cross-component gotcha, or make a local design decision not captured in the task spec, add an entry to `learnings_candidate[]` (cap 5). Omit it (or leave it `[]`) when nothing was discovered worth surfacing. The conductor routes these through the guardrail-first gate before forwarding to `learnings-agent`; you do not pre-filter.
@@ -7395,7 +7411,7 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 
 ---
 name: learning-extractor
-model: sonnet
+model: haiku
 description: Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files.
 tools: Read, Edit, Write
 ---
@@ -8125,7 +8141,7 @@ Choose profiling tools appropriate to the runtime:
 - **HTTP endpoints**: `wrk`, `hey`, `ab`, `autocannon`, or `hyperfine` for command-line benchmarks.
 - **Generic**: `hyperfine` for command-level benchmarking across any language.
 
-If none of these are available, write a minimal timing wrapper in `/tmp/` and run it via Bash. Do not modify files in the project tree.
+If none of these are available, write a minimal timing wrapper in `/tmp/` and run it via Bash. Do not modify files in the project tree. Delete any `/tmp/` profiling scripts you created before returning.
 
 Instrument at the boundary first (the entry point), then narrow inward to find the hotspot. Do not instrument every function - start coarse and refine.
 
@@ -8583,6 +8599,23 @@ kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
 
 The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it.
 
+**Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Run this in teardown after the browser/dev-server steps above, choosing the branch that matches the result you are about to report:
+
+- If the result you are reporting is **PASS**: do NOT delete `/tmp/qa_*.png`. Leave the screenshots in place so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Still delete the dev-server log:
+
+  ```bash
+  rm -f /tmp/qa_devserver.log 2>/dev/null || true
+  ```
+
+- For any other result (**FAIL**, **PARTIAL**, **BLOCKED**, **INCONCLUSIVE**, or error): delete both the screenshots and the dev-server log:
+
+  ```bash
+  rm -f /tmp/qa_*.png 2>/dev/null || true
+  rm -f /tmp/qa_devserver.log 2>/dev/null || true
+  ```
+
+The `|| true` guards ensure a missing file never errors the run. The agent decides which branch to take based on the top-line result it is about to report; do not rely on a shell variable.
+
 **Applying project knowledge:**
 
 If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) contains a `## Knowledge` section, read all entries before starting pre-flight. Apply them automatically:
@@ -8603,7 +8636,7 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 
 ## Workflow
 
-> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the teardown from the Dev server section (`agent-browser close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional.
+> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the teardown from the Dev server section (`agent-browser close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional. This also includes the temp-file cleanup block: delete `/tmp/qa_*` (except PASS screenshots) and `/tmp/qa_devserver.log` on every exit path.
 
 ### 1. Pre-flight
 
@@ -8843,7 +8876,7 @@ Always capture:
 - After each key interaction or state change
 - Any failure state
 
-Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
+Screenshot files remain in `/tmp/` on PASS so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Delete them on all other exit paths during teardown. **Note:** Screenshot and diff-image paths referenced in this report may be stale after teardown. On non-PASS exits, `qa-engineer` deletes `/tmp/qa_*` files as part of temp-file cleanup. The paths remain in the report for reference only. Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
 
 ## Output format
 
@@ -9870,12 +9903,27 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
 5. Search broadly for other Critical or Major issues beyond what the brief explicitly names.
 6. **Brief coverage check** - re-read the adversarial brief one more time, concern by concern. For each specific failure mode the brief names, confirm you have either raised a finding for it or can explicitly state you checked and found no issue. Do not let a named concern go unaddressed.
 7. **Per-consumer impact check** - if the per-consumer impact table (field 4) is present and not `n/a`, verify that each consumer row's `new_behavior` is reflected in the diff. A consumer row whose `new_behavior` is not addressed by the Worker is a **Major** finding unless the architect plan explicitly defers it.
-8. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. Apply tiered classification: a **missing** manifest is a **Minor finding** (does not block sign-off); a **stale** manifest (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics) is a **Major finding** (blocks sign-off absent a compelling documented reason to defer); a stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path is a **Critical finding**. List every manifest issue in the findings so the author can address it.
+8. **Module manifest check** - for any new or modified non-trivial module in the diff (exports a public symbol consumed elsewhere, over ~50 LOC, or implements a side-effecting operation), verify a manifest header is present and reflects the current file. Apply tiered classification: a **missing** manifest is a **Minor finding** (does not block sign-off); a **stale** manifest (no longer reflects current purpose, public API, upstream dependencies, downstream consumers, failure modes, or performance characteristics) is a **Major finding** (blocks sign-off absent a compelling documented reason to defer); a stale manifest whose inaccuracy could cause a caller to mishandle a correctness or security path is a **Critical finding**. List every manifest issue in the findings so the author can address it. Emit the result of this check via the fixed `Manifest check:` sign-off line defined below - do not fold it into free-form prose.
 9. **Regression test check** - if this is a fix round (the spawn prompt identifies Critical or Major findings that were addressed), verify each fixed finding has a corresponding regression test, or a documented reason why one is not possible. A missing test without explanation is a **Major** finding: `Missing regression test for [finding title] — a test that would have caught this failure mode is required before sign-off.`
+
+   **The pre-fix-failure property is required, and post-fix execution alone does not establish it.** Executing the test against the fixed code only proves the test currently passes - it does not prove the test would have failed before the fix, which is exactly the property that distinguishes a real regression test from a vacuous one. This property is established by one of two means, either of which is sufficient: (a) the Worker's summary explicitly attests to having run the test against the unfixed code first and observed it fail, or (b) you (the Skeptic) execute the test against the pre-fix code yourself in an **ephemeral scratch worktree at a run-unique path** - `<scratch>` must be unique per invocation (e.g. `mktemp -d` or `.agentic/skeptic-scratch/$(date +%s)-$$`), never a fixed literal path, so a successive fix round or a concurrent `skeptic_strategy: multi-dimensional` peer reviewing the same diff cannot collide on it - (where feasible - e.g. `git worktree add <scratch> <base-sha>` to create it at the pre-fix base, `git -C <scratch> checkout <head-sha> -- <test-paths>` to apply only the test file(s) from the diff on top of it - not the fix itself - then run the test inside `<scratch>`, confirm it fails for the reason the finding describes, then `git worktree remove --force <scratch>` - `--force` is required because the prior checkout step leaves the scratch worktree with staged changes, which a plain `git worktree remove` refuses to delete) and confirm the failure directly. Never check out the pre-fix base in place in the tree you are reviewing from - that mutates a working tree the Skeptic does not own, and is unsafe when the tree is shared across parallel Skeptic strategies (e.g. `skeptic_strategy: multi-dimensional` fanning a correctness-Skeptic, security-auditor, and perf-analyst out onto the same diff in a single message - one reviewer's in-place checkout would corrupt what the others read). With a scratch worktree there is nothing to restore afterward; removing the worktree is sufficient. **A collection, import, or file-not-found error is NOT a pre-fix failure and does not satisfy (b).** When a fix and its regression test are committed together (the normal case), reverting the fix in place also deletes the test - the run then errors on a missing file, not on the bug the fix addressed, and that error must never be recorded as independent verification. **Deriving `<base-sha>` inline (no PR base-sha guaranteed):** per the Review-environment freshness precondition, `<base-sha>` is only guaranteed on a PR-against-base-branch review - the common `/implement-ticket` inline fix-round case (Step 9's own trigger) has no guaranteed handover. Derive it yourself: identify the fix commit (the Worker's stated `commit_sha`, or the tip of the worktree branch via `git log --oneline -n 5`) and take its parent as `<base-sha>` - `git rev-parse <fix-commit>^` - with `git rev-parse HEAD` (or the fix commit itself) as `<head-sha>`.
+
+   **Execution-attempt-first.** When a regression test IS present, do not settle for reading it plus trusting the Worker's attestation - first attempt to execute it yourself. Execution supplements the attestation; it never replaces it.
+   - If you have Bash access and the test's command is locally runnable (the test file, its dependencies, and the invoking command - e.g. `pytest path/to/test.py::test_name`, `npm test -- path`, an eval-harness invocation - are present in the diff or repository and executable in your environment), run that exact command against the post-fix code. Paste the raw command and its raw output in your sign-off, and state whether the result is consistent with the Worker's claim. Where feasible, also verify (b) directly using an ephemeral scratch worktree at a run-unique `<scratch>` path: `git worktree add <scratch> <base-sha>`, then `git -C <scratch> checkout <head-sha> -- <test-paths>` to apply only the test file(s) from the diff (not the fix itself), run the same command inside `<scratch>`, and confirm it fails for the reason the finding describes - then `git worktree remove --force <scratch>`. Do not check out the pre-fix base or stash/revert the fix in place in the tree you are reviewing from, since that mutates a working tree the Skeptic does not own and, when the test shipped in the same commit, also removes the test - producing a collection/import/file-not-found error that is NOT a pre-fix failure. Note in your sign-off whether you did this and which procedure you followed.
+   - If neither (a) nor (b) holds, distinguish two cases:
+     - **No genuine verification attempt was made** - the Worker's summary gives no pre-fix attestation, and you did not attempt to execute the test against the pre-fix code at all - raise a **Major** finding: `Regression test unverified for [finding title] - neither the Worker's attestation nor the Skeptic's own execution confirms the test fails against the unfixed code; an unverified regression test provides no more assurance than no test at all.`
+     - **A genuine attempt at (b) was made but was infeasible** - you attempted the pre-fix-execution procedure above (created the scratch worktree at the pre-fix base, applied only the test file(s), attempted to run) and it was genuinely not possible (missing infra, an external dependency the review environment cannot reach, or reverting the fix is impractical) - do not block. Paste the attempted command and its actual error output and raise a **Minor** finding instead: `Regression test unverified for [finding title] - the Worker gave no pre-fix attestation and pre-fix execution was attempted but not possible in this review environment ([reason]); relying on post-fix execution alone. Attempted: [command]. Error: [pasted error output].` This Minor does not block sign-off but must always be listed. (No-Bash-access falls under the "no genuine attempt was made" case above, not here - without Bash there is no command to attempt and no error output to paste, so it cannot satisfy this case's own precondition.)
+   - If (a) holds but you were not able to execute the test against the pre-fix code (no Bash tool available to you, missing test infra, an external service dependency, reverting the fix is impractical, or any other concrete blocker), do not settle for a prose excuse - paste the attempted command and its actual error output (the command you tried to run and what it returned: a missing-binary error, a connection failure, an environment error) alongside the stated reason: `Execution not possible in this review environment: [reason]. Attempted: [command]. Error: [pasted error output]`. In that case flag the reliance on attestation as a **Minor** finding: `Regression test attestation unverified by execution - execution against the pre-fix code was not possible in this review environment ([reason]); relying on Worker self-report.` This Minor does not block sign-off on its own and must always be listed.
+   - Regardless of whether execution was possible, continue to Step 12's `raw_output` spot-check below - a Worker's pasted transcript is never proof by itself.
 10. **Doc-sync check** - a **standing check** applied every round (not fix-round-only). Apply the trigger predicate from `content/references/doc-sync-obligation.md` to the diff: ask whether any sentence, count, or list in README.md, CONTRIBUTING.md, or content/SKILL.md (or an affected `content/sections`/`content/references` cross-reference) becomes false or incomplete because of this diff. Not tripped -> no finding. Tripped and correctly updated -> no finding. Tripped and missing/incomplete -> classify per the tiered model: **Minor** (non-misleading omission, no stated count wrong), **Major** (a count/list/path/convention/behavior assertion now stale or false), **Critical** (a stale assertion on a load-bearing public-facing doc that actively misleads on how to use, install, or extend the system). Uncertainty is not an exemption - grep the docs for the changed identifier or count and resolve.
 11. **Smoke-test gate check** - when reviewing an Elevated engineer return, check `quality_gate_results.smoke_test`. If the value is `not_run` and the diff has a runtime path (i.e. the change is not one of the documented skip reasons: pure-backend-library, config-only, type-only-refactor, docs-only), that is a **Major** finding. `skipped` with a stated valid reason from that list is acceptable.
-12. Check the resolved issues preflight - do not re-raise resolved findings unless the resolution is genuinely insufficient.
-13. Write your findings using the sign-off format below.
+11.5. **New-test-CI-wiring check** - for each NEW test file in the diff (matches `*/tests/*`, `test_*.py`, `*.test.*`, `*.spec.*`, or a file added to an existing test-only directory), grep `.github/workflows/*.yml` and `.github/workflows/*.yaml` for a reference to that file, its containing glob, or an auto-discovering runner covering its directory (e.g. a `pytest <dir>` invocation). A new test file with no matching CI invocation is a **Major** finding: "New test file [path] is not wired into any CI workflow - a test that never runs provides no regression protection." Emit the result via the `Test-CI-wiring check:` sign-off line defined below.
+12. **`raw_output` substance spot-check.** This is a standalone step with its own trigger, independent of Step 11 - run it on EVERY Worker return, whether or not a `quality_gate_results` block or any other structured enum field is present. Its trigger is the presence of ANY pasted evidence or transcript in a Worker return - a structured `quality_gate_results` block, a free-form "Quality gates:" section, or any inline command transcript. A return with no `quality_gate_results` block does not exempt it from this step; the free-form-transcript case is exactly what this step exists to catch. Do not accept the enum value (`pass`/`fail`/`skipped`/`not_run`) or a pasted transcript at face value - verify the `raw_output` content is actually consistent with the claim it supports. For every concrete artifact the raw output names, cross-check it against the diff and the repository (via Read/Grep/Glob, or Bash execution per Step 9 when available). The artifact types below are split by which rule governs each:
+    - **Test file path or test function name:** if it does not appear anywhere in the diff and does not exist in the repository, this is **fabricated evidence**, not merely an unverifiable claim. Raise exactly ONE finding for it, and raise it as **Critical** - never Major, never Minor, and never as a second, separately-numbered finding restating the same fabrication: `Fabricated raw output - claimed test [file/name] does not exist in the diff or repository; the transcript describes an execution that could not have happened.` This is an integrity violation, not a missing-test gap - it supersedes and subsumes any missing-test-without-explanation concern (Step 9) for the same artifact, including Step 9's "Regression test unverified" Major - do not additionally raise Step 9's missing-regression-test Major or its "Regression test unverified" Major for the identical fabricated test. If sign-off is withheld, reference this Critical finding by name in the resolution list, retaining its `- Critical:` prefix there (the "Sign-off format" section's resolution list below requires the classification prefix on every entry) - do not re-emit it as a second, separately-numbered `Critical -`/`Major -`/`Minor -`-prefixed finding bullet earlier in the findings list.
+    - **Specific assertion result or specific log line:** these are not independently cross-checkable against the diff or repository the way a named file or function is - a legitimate passing assertion or log line may appear nowhere else in the repo. Do not apply the fabrication rule to these. Instead, apply the internal-consistency rule: a raw output that is internally inconsistent with its own enum claim (e.g. `smoke_test: pass` but the pasted output shows a failure, or a referenced assertion result or log line that contradicts the claimed outcome, or paths that don't correspond to anything in the diff) is at minimum a **Major** finding, and Critical if it masks a real failure.
+    - This scrutiny is triggered by a specific, checkable artifact reference, not by the mere presence of prose - if nothing concrete is named, there is nothing to spot-check and no finding is warranted on this basis alone.
+13. Check the resolved issues preflight - do not re-raise resolved findings unless the resolution is genuinely insufficient.
+14. Write your findings using the sign-off format below.
 
 ## Sign-off format
 
@@ -9888,6 +9936,8 @@ Findings: Critical: N, Major: N, Minor: N
 [Each finding on its own line: Critical - description (file:line or region)]
 If all counts are zero, write instead: Findings: No findings.
 Active search: I have applied the adversarial brief and actively searched for Critical and Major findings.
+Manifest check: [pass | N stale (listed above) | N missing (listed above) | n/a - no non-trivial modules in diff]
+Test-CI-wiring check: [pass | N new test files not wired into CI (listed above) | n/a - no new test files in diff]
 No unresolved Critical or Major findings. Sign-off granted.
 ```
 
@@ -9899,6 +9949,8 @@ Sign-off withheld. The following must be resolved:
 - [CLASSIFICATION]: [finding description]
 ```
 
+Every entry in the resolution list retains its `[CLASSIFICATION]:` prefix (colon form), including a finding referenced by name from Step 12's fabrication check - the "do not re-emit" instruction there bans a second `Critical -`/`Major -`/`Minor -`-prefixed (hyphen form) finding bullet duplicating the same fabrication earlier in the findings list, not the classification prefix on this resolution-list entry itself.
+
 ## Calibration
 
 An over-blocking Skeptic produces unnecessary rework and erodes trust in the protocol. Calibrate findings to real impact:
@@ -9908,8 +9960,9 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - Style preferences, non-critical naming choices, and minor documentation gaps belong in Minor.
 - The goal is to catch genuine problems, not to find something to flag. "Looks fine but could be improved" is a Minor, not a Major.
 - Do not block on hypothetical future scenarios that are not present in the actual requirements.
-- **Module manifests:** Apply tiered classification. **Missing** manifests are **Minor** (does not block sign-off) - comprehension hygiene, treat as a recommendation. **Stale** manifests are **Major** (blocks sign-off absent a compelling documented reason to defer) - a manifest that no longer reflects the file is active misinformation. **Stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical.** List every manifest issue regardless of tier.
+- **Module manifests:** Apply tiered classification. **Missing** manifests are **Minor** (does not block sign-off) - comprehension hygiene, treat as a recommendation. **Stale** manifests are **Major** (blocks sign-off absent a compelling documented reason to defer) - a manifest that no longer reflects the file is active misinformation. **Stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical.** List every manifest issue regardless of tier. Report the result via the `Manifest check:` sign-off line (Step 8).
 - **Doc-sync:** Apply the trigger predicate. Most diffs do not trip it. A now-false count/list/path/behavior assertion is **Major**; a misleading public install/usage/extension assertion is **Critical**; a non-misleading omission is **Minor**.
+- **New-test-CI-wiring:** A new test file with no matching CI invocation is **Major** by default (Step 11.5) - a test that never runs provides no regression protection. Report the result via the `Test-CI-wiring check:` sign-off line.
 
 ## Rules
 
@@ -9926,7 +9979,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 
 ---
 name: wrap-ticket
-model: sonnet
+model: haiku
 description: Per-ticket learnings capture invoked at /implement-ticket Phase 11b. Constrained subset of /wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
@@ -11092,7 +11145,7 @@ Public API: /brief [topic] | /brief --from <path>
             Invoked explicitly by the operator or auto-triggered by the conductor on
             planning-intent signals per Section 1.
 
-Upstream deps: content/sections/03-planning-artifacts.md (Brief template and field guidance,
+Upstream deps: content/references/planning-artifacts.md (Brief template and field guidance,
                including Outcome rubric field schema);
                content/sections/02-delegation.md (surface-and-proceed protocol);
                content/rules/conventions.md (git worktree conventions, base-branch resolution);
@@ -11101,7 +11154,7 @@ Upstream deps: content/sections/03-planning-artifacts.md (Brief template and fie
                docs/overview/_proposed/outcome-rubric.md (when product-discovery was run first).
 
 Downstream consumers: content/commands/implement-ticket.md Phase 0b (brief_path check);
-                      content/sections/03-planning-artifacts.md (Skeptic variant selection);
+                      content/references/planning-artifacts.md §Gate semantics (Skeptic variant selection);
                       architect agent (receives brief_path in execution contract);
                       Skeptic (receives operator-confirmed variant from Section 6; evaluates
                       Outcome rubric field per step 3.5 in skeptic.md).
@@ -11252,7 +11305,7 @@ One exchange per selected gray area (`selected: true` in the state file):
 ### Turn N+1 - Brief draft
 
 Conductor synthesizes the Brief from intent + dialogue, formats per the Brief template
-in `content/sections/03-planning-artifacts.md`, and includes the **Outcome rubric** field:
+in `content/references/planning-artifacts.md` §Brief template, and includes the **Outcome rubric** field:
 
 - **If `docs/overview/_proposed/outcome-rubric.md` exists** (product-discovery ran before /brief): copy its lines verbatim into the rubric field and note "copied from discovery draft - confirm or adjust."
 - **Otherwise**: prompt the operator inline: "List the 3-6 things that would make this 'done' - one per line, most critical first." For each criterion the operator provides, assign a `verification_type`: `deterministic` if a gate is nameable, `judgment` otherwise. Present the assigned types for confirmation before writing.
@@ -11527,27 +11580,31 @@ Categorize each remaining entry by its branch name:
 
 ## Step 3: Remove isolation worktrees
 
-For each isolation worktree, check its status before touching it:
+For each isolation worktree, resolve its path from the branch name and check its status before touching it:
 
 ```bash
-git -C <worktree-path> status --porcelain
+source "${REPO_DIR:-.}/scripts/lib/worktree.sh" 2>/dev/null || true
+WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$b" 2>/dev/null || true)
+git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 ```
+
+where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
 There are three cases. (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around.)
 
 **Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
 
 ```bash
-git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree unlock "$WORKTREE_PATH" 2>/dev/null || true
 git worktree prune
-git branch -D <branch-name>
+git branch -D "$b"
 ```
 
 **Directory exists, clean (no output):** Remove the worktree and delete the branch:
 
 ```bash
-git worktree remove <worktree-path>
-git branch -D <branch-name>
+git worktree remove "$WORKTREE_PATH"
+git branch -D "$b"
 ```
 
 **Directory exists, dirty (output present):** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
@@ -11915,6 +11972,51 @@ This command intentionally does NOT:
 # Implement Ticket
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
+
+> **Context-size preflight (run immediately after Activation, before any other step):** Assess the current session's context load against the soft and hard limits defined in `content/references/subagent-protocol.md` Section 13.
+>
+> **Hard limit check (Section 13.2) - checked first:** If the session has reached the hard limit, Section 13.2 governs absolutely - there is no `yes`/proceed override at or above the hard limit. Do the following in this order: (1) print the hard-limit block below verbatim, (2) invoke `/wrap` automatically to preserve state via `context.md` and `MEMORY.md` updates (or instruct the operator to run `/wrap` if auto-invoke is unavailable in the current harness), (3) exit - refusing further implementation work, Skeptic rounds, and subagent spawns for the remainder of this session. Do not print the soft-limit warning block below or the "Proceed anyway?" prompt.
+>
+> **Hard-limit block (print verbatim - this is a plain print, not an `AskUserQuestion` tool call, and does not wait for operator confirmation):**
+> ```
+> Context-size hard limit reached: this session has reached the conductor
+>    context hard limit (Section 13.2 of the Subagent Protocol). The hard
+>    limit is absolute - there is no override, and further implementation
+>    work, Skeptic rounds, and subagent spawns are refused for the rest of
+>    this session.
+>
+>    Why: the hard limit exists to protect output quality. A conductor
+>    operating past this point risks missing details from earlier turns,
+>    re-introducing bugs already fixed, and producing stale crash-recovery
+>    state. A fresh session is required to continue - this is not optional.
+>
+>    Next steps:
+>      1. /wrap          - save session state and generate a hand-off summary
+>      2. Start a new session (on Claude Code, /clear also works)
+>      3. /implement-ticket <your input>   - in the fresh session
+> ```
+>
+> **Danger signals below the hard limit (any one triggers the soft-limit warning, per Section 13.1):**
+> - Session turn count at or above the soft limit with substantive tool-call results still in context.
+> - Any prior subagent result block, of substantive size, is visible and was produced in this same session before `/implement-ticket` was invoked.
+>
+> **If a danger signal is detected below the hard limit, print verbatim (this is a plain print-and-wait for the operator's next message, not an `AskUserQuestion` tool call):**
+> ```
+> Context-size warning: your current session carries significant prior context
+>    (a long turn history and/or one or more prior subagent result blocks still
+>    visible). Running /implement-ticket now risks exhausting your token budget
+>    before the architect-plan-review phase completes.
+>
+>    Recommended safe pattern:
+>      1. /wrap          - save session state and generate a hand-off summary
+>      2. Start a new session (on Claude Code, /clear also works)
+>      3. /implement-ticket <your input>   - in the fresh session
+>
+>    Proceed anyway? (yes / no)
+> ```
+> On `no`: exit immediately. On `yes`: continue with a one-line note: `Context-size warning acknowledged - proceeding in large session.` This `yes` override is valid only below the hard limit - it never applies once the hard limit is reached (see Hard limit check above).
+>
+> **If no danger signals are present:** continue silently (no output).
 
 Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted back to the ticket.
 
@@ -12913,7 +13015,7 @@ The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVE
 
 **On full coverage:** emit `[phase: cross-artifact-aligned | N/N criteria covered]` and proceed to the promotion gate.
 
-See `content/sections/03-planning-artifacts.md` Gate semantics for where this step sits relative to the Skeptic-on-Brief.
+See `content/references/planning-artifacts.md` §Gate semantics for where this step sits relative to the Skeptic-on-Brief.
 
 **ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
 
@@ -13004,7 +13106,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
-- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence.
+- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
 - `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 
@@ -13117,8 +13219,12 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 ```bash
 # For each unit:
-git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
-git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+if [ -z "$(git -C ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} status --porcelain 2>/dev/null)" ]; then
+  git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
+  git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+else
+  echo "WARNING: worktree ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} has uncommitted changes; skipping cleanup"
+fi
 git -C $REPO worktree prune
 ```
 
@@ -13169,6 +13275,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
     "phase": "skeptic",
     "iteration": 1,
     "max_iterations": 3,
+    "tier": 2,
     "findings_log": [],
     "qa_failures_log": [],
     "last_engineer_summary": null,
@@ -13179,13 +13286,14 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 
 **Field notes:**
 - `session_id` is the conductor session uuid. Every conductor write to `loop-state.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
+- `loop_state.tier` is written at loop initialization from the conductor's declared tier for the Skeptic spawn (default 2, per the existing tier-declaration prose). Readers treat an ABSENT `tier` key (pre-DS-87 state files) as `"2 (default, undeclared)"` - the same back-compat pattern used for `session_id` above.
 - `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
 - `status` values: `"active"` (loop running), `"interrupted"` (Stop hook or crash), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
 
 **Write triggers for Phase 6 Skeptic loop (overwrite using atomic write at each transition):**
-- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`
+- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`. The conductor also records its declared tier for this Skeptic spawn into `loop_state.tier` at this same write.
 - After Skeptic returns, before Engineer spawn: `last_phase=skeptic`, `last_phase_action=returned`
 - After Engineer spawned (fix pass): `last_phase=engineer`, `last_phase_action=spawned`
 - After Engineer returns: `last_phase=engineer`, `last_phase_action=returned`; update `loop_state.last_engineer_summary` (verbatim, capped 2000 chars)
@@ -13404,13 +13512,13 @@ After normalization, re-evaluate the trigger conditions (with `qa_skip` now null
 
 **qa.md is supplemental, not gating.** Whether `.agentic/qa.md` (or legacy `.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
 
-**Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `content/sections/05-qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `content/sections/05-qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
+**Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `content/references/qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `content/references/qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
 
-**Conductor preflight before any qa-engineer spawn.** Before spawning qa-engineer for this unit, verify the project env file exists at the path the dev server will load (resolved from qa.md `env_file:` + `env_pull_command:` fields, or from project config such as a `package.json` `env:pull:<app>` script). If the env file is missing, do NOT spawn qa-engineer - surface the verbatim message defined in `content/sections/05-qa-gate.md` §"Conductor preflight before any qa-engineer spawn" with the resolved `<env_pull_command>` and wait for the operator. Spawning qa-engineer just to discover the env is missing wastes a worker turn.
+**Conductor preflight before any qa-engineer spawn.** Before spawning qa-engineer for this unit, verify the project env file exists at the path the dev server will load (resolved from qa.md `env_file:` + `env_pull_command:` fields, or from project config such as a `package.json` `env:pull:<app>` script). If the env file is missing, do NOT spawn qa-engineer - surface the verbatim message defined in `content/references/qa-gate.md` §"Conductor preflight before any qa-engineer spawn" with the resolved `<env_pull_command>` and wait for the operator. Spawning qa-engineer just to discover the env is missing wastes a worker turn.
 
-**Multi-PR / multi-ticket parallel-by-worktree.** When more than one PR or unit is awaiting QA, default to spawning one qa-engineer per worktree in parallel (single message, background, each on a unique port `PORT=$((3000 + N))`). See `content/sections/05-qa-gate.md` §"Multi-PR / multi-ticket parallel-by-worktree".
+**Multi-PR / multi-ticket parallel-by-worktree.** When more than one PR or unit is awaiting QA, default to spawning one qa-engineer per worktree in parallel (single message, background, each on a unique port `PORT=$((3000 + N))`). See `content/references/qa-gate.md` §"Multi-PR / multi-ticket parallel-by-worktree".
 
-- **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+- **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent QA spec.
 - **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
 - **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7.
 
@@ -13667,6 +13775,24 @@ fi
 # --- End telemetry commit ---
 
 git -C $REPO push -u origin [BRANCH_NAME]
+
+# --- Isolation worktree cleanup (post-push) ---
+# The branch now lives on origin; the engineer's isolated worktree is redundant.
+# Resolve the worktree from the branch name so renames do not break cleanup.
+git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
+if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+  WORKTREE_PATH=$("$REPO_DIR/bin/agentic-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+  if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+    if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
+      git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>/dev/null || true
+      git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+      echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+    else
+      echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
+    fi
+  fi
+fi
+# --- End isolation worktree cleanup ---
 ```
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
@@ -13813,6 +13939,23 @@ Clean up temp dir:
 
 ```bash
 rm -rf "$SCREENSHOTS_SRC" 2>/dev/null || true
+```
+
+Clean up the original `/tmp/qa_*` source files that were consumed. Run this unconditionally after the copy loop and temp-dir cleanup, but only when `QA_SCREENSHOT_PATHS` is non-empty. Use the parsed paths so only copied files are deleted. Guard with `|| true` so Phase 8.5 remains soft-fail.
+
+```bash
+if [ "${#QA_SCREENSHOT_PATHS[@]}" -gt 0 ]; then
+  for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
+    SRC_PATH=$(echo "$entry" | jq -r '.path')
+    rm -f "$SRC_PATH" 2>/dev/null || true
+  done
+fi
+```
+
+Also delete `/tmp/qa_devserver.log` if it exists. Run this unconditionally at the end of Phase 8.5, regardless of whether screenshots were consumed:
+
+```bash
+rm -f /tmp/qa_devserver.log 2>/dev/null || true
 ```
 
 Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]`
@@ -14379,6 +14522,67 @@ Note on `worktree prune`: prune clears stale git administration entries (dead sy
 
 **Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state.json`.
 
+### Review-rigor PR-body evidence (soft-fail)
+
+**This is an INDEPENDENT top-level step - it is NOT nested inside, and NOT gated by, the knowledge-file-commit block above.** It does not check `MEMORY_MD_PATH`, `DECISIONS_MD_PATH`, or the knowledge-commit block's `STATUS` variable. Most tickets produce no `MEMORY.md`/`decisions.md` appends (`STATUS=skipped` is the common case) - nesting this step inside that block's emptiness check would skip review-rigor evidence on the majority of PRs, reproducing the exact coverage gap DS-87 closes. This step fires on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
+
+**Trigger:** runs after the knowledge-file-commit step above (same Phase 11c). Skip entirely when Phase 9 was skipped (no PR was opened) - same top-level Phase 11c trigger.
+
+**Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state.json` or the session transcript.
+
+**Ordering dependency:** this step reads `.agentic/loop-state.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+
+```bash
+# Phase 11c: Review-rigor PR-body evidence (soft-fail, independent of knowledge-commit)
+# BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
+# brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
+# spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
+
+# Gate 1: PR resolvability only.
+RR_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
+
+if [ -n "$RR_PR_NUMBER" ]; then
+  RR_EXISTING_BODY=$(gh pr view "$RR_PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+
+  # Gate 2: idempotency - skip if body already has a filled contract line.
+  if ! printf '%s' "$RR_EXISTING_BODY" | grep -qE '^- (Brief / Plan path|Skeptic rounds \(tier\)|Findings summary):[[:space:]]*[^[:space:]]'; then
+    RR_BRIEF_OR_PLAN="n/a - single-unit Elevated"
+    if [ -n "$BRIEF_PATH" ] && [ "$BRIEF_PATH" != "n/a" ]; then
+      RR_BRIEF_OR_PLAN="$BRIEF_PATH"
+    elif [ -n "$ARCHITECT_PLAN_PATH" ] && [ "$ARCHITECT_PLAN_PATH" != "n/a" ]; then
+      RR_BRIEF_OR_PLAN="$ARCHITECT_PLAN_PATH"
+    fi
+
+    TIER_DISPLAY=$(jq -r 'if (.loop_state | has("tier")) then (.loop_state.tier|tostring) else "2 (default, undeclared)" end' .agentic/loop-state.json 2>/dev/null || echo "2 (default, undeclared)")
+    ROUNDS=$(jq -r '.loop_state.iteration // "n/a"' .agentic/loop-state.json 2>/dev/null || echo "n/a")
+
+    # Findings tally: count final findings_log entries by severity (all should be status:closed here).
+    RR_CRITICAL=$(jq '[.loop_state.findings_log[]? | select(.severity=="Critical")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_MAJOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Major")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_MINOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Minor")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    if [ "${RR_CRITICAL:-0}" = "0" ] && [ "${RR_MAJOR:-0}" = "0" ] && [ "${RR_MINOR:-0}" = "0" ]; then
+      RR_FINDINGS_SUMMARY="No findings"
+    else
+      RR_FINDINGS_SUMMARY="Critical: ${RR_CRITICAL:-0}, Major: ${RR_MAJOR:-0}, Minor: ${RR_MINOR:-0}"
+    fi
+
+    RR_APPEND_FILE="/tmp/review-rigor-pr-body-$$"
+    {
+      printf '\n\n## Review rigor\n\n'
+      printf -- '- Brief / Plan path: %s\n' "$RR_BRIEF_OR_PLAN"
+      printf -- '- Skeptic rounds (tier): %s (Tier: %s)\n' "$ROUNDS" "$TIER_DISPLAY"
+      printf -- '- Findings summary: %s\n' "$RR_FINDINGS_SUMMARY"
+    } > "$RR_APPEND_FILE"
+
+    printf '%s%s' "$RR_EXISTING_BODY" "$(cat "$RR_APPEND_FILE")" > "/tmp/review-rigor-full-body-$$"
+    gh pr edit "$RR_PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
+    rm -f "$RR_APPEND_FILE" "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
+  fi
+fi
+```
+
+**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state.json` never blocks Phase 12. Does NOT write `loop-state.json`.
+
 ---
 
 ## Phase 12: Loop state cleanup
@@ -14487,6 +14691,91 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 **On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
 > Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the Stop hook on session-exit crash. These are two distinct paths; `last_summary` is only populated on graceful pause (the Stop hook cannot synthesize it).
+
+---
+
+## Phase 12b: Operator Runbook
+
+**Trigger:** fires once per session, at the point the session's ticket-processing work concludes - not once per ticket. Single-ticket mode: once, after Phase 12a for the one ticket. Batch mode (including single-ticket-capped and open-goal): once, after the LAST ticket processed in this session, when the outer loop is about to exit because all tickets in `batch-state.json.tickets[]` have reached a terminal state (no `pending` or `in_progress` remaining) and Phase 12a did not pause the batch. Do NOT print the runbook after every individual ticket's Phase 12a evaluation while more tickets remain to process in this session - a 5-ticket batch prints ONE runbook, not five.
+
+**Skip conditions:**
+- Phase 9 was skipped (no PR was opened, e.g. open-goal dry-run): skip silently.
+- Phase 12a already exited the outer loop (goal-met short-circuit fired): skip - the goal-met exit already prints a terminal summary.
+- Phase 12a triggered a pause this session (any of the four triggers, any mode - batch, single-ticket-capped, or open-goal): skip - Phase 12a's own pause summary (`BATCH PAUSED` / `OPEN-GOAL LOOP PAUSED` / `SINGLE-TICKET WALLCLOCK CAP REACHED`) already states what completed so far and the correct resume command; a second, differently-worded next-command block from Phase 12b would contradict it (12a's `Resume: /implement-ticket from this directory` resumes the paused batch cursor - a different operation from a fresh `/implement-ticket <ticket_id>` invocation).
+
+**Failure semantics:** soft-fail throughout. Any error reading state files is swallowed; the runbook degrades gracefully to whatever information is available. Phase 12b NEVER blocks Phase 12 cleanup, PR completion, or batch advancement.
+
+**Output format:** the runbook is printed as plain operator-readable text, not structured JSON. It is plan-only - it suggests commands, never invokes them (yolo-guard applies). All file paths in pasted command lines are absolute (operator handoff convention).
+
+---
+
+**What to render:**
+
+### 1. What landed
+
+For each PR opened this session (collected from Phase 9 across all completed tickets), print one line:
+
+```
+✓  PR #<number>  <ticket_id>  → <pr_url>
+```
+
+Derive the list from the session's completed `tickets[]` entries in `.agentic/batch-state.json` (fields `pr_number` and `ticket_id` - the actual schema; there is no `pr_url` or `ticket_title` field). Construct `pr_url` as `https://github.com/$GH_REPO/pull/<pr_number>`, matching the pattern used at Phase 11 (`PR_URL`: `https://github.com/[GH_REPO]/pull/[PR_NUMBER]`). Do not print a ticket title - it is not a `batch-state.json` field, and adding one is a schema change out of scope for this change. For single-ticket mode (no `batch-state.json`), derive from the in-context `PR_NUMBER` set at Phase 9 and the `PR_URL` constructed at Phase 11.
+
+### 2. Next command
+
+This phase's own trigger condition (see above) guarantees every ticket in `.agentic/batch-state.json.tickets[]`, when the file exists, has already reached a terminal state - no `pending` or `in_progress` entries remain to resume. So the next command is always derived from a triage artifact, never from an in-batch "remaining tickets" scan.
+
+Check for a triage artifact: glob `docs/planning/triage-*.md` - pick the newest by mtime. `.agentic/triage-*.md` is not a valid fallback path: `/ticket-triage` explicitly writes no `.agentic/` state (`content/commands/ticket-triage.md`'s header and Phase 0 both state "No `.agentic/` state writes"), so no file can ever exist there. If a triage artifact is found, extract the next recommended lane's ticket IDs from its "## Kickoff prompts" section (heuristic: first lane block not covered by tickets already landed this session). Each lane block already contains a literal copy-pasteable `/implement-ticket <ticket_ids>` code fence (see `content/commands/ticket-triage.md` Phase 4a artifact skeleton) - reuse it verbatim rather than reconstructing the command. Do not look for a `lanes[]` field on the artifact: `lanes[]` is the in-memory `triage_result` structure Phase 0a builds during triage (`{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`), not a field of the rendered markdown - the on-disk artifact has no such field.
+
+```
+Next:  /implement-ticket <lane_tickets>
+       (from: <absolute_path_to_repo>)
+       Triage artifact: <absolute_path_to_triage_file>
+```
+
+If no triage artifact exists, print:
+
+```
+Next:  /ticket-triage   # no outstanding work detected; re-triage to pick next batch
+       (from: <absolute_path_to_repo>)
+```
+
+### 3. Blockers and deferred items
+
+Collect any blockers surfaced during this session:
+
+- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `content/references/qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log). **Known gap:** neither `qa_blocked` nor `qa_unverified=true` is written to any durable state file (`.agentic/loop-state.json`'s `qa_failures_log` tracks Skeptic-visible QA fail/retry cycles, not the blocked/INCONCLUSIVE terminal outcome, and it is ticket-scoped - overwritten by the next ticket and cleared at that ticket's own Phase 12, both before this phase runs). This item is therefore best-effort within the current session only and does not survive a resumed session: a batch that hits `qa_blocked` in session A and is resumed and finished in session B will not re-surface that blocker here.
+- Batch-escalated tickets: any ticket in `.agentic/batch-state.json.tickets[]` with `status: "blocked"` (written by the "Batch-mode escalation routing (mark-blocked-and-continue)" path on Skeptic/QA `cap_reached`) - print the ticket ID and its `last_summary`. This is the one blocker class that IS durable (written directly to `tickets[]`), so include it even on a resumed session.
+
+Print:
+
+```
+Blockers / deferred:
+  · <item description>
+```
+
+If no blockers, omit this section entirely (keep output clean for smooth runs).
+
+---
+
+**Full runbook example output:**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPERATOR RUNBOOK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+What landed:
+  ✓  PR #451  DS-69  → https://github.com/…/pull/451
+  ✓  PR #452  DS-52  → https://github.com/…/pull/452
+
+Next:
+  /implement-ticket DS-45, DS-50
+  (from: /Users/dev/project)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+Emit breadcrumb: `[phase: operator-runbook | tickets_landed=<k> | blockers=<n>]`
 
 ---
 
@@ -14838,7 +15127,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
 
    > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
 
-   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted.`
+   Require the standard sign-off format: `Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted.`
 
    **PRESENT the three-way split to the user BEFORE applying** (diff-style preview):
 
@@ -16759,11 +17048,13 @@ The Skeptic is always a fresh spawn - never resumed, never continued from a prio
 
 ## Step 3 - Read findings
 
-A valid sign-off contains all four mandatory elements as distinct lines:
+A valid sign-off contains all six mandatory elements as distinct lines:
 - (a) a line beginning "Reviewed:"
 - (b) a line beginning "Findings:"
 - (c) an "Active search:" line
 - (d) the exact phrase "No unresolved Critical or Major findings. Sign-off granted."
+- (g) a "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8)
+- (h) a "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5)
 
 If any element is missing: spawn a new Skeptic with explicit format instructions ("Your previous response did not conform to the required sign-off format. Please restate your findings and sign-off using the required format."). This format re-invocation is not counted as a new adversarial round. Limit: 3 format re-invocations. If still noncompliant after 3, escalate to the human.
 
@@ -17340,13 +17631,42 @@ Conductor-direct (no subagent). For each entry in `normalized_input.entries[]`, 
 - **Jira:** `mcp__mcp-atlassian__jira_get_issue` - capture `priority`, `status`, `story_points` (or `timeestimate`), `labels`, `components`, `assignee`, and `issuelinks` (blocks / is-blocked-by / relates-to).
 - **Linear:** `mcp__linear__get_issue` - capture `priority`, `state`, `estimate`, `labels`, `assignee`, and relations (blocks / blocked-by / related).
 
-The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates only the display-only "Est" column in the Phase 4a per-ticket summary table. No distribution rule consumes it; estimate-aware lane sizing is a deferred default.
+The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) populates the display-only "Est" column in the Phase 4a per-ticket summary table; no distribution rule consumes it, and estimate-aware lane sizing is a deferred default. Only `story_points` and Linear `estimate` trigger the story-size preflight below - `timeestimate` is Jira's time-tracking field (denominated in seconds), display-only, and is never compared against the preflight threshold.
 
 **Soft-fail per ticket:** on any fetch error, mark `fetch_failed: true` on that entry and proceed. Fetch-failed tickets are treated as independent (no known deps, no known metadata) in all downstream phases.
 
 **Terminal-status detection:** tickets whose status maps to a Done/Cancelled/Won't-do state are marked `terminal: true`. They are added to the deferred set in Phase 3 Rule 1 without further analysis.
 
 **In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true`. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts).
+
+> **Story-size preflight** - runs once, immediately after all metadata is collected.
+>
+> For each ticket whose estimate is available (`story_points` or Linear `estimate` is a number) AND that is not `terminal: true` or `in_progress: true` (those are deferred / excluded from lane assignment regardless of size - warning them here would flag tickets that never reach `/implement-ticket`), check:
+> - **≥ 5 points:** print the following warning (once per oversized ticket):
+>   ```
+>   ⚠ [DS-XX] Est: N pts - large story. Recommend decomposing into ≤ 3-point sub-tickets
+>     before running /implement-ticket. A single 5+ point story can exhaust the context
+>     window before the loop completes. Split strategy: one sub-ticket per independent
+>     deliverable; use /ticket-triage on the sub-set to re-sequence.
+>   ```
+>   Then append a `context_risk: high` flag to that entry. Lane assignment proceeds normally; the operator decides whether to decompose.
+>
+> - **3-4 points:** no warning. `context_risk` is unset.
+> - **≤ 2 points or estimate absent:** no warning. Safe to run as-is.
+>
+> **Token-reduction reminder** - if any ticket has `context_risk: high`, append this one-time callout at the end of the story-size preflight output:
+> ```
+> 💡 Token-reduction tools: if your harness supports ctx_* context-mode tools
+>    (ctx_execute, ctx_batch_execute), prefer them over raw shell output for any
+>    operation producing > 20 lines - they reduce context consumption by ~98%
+>    (see content/rules/code-standards.md §Context Window Management).
+>    If context fills mid-session, /wrap → /clear → re-invoke /implement-ticket
+>    with the remaining ticket IDs to continue in a fresh window.
+> ```
+>
+> **Silent on clean sets:** if no ticket has `context_risk: high`, print nothing. No output on safe sessions.
+>
+> The `context_risk` flags are display-only; no distribution rule consumes them.
 
 `[phase: ticket-triage | phase=metadata]`
 
@@ -17441,14 +17761,15 @@ Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investiga
 ## Per-ticket summary
 
 <!-- Est column: shows the captured estimate (story points / time estimate) or "-" when absent.
-     Display-only; no distribution rule consumes it. -->
+     Display-only; no distribution rule consumes it.
+     ⚠ column: populated with "⚠ large" when context_risk: high (≥5 pts); otherwise empty. -->
 
-| Ticket | Priority | Status | Est | Lane | Notes |
-|--------|----------|--------|-----|------|-------|
-| A | High | To Do | 3 | Lane 1 | |
-| B | Med | To Do | 2 | Lane 1 | blocked by A |
-| C | High | To Do | - | Lane 2 | |
-| ... | | | | | |
+| Ticket | Priority | Status | Est | ⚠ | Lane | Notes |
+|--------|----------|--------|-----|---|------|-------|
+| A | High | To Do | 3 | | Lane 1 | |
+| B | Med | To Do | 2 | | Lane 1 | blocked by A |
+| C | High | To Do | 8 | ⚠ large | Lane 2 | |
+| ... | | | | | | |
 
 ## Dependency notes
 
@@ -18335,7 +18656,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires all four elements: (a) "Reviewed:", (b) "Findings:", (c) "Active search:", (d) "No unresolved Critical or Major findings. Sign-off granted." If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires all six elements: (a) "Reviewed:", (b) "Findings:", (c) "Active search:", (d) "No unresolved Critical or Major findings. Sign-off granted.", (g) "Manifest check:", (h) "Test-CI-wiring check:". If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -18543,9 +18864,9 @@ Otherwise skip that target silently.
    >
    > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output."
    >
-   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted."
+   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted."
 
-3. Validate sign-off format the same way Step 3 does (all four elements: "Reviewed:", "Findings:", "Active search:", "No unresolved Critical or Major findings. Sign-off granted."). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
+3. Validate sign-off format the same way Step 3 does (all six elements: "Reviewed:", "Findings:", "Active search:", "Manifest check:", "Test-CI-wiring check:", "No unresolved Critical or Major findings. Sign-off granted."). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
    If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
 

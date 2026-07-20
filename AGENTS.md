@@ -31,11 +31,12 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 	4. Push branch to origin: `git push -u origin <branch-name>`.
 	5. Open PR against `main` via `gh pr create`.
 	6. Once CI/CD checks pass, auto-merge: `gh pr merge --squash --delete-branch`.
-	7. Clean up: `git worktree remove --force <path>`, `git branch -D <branch-name>`, `git worktree prune`.
+	7. Clean up: isolation worktrees are removed after the branch is pushed to origin; feature worktrees are cleaned up after merge. The session-start prune script and branch-prune block remain as backstops. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands and §Feature worktree cleanup commands.
 	8. Update local main: `git checkout main && git pull --ff-only origin main`.
 	- Steps 6-8 are automatic - never pause for merge approval when CI is green.
 	- Failed CI is a hard stop - investigate before proceeding.
 - **Conductor never edits shippable artifacts directly, including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/main`; the conductor edits only exempt artifacts (`.agentic/`, conductor-direct prints/decisions/resolver execution) in its own checkout. See `content/rules/conventions.md` §Git Workflow for the shippable/exempt classifier.
+- Superseding an open PR: close + rebase, never bundle - see `content/rules/conventions.md` §Git Workflow.
 - When isolation:worktree Workers are used across multiple sequential spawns in the same task, the worktree is cleaned up between them and subsequent Workers fall back to the main tree. Tell follow-up Workers this explicitly.
 - When spawning parallel engineer units, each spawn brief must explicitly say "branch your worktree from current `origin/main`, NOT a local checkout that may include not-yet-merged sibling units." Worktree branch leaks (commits landing on the wrong unit's branch) are the most common cross-unit contamination class when parent units have not yet merged.
 - Assembling a multi-unit PR: the repo enforces a DCO Signed-off-by check on EVERY commit. Conductor `git merge --no-ff` assembly commits are unsigned and fail DCO - instead cherry-pick each engineer's signed unit commit (no merge commits) or pass `git merge --signoff`. Never force-push to fix unsigned merge commits; `gh pr merge --admin --squash` discards merge commits at merge time anyway.

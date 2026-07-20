@@ -6,6 +6,51 @@ agent: build
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
+> **Context-size preflight (run immediately after Activation, before any other step):** Assess the current session's context load against the soft and hard limits defined in `content/references/subagent-protocol.md` Section 13.
+>
+> **Hard limit check (Section 13.2) - checked first:** If the session has reached the hard limit, Section 13.2 governs absolutely - there is no `yes`/proceed override at or above the hard limit. Do the following in this order: (1) print the hard-limit block below verbatim, (2) invoke `/wrap` automatically to preserve state via `context.md` and `MEMORY.md` updates (or instruct the operator to run `/wrap` if auto-invoke is unavailable in the current harness), (3) exit - refusing further implementation work, Skeptic rounds, and subagent spawns for the remainder of this session. Do not print the soft-limit warning block below or the "Proceed anyway?" prompt.
+>
+> **Hard-limit block (print verbatim - this is a plain print, not an `AskUserQuestion` tool call, and does not wait for operator confirmation):**
+> ```
+> Context-size hard limit reached: this session has reached the conductor
+>    context hard limit (Section 13.2 of the Subagent Protocol). The hard
+>    limit is absolute - there is no override, and further implementation
+>    work, Skeptic rounds, and subagent spawns are refused for the rest of
+>    this session.
+>
+>    Why: the hard limit exists to protect output quality. A conductor
+>    operating past this point risks missing details from earlier turns,
+>    re-introducing bugs already fixed, and producing stale crash-recovery
+>    state. A fresh session is required to continue - this is not optional.
+>
+>    Next steps:
+>      1. /wrap          - save session state and generate a hand-off summary
+>      2. Start a new session (on Claude Code, /clear also works)
+>      3. /implement-ticket <your input>   - in the fresh session
+> ```
+>
+> **Danger signals below the hard limit (any one triggers the soft-limit warning, per Section 13.1):**
+> - Session turn count at or above the soft limit with substantive tool-call results still in context.
+> - Any prior subagent result block, of substantive size, is visible and was produced in this same session before `/implement-ticket` was invoked.
+>
+> **If a danger signal is detected below the hard limit, print verbatim (this is a plain print-and-wait for the operator's next message, not an `AskUserQuestion` tool call):**
+> ```
+> Context-size warning: your current session carries significant prior context
+>    (a long turn history and/or one or more prior subagent result blocks still
+>    visible). Running /implement-ticket now risks exhausting your token budget
+>    before the architect-plan-review phase completes.
+>
+>    Recommended safe pattern:
+>      1. /wrap          - save session state and generate a hand-off summary
+>      2. Start a new session (on Claude Code, /clear also works)
+>      3. /implement-ticket <your input>   - in the fresh session
+>
+>    Proceed anyway? (yes / no)
+> ```
+> On `no`: exit immediately. On `yes`: continue with a one-line note: `Context-size warning acknowledged - proceeding in large session.` This `yes` override is valid only below the hard limit - it never applies once the hard limit is reached (see Hard limit check above).
+>
+> **If no danger signals are present:** continue silently (no output).
+
 Take a ticket (Linear, Jira, or none) from description to merged PR, with full agent orchestration (Architect → Orchestration Planner (conditional) → Engineer → Skeptic) and the CI Test URL posted back to the ticket.
 
 ## Invocation
@@ -1003,7 +1048,7 @@ The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVE
 
 **On full coverage:** emit `[phase: cross-artifact-aligned | N/N criteria covered]` and proceed to the promotion gate.
 
-See `content/sections/03-planning-artifacts.md` Gate semantics for where this step sits relative to the Skeptic-on-Brief.
+See `content/references/planning-artifacts.md` §Gate semantics for where this step sits relative to the Skeptic-on-Brief.
 
 **ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
 
@@ -1094,7 +1139,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
-- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence.
+- `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
 - `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 
@@ -1207,8 +1252,12 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 
 ```bash
 # For each unit:
-git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
-git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+if [ -z "$(git -C ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} status --porcelain 2>/dev/null)" ]; then
+  git -C $REPO worktree remove ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} --force
+  git -C $REPO branch -d ${FEATURE_BRANCH}-${unit_slug}
+else
+  echo "WARNING: worktree ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_slug} has uncommitted changes; skipping cleanup"
+fi
 git -C $REPO worktree prune
 ```
 
@@ -1259,6 +1308,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
     "phase": "skeptic",
     "iteration": 1,
     "max_iterations": 3,
+    "tier": 2,
     "findings_log": [],
     "qa_failures_log": [],
     "last_engineer_summary": null,
@@ -1269,13 +1319,14 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 
 **Field notes:**
 - `session_id` is the conductor session uuid. Every conductor write to `loop-state.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
+- `loop_state.tier` is written at loop initialization from the conductor's declared tier for the Skeptic spawn (default 2, per the existing tier-declaration prose). Readers treat an ABSENT `tier` key (pre-DS-87 state files) as `"2 (default, undeclared)"` - the same back-compat pattern used for `session_id` above.
 - `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
 - `status` values: `"active"` (loop running), `"interrupted"` (Stop hook or crash), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
 
 **Write triggers for Phase 6 Skeptic loop (overwrite using atomic write at each transition):**
-- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`
+- At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`. The conductor also records its declared tier for this Skeptic spawn into `loop_state.tier` at this same write.
 - After Skeptic returns, before Engineer spawn: `last_phase=skeptic`, `last_phase_action=returned`
 - After Engineer spawned (fix pass): `last_phase=engineer`, `last_phase_action=spawned`
 - After Engineer returns: `last_phase=engineer`, `last_phase_action=returned`; update `loop_state.last_engineer_summary` (verbatim, capped 2000 chars)
@@ -1494,13 +1545,13 @@ After normalization, re-evaluate the trigger conditions (with `qa_skip` now null
 
 **qa.md is supplemental, not gating.** Whether `.agentic/qa.md` (or legacy `.claude/qa.md`) exists, has a `## QA triggers` section, or matches the diff is NOT part of the trigger decision. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental project knowledge (dev server config, project quirks, matched trigger patterns) into its context, but the gate decision is owned by the architect's `qa_criteria`. qa.md triggers can SUPPLEMENT but CANNOT override `qa_skip != null`.
 
-**Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `content/sections/05-qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `content/sections/05-qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
+**Phase 6b is per-ticket and in-flow.** Phase 6b runs inside this ticket's loop, before Phase 7. The conductor MUST NOT defer Phase 6b to a final batch-end QA sweep across multiple tickets. If runtime QA cannot run for this ticket at the moment of its Phase 6b - dev server fails to boot, env file missing, preview deploy is blocked, no working URL - that is a blocker for THIS ticket, surfaced as `qa_blocked` with the operator's three options (provide the missing input, accept INCONCLUSIVE with `qa_unverified=true`, or abandon the ticket). See `content/references/qa-gate.md` §"Per-ticket, in-flow" for the anti-pattern and `content/references/qa-gate.md` §"INCONCLUSIVE classification" for the no-static-only-auto-pass rule.
 
-**Conductor preflight before any qa-engineer spawn.** Before spawning qa-engineer for this unit, verify the project env file exists at the path the dev server will load (resolved from qa.md `env_file:` + `env_pull_command:` fields, or from project config such as a `package.json` `env:pull:<app>` script). If the env file is missing, do NOT spawn qa-engineer - surface the verbatim message defined in `content/sections/05-qa-gate.md` §"Conductor preflight before any qa-engineer spawn" with the resolved `<env_pull_command>` and wait for the operator. Spawning qa-engineer just to discover the env is missing wastes a worker turn.
+**Conductor preflight before any qa-engineer spawn.** Before spawning qa-engineer for this unit, verify the project env file exists at the path the dev server will load (resolved from qa.md `env_file:` + `env_pull_command:` fields, or from project config such as a `package.json` `env:pull:<app>` script). If the env file is missing, do NOT spawn qa-engineer - surface the verbatim message defined in `content/references/qa-gate.md` §"Conductor preflight before any qa-engineer spawn" with the resolved `<env_pull_command>` and wait for the operator. Spawning qa-engineer just to discover the env is missing wastes a worker turn.
 
-**Multi-PR / multi-ticket parallel-by-worktree.** When more than one PR or unit is awaiting QA, default to spawning one qa-engineer per worktree in parallel (single message, background, each on a unique port `PORT=$((3000 + N))`). See `content/sections/05-qa-gate.md` §"Multi-PR / multi-ticket parallel-by-worktree".
+**Multi-PR / multi-ticket parallel-by-worktree.** When more than one PR or unit is awaiting QA, default to spawning one qa-engineer per worktree in parallel (single message, background, each on a unique port `PORT=$((3000 + N))`). See `content/references/qa-gate.md` §"Multi-PR / multi-ticket parallel-by-worktree".
 
-- **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/sections/05-qa-gate.md` for the full concurrent QA spec.
+- **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent QA spec.
 - **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
 - **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7.
 
@@ -1757,6 +1808,24 @@ fi
 # --- End telemetry commit ---
 
 git -C $REPO push -u origin [BRANCH_NAME]
+
+# --- Isolation worktree cleanup (post-push) ---
+# The branch now lives on origin; the engineer's isolated worktree is redundant.
+# Resolve the worktree from the branch name so renames do not break cleanup.
+git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
+if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
+  WORKTREE_PATH=$("$REPO_DIR/bin/agentic-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+  if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
+    if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
+      git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>/dev/null || true
+      git -C "$REPO" branch -D "$BRANCH_NAME" 2>/dev/null || true
+      echo "[phase: worktree-cleanup | branch=$BRANCH_NAME | path=$WORKTREE_PATH]"
+    else
+      echo "WARNING: worktree $WORKTREE_PATH has uncommitted changes; skipping cleanup"
+    fi
+  fi
+fi
+# --- End isolation worktree cleanup ---
 ```
 
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
@@ -1903,6 +1972,23 @@ Clean up temp dir:
 
 ```bash
 rm -rf "$SCREENSHOTS_SRC" 2>/dev/null || true
+```
+
+Clean up the original `/tmp/qa_*` source files that were consumed. Run this unconditionally after the copy loop and temp-dir cleanup, but only when `QA_SCREENSHOT_PATHS` is non-empty. Use the parsed paths so only copied files are deleted. Guard with `|| true` so Phase 8.5 remains soft-fail.
+
+```bash
+if [ "${#QA_SCREENSHOT_PATHS[@]}" -gt 0 ]; then
+  for entry in "${QA_SCREENSHOT_PATHS[@]}"; do
+    SRC_PATH=$(echo "$entry" | jq -r '.path')
+    rm -f "$SRC_PATH" 2>/dev/null || true
+  done
+fi
+```
+
+Also delete `/tmp/qa_devserver.log` if it exists. Run this unconditionally at the end of Phase 8.5, regardless of whether screenshots were consumed:
+
+```bash
+rm -f /tmp/qa_devserver.log 2>/dev/null || true
 ```
 
 Emit breadcrumb: `[phase: qa-evidence | screenshots=<N> | urls=<M> | branch=qa-evidence]`
@@ -2469,6 +2555,67 @@ Note on `worktree prune`: prune clears stale git administration entries (dead sy
 
 **Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state.json`.
 
+### Review-rigor PR-body evidence (soft-fail)
+
+**This is an INDEPENDENT top-level step - it is NOT nested inside, and NOT gated by, the knowledge-file-commit block above.** It does not check `MEMORY_MD_PATH`, `DECISIONS_MD_PATH`, or the knowledge-commit block's `STATUS` variable. Most tickets produce no `MEMORY.md`/`decisions.md` appends (`STATUS=skipped` is the common case) - nesting this step inside that block's emptiness check would skip review-rigor evidence on the majority of PRs, reproducing the exact coverage gap DS-87 closes. This step fires on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
+
+**Trigger:** runs after the knowledge-file-commit step above (same Phase 11c). Skip entirely when Phase 9 was skipped (no PR was opened) - same top-level Phase 11c trigger.
+
+**Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state.json` or the session transcript.
+
+**Ordering dependency:** this step reads `.agentic/loop-state.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+
+```bash
+# Phase 11c: Review-rigor PR-body evidence (soft-fail, independent of knowledge-commit)
+# BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
+# brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
+# spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
+
+# Gate 1: PR resolvability only.
+RR_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
+
+if [ -n "$RR_PR_NUMBER" ]; then
+  RR_EXISTING_BODY=$(gh pr view "$RR_PR_NUMBER" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null || echo "")
+
+  # Gate 2: idempotency - skip if body already has a filled contract line.
+  if ! printf '%s' "$RR_EXISTING_BODY" | grep -qE '^- (Brief / Plan path|Skeptic rounds \(tier\)|Findings summary):[[:space:]]*[^[:space:]]'; then
+    RR_BRIEF_OR_PLAN="n/a - single-unit Elevated"
+    if [ -n "$BRIEF_PATH" ] && [ "$BRIEF_PATH" != "n/a" ]; then
+      RR_BRIEF_OR_PLAN="$BRIEF_PATH"
+    elif [ -n "$ARCHITECT_PLAN_PATH" ] && [ "$ARCHITECT_PLAN_PATH" != "n/a" ]; then
+      RR_BRIEF_OR_PLAN="$ARCHITECT_PLAN_PATH"
+    fi
+
+    TIER_DISPLAY=$(jq -r 'if (.loop_state | has("tier")) then (.loop_state.tier|tostring) else "2 (default, undeclared)" end' .agentic/loop-state.json 2>/dev/null || echo "2 (default, undeclared)")
+    ROUNDS=$(jq -r '.loop_state.iteration // "n/a"' .agentic/loop-state.json 2>/dev/null || echo "n/a")
+
+    # Findings tally: count final findings_log entries by severity (all should be status:closed here).
+    RR_CRITICAL=$(jq '[.loop_state.findings_log[]? | select(.severity=="Critical")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_MAJOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Major")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_MINOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Minor")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    if [ "${RR_CRITICAL:-0}" = "0" ] && [ "${RR_MAJOR:-0}" = "0" ] && [ "${RR_MINOR:-0}" = "0" ]; then
+      RR_FINDINGS_SUMMARY="No findings"
+    else
+      RR_FINDINGS_SUMMARY="Critical: ${RR_CRITICAL:-0}, Major: ${RR_MAJOR:-0}, Minor: ${RR_MINOR:-0}"
+    fi
+
+    RR_APPEND_FILE="/tmp/review-rigor-pr-body-$$"
+    {
+      printf '\n\n## Review rigor\n\n'
+      printf -- '- Brief / Plan path: %s\n' "$RR_BRIEF_OR_PLAN"
+      printf -- '- Skeptic rounds (tier): %s (Tier: %s)\n' "$ROUNDS" "$TIER_DISPLAY"
+      printf -- '- Findings summary: %s\n' "$RR_FINDINGS_SUMMARY"
+    } > "$RR_APPEND_FILE"
+
+    printf '%s%s' "$RR_EXISTING_BODY" "$(cat "$RR_APPEND_FILE")" > "/tmp/review-rigor-full-body-$$"
+    gh pr edit "$RR_PR_NUMBER" --repo "$GH_REPO" --body-file "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
+    rm -f "$RR_APPEND_FILE" "/tmp/review-rigor-full-body-$$" 2>/dev/null || true
+  fi
+fi
+```
+
+**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state.json` never blocks Phase 12. Does NOT write `loop-state.json`.
+
 ---
 
 ## Phase 12: Loop state cleanup
@@ -2577,3 +2724,88 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 **On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
 > Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the Stop hook on session-exit crash. These are two distinct paths; `last_summary` is only populated on graceful pause (the Stop hook cannot synthesize it).
+
+---
+
+## Phase 12b: Operator Runbook
+
+**Trigger:** fires once per session, at the point the session's ticket-processing work concludes - not once per ticket. Single-ticket mode: once, after Phase 12a for the one ticket. Batch mode (including single-ticket-capped and open-goal): once, after the LAST ticket processed in this session, when the outer loop is about to exit because all tickets in `batch-state.json.tickets[]` have reached a terminal state (no `pending` or `in_progress` remaining) and Phase 12a did not pause the batch. Do NOT print the runbook after every individual ticket's Phase 12a evaluation while more tickets remain to process in this session - a 5-ticket batch prints ONE runbook, not five.
+
+**Skip conditions:**
+- Phase 9 was skipped (no PR was opened, e.g. open-goal dry-run): skip silently.
+- Phase 12a already exited the outer loop (goal-met short-circuit fired): skip - the goal-met exit already prints a terminal summary.
+- Phase 12a triggered a pause this session (any of the four triggers, any mode - batch, single-ticket-capped, or open-goal): skip - Phase 12a's own pause summary (`BATCH PAUSED` / `OPEN-GOAL LOOP PAUSED` / `SINGLE-TICKET WALLCLOCK CAP REACHED`) already states what completed so far and the correct resume command; a second, differently-worded next-command block from Phase 12b would contradict it (12a's `Resume: /implement-ticket from this directory` resumes the paused batch cursor - a different operation from a fresh `/implement-ticket <ticket_id>` invocation).
+
+**Failure semantics:** soft-fail throughout. Any error reading state files is swallowed; the runbook degrades gracefully to whatever information is available. Phase 12b NEVER blocks Phase 12 cleanup, PR completion, or batch advancement.
+
+**Output format:** the runbook is printed as plain operator-readable text, not structured JSON. It is plan-only - it suggests commands, never invokes them (yolo-guard applies). All file paths in pasted command lines are absolute (operator handoff convention).
+
+---
+
+**What to render:**
+
+### 1. What landed
+
+For each PR opened this session (collected from Phase 9 across all completed tickets), print one line:
+
+```
+✓  PR #<number>  <ticket_id>  → <pr_url>
+```
+
+Derive the list from the session's completed `tickets[]` entries in `.agentic/batch-state.json` (fields `pr_number` and `ticket_id` - the actual schema; there is no `pr_url` or `ticket_title` field). Construct `pr_url` as `https://github.com/$GH_REPO/pull/<pr_number>`, matching the pattern used at Phase 11 (`PR_URL`: `https://github.com/[GH_REPO]/pull/[PR_NUMBER]`). Do not print a ticket title - it is not a `batch-state.json` field, and adding one is a schema change out of scope for this change. For single-ticket mode (no `batch-state.json`), derive from the in-context `PR_NUMBER` set at Phase 9 and the `PR_URL` constructed at Phase 11.
+
+### 2. Next command
+
+This phase's own trigger condition (see above) guarantees every ticket in `.agentic/batch-state.json.tickets[]`, when the file exists, has already reached a terminal state - no `pending` or `in_progress` entries remain to resume. So the next command is always derived from a triage artifact, never from an in-batch "remaining tickets" scan.
+
+Check for a triage artifact: glob `docs/planning/triage-*.md` - pick the newest by mtime. `.agentic/triage-*.md` is not a valid fallback path: `/ticket-triage` explicitly writes no `.agentic/` state (`content/commands/ticket-triage.md`'s header and Phase 0 both state "No `.agentic/` state writes"), so no file can ever exist there. If a triage artifact is found, extract the next recommended lane's ticket IDs from its "## Kickoff prompts" section (heuristic: first lane block not covered by tickets already landed this session). Each lane block already contains a literal copy-pasteable `/implement-ticket <ticket_ids>` code fence (see `content/commands/ticket-triage.md` Phase 4a artifact skeleton) - reuse it verbatim rather than reconstructing the command. Do not look for a `lanes[]` field on the artifact: `lanes[]` is the in-memory `triage_result` structure Phase 0a builds during triage (`{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`), not a field of the rendered markdown - the on-disk artifact has no such field.
+
+```
+Next:  /implement-ticket <lane_tickets>
+       (from: <absolute_path_to_repo>)
+       Triage artifact: <absolute_path_to_triage_file>
+```
+
+If no triage artifact exists, print:
+
+```
+Next:  /ticket-triage   # no outstanding work detected; re-triage to pick next batch
+       (from: <absolute_path_to_repo>)
+```
+
+### 3. Blockers and deferred items
+
+Collect any blockers surfaced during this session:
+
+- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `content/references/qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log). **Known gap:** neither `qa_blocked` nor `qa_unverified=true` is written to any durable state file (`.agentic/loop-state.json`'s `qa_failures_log` tracks Skeptic-visible QA fail/retry cycles, not the blocked/INCONCLUSIVE terminal outcome, and it is ticket-scoped - overwritten by the next ticket and cleared at that ticket's own Phase 12, both before this phase runs). This item is therefore best-effort within the current session only and does not survive a resumed session: a batch that hits `qa_blocked` in session A and is resumed and finished in session B will not re-surface that blocker here.
+- Batch-escalated tickets: any ticket in `.agentic/batch-state.json.tickets[]` with `status: "blocked"` (written by the "Batch-mode escalation routing (mark-blocked-and-continue)" path on Skeptic/QA `cap_reached`) - print the ticket ID and its `last_summary`. This is the one blocker class that IS durable (written directly to `tickets[]`), so include it even on a resumed session.
+
+Print:
+
+```
+Blockers / deferred:
+  · <item description>
+```
+
+If no blockers, omit this section entirely (keep output clean for smooth runs).
+
+---
+
+**Full runbook example output:**
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OPERATOR RUNBOOK
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+What landed:
+  ✓  PR #451  DS-69  → https://github.com/…/pull/451
+  ✓  PR #452  DS-52  → https://github.com/…/pull/452
+
+Next:
+  /implement-ticket DS-45, DS-50
+  (from: /Users/dev/project)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+```
+
+Emit breadcrumb: `[phase: operator-runbook | tickets_landed=<k> | blockers=<n>]`

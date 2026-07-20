@@ -46,27 +46,31 @@ Categorize each remaining entry by its branch name:
 
 ## Step 3: Remove isolation worktrees
 
-For each isolation worktree, check its status before touching it:
+For each isolation worktree, resolve its path from the branch name and check its status before touching it:
 
 ```bash
-git -C <worktree-path> status --porcelain
+source "${REPO_DIR:-.}/scripts/lib/worktree.sh" 2>/dev/null || true
+WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$b" 2>/dev/null || true)
+git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 ```
+
+where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
 There are three cases. (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around.)
 
 **Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
 
 ```bash
-git worktree unlock <worktree-path> 2>/dev/null || true
+git worktree unlock "$WORKTREE_PATH" 2>/dev/null || true
 git worktree prune
-git branch -D <branch-name>
+git branch -D "$b"
 ```
 
 **Directory exists, clean (no output):** Remove the worktree and delete the branch:
 
 ```bash
-git worktree remove <worktree-path>
-git branch -D <branch-name>
+git worktree remove "$WORKTREE_PATH"
+git branch -D "$b"
 ```
 
 **Directory exists, dirty (output present):** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.

@@ -143,6 +143,10 @@ git branch -d <branch-name>
 
 **Multi-session support:** Multiple Claude Code sessions can work on different features simultaneously. Each session operates on its own branch. Isolation worktrees are additionally protected across sessions by the harness itself: Claude Code locks (`git worktree lock`) each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session; the lock releases when the agent finishes. This coordination is harness behavior (see Claude Code's own worktree documentation), not a mechanism the conductor or methodology adds.
 
+**Temp-file ownership.** Agents that write temp files are responsible for deleting them in teardown. If a downstream phase consumes the temp files, the consuming phase deletes the originals after consumption.
+
+**Superseding an open PR's work means close + rebase, never bundle.** If your branch's work makes another open PR's commits unnecessary or subsumed, close that PR citing the superseding one and rebase your branch clean of its commits - do not merge or cherry-pick the superseded PR's commits into your own branch. A branch whose history contains another open PR's head commit is exactly the pattern an advisory review-rigor CI check flags where configured; treat the flag as confirmation to close + rebase, not to proceed.
+
 ## Context Economy
 
 Read `content/references/conventions-detail.md` §Context Economy for context-window discipline rules (no duplicate file contents, minimal diffs, no verbatim tool output, structured blocks over prose) and multi-developer coordination guidance.

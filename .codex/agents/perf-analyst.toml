@@ -70,7 +70,7 @@ Choose profiling tools appropriate to the runtime:
 - **HTTP endpoints**: `wrk`, `hey`, `ab`, `autocannon`, or `hyperfine` for command-line benchmarks.
 - **Generic**: `hyperfine` for command-level benchmarking across any language.
 
-If none of these are available, write a minimal timing wrapper in `/tmp/` and run it via Bash. Do not modify files in the project tree.
+If none of these are available, write a minimal timing wrapper in `/tmp/` and run it via Bash. Do not modify files in the project tree. Delete any `/tmp/` profiling scripts you created before returning.
 
 Instrument at the boundary first (the entry point), then narrow inward to find the hotspot. Do not instrument every function - start coarse and refine.
 

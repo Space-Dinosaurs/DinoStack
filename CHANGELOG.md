@@ -3,6 +3,47 @@
 
 # Changelog
 
+## 2026-07-18
+
+### Uncategorized
+
+- **#461** [DS-88: Wire orphaned hooks/tests into CI via glob auto-discovery](https://github.com/Space-Dinosaurs/DinoStack/pull/461) - tyson-solara6
+
+## 2026-07-17
+
+### Uncategorized
+
+- **#458** [DS-87: Close the pre-PR review gap - PR-boundary backstops + skeptic checklist hardening](https://github.com/Space-Dinosaurs/DinoStack/pull/458) - tyson-solara6
+
+## 2026-07-16
+
+### Documentation
+
+- **#451** [add Phase 12b Operator Runbook to /implement-ticket](https://github.com/Space-Dinosaurs/DinoStack/pull/451) - tyson-solara6
+- **#450** [defer sections 03 & 05 detail to reference files (~15k chars / ~3.9k tokens always-on reduction)](https://github.com/Space-Dinosaurs/DinoStack/pull/450) - tyson-solara6
+- **#447** [add story-size preflight and token-reduction callout to /ticket-triage](https://github.com/Space-Dinosaurs/DinoStack/pull/447) - tyson-solara6
+- **#441** [add context-size preflight to /implement-ticket](https://github.com/Space-Dinosaurs/DinoStack/pull/441) - tyson-solara6
+
+### Uncategorized
+
+- **#445** [DS-78: Skeptic evidence hardening - execute regression tests, validate raw_output substance](https://github.com/Space-Dinosaurs/DinoStack/pull/445) - tyson-solara6
+
+## 2026-07-15
+
+### Documentation
+
+- **#456** [install section with video walkthrough up front, fix AE_DEST_DIR install command](https://github.com/Space-Dinosaurs/DinoStack/pull/456) - tyson-solara6
+
+### Maintenance
+
+- **#457** [CLAUDE.md import pattern + MEMORY.md two-tier prune](https://github.com/Space-Dinosaurs/DinoStack/pull/457) - tyson-solara6
+
+## 2026-07-14
+
+### Documentation
+
+- **#452** [correct cross-session safety description + fix locked-dir-missing prune](https://github.com/Space-Dinosaurs/DinoStack/pull/452) - tyson-solara6
+
 ## 2026-07-11
 
 ### Documentation
