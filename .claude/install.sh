@@ -1244,6 +1244,13 @@ recommended_deny = [
     "Bash(reboot*)"
 ]
 
+def _migrated_allow(existing_allow):
+    """Merge recommended allow rules in and strip legacy path-scoped
+    Write() rules out. Single-sourced so both the already-bypass and the
+    fresh-configure branches apply the identical migration (regression
+    case (g) in install-converge.test.sh covers this helper for both)."""
+    return list((existing_allow | set(recommended_allow)) - set(legacy_allow))
+
 already_bypass = perms.get("defaultMode") == "bypassPermissions"
 
 if already_bypass:
@@ -1256,7 +1263,7 @@ if already_bypass:
     stale_allow = existing_allow & set(legacy_allow)
 
     if missing_allow or missing_deny or missing_dir or stale_allow:
-        perms["allow"] = list((existing_allow | set(recommended_allow)) - set(legacy_allow))
+        perms["allow"] = _migrated_allow(existing_allow)
         perms["deny"] = list(existing_deny | set(recommended_deny))
         if os.path.islink(settings_path):
             sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
@@ -1283,7 +1290,7 @@ else:
         existing_allow = set(perms.get("allow", []))
         existing_deny = set(perms.get("deny", []))
 
-        perms["allow"] = list((existing_allow | set(recommended_allow)) - set(legacy_allow))
+        perms["allow"] = _migrated_allow(existing_allow)
         perms["deny"] = list(existing_deny | set(recommended_deny))
         perms["defaultMode"] = "bypassPermissions"
         perms.setdefault("additionalDirectories", [])

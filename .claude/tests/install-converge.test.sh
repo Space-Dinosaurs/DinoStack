@@ -31,7 +31,10 @@
 #     Edit(path) rules match) are migrated out of an existing
 #     bypassPermissions settings.json; recommended Edit path rules and the
 #     bare Write/Edit tool rules are retained; the write fires even when
-#     nothing else is missing.
+#     nothing else is missing. The migration is single-sourced in the
+#     install.sh `_migrated_allow()` helper, so this case's assertions
+#     cover both the already-bypass branch and the fresh-configure branch
+#     (both call the same helper).
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -374,7 +377,11 @@ rm -rf "$FAKE_HOME"
 # Case (g): permissions migration - legacy path-scoped Write() allow rules
 #           are removed from an existing bypassPermissions settings.json;
 #           recommended Edit path rules and bare Write/Edit are retained;
-#           the write fires even when nothing else is missing.
+#           the write fires even when nothing else is missing. Exercises
+#           install.sh's single-sourced `_migrated_allow()` helper, which
+#           the fresh-configure (interactive) branch also calls - that
+#           branch reads /dev/tty and cannot be exercised directly in CI,
+#           so this case is the sole coverage for both branches' migration.
 # ---------------------------------------------------------------------------
 
 FAKE_HOME="$(mktemp -d)"
