@@ -396,19 +396,28 @@ CURSOR_STOP_CMD="node \"$CURSOR_STOP_JS\""
 #   AE-managed stop-context hook filename - old "stop-context.js" or the
 #   current "stop-context-cursor.js" port, at any path - to NEW_CMD. Every
 #   other key (beforeSubmitPrompt, locally-added stop entries) is left
-#   untouched. Fails safe: prints 0 and leaves DST on disk untouched when
-#   JSON is malformed, hooks.stop is missing or not a list, or python3 is
-#   unavailable. Writes atomically (tmp file + rename in the same
-#   directory) and only when at least one entry actually changed - repeat
-#   runs on an already-converged file leave it byte-identical. Prints the
-#   changed-entry count to stdout.
+#   untouched. Prints exactly one token to stdout for the caller to branch
+#   on:
+#     - a positive integer: that many entries were converged and written.
+#     - 0: already current - no entry needed rewriting.
+#     - ERR: genuine failure - python3 unavailable, DST is not valid JSON,
+#       hooks.stop is missing or not a list, or the atomic write raised.
+#       DST is left untouched on disk in every ERR case, and a
+#       human-readable diagnostic is also printed to stderr describing the
+#       cause. Callers MUST treat ERR as "stop hook not converged" and
+#       must never print a reassuring success/"already current" message on
+#       this path - 0 (legitimate no-op) and ERR (failed to converge) are
+#       deliberately distinct tokens so the two cannot be conflated.
+#   Writes atomically (tmp file + rename in the same directory) and only
+#   when at least one entry actually changed - repeat runs on an
+#   already-converged file leave it byte-identical.
 _ae_cursor_converge_hooks_stop() {
   local dst="$1"
   local new_cmd="$2"
 
   if ! command -v python3 >/dev/null 2>&1; then
     echo "  ! python3 not found - leaving $dst untouched (stop hook not converged)" >&2
-    echo 0
+    echo ERR
     return 0
   fi
 
@@ -428,18 +437,21 @@ pattern = re.compile(r'(?:^|[/\\\x22\x27 ])stop-context(-cursor)?\.js(?:[\x22\x2
 try:
     with open(dst) as f:
         data = json.load(f)
-except Exception:
-    print(0)
+except Exception as e:
+    print(f"  ! {dst}: not valid JSON ({e}) - stop hook not converged", file=sys.stderr)
+    print("ERR")
     sys.exit(0)
 
 hooks = data.get("hooks") if isinstance(data, dict) else None
 if not isinstance(hooks, dict):
-    print(0)
+    print(f"  ! {dst}: no \"hooks\" object found - stop hook not converged", file=sys.stderr)
+    print("ERR")
     sys.exit(0)
 
 stop_list = hooks.get("stop")
 if not isinstance(stop_list, list):
-    print(0)
+    print(f"  ! {dst}: hooks.stop is missing or not a list - stop hook not converged", file=sys.stderr)
+    print("ERR")
     sys.exit(0)
 
 changed = 0
@@ -459,12 +471,13 @@ if changed > 0:
             json.dump(data, f, indent=2)
             f.write("\n")
         os.rename(tmp_path, dst)
-    except Exception:
+    except Exception as e:
         try:
             os.unlink(tmp_path)
         except OSError:
             pass
-        print(0)
+        print(f"  ! {dst}: failed to write converged hooks.json ({e}) - stop hook not converged", file=sys.stderr)
+        print("ERR")
         sys.exit(0)
 
 print(changed)
@@ -475,7 +488,9 @@ echo "Installing hooks.json..."
 
 if [[ -e "$HOOKS_DST" ]]; then
   _ae_changed="$(_ae_cursor_converge_hooks_stop "$HOOKS_DST" "$CURSOR_STOP_CMD")"
-  if [[ "${_ae_changed:-0}" -gt 0 ]]; then
+  if [[ "$_ae_changed" == "ERR" ]]; then
+    echo "  ! hooks.json convergence FAILED - stop hook may still point at the OLD blocking command (bounded reader NOT wired). Fix the cause above and re-run install."
+  elif [[ "${_ae_changed:-0}" -gt 0 ]]; then
     echo "  ~ $HOOKS_DST converged ($_ae_changed stop hook entry updated)"
   else
     echo "  = $HOOKS_DST already current - preserving customizations"
@@ -483,10 +498,12 @@ if [[ -e "$HOOKS_DST" ]]; then
 else
   cp "$HOOKS_SRC" "$HOOKS_DST"
   _ae_changed="$(_ae_cursor_converge_hooks_stop "$HOOKS_DST" "$CURSOR_STOP_CMD")"
-  if [[ "${_ae_changed:-0}" -gt 0 ]]; then
+  if [[ "$_ae_changed" == "ERR" ]]; then
+    echo "  ! hooks.json copied to $HOOKS_DST but stop hook convergence FAILED - bounded reader NOT wired (old blocking command may still be active). Fix the cause above and re-run install."
+  elif [[ "${_ae_changed:-0}" -gt 0 ]]; then
     echo "  + hooks.json copied to $HOOKS_DST (stop -> $CURSOR_STOP_CMD)"
   else
-    echo "  ! hooks.json copied to $HOOKS_DST but stop hook NOT converged - fix manually (stop still -> old command)"
+    echo "  = hooks.json copied to $HOOKS_DST (stop hook already current)"
   fi
 fi
 unset _ae_changed
