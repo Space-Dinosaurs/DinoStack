@@ -10,9 +10,15 @@
  *          shape (see docs/planning/cursor-stop-hook-plan.md Addendum for the
  *          finalized field mapping, sourced from https://cursor.com/docs).
  *
- * Public API: none exported - this module is invoked directly at load time
- *             (`run().catch(exitOk)` at the bottom), not required by other
- *             modules. CommonJS module with no module.exports.
+ * Public API: when run directly as the hook script (`require.main ===
+ *             module`), no export - `run().catch(exitOk)` fires at load
+ *             time exactly as before. When required by another module
+ *             (`require.main !== module`, test-only), `run()` is NOT
+ *             invoked and `{ readTranscriptExcerpt }` is exported instead,
+ *             so hooks/tests/test-stop-context-cursor.js can drive the
+ *             bounded-read/TOCTOU logic directly without spawning the full
+ *             hook. This guard never changes behavior for the real
+ *             Cursor-invoked path.
  *
  * Upstream deps: Node built-ins only (fs, path) plus
  *                ../../hooks/lib/stdin-guard.js (readStdinGuarded - the
@@ -55,9 +61,25 @@
  *                there is no traversal surface a reject branch would have
  *                protected that normalization does not already close. An
  *                oversized or unreadable transcript file never blocks the
- *                write path -
- *                fs.statSync is checked before any read, and anything over
- *                256 KB is skipped entirely in favor of a placeholder string.
+ *                write path - the path is opened exactly ONCE via
+ *                fs.openSync, and BOTH the size check (fs.fstatSync) and the
+ *                bounded read (fs.readSync) are performed against that SAME
+ *                file descriptor. This closes the TOCTOU window a
+ *                path-based statSync+readFileSync pair would otherwise leave
+ *                open (an attacker swapping a symlink between the two calls
+ *                could defeat the size gate and force an unbounded read of
+ *                whatever the path resolves to next - the fd stays bound to
+ *                the original inode regardless of any later swap). The fd is
+ *                opened O_NONBLOCK so a FIFO with no writer cannot hang the
+ *                open() call itself; combined with an explicit
+ *                stat.isFile() check, directories, FIFOs, and devices are
+ *                rejected before any read is attempted (unlike the old
+ *                behavior, which relied on readFileSync's EISDIR exception
+ *                for directories and would have hung indefinitely on a
+ *                writer-less FIFO). Anything over 256 KB is skipped entirely
+ *                in favor of a placeholder string, and the read buffer is
+ *                additionally capped at min(stat.size, 256 KB) so no more
+ *                than the cap is ever allocated or read regardless of race.
  *                DOCUMENTED NON-PARTICIPATION: like the existing Copilot
  *                port, this hook does an UNCONDITIONAL context.md write and
  *                does NOT participate in the Claude-only wrap-lock/deferral
@@ -72,9 +94,11 @@
  *              the common EOF/early-parse paths, worst case
  *              firstByteTimeoutMs/inactivityTimeoutMs/absoluteTimeoutMs, plus
  *              a maxStdinBytes cap on total stdin size). The transcript read,
- *              when attempted, is a single statSync plus (only when under
- *              the 256 KB cap) a single readFileSync - never proportional to
- *              a transcript larger than the cap.
+ *              when attempted, is a single openSync/fstatSync pair plus
+ *              (only when under the 256 KB cap and isFile() is true) a
+ *              single bounded readSync - never proportional to a transcript
+ *              larger than the cap, and never blocking on a non-regular
+ *              file.
  */
 
 'use strict';
@@ -106,22 +130,54 @@ function exitOk() {
  * Read at most a bounded tail excerpt of the transcript file as a
  * last-activity hint. The transcript file format is undocumented, so this
  * never attempts to parse it - just a raw tail excerpt for a human reading
- * context.md. Never throws.
+ * context.md.
+ *
+ * Security: opens transcriptPath exactly ONCE via fs.openSync and performs
+ * BOTH the size check (fs.fstatSync) and the bounded read (fs.readSync)
+ * against that SAME file descriptor, so a symlink (or the path itself)
+ * being swapped after the check can never affect what actually gets read -
+ * the fd stays bound to the original inode. The fd is opened with
+ * O_NONBLOCK so a FIFO with no writer cannot hang the open() call itself;
+ * an explicit stat.isFile() check then rejects directories, FIFOs, and
+ * devices before any read is attempted. The read buffer is capped at
+ * min(stat.size, TRANSCRIPT_MAX_BYTES) so no more than the cap is ever
+ * allocated or read. Never throws, never blocks.
  * @param {string|null} transcriptPath
  * @returns {string}
  */
 function readTranscriptExcerpt(transcriptPath) {
   if (!transcriptPath) return '(not available)';
+  let fd = null;
   try {
-    const stat = fs.statSync(transcriptPath);
+    // O_NONBLOCK: avoid hanging open() on a FIFO/named-pipe with no writer.
+    // Has no effect on a regular file (the legitimate case).
+    fd = fs.openSync(transcriptPath, fs.constants.O_RDONLY | fs.constants.O_NONBLOCK);
+
+    // fstatSync on the SAME fd - this is the TOCTOU fix: the size check and
+    // the read below both reference the same open inode, so a path-level
+    // swap between them (e.g. a symlink retarget) can no longer defeat the
+    // size gate or redirect the read.
+    const stat = fs.fstatSync(fd);
+    if (!stat.isFile()) return '(not available)';
     if (stat.size > TRANSCRIPT_MAX_BYTES) return '(transcript too large)';
-    const raw = fs.readFileSync(transcriptPath, 'utf8').trim();
+
+    let raw = '';
+    const size = Math.min(stat.size, TRANSCRIPT_MAX_BYTES);
+    if (size > 0) {
+      const buffer = Buffer.alloc(size);
+      const bytesRead = fs.readSync(fd, buffer, 0, size, 0);
+      raw = buffer.toString('utf8', 0, bytesRead).trim();
+    }
     if (!raw) return '(not available)';
     return raw.length > TRANSCRIPT_TAIL_CHARS
       ? '...' + raw.slice(-TRANSCRIPT_TAIL_CHARS)
       : raw;
   } catch (_) {
     return '(not available)';
+  } finally {
+    if (fd !== null) {
+      try { fs.closeSync(fd); } catch (_) { /* already closed or fd invalid */ }
+    }
   }
 }
 
@@ -229,4 +285,13 @@ manually before ending a session.
   exitOk();
 }
 
-run().catch(exitOk);
+// Test-only export: when required (not run as the top-level script), expose
+// readTranscriptExcerpt so hooks/tests/test-stop-context-cursor.js can drive
+// it directly (e.g. to monkeypatch fs for a deterministic TOCTOU
+// regression). Guarded so this never changes runtime behavior when executed
+// as the hook script itself.
+if (require.main !== module) {
+  module.exports = { readTranscriptExcerpt };
+} else {
+  run().catch(exitOk);
+}
