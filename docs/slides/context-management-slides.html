@@ -1459,15 +1459,15 @@ hr {
 <h2 id="multiple-sessions-and-the-rolling-window">Multiple sessions and the rolling window</h2>
 
 <p>You can run <strong>multiple sessions in parallel</strong> - open separate terminals, each with <code>claude</code> in the same project directory. They share the same persistent memory and AGENTS.md.</p>
-<p>When you <code>/wrap</code> each session, they merge into a shared <code>.agentic/context.md</code> using a <strong>rolling window of five slots</strong> (Session A through E):</p>
+<p>When you <code>/wrap</code> each session, they merge into a shared <code>.agentic/context.md</code> using a <strong>rolling window of ten slots</strong> (Session A through J):</p>
 <ul>
 <li>First wrap writes Session A. Second wrap labels the existing as A, adds B.</li>
-<li>At five sessions, the oldest (A) drops off and everything shifts down.</li>
+<li>At ten sessions, the oldest (A) drops off and everything shifts down.</li>
 <li>Non-focus sections (next steps, file paths, gotchas) merge across all sessions - duplicates removed.</li>
 </ul>
-<p>This means you can work on five parallel streams in a project and <code>/wrap</code> each one. The next session that starts sees a merged view of all recent work.</p>
+<p>This means you can work on ten parallel streams in a project and <code>/wrap</code> each one. The next session that starts sees a merged view of all recent work.</p>
 <div class="callout">
-The rolling window keeps <code>.agentic/context.md</code> bounded. Five slots is enough to capture active workstreams without drowning the next session in stale history.
+The rolling window keeps <code>.agentic/context.md</code> bounded. Ten slots capture even heavily parallel workflows while keeping the file bounded.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="10" data-paginate="true" data-class="lead" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

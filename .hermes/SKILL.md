@@ -5778,7 +5778,17 @@ The merged write always begins with the pinned header prefix above (the matcher 
 
 First, check how many session labels are already present in the existing file's Recent Focus section.
 
-- **Five labels present (`[Session A]` through `[Session E]`)**: apply a rolling-window merge. Discard the `[Session A]` content from Recent Focus, relabel `[Session B]` as `[Session A]`, `[Session C]` as `[Session B]`, `[Session D]` as `[Session C]`, `[Session E]` as `[Session D]`, and use the new draft as `[Session E]`. For all other sections (Current Task / Next Steps, Key File Paths, Watch Out For, Tools Used), treat the full existing content as the prior session and apply the standard merge rules below.
+- **Ten labels present (`[Session A]` through `[Session J]`)**: apply a rolling-window merge. Discard the `[Session A]` content from Recent Focus, relabel `[Session B]` as `[Session A]`, `[Session C]` as `[Session B]`, `[Session D]` as `[Session C]`, `[Session E]` as `[Session D]`, `[Session F]` as `[Session E]`, `[Session G]` as `[Session F]`, `[Session H]` as `[Session G]`, `[Session I]` as `[Session H]`, `[Session J]` as `[Session I]`, and use the new draft as `[Session J]`. For all other sections (Current Task / Next Steps, Key File Paths, Watch Out For, Tools Used), treat the full existing content as the prior session and apply the standard merge rules below.
+
+- **Nine labels present (`[Session A]` through `[Session I]`)**: label the new draft entry `[Session J]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Eight labels present (`[Session A]` through `[Session H]`)**: label the new draft entry `[Session I]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Seven labels present (`[Session A]` through `[Session G]`)**: label the new draft entry `[Session H]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Six labels present (`[Session A]` through `[Session F]`)**: label the new draft entry `[Session G]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
+
+- **Five labels present (`[Session A]` through `[Session E]`)**: label the new draft entry `[Session F]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
 
 - **Four labels present (`[Session A]` through `[Session D]`)**: label the new draft entry `[Session E]` and append it as its own paragraph in Recent Focus. For all other sections, treat the full existing content as the prior session(s) and apply the standard merge rules below.
 
@@ -10049,7 +10059,7 @@ You are a **constrained automated subset of `/wrap`**. The differences are inten
 | Cadence | Per PR (every ticket) | On-demand (per session) |
 | AGENTS.md edits | Never | Permitted (Skeptic-reviewed) |
 | Skeptic review | None | Required |
-| Rolling session labels | None | Yes (5-window rolling) |
+| Rolling session labels | None | Yes (10-window rolling) |
 | Spawn mode | Foreground, blocking, 60s timeout | Standard agent flow |
 | Lock | `.agentic/wrap/lock` (shared with /wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
@@ -18258,7 +18268,7 @@ The daemon enriches in the main project dir (no worktree, no copy-back, no merge
 
 **Step 2 - Write `.agentic/context.md` (Part A; the lock-guarded write - daemon holds wrap/lock for this step).**
 
-This step runs inside a `wrap/lock` window the daemon holds (see item (4) below). Run the shared algorithm cited in `content/references/wrap-context-format.md`: (1) the 3-step rename-first spillover drain; (2) the rolling-session-label merge write (file-absent / non-/wrap / merge branches, duplicate-claim dedup, 1-to-5 label rolling window, per-section merge rules) - the merged write begins with the pinned header prefix `# Session Context\n*Written by /wrap`; (3) write `.agentic/wrap/last-wrap` = this `session_id`; (4) the lock is acquired and released by the daemon, not this child - the daemon calls `acquireWrapLock` before spawning and `releaseWrapLock` after the child exits (success or failure); the child never touches the lock. (`clearProvablyStaleWrapLock` is the daemon's crash-backstop only: it clears the lock if the daemon itself died after acquiring but before releasing; under normal operation it is not the release path.)
+This step runs inside a `wrap/lock` window the daemon holds (see item (4) below). Run the shared algorithm cited in `content/references/wrap-context-format.md`: (1) the 3-step rename-first spillover drain; (2) the rolling-session-label merge write (file-absent / non-/wrap / merge branches, duplicate-claim dedup, 1-to-10 label rolling window, per-section merge rules) - the merged write begins with the pinned header prefix `# Session Context\n*Written by /wrap`; (3) write `.agentic/wrap/last-wrap` = this `session_id`; (4) the lock is acquired and released by the daemon, not this child - the daemon calls `acquireWrapLock` before spawning and `releaseWrapLock` after the child exits (success or failure); the child never touches the lock. (`clearProvablyStaleWrapLock` is the daemon's crash-backstop only: it clears the lock if the daemon itself died after acquiring but before releasing; under normal operation it is not the release path.)
 
 **Step 3 - Write `.agentic/memory.md` (Part B; no lock, no Open-PR deferral).**
 
@@ -18682,7 +18692,7 @@ Inside the Part A `context.md` write window (the whole-flow `wrap/lock` acquired
 
 1. **Atomic spillover drain** - the 3-step rename-first procedure in `content/references/wrap-context-format.md` §"Spillover-drain procedure": rename `.agentic/wrap/deferred-activity.jsonl` -> `.agentic/wrap/deferred-activity.jsonl.draining.<pid>`, fold its records into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance), then unlink the renamed copy. Apply the Recent-Focus dedup rule from that reference (key the folded draft by `session_id`+`staged_at`; skip a re-folded duplicate) so a duplicate enrichment of the same marker is idempotent.
 
-2. **Rolling-session-label merge write** of `.agentic/context.md` - the algorithm in `content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/wrap / merge branches, the duplicate-claim dedup, the 1-to-5 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by /wrap` (the matcher contract); no site parses the header date.
+2. **Rolling-session-label merge write** of `.agentic/context.md` - the algorithm in `content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/wrap / merge branches, the duplicate-claim dedup, the 1-to-10 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by /wrap` (the matcher contract); no site parses the header date.
 
 3. **Write `.agentic/wrap/last-wrap`** = this session's `session_id` (atomic) - per `content/references/wrap-context-format.md` §"`.agentic/wrap/last-wrap` write contract".
 

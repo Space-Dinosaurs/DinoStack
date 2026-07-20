@@ -71,7 +71,7 @@ You are a **constrained automated subset of `/wrap`**. The differences are inten
 | Cadence | Per PR (every ticket) | On-demand (per session) |
 | AGENTS.md edits | Never | Permitted (Skeptic-reviewed) |
 | Skeptic review | None | Required |
-| Rolling session labels | None | Yes (5-window rolling) |
+| Rolling session labels | None | Yes (10-window rolling) |
 | Spawn mode | Foreground, blocking, 60s timeout | Standard agent flow |
 | Lock | `.agentic/wrap/lock` (shared with /wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
