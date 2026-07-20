@@ -157,7 +157,7 @@ bash .claude/install.sh --dry-run             # preview symlink + repo_dir chang
 Agents need uninterrupted access to Bash, Edit, and Write - constant permission prompts break agent flow and cause subagents to stall. The Claude Code installer offers to configure `bypassPermissions` mode in `~/.claude/settings.json`:
 
 - `defaultMode: "bypassPermissions"` - agents use tools without prompting
-- **Allow list** - `Bash(*)`, the bare `Write` and `Edit` tool rules, and path-scoped `Edit(~/.claude/**)` / `Edit(~/.claude/projects/**)` rules. Only `Edit(path)` rules are matched by Claude Code's file-permission checks - path-scoped `Write(path)` rules are ignored and are migrated out of existing settings
+- **Allow list** - `Bash(*)`, the bare `Write` and `Edit` tool rules, and path-scoped `Edit(~/.claude/**)` / `Edit(~/.claude/projects/**)` rules. Only `Edit(path)` rules are matched by Claude Code's file-permission checks - path-scoped `Write(path)` rules are ignored and are migrated out of existing settings that already have the bare `Write` rule (left in place otherwise)
 - **Deny list** (safety net for destructive commands) - `git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`, `sudo rm`, `dd if=`, `shutdown`, `reboot`
 - **Additional directories** - `~/.claude/projects` for cross-session context
 

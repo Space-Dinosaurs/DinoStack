@@ -67,7 +67,7 @@ The install script offers to configure `bypassPermissions` mode in `~/.claude/se
 **What it configures:**
 
 - `defaultMode: "bypassPermissions"` - agents can use tools without prompting
-- **Allow list** - `Bash(*)`, the bare `Write` and `Edit` tool rules, and path-scoped `Edit(~/.claude/**)` / `Edit(~/.claude/projects/**)` rules. Only `Edit(path)` rules are matched by Claude Code's file-permission checks - path-scoped `Write(path)` rules are ignored and are migrated out of existing settings
+- **Allow list** - `Bash(*)`, the bare `Write` and `Edit` tool rules, and path-scoped `Edit(~/.claude/**)` / `Edit(~/.claude/projects/**)` rules. Only `Edit(path)` rules are matched by Claude Code's file-permission checks - path-scoped `Write(path)` rules are ignored and are migrated out of existing settings that already have the bare `Write` rule (left in place otherwise)
 - **Deny list** - blocks destructive commands as a safety net:
   - `git push --force`, `rm -rf`, `git reset --hard`, `git clean -f`
   - `sudo rm`, `dd if=`, `shutdown`, `reboot`
