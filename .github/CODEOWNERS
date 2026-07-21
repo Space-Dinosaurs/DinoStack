@@ -1,0 +1,13 @@
+# CODEOWNERS
+#
+# The designated code owner for this repo. Combined with the `main` branch
+# ruleset's `require_code_owner_review: true` + `required_approving_review_count: 1`,
+# this means every PR to `main` requires exactly one approving review and it must
+# come from @tysonhummel. A contributor with write access can then merge their own
+# PR once that approval is present (subject to required status checks and
+# `require_last_push_approval`).
+#
+# Note: GitHub never permits self-approval, so a PR authored by @tysonhummel must be
+# merged via admin bypass (that account is a ruleset bypass actor).
+
+* @tysonhummel
