@@ -57,13 +57,7 @@ The Skeptic is always a fresh spawn - never resumed, never continued from a prio
 
 ## Step 3 - Read findings
 
-A valid sign-off contains all six mandatory elements as distinct lines:
-- (a) a line beginning "Reviewed:"
-- (b) a line beginning "Findings:"
-- (c) an "Active search:" line
-- (d) the exact phrase "No unresolved Critical or Major findings. Sign-off granted."
-- (g) a "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8)
-- (h) a "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5)
+A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines - Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:; the conditional spec-deviation and PR-SHA-range elements apply only when their triggering condition holds - see Section 11 for when).
 
 If any element is missing: spawn a new Skeptic with explicit format instructions ("Your previous response did not conform to the required sign-off format. Please restate your findings and sign-off using the required format."). This format re-invocation is not counted as a new adversarial round. Limit: 3 format re-invocations. If still noncompliant after 3, escalate to the human.
 
