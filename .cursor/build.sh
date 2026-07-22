@@ -80,8 +80,9 @@ done
 CURSOR_DIR="$REPO_DIR/.cursor"
 hardlink_from_content "$CONTENT/project-scaffolding.yml" "$CURSOR_DIR/project-scaffolding.yml"
 mkdir -p "$CURSOR_DIR/templates/.agentic"
-for tmpl_name in config.json learnings.md; do
-  hardlink_from_content "$CONTENT/templates/.agentic/$tmpl_name" "$CURSOR_DIR/templates/.agentic/$tmpl_name"
+for tmpl_src in "$CONTENT"/templates/.agentic/*; do
+  [[ -f "$tmpl_src" ]] || continue
+  hardlink_from_content "$tmpl_src" "$CURSOR_DIR/templates/.agentic/$(basename "$tmpl_src")"
 done
 
 echo "Cursor adapter build complete."

@@ -90,10 +90,11 @@ else
   ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
 fi
 
-# templates/: hardlink .agentic seed files
+# templates/: hardlink .agentic seed files (glob so new templates auto-propagate)
 mkdir -p "$SKILL_DST/templates/.agentic"
-for tmpl_name in config.json learnings.md; do
-  TMPL_SRC="$CONTENT/templates/.agentic/$tmpl_name"
+for TMPL_SRC in "$CONTENT"/templates/.agentic/*; do
+  [[ -f "$TMPL_SRC" ]] || continue
+  tmpl_name="$(basename "$TMPL_SRC")"
   TMPL_DST="$SKILL_DST/templates/.agentic/$tmpl_name"
   if [[ -e "$TMPL_DST" ]] && [[ "$(get_inode "$TMPL_SRC")" == "$(get_inode "$TMPL_DST")" ]]; then
     :
