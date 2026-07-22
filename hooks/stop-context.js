@@ -39,15 +39,19 @@
  *             liveMarkerExists - stagePending, touchHeartbeat, etc.) now live in
  *             hooks/lib/wrap-marker.js, the single source of truth.
  *
- * Upstream deps: Node built-ins only (fs, path, os, child_process) plus three
+ * Upstream deps: Node built-ins only (fs, path, os, child_process) plus four
  *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/wrap
  *                marker single source of truth - lock gate, per-session staging,
  *                heartbeat), hooks/lib/capture-gap.js (the shared capture-gap
  *                detector - detectCaptureGap, GUARDRAIL_PATTERNS, _tokenize,
- *                extracted so the in-session PostToolUse nudge reuses it), and
+ *                extracted so the in-session PostToolUse nudge reuses it),
  *                hooks/lib/skill-candidate-detector.js (Stop-hook write path
  *                runSkillCandidateScan; required lazily inside the skill-candidate
- *                detection path, gated by the skill_candidate_detection toggle).
+ *                detection path, gated by the skill_candidate_detection toggle),
+ *                and hooks/lib/stdin-guard.js (readStdinGuarded - the shared
+ *                bounded-stdin reader used in place of a blocking
+ *                fs.readFileSync(0) so this hook cannot hang a harness's
+ *                shutdown path when the spawning process never closes stdin).
  *                No npm dependencies. Reads from stdin (fd 0).
  *                Reads/writes
  *                ~/.claude/projects/[hash]/context.md,
@@ -87,9 +91,14 @@
  *                        globbed by agentic-cost (operator or team) - it is consumed
  *                        only by agentic-identity confirm/init via flushPendingBuffer.
  *
- * Failure modes: All failures are silent (process.exit(0)). Twelve independent
- *                write paths (plus the health-flush observability layer described
- *                below): (1) context.md write is best-effort; any fs error
+ * Failure modes: All failures are silent (process.exit(0)). Stdin acquisition
+ *                (step 1 of run()) is bounded via hooks/lib/stdin-guard.js's
+ *                readStdinGuarded(), which never rejects and resolves via one
+ *                of three paths - parse-success, EOF, or timeout - all feeding
+ *                the same downstream write paths below, so a spawning process
+ *                that never closes stdin cannot hang this hook's exit. Twelve
+ *                independent write paths (plus the health-flush observability
+ *                layer described below): (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
  *                of path (1). (3) events.jsonl write is best-effort; writeSessionTotal
@@ -230,6 +239,12 @@ const wrapMarker = require('./lib/wrap-marker.js');
 // exported by the lib for test-capture-gap.js. appendCaptureGapNoticeToContextMd
 // (the sole writer of the .capture-gap-last-sweep cursor) stays in this file.
 const { detectCaptureGap } = require('./lib/capture-gap.js');
+
+// Shared bounded-stdin reader (hooks/lib/stdin-guard.js) so this hook cannot
+// hang a harness's shutdown path when the spawning process never closes
+// stdin (round-1 Skeptic Finding 1 / plan-Skeptic M1 on
+// docs/planning/cursor-stop-hook-plan.md).
+const { readStdinGuarded } = require('./lib/stdin-guard.js');
 
 // ---------------------------------------------------------------------------
 // Telemetry-health counter (in-memory accumulate + single flush per exit)
@@ -1158,15 +1173,9 @@ function appendCaptureGapNoticeToContextMd(cwd, residualOnly) {
   }
 }
 
-function run() {
+async function run() {
   // --- 1. Read stdin ---
-  let raw = '';
-  try {
-    raw = fs.readFileSync(0, 'utf8');
-  } catch (_) {
-    process.exit(0);
-  }
-
+  const raw = await readStdinGuarded();
   if (!raw.trim()) process.exit(0);
 
   // --- 2. Parse JSON ---
@@ -1615,7 +1624,7 @@ ${toolsLine}
   process.exit(0);
 }
 
-run();
+run().catch(() => { try { process.exit(0); } catch (_) {} });
 
 // Test shim: appended at module load so test files can import internals without
 // executing run(). stop-context.js has no production module.exports; this shim

@@ -20,6 +20,11 @@
  * Output path: ~/.codex/projects/[hash]/context.md
  *   where hash = cwd with every '/' replaced by '-' (leading '-' is kept)
  *   This mirrors the ~/.claude/projects/[hash]/ convention used by Claude Code.
+ *
+ * Stdin is read via hooks/lib/stdin-guard.js's readStdinGuarded() (a bounded
+ * reader with a first-byte timeout and a re-armed inactivity timeout) instead
+ * of a blocking fs.readFileSync(0), so this hook cannot hang Codex's shutdown
+ * path when the spawning process never closes stdin.
  */
 
 'use strict';
@@ -27,19 +32,17 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { readStdinGuarded } = require('../../hooks/lib/stdin-guard.js');
 
-function run() {
-  // Always exit with valid JSON for Codex Stop hook compliance
-  const successOutput = JSON.stringify({});
+// Always exit with valid JSON for Codex Stop hook compliance. Hoisted to
+// module scope so both run()'s internal paths and the top-level run().catch()
+// (which must handle a rejection before run() reaches this declaration) can
+// reference the same value.
+const successOutput = JSON.stringify({});
 
+async function run() {
   // --- 1. Read stdin ---
-  let raw = '';
-  try {
-    raw = fs.readFileSync(0, 'utf8');
-  } catch (_) {
-    process.stdout.write(successOutput);
-    process.exit(0);
-  }
+  const raw = await readStdinGuarded();
 
   if (!raw.trim()) {
     process.stdout.write(successOutput);
@@ -121,4 +124,4 @@ manually before ending a session.
   process.exit(0);
 }
 
-run();
+run().catch(() => { process.stdout.write(successOutput); process.exit(0); });

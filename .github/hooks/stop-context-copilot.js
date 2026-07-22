@@ -19,25 +19,28 @@
  * Output path: <cwd>/.agentic/context.md
  *   Resolves workspace root from the payload's cwd field.
  *   Mirrors the .agentic/context.md convention used by the Claude Code adapter.
+ *
+ * Stdin is read via hooks/lib/stdin-guard.js's readStdinGuarded() (a bounded
+ * reader with a first-byte timeout and a re-armed inactivity timeout) instead
+ * of a blocking fs.readFileSync('/dev/stdin'), so this hook cannot hang
+ * Copilot's shutdown path when the spawning process never closes stdin.
  */
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const { readStdinGuarded } = require('../../hooks/lib/stdin-guard.js');
 
-function run() {
-  // Always exit with valid JSON for Copilot Stop hook compliance
-  const successOutput = JSON.stringify({});
+// Always exit with valid JSON for Copilot Stop hook compliance. Hoisted to
+// module scope so both run()'s internal paths and the top-level run().catch()
+// (which must handle a rejection before run() reaches this declaration) can
+// reference the same value.
+const successOutput = JSON.stringify({});
 
+async function run() {
   // --- 1. Read stdin ---
-  let raw = '';
-  try {
-    raw = fs.readFileSync('/dev/stdin', 'utf8');
-  } catch (_) {
-    process.stdout.write(successOutput);
-    process.exit(0);
-  }
+  const raw = await readStdinGuarded();
 
   if (!raw.trim()) {
     process.stdout.write(successOutput);
@@ -118,4 +121,4 @@ manually before ending a session.
   process.exit(0);
 }
 
-run();
+run().catch(() => { process.stdout.write(successOutput); process.exit(0); });

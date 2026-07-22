@@ -23,8 +23,11 @@
  *             bottom of the file. Not imported in production; executed as a CLI
  *             script by the Claude Code PreToolUse(Task/Agent) hook.
  *
- * Upstream deps: Node built-ins only (fs, path). No npm dependencies.
- *                Reads PreToolUse payload from stdin (fd 0).
+ * Upstream deps: Node built-ins only (fs, path) plus the local CommonJS module
+ *                hooks/lib/stdin-guard.js (readStdinGuarded, bounded stdin
+ *                reader). No npm dependencies.
+ *                Reads PreToolUse payload from stdin (fd 0) via the bounded
+ *                reader (see Failure modes).
  *                Writes [cwd]/.agentic/events.jsonl via appendFileSync.
  *                Writes [cwd]/.agentic/.last-architect-spawn via writeFileSync
  *                when agentName === 'architect'.
@@ -48,26 +51,40 @@
  *                same Task/Agent matcher). NEVER denies: this hook is advisory
  *                telemetry only. mkdirSync({recursive:true}) ensures .agentic/
  *                exists before append, so the hook is safe to fire on a fresh
- *                project with no .agentic/ directory yet.
+ *                project with no .agentic/ directory yet. Stdin is read via
+ *                lib/stdin-guard.js's readStdinGuarded(), which never rejects
+ *                and resolves '' if the spawning harness never closes stdin,
+ *                bounding worst-case latency instead of blocking indefinitely
+ *                on the previous synchronous fs.readFileSync('/dev/stdin')
+ *                read; run() is now async, so the call site additionally
+ *                chains `.catch(() => process.exit(0))` (still no stdout
+ *                write, ever).
  *
- * Performance: ~1-3 ms typical (one JSON parse, one mkdir, one appendFileSync).
- *              Runs synchronously on the PreToolUse critical path but is bounded
- *              and fail-open, so latency impact is negligible.
+ * Performance: Bounded by hooks/lib/stdin-guard.js's read path (first-byte
+ *              timeout, inactivity timeout, absolute deadline, and a
+ *              max-bytes cap - see that module for current defaults) rather
+ *              than a single synchronous read; run() is async end-to-end
+ *              (await readStdinGuarded(), then one JSON.parse, one mkdir,
+ *              one appendFileSync). Runs on the PreToolUse critical path but
+ *              never blocks it indefinitely - a slow or silent stdin
+ *              resolves via one of stdin-guard's bounded routes instead of
+ *              hanging.
  */
 
 'use strict';
 
 const fs = require('fs');
 const path = require('path');
+const { readStdinGuarded } = require('./lib/stdin-guard.js');
 
 /**
  * Main entry point. Reads PreToolUse payload from stdin, emits spawn_start
  * event to events.jsonl, always exits 0.
  */
-function run() {
+async function run() {
   try {
-    // Read full stdin synchronously.
-    const raw = fs.readFileSync(0, 'utf8');
+    // Read stdin with a bounded, never-rejecting reader (see lib/stdin-guard.js).
+    const raw = await readStdinGuarded();
     let payload;
     try { payload = JSON.parse(raw); } catch (_) { process.exit(0); }
 
@@ -130,4 +147,4 @@ function run() {
   }
 }
 
-run();
+run().catch(() => process.exit(0));

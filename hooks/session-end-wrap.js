@@ -17,21 +17,34 @@
  *             { session_id, transcript_path, cwd, hook_event_name:"SessionEnd",
  *               reason }. Not imported by any module.
  *
- * Upstream deps: Node built-ins only (fs, path, child_process) plus the local
- *                CommonJS module hooks/lib/wrap-marker.js (the deferred-`/wrap`
- *                marker single source of truth). Reads stdin (fd 0) and
- *                [cwd]/.agentic/config.json (deferred_wrap_daemon toggle).
- *                Spawns `node <repo>/hooks/wrap-daemon.js <cwd>` detached when
- *                the toggle is true (the daemon file is built in U3 and may not
+ * Upstream deps: Node built-ins only (fs, path, child_process) plus two local
+ *                CommonJS modules: hooks/lib/wrap-marker.js (the deferred-`/wrap`
+ *                marker single source of truth) and hooks/lib/stdin-guard.js
+ *                (readStdinGuarded, bounded stdin reader). Reads stdin (fd 0) via
+ *                the bounded reader and [cwd]/.agentic/config.json
+ *                (deferred_wrap_daemon toggle). Spawns
+ *                `node <repo>/hooks/wrap-daemon.js <cwd>` detached when the
+ *                toggle is true (the daemon file is built in U3 and may not
  *                exist yet - the detached spawn fails silently until it lands).
  *
  * Downstream consumers: Claude Code SessionEnd hook (wired by .claude/install.sh
  *                       in U4). No code imports this file.
  *
- * Failure modes: Fully fail-open. The entire body is wrapped in try/catch and the
- *                process ALWAYS exits 0 - a hook error must never block or delay
- *                session shutdown. Defensive stdin parse (malformed/empty payload
- *                -> exit 0). Under the AGENTIC_WRAP_DAEMON=1 loop-guard the hook
+ * Failure modes: Fully fail-open. Stdin is read via lib/stdin-guard.js's
+ *                readStdinGuarded(), which never rejects and resolves '' if the
+ *                spawning harness never closes stdin (the exact app-close failure
+ *                class this hook exists to survive), bounding worst-case latency
+ *                instead of blocking indefinitely on a synchronous read. run() is
+ *                async (it awaits the stdin read); the call site chains
+ *                `.catch(() => {})` (equivalent to the previous synchronous
+ *                try/catch) followed by `.finally(() => process.exit(0))` so the
+ *                process ALWAYS exits 0, but only once run() has settled - a
+ *                trailing synchronous process.exit(0) would otherwise fire before
+ *                the awaited read completes and silently skip finalizeReady /
+ *                removeHeartbeat / launchDaemonDetached. A hook error must never
+ *                block or delay session shutdown. Defensive stdin parse
+ *                (malformed/empty payload -> exit 0). Under the
+ *                AGENTIC_WRAP_DAEMON=1 loop-guard the hook
  *                exits 0 immediately: no finalize, no heartbeat removal, no daemon
  *                launch. finalizeReady runs ONLY on a terminal reason
  *                {clear, logout, prompt_input_exit, bypass_permissions_disabled,
@@ -54,6 +67,7 @@ const path = require('path');
 const { spawn } = require('child_process');
 
 const wrapMarker = require('./lib/wrap-marker.js');
+const { readStdinGuarded } = require('./lib/stdin-guard.js');
 
 // Terminal SessionEnd reasons that warrant finalizing a pending marker to
 // `ready`. `resume` is deliberately EXCLUDED: a resumed session may continue, so
@@ -109,14 +123,9 @@ function launchDaemonDetached(cwd) {
   }
 }
 
-function run() {
+async function run() {
   // --- 1. Read + parse stdin (defensive; fail-open) ---
-  let raw = '';
-  try {
-    raw = fs.readFileSync(0, 'utf8');
-  } catch (_) {
-    return; // no stdin -> exit 0
-  }
+  const raw = await readStdinGuarded();
   if (!raw.trim()) return;
 
   let payload;
@@ -167,9 +176,8 @@ function run() {
 }
 
 // --- Fail-open wrapper: ALWAYS exit 0, never block session shutdown ---
-try {
-  run();
-} catch (_) {
-  // Swallow everything - a SessionEnd hook must never throw.
-}
-process.exit(0);
+// .catch(() => {}) swallows everything (a SessionEnd hook must never throw);
+// .finally(() => process.exit(0)) ensures the process exits only after run()
+// settles, so finalizeReady / removeHeartbeat / launchDaemonDetached always get
+// a chance to run before shutdown.
+run().catch(() => {}).finally(() => process.exit(0));

@@ -21,11 +21,13 @@
  *             script by the Claude Code PostToolUse(Task/Agent) hook. The test loads
  *             it via a tmp shim that suppresses run() and exercises the body.
  *
- * Upstream deps: Node built-ins only (fs, path) plus two local CommonJS modules:
- *                hooks/lib/capture-gap.js (detectCaptureGap) and
- *                hooks/lib/skill-candidate-detector.js (peekActiveCandidates).
- *                No npm dependencies.
- *                Reads PostToolUse payload from stdin (fd 0); reads
+ * Upstream deps: Node built-ins only (fs, path) plus three local CommonJS
+ *                modules: hooks/lib/capture-gap.js (detectCaptureGap),
+ *                hooks/lib/skill-candidate-detector.js (peekActiveCandidates),
+ *                and hooks/lib/stdin-guard.js (readStdinGuarded). No npm
+ *                dependencies.
+ *                Reads PostToolUse payload from stdin (fd 0) via a bounded,
+ *                never-rejecting reader (see Failure modes); reads
  *                [cwd]/.agentic/.capture-gap-surfaced (capture dedup tracker, fail-open);
  *                [cwd]/.agentic/.skill-candidates-in-session (skill dedup, JSONL
  *                {session_id, candidate_id}, fail-open);
@@ -56,7 +58,11 @@
  *                missing or unreadable tracker is treated as "not yet surfaced"
  *                so the nudge fires (a duplicate nudge is cheaper than a missed one).
  *                The skill-candidate nudge path is independently gated; an error
- *                in it never suppresses the capture-gap nudge.
+ *                in it never suppresses the capture-gap nudge. Stdin is read via
+ *                lib/stdin-guard.js's readStdinGuarded(), which never rejects and
+ *                resolves '' if the spawning harness never closes stdin, bounding
+ *                the hook's worst-case latency instead of blocking indefinitely
+ *                on a synchronous read.
  *
  * Performance: ~5-30 ms typical; detectCaptureGap's git subprocess (5 s timeout)
  *              runs only once a worthy event is found, so the common no-event
@@ -70,6 +76,7 @@ const fs = require('fs');
 const path = require('path');
 const { detectCaptureGap } = require('./lib/capture-gap.js');
 const { peekActiveCandidates } = require('./lib/skill-candidate-detector.js');
+const { readStdinGuarded } = require('./lib/stdin-guard.js');
 
 // Verbatim nudge texts (handoff section 3). The standard variant fires when no
 // guardrail was added this session; the residualOnly variant fires when a
@@ -242,15 +249,10 @@ function recordSurfaced(cwd, sessionId, lastEventTs) {
   fs.renameSync(tmpPath, trackerPath);
 }
 
-function run() {
+async function run() {
   try {
     // --- 1. Read + parse stdin ---
-    let raw = '';
-    try {
-      raw = fs.readFileSync(0, 'utf8');
-    } catch (_) {
-      process.exit(0);
-    }
+    const raw = await readStdinGuarded();
     if (!raw.trim()) process.exit(0);
 
     let payload;
@@ -375,4 +377,4 @@ function runSkillNudge(cwd, sessionId) {
   }
 }
 
-run();
+run().catch(() => process.exit(0));

@@ -49,6 +49,6 @@ bash ~/DinoStack/.cursor/uninstall.sh
 ## Hooks
 
 - **beforeSubmitPrompt** - fires a risk-classification reminder before every prompt
-- **stop** - runs `hooks/stop-context.js` on session end
+- **stop** - runs `.cursor/hooks/stop-context-cursor.js` on session end, writing `<cwd>/.agentic/context.md` for cross-harness continuity with other adapters
 
-**Note:** The stop hook script was written for Claude Code and saves context to a Claude Code-specific path. It runs without error in Cursor but the saved context is not automatically surfaced in subsequent Cursor sessions. For session continuity in Cursor, manually maintain a `context.md` file at your project root.
+**Note:** The stop hook runs at an absolute path substituted into `~/.cursor/hooks.json` by `install.sh` at install time (the checked-in template keeps the command in relative form). Re-running `install.sh` converges an existing `~/.cursor/hooks.json` onto the current install automatically - it rewrites only the stop hook's command and leaves the rest of the file, including any customizations, untouched.

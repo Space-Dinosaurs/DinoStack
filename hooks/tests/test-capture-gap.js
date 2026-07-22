@@ -69,9 +69,14 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 // shimmed copy still loads the real lib (no behavior change, just resolution).
 const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
+// Third re-anchor: stop-context.js now requires the shared bounded-stdin
+// reader via ./lib/stdin-guard.js. Anchor it to the real lib too so the /tmp
+// shim resolves all three relative lib requires.
+const libStdinGuardAbs = path.resolve(__dirname, '..', 'lib', 'stdin-guard.js');
 const shimmedSource = hookSource
-  // Replace the final bare `run();` call so the hook doesn't try to read stdin.
-  .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
+  // Replace the final `run();` (or, post-stdin-guard, `run().catch(() => { ... });`)
+  // call so the hook doesn't try to read stdin during test setup.
+  .replace(/^run\(\).*;\s*$/m, '// test shim: run() suppressed')
   // Re-anchor the relative lib require to an absolute path to the real lib so the
   // shim resolves it from /tmp. JSON.stringify yields a correctly-escaped literal
   // on every platform (backslashes on Windows, etc.).
@@ -85,6 +90,10 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
     `require(${JSON.stringify(libCaptureGapAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/stdin-guard\.js['"]\)/,
+    `require(${JSON.stringify(libStdinGuardAbs)})`
   )
   + `\n
 // Expose helpers for unit tests via a module-level export shim.

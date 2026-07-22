@@ -1,8 +1,8 @@
 # hooks/
 
 Claude Code lifecycle hooks that enforce methodology rules at the harness
-level and write session telemetry to disk. Twelve scripts in the table below
-(5 Python PreToolUse/Stop enforcers, 4 Node lifecycle handlers, 3 Bash helpers).
+level and write session telemetry to disk. Thirteen scripts in the table below
+(5 Python PreToolUse/Stop enforcers, 5 Node lifecycle handlers, 3 Bash helpers).
 `pre-commit` is also present but is a git hook, not a Claude Code lifecycle
 hook, and is out of scope for this table. `lib/` holds shared utilities
 consumed by the JS hooks and one bin script. Each script ships with a
@@ -18,8 +18,9 @@ module-group map.
 | `enforce-no-abdication.py` | Python | Stop (main session only) | Block turns that end with permission-seeking interrogatives; inject a "proceed" directive. |
 | `enforce-orchestrator-singularity.py` | Python | PreToolUse (Task/Agent) | Deny subagent spawns issued from inside a subagent context (no nested orchestration). |
 | `enforce-tier.py` | Python | PreToolUse (Task/Agent) | Deny an explicit sub-Opus `model` downgrade on a mandated-Tier-3 review agent (security-auditor always; skeptic when the brief matches a Tier-3 escalation signal). Escalate-only, fail-open. |
-| `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. |
-| `session-end-wrap.js` | Node | SessionEnd | Finalize the deferred-`/wrap` pending-to-ready marker transition and optionally launch `wrap-daemon.js` detached. |
+| `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
+| `pre-tool-use-spawn-emit.js` | Node | PreToolUse (Task/Agent) | Append a `spawn_start` event to `.agentic/events.jsonl` on every subagent spawn (populates telemetry in ad-hoc sessions) and write the `.last-architect-spawn` sentinel on architect spawns. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
+| `session-end-wrap.js` | Node | SessionEnd | Finalize the deferred-`/wrap` pending-to-ready marker transition and optionally launch `wrap-daemon.js` detached. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
 | `session-start-version-check.sh` | Bash | (sub-script, not wired directly) | Emit a "newer version available" `systemMessage` via the version-check core; called by `session-start-wrap.sh`. |
 | `session-start-wrap.sh` | Bash | SessionStart | Compose version notice, hooks-snapshot staleness nudge, auth-failure notice, artifact migration, and guarded daemon launch into one fail-open handler. |
 | `skill-auto-load-check.sh` | Bash | UserPromptSubmit / BeforeAgent / SessionStart | Emit the skill-load instruction when `skill_auto_load=true` in the global config. |
@@ -33,13 +34,14 @@ module-group map.
 | `lib/capture-gap.js` | Detect learning-worthy sessions with no captured learning; used by `post-tool-use-capture-nudge.js` and `stop-context.js`. |
 | `lib/version-check-core.sh` | Adapter-neutral core for the "newer version available" SessionStart notice: resolves clone dir, reads behind-count cache, kicks off throttled detached git-fetch refresh; used by `session-start-version-check.sh` and `session-start-wrap.sh`. |
 | `lib/wrap-marker.js` | Single source of truth for all deferred-`/wrap` marker reads, transitions, lock acquire/release, and PID helpers; used by `session-end-wrap.js`, `session-start-wrap.sh`, `stop-context.js`, `wrap-daemon.js`, and `bin/agentic-wrap-release-lock`. |
+| `lib/stdin-guard.js` | Shared bounded-stdin reader (`readStdinGuarded`) with a first-byte timeout, a re-armed inactivity timeout, a one-shot absolute deadline, a max-bytes cap, and early-completion-by-parse (gated behind a cheap tail precheck), so a stdin-blocking hook cannot hang a harness's shutdown path when the spawning process never closes stdin; wired into all 9 consumers: `stop-context.js`, `post-tool-use-capture-nudge.js`, `session-end-wrap.js`, `pre-tool-use-spawn-emit.js`, the `.codex/hooks/stop-context-codex.js`, `.gemini/hooks/stop-context-gemini.js`, and `.copilot/hooks/stop-context-copilot.js` ports, the `.cursor/hooks/stop-context-cursor.js` port, plus the generated `.github/hooks/stop-context-copilot.js` mirror. |
 | `lib/hooks-staleness-core.sh` | DS-54: classifies the methodology checkout's hooks-snapshot state (`never_migrated` / `half_applied` / `stale_but_stable` / `current`, evaluation order in that order - mutually exclusive by construction) and prints at most one nudge line; used by `session-start-wrap.sh`. Fail-open, always exits 0. |
 | `../../scripts/lib/hooks-snapshot.sh` | DS-54: lives outside `hooks/` (shared with the adapter `install.sh`/`uninstall.sh` scripts, not just hook code) but is the load-bearing dependency both `hooks-staleness-core.sh` and every in-scope adapter installer source. Owns hooks-snapshot key/dir resolution, the source-hash function, `sync_hooks_snapshot`/`remove_hooks_snapshot` (bounded-delete guarded), and `hooks_config_points_at_snapshot`. |
 
 ## Upstream dependencies
 
 - Python hooks: Python 3 stdlib only (`json`, `sys`, `os`).
-- Node hooks: Node built-ins only (`fs`, `path`, `child_process`) plus `lib/wrap-marker.js` and `lib/capture-gap.js` (no npm packages).
+- Node hooks: Node built-ins only (`fs`, `path`, `child_process`) plus `lib/wrap-marker.js`, `lib/capture-gap.js`, and `lib/stdin-guard.js` (no npm packages).
 - Bash hooks: `bash`, `python3` (for JSON escaping), `jq` (with grep/sed fallback), `node`.
 - All hooks read `[cwd]/.agentic/` state files; none read outside the project root except identity files at `~/.agentic/`.
 

@@ -20,6 +20,11 @@
  *   where hash = cwd with every '/' replaced by '-' (leading '-' is kept)
  *   This mirrors the ~/.claude/projects/[hash]/ and ~/.codex/projects/[hash]/
  *   convention used by the other adapters.
+ *
+ * Stdin is read via hooks/lib/stdin-guard.js's readStdinGuarded() (a bounded
+ * reader with a first-byte timeout and a re-armed inactivity timeout) instead
+ * of a blocking fs.readFileSync(0), so this hook cannot hang Gemini's
+ * shutdown path when the spawning process never closes stdin.
  */
 
 'use strict';
@@ -27,19 +32,17 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { readStdinGuarded } = require('../../hooks/lib/stdin-guard.js');
 
-function run() {
-  // Always exit cleanly - this is a best-effort context save
-  const successOutput = JSON.stringify({});
+// Always exit cleanly - this is a best-effort context save. Hoisted to module
+// scope so both run()'s internal paths and the top-level run().catch() (which
+// must handle a rejection before run() reaches this declaration) can
+// reference the same value.
+const successOutput = JSON.stringify({});
 
+async function run() {
   // --- 1. Read stdin ---
-  let raw = '';
-  try {
-    raw = fs.readFileSync(0, 'utf8');
-  } catch (_) {
-    process.stdout.write(successOutput);
-    process.exit(0);
-  }
+  const raw = await readStdinGuarded();
 
   if (!raw.trim()) {
     process.stdout.write(successOutput);
@@ -125,4 +128,4 @@ on abrupt termination (crashes, SIGKILL).
   process.exit(0);
 }
 
-run();
+run().catch(() => { process.stdout.write(successOutput); process.exit(0); });

@@ -24,6 +24,16 @@
  *                                     tool_name "Agent" -> nudge fires. Under the
  *                                     old `!== 'Task'` guard this early-exited
  *                                     and the nudge was silently disabled.
+ *   9. open-silent-stdin-bounded-exit: stdin is opened but never written to or
+ *                                     closed -> hook still exits 0 within the
+ *                                     stdin-guard bound (docs/planning/
+ *                                     cursor-stop-hook-plan.md Unit A item 10).
+ *                                     spawnSync with `input:` always closes
+ *                                     stdin, so this case cannot be expressed
+ *                                     that way - it uses the shared
+ *                                     spawnSilentStdin() helper (a real spawn()
+ *                                     with an open, never-written, never-closed
+ *                                     pipe) instead.
  *
  * Run with: node hooks/tests/test-post-tool-use-capture-nudge.js
  */
@@ -34,6 +44,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { execSync, spawnSync } = require('child_process');
+const { spawnSilentStdin } = require('./lib/spawn-stdin-helpers.js');
 
 const hookPath = path.resolve(__dirname, '..', 'post-tool-use-capture-nudge.js');
 
@@ -46,9 +57,14 @@ const hookPath = path.resolve(__dirname, '..', 'post-tool-use-capture-nudge.js')
 const hookSource = fs.readFileSync(hookPath, 'utf8');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
 const libSkillDetectorAbs = path.resolve(__dirname, '..', 'lib', 'skill-candidate-detector.js');
+const libStdinGuardAbs = path.resolve(__dirname, '..', 'lib', 'stdin-guard.js');
 const shimmedSource = hookSource
-  // Suppress the trailing bare run() call so requiring the shim does not read stdin.
-  .replace(/^run\(\);\s*$/m, '// test shim: run() suppressed')
+  // Suppress the trailing run().catch(...) call so requiring the shim does not
+  // read stdin.
+  .replace(
+    'run().catch(() => process.exit(0));',
+    '// test shim: run() suppressed'
+  )
   // Re-anchor relative lib requires to absolute paths so the /tmp shim can resolve them.
   .replace(
     /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
@@ -57,6 +73,10 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/skill-candidate-detector\.js['"]\)/,
     `require(${JSON.stringify(libSkillDetectorAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/stdin-guard\.js['"]\)/,
+    `require(${JSON.stringify(libStdinGuardAbs)})`
   );
 
 // Fail loud if any relative ./lib/ require survived the re-anchor (require text changed form).
@@ -361,7 +381,39 @@ console.log('\nTest 8: fires-when-tool-name-Agent (regression)');
 }
 
 // ---------------------------------------------------------------------------
-// Summary
+// Test 9: open-silent-stdin-bounded-exit
+// stdin is opened but never written to and never closed - the hook must still
+// exit 0 within the stdin-guard bound rather than hanging (this is the exact
+// failure class hooks/lib/stdin-guard.js exists to survive). spawnSync with
+// `input:` always closes stdin on write completion, so a real spawn() with a
+// deliberately-open, never-closed pipe is required to express this case.
 // ---------------------------------------------------------------------------
-console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);
-if (failed > 0) process.exit(1);
+console.log('\nTest 9: open-silent-stdin-bounded-exit');
+{
+  const cwd = makeTempProject();
+  const result = spawnSilentStdin({
+    cmd: 'node',
+    args: [hookPath],
+    cwd,
+    maxWaitMs: 3000,
+  });
+  result.then(({ code, elapsedMs, timedOut, stdout }) => {
+    assert(!timedOut, `hook exits on its own within the bound (elapsed ${elapsedMs}ms, not force-killed)`);
+    assert(code === 0, `hook exits 0 with open-but-silent stdin (got code ${code})`);
+    assert(
+      elapsedMs < 1200,
+      `hook exits within the stdin-guard CI-slack bound of 1200ms (elapsed ${elapsedMs}ms)`
+    );
+    assert(stdout.trim() === '', 'no nudge emitted (no worthy event, no fixture data)');
+    cleanup(cwd);
+    finishAsync();
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Summary (deferred until the async Test 9 completes)
+// ---------------------------------------------------------------------------
+function finishAsync() {
+  console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);
+  if (failed > 0) process.exit(1);
+}
