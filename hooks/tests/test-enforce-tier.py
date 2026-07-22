@@ -6,6 +6,8 @@ Each case pipes a JSON payload (or malformed string) into the hook via stdin
 and asserts ALLOW (exit 0, no deny output) or DENY (exit 0, deny in stdout).
 """
 
+from __future__ import annotations
+
 import json
 import os
 import subprocess
