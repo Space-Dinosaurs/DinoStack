@@ -1222,11 +1222,16 @@ perms = settings.get("permissions", {})
 recommended_allow = [
     "Bash(*)",
     "Write",
-    f"Write({_cfg_label}/**)",
     "Edit",
     f"Edit({_cfg_label}/**)",
-    f"Write({_cfg_label}/projects/**)",
     f"Edit({_cfg_label}/projects/**)"
+]
+# Legacy rules from older installs: path-scoped Write() rules are ignored by
+# Claude Code's file-permission checks (only Edit(path) rules match) and
+# trigger a startup warning. Strip them wherever found.
+legacy_allow = [
+    f"Write({_cfg_label}/**)",
+    f"Write({_cfg_label}/projects/**)"
 ]
 recommended_deny = [
     "Bash(git push --force*)",
@@ -1239,6 +1244,32 @@ recommended_deny = [
     "Bash(reboot*)"
 ]
 
+def _migrated_allow(existing_allow):
+    """Merge recommended allow rules in and, conservatively, strip legacy
+    path-scoped Write() rules out.
+
+    Bare "Write" is unioned in from recommended_allow on every path
+    regardless of this gate - the installer always grants it. Path-scoped
+    Write(path) rules are ignored by Claude Code's file-permission checks
+    (inert either way), so keeping or removing them changes no effective
+    permission. What the gate actually controls is only whether the
+    installer edits the redundant scoped rule out of the config text: the
+    strip fires only when the bare "Write" rule is already present in
+    existing_allow (i.e. present in the user's PRE-migration config). This
+    avoids the installer making a surprising-looking edit - replacing a
+    scoped rule with a broad one in the config text - to a config a user
+    may have deliberately narrowed, without their input. Trade-off: for a
+    user who removed bare Write but kept the scoped rule, the scoped rule
+    (and Claude Code's startup warning about it) is left in place rather
+    than cleaned up. Single-sourced so both the already-bypass and the
+    fresh-configure branches apply the identical migration (regression
+    cases (g) and (h) in install-converge.test.sh cover both branches of
+    this gate)."""
+    merged = existing_allow | set(recommended_allow)
+    if "Write" in existing_allow:
+        merged -= set(legacy_allow)
+    return list(merged)
+
 already_bypass = perms.get("defaultMode") == "bypassPermissions"
 
 if already_bypass:
@@ -1248,9 +1279,14 @@ if already_bypass:
     missing_allow = set(recommended_allow) - existing_allow
     missing_deny = set(recommended_deny) - existing_deny
     missing_dir = f"{_cfg_label}/projects" not in perms.get("additionalDirectories", [])
+    # Mirror _migrated_allow()'s gate: only count legacy rules as "stale" (and
+    # report them as removed) when the bare "Write" rule is already present
+    # pre-migration - otherwise _migrated_allow() will not strip them, and
+    # reporting a removal here would be inaccurate.
+    stale_allow = (existing_allow & set(legacy_allow)) if "Write" in existing_allow else set()
 
-    if missing_allow or missing_deny or missing_dir:
-        perms["allow"] = list(existing_allow | set(recommended_allow))
+    if missing_allow or missing_deny or missing_dir or stale_allow:
+        perms["allow"] = _migrated_allow(existing_allow)
         perms["deny"] = list(existing_deny | set(recommended_deny))
         if os.path.islink(settings_path):
             sys.stderr.write(f"refusing to write through symlink: {settings_path}\n")
@@ -1258,12 +1294,14 @@ if already_bypass:
         with open(settings_path, "w") as f:
             json.dump(settings, f, indent=2)
             f.write("\n")
-        added = []
+        parts = []
         if missing_allow:
-            added.append(f"{len(missing_allow)} allow")
+            parts.append(f"added {len(missing_allow)} allow rules")
         if missing_deny:
-            added.append(f"{len(missing_deny)} deny")
-        print(f"  ~ Permissions: bypassPermissions already set, added {' and '.join(added)} rules")
+            parts.append(f"added {len(missing_deny)} deny rules")
+        if stale_allow:
+            parts.append(f"removed {len(stale_allow)} legacy Write rules")
+        print(f"  ~ Permissions: bypassPermissions already set, {' and '.join(parts)}")
     else:
         print("  = Permissions already configured (bypassPermissions mode)")
 else:
@@ -1275,7 +1313,7 @@ else:
         existing_allow = set(perms.get("allow", []))
         existing_deny = set(perms.get("deny", []))
 
-        perms["allow"] = list(existing_allow | set(recommended_allow))
+        perms["allow"] = _migrated_allow(existing_allow)
         perms["deny"] = list(existing_deny | set(recommended_deny))
         perms["defaultMode"] = "bypassPermissions"
         perms.setdefault("additionalDirectories", [])

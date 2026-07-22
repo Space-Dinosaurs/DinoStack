@@ -59,9 +59,21 @@ classification and Skeptic review) exist precisely because the pattern list
 cannot be exhaustive.
 
 The recommended **allow-list** (the `recommended_allow` array,
-[`.claude/install.sh`](../.claude/install.sh) lines 726-733) grants `Bash(*)`,
-`Write`, `Edit`, and write access to `~/.claude/` directories so routine agent
-work does not stall.
+[`.claude/install.sh`](../.claude/install.sh)) grants `Bash(*)`, the bare
+`Write` and `Edit` tool rules, and path-scoped `Edit(~/.claude/**)` /
+`Edit(~/.claude/projects/**)` rules so routine agent work does not stall.
+Only `Edit(path)` rules are matched by Claude Code's file-permission checks -
+path-scoped `Write(path)` rules are silently ignored and trigger a startup
+warning, so the installer no longer adds them and migrates them out of
+existing `~/.claude/settings.json` files that still have them (`legacy_allow`
+in the same script). The strip only runs when the bare `Write` rule is
+already present in the pre-migration config; if it is absent, the scoped
+rule is left in place. This does not change effective permissions either
+way - bare `Write` is added by the recommended-merge regardless, and the
+scoped rule is inert - it only avoids the installer editing a config a
+user may have deliberately narrowed without their input. The trade-off is
+that Claude Code's startup warning about the inert scoped rule persists
+for that edge case.
 
 ## Hooks
 
