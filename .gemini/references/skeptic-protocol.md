@@ -647,7 +647,23 @@ Round 4 (most recent):
 
 ### Sign-off validation
 
-The primary agent treats a Skeptic response as a valid sign-off only when it contains all six mandatory elements as distinct lines: (a) a line beginning "Reviewed:", (b) a line beginning "Findings:", (c) an "Active search:" line, and (d) the phrase "No unresolved Critical or Major findings. Sign-off granted." A response containing only the phrase "Sign-off granted" without the other three elements is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round. (e) Conditionally: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation. (f) For PR reviews specifically: the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant. (g) A "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8). (h) A "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5). Omission of either (g) or (h) is format-noncompliant and triggers the same format re-invocation.
+The primary agent treats a Skeptic response as a valid sign-off only when it contains **the mandatory elements** as distinct lines. There are six mandatory elements, always required on every Skeptic response regardless of review type:
+
+- (a) a line beginning "Reviewed:"
+- (b) a line beginning "Findings:"
+- (c) an "Active search:" line
+- (d) the phrase "No unresolved Critical or Major findings. Sign-off granted."
+- (g) a "Manifest check:" line, reporting the result of the module manifest check (content/agents/skeptic.md Step 8)
+- (h) a "Test-CI-wiring check:" line, reporting the result of the new-test-CI-wiring check (content/agents/skeptic.md Step 11.5)
+
+A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
+
+Two further elements are **conditional** - required only when their triggering condition holds, and simply absent (not a defect) otherwise:
+
+- (e) Spec-deviation downgrade justification: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation.
+- (f) PR-review SHA range: for PR reviews specifically, the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
+
+Reviews that are neither PR reviews nor spec-deviation-downgrade reviews - e.g. `/wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e) and (f) do not apply, and their absence is not format-noncompliant for those reviews.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
