@@ -1,210 +1,159 @@
 <!--
-Purpose: Operator-facing guide for the cross-harness agent-teams feature
-         introduced with bin/agentic-team. Explains what it does, when to use
-         it, how to set it up, the four subcommands, the self-containment
-         guard, and the concrete failure modes the operator should expect.
-         Works on any conductor harness (Claude, Codex, Gemini, Kimi, etc.);
-         not specific to Pi or oh-my-pi.
+Purpose: Documents the cross-harness agent-team layer that lets the conductor
+         dispatch leaf workers to entirely different CLIs (codex, gemini,
+         cursor-agent, kimi, pi, omp, opencode, copilot, claude-as-worker)
+         rather than spawning them as native subagents within the conductor's
+         own harness.
 
-Public API: Operator-facing prose. Read first if you are new to cross-harness
-            teams; deeper schema, dispatch table, and self-containment design
-            live in `content/references/cross-harness-teams.md`.
+Public API: Read-only reference. Load when configuring team.yml, deciding
+            whether to use cross-harness dispatch vs native delegation,
+            authoring or reviewing the self-containment guard, or understanding
+            how collected worker output re-enters the Skeptic/QA gates.
 
-Upstream deps: content/references/cross-harness-teams.md (full spec);
-               bin/agentic-team (discover|dispatch|status|collect|configure).
+Upstream deps: content/sections/02-delegation.md (delegation decision table);
+               content/sections/04-risk-classification.md (Tier/role layer);
+               bin/agentic-team (discover|dispatch|status|collect);
+               bin/_role_spec.py (shared role-spec normalizer).
 
-See also: content/references/role-models.md (Pi/omp role-model routing schema,
-          Layer 1 - separate from this layer).
+Downstream consumers: content/sections/02-delegation.md (pointer);
+                      content/sections/04-risk-classification.md (pointer);
+                      bin/agentic-team (schema section);
+                      bin/agentic-configure (team subcommand).
 
-Downstream consumers: docs site root index; doc-sync-obligation.md
-                      cross-references.
+Failure modes: Prose reference; not auto-executed. The most common error path
+               is a stale team.yml referencing a harness binary that was
+               uninstalled - agentic-team discover catches this and marks the
+               harness absent. A PATH guardrail shim that erroneously blocks the
+               worker's own binary is caught by the dispatch test suite; workers
+               that hang (cursor-agent known bug) are bounded by the per-run
+               timeout + kill watchdog.
 
-Failure modes: Stale if bin/agentic-team or content/references/cross-harness-teams.md
-               changes. When the schema changes, update both this doc and the
-               reference in content/references/ in the same change.
-
-Performance: Standard.
+Performance: Standard. Dispatch is background shell-out per worker; no blocking
+             network call on the conductor's critical path. Web enrichment in
+             agentic-configure is opt-in and cached.
 -->
 
 # Cross-harness agent teams
 
-Dispatch leaf workers to entirely different CLI harnesses -- codex, gemini,
-cursor-agent, kimi, pi, omp, opencode, copilot, or claude-as-worker -- from **any** conductor
-harness (Claude Code, Codex, Gemini, Kimi, Pi, omp, or any other). The
-conductor retains full orchestration (Skeptic gates, QA gates, risk
-classification), while each worker role runs on the CLI best suited to it.
-This feature is **self-contained and OMC-independent**: it does not trigger
-oh-my-claudecode, and it does not use the conductor harness's own native
-subagent mechanism.
+This layer lets the conductor dispatch leaf workers to entirely different CLI
+harnesses -- codex, gemini, cursor-agent, kimi, pi, omp, opencode, copilot, or
+claude-as-worker --
+rather than spawning native subagents within its own harness. It is **OMC-
+independent**: it does not trigger oh-my-claudecode, nor does it use the
+conductor harness's own built-in subagent mechanism.
 
-This is a **standalone any-harness layer** -- it is not an extension of
-role-model routing and it is not specific to Pi or oh-my-pi. Any conductor
-harness can use it.
+## When to use cross-harness dispatch vs native delegation
 
-The deeper specification (schema, dispatch table, self-containment design,
-and collected-output re-entry into Skeptic/QA gates) lives in
-`content/references/cross-harness-teams.md`. This document is the operator
-entry point.
+**Use the standard delegation table first** (see `content/sections/02-
+delegation.md`). Cross-harness dispatch is a *specialization* of the Worker
+spawn path, not a replacement for it. Apply it when all of the following hold:
 
-## When to use it
+1. The task warrants a Worker spawn by the standard risk table (Elevated or
+   Trivial-delegate).
+2. `team.yml` is present and `enabled: true` for this project or globally.
+3. The role being dispatched has a `roles[<role>]` entry in `team.yml` with a
+   `harness` value other than the conductor's own harness.
+4. `agentic-team discover` confirms that harness is installed and reachable.
 
-You want cross-harness teams when you care about one or more of:
+When `team.yml` is absent or `enabled: false`, or when the harness is not
+installed, the conductor falls back to native delegation unchanged -- no error,
+no prompt, no degraded mode. Cross-harness is additive and fully opt-in.
 
-- **Multi-harness shop.** You have codex, gemini, and cursor-agent installed
-  and want each role dispatched to the CLI it runs best on, without manual
-  context-switching.
-- **Harness-level antagonist review.** Your engineer runs on one harness
-  (e.g. codex) and your Skeptic reviews the diff on a completely different
-  harness (e.g. gemini). This is a harness-boundary diversity win independent
-  of any model-level routing.
-- **Cost or quota isolation.** Pin quota-heavy roles to cheaper CLIs without
-  changing the conductor's own session.
-- **Provider experimentation.** Route a single role to a new CLI to evaluate
-  it in production without affecting other roles.
+**The conductor does NOT use cross-harness dispatch for:**
 
-You do **NOT** need this layer when:
+- The `conductor` role itself (conductor re-rooting is not supported in v1;
+  the `conductor` entry in `team.yml` is advisory only).
+- Orchestration-planner, investigator, or architect roles -- these run in the
+  conductor's own context because they produce plans the conductor reasons over
+  directly.
+- Any spawn that the conductor would classify as direct-action (Low or
+  diagnostic-only) -- those stay conductor-direct.
+- Spawns where `agentic-team discover` marks the target harness absent.
+  (Authentication errors are not a discover state -- they surface at dispatch
+  time from the harness's own stderr/exit code.)
 
-- You run on a single harness. The Tier declaration mechanism already gives
-  you per-role model diversity within one harness.
-- `team.yml` is absent or `enabled: false`. Cross-harness dispatch is fully
-  opt-in; the conductor falls back to native delegation silently.
-- The role is `conductor`, `orchestration-planner`, `investigator`, or
-  `architect`. Those always run in the conductor's own context because they
-  produce plans the conductor reasons over directly.
+## Config: `team.yml`
 
-## How it relates to role-model routing
+Cross-harness team topology is stored in a **dedicated committed file** -- NOT
+a block inside `role-models.yml`. `role-models.yml` is Pi/omp-only and
+gitignored (it may name user-private model handles); team topology is shareable
+project intent and belongs in version control.
 
-These are two distinct, complementary layers -- neither requires the other:
+**File locations (project wins on key collision, merged shallowly per top-level
+key):**
 
-| Layer | File | What it controls | Who it affects |
-|---|---|---|---|
-| Role-model routing (Layer 1) | `~/.agentic/role-models.yml` (gitignored) | which model to use within ONE harness | Pi / oh-my-pi only |
-| Cross-harness teams (Layer 2) | `.agentic/team.yml` (committed) | which harness (and optionally model) per role | any conductor harness |
+- Global: `~/.agentic/team.yml`
+- Project: `.agentic/team.yml` (committed; `.gitignore` carries `!.agentic/team.yml`)
 
-Role-model routing maps `role -> model` inside a single harness (Pi/omp
-only). Cross-harness teams map `role -> (harness, model)` and run that
-harness's own non-interactive mode as a separate process. `team.yml` is a
-**separate committed file** from the gitignored `role-models.yml` -- team
-topology is shareable project intent and belongs in version control.
-
-When both files are present, they compose: `team.yml` selects the harness
-and optional model handle; if the target harness is Pi or omp,
-`role-models.yml` further refines the model selection on that harness.
-
-## Set up
-
-### 1. Write team.yml
-
-The file can live globally (`~/.agentic/team.yml`) or per-project
-(`.agentic/team.yml`, committed). Project keys win on collision; the merge
-is shallow per top-level key.
-
-The `.gitignore` umbrella excludes `.agentic/*` by default; the project file
-requires an explicit carve-out line `!.agentic/team.yml` so it commits.
-
-Minimum useful file:
-
-```yaml
-enabled: true
-roles:
-  engineer:    { harness: codex,   model: gpt-5.3-codex }
-  qa-engineer: { harness: gemini,  model: gemini-2.5-flash }
-  skeptic:     { harness: cursor-agent }
-```
-
-Full schema:
+### Schema
 
 ```yaml
 # ~/.agentic/team.yml  or  .agentic/team.yml
 enabled: true
-default_harness: codex          # where a role goes when not listed under roles:
-                                # validated against the 9 known harness labels;
-                                # unknown value -> non-zero exit from agentic-team
+default_harness: codex          # where a role goes if no per-role harness is set;
+                                # validated same as roles[*].harness -- unknown value
+                                # produces a non-zero exit from agentic-team
 roles:
-  engineer:         { harness: codex,         model: gpt-5.3-codex }
-  qa-engineer:      { harness: gemini,        model: gemini-2.5-flash }
-  skeptic:          { harness: cursor-agent,  model: cursor-fast }
-  security-auditor: { harness: codex,         model: gpt-5.3-codex }
+  engineer:        { harness: codex,         model: gpt-5.3-codex }
+  qa-engineer:     { harness: gemini,        model: gemini-2.5-flash }
+  skeptic:         { harness: cursor-agent,  model: cursor-fast }
+  security-auditor:{ harness: codex,         model: gpt-5.3-codex }
 dispatch:
-  timeout_seconds: 1800   # per-worker wall-clock limit; default 1800 (30 min)
-  output_format: json     # json (default) or text
+  timeout_seconds: 1800
+  output_format: json
 ```
 
 **Field notes:**
 
-| Field | Required | Notes |
-|---|---|---|
-| `enabled` | yes | `false` disables cross-harness dispatch without removing the file |
-| `default_harness` | no | Fallback for roles not listed under `roles:` |
-| `roles[*].harness` | yes (mapping form) | One of 9 known labels: codex, gemini, cursor-agent, kimi, pi, omp, claude, opencode, copilot |
-| `roles[*].model` | no | Passed to the harness `--model`/`-m` flag for codex/gemini/claude/opencode/copilot; rejected for other harnesses. Omit to use harness session default |
-| `roles[*].effort` | no | Forwarded to the harness; silently dropped if unsupported |
-| `roles[*].reasoning` | no | Forwarded to the harness; silently dropped if unsupported |
-| `dispatch.timeout_seconds` | no | Watchdog kills the worker on expiry; default 1800 |
-| `dispatch.output_format` | no | Governs the `collect` demux path |
+| Field | Type | Required | Default (absent key) | Notes |
+|---|---|---|---|---|
+| `enabled` | bool | yes | `false` (absent file = feature off) | Set `false` to disable cross-harness dispatch without removing the file. Absent file is equivalent to `enabled: false`. |
+| `default_harness` | string | no | none (unrouted roles fall through to native spawn) | Fallback harness for roles not listed under `roles:`. Validated against the known-harness table; unknown value -> non-zero exit. |
+| `roles` | map | no | none (empty - all roles use native spawn unless `default_harness` is set) | Keys are role names (the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`). Values are a scalar harness name or `{harness, model}` mapping. |
+| `roles[*].harness` | string | yes (if mapping) | n/a | Must be one of the 9 known harness labels. Unknown value -> non-zero exit. |
+| `roles[*].model` | string | no | none (harness uses its own session default) | Forwarded to the harness's own `--model`/`-m` flag at dispatch (all 9 harnesses accept a model flag; codex/gemini use `-m`, all others use `--model`). Omit to let the harness use its session default (no hardcoded IDs). |
+| `roles[*].models` | list | no | none (falls back to `model` if present, else harness session default) | Round-robin author pool: a list of model handles the role rotates through, one per successive dispatch. The rotation cursor is persisted durably at `~/.agentic/rotation/<project-hash>/<role>` (NOT the throwaway per-dispatch workdir) under an flock, so rotation advances across genuinely separate dispatches and concurrent dispatches of the same role do not race. The project hash is derived from the resolved `.agentic/` directory (the directory containing the effective `team.yml`), so two different repositories do not share a rotation sequence for the same role. Mutually exclusive with `model`; when both are present `models` wins. Use for co-author roles, e.g. `engineer: { harness: omp, models: [kimi/kimi-k2.7, glm/glm-5.2] }`. Each entry must be a non-empty string or dispatch config validation fails. |
+| `dispatch.timeout_seconds` | int | no | `1800` (30 min) | Per-worker wall-clock timeout. Watchdog kills the process on expiry. |
+| `dispatch.output_format` | string | no | `"json"` | `json` or `text`. Governs the `collect` demux path. |
 
-### 2. Use the setup wizard (optional)
+The scalar-or-mapping normalize logic for role-spec entries is shared with
+`bin/agentic-configure` via `bin/_role_spec.py`. Both tools import the same
+normalizer; there is no inline copy.
 
-The recommended entry point is the slash command (available in all harnesses):
-
-```
-/configure-team
-```
-
-Or run the binary directly:
-
-```bash
-bin/agentic-team configure
-```
-
-The wizard discovers installed harnesses, ranks roles to the best available
-(harness, model) pair, and writes a starter file. Use `--assign role=harness:model`
-for non-interactive assignment of a single role.
-
-### 3. Verify
-
-```bash
-agentic-team discover
-```
-
-This probes each known harness and reports `installed` or `absent` per
-harness, along with `version`, `models`, `invocation_family`, and
-`native_subagent_disable_flag`. Run this after writing `team.yml` to confirm
-the harnesses you assigned are present before starting a real session.
-
-Authentication errors are not a discover state. If a harness is installed but
-its credentials are invalid or expired, that surfaces at dispatch time from
-the harness's own stderr/exit code -- not as a named discover status.
-
-## The four subcommands
-
-- `agentic-team discover` - probe all 9 known harnesses; reports installed
-  status, version, reachable models, and invocation family. Use `--json` for
-  machine-readable output.
-- `agentic-team dispatch --harness <h> --role <r> --brief <file> --workdir <dir>` -
-  spawn a worker in the background; prints a run-id to stdout immediately.
-  The conductor uses the run-id to check status and collect output later.
-- `agentic-team status <run-id>` - prints `running`, `done`, or `failed`.
-  Poll this after dispatch to know when the worker has finished.
-- `agentic-team collect <run-id>` - demux the per-harness output shape and
-  print the final message text. The conductor passes this text to the standard
-  Skeptic and QA gates unchanged.
+Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
+`conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`,
+`debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Unrecognized role
+keys are passed through and the dispatch tool validates the harness field
+regardless.
 
 ## Per-harness dispatch table
 
-How `agentic-team dispatch` invokes each harness non-interactively:
+`bin/agentic-team dispatch` builds the worker invocation from this table. All 7
+harnesses now have **confirmed** (not probed) non-interactive flags, verified
+live against each CLI -- not hardcoded model IDs, just binary names and flag
+spellings, consistent with the "no hardcoded model IDs" stance anchored in
+`bin/_role_spec.py` (single source of harness/role labels) and the binary-name
+map in `bin/agentic-team` (the one allowed per-harness hardcoded fact).
 
-| Harness | Non-interactive invocation | Notes |
-|---|---|---|
-| **codex** | `codex exec "<brief>" --json --sandbox read-only --skip-git-repo-check` | `--sandbox read-only` applied by default; JSONL event stream |
-| **gemini** | `gemini -p "<brief>" --output-format json` | Headless on `-p`; slash commands broken headless - full brief inline |
-| **cursor-agent** | `cursor-agent -p --force "<brief>" --output-format json < /dev/null` | `--force` required for file writes; known hang bug - stdin always `/dev/null` + timeout watchdog; marked `experimental` in discover output. Note: `< /dev/null` is presentation shorthand -- the dispatcher sets `stdin=subprocess.DEVNULL` at the `Popen` call; it is not a literal argv element. |
-| **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | Binary name is `kimi-cli` (not `kimi`); `--print` required for non-interactive/auto-dismiss behavior |
-| **pi** | `pi -p "<brief>"` | Built-in subagent types exist but suppressed via leaf-worker clause |
-| **omp** | `omp -p "<brief>"` | Same leaf-worker suppression; omp built-in subagents not used as nested spawns |
-| **opencode** | `opencode run "<brief>" --dangerously-skip-permissions --model <m>` | `--model` forwarded only if configured; final message is raw stdout |
-| **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths --model <m>` | `--allow-all-tools --allow-all-paths` required for non-interactive file writes; `--model` forwarded only if configured; final message is raw stdout. **RISK-ACCEPTED** -- see note below table |
-| **claude (worker)** | `claude -p "<brief>" --output-format json` | Dispatched as a leaf worker only; does NOT re-enter OMC |
+| Harness | Non-interactive incantation | Model flag | Output flag | Notes / gotchas |
+|---|---|---|---|---|
+| **codex** | `codex exec "<brief>"` or `codex exec -` (stdin) | `-m <model>` | `--json` (JSONL events) | `--sandbox read-only` applied by default; `--skip-git-repo-check` added when workdir is not a git repo; reads saved auth or `CODEX_API_KEY`; final message extracted from the last JSONL event. |
+| **gemini** | `gemini -p "<brief>"` | `-m <model>` | `--output-format json` | Headless on non-TTY or `-p`; slash/custom commands are broken headless -- pass the full brief inline; `head -c 50000` guard applied to large stdin. Response text extracted via `jq '.response'`. |
+| **cursor-agent** | `cursor-agent -p --force "<brief>" < /dev/null` | `--model <model>` | `--output-format json` | `--force` required for file writes; **known hang bug** -- stdin is always redirected from `/dev/null` AND a timeout + kill watchdog is applied; marked `experimental` in discovery output until upstream fixes the hang. `--list-models` also confirmed (used by discovery model probe). |
+| **kimi** | `kimi-cli --print --yolo --final-message-only -p "<brief>"` | `--model <model>` | text (final-message-only) | Binary name is `kimi-cli` (not `kimi`); `--print` is mandatory for non-interactive/auto-dismiss-AskUserQuestion behavior -- bare `-p` alone is interactive-with-prompt. No custom slash commands; methodology loaded via inline skill content in the brief. |
+| **pi** | `pi -p "<brief>"` | `--model <model>` | text (default mode) | Built-in subagent types exist but MUST be suppressed via the leaf-worker clause. Also supports `--mode text\|json\|rpc`; default text mode is used so `collect()`'s raw-stdout path works. |
+| **omp** | `omp -p "<brief>"` | `--model <model>` | text (default mode) | Same leaf-worker suppression; omp built-in subagents not used as nested spawns. `--mode json` emits streaming JSONL `message_update` events (not a single JSON object), not worth parsing in v1, so default text mode is kept. `omp models ls --json` confirmed (used by discovery model probe). |
+| **opencode** | `opencode run "<brief>" --dangerously-skip-permissions` | `--model <model>` | raw stdout | `--dangerously-skip-permissions` required for non-interactive dispatch (detached worker has no TTY for permission prompts); `--model` forwarded only when a model is configured; final message is raw stdout (no demux). |
+| **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths` | `--model <model>` | raw stdout | `--allow-all-tools --allow-all-paths` required for non-interactive file writes (see RISK-ACCEPTED note below); `--model` forwarded only when configured; final message is raw stdout (no demux). |
+| **claude (worker)** | `claude -p "<brief>"` | `--model <model>` | `--output-format json` | Only as a *dispatched leaf worker*, never re-entering OMC. Harness label is `claude`; binary is `claude`. |
+
+Discovery (`agentic-team discover`) best-effort populates a `models: [...]`
+list per harness: omp via `omp models ls --json` (stdout parsed, stderr
+extension-load warnings tolerated) and cursor-agent via `cursor-agent
+--list-models` (line-per-model text). claude/codex/gemini/kimi/pi/opencode/copilot
+have no reliable list command confirmed and always report `models: []`. Every probe
+has a 10s timeout and fails silently to `[]` on any exception -- a broken
+probe never breaks `discover` as a whole.
 
 **RISK-ACCEPTED: copilot's `--allow-all-paths` grant.** Unlike every other
 harness above, copilot is dispatched with `--allow-all-paths` in addition to
@@ -212,125 +161,198 @@ harness above, copilot is dispatched with `--allow-all-paths` in addition to
 non-interactive operation at all -- copilot exposes no path-scoped equivalent
 (no `--sandbox` flag, no directory allowlist) -- so this is a deliberate
 trade-off of autonomy over sandboxed path-scoping, not an oversight. The
-PATH guardrail (below) does not mitigate this: it only intercepts bare-name
-re-entry to sibling CLIs, it is not a filesystem sandbox. `_cmd_dispatch`
-sets the copilot subprocess's `cwd` to the caller-supplied `--workdir` (a
-throwaway worktree/copy), but setting `cwd` only changes how *relative*
-paths resolve -- it does not block absolute-path reads or writes
-(`~/.ssh/id_rsa`, `/etc/...`), and the subprocess still inherits the full
-parent environment, so ambient credentials in env vars remain reachable.
-Given the threat model is a prompt-influenced `brief_text`,
-`--allow-all-paths` is a genuine, deliberately-accepted risk whenever the
-brief is not fully trusted -- it is not a sandbox. The disposable workdir
-limits the relative-path blast radius and keeps repo mutations isolated to
-a throwaway tree; it is not a filesystem confinement boundary. Operators
-must still pass a genuinely disposable `--workdir` for copilot dispatches
-and treat the brief as untrusted input.
+PATH guardrail (section 3 below) does **not** mitigate this: it only
+intercepts bare-name re-entry to sibling CLIs, it is not a filesystem
+sandbox. `_cmd_dispatch` sets the copilot subprocess's `cwd` to the
+caller-supplied `--workdir` (a throwaway worktree/copy), but setting `cwd`
+only changes how *relative* paths resolve -- it does **not** block
+absolute-path reads or writes (`~/.ssh/id_rsa`, `/etc/...`, any path the
+brief spells out in full), and the subprocess still inherits the full parent
+environment, so ambient credentials in env vars remain reachable. Given the
+threat model is a prompt-influenced `brief_text`, `--allow-all-paths` is a
+genuine, deliberately-accepted risk whenever the brief is not fully trusted
+-- it is **not a sandbox**. The disposable workdir limits the *relative*-path
+blast radius and keeps repo mutations isolated to a throwaway tree; it is
+not a filesystem confinement boundary. Operators must still pass a
+genuinely disposable `--workdir` for copilot dispatches and treat the brief
+as untrusted input, since the flag itself enforces nothing.
 
-**Operator opt-in gate.** copilot is the only harness that trades away
-worktree isolation, so `_cmd_dispatch` refuses to launch a copilot worker
-unless `AGENTIC_TEAM_ALLOW_COPILOT=1` is set. Listing `copilot` in `team.yml`
-is not enough -- dispatch fails fast (exit 2, before any run directory is
-created) with a message naming the env var, making the trade-off an explicit,
-auditable consent.
+**Operator opt-in gate.** Because this is the only harness that trades away
+worktree isolation, `_cmd_dispatch` refuses to launch a copilot worker unless
+the operator sets `AGENTIC_TEAM_ALLOW_COPILOT=1`. Merely listing `copilot` in
+`team.yml` is not enough -- dispatch fails fast (exit 2, before any run
+directory is created) with a message naming the env var. This makes the
+`--allow-all-paths` trade-off an explicit, auditable consent rather than an
+implicit side effect of configuration.
 
-**Binary-name map** (the only hardcoded per-harness fact in the repo):
+**Binary-name map (discovery uses this, not the harness label):**
 
 | Harness label | Binary name |
 |---|---|
-| kimi | `kimi-cli` (the only label/binary mismatch) |
-| all others | same as harness label |
+| codex | `codex` |
+| gemini | `gemini` |
+| cursor-agent | `cursor-agent` |
+| kimi | `kimi-cli` |
+| pi | `pi` |
+| omp | `omp` |
+| opencode | `opencode` |
+| copilot | `copilot` |
+| claude | `claude` |
 
-Non-interactive flags for all 7 harnesses (including kimi, pi, and omp) are
-**confirmed and fixed**, verified live against each CLI -- not probed at
-discovery time. Discovery only probes for available *models* (see the
-per-harness dispatch table note above), never the invocation flags
-themselves; this is consistent with the "no hardcoded model IDs" stance
-(binary names and flag spellings are the one allowed per-harness hardcoded
-fact).
+The binary-name map is the only per-harness hardcoded fact in the repo. It maps
+*names*, not model IDs or flag strings.
 
-## Self-containment - what is actually enforced
+## Self-containment guard
 
-The guard is layered. Layers are listed strongest to weakest:
+When a DinoStack team is triggered, the worker must NOT trigger external
+orchestration (oh-my-claudecode) NOR the conductor harness's own native
+subagents. The guard is layered; the layers are listed from strongest to
+weakest:
 
-1. **Workdir fence (PRIMARY).** Each worker runs in its own throwaway
-   `--workdir` (a git worktree or directory copy). The worker has no access
-   to the live repository tree. The conductor is the sole git owner; workers
-   never run git on the live repo. This is the real containment boundary.
+### 1. Workdir fence (PRIMARY containment)
 
-2. **Harness-native sandbox (strongest per-worker fence, where available).**
-   Where the harness exposes a sandbox flag it is applied at dispatch time.
-   For codex this is `--sandbox read-only`. Enforced by the harness process
-   itself, not by a wrapper script.
+Each worker runs in its own **throwaway `--workdir`** -- either a git worktree
+or a directory copy of the relevant files. The worker has no access to the real
+repository tree regardless of what it runs. The conductor is the sole git
+owner; workers never run git on the live repo. This is the real containment
+boundary.
 
-3. **PATH guardrail (accidental re-entry -- NOT a security sandbox).** Each
-   worker launch prepends a shim directory to `PATH`. Shims for `git`, `omc`,
-   and all sibling CLI names (`codex`, `gemini`, `cursor-agent`, `kimi`,
-   `kimi-cli`, `pi`, `omp`, `claude`, `opencode`, `copilot`) exit 1 and log to
-   `violations.log`. The worker's
-   own binary is exempt. **This guardrail catches accidental bare-name
-   re-entry by a cooperative worker. It does NOT stop an absolute-path call
-   (`/usr/bin/git` or any pre-resolved path). Do not claim it provides
-   enforcement beyond its design surface.**
+### 2. Harness-native sandbox (strongest per-worker fence, where available)
 
-4. **Leaf-worker clause (defense-in-depth).** Every brief is prepended with:
-   "You are a leaf worker: no sub-agents, no git, no oh-my-claudecode."
-   This relies on worker cooperation; it is not a hard fence.
+Where the harness exposes a sandbox flag, it is applied at dispatch time. For
+codex this is `--sandbox read-only`. The `agentic-team discover` output records
+`native_subagent_disable_flag` per harness; dispatch sets it when non-null.
+This is stronger than the PATH guardrail because it is enforced by the harness
+process itself, not by a wrapper script.
 
-5. **Proactive team-routing enforcement (fixes the chicken-and-egg bug).**
-   The sentinel below only kicks in once a dispatch has already happened --
-   if the conductor never dispatches (nothing was stopping it from using
-   native `Task`/`Agent`), a `team.yml` with `enabled: true` was previously
-   silently ignored forever. `hooks/enforce-background-spawn.py` closes this
-   gap with a branch that runs BEFORE the sentinel check: it loads the
-   effective `team.yml` (global + project, project wins; PyYAML imported
-   opportunistically, fails open if unavailable) and, when `enabled: true`
-   and the spawned `subagent_type` is one of the five dispatchable roles
-   (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`)
-   whose resolved harness (role entry, else `default_harness`) is anything
-   other than `claude`, denies the native spawn with an actionable
-   `bin/agentic-team dispatch ...` instruction. `conductor`, `investigator`,
-   `architect`, and `orchestration-planner` are never denied by this branch.
-   Fails open on every error path (missing file, unreadable, malformed YAML,
-   import failure) -- a broken or absent `team.yml` never blocks native
-   spawning. Escape hatch: `AE_TEAM_ROUTING_DISABLE=1` skips this branch
-   entirely, before any file I/O.
+### 3. PATH guardrail (accidental re-entry -- NOT a security sandbox)
 
-6. **Conductor-side `.active` sentinel.** While
-   `<workdir>/.agentic/teamrun/.active` exists (with a live conductor PID,
-   mtime < 2 h), the conductor suppresses native `Task` spawns and OMC skill
-   calls. On Claude Code this is hook-enforced
-   (`hooks/enforce-background-spawn.py`). On all other harnesses it is a prose
-   convention, not a mechanically enforced constraint. The sentinel is created
-   by `dispatch` on first run and removed by `collect` when the last run
-   completes. The sentinel self-expires when its conductor PID is dead or its mtime exceeds 2 h; there is no manual clear command.
+Each worker launch prepends a wrapper directory to `PATH`. Shims in that
+directory for `git`, `omc`, and all sibling CLI names (`codex`, `gemini`,
+`cursor-agent`, `kimi-cli`, `pi`, `omp`, `opencode`, `copilot`, `claude`) exit 1 and append a line to
+`<workdir>/.agentic/teamrun/<run-id>/violations.log`. The worker's own binary
+is exempt (a codex worker can still run `codex`; its shim is not placed).
 
-## Failure modes
+**This guardrail catches accidental bare-name re-entry by a cooperative worker.
+It does NOT stop an absolute-path call (`/usr/bin/git`, a pre-resolved path, or
+a worker that deliberately bypasses `PATH`).** It is a guardrail, not a
+guarantee. Do not claim it provides enforcement beyond its design surface.
 
-- **cursor-agent headless hang.** Known upstream bug. The dispatcher always
-  redirects stdin from `/dev/null` and starts a timeout kill watchdog (default
-  300 s for cursor-agent, 1800 s otherwise). The harness is marked
-  `experimental` in `discover` output until upstream fixes the hang.
-- **Harness not installed.** `discover` reports `installed: false`. `dispatch`
-  returns non-zero immediately with a named error -- no silent hang.
-- **Harness not authenticated.** `dispatch` surfaces a clear error from the
-  harness's own output; it does not hang waiting for credentials. Check the
-  harness's own auth flow (`codex login`, `gemini auth`, etc.) then retry.
-- **Worker exit captured by reaper.** A background reaper thread writes the
-  exit code to `<run-dir>/exit`. If the process crashes without writing an
-  exit file, the reaper detects the dead PID and writes `exit=1`; `status`
-  then reports `failed` correctly rather than hanging.
-- **No team.yml or `enabled: false`.** Feature is inactive. The conductor
-  falls back to native delegation unchanged -- no error, no degraded mode.
-- **Malformed team.yml.** `agentic-team` exits non-zero with a YAML parse
-  error on stderr before any dispatch occurs.
-- **Unknown harness or role in team.yml.** Non-zero exit with a named error
-  line listing the known values.
+### 4. Leaf-worker clause (defense-in-depth)
 
-## Related references
+Every worker brief includes the clause:
 
-- `content/references/cross-harness-teams.md` - full spec: schema, dispatch
-  table, self-containment design, output collection, Skeptic/QA re-entry
-- `bin/agentic-team` - discover, dispatch, status, collect, configure implementation
-- `docs/role-model-routing.md` - operator guide for role-model routing (Layer 1, Pi/omp only)
-- `content/references/role-models.md` - Pi/omp per-role model routing schema (Layer 1)
+> "You are a leaf worker: no sub-agents, no git, no oh-my-claudecode. Write
+> your output to the workdir and exit. Do not spawn any additional processes
+> beyond your own execution."
+
+This relies on worker cooperation. It is defense-in-depth, not a hard fence.
+
+### 5. Conductor-side suppression
+
+Two independent layers keep the conductor from spawning native subagents when
+a role should be cross-harness dispatched instead: a **proactive routing
+check** (runs before any dispatch has ever happened) and the sentinel
+suppression described below (active only after a run is in flight).
+
+**Proactive team-routing enforcement (fixes the chicken-and-egg bug):** the
+sentinel-only suppression below has a gap - the sentinel is created by the
+*first* `agentic-team dispatch`, so if the conductor never dispatches (e.g. it
+keeps using native `Task`/`Agent` because nothing is stopping it), a `team.yml`
+with `enabled: true` was previously silently ignored. `hooks/enforce-background-
+spawn.py` closes this gap with a branch that runs BEFORE the sentinel check: it
+loads the effective `team.yml` (global + project, project wins, same merge
+semantics as `bin/agentic-team`; PyYAML imported opportunistically, fails open
+if unavailable) and, when `enabled: true` and the spawned `subagent_type` is one
+of the five dispatchable roles (`engineer`, `debugger`, `qa-engineer`,
+`skeptic`, `security-auditor`) whose resolved harness (role entry, else
+`default_harness`) is anything other than `claude`, denies the native spawn
+with an actionable instruction, e.g.:
+
+> `cross-harness team active: role 'engineer' is assigned to harness 'omp'
+> (model kimi/kimi-k2.7). Dispatch with: bin/agentic-team dispatch --harness
+> omp --role engineer --brief <file> --workdir <dir> --model kimi/kimi-k2.7 -
+> then poll status/collect.`
+
+`conductor`, `investigator`, `architect`, and `orchestration-planner` are never
+denied by this branch even if `team.yml` maps them elsewhere (their entries are
+advisory only, per the "does NOT use cross-harness dispatch for" list above).
+Fail-open on every error path (missing file, unreadable, malformed YAML, import
+failure) - a broken or absent `team.yml` never blocks native spawning. Escape
+hatch: `AE_TEAM_ROUTING_DISABLE=1` skips this branch entirely, before any file
+I/O.
+
+**Sentinel suppression:** while the sentinel file
+`<workdir>/.agentic/teamrun/.active` exists, the conductor suppresses native
+`Task` spawns and OMC skill calls.
+
+**On Claude Code:** hook-enforced. The `hooks/enforce-background-spawn.py` hook
+(wired by `.claude/install.sh`, PreToolUse matcher for both `Task` and `Agent`)
+contains a sentinel-suppression branch: when `.active` exists and is live
+(conductor PID present + not dead, mtime < 2 h), the hook denies any `Task` or
+`Agent` call outright and denies any Skill call whose `skill` argument starts
+with `oh-my-claudecode:`. The denial message instructs the conductor to dispatch
+via `agentic-team` instead.
+
+Stale-sentinel guard: the hook treats `.active` as expired when its recorded
+PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
+not permanently suppress native Task. The sentinel self-expires when its conductor PID is dead or its mtime exceeds 2 h; there is no manual clear command.
+
+Sentinel lifecycle: created by `agentic-team dispatch` on first run (carries
+conductor PID); removed by `agentic-team collect` when the last run in the
+batch completes.
+
+**On all other harnesses:** Agents running on non-Claude harnesses MUST treat
+`<workdir>/.agentic/teamrun/.active` as a hard suppression signal and MUST NOT
+spawn the conductor harness's native subagents while it is live. This is a
+binding prose contract, not a mechanically enforced hook. Per-harness status:
+
+| Harness | Enforcement status | Hook location (if it existed) |
+|---|---|---|
+| **Claude Code** | Hook-enforced (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`; PreToolUse deny on `Task` and `Agent` + OMC skill calls while `.active` is live) | Already deployed |
+| **Codex** | Prose-contract only - no `PreToolUse`-deny hook infrastructure available | Would live in `.codex/hooks/` or a `CODEX_HOOK_PATH` entry |
+| **Gemini** | Prose-contract only - no hook interception layer available | Would require a Gemini hook shim if the CLI gains hook support |
+| **Kimi** | Prose-contract only - no hook infrastructure | Would live alongside `.kimi/` config |
+| **Cursor** | Prose-contract only - Cursor extension hooks exist but do not cover CLI headless mode | Would require a cursor-agent wrapper or sidecar |
+| **OpenCode** | Prose-contract only - no hook infrastructure | Would live in `.opencode/` hooks if the runtime adds them |
+| **OpenClaw** | Prose-contract only - no hook infrastructure | Would live in `.openclaw/` hooks if the runtime adds them |
+| **Pi** | Prose-contract only - no hook infrastructure | Would live in `.pi/` config hooks if the runtime adds them |
+| **omp** | Prose-contract only - no hook infrastructure | Would live in `.omp/` config hooks if the runtime adds them |
+| **Hermes** | Prose-contract only - no hook infrastructure | Would live in a Hermes hook slot if the runtime adds them |
+
+The leaf-worker clause (layer 4) and workdir fence (layer 1) provide
+defense-in-depth for harnesses without hook enforcement. Agents on prose-only
+harnesses must apply the suppression as a discipline; callers cannot rely on
+mechanical enforcement as a guarantee.
+
+## How collected worker output re-enters the Skeptic/QA gates
+
+Cross-harness workers are leaf processes. They write their output to
+`<workdir>/.agentic/teamrun/<run-id>/stdout` (and `stderr`, `exit`).
+`agentic-team collect <run-id>` demuxes the per-harness output shape and
+returns the final message text:
+
+| Harness | Output shape | collect extraction |
+|---|---|---|
+| codex | JSONL events | last event matching `type: message` |
+| gemini | JSON `{response: ...}` | `jq '.response'` |
+| cursor-agent | JSON | `jq '.result'` |
+| kimi | raw text (`--final-message-only`) | raw stdout |
+| pi / omp | raw text (default text mode) | raw stdout |
+| opencode | raw stdout | raw stdout, no demux |
+| copilot | raw stdout | raw stdout, no demux |
+| claude (worker) | JSON `{result: ...}` | `jq '.result'` |
+
+Once `collect` returns the final message, **that text is treated identically to
+a Worker return summary from a native subagent.** The conductor passes it to the
+standard Skeptic and QA gates unchanged:
+
+- The Skeptic receives the collected output as the diff/plan under review; the
+  adversarial brief and findings classification are unchanged.
+- The QA gate fires on the same `qa_criteria` trigger logic as any other Worker
+  unit (see `content/sections/05-qa-gate.md`).
+- Re-route limits (max 3 fix passes), convergence-failure escalation, and
+  per-ticket QA flow are all applied identically.
+
+No new gate, no bypass, no special case for cross-harness origin. The harness
+boundary is transparent to the Skeptic/QA layer.

@@ -19,11 +19,14 @@ Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
                          --model forwarded to every harness using its own flag
                          spelling (_MODEL_FLAG_BY_HARNESS: codex/gemini -> -m,
                          all others -> --model). When --model is omitted,
-                         the model is resolved from team.yml
-                         roles[<role>].model (honoring --global-config /
+                         the model is resolved from team.yml roles[<role>].model
+                         or roles[<role>].models (honoring --global-config /
                          --project-config) IFF the role's harness (or
-                         default_harness) matches the dispatch harness;
-                         otherwise the worker uses its own session default.
+                         default_harness) matches the dispatch harness. A role
+                         may declare a `models:` list to rotate round-robin
+                         across several models; the cursor is durable and
+                         project-scoped at ~/.agentic/rotation/<project-hash>/.
+                         Otherwise the worker uses its own session default.
             status     <run-id> [--workdir <dir>]  - running|done|failed
             collect    <run-id> [--workdir <dir>]  - final message, demuxed per harness
             configure  [--non-interactive] [--assign role=harness:model ...]
@@ -69,6 +72,7 @@ Performance: Pure file I/O + subprocess probes in discover. Sub-second
 from __future__ import annotations
 
 import argparse
+import hashlib
 import importlib.machinery as _im
 import importlib.util as _ilu
 import json
@@ -153,6 +157,12 @@ HARNESS_NATIVE_SUBAGENT_DISABLE_FLAG: dict[str, str | None] = {
 }
 
 GLOBAL_TEAM_YML = Path(os.path.expanduser("~/.agentic/team.yml"))
+# Durable per-user rotation-cursor dir for round-robin roles (D-2). MUST NOT
+# live under the throwaway per-dispatch --workdir, or the cursor never survives
+# between real dispatches and rotation never advances. Cursors are further
+# namespaced by project path hash so two projects do not share a rotation
+# sequence for the same role.
+ROTATION_DIR = Path(os.path.expanduser("~/.agentic/rotation"))
 PROJECT_TEAM_YML = Path(".agentic/team.yml")
 
 # ---------------------------------------------------------------------------
@@ -278,6 +288,33 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
                 f"agentic-team: unknown role {role!r} in {source} "
                 f"(known: {', '.join(sorted(KNOWN_ROLES))})"
             )
+        # Validate a model / multi-model (round-robin) declaration when present.
+        # The list may appear under 'models:' or as a list under 'model:'; both
+        # are validated identically (non-empty list of non-empty strings) so the
+        # two spellings can't diverge in what they accept. Non-list/non-string
+        # values (e.g. models: 5) are rejected outright.
+        if isinstance(spec, dict):
+            for _mk in ("models", "model"):
+                if _mk not in spec:
+                    continue
+                ml = spec.get(_mk)
+                if isinstance(ml, str):
+                    if not ml:
+                        errors.append(
+                            f"agentic-team: role {role!r} {_mk!r} in {source} must "
+                            "be a non-empty model-id string"
+                        )
+                elif isinstance(ml, (list, tuple)):
+                    if not ml or not all(isinstance(m, str) and m for m in ml):
+                        errors.append(
+                            f"agentic-team: role {role!r} {_mk!r} in {source} must "
+                            "be a non-empty list of model-id strings"
+                        )
+                else:
+                    errors.append(
+                        f"agentic-team: role {role!r} {_mk!r} in {source} must "
+                        "be a string or a non-empty list of model-id strings"
+                    )
         # Normalize to extract harness
         if isinstance(spec, dict):
             harness = spec.get("harness")
@@ -316,11 +353,126 @@ def _role_entry(spec: object) -> dict:
     return {}
 
 
+def _role_models_list(spec: object) -> list[str]:
+    """Return the ordered list of model handles declared for a role.
+
+    Supports three team.yml forms:
+      model: kimi/kimi-k2.7            -> ["kimi/kimi-k2.7"]
+      models: [kimi/..., glm/...]      -> ["kimi/...", "glm/..."]
+      model: [kimi/..., glm/...]       -> ["kimi/...", "glm/..."]  (list under model)
+    Non-string / empty entries are dropped. Returns [] when none declared.
+    """
+    if not isinstance(spec, dict):
+        return []
+    raw = spec.get("models")
+    if raw is None:
+        raw = spec.get("model")
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        return [raw] if raw else []
+    if isinstance(raw, (list, tuple)):
+        return [m for m in raw if isinstance(m, str) and m]
+    return []
+
+
+def _project_hash(project_path: Path | None, workdir: Path | None = None) -> str:
+    """Return a short stable hash of the project path for rotation namespacing.
+
+    The cursor directory is split by project so two different repositories do
+    not advance each other's rotation sequences for the same role. Relative
+    project paths are ALWAYS resolved against the current working directory,
+    matching ``_load_team_config``; resolving against *workdir* would change the
+    hash on every dispatch and break rotation durability. The *workdir* parameter
+    is kept for call-site compatibility but is intentionally ignored. When no
+    project path is available, fall back to a deterministic default namespace.
+    """
+    del workdir  # ignored: rotation must be stable regardless of dispatch workdir
+    if project_path is None:
+        return "_default"
+    try:
+        if project_path.is_absolute():
+            project_dir = project_path.resolve().parent
+        else:
+            project_dir = (Path.cwd() / project_path).resolve().parent
+        return hashlib.sha256(str(project_dir).encode("utf-8")).hexdigest()[:16]
+    except OSError:
+        return "_default"
+
+
+def _rotation_cursor_next(
+    role: str,
+    n: int,
+    project_path: Path | None = None,
+    workdir: Path | None = None,
+    rotation_dir: Path | None = None,
+) -> int:
+    """Return the next round-robin index for *role* and advance the cursor.
+
+    The cursor is persisted under ~/.agentic/rotation/<project-hash>/<role>
+    (a DURABLE, project-scoped location, not the throwaway per-dispatch
+    workdir) as a single integer, so successive real dispatches of the same
+    role rotate deterministically: index i then (i+1) % n.
+
+    The whole read-modify-write is done under an flock on a per-role lock file
+    so concurrent dispatches of the same role (parallel-by-default fan-out)
+    cannot race and duplicate/skip indices. Any I/O or parse error falls back
+    to index 0 (fail-safe: worst case a role restarts its rotation).
+
+    *rotation_dir* defaults to the module-level ROTATION_DIR evaluated at call
+    time so tests can monkeypatch it.
+    """
+    if n <= 1:
+        return 0
+    # Read the module-level default at call time; a function-definition-time
+    # default would ignore monkeypatches in tests.
+    if rotation_dir is None:
+        rotation_dir = ROTATION_DIR
+    # Sanitize role before any filesystem path use. Same pattern as
+    # _make_run_id(): replace path metacharacters so a hostile role
+    # (e.g. "../../outside.txt" via CLI --role) cannot escape the
+    # rotation dir. CLI is not choices-restricted today.
+    safe_role = role.replace("/", "-").replace(os.sep, "-").replace(" ", "-")
+    project_hash = _project_hash(project_path, workdir)
+    cursor_dir = rotation_dir / project_hash
+    try:
+        cursor_dir.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return 0
+    cursor_file = cursor_dir / safe_role
+    lock_file = cursor_dir / f"{safe_role}.lock"
+    try:
+        import fcntl
+        with open(lock_file, "w") as lf:
+            fcntl.flock(lf.fileno(), fcntl.LOCK_EX)
+            try:
+                idx = int(cursor_file.read_text(encoding="utf-8").strip()) % n
+            except (OSError, ValueError):
+                idx = 0
+            try:
+                cursor_file.write_text(str((idx + 1) % n), encoding="utf-8")
+            except OSError:
+                pass
+            return idx
+    except (OSError, ImportError):
+        # No flock available (unlikely on POSIX) -> best-effort unlocked path.
+        try:
+            idx = int(cursor_file.read_text(encoding="utf-8").strip()) % n
+        except (OSError, ValueError):
+            idx = 0
+        try:
+            cursor_file.write_text(str((idx + 1) % n), encoding="utf-8")
+        except OSError:
+            pass
+        return idx
+
+
 def _resolve_role_model(
     role: str,
     harness: str,
     global_path: Path = GLOBAL_TEAM_YML,
     project_path: Path = PROJECT_TEAM_YML,
+    workdir: Path | None = None,
 ) -> str | None:
     """Resolve the model for *role* from team.yml when no explicit --model.
 
@@ -331,9 +483,15 @@ def _resolve_role_model(
     harness, else default_harness; if NEITHER is set the config is ambiguous
     and we return None rather than forwarding the model to an arbitrary
     harness (a team.yml row with no harness and no default_harness must not
-    leak its model). Returns None when there is no team.yml, no entry, no
-    model, or a harness mismatch/ambiguity -- the worker then uses its own
-    session default, exactly as before.
+    leak its model).
+
+    When the role declares multiple models (models: [...]), rotates round-robin
+    across them using a DURABLE, project-scoped cursor
+    (~/.agentic/rotation/<project-hash>/<role>).
+
+    Returns None when there is no team.yml, no entry, no model, or a harness
+    mismatch/ambiguity -- the worker then uses its own session default, exactly
+    as before.
     """
     try:
         config = _load_team_config(global_path=global_path, project_path=project_path)
@@ -352,8 +510,12 @@ def _resolve_role_model(
     # no default_harness, entry_harness is None (ambiguous) -> do not forward.
     if entry_harness != harness:
         return None
-    model = entry.get("model")
-    return model if model else None
+    models = _role_models_list(spec)
+    if not models:
+        return None
+    if len(models) == 1:
+        return models[0]
+    return models[_rotation_cursor_next(role, len(models), project_path=project_path, workdir=workdir)]
 
 
 # ---------------------------------------------------------------------------
@@ -1163,14 +1325,14 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         worker_env[disable_flag] = "1"
 
     # Model resolution: an explicit --model always wins; otherwise fall back
-    # to the role's model in team.yml (D-1). Without this, a role-only dispatch
-    # silently ran on the harness session default (e.g. omp -> claude-opus-4-8),
-    # which is why cross-harness dispatch "only used Claude models".
+    # to the role's model in team.yml (D-1), rotating round-robin when the role
+    # declares multiple models (D-2).
     resolved_model = getattr(args, "model", None) or _resolve_role_model(
         role,
         harness,
         global_path=Path(getattr(args, "global_config", None) or GLOBAL_TEAM_YML),
         project_path=Path(getattr(args, "project_config", None) or PROJECT_TEAM_YML),
+        workdir=workdir,
     )
     argv = _build_worker_argv(harness, augmented_brief, model=resolved_model)
 
