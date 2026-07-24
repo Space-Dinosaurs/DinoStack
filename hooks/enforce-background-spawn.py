@@ -122,6 +122,8 @@ Performance: < 5 ms per call (in-memory JSON parse + optional YAML parse of two
              small config files + optional stat/proc check, no network I/O).
 """
 
+from __future__ import annotations
+
 import json
 import os
 import re
