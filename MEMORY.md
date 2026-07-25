@@ -115,3 +115,11 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 - **2026-07-01:** Never include `"mode": "opt-in"` in doc/adapter example JSON unless demonstrating opt-in activation - it silently disables the entire methodology on repos without an `agentic-engineering: opt-in` marker; show only the field being demonstrated (e.g. `{ "profile": "relaxed" }`) or use `"mode": "opt-out"`. (session)
 
 - **2026-06-11: Dark-theme reskin gotcha - Marp `theme: default` leaks high-specificity light styles.** (1) Table rows render white (`section table tr` out-specifies bare `tr`) - fix: `table tr { background: transparent }` + `:nth-child(2n)` zebra. (2) Syntax-highlighted code is dark-on-dark (`section` keeps `color-scheme: light`) - fix: add `color-scheme: dark` to `section`; QA a highlighted slide, not a plain fence. Edit `.md`, regenerate via `bash scripts/build-slides.sh`.
+
+## Bulk Operations & Adapter Sync
+
+- **2026-07-24:** The 6 `agentic-*` to `ds-*` command rename operates by REPLACING the prefix, not prepending - a naive prepend-style "ds-"+oldname produces wrong names like `ds-agentic-identity` instead of `ds-identity`; caught by engineer pre-gate diff review but silent in post-merge verification (ticket: DS-26).
+
+- **2026-07-24:** Adapter dirs contain hand-authored sources that `build.sh` does NOT regenerate (.codex/.copilot/.cursor/.gemini/.github hook files, .opencode/plugins/session-context.ts) - a "rebuild adapters, skip them" assumption during bulk sweeps misses these; check them manually after any adapter source edit or cross-adapter pattern change (ticket: DS-26).
+
+- **2026-07-24:** Bulk file sweeps over evals/ must exclude git worktrees (evals/.worktrees/wt-* are pinned at historical commits) to avoid dirtying worktree checkouts; discovered when a sed sweep unintentionally modified a pinned worktree's tracked files (ticket: DS-26).
