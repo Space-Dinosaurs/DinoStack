@@ -4,11 +4,11 @@ DinoStack adapter for [Pi](https://github.com/oh-my-pi/pi-coding-agent) (oh-my-p
 
 ## Quick start
 
-Pi does **not** support custom slash commands like `/init-project`.
+Pi does **not** support custom slash commands like `/ds-init-project`.
 Instead, use natural language to invoke the methodology:
 
 - **Explicit skill load:** Ask the agent to use the DinoStack skill
-- **Natural language:** "run init-project" or "initialize DinoStack in this repo"
+- **Natural language:** "run ds-init-project" or "initialize DinoStack in this repo"
 
 The skill auto-triggers when you mention software development tasks, but explicitly
 referencing the methodology guarantees it is active.
@@ -30,7 +30,7 @@ referencing the methodology guarantees it is active.
 - **Skill**: `agentic-engineering` SKILL.md with Pi-compatible guidance. Includes subagent mapping (task/explore/plan/designer/reviewer to DinoStack roles) and methodology overview.
 - **References**: Symlinked from `content/references/` into the skill directory.
 - **Rules**: Symlinked from `content/rules/` into the skill directory for easy access.
-- **Commands**: Not adapted as markdown files. Pi commands are native TypeScript. Use natural language to invoke methodology commands ("run init-project", "do a wrap", "run skeptic review").
+- **Commands**: Not adapted as markdown files. Pi commands are native TypeScript. Use natural language to invoke methodology commands ("run ds-init-project", "do a ds-wrap", "run ds-skeptic review").
 - **Agents**: Not adapted as markdown files. Pi uses built-in subagent types with detailed prompts from `content/agents/`.
 
 ## Install

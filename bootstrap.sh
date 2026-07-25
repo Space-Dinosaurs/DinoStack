@@ -8,7 +8,7 @@ set -euo pipefail
 #          updates the repository from GitHub, delegates to .claude/install.sh
 #          for adapter setup, and writes the resolved repo path to
 #          ~/.agentic/agentic-engineering-config.json for use by update.sh and
-#          the /update-agentic-engineering command.
+#          the /ds-update-agentic-engineering command.
 #
 # Public API:
 #   curl -fsSL https://raw.githubusercontent.com/Space-Dinosaurs/DinoStack/main/bootstrap.sh | bash
@@ -219,7 +219,7 @@ echo ""
 echo "agentic-engineering installed to: $AE_DEST_DIR"
 echo "Update anytime via either:"
 echo "  cd $AE_DEST_DIR && ./update.sh"
-echo "  or the /update-agentic-engineering command inside Claude Code (location-aware)"
+echo "  or the /ds-update-agentic-engineering command inside Claude Code (location-aware)"
 echo ""
 # Remind about PATH if ~/.local/bin is not already on it
 if ! echo ":$PATH:" | grep -q ":$HOME/.local/bin:"; then

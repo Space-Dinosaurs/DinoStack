@@ -76,7 +76,7 @@ The Skeptic review layer enforces this: duplication and missed abstractions are 
 - **Greenfield projects:** zero warnings from the start
 - **Existing codebases:** do not introduce new warnings; flag pre-existing issues to the user
 - Never suppress or disable rules to pass gates - fix the code. Suppression comments (`@ts-ignore`, `noqa`, etc.) require explicit user approval
-- **New projects (via `/init-project`):** set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit framework for Python)
+- **New projects (via `/ds-init-project`):** set up pre-commit hooks (husky + lint-staged for JS/TS, pre-commit framework for Python)
 - **Existing projects without tooling:** run whatever checks are available and recommend setup to the user
 
 Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults and §Browser Verification when implementing or modifying code.

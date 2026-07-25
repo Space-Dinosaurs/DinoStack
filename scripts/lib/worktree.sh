@@ -11,8 +11,8 @@
 # Upstream deps: git (worktree list --porcelain), awk.
 #
 # Downstream consumers: content/references/worktree-lifecycle.md,
-#                       content/commands/implement-ticket.md,
-#                       content/commands/cleanup-worktrees.md,
+#                       content/commands/ds-implement-ticket.md,
+#                       content/commands/ds-cleanup-worktrees.md,
 #                       bin/agentic-resolve-worktree.
 #
 # Failure modes:

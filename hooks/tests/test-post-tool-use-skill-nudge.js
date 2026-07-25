@@ -212,7 +212,7 @@ console.log('\nTest (a): fires-with-candidate');
   );
   assert(ctx.includes(domain), `additionalContext mentions the domain "${domain}"`);
   assert(ctx.includes('skill-creator'), 'additionalContext references skill-creator skill');
-  assert(ctx.includes('/skill-candidates'), 'additionalContext references /skill-candidates command');
+  assert(ctx.includes('/ds-skill-candidates'), 'additionalContext references /ds-skill-candidates command');
   // Dedup tracker was written.
   const trackerPath = path.join(cwd, '.agentic', '.skill-candidates-in-session');
   assert(fs.existsSync(trackerPath), 'dedup tracker written after firing');

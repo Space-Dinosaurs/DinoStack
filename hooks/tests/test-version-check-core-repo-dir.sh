@@ -63,7 +63,7 @@ write_fake_cache() {
 # Extract the repo path from the notice line:
 #   "... No PATH? <PATH>/update.sh"
 # Anchored on the "No PATH? " token (not "or ") because PR #322 added a
-# second "or /pull-and-install (in session)" phrase earlier in the notice;
+# second "or /ds-pull-and-install (in session)" phrase earlier in the notice;
 # a greedy "or " anchor would swallow that phrase into the captured path.
 extract_path_from_notice() {
   local notice="$1"

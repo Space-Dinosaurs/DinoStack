@@ -145,7 +145,7 @@ if [[ -n "$_meta_hash" ]]; then
     "$ae_repo_dir/.kimi/hooks" 2>/dev/null || echo "")"
 
   if [[ -n "$_live_hash" ]] && [[ "$_live_hash" != "$_meta_hash" ]]; then
-    echo "agentic-engineering: hook scripts changed since the last snapshot sync. Run install.sh (or /pull-and-install) to refresh the live session's hooks."
+    echo "agentic-engineering: hook scripts changed since the last snapshot sync. Run install.sh (or /ds-pull-and-install) to refresh the live session's hooks."
   fi
 fi
 

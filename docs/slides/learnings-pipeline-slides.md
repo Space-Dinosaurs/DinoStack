@@ -193,7 +193,7 @@ The pipeline is not a logging system. It is a self-improving loop: each closed t
 <div class="columns">
 <div class="card">
 <strong>learning-extractor</strong><br/>
-Mechanically wired to <code>/implement-ticket</code> Phase 6 clean exit. Fires automatically on every ticketed Skeptic loop completion. The conductor does NOT spawn this manually - it is part of the Phase 6 sequence.<br/><br/>
+Mechanically wired to <code>/ds-implement-ticket</code> Phase 6 clean exit. Fires automatically on every ticketed Skeptic loop completion. The conductor does NOT spawn this manually - it is part of the Phase 6 sequence.<br/><br/>
 Emits <strong>LRN</strong> entries only (bug-fix residuals). Trigger: phase gate, not conductor judgment.
 </div>
 <div class="card">
@@ -242,7 +242,7 @@ No Severity field. Used for env facts, dead-ends, architectural rationale, tool-
 </div>
 </div>
 
-LRN and KNW maintain **independent per-day counters**. KNW entries are promoted to `MEMORY.md` at `/wrap`.
+LRN and KNW maintain **independent per-day counters**. KNW entries are promoted to `MEMORY.md` at `/ds-wrap`.
 
 ---
 
@@ -315,13 +315,13 @@ If either gate fails, drop to SHOULD or SKIP. MUST is genuinely rare.
 Three distinct knowledge stores - each with a different writer and lifecycle:
 
 - **`.agentic/learnings.md`** - primary destination. Committed to git. Written by `learning-extractor` (LRN) and `learnings-agent` (LRN + KNW). Teammates inherit it on pull after merge.
-- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. KNW entries are promoted here at `/wrap` when they stabilize.
-- **`.agentic/memory.md`** - `/wrap`-internal rolling scratch only. Gitignored. NOT auto-injected. NOT the same as root `MEMORY.md`.
+- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. KNW entries are promoted here at `/ds-wrap` when they stabilize.
+- **`.agentic/memory.md`** - `/ds-wrap`-internal rolling scratch only. Gitignored. NOT auto-injected. NOT the same as root `MEMORY.md`.
 
 ```
 learning-extractor ──> LRN entry ──> .agentic/learnings.md (committed)
 learnings-agent    ──> LRN entry ──> .agentic/learnings.md (committed)
-learnings-agent    ──> KNW entry ──> .agentic/learnings.md ──> MEMORY.md (at /wrap)
+learnings-agent    ──> KNW entry ──> .agentic/learnings.md ──> MEMORY.md (at /ds-wrap)
 ```
 
 <div class="callout">
@@ -341,7 +341,7 @@ Three stores, three writers, three audiences. Mixing them corrupts the `@MEMORY.
 When friction recurs across sessions faster than learnings can absorb it, the pipeline escalates to **skill-candidate detection**:
 
 - Repeated tool-failure workarounds with the same `domain_tag` in `events.jsonl` cluster into a signal
-- `/wrap` Part D and wrap-ticket session reflection scan for recurring patterns via `skill-candidate-deep-cluster.js`
+- `/ds-wrap` Part D and wrap-ticket session reflection scan for recurring patterns via `skill-candidate-deep-cluster.js`
 - When a domain crosses the threshold, an entry appears in `.agentic/skill-candidates.md` with status `open`
 - The conductor surfaces it at the next session start: `SKILL-CANDIDATE: domain '<domain>' has accumulated <count> occurrences - consider creating a skill`
 

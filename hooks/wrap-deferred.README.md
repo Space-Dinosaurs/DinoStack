@@ -1,17 +1,17 @@
-# Deferred `/wrap` daemon - operator runbook
+# Deferred `/ds-wrap` daemon - operator runbook
 
-Operator/maintainer home for the deferred-`/wrap` daemon. For code-level invariants
+Operator/maintainer home for the deferred-`/ds-wrap` daemon. For code-level invariants
 read the module manifests at the top of `hooks/wrap-daemon.js`, `hooks/lib/wrap-marker.js`,
 and `hooks/stop-context.js` - this file does not restate them.
 
 ## What it is / when it runs
 
 An opt-in, Claude-only, out-of-session daemon that finalizes forgotten session wraps.
-When a session ends cleanly without a manual `/wrap`, the SessionEnd hook stages a
+When a session ends cleanly without a manual `/ds-wrap`, the SessionEnd hook stages a
 `ready` marker; a per-project background daemon (`hooks/wrap-daemon.js`) drains that
 queue by headlessly resuming each session and running a non-interactive single-pass
-`/wrap-deferred` enrichment in the main project dir. It is inert by default and never
-runs unless the master toggle is on. The interactive synchronous `/wrap` is untouched
+`/ds-wrap-deferred` enrichment in the main project dir. It is inert by default and never
+runs unless the master toggle is on. The interactive synchronous `/ds-wrap` is untouched
 by this subsystem.
 
 ## How to enable & configure
@@ -19,7 +19,7 @@ by this subsystem.
 The feature is gated behind one master toggle in `.agentic/config.json`:
 
 - `deferred_wrap_daemon` - boolean, default `false`. The master switch. When `false`
-  (the default) no daemon spawns and no marker is staged; synchronous `/wrap` is
+  (the default) no daemon spawns and no marker is staged; synchronous `/ds-wrap` is
   byte-identical to a build without this feature.
 
 The five tuning params are consulted ONLY when `deferred_wrap_daemon` is `true`:
@@ -61,7 +61,7 @@ config, not a wrap artifact, and is never placed under `.agentic/wrap/`.
 
 **Stop (primary):** set `deferred_wrap_daemon: false` in `.agentic/config.json`. This
 stops every daemon spawn and all marker staging immediately, with zero effect on
-synchronous `/wrap`. No code change is needed.
+synchronous `/ds-wrap`. No code change is needed.
 
 **Reset / cleanup:** the `.agentic/wrap/` runtime files are gitignored and safe to remove
 when no daemon is running:
@@ -113,7 +113,7 @@ Defense-in-depth layered on top:
 ## Rollback
 
 - **Primary (config-only, instant):** flip `deferred_wrap_daemon: false`. The daemon stops,
-  Step 0a stages nothing, synchronous `/wrap` is unaffected. This is the intended rollback
+  Step 0a stages nothing, synchronous `/ds-wrap` is unaffected. This is the intended rollback
   for any behavioral problem found in the field - no code revert needed.
 - **Code defect:** `git revert` the offending commit, regenerate adapters (run each
   `*/build.sh`), and remove the gitignored runtime files (`rm -rf .agentic/wrap/`) on any
@@ -128,8 +128,8 @@ half-landed or suspected-bad daemon is harmless until the toggle is on.
 | Risk | Mitigation |
 |---|---|
 | **Live-resume corruption** - the daemon resumes a still-live session and interleaves its transcript. | The sole `pending` -> `ready` transition is SessionEnd's terminal-reason `finalizeReady`; there is NO stale-sweep. The daemon claims ONLY `ready` markers; `reclaimAbandonedInProgress` never touches `pending`, so a live/idle session cannot be resumed. |
-| **Infinite re-wrap loop** - the child's own `/wrap-deferred` stages a new marker. | `AGENTIC_WRAP_DAEMON=1` loop-guard no-ops every marker/launch entry point in the child; the `last-wrap` sentinel is a secondary backstop. |
+| **Infinite re-wrap loop** - the child's own `/ds-wrap-deferred` stages a new marker. | `AGENTIC_WRAP_DAEMON=1` loop-guard no-ops every marker/launch entry point in the child; the `last-wrap` sentinel is a secondary backstop. |
 | **Marker-state regression** - a late Stop downgrades `ready` -> `pending`, losing the finalize. | `stagePending` suppresses staging when a marker is already `ready`/`pending`/`in_progress`; `finalizeReady` never downgrades. |
 | **Silent feature no-op** - an existing install lacks the `claude-host` sentinel, so Step 0a never stages. | Self-healing sentinel: SessionStart writes `claude-host` create-if-absent on every start; the install drop is a belt-and-suspenders second writer. |
-| **Off-Claude / toggle-off behavior change** - `/wrap` not byte-identical when the feature is inactive. | Step 0a is gated on the `claude-host` sentinel + the toggle + the non-guard condition; an off-Claude host has no sentinel and stages nothing. |
+| **Off-Claude / toggle-off behavior change** - `/ds-wrap` not byte-identical when the feature is inactive. | Step 0a is gated on the `claude-host` sentinel + the toggle + the non-guard condition; an off-Claude host has no sentinel and stages nothing. |
 | **Doc / intent drift** - toggle counts, manifests, and carve-outs go stale. | Config keys and counts are kept in sync in `content/rules/conventions.md`; module manifests are updated with the code; adapter regen is verified by the build gate. |

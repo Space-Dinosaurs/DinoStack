@@ -3,7 +3,7 @@
  *          busy->idle transition (`session.idle`), runs full Stop-hook-
  *          equivalent finalization (loop-state, batch-state, session_total,
  *          activity-block refresh) once per session when the user invokes
- *          `/wrap` (`command.executed`), and emits a skill-load instruction
+ *          `/ds-wrap` (`command.executed`), and emits a skill-load instruction
  *          on `session.created` when `skill_auto_load: true` is set in
  *          `~/.config/opencode/agentic-engineering.json`.
  *
@@ -38,20 +38,20 @@
  *                session.idle does context.md refresh only — no loop-state,
  *                batch-state, or events.jsonl writes happen there.
  *                Finalization writes (loop-state, batch-state,
- *                events.jsonl) run only on /wrap completion via
+ *                events.jsonl) run only on /ds-wrap completion via
  *                command.executed and are independent and best-effort: a
  *                failure in one does not affect the others. A diagnostic
- *                session.prompt (noreply: true) fires once on /wrap. The
+ *                session.prompt (noreply: true) fires once on /ds-wrap. The
  *                prompt is fire-and-forget (no await) so it cannot block
  *                the handler even if delivery hangs. cwd values with
  *                path-traversal components are rejected by all three
  *                writers (defence in depth). The per-session-once invariant
- *                for session_total relies on the user invoking /wrap;
+ *                for session_total relies on the user invoking /ds-wrap;
  *                OpenCode does not expose a guaranteed shutdown hook from
  *                plugins.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
- *              slightly heavier on /wrap completion (multiple writes, one
+ *              slightly heavier on /ds-wrap completion (multiple writes, one
  *              full-file read+parse of events.jsonl for the session_total
  *              rollup). The generic `event` hook fires for every bus event
  *              in the session (potentially hundreds per session); the
@@ -366,7 +366,7 @@ export const SessionContextPlugin: Plugin = async ({
   /**
    * Build the activity block markdown from accumulated in-memory state plus
    * a fresh git status read. Returns the full block including the leading
-   * sentinel. Used by both the session.idle handler and the /wrap
+   * sentinel. Used by both the session.idle handler and the /ds-wrap
    * finalization path.
    */
   async function buildActivityBlock(
@@ -431,9 +431,9 @@ ${toolsLine}
   }
 
   /**
-   * Refresh the activity block on a /wrap-authored context.md.
-   * Returns true if the file existed and was a /wrap-authored file (whether
-   * the append succeeded or not), false if no /wrap file was present.
+   * Refresh the activity block on a /ds-wrap-authored context.md.
+   * Returns true if the file existed and was a /ds-wrap-authored file (whether
+   * the append succeeded or not), false if no /ds-wrap file was present.
    */
   async function refreshWrapActivityBlock(
     cwd: string,
@@ -446,12 +446,12 @@ ${toolsLine}
       const existingFile = Bun.file(outputPath);
       if (!(await existingFile.exists())) return false;
       const existing = await existingFile.text();
-      if (!existing.startsWith("# Session Context\n*Written by /wrap"))
+      if (!existing.startsWith("# Session Context\n*Written by /ds-wrap"))
         return false;
 
       await log(
         "info",
-        "Detected /wrap-generated context.md, refreshing activity block",
+        "Detected /ds-wrap-generated context.md, refreshing activity block",
         {
           outputPath,
         },
@@ -473,7 +473,7 @@ ${toolsLine}
       }
       return true;
     } catch (err: any) {
-      await log("info", "No existing /wrap file or unreadable", {
+      await log("info", "No existing /ds-wrap file or unreadable", {
         error: err.message,
       });
       return false;
@@ -608,7 +608,7 @@ ${toolsLine}
         // session.idle fires per busy->idle transition (every turn), NOT
         // once per session. This branch is intentionally limited to
         // context.md refresh; loop-state / batch-state / session_total
-        // writes belong on /wrap (see command.executed below) so they fire
+        // writes belong on /ds-wrap (see command.executed below) so they fire
         // once per session.
         await log("info", "session.idle event handler entered");
 
@@ -621,7 +621,7 @@ ${toolsLine}
             toolCount: toolsUsed.size,
           });
 
-          // --- /wrap coexistence: refresh activity block if file was written by /wrap ---
+          // --- /ds-wrap coexistence: refresh activity block if file was written by /ds-wrap ---
           const wrapHandled = await refreshWrapActivityBlock(
             cwd,
             dateStr,
@@ -632,7 +632,7 @@ ${toolsLine}
             return;
           }
 
-          // --- Normal write (no /wrap file present) ---
+          // --- Normal write (no /ds-wrap file present) ---
           const projectDir = path.join(cwd, ".agentic");
           const outputPath = path.join(projectDir, "context.md");
 
@@ -673,11 +673,11 @@ ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
       }
 
       if (type === "command.executed") {
-        // /wrap is the once-per-session finalization trigger. The bare
-        // command name is "wrap" (no leading slash). Other commands are
+        // /ds-wrap is the once-per-session finalization trigger. The bare
+        // command name is "ds-wrap" (no leading slash). Other commands are
         // ignored.
         const name: string | undefined = props.name;
-        if (name !== "wrap") return;
+        if (name !== "ds-wrap") return;
 
         // Normalize sessionID to match the writers' string|null contract.
         const sessionID: string | undefined = props.sessionID;
@@ -685,7 +685,7 @@ ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
 
         await log(
           "info",
-          "command.executed: /wrap detected, running finalization",
+          "command.executed: /ds-wrap detected, running finalization",
           {
             sessionID: sid,
           },
@@ -696,14 +696,14 @@ ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
           const dateStr = new Date().toISOString().slice(0, 10);
 
           // Best-effort: refresh the activity block if context.md was
-          // written by /wrap. If the file is missing or lacks the wrap
+          // written by /ds-wrap. If the file is missing or lacks the wrap
           // header, skip the activity-block step but still proceed to
           // bookkeeping writes — wrap may have failed to write context.md,
           // but finalization runs anyway.
           await refreshWrapActivityBlock(
             cwd,
             dateStr,
-            "Auto-appended by /wrap finalization",
+            "Auto-appended by /ds-wrap finalization",
           );
 
           // The three finalization writes are independent and best-effort.
@@ -727,11 +727,11 @@ ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
                 noReply: true,
               },
             }).catch(() => {});
-            await log("info", "Session finalized via /wrap (prompt shown)");
+            await log("info", "Session finalized via /ds-wrap (prompt shown)");
           } catch (err: any) {
             await log(
               "info",
-              "Session finalized via /wrap (prompt unavailable)",
+              "Session finalized via /ds-wrap (prompt unavailable)",
               {
                 error: err.message,
               },

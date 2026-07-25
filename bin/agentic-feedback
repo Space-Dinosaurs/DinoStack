@@ -3,7 +3,7 @@
 Purpose: CLI for managing the home-dir feedback store (~/.agentic/feedback.jsonl)
          used to accumulate operator/agent friction signals (tool friction,
          process escalations, guardrail fires, operator corrections) captured
-         during /wrap runs across projects, for later triage into tickets or
+         during /ds-wrap runs across projects, for later triage into tickets or
          methodology fixes.
 
 Public API:
@@ -45,8 +45,8 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, sys, uuid, datetime,
                pathlib). Shared helpers: bin/_lib (acquire_exclusive_lock,
                atomic_write).
 
-Downstream consumers: content/commands/wrap.md Part D.5 (writes drafts via
-                      `append` at end of session); content/commands/feedback-triage.md
+Downstream consumers: content/commands/ds-wrap.md Part D.5 (writes drafts via
+                      `append` at end of session); content/commands/ds-feedback-triage.md
                       (reads via `list`, updates status via `mark`).
 
 Failure modes:
@@ -74,7 +74,7 @@ Failure modes:
   Locking: all three subcommands acquire the same exclusive LOCK_PATH for
   their full read/modify/write critical section (append's read+append,
   list's read, mark's read+rewrite), serializing concurrent invocations -
-  e.g. two projects' /wrap runs calling `append` at the same time, or a
+  e.g. two projects' /ds-wrap runs calling `append` at the same time, or a
   `mark` full-file rewrite racing an `append`. acquire_exclusive_lock (from
   bin/_lib) opens the lock file in 'r' mode and requires it to already
   exist; every subcommand therefore mkdir -p's the lock file's parent and

@@ -1,6 +1,6 @@
 ---
 name: learning-extractor
-description: "Per-ticket learning extraction agent. Spawned by /implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files."
+description: "Per-ticket learning extraction agent. Spawned by /ds-implement-ticket Phase 6 clean exit. Reads the resolved findings_log and extracts durable fix-pattern LRN (bug-fix) learnings to .agentic/learnings.md. Emits LRN entries ONLY - KNW (knowledge) capture is learnings-agent's responsibility via mandatory triggers. Tier 1 leaf agent, 30s timeout, soft-fail. Does not touch MEMORY.md, decisions.md, AGENTS.md, or any source/config files."
 tools: [read_file, replace, write_file]
 kind: local
 ---
@@ -19,7 +19,7 @@ Purpose: Extracts durable fix-pattern LRN learnings from resolved Skeptic
          is learnings-agent's responsibility via the mandatory triggers defined
          in content/references/conductor-operating-rules.md §learnings-agent.
          A finding's residual (the non-testable WHY) is still recorded as LRN
-         here; promotion to KNW or MEMORY.md happens at /wrap.
+         here; promotion to KNW or MEMORY.md happens at /ds-wrap.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
             Required inputs: ticket_id, findings_log, merged_diff.
@@ -47,7 +47,7 @@ Performance: ~30s budget. The conductor enforces a 30s timeout on the spawn;
              one file read, small number of append writes.
 -->
 
-> **Note:** For ad-hoc work, `learnings-agent` is the preferred inline capture mechanism. `learning-extractor` remains the Phase 6 pipeline for ticketed work (`/implement-ticket`). `learning-extractor` produces LRN entries only; KNW entries are produced by `learnings-agent` via mandatory conductor triggers.
+> **Note:** For ad-hoc work, `learnings-agent` is the preferred inline capture mechanism. `learning-extractor` remains the Phase 6 pipeline for ticketed work (`/ds-implement-ticket`). `learning-extractor` produces LRN entries only; KNW entries are produced by `learnings-agent` via mandatory conductor triggers.
 
 ## Role
 
@@ -171,10 +171,10 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/tasks.jsonl` (conductor sole-writer)
 - `.agentic/loop-state.json` (conductor + Stop hook)
 - `.agentic/batch-state.json` (conductor + Stop hook)
-- `MEMORY.md` (owned by wrap-ticket and /wrap)
-- `decisions.md` (owned by wrap-ticket and /wrap)
-- `.agentic/context.md` (owned by Stop hook, /wrap, and wrap-ticket)
-- Any `AGENTS.md` file (owned by operator + /wrap)
+- `MEMORY.md` (owned by wrap-ticket and /ds-wrap)
+- `decisions.md` (owned by wrap-ticket and /ds-wrap)
+- `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
+- Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
 
 The only file you may write is:

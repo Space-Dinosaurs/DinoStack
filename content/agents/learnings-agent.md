@@ -32,7 +32,7 @@ Upstream deps: None (no external libraries; only Read/Edit/Write tools).
 
 Downstream consumers: None (append-only writes; wrap-ticket may later read
                       .agentic/learnings.md at Phase 11b for LRN->MEMORY
-                      promotion; KNW->MEMORY promotion also happens at /wrap).
+                      promotion; KNW->MEMORY promotion also happens at /ds-wrap).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
@@ -231,9 +231,9 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/tasks.jsonl` (conductor sole-writer)
 - `.agentic/loop-state.json` (conductor + Stop hook)
 - `.agentic/batch-state.json` (conductor + Stop hook)
-- `decisions.md` (owned by wrap-ticket and /wrap)
-- `.agentic/context.md` (owned by Stop hook, /wrap, and wrap-ticket)
-- Any `AGENTS.md` file (owned by operator + /wrap)
+- `decisions.md` (owned by wrap-ticket and /ds-wrap)
+- `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
+- Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
 
 The only files you may write are:

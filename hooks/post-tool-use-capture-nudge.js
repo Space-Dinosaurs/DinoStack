@@ -96,7 +96,7 @@ const NUDGE_RESIDUAL =
 const SKILL_NUDGE_TEMPLATE =
   'SKILL-CANDIDATE-NUDGE: recurring friction pattern detected for domain "{domain}" '
   + '(lifetime count: {count}, suggested artifact: {artifact}). '
-  + 'This may warrant a new skill. Run /skill-candidates to review the backlog, '
+  + 'This may warrant a new skill. Run /ds-skill-candidates to review the backlog, '
   + 'or invoke the skill-creator skill to convert this pattern into a reusable skill.';
 
 /**

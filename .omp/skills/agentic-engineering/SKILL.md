@@ -31,12 +31,12 @@ files on every session and the reference docs on the triggers described in METHO
 
 ## Commands (invoke by name)
 
-- `/agentic-help` - static, zero-token command reference; lists every slash command with a one-line description.
-- `/agentic-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
-- `/brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/brief --from <path>` to extract a Brief from an existing PRD.
-- `/pull-and-install` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
+- `/ds-help` - static, zero-token command reference; lists every slash command with a one-line description.
+- `/ds-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
+- `/ds-brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/ds-brief --from <path>` to extract a Brief from an existing PRD.
+- `/ds-pull-and-install` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
 
-Run `/agentic-help` for the full command inventory.
+Run `/ds-help` for the full command inventory.
 
 ## Reference Docs (read on trigger - see Protocol Details in METHODOLOGY.md)
 
@@ -88,7 +88,7 @@ oh-my-pi discovers this skill from `.omp/skills/agentic-engineering/` for projec
 
 **Auto-trigger:** The skill loads automatically when you describe software development work. Ask the agent to "use the agentic-engineering skill" for an explicit load.
 
-**IMPORTANT:** oh-my-pi does NOT support custom markdown slash commands like `/init-project`, `/wrap`, `/brief`, or any other command referenced in the "Commands (invoke by name)" section above. That section describes Claude Code slash-command conventions - in oh-my-pi, invoke the same commands via natural language (e.g. "run init-project", "do a wrap") or by reading the corresponding `commands/<name>.md` file directly and following its instructions.
+**IMPORTANT:** oh-my-pi does NOT support custom markdown slash commands like `/ds-init-project`, `/ds-wrap`, `/ds-brief`, or any other command referenced in the "Commands (invoke by name)" section above. That section describes Claude Code slash-command conventions - in oh-my-pi, invoke the same commands via natural language (e.g. "run ds-init-project", "do a ds-wrap") or by reading the corresponding `commands/<name>.md` file directly and following its instructions.
 
 Read `METHODOLOGY.md` at skill load before applying the workflow. Read command details from `commands/<name>.md` when a workflow step asks you to run a command. Read references from `references/` and rules from `rules/` on their documented triggers.
 

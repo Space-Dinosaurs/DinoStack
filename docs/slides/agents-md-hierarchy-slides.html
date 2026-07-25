@@ -1390,7 +1390,7 @@ code {
 }
 " lang="C" data-marpit-pagination="7" style="--paginate:true;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="9">
-<h2 id="how-init-project-scaffolds-it">How /init-project scaffolds it</h2>
+<h2 id="how-ds-init-project-scaffolds-it">How /ds-init-project scaffolds it</h2>
 
 <ol>
 <li><strong>Discovery phase</strong> - auto-detects project name, description, tracks, database, web UI, tracker</li>
@@ -1406,7 +1406,7 @@ code {
   .claude/settings.json  ← MCP servers, shared config
 </code></pre>
 <div class="callout">
-Running /init-project is idempotent - it updates existing files and adds new tracks without overwriting what's already there.
+Running /ds-init-project is idempotent - it updates existing files and adds new tracks without overwriting what's already there.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-marpit-scope-s007="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -1587,10 +1587,10 @@ code {
 }
 " lang="C" data-marpit-pagination="8" style="--paginate:true;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="9">
-<h2 id="how-wrap-keeps-it-current">How /wrap keeps it current</h2>
+<h2 id="how-ds-wrap-keeps-it-current">How /ds-wrap keeps it current</h2>
 <div class="columns">
 <div class="card">
-<strong>What /wrap reads</strong>
+<strong>What /ds-wrap reads</strong>
 <ul>
 <li>Files touched this session</li>
 <li>Git diff and commit history</li>
@@ -1599,7 +1599,7 @@ code {
 </ul>
 </div>
 <div class="card">
-<strong>What /wrap writes</strong>
+<strong>What /ds-wrap writes</strong>
 <ul>
 <li>Updates root AGENTS.md with new decisions</li>
 <li>Creates/updates track AGENTS.md files</li>
@@ -1610,12 +1610,12 @@ code {
 </div>
 </div>
 <ul>
-<li>If you touched a new subdirectory, /wrap creates its track AGENTS.md automatically</li>
+<li>If you touched a new subdirectory, /ds-wrap creates its track AGENTS.md automatically</li>
 <li>Stable facts (architecture, gotchas, setup commands) get extracted and persisted</li>
 <li>Ephemeral details (current task, next steps) stay in <code>.agentic/context.md</code> where they belong</li>
 </ul>
 <div class="callout">
-The hierarchy grows organically. You don't plan it upfront - /wrap builds it from what actually happened in each session.
+The hierarchy grows organically. You don't plan it upfront - /ds-wrap builds it from what actually happened in each session.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="9" data-paginate="true" data-class="lead" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

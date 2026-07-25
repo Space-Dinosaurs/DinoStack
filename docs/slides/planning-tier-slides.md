@@ -191,7 +191,7 @@ What was missing: a committed answer to "what problem are we solving and how wil
 
 Without that commitment, multi-unit fan-out and cross-session resume drifted - each engineer spawned against an informal interpretation rather than a locked problem statement, success criteria, and verification plan.
 
-Also missing: operator participation in framing. The Brief was conductor-synthesized, not operator-negotiated. The `/brief` command adds operator negotiation before the architect spawns.
+Also missing: operator participation in framing. The Brief was conductor-synthesized, not operator-negotiated. The `/ds-brief` command adds operator negotiation before the architect spawns.
 
 <div class="callout">
 Planning artifacts add the missing layer: a gate that commits to the framing before the first engineer spawns, keeping that commitment alive through fan-out and resume.
@@ -207,10 +207,10 @@ Planning artifacts add the missing layer: a gate that commits to the framing bef
 </style>
 
 ```
-[PRIMARY] operator runs /brief -> dialogue -> operator-confirmed Brief committed
+[PRIMARY] operator runs /ds-brief -> dialogue -> operator-confirmed Brief committed
                                            -> architect (brief_path pre-populated)
 
-[BACKSTOP] Risk classified Elevated (no /brief session)
+[BACKSTOP] Risk classified Elevated (no /ds-brief session)
   -> architect
   -> Skeptic on architect plan
   -> Open Questions resolved
@@ -225,7 +225,7 @@ Both paths -> engineer(s) spawned with brief_path / plan_path in execution contr
 ```
 
 <div class="callout">
-Two entry points: /brief (preferred for features still being framed) and the mechanical promotion gate (backstop for well-specified tickets). The promotion check is downstream of the planner (unit count is known) and upstream of the first engineer spawn (no work has started). It is a gate, not a suggestion.
+Two entry points: /ds-brief (preferred for features still being framed) and the mechanical promotion gate (backstop for well-specified tickets). The promotion check is downstream of the planner (unit count is known) and upstream of the first engineer spawn (no work has started). It is a gate, not a suggestion.
 </div>
 
 ---
@@ -243,12 +243,12 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 <div class="columns">
 <div>
 
-**Interactive `/brief` path (preferred)**
+**Interactive `/ds-brief` path (preferred)**
 
 <div class="card" style="border-left-color: #3ad99a;">
 
 - Operator has exploratory framing ("I want to build...")
-- Conductor auto-triggers or operator invokes `/brief [topic]`
+- Conductor auto-triggers or operator invokes `/ds-brief [topic]`
 - Multi-turn dialogue: intent, gray areas, Q&A, draft, iterate
 - Brief committed to conductor's branch BEFORE architect spawns (no worktree)
 - `brief_source: operator` - Skeptic does completeness-only review
@@ -261,7 +261,7 @@ Two entry points: /brief (preferred for features still being framed) and the mec
 
 <div class="card" style="border-left-color: #ffffff;">
 
-- Work arrives as a well-specified ticket; no /brief session
+- Work arrives as a well-specified ticket; no /ds-brief session
 - architect -> Skeptic -> planner -> promotion check
 - Brief authored by conductor from planner output (2-5 units)
 - `brief_source: conductor` - Skeptic does full framing review

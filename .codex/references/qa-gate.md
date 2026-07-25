@@ -17,7 +17,7 @@ Upstream deps: content/sections/05-qa-gate.md (parent section; read that
 
 Downstream consumers: qa-engineer spawns (boot pattern, fan-out commands);
                       conductor orchestration (parallel-by-worktree setup);
-                      /implement-ticket Phase 6b (architect-plan-driven scenarios).
+                      /ds-implement-ticket Phase 6b (architect-plan-driven scenarios).
 
 Failure modes: Prose; does not execute. The curl-until loop is the canonical
                boot-detection pattern - drift from this reference causes
@@ -50,7 +50,7 @@ Performance: Standard.
 3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
 4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
 5. On PASS: unit is complete.
-6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `/implement-ticket` Phase 6b §"QA regressions curator").
+6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `/ds-implement-ticket` Phase 6b §"QA regressions curator").
 
 ## Per-ticket, in-flow (anti-pattern: end-of-batch QA sweep)
 

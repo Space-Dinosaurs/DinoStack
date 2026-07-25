@@ -639,7 +639,7 @@ hr {
 <li><strong><code>opt-in</code></strong> - dormant until a project's <code>AGENTS.md</code> contains <code>agentic-engineering: opt-in</code>. Best for trying the protocol in one project before rolling out everywhere.</li>
 </ul>
 <p>Press Enter to accept the default, or pass <code>--mode=opt-in</code> / <code>--mode=opt-out</code> to the installer. The choice is saved to <code>~/.claude/agentic-engineering.json</code> and shared across all adapters - re-run any installer with a <code>--mode</code> flag to change it later.</p>
-<p>On first activation (TTY only) the preflight prints a one-line notice naming the resolved <code>mode</code>, <code>marker</code>, and <code>profile</code>, and points you at <code>/agentic-status</code> (resolver dump) and <code>/agentic-disable</code> (explicit opt-out; refuses on an existing <code>opt-in</code> without <code>--force</code>). The notice is gated on a per-project sentinel at <code>.agentic/.activated</code>; deleting it re-arms the notice only. <code>AGENTIC_QUIET=1</code> suppresses both.</p>
+<p>On first activation (TTY only) the preflight prints a one-line notice naming the resolved <code>mode</code>, <code>marker</code>, and <code>profile</code>, and points you at <code>/ds-status</code> (resolver dump) and <code>/ds-disable</code> (explicit opt-out; refuses on an existing <code>opt-in</code> without <code>--force</code>). The notice is gated on a per-project sentinel at <code>.agentic/.activated</code>; deleting it re-arms the notice only. <code>AGENTIC_QUIET=1</code> suppresses both.</p>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
 section {
@@ -949,13 +949,13 @@ hr {
 }
 " lang="C" data-marpit-pagination="6" style="--paginate:true;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="10">
-<h2 id="first-move-in-a-real-repo---init-project">First move in a real repo - <code>/init-project</code></h2>
+<h2 id="first-move-in-a-real-repo---ds-init-project">First move in a real repo - <code>/ds-init-project</code></h2>
 
-<p>From inside the repo, start Claude Code and run <code>/init-project</code>:</p>
+<p>From inside the repo, start Claude Code and run <code>/ds-init-project</code>:</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash"><span class="hljs-built_in">cd</span> ~/code/myproject
 claude
 </code></pre>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>/init-project
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>/ds-init-project
 </code></pre>
 <p>A <strong>one-time, per-repo</strong> setup. Bootstraps project memory, captures conventions, and seeds the risk defaults so the protocol knows what &quot;normal&quot; looks like here.</p>
 <div class="callout">
@@ -1285,9 +1285,9 @@ hr {
 }
 " lang="C" data-marpit-pagination="8" style="--paginate:true;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="10">
-<h2 id="close-every-session-with-wrap">Close every session with <code>/wrap</code></h2>
+<h2 id="close-every-session-with-ds-wrap">Close every session with <code>/ds-wrap</code></h2>
 
-<p>When the goal is done - or clearly won't be done today - run <code>/wrap</code>. It does the session-close ritual for non-ticket sessions:</p>
+<p>When the goal is done - or clearly won't be done today - run <code>/ds-wrap</code>. It does the session-close ritual for non-ticket sessions:</p>
 <ul>
 <li>Produces a structured <code>.agentic/context.md</code> with decisions, next steps, and gotchas</li>
 <li>Extracts stable facts and adds them to MEMORY.md</li>
@@ -1295,10 +1295,10 @@ hr {
 <li>Leaves the next session starting from richer context than this one</li>
 </ul>
 <div class="callout">
-<code>/wrap</code> is not optional ceremony. Skipping it is how memory drifts, context bloats, and sessions become unshippable.
+<code>/ds-wrap</code> is not optional ceremony. Skipping it is how memory drifts, context bloats, and sessions become unshippable.
 </div>
 <div class="callout">
-After <code>/wrap</code>, close the session cleanly. In the terminal CLI, use <code>/exit</code> rather than ctrl+c. In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally.
+After <code>/ds-wrap</code>, close the session cleanly. In the terminal CLI, use <code>/exit</code> rather than ctrl+c. In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="9" data-marpit-scope-s006="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -1453,12 +1453,12 @@ hr {
 <h2 id="your-first-practice-loop">Your first practice loop</h2>
 <p class="preamble">One-time setup: in <code>~/.claude/settings.json</code> set <code>defaultMode: "bypassPermissions"</code> with a small denylist of destructive commands. See Hands-off Configuration in the docs.</p>
 <ol>
-<li>Pick a <strong>small, real</strong> task in a repo where you've run <code>/init-project</code></li>
+<li>Pick a <strong>small, real</strong> task in a repo where you've run <code>/ds-init-project</code></li>
 <li>Start a fresh <code>claude</code> session in that repo</li>
 <li>State the goal in one sentence - resist adding &quot;and also...&quot;</li>
 <li>Let the agent classify risk and run the loop (no commands needed)</li>
 <li>Read the Skeptic review, decide: ship, revise, or drop</li>
-<li>Run <code>/wrap</code> - even if the answer was &quot;drop it&quot;</li>
+<li>Run <code>/ds-wrap</code> - even if the answer was &quot;drop it&quot;</li>
 <li>Repeat tomorrow with a new small task</li>
 </ol>
 <div class="callout">
@@ -1614,7 +1614,7 @@ hr {
 }
 " lang="C" class="lead" data-marpit-pagination="10" style="--paginate:true;--class:lead;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="10">
-<h1 id="small-sessions-clear-goals-wrap-every-time">Small sessions. Clear goals. <code>/wrap</code> every time.</h1>
+<h1 id="small-sessions-clear-goals-ds-wrap-every-time">Small sessions. Clear goals. <code>/ds-wrap</code> every time.</h1>
 <p>That's the whole practice.</p>
 <p>github.com/Space-Dinosaurs/DinoStack</p>
 </section>

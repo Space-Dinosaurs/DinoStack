@@ -367,6 +367,42 @@ echo "Linking commands..."
 symlink_files "$COMMANDS_SRC" "$COMMANDS_DST" "commands"
 
 # ---------------------------------------------------------------------------
+# Remove stale pre-DS-26 command symlinks
+#
+# DS-26 renamed all 25 methodology commands to a ds- prefix. This is a
+# LITERAL hand-enumerated allowlist of the 25 OLD names - never a glob or a
+# set-difference against $COMMANDS_DST. That directory is a shared,
+# operator-owned user-level location that may contain files we do not own
+# (e.g. a personal flow-dev.md); scanning it and removing anything not in
+# our generated set would delete operator files we have no business
+# touching. Only entries in this exact allowlist are candidates, and even
+# then only removed if _ae_is_ours() confirms the symlink points inside
+# this methodology checkout.
+# ---------------------------------------------------------------------------
+
+echo "Removing stale pre-DS-26 command symlinks..."
+_ae_stale_pre_ds26_commands=(
+  agentic-config.md agentic-cost.md agentic-disable.md agentic-help.md
+  agentic-identity.md agentic-status.md brief.md cleanup-worktrees.md
+  configure-team.md feedback-triage.md implement-ticket.md init-project.md
+  memory-update.md migrate-project.md prune-harness.md pull-and-install.md
+  representation-audit.md skeptic.md skill-candidates.md
+  test-suite-comprehension.md ticket-status-sync.md ticket-triage.md
+  update-agentic-engineering.md wrap-deferred.md wrap.md
+)
+for _ae_old_name in "${_ae_stale_pre_ds26_commands[@]}"; do
+  _ae_old_dst="$COMMANDS_DST/$_ae_old_name"
+  if _ae_is_ours "$_ae_old_dst"; then
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ $_ae_old_name (would remove: stale pre-DS-26 command symlink)"
+    else
+      rm -f "$_ae_old_dst"
+      echo "  - removed $_ae_old_name (stale pre-DS-26 command symlink)"
+    fi
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # Symlink skill
 # ---------------------------------------------------------------------------
 

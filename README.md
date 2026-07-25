@@ -17,7 +17,7 @@ Run `agentic-update` from anywhere, no arguments.
 | Path                | Command                          | When                                                                                                             |
 | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
 | Shell (recommended) | `agentic-update`                 | Default; from any directory, no TTY                                                                              |
-| In-session          | `/pull-and-install`              | Inside Claude Code, any project                                                                                  |
+| In-session          | `/ds-pull-and-install`              | Inside Claude Code, any project                                                                                  |
 | TUI                 | `./update.sh`                    | Interactive adapter selection                                                                                    |
 | CI / scripts        | `git pull && ./install-all.sh`   | Non-interactive                                                                                                  |
 | Repair drift        | `agentic-doctor --fix`           | Fix broken symlinks/hooks (e.g. after moving the repo)                                                           |
@@ -35,7 +35,7 @@ Full details: [docs/updating.md](docs/updating.md).
 curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
-This clones the repo into `DinoStack/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/update-agentic-engineering` command know where to find it.
+This clones the repo into `DinoStack/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/ds-update-agentic-engineering` command know where to find it.
 
 > **Note:** if the one-liner clone fails (e.g. network or auth issue), the script automatically falls back to SSH.
 
@@ -165,7 +165,7 @@ The deny list merges with any existing deny rules. See [.claude/README.md](.clau
 
 ## Initialize a project
 
-After installation, run `/init-project` in any new or existing project to scaffold the `AGENTS.md` hierarchy, `.agentic/config.json`, and related structure.
+After installation, run `/ds-init-project` in any new or existing project to scaffold the `AGENTS.md` hierarchy, `.agentic/config.json`, and related structure.
 
 **Per-project activation marker:** add a single line to the project's root `AGENTS.md` to control whether the methodology is active in that project:
 
@@ -188,7 +188,7 @@ The per-project marker only has effect in combination with the global activation
 
 ## Project config
 
-`.agentic/config.json` is seeded by `/init-project` and holds sixteen methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+`.agentic/config.json` is seeded by `/ds-init-project` and holds sixteen methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
 
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
@@ -199,9 +199,9 @@ The per-project marker only has effect in combination with the global activation
 - `theme_aware` - boolean, default `false`. Opt-in per-theme QA tuples; qa-engineer runs scenarios in both light and dark themes.
 - `storybook_enabled` - boolean, default `false`. Opt-in targeting of the Storybook iframe for `visual_conformance` and `accessibility` scenarios.
 - `motion_aware` - boolean, default `false`. Opt-in CDP reduced-motion checks per scenario; absent motion scenarios on UI-visible Elevated units become a Major finding.
-- `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/init-project`.
+- `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/ds-init-project`.
 - `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `agentic-cost team` aggregation after pull.
-- `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/wrap` jobs; tuned by the `deferred_wrap_*` related keys.
+- `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/ds-wrap` jobs; tuned by the `deferred_wrap_*` related keys.
 - `abdication_guard_enabled` - boolean, default `true` (opt-out). Stop hook that detects conductor abdication (asking permission for a non-destructive next step) and injects a proceed directive.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector; when `true`, the Stop hook surfaces recurring friction patterns as skill candidates at session start.
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in in-session nudge; fires when a domain crosses the candidate threshold during the current session (requires `skill_candidate_detection: true`).
@@ -253,8 +253,8 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 **Agents** (18) - named specialist roles:
 adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, goal-condition-evaluator, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
 
-**Commands** (20) - workflow shortcuts:
-agentic-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), agentic-disable, agentic-help (static, zero-token command reference listing every slash command), agentic-identity, agentic-status, brief, cleanup-worktrees, feedback-triage (triage captured session friction from `~/.agentic/feedback.jsonl` into tracker tickets), implement-ticket, init-project, memory-update, migrate-project, prune-harness, pull-and-install, representation-audit, skeptic, test-suite-comprehension, ticket-status-sync, update-agentic-engineering, wrap
+**Commands** (25) - workflow shortcuts:
+ds-config (interactive settings viewer/editor for methodology mode/profile/toggles), ds-configure-team (cross-harness team setup and verification), ds-cost (token / wall-time rollups from `.agentic/events.jsonl`; opt-in pricing via `~/.agentic/pricing.yml`), ds-disable, ds-help (static, zero-token command reference listing every slash command), ds-identity, ds-status, ds-brief, ds-cleanup-worktrees, ds-feedback-triage (triage captured session friction from `~/.agentic/feedback.jsonl` into tracker tickets), ds-implement-ticket, ds-init-project, ds-memory-update, ds-migrate-project, ds-prune-harness, ds-pull-and-install, ds-representation-audit, ds-skeptic, ds-skill-candidates (read-only view of the skill-candidate backlog), ds-test-suite-comprehension, ds-ticket-status-sync, ds-ticket-triage (plan-only cross-ticket triage: dependencies, conflicts, parallel lanes), ds-update-agentic-engineering, ds-wrap, ds-wrap-deferred (non-interactive single-pass session enrichment for the deferred-wrap daemon)
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 

@@ -108,7 +108,7 @@ ${lastMsgSection}
 ## Notes
 
 This context file is a Gemini port of the Claude Code stop-context hook.
-For richer context (paths referenced, tools used, uncommitted changes), run /wrap
+For richer context (paths referenced, tools used, uncommitted changes), run /ds-wrap
 manually before ending a session.
 
 Note: The SessionEnd hook fires on clean /exit only. Context may not be saved

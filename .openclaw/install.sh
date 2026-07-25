@@ -228,6 +228,39 @@ for skill_src_dir in "$SKILLS_SRC"/*/; do
 done
 
 # ---------------------------------------------------------------------------
+# Remove stale pre-DS-26 command skill symlinks
+#
+# DS-26 renamed all 25 methodology commands to a ds- prefix. This is a
+# LITERAL hand-enumerated allowlist of the 25 OLD names - never a glob or a
+# set-difference against ~/.openclaw/skills/. That directory is a shared,
+# operator-owned user-level location that may contain skills we do not own;
+# scanning it and removing anything not in our generated set would delete
+# operator skills we have no business touching. Only entries in this exact
+# allowlist are candidates, and even then only removed if the symlink
+# target resolves inside this methodology checkout's .openclaw/skills/ tree.
+# ---------------------------------------------------------------------------
+
+_ae_stale_pre_ds26_commands=(
+  agentic-config agentic-cost agentic-disable agentic-help
+  agentic-identity agentic-status brief cleanup-worktrees
+  configure-team feedback-triage implement-ticket init-project
+  memory-update migrate-project prune-harness pull-and-install
+  representation-audit skeptic skill-candidates
+  test-suite-comprehension ticket-status-sync ticket-triage
+  update-agentic-engineering wrap-deferred wrap
+)
+for _ae_old_name in "${_ae_stale_pre_ds26_commands[@]}"; do
+  _ae_old_dst="$SKILLS_DST/$_ae_old_name"
+  if [[ -L "$_ae_old_dst" ]]; then
+    _ae_current_target="$(readlink "$_ae_old_dst")"
+    if [[ "$_ae_current_target" == "$REPO_DIR/.openclaw/skills/"* ]]; then
+      rm "$_ae_old_dst"
+      echo "  - removed $_ae_old_name (stale pre-DS-26 command skill symlink)"
+    fi
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # Inject managed Skill Loading block into ~/.openclaw/AGENTS.md
 # ---------------------------------------------------------------------------
 

@@ -16,7 +16,7 @@
  *   (e) read-only/clean session (transcript with only a Read tool_use, clean
  *       tree, no .last-wrap) -> no marker staged.
  *   (f) wrap/lock present on the /wrap-coexistence path (existing context.md
- *       authored by /wrap) -> /wrap content preserved (NOT overwritten) + one
+ *       authored by /ds-wrap) -> /ds-wrap content preserved (NOT overwritten) + one
  *       spillover record appended.
  *
  * Fake-HOME isolation is used throughout so the test never touches the real
@@ -303,9 +303,9 @@ console.log('\n[e] read-only/clean session: no marker staged');
 }
 
 // ---------------------------------------------------------------------------
-// (f) wrap.lock present on /wrap-coexistence path -> /wrap content preserved
+// (f) wrap.lock present on /wrap-coexistence path -> /ds-wrap content preserved
 // ---------------------------------------------------------------------------
-console.log('\n[f] wrap/lock present (/wrap-coexistence path): /wrap content preserved + spillover');
+console.log('\n[f] wrap/lock present (/wrap-coexistence path): /ds-wrap content preserved + spillover');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-f-');
   makeWrapLock(projectDir);
@@ -313,7 +313,7 @@ console.log('\n[f] wrap/lock present (/wrap-coexistence path): /wrap content pre
   const spilloverPath = lib.stopDeferredActivityPath(projectDir);
 
   // Pre-seed a /wrap-authored context.md (pinned header prefix).
-  const wrapBody = '# Session Context\n*Written by /wrap on 2026-06-11. Preserved by Stop hook. Not committed to git.*\n\n## Recent Focus\n- prior wrap content\n';
+  const wrapBody = '# Session Context\n*Written by /ds-wrap on 2026-06-11. Preserved by Stop hook. Not committed to git.*\n\n## Recent Focus\n- prior wrap content\n';
   fs.writeFileSync(contextPath, wrapBody, 'utf8');
 
   try {
@@ -392,7 +392,7 @@ console.log('\n[h] per-session staging: two distinct sessions stage two distinct
 
 // ---------------------------------------------------------------------------
 // (i) loop-guard (case 13, Stop-hook portion): AGENTIC_WRAP_DAEMON=1 -> no marker,
-//     no heartbeat. The daemon's own headless /wrap-deferred run still fires Stop;
+//     no heartbeat. The daemon's own headless /ds-wrap-deferred run still fires Stop;
 //     under the guard the Stop hook must NOT re-stage or re-touch.
 // ---------------------------------------------------------------------------
 console.log('\n[i] loop-guard: under AGENTIC_WRAP_DAEMON=1 the Stop hook stages no marker + touches no heartbeat');
@@ -499,14 +499,14 @@ console.log('\n[k] flag-ON (deferred_wrap_daemon:true): markers + heartbeats DO 
 // (case 12 note) "non-Claude -> no marker staged" is NOT a Stop-hook behavior.
 // ---------------------------------------------------------------------------
 // Verification-gate case (12) ("non-Claude / no .claude-host sentinel -> no marker
-// staged") is enforced at the `/wrap` Step 0a sentinel gate
+// staged") is enforced at the `/ds-wrap` Step 0a sentinel gate
 // (`[ -f "$cwd/.agentic/wrap/claude-host" ]`), which is PROSE executed by the model -
 // it is NOT a gate in this Node Stop hook. The Stop hook only ever runs on Claude
 // Code in the first place; it stages a marker on any substantive, unlocked,
 // not-already-wrapped session regardless of the sentinel (verified empirically:
 // the marker is staged with no `.claude-host` file present). A Stop-hook-level
 // "non-Claude" assertion would therefore assert behavior the hook does not have.
-// Coverage for the sentinel gate lives in the `/wrap` Step 0a contract and the
+// Coverage for the sentinel gate lives in the `/ds-wrap` Step 0a contract and the
 // SessionStart self-heal path (ensureClaudeHost, covered in
 // test-wrap-marker-reclaim.js [20]); the structural extraction is checked in
 // test-wrap-context-format-golden.js. Recording the gap here rather than skipping

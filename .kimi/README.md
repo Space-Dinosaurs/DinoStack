@@ -4,13 +4,13 @@ Adapter for [Kimi Code CLI](https://github.com/MoonshotAI/kimi-cli).
 
 ## Quick start
 
-Kimi Code CLI does **not** support custom slash commands like `/init-project`.
+Kimi Code CLI does **not** support custom slash commands like `/ds-init-project`.
 Instead, use one of these methods:
 
-- **Direct command load (preferred):** `/skill:wrap`, `/skill:skeptic`, `/skill:implement-ticket`, etc.
+- **Direct command load (preferred):** `/skill:ds-wrap`, `/skill:ds-skeptic`, `/skill:ds-implement-ticket`, etc.
   Each DinoStack command is available as its own skill.
-- **Full skill load:** `/skill:agentic-engineering init-project` (loads the complete methodology)
-- **Natural language:** "run init-project" or "initialize DinoStack in this repo"
+- **Full skill load:** `/skill:agentic-engineering ds-init-project` (loads the complete methodology)
+- **Natural language:** "run ds-init-project" or "initialize DinoStack in this repo"
 
 The skill auto-triggers when you mention software development tasks, but explicitly
 loading it guarantees the methodology is active.

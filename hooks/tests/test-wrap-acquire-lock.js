@@ -4,7 +4,7 @@
 /**
  * Unit tests for bin/agentic-wrap-acquire-lock.
  *
- * Tests the CLI helper that poll-waits for the /wrap directory lock, exiting
+ * Tests the CLI helper that poll-waits for the /ds-wrap directory lock, exiting
  * when acquired or after a timeout. Six cases:
  *   1. acquire-when-free        - no lock; expect exit 0, stdout "acquired"
  *   2. blocked-then-acquired    - plant lock; release after ~1.5s; expect exit 0,

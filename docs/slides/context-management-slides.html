@@ -799,7 +799,7 @@ hr {
 <h2 id="fighting-cross-session-amnesia">Fighting cross-session amnesia</h2>
 <div class="columns-3">
 <div class="card">
-<strong>/init-project</strong><br />
+<strong>/ds-init-project</strong><br />
 One-time per repo. Seeds AGENTS.md, captures conventions, bootstraps memory.
 </div>
 <div class="card">
@@ -807,12 +807,12 @@ One-time per repo. Seeds AGENTS.md, captures conventions, bootstraps memory.
 <code>cwd</code> is the project identity. Running <code>claude</code> from the same directory always reads the same persistent memory.
 </div>
 <div class="card">
-<strong>/wrap</strong><br />
+<strong>/ds-wrap</strong><br />
 End-of-session ritual. Commits learnings into memory so the next session reads richer context than this one.
 </div>
 </div>
 <div class="callout">
-<code>/init-project</code> -&gt; work -&gt; <code>/wrap</code> -&gt; next session from the same dir is a <strong>feedback loop</strong>. Each run starts smarter than the last.
+<code>/ds-init-project</code> -&gt; work -&gt; <code>/ds-wrap</code> -&gt; next session from the same dir is a <strong>feedback loop</strong>. Each run starts smarter than the last.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="6" data-marpit-scope-s002="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -966,7 +966,7 @@ hr {
 ;" data-marpit-pagination-total="10">
 <h2 id="the-load-bearing-habit-run-from-the-project-directory">The load-bearing habit: run from the project directory</h2>
 
-<p>The <strong>cwd is the project directory</strong>. Every bit of persistence - AGENTS.md, MEMORY.md, session history, <code>/wrap</code> outputs - is keyed to the directory <code>claude</code> was started in. Nothing else matters for memory continuity.</p>
+<p>The <strong>cwd is the project directory</strong>. Every bit of persistence - AGENTS.md, MEMORY.md, session history, <code>/ds-wrap</code> outputs - is keyed to the directory <code>claude</code> was started in. Nothing else matters for memory continuity.</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash"><span class="hljs-built_in">cd</span> ~/code/myproject
 claude
 </code></pre>
@@ -1127,10 +1127,10 @@ hr {
 <h2 id="the-compounding-loop">The compounding loop</h2>
 
 <ol>
-<li><strong><code>/init-project</code></strong> seeds baseline context for a repo</li>
+<li><strong><code>/ds-init-project</code></strong> seeds baseline context for a repo</li>
 <li>You work a focused session - one clear goal</li>
 <li>Heavy lifting is delegated so the main thread stays clean</li>
-<li><strong><code>/wrap</code></strong> commits learnings into memory</li>
+<li><strong><code>/ds-wrap</code></strong> commits learnings into memory</li>
 <li><strong>Same cwd</strong> next time - Claude Code reads the same memory and AGENTS.md automatically</li>
 <li>Next session starts with richer AGENTS.md, fuller MEMORY.md, sharper defaults</li>
 <li>Repeat - each loop is a step up, not a reset</li>
@@ -1295,13 +1295,13 @@ hr {
 Fires after every turn. Writes <code>.agentic/context.md</code> with recent user messages, files touched, uncommitted changes, and tools used. Zero ceremony - it just runs.
 </div>
 <div class="card">
-<strong>/wrap (on demand)</strong><br />
+<strong>/ds-wrap (on demand)</strong><br />
 Replaces the stop hook's raw snapshot with a structured, enriched version. Captures decisions, conventions, and gotchas into AGENTS.md and memory. Merges across sessions.
 </div>
 </div>
-<p>If <code>/wrap</code> has already written <code>.agentic/context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/wrap</code> content is never lost.</p>
+<p>If <code>/ds-wrap</code> has already written <code>.agentic/context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/ds-wrap</code> content is never lost.</p>
 <div class="callout">
-The stop hook is the safety net - you always get <em>something</em>. <code>/wrap</code> is the upgrade - you get structured, compounding context.
+The stop hook is the safety net - you always get <em>something</em>. <code>/ds-wrap</code> is the upgrade - you get structured, compounding context.
 </div>
 <div class="callout">
 Close the session cleanly so the Stop hook can finish writing <code>.agentic/context.md</code>. In the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state). In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.
@@ -1459,13 +1459,13 @@ hr {
 <h2 id="multiple-sessions-and-the-rolling-window">Multiple sessions and the rolling window</h2>
 
 <p>You can run <strong>multiple sessions in parallel</strong> - open separate terminals, each with <code>claude</code> in the same project directory. They share the same persistent memory and AGENTS.md.</p>
-<p>When you <code>/wrap</code> each session, they merge into a shared <code>.agentic/context.md</code> using a <strong>rolling window of ten slots</strong> (Session A through J):</p>
+<p>When you <code>/ds-wrap</code> each session, they merge into a shared <code>.agentic/context.md</code> using a <strong>rolling window of ten slots</strong> (Session A through J):</p>
 <ul>
 <li>First wrap writes Session A. Second wrap labels the existing as A, adds B.</li>
 <li>At ten sessions, the oldest (A) drops off and everything shifts down.</li>
 <li>Non-focus sections (next steps, file paths, gotchas) merge across all sessions - duplicates removed.</li>
 </ul>
-<p>This means you can work on ten parallel streams in a project and <code>/wrap</code> each one. The next session that starts sees a merged view of all recent work.</p>
+<p>This means you can work on ten parallel streams in a project and <code>/ds-wrap</code> each one. The next session that starts sees a merged view of all recent work.</p>
 <div class="callout">
 The rolling window keeps <code>.agentic/context.md</code> bounded. Ten slots capture even heavily parallel workflows while keeping the file bounded.
 </div>
@@ -1620,7 +1620,7 @@ hr {
 " lang="C" class="lead" data-marpit-pagination="10" style="--paginate:true;--class:lead;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="10">
 <h1 id="keep-context-clean-let-it-compound">Keep context clean. Let it compound.</h1>
-<p>Focused sessions. Same project dir. <code>/wrap</code> every time.</p>
+<p>Focused sessions. Same project dir. <code>/ds-wrap</code> every time.</p>
 <p>github.com/Space-Dinosaurs/DinoStack</p>
 </section>
 <script>!function(){"use strict";const t={h1:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"1"},style:"display: block; font-size: 2em; margin-block-start: 0.67em; margin-block-end: 0.67em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h2:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"2"},style:"display: block; font-size: 1.5em; margin-block-start: 0.83em; margin-block-end: 0.83em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h3:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"3"},style:"display: block; font-size: 1.17em; margin-block-start: 1em; margin-block-end: 1em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h4:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"4"},style:"display: block; margin-block-start: 1.33em; margin-block-end: 1.33em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h5:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"5"},style:"display: block; font-size: 0.83em; margin-block-start: 1.67em; margin-block-end: 1.67em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},h6:{proto:()=>HTMLHeadingElement,attrs:{role:"heading","aria-level":"6"},style:"display: block; font-size: 0.67em; margin-block-start: 2.33em; margin-block-end: 2.33em; margin-inline-start: 0px; margin-inline-end: 0px; font-weight: bold;"},span:{proto:()=>HTMLSpanElement},pre:{proto:()=>HTMLElement,style:"display: block; font-family: monospace; white-space: pre; margin: 1em 0; --marp-auto-scaling-white-space: pre;"}},e="data-marp-auto-scaling-wrapper",i="data-marp-auto-scaling-svg",n="data-marp-auto-scaling-container";class s extends HTMLElement{container;containerSize;containerObserver;svg;svgComputedStyle;svgPreserveAspectRatio="xMinYMid meet";wrapper;wrapperSize;wrapperObserver;constructor(){super();const t=t=>([e])=>{const{width:i,height:n}=e.contentRect;this[t]={width:i,height:n},this.updateSVGRect()};this.attachShadow({mode:"open"}),this.containerObserver=new ResizeObserver(t("containerSize")),this.wrapperObserver=new ResizeObserver((...e)=>{t("wrapperSize")(...e),this.flushSvgDisplay()})}static get observedAttributes(){return["data-downscale-only"]}connectedCallback(){this.shadowRoot.innerHTML=`\n<style>\n  svg[${i}] { display: block; width: 100%; height: auto; vertical-align: top; }\n  span[${n}] { display: table; white-space: var(--marp-auto-scaling-white-space, nowrap); width: max-content; }\n</style>\n<div ${e}>\n  <svg part="svg" ${i}>\n    <foreignObject><span ${n}><slot></slot></span></foreignObject>\n  </svg>\n</div>\n    `.split(/\n\s*/).join(""),this.wrapper=this.shadowRoot.querySelector(`div[${e}]`)??void 0;const t=this.svg;this.svg=this.wrapper?.querySelector(`svg[${i}]`)??void 0,this.svg!==t&&(this.svgComputedStyle=this.svg?window.getComputedStyle(this.svg):void 0),this.container=this.svg?.querySelector(`span[${n}]`)??void 0,this.observe()}disconnectedCallback(){this.svg=void 0,this.svgComputedStyle=void 0,this.wrapper=void 0,this.container=void 0,this.observe()}attributeChangedCallback(){this.observe()}flushSvgDisplay(){const{svg:t}=this;t&&(t.style.display="inline",requestAnimationFrame(()=>{t.style.display=""}))}observe(){this.containerObserver.disconnect(),this.wrapperObserver.disconnect(),this.wrapper&&this.wrapperObserver.observe(this.wrapper),this.container&&this.containerObserver.observe(this.container),this.svgComputedStyle&&this.observeSVGStyle(this.svgComputedStyle)}observeSVGStyle(t){const e=()=>{const i=(()=>{const e=t.getPropertyValue("--preserve-aspect-ratio");if(e)return e.trim();return`x${(({textAlign:t,direction:e})=>{if(t.endsWith("left"))return"Min";if(t.endsWith("right"))return"Max";if("start"===t||"end"===t){let i="rtl"===e;return"end"===t&&(i=!i),i?"Max":"Min"}return"Mid"})(t)}YMid meet`})();i!==this.svgPreserveAspectRatio&&(this.svgPreserveAspectRatio=i,this.updateSVGRect()),t===this.svgComputedStyle&&requestAnimationFrame(e)};e()}updateSVGRect(){let t=Math.ceil(this.containerSize?.width??0);const e=Math.ceil(this.containerSize?.height??0);void 0!==this.dataset.downscaleOnly&&(t=Math.max(t,this.wrapperSize?.width??0));const i=this.svg?.querySelector(":scope > foreignObject");if(i?.setAttribute("width",`${t}`),i?.setAttribute("height",`${e}`),this.svg&&(this.svg.setAttribute("viewBox",`0 0 ${t} ${e}`),this.svg.setAttribute("preserveAspectRatio",this.svgPreserveAspectRatio),this.svg.style.height=t<=0||e<=0?"0":""),this.container){const t=this.svgPreserveAspectRatio.toLowerCase();this.container.style.marginLeft=t.startsWith("xmid")||t.startsWith("xmax")?"auto":"0",this.container.style.marginRight=t.startsWith("xmi")?"auto":"0"}}}const r=(t,{attrs:e={},style:i})=>class extends t{constructor(...t){super(...t);for(const[t,i]of Object.entries(e))this.hasAttribute(t)||this.setAttribute(t,i);this._shadow()}static get observedAttributes(){return["data-auto-scaling"]}connectedCallback(){this._update()}attributeChangedCallback(){this._update()}_shadow(){if(!this.shadowRoot)try{this.attachShadow({mode:"open"})}catch(t){if(!(t instanceof Error&&"NotSupportedError"===t.name))throw t}return this.shadowRoot}_update(){const t=this._shadow();if(t){const e=i?`<style>:host { ${i} }</style>`:"";let n="<slot></slot>";const{autoScaling:s}=this.dataset;if(void 0!==s){n=`<marp-auto-scaling exportparts="svg:auto-scaling" ${"downscale-only"===s?"data-downscale-only":""}>${n}</marp-auto-scaling>`}t.innerHTML=e+n}}};let o;const a=Symbol(),l=()=>o??(o=!!document.createElement("div",{is:"marp-auto-scaling"}).outerHTML.startsWith("<div is"),o);let c;const d="marpitSVGPolyfill:setZoomFactor,",h=Symbol(),g=Symbol();const p=()=>{const t="Apple Computer, Inc."===navigator.vendor,e=t?[v]:[],i={then:e=>(t?(async()=>{if(void 0===c){const t=document.createElement("canvas");t.width=10,t.height=10;const e=t.getContext("2d"),i=new Image(10,10),n=new Promise(t=>{i.addEventListener("load",()=>t())});i.crossOrigin="anonymous",i.src="data:image/svg+xml;charset=utf8,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20width%3D%2210%22%20height%3D%2210%22%20viewBox%3D%220%200%201%201%22%3E%3CforeignObject%20width%3D%221%22%20height%3D%221%22%20requiredExtensions%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxhtml%22%3E%3Cdiv%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F1999%2Fxhtml%22%20style%3D%22width%3A%201px%3B%20height%3A%201px%3B%20background%3A%20red%3B%20position%3A%20relative%22%3E%3C%2Fdiv%3E%3C%2FforeignObject%3E%3C%2Fsvg%3E",await n,e.drawImage(i,0,0),c=e.getImageData(5,5,1,1).data[3]<128}return c})().then(t=>{null==e||e(t?[v]:[])}):null==e||e([]),i)};return Object.assign(e,i)};let m,u;function v(t){const e="object"==typeof t&&t.target||document,i="object"==typeof t?t.zoom:t;window[g]||(Object.defineProperty(window,g,{configurable:!0,value:!0}),document.body.style.zoom=1.0001,document.body.offsetHeight,document.body.style.zoom=1,window.addEventListener("message",({data:t,origin:e})=>{if(e===window.origin)try{if(t&&"string"==typeof t&&t.startsWith(d)){const[,e]=t.split(","),i=Number.parseFloat(e);Number.isNaN(i)||(u=i)}}catch(t){console.error(t)}}));let n=!1;Array.from(e.querySelectorAll("svg[data-marpit-svg]"),t=>{var e,s,r,o;t.style.transform||(t.style.transform="translateZ(0)");const a=i||u||t.currentScale||1;m!==a&&(m=a,n=a);const l=t.getBoundingClientRect(),{length:c}=t.children;for(let i=0;i<c;i+=1){const n=t.children[i];if(n.getScreenCTM){const t=n.getScreenCTM();if(t){const i=null!==(s=null===(e=n.x)||void 0===e?void 0:e.baseVal.value)&&void 0!==s?s:0,c=null!==(o=null===(r=n.y)||void 0===r?void 0:r.baseVal.value)&&void 0!==o?o:0,d=n.children.length;for(let e=0;e<d;e+=1){const s=n.children[e];if("SECTION"===s.tagName){const{style:e}=s;e.transformOrigin||(e.transformOrigin=`${-i}px ${-c}px`),e.transform=`scale(${a}) matrix(${t.a}, ${t.b}, ${t.c}, ${t.d}, ${t.e-l.left}, ${t.f-l.top}) translateZ(0.0001px)`;break}}}}}}),!1!==n&&Array.from(e.querySelectorAll("iframe"),({contentWindow:t})=>{null==t||t.postMessage(`${d}${n}`,"null"===window.origin?"*":window.origin)})}function w({once:t=!1,target:e=document}={}){const i=function(t=document){if(t[h])return t[h];let e=!0;const i=()=>{e=!1,delete t[h]};Object.defineProperty(t,h,{configurable:!0,value:i});let n=[],s=!1;(async()=>{try{n=await p()}finally{s=!0}})();const r=()=>{for(const e of n)e({target:t});s&&0===n.length||e&&window.requestAnimationFrame(r)};return r(),i}(e);return t?(i(),()=>{}):i}m=1,u=void 0;const b=Symbol(),y=(e=document)=>{if("undefined"==typeof window)throw new Error("Marp Core's browser script is valid only in browser context.");if(((e=document)=>{const i=window[a];i||customElements.define("marp-auto-scaling",s);for(const n of Object.keys(t)){const s=`marp-${n}`,o=t[n].proto();l()&&o!==HTMLElement?i||customElements.define(s,r(o,{style:t[n].style}),{extends:n}):(i||customElements.define(s,r(HTMLElement,t[n])),e.querySelectorAll(`${n}[is="${s}"]`).forEach(t=>{t.outerHTML=t.outerHTML.replace(new RegExp(`^<${n}`,"i"),`<${s}`).replace(new RegExp(`</${n}>$`,"i"),`</${s}>`)}))}window[a]=!0})(e),e[b])return e[b];const i=w({target:e}),n=()=>{i(),delete e[b]},o=Object.assign(n,{cleanup:n,update:()=>y(e)});return Object.defineProperty(e,b,{configurable:!0,value:o}),o},f=document.currentScript;y(f?f.getRootNode():document)}();

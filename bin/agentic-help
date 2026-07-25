@@ -4,7 +4,7 @@ Purpose: Static, zero-token command reference for the agentic-engineering
          skill. Prints a fixed inventory of every slash command with a
          one-line description plus usage patterns, so a developer can
          discover and recall commands without spending model tokens.
-         The CLI for the /agentic-help command. Writes nothing.
+         The CLI for the /ds-help command. Writes nothing.
 
 Public API: agentic-help
             Prints a fixed HELP_TEXT block to stdout. No subcommands,
@@ -13,7 +13,7 @@ Public API: agentic-help
 Upstream deps: Python 3 stdlib only (sys). No file I/O for content;
                the help text is a compile-time constant.
 
-Downstream consumers: content/commands/agentic-help.md (command spec);
+Downstream consumers: content/commands/ds-help.md (command spec);
                       developers running the command interactively to
                       list available commands.
 
@@ -33,38 +33,38 @@ HELP_TEXT = """\
 agentic-engineering - command reference
 
 Inspect & configure
-  /agentic-status              Show resolved config (mode, profile, marker) with provenance and a plain-English explainer. Run this first when unsure what the skill is doing.
-  /agentic-config              View and change methodology settings (profile, mode, .agentic/config.json toggles) with guided prompts.
-  /agentic-help                This list.
-  /agentic-disable             Opt this project out (writes an opt-out marker to AGENTS.md). --global also sets global mode=opt-out.
-  /agentic-cost                Token and wall-time rollups per agent/session/task from .agentic/events.jsonl.
+  /ds-status              Show resolved config (mode, profile, marker) with provenance and a plain-English explainer. Run this first when unsure what the skill is doing.
+  /ds-config              View and change methodology settings (profile, mode, .agentic/config.json toggles) with guided prompts.
+  /ds-help                This list.
+  /ds-disable             Opt this project out (writes an opt-out marker to AGENTS.md). --global also sets global mode=opt-out.
+  /ds-cost                Token and wall-time rollups per agent/session/task from .agentic/events.jsonl.
 
 Plan & build
-  /brief                       Interactive planning dialogue that produces a Brief artifact before architects and engineers are spawned. /brief --from <path> extracts a Brief from an existing PRD.
-  /implement-ticket            Drive a ticket from spec to a merged PR through the full risk-classified workflow (architect, skeptic, engineer, QA gate).
-  /ticket-triage               Triage a set of tickets: analyse dependencies, distribute across parallel lanes, emit paste-ready /implement-ticket kickoff prompts. Plan-only; no code edits, no tracker writes.
-  /init-project                Scaffold a project: AGENTS.md hierarchy, CLI config, gitignore, .agentic/ seeds. Asks up front how you want work done.
-  /skeptic                     Run the adversarial review loop on a diff or artifact (findings classified Critical/Major/Minor).
+  /ds-brief                       Interactive planning dialogue that produces a Brief artifact before architects and engineers are spawned. /ds-brief --from <path> extracts a Brief from an existing PRD.
+  /ds-implement-ticket            Drive a ticket from spec to a merged PR through the full risk-classified workflow (architect, skeptic, engineer, QA gate).
+  /ds-ticket-triage               Triage a set of tickets: analyse dependencies, distribute across parallel lanes, emit paste-ready /ds-implement-ticket kickoff prompts. Plan-only; no code edits, no tracker writes.
+  /ds-init-project                Scaffold a project: AGENTS.md hierarchy, CLI config, gitignore, .agentic/ seeds. Asks up front how you want work done.
+  /ds-skeptic                     Run the adversarial review loop on a diff or artifact (findings classified Critical/Major/Minor).
 
 Maintain & curate
-  /memory-update               Capture a stable project fact or decision into MEMORY.md.
-  /pull-and-install            Pull and reinstall agentic-engineering from upstream, or fresh-install if not yet set up.
-  /wrap                        Summarize the current session into .agentic/context.md.
-  /migrate-project             Apply scaffolding migrations to bring a project up to the current manifest version.
-  /cleanup-worktrees           Remove stale subagent and feature worktrees.
-  /ticket-status-sync          Reconcile a tracker column with the real PR/branch state.
-  /feedback-triage             Triage captured session friction (~/.agentic/feedback.jsonl) into tracker tickets.
+  /ds-memory-update               Capture a stable project fact or decision into MEMORY.md.
+  /ds-pull-and-install            Pull and reinstall agentic-engineering from upstream, or fresh-install if not yet set up.
+  /ds-wrap                        Summarize the current session into .agentic/context.md.
+  /ds-migrate-project             Apply scaffolding migrations to bring a project up to the current manifest version.
+  /ds-cleanup-worktrees           Remove stale subagent and feature worktrees.
+  /ds-ticket-status-sync          Reconcile a tracker column with the real PR/branch state.
+  /ds-feedback-triage             Triage captured session friction (~/.agentic/feedback.jsonl) into tracker tickets.
 
 Audit & improve the methodology
-  /prune-harness               Propose deletions of rules that are not earning their keep.
-  /representation-audit        Propose prose rewrites where the methodology is unclear or bloated.
-  /test-suite-comprehension    Produce a test-gap map for a codebase.
-  /update-agentic-engineering  Edit, sync, build, and commit changes to the methodology itself.
+  /ds-prune-harness               Propose deletions of rules that are not earning their keep.
+  /ds-representation-audit        Propose prose rewrites where the methodology is unclear or bloated.
+  /ds-test-suite-comprehension    Produce a test-gap map for a codebase.
+  /ds-update-agentic-engineering  Edit, sync, build, and commit changes to the methodology itself.
 
 Usage patterns
 
   Check what the skill is doing right now:
-    /agentic-status            Shows the resolved mode/profile, WHERE each value comes from, what behavior it produces, and how to change it.
+    /ds-status            Shows the resolved mode/profile, WHERE each value comes from, what behavior it produces, and how to change it.
 
   Use the skill deliberately when it is globally disabled or in opt-in mode:
     By default the skill auto-loads only when it is in opt-out mode AND the project has not opted out.
@@ -76,15 +76,15 @@ Usage patterns
   Change how strict the workflow is:
     Per project:  add 'agentic-engineering-profile: relaxed' (or default / strict) to that project's AGENTS.md.
     Globally:     edit ~/.claude/agentic-engineering.json ("profile": "relaxed" | "default" | "strict").
-    Run /agentic-status afterward to confirm the change took effect and see what it now does.
+    Run /ds-status afterward to confirm the change took effect and see what it now does.
 
   Turn the skill off:
-    This project only:  /agentic-disable
-    Everywhere:         /agentic-disable --global   (or set "mode": "opt-in" in ~/.claude/agentic-engineering.json)
+    This project only:  /ds-disable
+    Everywhere:         /ds-disable --global   (or set "mode": "opt-in" in ~/.claude/agentic-engineering.json)
 
   Most-used, one line each:
-    /agentic-status - see and understand current config   |   /implement-ticket - ticket to merged PR
-    /brief - plan before building                          |   /init-project - set up a new project
+    /ds-status - see and understand current config   |   /ds-implement-ticket - ticket to merged PR
+    /ds-brief - plan before building                          |   /ds-init-project - set up a new project
 """
 
 

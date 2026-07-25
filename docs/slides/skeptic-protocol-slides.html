@@ -981,7 +981,7 @@ hr {
 <li><strong>Standard Elevated changes</strong>: the 2-re-route rule applies</li>
 <li>The primary agent tracks each finding by its text across all rounds</li>
 </ul>
-<p><strong>Loop-context override (inside <code>/implement-ticket</code> Phase 6):</strong> the 2-re-route rule is replaced by a stricter contract - <strong>1 re-raise of a Critical finding after a claimed fix</strong> triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.</p>
+<p><strong>Loop-context override (inside <code>/ds-implement-ticket</code> Phase 6):</strong> the 2-re-route rule is replaced by a stricter contract - <strong>1 re-raise of a Critical finding after a claimed fix</strong> triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.</p>
 <div class="callout">
 The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
 </div>
@@ -1470,7 +1470,7 @@ hr {
 <div class="card">
 <strong>Telemetry emit check</strong><br />
 At every instrumented boundary (engineer/skeptic/qa spawn or Trivial-path direct edit): verify <code>.agentic/events.jsonl</code> received the matching <code>spawn_start</code>/<code>spawn_complete</code> or <code>conductor_direct</code> events.<br /><br />
-Missing emit = <strong>Minor</strong> (non-blocking; keeps <code>/agentic-cost</code> dashboards accurate).
+Missing emit = <strong>Minor</strong> (non-blocking; keeps <code>/ds-cost</code> dashboards accurate).
 </div>
 <div class="card">
 <strong>New-test-CI-wiring check</strong><br />
@@ -1643,7 +1643,7 @@ Treating the LLM as System 3. A Skeptic that agrees with the Worker on every poi
 </div>
 </div>
 <div class="callout">
-Cure: an <strong>audit-note Minor</strong> attesting the Skeptic re-read the diff end-to-end with independent attention. Documents what was checked, not what was wrong. Exempt from <code>/implement-ticket</code> Phase 6 re-raise and convergence-failure detection - bookkeeping, not contested findings.
+Cure: an <strong>audit-note Minor</strong> attesting the Skeptic re-read the diff end-to-end with independent attention. Documents what was checked, not what was wrong. Exempt from <code>/ds-implement-ticket</code> Phase 6 re-raise and convergence-failure detection - bookkeeping, not contested findings.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="11" data-marpit-scope-s010="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

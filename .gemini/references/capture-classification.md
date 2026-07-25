@@ -67,7 +67,7 @@ Only reach here when (a) and (b) both fail to resolve. Apply the two-gate bar be
 | Tier | Signal | Action | Declaration |
 |---|---|---|---|
 | MUST | BOTH gates hold: (1) expensive for a future agent to re-derive AND (2) no better home as a guardrail or existing doc | Capture `LRN` (bug-fix residual) or `KNW` (knowledge/env fact/dead-end/architectural rationale) | Stated at the trigger: `Capture: MUST - [signal]. Writing KNW/LRN entry.` |
-| SHOULD | One gate strong, the other marginal | Capture if cheap; prefer promoting to AGENTS.md/MEMORY.md at next /wrap | Stated at the trigger |
+| SHOULD | One gate strong, the other marginal | Capture if cheap; prefer promoting to AGENTS.md/MEMORY.md at next /ds-wrap | Stated at the trigger |
 | SKIP | Any of: test/type/lint/CI already enforces it; visible in the diff, code, AGENTS.md, or MEMORY.md; a one-off that will not recur; a restatement of protocol already in context | Do not write | Silent |
 
 **SKIP exclusion list (do not write a learning when any of these hold):**
@@ -107,7 +107,7 @@ template at `content/templates/.agentic/learnings.md`:
   independent per-day counters.
 
 `learnings-agent` emits both types based on `event_type`. `learning-extractor` emits LRN
-only. KNW promotion to MEMORY.md happens at /wrap.
+only. KNW promotion to MEMORY.md happens at /ds-wrap.
 
 ## Mandatory triggers and per-trigger declaration
 

@@ -6,23 +6,23 @@
  * WHY THIS IS NOT AN EXECUTABLE BYTE-IDENTITY TEST
  * ------------------------------------------------
  * Case 21 in the architect plan asks for a "golden-file Part A byte-identity"
- * test proving that interactive `/wrap` Part A produces byte-identical context.md
+ * test proving that interactive `/ds-wrap` Part A produces byte-identical context.md
  * output before and after the merge algorithm was extracted into
  * `content/references/wrap-context-format.md`. That algorithm is PROSE - a set of
  * model-executed instructions ("relabel [Session B] as [Session A]", "union both
  * lists", ...), not runnable code. There is no function to call and no
  * deterministic program output to diff, so a true output-byte-identity test is not
- * runnable in a hermetic Node harness. Running the actual `/wrap` would require a
+ * runnable in a hermetic Node harness. Running the actual `/ds-wrap` would require a
  * live model and is neither hermetic nor deterministic.
  *
  * WHAT IS FEASIBLE (and what this test does)
  * ------------------------------------------
  *   (A) CONTENT PIN: snapshot the reference's normative merge-algorithm section
  *       against a committed golden fixture. Any future drift to the extracted
- *       algorithm (the single normative home both `/wrap` and `/wrap-deferred`
+ *       algorithm (the single normative home both `/ds-wrap` and `/ds-wrap-deferred`
  *       cite) is caught here. If the change is intentional, the golden is
  *       regenerated in the same commit - the test then documents the change.
- *   (B) STRUCTURAL EXTRACTION: assert that `content/commands/wrap.md` Part A CITES
+ *   (B) STRUCTURAL EXTRACTION: assert that `content/commands/ds-wrap.md` Part A CITES
  *       the reference and contains NO inline copy of the merge algorithm. This is
  *       what makes the extraction real: the algorithm must live in exactly ONE
  *       place. A regression that re-inlines the algorithm into wrap.md (re-creating
@@ -43,7 +43,7 @@ const crypto = require('crypto');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const REFERENCE = path.join(REPO_ROOT, 'content', 'references', 'wrap-context-format.md');
-const WRAP_MD = path.join(REPO_ROOT, 'content', 'commands', 'wrap.md');
+const WRAP_MD = path.join(REPO_ROOT, 'content', 'commands', 'ds-wrap.md');
 const GOLDEN = path.join(__dirname, 'fixtures', 'wrap-context-merge-algorithm.golden.md');
 
 // The deterministic section boundary: the merge-algorithm section runs from this
@@ -157,8 +157,8 @@ console.log('\n[21-B] structural: wrap.md Part A CITES the reference and inlines
 console.log('\n[21-C] the reference declares both consumers (wrap + wrap-deferred)');
 {
   assert(/Consumers:/.test(refText), 'reference opens with a Consumers declaration');
-  assert(/wrap\.md/.test(refText) && /wrap-deferred\.md/.test(refText),
-    'reference names both /wrap and /wrap-deferred as consumers');
+  assert(/ds-wrap\.md/.test(refText) && /ds-wrap-deferred\.md/.test(refText),
+    'reference names both /ds-wrap and /ds-wrap-deferred as consumers');
 }
 
 // ---------------------------------------------------------------------------

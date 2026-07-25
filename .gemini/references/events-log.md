@@ -25,7 +25,7 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       tool_failure_workaround payloads at orchestration boundaries);
                       Stop hook (constructs session_total payload at session exit AND
                       writes per-developer session log to .agentic/session-log/);
-                      /wrap command (reads events.jsonl for structural session skeleton);
+                      /ds-wrap command (reads events.jsonl for structural session skeleton);
                       bin/agentic-cost team (reads .agentic/session-log/ for team rollup).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
@@ -68,11 +68,11 @@ Not auto-rotated. Manual `mv` to `events-prev.jsonl` if a file grows past concer
 
 ## Consumer
 
-Optional. /wrap may consult events.jsonl as supplementary signal for the structural session skeleton. Conversation-memory review remains primary. /wrap on a project with no events.jsonl works exactly as today.
+Optional. /ds-wrap may consult events.jsonl as supplementary signal for the structural session skeleton. Conversation-memory review remains primary. /ds-wrap on a project with no events.jsonl works exactly as today.
 
 ## Per-developer session log (`.agentic/session-log/`)
 
-The Stop hook writes a second target alongside `events.jsonl`. When a developer identity is set (via `agentic-identity init <handle>`), the hook appends one JSON line per session to `.agentic/session-log/<developer_id>.jsonl`. This file is committed to git via the `.agentic/session-log/` carve-out in `.gitignore`; `/implement-ticket` Phase 8 commits it as a SEPARATE commit on the PR branch when `commit_telemetry: true` (default) and identity is confirmed. Run `agentic-cost team` to aggregate all session-log files present on the local checkout.
+The Stop hook writes a second target alongside `events.jsonl`. When a developer identity is set (via `agentic-identity init <handle>`), the hook appends one JSON line per session to `.agentic/session-log/<developer_id>.jsonl`. This file is committed to git via the `.agentic/session-log/` carve-out in `.gitignore`; `/ds-implement-ticket` Phase 8 commits it as a SEPARATE commit on the PR branch when `commit_telemetry: true` (default) and identity is confirmed. Run `agentic-cost team` to aggregate all session-log files present on the local checkout.
 
 **Canonical session-log line schema:**
 

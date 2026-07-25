@@ -390,7 +390,7 @@ Auth, payments, secrets, user data all route through the auditor.
 
 **Invoke manually**
 - You need a specific second opinion ("have the security-auditor look at this")
-- You want to force a Skeptic pass on recent changes: `/skeptic`
+- You want to force a Skeptic pass on recent changes: `/ds-skeptic`
 - You want architecture first: ask for the architect explicitly
 
 </div>

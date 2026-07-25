@@ -311,7 +311,7 @@ hr {
 ;" data-marpit-pagination-total="8">
 <h2 id="the-problem">The problem</h2>
 
-<p>A <code>/implement-ticket</code> loop that runs multiple engineers and Skeptics across many phases can take longer than a single session allows. Rate limits hit. Sessions exit. Work is interrupted.</p>
+<p>A <code>/ds-implement-ticket</code> loop that runs multiple engineers and Skeptics across many phases can take longer than a single session allows. Rate limits hit. Sessions exit. Work is interrupted.</p>
 <p>Without a resume mechanism, every interruption means:</p>
 <ul>
 <li>Losing track of which phase the loop was in</li>
@@ -639,7 +639,7 @@ hr {
 ;" data-marpit-pagination-total="8">
 <h2 id="resume-check-on-session-start">Resume check on session start</h2>
 
-<p>When <code>/implement-ticket</code> is invoked, it checks for <code>.agentic/loop-state.json</code> <strong>before reading AGENTS.md</strong>. If the file exists with <code>status == &quot;interrupted&quot;</code> (or <code>status == &quot;active&quot;</code> with <code>last_updated</code> more than 10 minutes old), the conductor offers resume or fresh start.</p>
+<p>When <code>/ds-implement-ticket</code> is invoked, it checks for <code>.agentic/loop-state.json</code> <strong>before reading AGENTS.md</strong>. If the file exists with <code>status == &quot;interrupted&quot;</code> (or <code>status == &quot;active&quot;</code> with <code>last_updated</code> more than 10 minutes old), the conductor offers resume or fresh start.</p>
 <p><strong>Resumable phases (automatic):</strong></p>
 <ul>
 <li>Phase 6/6b Skeptic/QA loop at iteration boundaries - committed engineer output, clean branch</li>
@@ -971,7 +971,7 @@ hr {
 ;" data-marpit-pagination-total="8">
 <h2 id="batch-state-coexistence">Batch-state coexistence</h2>
 
-<p>When <code>/implement-ticket</code> runs with 2 or more ticket IDs, a sibling file <code>.agentic/batch-state.json</code> tracks batch-level cursor alongside <code>loop-state.json</code>'s per-ticket phase cursor.</p>
+<p>When <code>/ds-implement-ticket</code> runs with 2 or more ticket IDs, a sibling file <code>.agentic/batch-state.json</code> tracks batch-level cursor alongside <code>loop-state.json</code>'s per-ticket phase cursor.</p>
 <p><strong>Session ownership gate:</strong> both files carry a <code>session_id</code> field. Every write applies a per-write gate that aborts (with an operator-visible warning) if:</p>
 <ul>
 <li>The existing <code>session_id</code> belongs to a different session whose <code>last_updated</code> is within 10 minutes</li>

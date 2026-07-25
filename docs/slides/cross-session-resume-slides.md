@@ -169,7 +169,7 @@ Long-running workflows that survive rate limits and session exits
   .callout { font-size: 0.84em; padding: 0.5em 1em; margin-top: 0.5em; }
 </style>
 
-A `/implement-ticket` loop that runs multiple engineers and Skeptics across many phases can take longer than a single session allows. Rate limits hit. Sessions exit. Work is interrupted.
+A `/ds-implement-ticket` loop that runs multiple engineers and Skeptics across many phases can take longer than a single session allows. Rate limits hit. Sessions exit. Work is interrupted.
 
 Without a resume mechanism, every interruption means:
 - Losing track of which phase the loop was in
@@ -222,7 +222,7 @@ QA return      ->  write loop-state.json (last_phase=qa, action=returned)
   .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-When `/implement-ticket` is invoked, it checks for `.agentic/loop-state.json` **before reading AGENTS.md**. If the file exists with `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start.
+When `/ds-implement-ticket` is invoked, it checks for `.agentic/loop-state.json` **before reading AGENTS.md**. If the file exists with `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start.
 
 **Resumable phases (automatic):**
 - Phase 6/6b Skeptic/QA loop at iteration boundaries - committed engineer output, clean branch
@@ -274,7 +274,7 @@ On resume, the conductor re-reads the Brief or Plan **before spawning the next w
   .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-When `/implement-ticket` runs with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor alongside `loop-state.json`'s per-ticket phase cursor.
+When `/ds-implement-ticket` runs with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor alongside `loop-state.json`'s per-ticket phase cursor.
 
 **Session ownership gate:** both files carry a `session_id` field. Every write applies a per-write gate that aborts (with an operator-visible warning) if:
 - The existing `session_id` belongs to a different session whose `last_updated` is within 10 minutes

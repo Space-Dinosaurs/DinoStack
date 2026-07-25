@@ -35,8 +35,8 @@
  *   [cwd]/.agentic/skill-candidates.md (appended on first threshold crossing)
  *
  * Downstream consumers:
- *   /wrap Part D (content/commands/wrap.md - later unit)
- *   /implement-ticket Phase 11b conductor post-return (content/commands/implement-ticket.md - later unit)
+ *   /ds-wrap Part D (content/commands/ds-wrap.md - later unit)
+ *   /ds-implement-ticket Phase 11b conductor post-return (content/commands/ds-implement-ticket.md - later unit)
  *
  * Failure modes: Never throws. Any write error is silently swallowed.
  *   Concurrent session (Stop hook + wrap): last-writer-wins on the tally

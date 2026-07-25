@@ -369,5 +369,5 @@ echo "NOTE: If you edit files in content/, run 'bash .omp/build.sh' to verify sy
 echo "The global skill's symlinks will pick up content changes instantly,"
 echo "but SKILL.md changes require re-running install.sh."
 echo ""
-echo "IMPORTANT: Pi does not support custom markdown slash commands like /init-project."
-echo "Invoke commands via natural language: 'run init-project', 'do a wrap', etc."
+echo "IMPORTANT: Pi does not support custom markdown slash commands like /ds-init-project."
+echo "Invoke commands via natural language: 'run ds-init-project', 'do a ds-wrap', etc."

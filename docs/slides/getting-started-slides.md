@@ -221,7 +221,7 @@ The installer asks one question: how should the methodology activate across your
 
 Press Enter to accept the default, or pass `--mode=opt-in` / `--mode=opt-out` to the installer. The choice is saved to `~/.claude/agentic-engineering.json` and shared across all adapters - re-run any installer with a `--mode` flag to change it later.
 
-On first activation (TTY only) the preflight prints a one-line notice naming the resolved `mode`, `marker`, and `profile`, and points you at `/agentic-status` (resolver dump) and `/agentic-disable` (explicit opt-out; refuses on an existing `opt-in` without `--force`). The notice is gated on a per-project sentinel at `.agentic/.activated`; deleting it re-arms the notice only. `AGENTIC_QUIET=1` suppresses both.
+On first activation (TTY only) the preflight prints a one-line notice naming the resolved `mode`, `marker`, and `profile`, and points you at `/ds-status` (resolver dump) and `/ds-disable` (explicit opt-out; refuses on an existing `opt-in` without `--force`). The notice is gated on a per-project sentinel at `.agentic/.activated`; deleting it re-arms the notice only. `AGENTIC_QUIET=1` suppresses both.
 
 ---
 
@@ -242,7 +242,7 @@ Optional ergonomic tip: add <code>-n myproject</code> to label the session. It s
 
 ---
 
-## First move in a real repo - `/init-project`
+## First move in a real repo - `/ds-init-project`
 
 <style scoped>
   pre { font-size: 0.8em; padding: 0.4em 0.7em; margin: 0.2em 0 0.5em 0; }
@@ -250,14 +250,14 @@ Optional ergonomic tip: add <code>-n myproject</code> to label the session. It s
   .callout { font-size: 0.88em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-From inside the repo, start Claude Code and run `/init-project`:
+From inside the repo, start Claude Code and run `/ds-init-project`:
 
 ```bash
 cd ~/code/myproject
 claude
 ```
 ```
-/init-project
+/ds-init-project
 ```
 
 A **one-time, per-repo** setup. Bootstraps project memory, captures conventions, and seeds the risk defaults so the protocol knows what "normal" looks like here.
@@ -301,7 +301,7 @@ Focused sessions are the single biggest force multiplier. The protocol assumes y
 
 ---
 
-## Close every session with `/wrap`
+## Close every session with `/ds-wrap`
 
 <style scoped>
   pre { font-size: 0.8em; padding: 0.4em 0.8em; margin: 0.3em 0 0.8em 0; }
@@ -311,7 +311,7 @@ Focused sessions are the single biggest force multiplier. The protocol assumes y
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
 
-When the goal is done - or clearly won't be done today - run `/wrap`. It does the session-close ritual for non-ticket sessions:
+When the goal is done - or clearly won't be done today - run `/ds-wrap`. It does the session-close ritual for non-ticket sessions:
 
 - Produces a structured `.agentic/context.md` with decisions, next steps, and gotchas
 - Extracts stable facts and adds them to MEMORY.md
@@ -319,11 +319,11 @@ When the goal is done - or clearly won't be done today - run `/wrap`. It does th
 - Leaves the next session starting from richer context than this one
 
 <div class="callout">
-<code>/wrap</code> is not optional ceremony. Skipping it is how memory drifts, context bloats, and sessions become unshippable.
+<code>/ds-wrap</code> is not optional ceremony. Skipping it is how memory drifts, context bloats, and sessions become unshippable.
 </div>
 
 <div class="callout">
-After <code>/wrap</code>, close the session cleanly. In the terminal CLI, use <code>/exit</code> rather than ctrl+c. In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally.
+After <code>/ds-wrap</code>, close the session cleanly. In the terminal CLI, use <code>/exit</code> rather than ctrl+c. In the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally.
 </div>
 
 ---
@@ -339,12 +339,12 @@ After <code>/wrap</code>, close the session cleanly. In the terminal CLI, use <c
 
 <p class="preamble">One-time setup: in <code>~/.claude/settings.json</code> set <code>defaultMode: "bypassPermissions"</code> with a small denylist of destructive commands. See Hands-off Configuration in the docs.</p>
 
-1. Pick a **small, real** task in a repo where you've run `/init-project`
+1. Pick a **small, real** task in a repo where you've run `/ds-init-project`
 2. Start a fresh `claude` session in that repo
 3. State the goal in one sentence - resist adding "and also..."
 4. Let the agent classify risk and run the loop (no commands needed)
 5. Read the Skeptic review, decide: ship, revise, or drop
-6. Run `/wrap` - even if the answer was "drop it"
+6. Run `/ds-wrap` - even if the answer was "drop it"
 7. Repeat tomorrow with a new small task
 
 <div class="callout">
@@ -355,7 +355,7 @@ First few sessions feel slower than "just doing it." That's the trade - raw spee
 
 <!-- _class: lead -->
 
-# Small sessions. Clear goals. `/wrap` every time.
+# Small sessions. Clear goals. `/ds-wrap` every time.
 
 That's the whole practice.
 

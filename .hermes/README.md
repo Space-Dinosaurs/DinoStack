@@ -110,7 +110,7 @@ Hermes has a hooks system at `~/.hermes/hooks/`. Future versions of this adapter
 - Risk reminder hook (fires before prompt submission)
 - Context save hook (fires on session end)
 
-For now, use the `/wrap` workflow pattern before ending a session to capture context.
+For now, use the `/ds-wrap` workflow pattern before ending a session to capture context.
 
 ## Build
 

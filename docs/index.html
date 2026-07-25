@@ -915,8 +915,8 @@
   <a href="#skills"><span class="nav-dot" style="background: var(--gold);"></span> Skills</a>
   <a href="#persistence"><span class="nav-dot" style="background: var(--cyan);"></span> Persistence</a>
   <a href="#lifecycle"><span class="nav-dot" style="background: var(--violet);"></span> Project Lifecycle</a>
-  <a href="#lifecycle" class="nav-sub">/init-project</a>
-  <a href="#lifecycle" class="nav-sub">/wrap</a>
+  <a href="#lifecycle" class="nav-sub">/ds-init-project</a>
+  <a href="#lifecycle" class="nav-sub">/ds-wrap</a>
   <a href="#git"><span class="nav-dot" style="background: var(--cyan);"></span> Git Workflow</a>
   <a href="#permissions"><span class="nav-dot" style="background: var(--cyan);"></span> Hands-off Config</a>
   <a href="#profiles"><span class="nav-dot" style="background: var(--cyan);"></span> Risk Profiles</a>
@@ -938,7 +938,7 @@
 <!-- ═══ INSTALL: One command to get started ═══ -->
 <div id="install" class="section config-layer">
   <div class="section-title"><h2>Install</h2><h3>One command. Everything else is optional.</h3></div>
-  <p class="desc">One line clones the repo into <code>DinoStack/</code> inside your current directory, runs the installer, and writes the install path to <code>~/.agentic/agentic-engineering-config.json</code> so update tooling (<code>agentic-update</code>, <code>/update-agentic-engineering</code>) knows where to find it. Prerequisites: <code>git</code> and <code>python3</code> - <code>node</code> is optional, needed only for the update TUI.</p>
+  <p class="desc">One line clones the repo into <code>DinoStack/</code> inside your current directory, runs the installer, and writes the install path to <code>~/.agentic/agentic-engineering-config.json</code> so update tooling (<code>agentic-update</code>, <code>/ds-update-agentic-engineering</code>) knows where to find it. Prerequisites: <code>git</code> and <code>python3</code> - <code>node</code> is optional, needed only for the update TUI.</p>
 
   <div class="code-block">
     <span class="cb-label">one-liner install</span>
@@ -982,7 +982,7 @@
       </tr>
       <tr style="border-bottom: 1px solid var(--border-faint);">
         <td style="padding: 10px 12px; vertical-align: top;">In-session</td>
-        <td style="padding: 10px 12px; vertical-align: top;"><code>/pull-and-install</code></td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>/ds-pull-and-install</code></td>
         <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Inside Claude Code, any project</td>
       </tr>
       <tr style="border-bottom: 1px solid var(--border-faint);">
@@ -1087,7 +1087,7 @@
   <p class="desc" style="margin-bottom: 16px;">Every setting you can tune - what it does, your options, and how to set it. Full list of every key: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
   <div class="note" style="border-left-color: var(--cyan); margin-bottom: 20px; padding: 12px 16px;">
-    <strong style="color: var(--cyan);">Just ask your session agent.</strong> You can set any of these by describing what you want in plain language - say something like <em>&ldquo;set the risk profile to relaxed&rdquo;</em> and the agent applies it for you via <code>/agentic-config</code> or directly. No config file editing required.
+    <strong style="color: var(--cyan);">Just ask your session agent.</strong> You can set any of these by describing what you want in plain language - say something like <em>&ldquo;set the risk profile to relaxed&rdquo;</em> and the agent applies it for you via <code>/ds-config</code> or directly. No config file editing required.
   </div>
 
   <!-- Activation / profile settings -->
@@ -1194,7 +1194,7 @@
   <div class="note" style="border-left-color: var(--cyan); margin-top: 12px;">
     <strong>Activation modes:</strong> the installer writes <code>~/.claude/agentic-engineering.json</code> with <code>{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "&lt;ISO8601&gt;" }</code>. <code>opt-out</code> (default) runs the methodology everywhere except projects that declare <code>agentic-engineering: opt-out</code> in their root <code>AGENTS.md</code>. <code>opt-in</code> keeps the methodology dormant until a project declares <code>agentic-engineering: opt-in</code>. The per-project marker is a single case-insensitive line, matched as a whole line with optional leading <code>- </code>. A short Activation preflight at the top of every skill and <code>/</code>-command reads the config plus the project marker; if the combination says inactive, the skill no-ops silently and falls back to default tool behavior for that session. Missing config or missing <code>AGENTS.md</code> both resolve to "mode=opt-out, marker=none" - the methodology proceeds, preserving behavior for users who installed before this feature existed. The <code>profile</code> field controls Skeptic overhead - see <a href="#profiles">Risk Profiles</a> below.
     <br><br>
-    <strong>First-activation notice (Step 5):</strong> on first activation in a TTY session, the preflight prints a one-line notice naming the resolved <code>mode</code>, <code>marker</code>, and <code>profile</code>, and points users at <code>/agentic-status</code> and <code>/agentic-disable</code>. The notice is gated on a race-safe per-project sentinel at <code>.agentic/.activated</code> - exactly one of N concurrent subagents wins the create-only write and prints; losers stay silent. The TTY/QUIET gate (<code>AGENTIC_QUIET=1</code> or <code>not sys.stdout.isatty()</code>) suppresses BOTH the notice and the sentinel write in CI, headless, and eval-harness contexts. Deleting the sentinel re-arms the notice only - it does not change activation state.
+    <strong>First-activation notice (Step 5):</strong> on first activation in a TTY session, the preflight prints a one-line notice naming the resolved <code>mode</code>, <code>marker</code>, and <code>profile</code>, and points users at <code>/ds-status</code> and <code>/ds-disable</code>. The notice is gated on a race-safe per-project sentinel at <code>.agentic/.activated</code> - exactly one of N concurrent subagents wins the create-only write and prints; losers stay silent. The TTY/QUIET gate (<code>AGENTIC_QUIET=1</code> or <code>not sys.stdout.isatty()</code>) suppresses BOTH the notice and the sentinel write in CI, headless, and eval-harness contexts. Deleting the sentinel re-arms the notice only - it does not change activation state.
   </div>
   <div class="note" style="border-left-color: var(--green); margin-top: 12px;">
     <strong>AGENTS.md - the cross-tool standard:</strong> <code>AGENTS.md</code> is the single source of project instructions. It is the cross-tool convention supported natively by OpenAI Codex CLI (<a href="https://developers.openai.com/codex/guides/agents-md" target="_blank" rel="noopener noreferrer">OpenAI AGENTS.md guide</a>, <a href="https://agents.md" target="_blank" rel="noopener noreferrer">agents.md</a>) and importable by Claude Code via its <code>@file</code> import syntax (<a href="https://code.claude.com/docs/en/memory.md#agents-md" target="_blank" rel="noopener noreferrer">Anthropic import-syntax docs</a>).<br>
@@ -1300,7 +1300,7 @@
           <ul>
             <li><strong style="color: var(--sky);">Goal 1 - Responsiveness.</strong> Conductor stays free to respond. All work backgrounds. Spawn threshold is intentionally low. Never implement inline.</li>
             <li><strong style="color: var(--violet);">Goal 2 - Adversarial accuracy.</strong> LLMs are systematically overconfident about their own outputs. Fresh Skeptic counters anchoring bias. Brief passed verbatim. No self-review path for Elevated work.</li>
-            <li><strong style="color: var(--cyan);">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), MEMORY.md (stable facts), AGENTS.md (architecture). Stop hook auto-writes. /wrap enriches. No ceremony required from user.</li>
+            <li><strong style="color: var(--cyan);">Goal 3 - Cross-session continuity.</strong> Three tiers: context.md (ephemeral), MEMORY.md (stable facts), AGENTS.md (architecture). Stop hook auto-writes. /ds-wrap enriches. No ceremony required from user.</li>
             <li><strong style="color: #b06bff;">Goal 4 - Context window efficiency.</strong> Always-loaded files must be minimal. Trigger-pointer pattern: risk signals inline (chicken-and-egg), protocol details deferred until triggered.</li>
           </ul>
         </div>
@@ -1359,22 +1359,22 @@
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
-          <h4 style="color: #b06bff;">Persistence Loop (inside <code>/implement-ticket</code>)</h4>
+          <h4 style="color: #b06bff;">Persistence Loop (inside <code>/ds-implement-ticket</code>)</h4>
           <ul>
-            <li><strong>Loop-aware, not one-shot</strong> - <code>/implement-ticket</code> runs Engineer &rarr; Skeptic &rarr; QA as a bounded loop, not a single pass. Re-routes are a named primitive, not ad-hoc conductor judgment.</li>
+            <li><strong>Loop-aware, not one-shot</strong> - <code>/ds-implement-ticket</code> runs Engineer &rarr; Skeptic &rarr; QA as a bounded loop, not a single pass. Re-routes are a named primitive, not ad-hoc conductor judgment.</li>
             <li><strong>Max 3 fix passes per phase</strong> - Skeptic loop (Phase 6) and QA loop (Phase 6b) each have an independent 3-pass cap. Hitting the cap escalates to the human; the conductor does not spawn a fourth pass.</li>
             <li><strong>Findings accumulate</strong> - the <code>findings_log</code> carries forward across iterations. A finding closed in iteration 1 cannot be silently re-raised as new in iteration 2; the Skeptic must explicitly contest the claimed fix using a <code>[PREV: id]</code> tag.</li>
             <li><strong>Convergence failure</strong> - one re-raise of a Critical finding after a claimed fix triggers immediate escalation (does not consume remaining iteration budget). Signals a design-level conflict requiring human arbitration.</li>
             <li><strong>Explicit escalation contract</strong> - the loop exits with a structured stall report (<code>cap_reached</code>, <code>convergence_failure</code>, or <code>blocked</code>) listing open findings and recommended actions.</li>
-            <li><strong>Durable state</strong> - loop state is written to <code>.agentic/loop-state.json</code> at every phase transition (atomic write). Long-running loops survive rate limits and session exits: on the next <code>/implement-ticket</code> invocation the conductor detects the interrupted state, applies a rate-limit wait if needed, and resumes from the last committed phase boundary. Schema includes <code>brief_path</code>, <code>plan_path</code>, and <code>promotion_tier</code> fields that record the planning artifact tier for the active task (used for mid-flight promotion and auto-promotion at the 3rd resume). No work is lost.</li>
-            <li><strong>Learning extraction</strong> - at Phase 6 clean exit (Skeptic sign-off), the <code>learning-extractor</code> agent reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code> (append-only, dedup, cap 5/run). Each entry has ID <code>LRN-YYYYMMDD-XXX</code>, severity, domain tag, pattern description, fix guidance, and source reference. These entries feed into <code>wrap-ticket</code> at Phase 11b for richer MEMORY.md/decisions.md appends. Soft-fail only; never blocks the loop. During active sessions, the <code>learnings-agent</code> captures learning events in real-time (error→fix cycles, resolved Skeptic findings, discovered workarounds) and writes them immediately to <code>.agentic/learnings.md</code>, reducing reliance on manual <code>/wrap</code>.</li>
+            <li><strong>Durable state</strong> - loop state is written to <code>.agentic/loop-state.json</code> at every phase transition (atomic write). Long-running loops survive rate limits and session exits: on the next <code>/ds-implement-ticket</code> invocation the conductor detects the interrupted state, applies a rate-limit wait if needed, and resumes from the last committed phase boundary. Schema includes <code>brief_path</code>, <code>plan_path</code>, and <code>promotion_tier</code> fields that record the planning artifact tier for the active task (used for mid-flight promotion and auto-promotion at the 3rd resume). No work is lost.</li>
+            <li><strong>Learning extraction</strong> - at Phase 6 clean exit (Skeptic sign-off), the <code>learning-extractor</code> agent reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code> (append-only, dedup, cap 5/run). Each entry has ID <code>LRN-YYYYMMDD-XXX</code>, severity, domain tag, pattern description, fix guidance, and source reference. These entries feed into <code>wrap-ticket</code> at Phase 11b for richer MEMORY.md/decisions.md appends. Soft-fail only; never blocks the loop. During active sessions, the <code>learnings-agent</code> captures learning events in real-time (error→fix cycles, resolved Skeptic findings, discovered workarounds) and writes them immediately to <code>.agentic/learnings.md</code>, reducing reliance on manual <code>/ds-wrap</code>.</li>
             <li><strong>Task coordination surface</strong> - multi-unit orchestration plans use <code>.agentic/tasks.jsonl</code> as a durable task coordination surface; the conductor tracks task status, dependencies, and loop state across the plan lifecycle. Applies to plans with 2+ tasks; single-unit spawns use in-context state only.</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
           <h4 style="color: #b06bff;">Parallel Fan-out <a class="slide-link" href="slides/parallel-fanout-slides.html" target="_blank" rel="noopener noreferrer">slides</a></h4>
           <ul>
-            <li><strong>N engineers in one message</strong> - when <code>orchestration-planner</code> returns 2+ independent units, <code>/implement-ticket</code> Phase 5 fans out: one worktree-isolated engineer per unit, all spawned in a single message (parallel). N=1 falls through to the standard path.</li>
+            <li><strong>N engineers in one message</strong> - when <code>orchestration-planner</code> returns 2+ independent units, <code>/ds-implement-ticket</code> Phase 5 fans out: one worktree-isolated engineer per unit, all spawned in a single message (parallel). N=1 falls through to the standard path.</li>
             <li><strong>Per-unit P0 loops</strong> - each unit runs its own Engineer &rarr; Skeptic persistence loop inside its worktree. "Done" means Skeptic signed off, not first commit. The conductor joins only after every unit reaches a terminal state.</li>
             <li><strong>Skeptic strategy driven by planner</strong> - <code>skeptic_strategy: per-unit</code>: independent units each get their own Skeptic (can run in parallel). <code>skeptic_strategy: integration</code>: interdependent units share one Skeptic reviewing the combined diff - replaces Phase 6, not layers on top. <code>skeptic_strategy: multi-dimensional</code>: for high-stakes Elevated units (auth, payments, migrations, crypto) - fans out correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; all three must clear before sign-off.</li>
             <li><strong>Join conditions</strong> - all-done (merge in <code>merge_order</code>), partial success (merge green units, retry failed once at depth=1), total failure (escalate), blocked (escalate immediately).</li>
@@ -1430,7 +1430,7 @@
           <ul>
             <li>A Skeptic that agrees with the Worker on every point with zero findings across two iterations is a possible rubber-stamp - the failure mode of treating the LLM as System 3 and outsourcing judgment rather than offloading mechanics.</li>
             <li>Cure: an <strong>audit-note Minor</strong> finding attesting that the Skeptic re-read the diff end-to-end with independent attention. The note documents what was checked, not what was wrong.</li>
-            <li>Audit-note Minors are exempt from the <code>/implement-ticket</code> Phase 6 re-raise and convergence-failure detection - they are bookkeeping, not contested findings, and must not stall the loop.</li>
+            <li>Audit-note Minors are exempt from the <code>/ds-implement-ticket</code> Phase 6 re-raise and convergence-failure detection - they are bookkeeping, not contested findings, and must not stall the loop.</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
@@ -1467,7 +1467,7 @@
         <li><strong>Mid-flight retroactive Brief</strong> - in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed; retroactive Brief is authored before the next engineer spawn and governs all subsequent units.</li>
         <li><strong>3rd-resume auto-promotion</strong> - a Brief-tier task on its 3rd resume per <code>.agentic/loop-state.json</code> auto-promotes to Plan tier (mechanical, regardless of operator notice).</li>
         <li><strong>Engineer contract additions</strong> - <code>brief_path</code> and <code>plan_path</code> fields added to the Worker execution contract; engineer reads the Brief or Plan and treats success criteria + verification gate as authoritative alongside the architect plan.</li>
-        <li><strong>Interactive /brief path</strong> - Brief can also be authored interactively via <code>/brief</code> before architect and engineer are spawned. When <code>brief_path</code> is pre-populated from a <code>/brief</code> session (<code>brief_source: operator</code>), the conductor skips Brief authoring at the promotion gate and uses a completeness-only Skeptic variant instead of the full framing review.</li>
+        <li><strong>Interactive /ds-brief path</strong> - Brief can also be authored interactively via <code>/ds-brief</code> before architect and engineer are spawned. When <code>brief_path</code> is pre-populated from a <code>/ds-brief</code> session (<code>brief_source: operator</code>), the conductor skips Brief authoring at the promotion gate and uses a completeness-only Skeptic variant instead of the full framing review.</li>
       </ul>
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
@@ -1648,7 +1648,7 @@
           <li><strong>dependency-auditor</strong> - supply-chain review: CVE scanning, license compliance, and lockfile analysis across all detected ecosystems. Read-only; produces a findings brief for the engineer.</li>
           <li><strong>learning-extractor</strong> - per-ticket learning extraction at Phase 6 clean exit. Reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code>. Tier 1 leaf agent; soft-fail only.</li>
           <li><strong>goal-condition-evaluator</strong> - cheap Tier-1 stop-condition check for open-goal loops; gates continuation only, never correctness/safety.</li>
-          <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and <code>.agentic/context.md</code> (Recent Focus only). Constrained automated subset of <code>/wrap</code>; soft-fail only.</li>
+          <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and <code>.agentic/context.md</code> (Recent Focus only). Constrained automated subset of <code>/ds-wrap</code>; soft-fail only.</li>
           <li><strong>learnings-agent</strong> - session-scoped background learnings capture. Spawned when the first learning-worthy event occurs in a session. Receives learning events as messages and writes structured entries to <code>.agentic/learnings.md</code> immediately, with optional MEMORY.md append for project-affecting facts. Tier 1 leaf agent; soft-fail only.</li>
         </ul>
       </div>
@@ -1778,27 +1778,27 @@
       <div class="rel-card">
         <h4 style="color: var(--green);">Operator commands - the daily loop</h4>
         <ul>
-          <li><strong>/init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Run once per repo. Detailed in the Project Lifecycle section below.</li>
-          <li><strong>/implement-ticket</strong> - bounded implement/review/QA loop. Runs architect, engineer, and Skeptic phases in sequence for a scoped ticket. The primary command for shipping code.</li>
-          <li><strong>/wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Run at the end of any session to capture learning. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/ds-init-project</strong> - scaffolds the AGENTS.md hierarchy, settings, docs structure, and memory seed for a new project. Run once per repo. Detailed in the Project Lifecycle section below.</li>
+          <li><strong>/ds-implement-ticket</strong> - bounded implement/review/QA loop. Runs architect, engineer, and Skeptic phases in sequence for a scoped ticket. The primary command for shipping code.</li>
+          <li><strong>/ds-wrap</strong> - enriches session context into context.md, memory entries, and AGENTS.md updates. Run at the end of any session to capture learning. Detailed in the Project Lifecycle section below.</li>
         </ul>
       </div>
       <div class="rel-card" style="margin-top: 16px;">
         <h4 style="color: var(--green);">Invoked by the methodology</h4>
         <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 8px 0;">The conductor runs these during a workflow. Operator-available but rarely typed directly.</p>
         <ul>
-          <li><strong>/skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. Entry point for manually triggering Elevated review.</li>
-          <li><strong>/ticket-status-sync</strong> - reconcile a ticket's tracker column with actual code state after <code>/implement-ticket</code> exits before merge. Single-ticket or <code>--all</code> sweep; <code>--all</code> also sweeps the tracker itself for tickets shipped outside <code>/implement-ticket</code> (deterministic ID-match may transition, unmatched candidates are report-only); soft-fails on tracker API errors.</li>
-          <li><strong>/prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
-          <li><strong>/representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
-          <li><strong>/test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate.</li>
-          <li><strong>/brief</strong> - interactive planning dialogue. Produces a Brief at <code>docs/planning/&lt;slug&gt;.md</code> via a structured multi-turn conversation, then hands off to the architect and engineer with <code>brief_path</code> pre-populated in the execution contract. The conductor auto-invokes it on planning-intent signals ("I want to build...", "thinking about..."); operator-available but normally methodology-triggered.</li>
-          <li><strong>/migrate-project</strong> - bring an existing project's scaffolding up to the current methodology version. Additive and non-destructive by default; <code>--include-destructive</code> applies operator-owned markers and file modifications.</li>
-          <li><strong>/update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
-          <li><strong>/cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
-          <li><strong>/memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
-          <li><strong>/feedback-triage</strong> - batch triage of the home-dir feedback store (<code>~/.agentic/feedback.jsonl</code>). Reviews the accumulated backlog of tool-friction, process-escalation, guardrail-fire, and operator-correction signals from <code>/wrap</code>, presents them grouped, and creates tracker tickets only for items the operator explicitly approves.</li>
-          <li><strong>/ticket-triage</strong> - strategic triage of a ticket list or tracker input. Analyses dependencies and conflicts, distributes work across parallel lanes, and emits a paste-ready game plan. Plan-only: no code edits, no tracker mutations.</li>
+          <li><strong>/ds-skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. Entry point for manually triggering Elevated review.</li>
+          <li><strong>/ds-ticket-status-sync</strong> - reconcile a ticket's tracker column with actual code state after <code>/ds-implement-ticket</code> exits before merge. Single-ticket or <code>--all</code> sweep; <code>--all</code> also sweeps the tracker itself for tickets shipped outside <code>/ds-implement-ticket</code> (deterministic ID-match may transition, unmatched candidates are report-only); soft-fails on tracker API errors.</li>
+          <li><strong>/ds-prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
+          <li><strong>/ds-representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
+          <li><strong>/ds-test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate.</li>
+          <li><strong>/ds-brief</strong> - interactive planning dialogue. Produces a Brief at <code>docs/planning/&lt;slug&gt;.md</code> via a structured multi-turn conversation, then hands off to the architect and engineer with <code>brief_path</code> pre-populated in the execution contract. The conductor auto-invokes it on planning-intent signals ("I want to build...", "thinking about..."); operator-available but normally methodology-triggered.</li>
+          <li><strong>/ds-migrate-project</strong> - bring an existing project's scaffolding up to the current methodology version. Additive and non-destructive by default; <code>--include-destructive</code> applies operator-owned markers and file modifications.</li>
+          <li><strong>/ds-update-agentic-engineering</strong> - sync methodology file edits safely across all adapters without destructive overwrites.</li>
+          <li><strong>/ds-cleanup-worktrees</strong> - remove stale git worktrees created by parallel agent Workers.</li>
+          <li><strong>/ds-memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
+          <li><strong>/ds-feedback-triage</strong> - batch triage of the home-dir feedback store (<code>~/.agentic/feedback.jsonl</code>). Reviews the accumulated backlog of tool-friction, process-escalation, guardrail-fire, and operator-correction signals from <code>/ds-wrap</code>, presents them grouped, and creates tracker tickets only for items the operator explicitly approves.</li>
+          <li><strong>/ds-ticket-triage</strong> - strategic triage of a ticket list or tracker input. Analyses dependencies and conflicts, distributes work across parallel lanes, and emits a paste-ready game plan. Plan-only: no code edits, no tracker mutations.</li>
         </ul>
       </div>
     </div>
@@ -1806,15 +1806,15 @@
       <div class="rel-card">
         <h4 style="color: var(--green);">Utilities &amp; setup</h4>
         <ul>
-          <li><strong>/agentic-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
-          <li><strong>/agentic-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
-          <li><strong>/agentic-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
-          <li><strong>/agentic-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
-          <li><strong>/agentic-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
-          <li><strong>/agentic-config</strong> - interactive command to view and change agentic-engineering settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>
-          <li><strong>/configure-team</strong> - set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments. Independent of the Pi role-model routing layer.</li>
-          <li><strong>/pull-and-install</strong> - pull the latest DinoStack release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Distinct from <code>/update-agentic-engineering</code> (which pushes upstream edits); this command pulls changes down.</li>
-          <li><strong>/skill-candidates</strong> - read-only view of the skill-candidate backlog. Displays open and dismissed candidates detected from recurring workflow friction — each with its domain, count, suggested artifact type, and example note. Writes nothing; always exits 0.</li>
+          <li><strong>/ds-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
+          <li><strong>/ds-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
+          <li><strong>/ds-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
+          <li><strong>/ds-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
+          <li><strong>/ds-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
+          <li><strong>/ds-config</strong> - interactive command to view and change agentic-engineering settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>
+          <li><strong>/ds-configure-team</strong> - set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments. Independent of the Pi role-model routing layer.</li>
+          <li><strong>/ds-pull-and-install</strong> - pull the latest DinoStack release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Distinct from <code>/ds-update-agentic-engineering</code> (which pushes upstream edits); this command pulls changes down.</li>
+          <li><strong>/ds-skill-candidates</strong> - read-only view of the skill-candidate backlog. Displays open and dismissed candidates detected from recurring workflow friction — each with its domain, count, suggested artifact type, and example note. Writes nothing; always exits 0.</li>
         </ul>
       </div>
     </div>
@@ -1843,7 +1843,7 @@
         <h4>Persistence Hierarchy</h4>
         <ul>
           <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. Stable architecture, key paths, and preferences with rationale.</li>
-          <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/wrap</code> (enriched). Supports rolling-window merge across 10 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
+          <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/ds-wrap</code> (enriched). Supports rolling-window merge across 10 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
           <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
@@ -1888,7 +1888,7 @@
         <div style="font-family: 'Nunito Sans', sans-serif; font-size: 16px; font-weight: 300; color: var(--text-secondary);">How cross-session continuity actually works</div>
       </div>
     </div>
-    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Every project's AGENTS.md, MEMORY.md, session history, and <code>/wrap</code> outputs live under <code>~/.claude/projects/[slug-of-cwd]/</code>. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
+    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Every project's AGENTS.md, MEMORY.md, session history, and <code>/ds-wrap</code> outputs live under <code>~/.claude/projects/[slug-of-cwd]/</code>. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
     <div style="margin-bottom: 16px;">
       <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.01em;">The command:</div>
       <div class="code-block">
@@ -1904,10 +1904,10 @@
       </div>
     </div>
     <ul>
-      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[cwd-slug]/context.md</code> every time. <code>/wrap</code>'s rolling-window merge works because the project slug is stable as long as you launch from the same directory.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[cwd-slug]/context.md</code> every time. <code>/ds-wrap</code>'s rolling-window merge works because the project slug is stable as long as you launch from the same directory.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>MEMORY.md compounds</strong> - same cwd means the same project directory means the same memory files. Stable facts accumulate in one place rather than starting fresh each time.</li>
-      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>The harness improves itself</strong> - this is the <code>/init-project</code> -&gt; work -&gt; <code>/wrap</code> feedback loop. Each session reads richer AGENTS.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
-      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>Multi-project coordination</strong> - different projects live under different cwds, so each gets cleanly separated persistence automatically. Running <code>/wrap</code> on one project does not touch the other's state.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>The harness improves itself</strong> - this is the <code>/ds-init-project</code> -&gt; work -&gt; <code>/ds-wrap</code> feedback loop. Each session reads richer AGENTS.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>Multi-project coordination</strong> - different projects live under different cwds, so each gets cleanly separated persistence automatically. Running <code>/ds-wrap</code> on one project does not touch the other's state.</li>
     </ul>
     <div style="margin-top: 20px; padding: 24px; background: var(--bg-base); border: 1px solid var(--gold-dim); border-radius: var(--radius-lg);">
       <div style="font-family: 'Nunito Sans', sans-serif; font-size: 18px; font-weight: 600; letter-spacing: -0.02em; color: var(--gold); margin-bottom: 12px;">Naming and resuming are ergonomic, not load-bearing.</div>
@@ -1915,7 +1915,7 @@
         Claude Code's <code>-n, --name</code> flag attaches a display label to the session - useful in the <code>/resume</code> picker and in your terminal title, but it has no effect on which persistence directory is read or written. Two runs of <code>claude -n myproject</code> in the same directory create two independent sessions that share the same project persistence. The label is a finder, not an identifier.
       </p>
       <p style="font-size: 15px; color: var(--text-primary); line-height: 1.75; margin-bottom: 16px;">
-        <code>-r, --resume</code> is similarly narrow: it replays a specific prior session's conversation history. That is valuable when you got interrupted mid-task and the agent had working state that wasn't yet captured to memory, but it is <em>not</em> how cross-session continuity works under the protocol. The protocol prefers <strong>fresh sessions</strong>: one focused goal per session, <code>/wrap</code> at the end to commit learnings to memory, and the next session starts clean and reads those learnings via the normal cwd-based load. The Skeptic agent is the canonical example - it is explicitly never resumed, because a fresh context is sharper than a replayed one.
+        <code>-r, --resume</code> is similarly narrow: it replays a specific prior session's conversation history. That is valuable when you got interrupted mid-task and the agent had working state that wasn't yet captured to memory, but it is <em>not</em> how cross-session continuity works under the protocol. The protocol prefers <strong>fresh sessions</strong>: one focused goal per session, <code>/ds-wrap</code> at the end to commit learnings to memory, and the next session starts clean and reads those learnings via the normal cwd-based load. The Skeptic agent is the canonical example - it is explicitly never resumed, because a fresh context is sharper than a replayed one.
       </p>
       <p style="font-size: 15px; color: var(--text-secondary); line-height: 1.75;">
         The thing that silently breaks continuity is not forgetting to name or resume a session - it is launching <code>claude</code> from the <em>wrong directory</em>. That points at a different project slug, which reads and writes a different, empty persistence directory. The fix is muscle memory: always <code>cd</code> into the project before starting Claude Code. An alias that bundles the <code>cd</code> and the launch is the cleanest way to make that automatic.
@@ -1924,19 +1924,19 @@
   </div>
 </div>
 
-<!-- ═══ LAYER 7: Project Lifecycle - /init-project and /wrap ═══ -->
+<!-- ═══ LAYER 7: Project Lifecycle - /ds-init-project and /ds-wrap ═══ -->
 <div id="lifecycle" class="section">
-  <div class="section-title" data-num="08"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Project Lifecycle <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a></h2><h3>/init-project scaffolds, /wrap maintains</h3></div>
+  <div class="section-title" data-num="08"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Project Lifecycle <a class="slide-link" href="slides/getting-started-slides.html" target="_blank" rel="noopener noreferrer">slides: getting started</a></h2><h3>/ds-init-project scaffolds, /ds-wrap maintains</h3></div>
 
   <p class="desc" style="margin-bottom: 16px; color: var(--violet); font-size: 15px; font-style: italic;">
-    These two skills form a lifecycle loop: <code>/init-project</code> creates the harness structure at project start,
-    <code>/wrap</code> keeps it current as work happens. Together they ensure every session has accurate context and every project follows the same structure.
+    These two skills form a lifecycle loop: <code>/ds-init-project</code> creates the harness structure at project start,
+    <code>/ds-wrap</code> keeps it current as work happens. Together they ensure every session has accurate context and every project follows the same structure.
   </p>
 
   <div class="two-col">
-    <!-- /init-project -->
+    <!-- /ds-init-project -->
     <div>
-      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #b06bff; margin-bottom: 10px; letter-spacing: 0.01em;">/init-project - Project bootstrap</div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #b06bff; margin-bottom: 10px; letter-spacing: 0.01em;">/ds-init-project - Project bootstrap</div>
       <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
         <h4 style="color: var(--violet);">What it creates</h4>
         <ul>
@@ -1963,9 +1963,9 @@
       </div>
     </div>
 
-    <!-- /wrap -->
+    <!-- /ds-wrap -->
     <div>
-      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #b06bff; margin-bottom: 10px; letter-spacing: 0.01em;">/wrap - Session context enrichment</div>
+      <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #b06bff; margin-bottom: 10px; letter-spacing: 0.01em;">/ds-wrap - Session context enrichment</div>
       <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
         <h4 style="color: var(--violet);">What it produces (4 outputs)</h4>
         <ul>
@@ -1982,28 +1982,28 @@
           <li>Skeptic reviews for accuracy and completeness</li>
           <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for memory.md) - subagents cannot reliably get write permissions</li>
           <li>Compresses always-loaded memory files when they grow past a size threshold (Worker + Skeptic loop guards against fact loss, with rolling backups as a safety net)</li>
-          <li>Cleans up stale worktrees as final step - backed by the <code>/cleanup-worktrees</code> skill</li>
+          <li>Cleans up stale worktrees as final step - backed by the <code>/ds-cleanup-worktrees</code> skill</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
         <h4 style="color: var(--violet);">Concurrent-run protection (wrap.lock)</h4>
         <p class="desc" style="font-size: 14px; margin-top: 0; max-width: none;">
-          /wrap acquires a project-local lock at <code>&lt;cwd&gt;/.agentic/wrap.lock</code> before writing any shared files. This prevents two simultaneous /wrap runs from clobbering each other.
+          /ds-wrap acquires a project-local lock at <code>&lt;cwd&gt;/.agentic/wrap.lock</code> before writing any shared files. This prevents two simultaneous /ds-wrap runs from clobbering each other.
         </p>
         <ul>
           <li><strong>Lock acquisition</strong> - atomic <code>mkdir</code> (POSIX-safe); owner file written immediately with a UTC timestamp.</li>
-          <li><strong>Live lock (under 30 min old)</strong> - /wrap waits, polling every 5 seconds. Reports once to the user: "Another /wrap run is in progress. Waiting..." When the lock disappears it retries acquisition once. If a third session grabbed the lock between the poll and the retry, /wrap aborts with a live-lock message rather than waiting again.</li>
-          <li><strong>Stale lock (30+ min old)</strong> - /wrap does NOT auto-remove the lock. It reports the lock path, pid, and timestamp, instructs the user to remove it manually (<code>rm -rf &lt;cwd&gt;/.agentic/wrap.lock</code>), and aborts.</li>
-          <li><strong>Unreadable/malformed owner file</strong> - if the owner file is missing, unreadable, or contains no valid timestamp, /wrap treats the lock as stale, reports the lock path, instructs manual removal, and aborts.</li>
+          <li><strong>Live lock (under 30 min old)</strong> - /ds-wrap waits, polling every 5 seconds. Reports once to the user: "Another /ds-wrap run is in progress. Waiting..." When the lock disappears it retries acquisition once. If a third session grabbed the lock between the poll and the retry, /ds-wrap aborts with a live-lock message rather than waiting again.</li>
+          <li><strong>Stale lock (30+ min old)</strong> - /ds-wrap does NOT auto-remove the lock. It reports the lock path, pid, and timestamp, instructs the user to remove it manually (<code>rm -rf &lt;cwd&gt;/.agentic/wrap.lock</code>), and aborts.</li>
+          <li><strong>Unreadable/malformed owner file</strong> - if the owner file is missing, unreadable, or contains no valid timestamp, /ds-wrap treats the lock as stale, reports the lock path, instructs manual removal, and aborts.</li>
           <li><strong>No PID liveness check</strong> - the timestamp is the authoritative signal; <code>ps -p</code> is omitted because Claude Code process hierarchies make PID reuse unreliable.</li>
-          <li><strong>Lock release</strong> - mandatory on every exit path (success, escalation, or abort). If /wrap aborts before acquiring the lock, no release is needed.</li>
+          <li><strong>Lock release</strong> - mandatory on every exit path (success, escalation, or abort). If /ds-wrap aborts before acquiring the lock, no release is needed.</li>
         </ul>
       </div>
     </div>
   </div>
 
   <div style="margin-top: 20px;">
-    <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #b06bff; margin-bottom: 10px; letter-spacing: 0.01em;">/brief - Interactive planning dialogue</div>
+    <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #b06bff; margin-bottom: 10px; letter-spacing: 0.01em;">/ds-brief - Interactive planning dialogue</div>
     <div class="rel-card" style="border-color: rgba(24,224,255,0.2);">
       <h4 style="color: var(--sky);">What it does</h4>
       <ul>
@@ -2011,7 +2011,7 @@
         <li>Multi-turn dialogue: intent capture, scope-specific gray-area menu, per-area Q&amp;A, Brief draft, iteration, write and hand-off to architect</li>
         <li>Produces <code>docs/planning/&lt;slug&gt;.md</code> committed directly on the conductor's current branch before architect is spawned</li>
         <li>Sets <code>brief_source: operator</code> in <code>.agentic/brief-session.json</code> so downstream Skeptic uses a completeness-only review (framing is already operator-confirmed)</li>
-        <li>PRD express-path: <code>/brief --from &lt;path&gt;</code> extracts Brief fields from an existing document; Verification field always requires operator input before writing</li>
+        <li>PRD express-path: <code>/ds-brief --from &lt;path&gt;</code> extracts Brief fields from an existing document; Verification field always requires operator input before writing</li>
         <li>Scope-creep guardrail defers new dimensions to a <code>deferred</code> list; whole-pivot detection offers a restart or "continue with both" option</li>
       </ul>
     </div>
@@ -2022,7 +2022,7 @@
     <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
       <h4 style="color: var(--violet);">How to use <code>docs/overview</code>, <code>docs/research</code>, <code>docs/planning</code>, and <code>docs/technical</code></h4>
       <p class="desc" style="font-size: 15px; margin-top: 0; max-width: none;">
-        <code>/init-project</code> creates these folders as distinct documentation surfaces, not as four generic buckets. A good default workflow is:
+        <code>/ds-init-project</code> creates these folders as distinct documentation surfaces, not as four generic buckets. A good default workflow is:
         explore in <code>research/</code>, decide in <code>planning/</code>, codify the accepted implementation truth in <code>technical/</code>, and publish the stable high-level summary in <code>overview/</code>.
         For feature work, reuse the same progression with a feature-specific file or subdirectory instead of inventing a new structure.
       </p>
@@ -2066,7 +2066,7 @@
       </div>
       <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
         <strong>Protocol fit:</strong>
-        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/wrap</code> should then promote the durable parts of those decisions into <code>AGENTS.md</code> and <code>MEMORY.md</code> so future sessions inherit the outcome without rereading every planning file.
+        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/ds-wrap</code> should then promote the durable parts of those decisions into <code>AGENTS.md</code> and <code>MEMORY.md</code> so future sessions inherit the outcome without rereading every planning file.
       </div>
     </div>
   </div>
@@ -2076,13 +2076,13 @@
     <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: #b06bff; margin-bottom: 10px; letter-spacing: 0.01em;">Lifecycle flow</div>
     <div class="flow">
       <div class="flow-row">
-        <span class="flow-box" style="background: rgba(176,107,255,0.08); color:#b06bff; border:1px solid rgba(176,107,255,0.3);">/init-project</span>
+        <span class="flow-box" style="background: rgba(176,107,255,0.08); color:#b06bff; border:1px solid rgba(176,107,255,0.3);">/ds-init-project</span>
         <span class="flow-arrow">&rarr;</span>
         <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">AGENTS.md hierarchy + settings + docs/</span>
         <span class="flow-arrow">&rarr;</span>
         <span class="flow-box" style="background: rgba(58,217,154,0.08); color:#3ad99a; border:1px solid rgba(58,217,154,0.25);">Work sessions (features, bugs, etc.)</span>
         <span class="flow-arrow">&rarr;</span>
-        <span class="flow-box" style="background: rgba(176,107,255,0.08); color:#b06bff; border:1px solid rgba(176,107,255,0.3);">/wrap</span>
+        <span class="flow-box" style="background: rgba(176,107,255,0.08); color:#b06bff; border:1px solid rgba(176,107,255,0.3);">/ds-wrap</span>
       </div>
       <div class="flow-row" style="margin-top: 6px; margin-left: 40px;">
         <span class="flow-label">Creates structure once</span>
@@ -2095,7 +2095,7 @@
       <!-- Feedback loop -->
       <div class="flow-row" style="margin-top: 12px;">
         <span style="width:40px;display:inline-block;"></span>
-        <span class="flow-box" style="background: rgba(176,107,255,0.08); color:#b06bff; border:1px solid rgba(176,107,255,0.3);">/wrap</span>
+        <span class="flow-box" style="background: rgba(176,107,255,0.08); color:#b06bff; border:1px solid rgba(176,107,255,0.3);">/ds-wrap</span>
         <span class="flow-arrow">&rarr;</span>
         <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">context.md (session state)</span>
         <span class="flow-arrow">+</span>
@@ -2104,7 +2104,7 @@
         <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">AGENTS.md updates</span>
       </div>
       <div class="flow-row" style="margin-top: 6px; margin-left: 80px;">
-        <span class="flow-label">Next session reads all three &rarr; full context from turn one &rarr; work &rarr; /wrap &rarr; repeat</span>
+        <span class="flow-label">Next session reads all three &rarr; full context from turn one &rarr; work &rarr; /ds-wrap &rarr; repeat</span>
       </div>
     </div>
   </div>
@@ -2112,15 +2112,15 @@
   <div class="note" style="border-left-color: var(--violet); margin-top: 16px;">
     <strong>The feedback loop:</strong>
     <ul>
-      <li><code>/init-project</code> creates empty structure. Work fills it with decisions and conventions.</li>
-      <li><code>/wrap</code> captures what was learned and feeds it back into the AGENTS.md hierarchy and memory. Next session starts with richer context. The harness improves itself over time - each session makes the next one better.</li>
+      <li><code>/ds-init-project</code> creates empty structure. Work fills it with decisions and conventions.</li>
+      <li><code>/ds-wrap</code> captures what was learned and feeds it back into the AGENTS.md hierarchy and memory. Next session starts with richer context. The harness improves itself over time - each session makes the next one better.</li>
     </ul>
     <strong>Separation of concerns:</strong>
     <ul>
       <li><code>context.md</code> holds temporary session state (what's in progress, what's next).</li>
       <li><code>memory.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
       <li><code>AGENTS.md</code> files hold the canonical project description (structure, tools, conventions).</li>
-      <li>The Stop hook auto-writes a basic context.md every turn; <code>/wrap</code> produces the enriched version when detail matters.</li>
+      <li>The Stop hook auto-writes a basic context.md every turn; <code>/ds-wrap</code> produces the enriched version when detail matters.</li>
       <li>Close the session cleanly so the Stop hook can finish writing <code>context.md</code>: in the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state); in the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.</li>
     </ul>
   </div>
@@ -2231,7 +2231,7 @@
     "defaultMode": "bypassPermissions"
   }
 }</code></pre>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/init-project</code> and <code>/wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, deploy.md, compression-state.json, plus their rolling snapshots). The exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>, <code>.agentic/qa.md</code>, <code>.agentic/findings.md</code>) exist because the <code>**/</code> prefix in the broader glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> or <code>.agentic/</code> dir don't match - without these, <code>/init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/ds-init-project</code> and <code>/ds-wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, deploy.md, compression-state.json, plus their rolling snapshots). The exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>, <code>.agentic/qa.md</code>, <code>.agentic/findings.md</code>) exist because the <code>**/</code> prefix in the broader glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> or <code>.agentic/</code> dir don't match - without these, <code>/ds-init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
       </div>
     </div>
   </div>
@@ -2557,7 +2557,7 @@
         <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively, no shim needed</td></tr>
         <tr><td><strong>Global instructions</strong></td><td><code>~/.codex/AGENTS.md</code></td></tr>
         <tr><td><strong>Skill location</strong></td><td><code>~/.agents/skills/agentic-engineering/SKILL.md</code></td></tr>
-        <tr><td><strong>Slash commands</strong></td><td>Not first-class. Command files live in <code>.codex/commands/*.md</code> but must be pasted or referenced manually - no auto-invocation via <code>/wrap</code> etc.</td></tr>
+        <tr><td><strong>Slash commands</strong></td><td>Not first-class. Command files live in <code>.codex/commands/*.md</code> but must be pasted or referenced manually - no auto-invocation via <code>/ds-wrap</code> etc.</td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.codex/agents/*.toml</code> - TOML format (different from Claude Code's prompt-based spawn)</td></tr>
         <tr><td><strong>Hooks</strong></td><td><code>~/.codex/hooks.json</code> - requires <code>codex_hooks = true</code> in user config to enable the installer-managed hooks</td></tr>
         <tr><td><strong>Stop hook / context save</strong></td><td><code>stop-context-codex.js</code> writes to <code>~/.codex/projects/[hash]/context.md</code></td></tr>
@@ -2566,7 +2566,7 @@
       </tbody>
     </table>
     <div class="note" style="margin-top: 12px; border-left-color: var(--cyan);">
-      <strong>What's different:</strong> Slash commands (<code>/wrap</code>, <code>/init-project</code>, etc.) do not auto-trigger. Reference the command files manually or paste their contents. The hook system is off by default - set <code>codex_hooks = true</code> in user config before expecting installer-managed Stop-hook context saves.
+      <strong>What's different:</strong> Slash commands (<code>/ds-wrap</code>, <code>/ds-init-project</code>, etc.) do not auto-trigger. Reference the command files manually or paste their contents. The hook system is off by default - set <code>codex_hooks = true</code> in user config before expecting installer-managed Stop-hook context saves.
     </div>
   </div>
 

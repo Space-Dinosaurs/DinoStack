@@ -978,27 +978,27 @@ hr {
 </thead>
 <tbody>
 <tr>
-<td><code>/init-project</code></td>
+<td><code>/ds-init-project</code></td>
 <td>One-time setup when bringing the protocol into a repo</td>
 </tr>
 <tr>
-<td><code>/brief</code></td>
+<td><code>/ds-brief</code></td>
 <td>Open a planning dialogue before architect/engineer spawn</td>
 </tr>
 <tr>
-<td><code>/implement-ticket</code></td>
+<td><code>/ds-implement-ticket</code></td>
 <td>Run a ticket end-to-end: architect -&gt; engineer -&gt; skeptic -&gt; PR</td>
 </tr>
 <tr>
-<td><code>/skeptic</code></td>
+<td><code>/ds-skeptic</code></td>
 <td>Force a review pass on recent changes</td>
 </tr>
 <tr>
-<td><code>/wrap</code></td>
+<td><code>/ds-wrap</code></td>
 <td>On-demand session summarization and memory capture</td>
 </tr>
 <tr>
-<td><code>/memory-update</code></td>
+<td><code>/ds-memory-update</code></td>
 <td>Persist a learning you want to keep</td>
 </tr>
 </tbody>
@@ -1526,7 +1526,7 @@ Skeptic reviews ──&gt; sign-off? ──&gt; Phase 6b ──&gt;  QA verifies
 The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</code>
 </div>
 <div class="callout">
-<strong>Loop durability:</strong> state is written to <code>.agentic/loop-state.json</code> at each phase transition (atomic write). Loops survive rate limits and session exits — the next session resumes from the last phase boundary via <code>/implement-ticket</code>'s built-in resume check.
+<strong>Loop durability:</strong> state is written to <code>.agentic/loop-state.json</code> at each phase transition (atomic write). Loops survive rate limits and session exits — the next session resumes from the last phase boundary via <code>/ds-implement-ticket</code>'s built-in resume check.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="10" data-marpit-scope-s007="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -1849,7 +1849,7 @@ hr {
 ;" data-marpit-pagination-total="14">
 <h2 id="parallel-fan-out---n-engineers-in-one-message">Parallel fan-out - N engineers in one message</h2>
 
-<p>When <code>orchestration-planner</code> returns 2+ independent units, <code>/implement-ticket</code> Phase 5 fans out:</p>
+<p>When <code>orchestration-planner</code> returns 2+ independent units, <code>/ds-implement-ticket</code> Phase 5 fans out:</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code>orchestration-planner
   unit A (merge_order:1, skeptic_strategy:per-unit)
   unit B (merge_order:2, skeptic_strategy:per-unit)

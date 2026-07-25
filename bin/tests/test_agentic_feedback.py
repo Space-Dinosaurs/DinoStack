@@ -18,7 +18,7 @@ Test groups:
   7. test_mark_unknown_id_exits_1_and_leaves_file_unchanged - mark on an
      unknown --id exits 1 and does not modify the store.
   8. test_two_sequential_appends_both_land_under_shared_lock - two
-     sequential append calls (simulating two projects' /wrap runs) both
+     sequential append calls (simulating two projects' /ds-wrap runs) both
      land intact; final file is the union of valid items, one line each.
   9. test_concurrent_appends_serialize_under_real_multiprocess_contention -
      genuine cross-process concurrency via multiprocessing.Process: N
@@ -376,7 +376,7 @@ def test_mark_unknown_id_exits_1_and_leaves_file_unchanged():
 
 
 def test_two_sequential_appends_both_land_under_shared_lock():
-    """(8) two sequential appends (simulating two projects' /wrap runs) both land
+    """(8) two sequential appends (simulating two projects' /ds-wrap runs) both land
     intact - final file is the union of valid items, one well-formed line each."""
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)

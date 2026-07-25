@@ -5,7 +5,7 @@
  * Covers architect-plan verification-gate cases:
  *   (1) finalize-on-terminal-reason writes `ready` (no branch/sha).
  *   (2) reason:"resume" does NOT finalize - the marker stays `pending`
- *       (CRITICAL-A: never auto-wrapped; manual /wrap recovers).
+ *       (CRITICAL-A: never auto-wrapped; manual /ds-wrap recovers).
  *   (3) a stale `pending` marker is NEVER auto-promoted by any SessionEnd path
  *       (only a terminal reason on a pending marker promotes; resume / unknown
  *       / absent-reason leave it pending).

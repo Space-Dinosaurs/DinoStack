@@ -101,7 +101,7 @@ Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerat
 
 **Required for Elevated tickets. Absence is a Critical Skeptic finding on this plan.**
 
-Emit a YAML block named `qa_criteria` with the schema below. The block is consumed by `/implement-ticket` Phase 6b to decide whether to spawn `qa-engineer`, and by the qa-engineer itself as the authoritative test plan.
+Emit a YAML block named `qa_criteria` with the schema below. The block is consumed by `/ds-implement-ticket` Phase 6b to decide whether to spawn `qa-engineer`, and by the qa-engineer itself as the authoritative test plan.
 
 ```yaml
 qa_criteria:
@@ -204,7 +204,7 @@ qa_criteria:
 
 **Config keys relevant to QA criteria:**
 - `motion_aware` (boolean, default `false`): when `true`, triggers Auto-Major for missing `motion` scenarios on UI-visible Elevated units with `qa_skip == null`. Operator-declared; not auto-detected from CSS.
-- `storybook_version` (enum `6 | 7`, default `7`): when `6`, qa-engineer uses the SB6 `?selectedKind=&selectedStory=` URL format instead of `?id=`. Seeded by `/init-project` based on `@storybook/*` adapter version detection.
+- `storybook_version` (enum `6 | 7`, default `7`): when `6`, qa-engineer uses the SB6 `?selectedKind=&selectedStory=` URL format instead of `?id=`. Seeded by `/ds-init-project` based on `@storybook/*` adapter version detection.
 
 **Validation handling at Phase 6b entry:** an invalid `qa_skip` value (not in the 5-enum set and not null) is normalized to null at Phase 6b entry with a Major operator warning, and QA fires. The Skeptic-on-architect-plan flags an invalid enum as a Major finding upstream as defense-in-depth - the normalization is a backstop, not a license to be sloppy.
 

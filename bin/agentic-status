@@ -5,7 +5,7 @@ Purpose: Read-only inspection of the agentic-engineering activation
          profile, and first-activation sentinel state to stdout, each
          value annotated with its provenance, followed by a
          plain-English "What this means" behavior explainer and a
-         "How to adjust" block. The CLI for the /agentic-status command.
+         "How to adjust" block. The CLI for the /ds-status command.
          Writes nothing.
 
          The session-wide `preset` (lean/standard/strict) layer is a
@@ -40,7 +40,7 @@ Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, re).
                import if present), .agentic/.activated, and
                .agentic/.telemetry-health.json (fail-open; absent = OK).
 
-Downstream consumers: content/commands/agentic-status.md (command
+Downstream consumers: content/commands/ds-status.md (command
                       spec); developers running the command
                       interactively to debug activation state.
 
@@ -579,9 +579,9 @@ def _how_to_adjust_block(resolved: dict) -> list[str]:
         f"    add a line to {agents_display}:  agentic-engineering-profile: relaxed   (or default / strict)",
         "  Change the profile GLOBALLY:",
         f'    edit {config_display}  ->  "profile": "relaxed" | "default" | "strict"',
-        "  Turn the skill OFF for this project:        /agentic-disable",
-        "  Turn it off EVERYWHERE:                      /agentic-disable --global",
-        "  See every command:                           /agentic-help",
+        "  Turn the skill OFF for this project:        /ds-disable",
+        "  Turn it off EVERYWHERE:                      /ds-disable --global",
+        "  See every command:                           /ds-help",
     ]
 
 
@@ -629,7 +629,7 @@ def main(_argv: list[str]) -> int:
     out.append(
         "Note: deleting the sentinel re-arms the first-activation notice only."
     )
-    out.append("To opt out, use /agentic-disable.")
+    out.append("To opt out, use /ds-disable.")
     sys.stdout.write("\n".join(out) + "\n")
     return 0
 

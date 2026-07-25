@@ -14,7 +14,7 @@ Public API: agentic-memory query [keyword] [--since YYYY-MM-DD]
 Upstream deps: Python 3 stdlib only (argparse, datetime, json, re, sys,
                pathlib). No external dependencies.
 
-Downstream consumers: content/commands/memory-update.md (command spec);
+Downstream consumers: content/commands/ds-memory-update.md (command spec);
                       conductors running inline memory retrieval.
 
 Failure modes: missing source files -> warning to stderr, skipped;

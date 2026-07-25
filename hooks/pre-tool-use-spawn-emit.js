@@ -4,7 +4,7 @@
  * Purpose: Claude Code PreToolUse(Task/Agent) hook. On every subagent spawn,
  *          appends a spawn_start event to [cwd]/.agentic/events.jsonl with
  *          source:"hook" so the telemetry substrate is populated even in ad-hoc
- *          sessions that do not run /implement-ticket (which emits conductor-side
+ *          sessions that do not run /ds-implement-ticket (which emits conductor-side
  *          spawn_complete events). This provides deterministic events.jsonl
  *          creation in any session that spawns at least one subagent.
  *

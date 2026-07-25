@@ -33,7 +33,7 @@ three.
 
 ## The three trigger types
 
-**Manual** is the default. The operator invokes `/implement-ticket` directly.
+**Manual** is the default. The operator invokes `/ds-implement-ticket` directly.
 All conductor behavior applies unchanged. Every other trigger type is an
 extension of this baseline, not a replacement.
 
@@ -48,7 +48,7 @@ at the harness layer. AE contributes the entry-point convention and risk
 discipline; the CI and webhook plumbing is outside AE scope.
 
 All three trigger types enter the conductor at the same point: the start of the
-standard `/implement-ticket` flow. From there, the methodology applies without
+standard `/ds-implement-ticket` flow. From there, the methodology applies without
 exception.
 
 ## Open-goal loops
@@ -63,7 +63,7 @@ The four required parts:
 
 **Trigger**: one of the three trigger types above starts the loop.
 
-**Action**: the conductor runs `/implement-ticket` with `goal_mode=open_goal`.
+**Action**: the conductor runs `/ds-implement-ticket` with `goal_mode=open_goal`.
 
 **Measured condition**: an operator-declared `goal_condition` string evaluated
 after each Skeptic sign-off iteration. When it is true, the loop exits cleanly.
@@ -111,7 +111,7 @@ Automated start does not imply automated approval.
 ## Setting one up
 
 Automated triggering is outside AE scope at the harness level, but the
-entry-point contract is simple: invoke the existing `/implement-ticket`
+entry-point contract is simple: invoke the existing `/ds-implement-ticket`
 conductor flow from your CI or scheduler, and the methodology handles
 everything from there.
 
@@ -131,18 +131,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run AE conductor (action-triggered)
-        # The trigger invokes the existing /implement-ticket flow.
+        # The trigger invokes the existing /ds-implement-ticket flow.
         # The conductor applies standard risk classification before
         # spawning any workers - the trigger does not bypass review.
         run: |
-          claude --project . /implement-ticket "${{ github.event.pull_request.title }}"
+          claude --project . /ds-implement-ticket "${{ github.event.pull_request.title }}"
 ```
 
 ## Companion config toggle
 
 `auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json`
 enables unsupervised merge when an action-triggered flow completes CI-green.
-When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI
+When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI
 checks pass, the PR is marked ready, and no reviewer has requested changes.
 Documented in `content/sections/04-risk-classification.md` §Project config.
 

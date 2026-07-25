@@ -15,6 +15,10 @@
 # Failure modes: exits non-zero if build-methodology.sh fails or any source file
 #                is missing. Idempotent; safe to re-run.
 #
+# Side-effects: removes stale .cursor/commands/*.md files whose basename no
+#               longer matches any content/commands/*.md source (e.g. after
+#               a command rename or deletion upstream).
+#
 # Performance: O(total size of content/ sources); single-pass concatenations.
 set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -72,8 +76,28 @@ for src in "$CONTENT/references/"*.md; do
 done
 
 # Commands: hardlink from content/ (no prerequisite transform for Cursor)
+declare -a generated_commands=()
 for src in "$CONTENT/commands/"*.md; do
-  hardlink_from_content "$src" "$COMMANDS_DST/$(basename "$src")"
+  name="$(basename "$src")"
+  generated_commands+=("$name")
+  hardlink_from_content "$src" "$COMMANDS_DST/$name"
+done
+
+# Remove stale command files (source was renamed or deleted upstream)
+for existing in "$COMMANDS_DST"/*.md; do
+  [ -f "$existing" ] || continue
+  bname="$(basename "$existing")"
+  found=0
+  for gen in "${generated_commands[@]}"; do
+    if [[ "$gen" == "$bname" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    rm "$existing"
+    echo "Removed stale command: $bname"
+  fi
 done
 
 # project-scaffolding.yml and templates/: hardlink so agentic-migrate can resolve from adapter

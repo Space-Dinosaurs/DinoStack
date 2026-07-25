@@ -202,6 +202,40 @@ for src in "$PROMPT_SRC/"*.md; do
   link_abs "$src" "$PROMPT_DST/$name"
 done
 
+# ---------------------------------------------------------------------------
+# Remove stale pre-DS-26 prompt symlinks
+#
+# DS-26 renamed all 25 methodology commands to a ds- prefix. This is a
+# LITERAL hand-enumerated allowlist of the 25 OLD names - never a glob or a
+# set-difference against $PROMPT_DST. That directory is a shared,
+# operator-owned user-level location that may contain files we do not own;
+# scanning it and removing anything not in our generated set would delete
+# operator files we have no business touching. Only entries in this exact
+# allowlist are candidates, and even then only removed if the symlink
+# target resolves inside this methodology checkout (mirrors link_abs's own
+# "$current" == "$REPO_DIR"/* check).
+# ---------------------------------------------------------------------------
+
+_ae_stale_pre_ds26_prompts=(
+  agentic-config.md agentic-cost.md agentic-disable.md agentic-help.md
+  agentic-identity.md agentic-status.md brief.md cleanup-worktrees.md
+  configure-team.md feedback-triage.md implement-ticket.md init-project.md
+  memory-update.md migrate-project.md prune-harness.md pull-and-install.md
+  representation-audit.md skeptic.md skill-candidates.md
+  test-suite-comprehension.md ticket-status-sync.md ticket-triage.md
+  update-agentic-engineering.md wrap-deferred.md wrap.md
+)
+for _ae_old_name in "${_ae_stale_pre_ds26_prompts[@]}"; do
+  _ae_old_dst="$PROMPT_DST/$_ae_old_name"
+  if [[ -L "$_ae_old_dst" ]]; then
+    _ae_current_target="$(readlink "$_ae_old_dst")"
+    if [[ "$_ae_current_target" == "$REPO_DIR"/* ]]; then
+      rm "$_ae_old_dst"
+      echo "  - removed $_ae_old_name (stale pre-DS-26 prompt symlink)"
+    fi
+  fi
+done
+
 link_abs "$EXT_SRC/index.ts" "$EXT_DST/index.ts"
 
 # ---------------------------------------------------------------------------
@@ -293,4 +327,4 @@ echo ""
 echo "Pi coding agent adapter install complete."
 echo "Project-local: .pi/skills/ and .pi/prompts/ are auto-discovered in this repo."
 echo "Global: skill installed to ~/.pi/agent/skills/, prompts linked to ~/.pi/agent/prompts/, and extension linked to ~/.pi/agent/extensions/."
-echo "Use: pi, then /skill:agentic-engineering or slash prompts such as /brief and /wrap."
+echo "Use: pi, then /skill:agentic-engineering or slash prompts such as /ds-brief and /ds-wrap."

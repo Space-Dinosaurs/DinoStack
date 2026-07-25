@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
  * DS-62 Skeptic round-1 regression guard: pins the four spec-prose fixes made
- * to content/commands/wrap.md, content/commands/wrap-deferred.md, and
- * content/commands/ticket-status-sync.md after the first Skeptic pass on
+ * to content/commands/ds-wrap.md, content/commands/ds-wrap-deferred.md, and
+ * content/commands/ds-ticket-status-sync.md after the first Skeptic pass on
  * commit c1982b9 (approve-with-minors, 4 findings).
  *
  * WHY THIS TEST EXISTS
@@ -12,7 +12,7 @@
  * following the text. A grep-based structural guard is the cheapest thing
  * that can still catch a future edit silently reintroducing the same defect:
  *
- *   (1) wrap-deferred.md's "Omitted versus /wrap" table must enumerate
+ *   (1) wrap-deferred.md's "Omitted versus /ds-wrap" table must enumerate
  *       Part F (the daemon has no Bash tool and spawns nothing, so it can
  *       never run Part F's tracker reconciliation).
  *   (2) wrap.md Part F's bounded git log call must use the CORRECT git
@@ -33,9 +33,9 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const WRAP_MD = path.join(REPO_ROOT, 'content', 'commands', 'wrap.md');
-const WRAP_DEFERRED_MD = path.join(REPO_ROOT, 'content', 'commands', 'wrap-deferred.md');
-const TICKET_STATUS_SYNC_MD = path.join(REPO_ROOT, 'content', 'commands', 'ticket-status-sync.md');
+const WRAP_MD = path.join(REPO_ROOT, 'content', 'commands', 'ds-wrap.md');
+const WRAP_DEFERRED_MD = path.join(REPO_ROOT, 'content', 'commands', 'ds-wrap-deferred.md');
+const TICKET_STATUS_SYNC_MD = path.join(REPO_ROOT, 'content', 'commands', 'ds-ticket-status-sync.md');
 
 let passed = 0;
 let failed = 0;
@@ -74,7 +74,7 @@ console.log('\n[1] wrap-deferred.md omission table has a Part F row');
 {
   const deferredTableRow = /\|\s*Part F.*\|\s*omitted.*Bash.*spawns nothing.*\|/i;
   assert(deferredTableRow.test(wrapDeferredText),
-    'wrap-deferred.md "Omitted versus /wrap" table contains a Part F row citing no-Bash/spawns-nothing');
+    'wrap-deferred.md "Omitted versus /ds-wrap" table contains a Part F row citing no-Bash/spawns-nothing');
 }
 
 // ---------------------------------------------------------------------------

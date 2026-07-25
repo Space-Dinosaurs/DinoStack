@@ -84,7 +84,7 @@
  *                port, this hook does an UNCONDITIONAL context.md write and
  *                does NOT participate in the Claude-only wrap-lock/deferral
  *                machinery (writeContextMdOrSpill / wrapLockHeld /
- *                spillover). A concurrent Claude `/wrap` and a Cursor session
+ *                spillover). A concurrent Claude `/ds-wrap` and a Cursor session
  *                on the same project can have this write land over that
  *                enrichment; this is a decision, not an oversight - it
  *                mirrors the pre-existing Copilot convention, context.md is
@@ -270,7 +270,7 @@ ${lastActivity}
 ## Notes
 
 This context file is written by the Cursor stop hook.
-For richer context (paths referenced, tools used, uncommitted changes), run /wrap
+For richer context (paths referenced, tools used, uncommitted changes), run /ds-wrap
 manually before ending a session.
 `;
 

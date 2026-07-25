@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Purpose: Single source of truth for the deferred-`/wrap` per-session marker
+ * Purpose: Single source of truth for the deferred-`/ds-wrap` per-session marker
  *          state machine and its companion on-disk artifacts (last-wrap sentinel,
  *          wrap/lock directory lock, daemon pid, auth-failed notice, .claude-host
  *          sentinel, heartbeats). Owns every read, transition, reclaim, janitor,
@@ -76,7 +76,7 @@
  *                reclaim, janitor, and heartbeat-touch is a guarded NO-OP when
  *                daemonGuardActive() (AGENTIC_WRAP_DAEMON=1) - this is the
  *                loop-guard that prevents the daemon's own headless
- *                `/wrap-deferred` run from re-staging or re-finalizing markers.
+ *                `/ds-wrap-deferred` run from re-staging or re-finalizing markers.
  *                ensureClaudeHost is the SOLE intentionally-UNGUARDED writer
  *                (writing a true fact is harmless and self-heals existing installs).
  *                finalizeReady is the SOLE pending->ready transition (no sweep);
@@ -96,7 +96,7 @@
  *                so a hostile repo cannot wedge a poll tick with a giant marker or a
  *                directory of tens of thousands of files. Both remain fail-open.
  *                LOCK CLEAR (daemon-side): clearProvablyStaleWrapLock removes the
- *                wrap/lock DIRECTORY (so the headless deferred-`/wrap` child, which runs
+ *                wrap/lock DIRECTORY (so the headless deferred-`/ds-wrap` child, which runs
  *                with Bash removed and cannot `rm`, no longer re-flags a stale lock) but
  *                ONLY when the lock is PROVABLY dead/stale: a dead owner PID, OR (no PID)
  *                an owner timestamp older than staleMs. An ALIVE owner PID is
@@ -156,7 +156,7 @@ const MAX_MARKERS_PER_SCAN = 1000;
 // .log.1 (single generation) and a fresh live file is started. 2 MB is generous for
 // human-readable lifecycle + per-run outcome + captured child output lines.
 const MAX_DAEMON_LOG_BYTES = 2 * 1024 * 1024;
-// Per-run hard cap on the in-memory buffer that captures one headless /wrap-deferred
+// Per-run hard cap on the in-memory buffer that captures one headless /ds-wrap-deferred
 // child's stdout/stderr before it is flushed to the log. The daemon keeps the stream
 // listener attached past the cap (drain-and-discard) so a chatty child cannot wedge
 // on a full OS pipe; it just stops growing this buffer. 256 KB is ample for a wrap run.
@@ -420,7 +420,7 @@ function readLastWrap(cwd) {
 }
 
 /**
- * Return true when a /wrap holds the lock at .agentic/wrap/lock (a DIRECTORY
+ * Return true when a /ds-wrap holds the lock at .agentic/wrap/lock (a DIRECTORY
  * created by atomic mkdir). Fail-open: false (treat unreadable as not-held).
  */
 function wrapLockHeld(cwd) {
@@ -507,7 +507,7 @@ function writeMarker(cwd, marker) {
  *   - this session's marker is already ready / pending / in_progress (MAJOR-3)
  *     (a done / gave_up / absent marker does NOT suppress - re-staging is allowed)
  *   - this session's marker is `done` WITH a parseable `wrapped_at` (tombstone
- *     suppression: this session already completed /wrap; .last-wrap may have rolled
+ *     suppression: this session already completed /ds-wrap; .last-wrap may have rolled
  *     to a different session but the tombstone remains as the durable backstop)
  *     NOTE: a `done` marker WITHOUT a parseable `wrapped_at` does NOT suppress
  *     (back-compat + recycled-id carve-out)
@@ -529,7 +529,7 @@ function stagePending(cwd, sessionId, scan) {
   if (liveMarkerForSession(safe, sid)) return false;
 
   // Tombstone suppression: a `done` marker WITH a parseable `wrapped_at` means this
-  // session already completed /wrap; suppress re-staging even if .last-wrap has rolled
+  // session already completed /ds-wrap; suppress re-staging even if .last-wrap has rolled
   // to a different session. A `done` marker WITHOUT a parseable `wrapped_at` (legacy /
   // recycled-id) does NOT suppress - re-staging proceeds normally.
   const self = readMarker(safe, sid);
@@ -664,7 +664,7 @@ function transitionDone(cwd, sessionId) {
 
 /**
  * Mark this session's marker `gave_up` with last_error. Marker is RETAINED (a
- * manual-/wrap notice surface). Guarded NO-OP. Fail-open.
+ * manual-/ds-wrap notice surface). Guarded NO-OP. Fail-open.
  */
 function transitionGaveUp(cwd, sessionId, err) {
   if (daemonGuardActive()) return false;
@@ -978,7 +978,7 @@ function wrapLockProvablyStaleLegacy(cwd, staleMs) {
 
 /**
  * Read the wrap/lock/owner file into { pid, ts }. The owner body is 2-line
- * (PID + ISO timestamp, written by the interactive `/wrap`), 1-line (PID-only,
+ * (PID + ISO timestamp, written by the interactive `/ds-wrap`), 1-line (PID-only,
  * written by acquireWrapLock), empty, or absent.
  *   - line0 -> a positive integer PID, else null
  *   - line1 (if present) -> a trimmed non-empty ISO string, else null
@@ -993,7 +993,7 @@ function readWrapLockOwner(cwd) {
 }
 
 /**
- * Clear a PROVABLY-stale wrap.lock DIRECTORY (the headless deferred-`/wrap` child
+ * Clear a PROVABLY-stale wrap.lock DIRECTORY (the headless deferred-`/ds-wrap` child
  * runs with Bash removed and cannot `rm` it; the trusted daemon clears it instead).
  * Returns true IFF a real stale lock directory was removed; false otherwise. Never
  * throws (fail-open).
@@ -1004,7 +1004,7 @@ function readWrapLockOwner(cwd) {
  *       && (Date.now() - tsMs(owner.ts)) > staleMs)                              -- no PID + old timestamp
  * An ALIVE pid is authoritative-LIVE -> KEEP regardless of timestamp age (this is the
  * live-lock corruption guard: liveness, not age, drives the clear). No usable owner
- * signal (no PID and no parseable timestamp) -> KEEP, covering the interactive `/wrap`
+ * signal (no PID and no parseable timestamp) -> KEEP, covering the interactive `/ds-wrap`
  * mkdir-before-owner race. This must NEVER clear a live lock.
  *
  * SECURITY (CWE-59, models appendToLog's symlink discipline): the removal sequence

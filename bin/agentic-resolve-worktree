@@ -11,7 +11,7 @@
 # Upstream deps: scripts/lib/worktree.sh, bash, git (only to validate repo),
 #                pwd/cd/coreutils.
 #
-# Downstream consumers: content/commands/implement-ticket.md Phase 8 cleanup.
+# Downstream consumers: content/commands/ds-implement-ticket.md Phase 8 cleanup.
 #
 # Failure modes:
 #   - Exits 1 with stderr message if <repo> is not a directory.

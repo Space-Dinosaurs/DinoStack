@@ -17,9 +17,9 @@ Then use:
 
 ```text
 /skill:agentic-engineering
-/brief <topic>
-/implement-ticket <ticket>
-/wrap
+/ds-brief <topic>
+/ds-implement-ticket <ticket>
+/ds-wrap
 ```
 
 Pi discovers:

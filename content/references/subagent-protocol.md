@@ -115,7 +115,7 @@ Format: `[phase: label]` — one line, no surrounding prose required. Add parent
 | `cleanup` | /simplify pass running (Elevated + Cleanup path only) |
 | `cleanup-review` | Narrow Skeptic reviewing /simplify diff |
 | `qa-review` | QA engineer is verifying the change in a browser |
-| `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/implement-ticket`; include current iteration count, max cap, and open finding counts |
+| `[loop: skeptic \| iteration N/3 \| open findings: X Critical, Y Major]` | Emitted by the conductor during Phase 6 Skeptic loop iterations in `/ds-implement-ticket`; include current iteration count, max cap, and open finding counts |
 | `[loop: qa \| iteration N/3 \| open failures: X]` | Emitted during Phase 6b QA loop iterations; include current iteration count, max cap, and open failure count |
 | `[phase: task-state-init \| N tasks written]` | Conductor initialized `.agentic/tasks.jsonl` with N pending task entries from the orchestration plan's JSONL block |
 | `profiling` | Perf analyst is measuring latency, memory, or throughput |
@@ -129,11 +129,11 @@ Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-revi
 - `[loop: skeptic | iteration 1/3 | open findings: 2 Critical, 1 Major]`
 - `[loop: qa | iteration 2/3 | open failures: 1]`
 
-**Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to `.agentic/loop-state.json` (tmp+rename). The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.
+**Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to `.agentic/loop-state.json` (tmp+rename). The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/ds-implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.
 
 **Loop transition rules (BLOCKED / NEEDS_CONTEXT / DONE_WITH_CONCERNS inside a Skeptic or QA loop):**
 
-These transitions apply to fix-pass Engineer spawns inside `/implement-ticket` Phase 6 (Skeptic loop) and Phase 6b (QA loop). The iteration counter tracks only genuine fix attempts.
+These transitions apply to fix-pass Engineer spawns inside `/ds-implement-ticket` Phase 6 (Skeptic loop) and Phase 6b (QA loop). The iteration counter tracks only genuine fix attempts.
 
 | Engineer status | Action | Iteration counter |
 |---|---|---|
@@ -143,7 +143,7 @@ These transitions apply to fix-pass Engineer spawns inside `/implement-ticket` P
 
 **Format re-invocations:** Format-noncompliant Skeptic re-invocations (skeptic-protocol.md Section 11 permits up to 3) do NOT increment the iteration counter. They are administrative retries, not new review rounds.
 
-**Loop contract pointer:** `/implement-ticket` Phase 6 and Phase 6b define the full loop contract (state schema, max-iteration cap, findings accumulation rules, convergence failure conditions, and escalation formats). This file covers only the breadcrumb vocabulary and engineer-status transition rules. Consult `/implement-ticket` for the authoritative loop specification.
+**Loop contract pointer:** `/ds-implement-ticket` Phase 6 and Phase 6b define the full loop contract (state schema, max-iteration cap, findings accumulation rules, convergence failure conditions, and escalation formats). This file covers only the breadcrumb vocabulary and engineer-status transition rules. Consult `/ds-implement-ticket` for the authoritative loop specification.
 
 ### Rule 7 — Direct actions permitted without subagent
 
@@ -263,7 +263,7 @@ Workers are decomposed for focus. Skeptic review is scoped for effectiveness:
 **Fan-out Skeptic strategy mapping.** When the parallel fan-out primitive is active (N >= 2 independent units from the orchestration-planner), the planner's `skeptic_strategy` field is the authoritative source for which review mode applies:
 
 - **`per-unit`**: each unit gets its own Skeptic reviewing that unit's individual diff (against `BASE_BRANCH`). Skeptics for independent units can be spawned in a single message (parallel) - they are reviewing non-overlapping diffs and there is no interference. This is the strategy when all units in the group are fully independent per the heuristic above.
-- **`integration`**: one Skeptic reviews the combined diff from `BASE_BRANCH` after all units are merged onto a scratch integration branch. This replaces per-unit Skeptics - do not layer integration on top of per-unit. This strategy applies when units share an interface contract, shared data model, or cross-cutting concern. The integration Skeptic also serves as the Phase 6 gate (see `/implement-ticket` Phase 6 guard).
+- **`integration`**: one Skeptic reviews the combined diff from `BASE_BRANCH` after all units are merged onto a scratch integration branch. This replaces per-unit Skeptics - do not layer integration on top of per-unit. This strategy applies when units share an interface contract, shared data model, or cross-cutting concern. The integration Skeptic also serves as the Phase 6 gate (see `/ds-implement-ticket` Phase 6 guard).
 - **`multi-dimensional`**: reserved for high-stakes Elevated units where correctness, security, and performance must all be reviewed in a single pass. The conductor fans out three reviewers in one message (parallel, background): a correctness-Skeptic, a `security-auditor`, and a `perf-analyst` - all reviewing the same diff simultaneously. The conductor then synthesizes all findings before opening any fix loop. This mirrors the `/simplify` fan-out pattern (see Section 12) applied to review rather than cleanup. Use `multi-dimensional` only for units in security-sensitive domains: authentication, payments, data migrations, crypto, secrets management, or any path where a correctness bug and a security flaw could coexist undetected. Sign-off requires all three reviewers to clear - a single open Critical or Major finding from any reviewer blocks completion.
 
 The orchestration-planner's classification (written into the JSONL block at planning time) governs which strategy the conductor applies at Phase 5. The conductor reads `skeptic_strategy` from the planner's JSONL block - it does not re-derive the strategy from plan prose or apply the heuristic itself at execution time.
@@ -320,7 +320,7 @@ echo "Documents/Development/authentic8/" >> ~/.gitignore
 
 ### Manually-managed named worktrees (fan-out primitive)
 
-The fan-out primitive in `/implement-ticket` Phase 5 uses a different worktree model from the Agent tool's `isolation: "worktree"`. Both are valid; the choice depends on whether merge order and branch naming matter.
+The fan-out primitive in `/ds-implement-ticket` Phase 5 uses a different worktree model from the Agent tool's `isolation: "worktree"`. Both are valid; the choice depends on whether merge order and branch naming matter.
 
 | Mode | Branch naming | Cleanup | Use when |
 |---|---|---|---|
@@ -412,7 +412,7 @@ When a Worker returns to the main agent under this protocol, the main agent expe
 
 **Spawning Workers:** The main agent must include the project context file content (`~/.claude/projects/[hash]/context.md`) in each Worker's spawn prompt. Workers must not be expected to self-direct context reads — they may not have reliable access to the path or the protocol. The main agent is responsible for providing session context at spawn time.
 
-**Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
+**Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
 
 **When The Skeptic Protocol was not invoked** (e.g., the task was Low risk pure research or investigation with no artifact produced), the Worker states explicitly: "No Skeptic Protocol invoked — task was [description]. No artifact requiring review." This prevents ambiguity in a return without a review record.
 
@@ -439,7 +439,7 @@ Long-running conductor sessions accumulate stale state that degrades reliability
 
 When the conductor reaches the soft limit, it MUST:
 1. Warn the user that the session is approaching its recommended context budget.
-2. Recommend `/wrap` to preserve state and restart with a fresh context window.
+2. Recommend `/ds-wrap` to preserve state and restart with a fresh context window.
 3. Summarize what has been accomplished and what remains.
 4. Offer to continue ONLY if the user explicitly confirms.
 
@@ -449,7 +449,7 @@ The soft limit is a signal, not a stop. The user may choose to continue, but the
 
 When the conductor reaches the hard limit, it MUST:
 1. Refuse further implementation work, Skeptic rounds, or subagent spawns.
-2. Invoke `/wrap` automatically (or instruct the user to do so).
+2. Invoke `/ds-wrap` automatically (or instruct the user to do so).
 3. Preserve all state via `context.md` and `MEMORY.md` updates.
 4. Explain that the hard limit exists to protect output quality and that a fresh session is required.
 
@@ -463,7 +463,7 @@ AE's structural delegation (subagents, worktrees) offloads most implementation w
 - Making inconsistent decisions
 - Producing stale crash-recovery artifacts (context.md, loop-state.json) that no longer reflect actual session state
 
-The `/wrap` + restart flow already handles session handoff. The context budget simply makes the handoff proactive rather than reactive.
+The `/ds-wrap` + restart flow already handles session handoff. The context budget simply makes the handoff proactive rather than reactive.
 
 ### 13.4 Exceptions
 
