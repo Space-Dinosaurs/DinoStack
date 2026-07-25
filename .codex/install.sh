@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# Module: .codex/install.sh
-# Role: Install the Codex CLI adapter into ~/.codex/ and ~/.agents/skills/
-# Inputs: .codex/ build artifacts (AGENTS.md, agents/, skills/), .codex/config/hooks.json
-# Outputs: four symlinks under ~/.agents/skills/, ~/.codex/AGENTS.md,
-#          ~/.codex/agents/; ~/.codex/hooks.json symlinked to the session-stable
-#          hooks snapshot (DS-54, scripts/lib/hooks-snapshot.sh) when sync
-#          succeeds, else the checkout's .codex/config/hooks.json; codex_hooks
-#          feature flag ensured in ~/.codex/config.toml
-# Side-effects: backs up existing non-symlink targets with .backup-<timestamp>
-#               suffix; syncs the hooks snapshot dir; may append to config.toml
-# Consumers: user runs manually; re-run after repo move (or to refresh the
-#            hooks snapshot) to update absolute hook paths
+# Purpose: Install the generated Codex adapter, exactly four native DinoStack
+#          skills, named agents, hooks, activation/profile state, and PATH tools.
+# Public API: bash .codex/install.sh [--mode=opt-in|opt-out]
+#             [--profile=relaxed|default|strict] [--identity=<handle>]
+#             [--no-identity] [--config-dir=<dir>]. AGENTIC_CONFIG_DIR provides
+#             the config-dir fallback.
+# Upstream deps: .codex/build.sh and its generated AGENTS.md, agents/, skills/,
+#                and config/hooks.json outputs; scripts/lib/identity.sh and
+#                scripts/lib/hooks-snapshot.sh when present; Bash and Python 3.
+# Downstream consumers: manual installs and update workflows that populate
+#                       ~/.agents/skills/, the selected Codex config directory,
+#                       ~/.local/bin/, and shared activation/identity state.
+# Failure modes: set -e aborts on required build or install failures; symlinked
+#                config directories are refused; existing non-owned targets are
+#                backed up before replacement; optional identity and snapshot
+#                helpers degrade with explicit warnings.
+# Performance: local synchronous build and filesystem installation work, linear
+#              in generated adapter size; no network access.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

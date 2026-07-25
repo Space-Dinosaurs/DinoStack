@@ -69,6 +69,14 @@ Manual `$wrap` is synchronous: there is no in-session auto-enrichment protocol. 
 
 **Pre-flight scaffold-accuracy check** (runs BEFORE Step 0). manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project` is the canonical scaffolding spec; $wrap uses it as the reference for "what this project should look like." Check for drift and auto-migrate the critical items inline:
 
+**Sentinel short-circuit (evaluate before item 1).** On a steady-state project this pre-flight repeats the same ~15 filesystem probes on every `$wrap` invocation for no reason. Cache the result:
+
+- **Watched-paths signature.** The signature covers exactly the paths this pre-flight inspects: the CLAUDE.md/AGENTS.md set (root + every track directory), the `$AE_PROJECT_DIR/.claude/context.md` / `$AE_PROJECT_DIR/.claude/memory.md` / `$AE_PROJECT_DIR/.claude/memory/` session-state paths and their `$AE_PROJECT_DIR/.agentic/` counterparts, the legacy config paths `$AE_PROJECT_DIR/.claude/{qa,deploy,findings,tracking,learnings}.md` and their `$AE_PROJECT_DIR/.agentic/` counterparts, the stub targets (`$AE_PROJECT_DIR/.agentic/tracking.md`, `$AE_PROJECT_DIR/.agentic/deploy.md`, `$AE_PROJECT_DIR/.agentic/learnings.md`), the docs dirs (`docs/overview/`, `docs/technical/`, `docs/planning/`, `docs/research/`), `$AE_PROJECT_DIR/.claude/settings.json`, `$AE_PROJECT_DIR/.claude/settings.local.json`, and `$AE_PROJECT_DIR/.gitignore`. For each watched path, record `path:exists:mtime` (mtime as epoch seconds, or the literal string `absent` when the path does not exist); sort the resulting lines lexicographically by path, join with newlines, and take the sha256 of the result — this is the **signature**.
+- **Sentinel path:** `$AE_PROJECT_DIR/.agentic/wrap/.scaffold-verified` (atomic tmp + rename; `mkdir -p $AE_PROJECT_DIR/.agentic/wrap` immediately before the write — the lock-acquisition step's own `mkdir -p` has not run yet at this point in the flow, so a first-ever clean pass needs its own directory guarantee). This is machine-local runtime state, not committed — it is covered by the `$AE_PROJECT_DIR/.agentic/*` gitignore umbrella.
+- **At the start of this pre-flight:** if the sentinel exists and its stored signature is byte-equal to the freshly-recomputed signature above, SKIP items 1-3 and 5-6 below (the filesystem/migration probes) and proceed straight to Step 0a. Otherwise (sentinel absent, unreadable, or signature mismatch) run items 1-3 and 5-6 in full as described below.
+- **Scope exclusion: item 4's release-signal-gated `$AE_PROJECT_DIR/.agentic/deploy.md` stub check is never covered by the sentinel.** That check is gated on release signals detected from session content, not on any filesystem path in the watched-paths signature above — a first-release session that touches only non-watched paths could byte-match the signature and, if this check were also skipped, never get the stub created. So run item 4's release-signal check (and only that check) on EVERY `$wrap` invocation regardless of whether the sentinel short-circuit fires for items 1-3/5-6. This is cheap — it is judged from session context already being surveyed, not a filesystem probe — so it does not reintroduce the cost this sentinel exists to avoid.
+- **At the end of this pre-flight** (only reached when items 1-3/5-6 actually ran in full, i.e. the sentinel did not short-circuit them): write the sentinel with the freshly-recomputed signature ONLY when the pass reached a fully clean steady state — no CLAUDE.md → AGENTS.md migration performed (item 1), no `$AE_PROJECT_DIR/.claude/` → `$AE_PROJECT_DIR/.agentic/` migration performed (item 2), no legacy config migration performed (item 3), no stub created by item 4's non-release-signal checks, no silent auto-fix applied (item 5), AND no "drift that cannot be auto-fixed" recorded (item 6). If the pass did ANY work or recorded ANY unfixable drift, do NOT write the sentinel — the next `$wrap` run must re-run the full pre-flight and re-log the drift so it keeps surfacing under "Watch Out For" until resolved. This conservative rule guarantees the short-circuit only ever fires on a genuinely clean, unchanged scaffold and never suppresses a real drift bullet.
+
 1. **CLAUDE.md → AGENTS.md migration** (per-file, recursive through tracks). For each `CLAUDE.md` in the project (root + every track directory) where a sibling `AGENTS.md` does not already exist:
    - `cp <dir>/CLAUDE.md <dir>/AGENTS.md` to preserve content.
    - **Root directory:** overwrite `<dir>/CLAUDE.md` with two import lines, `@AGENTS.md` then `@MEMORY.md`, so Claude Code transparently loads both the migrated file and the durable-facts store. Apply the dangling-import guard: if root `MEMORY.md` does not exist, seed it with the manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project` Step 8 stub before writing the import (consistent with this preflight's existing silent-stub-creation pattern in item 4); never overwrite an existing `MEMORY.md`.
@@ -87,7 +95,7 @@ Manual `$wrap` is synchronous: there is no in-session auto-enrichment protocol. 
    - **Only `$AE_PROJECT_DIR/.agentic/<name>.md` exists**: no action.
    - **Neither exists**: no action at this step - the missing-stub creation below handles creation.
 
-4. **Missing-stub creation.** If any of `$AE_PROJECT_DIR/.agentic/tracking.md`, `$AE_PROJECT_DIR/.agentic/deploy.md` (only when release signals detected), or `$AE_PROJECT_DIR/.agentic/learnings.md` is missing (checked via resolver: `$AE_PROJECT_DIR/.agentic/<name>.md` preferred, legacy `$AE_PROJECT_DIR/.claude/<name>.md` fallback), create a stub at `$AE_PROJECT_DIR/.agentic/<name>.md` per the template in manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project` Steps 6a-6d. For `$AE_PROJECT_DIR/.agentic/learnings.md`, use the template from manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project` Step 8 (unconditional — always create).
+4. **Missing-stub creation.** If any of `$AE_PROJECT_DIR/.agentic/tracking.md`, `$AE_PROJECT_DIR/.agentic/deploy.md` (only when release signals detected), or `$AE_PROJECT_DIR/.agentic/learnings.md` is missing (checked via resolver: `$AE_PROJECT_DIR/.agentic/<name>.md` preferred, legacy `$AE_PROJECT_DIR/.claude/<name>.md` fallback), create a stub at `$AE_PROJECT_DIR/.agentic/<name>.md` per the template in manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project` Steps 6a-6d. For `$AE_PROJECT_DIR/.agentic/learnings.md`, use the template from manual workflow 'init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command init-project` Step 8 (unconditional — always create). **The `$AE_PROJECT_DIR/.agentic/deploy.md` release-signal check runs every `$wrap`, even when the sentinel short-circuit skips the rest of this item and items 1-3/5-6** — see the "Scope exclusion" note above.
 
 5. **Silent auto-fix for remaining drift.** $wrap is silent and hands-off. For any drift $wrap can fix without user input, fix it inline:
    - Create `docs/overview/`, `docs/technical/`, `docs/planning/`, `docs/research/` (with `.gitkeep`) if missing.
@@ -103,7 +111,7 @@ Manual `$wrap` is synchronous: there is no in-session auto-enrichment protocol. 
    - Release command / rollback procedure confirmation when `$AE_PROJECT_DIR/.agentic/deploy.md` has TODO placeholders.
    - Choice among multiple detected web UIs for `$AE_PROJECT_DIR/.agentic/qa.md` in a multi-track project.
 
-All steps are silent on success. Log each migration action taken (e.g. "Migrated admin/CLAUDE.md to admin/AGENTS.md + pointer") to the wrap run output only, not as user prompts. After preflight completes, proceed to Step 0.
+All steps are silent on success. Log each migration action taken (e.g. "Migrated admin/CLAUDE.md to admin/AGENTS.md + pointer") to the wrap run output only, not as user prompts. After completing items 1-6, apply the sentinel write rule from the "Sentinel short-circuit" note above (write `$AE_PROJECT_DIR/.agentic/wrap/.scaffold-verified` with the fresh signature only on a fully clean pass; otherwise leave it unwritten). After preflight completes (whether via the sentinel short-circuit or the full run), proceed to Step 0a.
 
 **Pre-flight check — no active Workers.** Before doing anything else, check whether any background Workers or subagents are currently running. If any are, stop and tell the user: "Cannot run $wrap while background tasks are active. Please wait for them to finish (or stop them) first." Do not proceed until confirmed.
 
@@ -189,6 +197,26 @@ The marker is keyed by `session_id` in its filename, so per-session markers neve
 
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
 
+**Step 0-pre - Fast zero-substance short-circuit** (runs AFTER Step 0a, BEFORE Step 0).
+
+Step 0 (below) unconditionally reads the root + track AGENTS.md files in full, reads `$AE_PROJECT_DIR/.agentic/compression-state.json` and `$AE_PROJECT_DIR/.agentic/learnings.md` in full, and runs a `gh pr list` network call - all before Step 0.5 ever gets to decide the session was zero-substance. Step 0-pre detects the unambiguous zero-substance case earlier so those expensive reads and the network call can be skipped entirely. This is purely a hoist of a determination Step 0.5 already makes - it does NOT change the zero-substance criteria, only detects the unambiguous case earlier.
+
+1. **Run the work-loss safety net now, unconditionally:** `git status --porcelain` and `git stash list`. This check NEVER short-circuits away, on any path - it is the safety net against lost uncommitted work (same rationale Step 0 states below: "critical for preventing work loss"). Capture the raw output of both commands. If Step 0-pre falls through to the full Step 0 (below), Step 0 REUSES this captured output - do not re-run either command there.
+2. From the conversation/tool-call history, determine whether the session performed ANY file-mutating tool calls (Edit, Write, NotebookEdit) or git commits.
+3. Check whether any specialist agent (`perf-analyst`, `release-orchestrator`, `dependency-auditor`) ran this session with session-scoped issues to capture - the same check Step 0.5's zero-substance criteria make, evaluated here from context already in hand (no new mechanism).
+4. **Short-circuit directly to the Step 0.5 "Zero-substance procedure"** - skipping the remainder of Step 0 (the AGENTS.md/compression-state.json/learnings.md reads) and the `gh pr list` call entirely - ONLY when ALL of the following hold unambiguously:
+   - No file-mutating tool calls and no git commits this session (item 2).
+   - The `git status --porcelain` output from item 1 shows no tracked changes (no M/A/D entries; untracked-only `??` output does not disqualify).
+   - The `git stash list` output from item 1 shows no new stashes.
+   - No specialist agent ran with session-scoped issues to capture (item 3).
+   - **No stable fact, architectural decision, or convention was established this session that Output 2 (memory entries) would capture** - mirroring the zero-substance path's own Output-2 criterion under Step 0.5, evaluated here from conversation context already in hand rather than from Step 0's stable-facts survey. A discussion-only session that reached an architectural decision with zero file edits does NOT qualify for the short-circuit even though it trips every other gate above - this bullet exists specifically to catch that case.
+   - No meaningful next steps to record - the conductor judges this the same way Step 0.5 already does: if the only meaningful session output is "answered a question," the case qualifies.
+5. **On ANY uncertainty, fall through to the full Step 0** below rather than short-circuiting - this includes any doubt about whether a stable fact or decision surfaced that Output 2 would capture. This is the same escape-hatch spirit as the "Escape hatch for zero-substance path" note under Step 0.5: when in doubt, do NOT take the fast path.
+
+If the short-circuit fires: go straight to the **Zero-substance procedure** under Step 0.5 below (which still runs Step 5 worktree cleanup and the Step 6 confirmation as normal); do not run Step 0 or the rest of Step 0.5's routing checks.
+
+If the short-circuit does not fire: proceed to Step 0 below, which reuses the `git status --porcelain` / `git stash list` output captured in item 1 above.
+
 **Step 0 — Compile session data** (inline, no subagent needed).
 
 Survey the current conversation and note down:
@@ -199,32 +227,64 @@ Survey the current conversation and note down:
 - Tools used during the session
 - Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - stable facts will go into memory.md, temporary state into context.md only.
 - Identify the project root (absolute cwd).
-- Check for and read: the root `AGENTS.md` (if it exists), and any `[track]/AGENTS.md` files in subdirectories that had files touched this session. Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
-- **Migrate `$AE_PROJECT_DIR/.claude/compression-state.json` → `$AE_PROJECT_DIR/.agentic/compression-state.json`** if `$AE_PROJECT_DIR/.claude/compression-state.json` exists AND `$AE_PROJECT_DIR/.agentic/compression-state.json` does NOT exist: `mv $AE_PROJECT_DIR/.claude/compression-state.json $AE_PROJECT_DIR/.agentic/compression-state.json`. Log the move to the wrap run output only.
-- **Read `$AE_PROJECT_DIR/.agentic/compression-state.json`** if it exists in the project. Record its full current content — this will be passed to Part E later to determine whether compression is needed for each target.
-- **Read `$AE_PROJECT_DIR/.agentic/learnings.md`** if it exists in the project. Record its full current content — this will be passed to the draft Worker in Step 1 so it does not re-derive facts already captured by `learnings-agent`.
-- Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates.
-- **Check for missing AGENTS.md files:** For each directory that had files touched this session, check whether an AGENTS.md file exists in that directory. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
-- **Run `git status --porcelain` and `git stash list`** to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
+- Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates, and their AGENTS.md paths feed the batch below.
+
+**Batch the independent shell/existence/network checks into one Bash invocation.** Rather than issuing separate round-trips, gather everything below in a SINGLE heredoc script:
+- **Existence probes** (no content reads yet) for: `$AE_PROJECT_DIR/.claude/compression-state.json`, `$AE_PROJECT_DIR/.agentic/compression-state.json`, `$AE_PROJECT_DIR/.agentic/learnings.md`, the root `AGENTS.md`, and each `[track]/AGENTS.md` for tracks that had files touched this session.
+- **Open-PR overlap query** via `gh pr list` (exact command below) — on `gh` unavailable or an error, log "open-PR overlap check skipped (gh unavailable)" and treat the result as an empty set.
+
+```bash
+REPO_CWD="<absolute cwd>"
+CURRENT_BRANCH=$(git -C "$REPO_CWD" branch --show-current)
+
+PROBE_PATHS=(
+  "$REPO_CWD/.claude/compression-state.json"
+  "$REPO_CWD/.agentic/compression-state.json"
+  "$REPO_CWD/.agentic/learnings.md"
+  "$REPO_CWD/AGENTS.md"
+  # add one "$REPO_CWD/<track>/AGENTS.md" line per track touched this session
+)
+for p in "${PROBE_PATHS[@]}"; do
+  if [ -e "$p" ]; then echo "EXISTS $p"; else echo "MISSING $p"; fi
+done
+
+if command -v gh >/dev/null 2>&1; then
+  gh pr list --state open --base "$CURRENT_BRANCH" --json number,headRefName,files \
+    --jq '.[] | {n: .number, branch: .headRefName, files: [.files[].path]}' \
+    2>/dev/null || echo "GH_PR_LIST_FAILED"
+else
+  echo "GH_UNAVAILABLE"
+fi
+```
+
+A `#`-comment left unmodified inside the `PROBE_PATHS=( ... )` array literal above is harmless (bash array literals tolerate comment lines between elements) - unlike a `#`-comment inside a backslash-continued `for p in ... \` list, which would orphan the following `; do` into a syntax error. Populate `PROBE_PATHS` with one array element per touched-track `AGENTS.md` path before running.
+
+**Fallback on batch failure.** If the batch script itself errors (non-zero exit from the script as a whole, or an environment where heredoc execution is unavailable), fall back to issuing the existence probes and the `gh pr list` query as individual calls - the pre-optimization behavior. A batch failure must never take down Step 0's data gathering; it only costs the round-trips this batching was meant to save.
+
+Do NOT re-run `git status --porcelain` or `git stash list` here — this batch excludes them by design; reuse the output already captured in Step 0-pre (Step 0 only runs at all when Step 0-pre fell through to the full path).
+
+Using the batch results:
+- **Check for and read: the root `AGENTS.md`** (if the existence probe found it), **and any `[track]/AGENTS.md`** files in subdirectories that had files touched this session (if their existence probes found them). Record their full current content — this will be passed to the Worker as a dedicated field so it can avoid duplicating what is already captured.
+- **Migrate `$AE_PROJECT_DIR/.claude/compression-state.json` → `$AE_PROJECT_DIR/.agentic/compression-state.json`** if the batch probe found `$AE_PROJECT_DIR/.claude/compression-state.json` AND did NOT find `$AE_PROJECT_DIR/.agentic/compression-state.json`: `mv $AE_PROJECT_DIR/.claude/compression-state.json $AE_PROJECT_DIR/.agentic/compression-state.json`. Log the move to the wrap run output only.
+- **Read `$AE_PROJECT_DIR/.agentic/compression-state.json`** if the batch probe (or the migration above) confirms it exists. Record its full current content — this will be passed to Part E later to determine whether compression is needed for each target.
+- **Read `$AE_PROJECT_DIR/.agentic/learnings.md`** if the batch probe found it exists in the project. Record its full current content — this will be passed to the draft Worker in Step 1 so it does not re-derive facts already captured by `learnings-agent`.
+- **Check for missing AGENTS.md files:** For each directory that had files touched this session, use the batch's existence probe above rather than a separate check. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory the probe found missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
+- **Reuse `git status --porcelain` and `git stash list` from Step 0-pre** (do not re-run) to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
 - **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
 - **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
 - **Note task-state summary** - if `$AE_PROJECT_DIR/.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
 - **Note loop-state summary** — if `$AE_PROJECT_DIR/.agentic/loop-state.json` exists: if `status=active`, note in the wrap summary that an incomplete loop was active when `$wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `$implement-ticket` invocation will offer to resume). The wrap command does NOT delete or modify `loop-state.json` - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or context.md beyond the one-line status note.
-- **Enumerate open PRs targeting the conductor's current branch.** $wrap writes AGENTS.md and memory.md additions onto the conductor's current branch (typically `main`). If those additions cite file paths or feature keys that live on branches with open PRs not yet merged, the doc additions will land on the target branch describing files/keys that do not yet exist there. Capture the open-PR set now so Step 1 can defer such additions:
+- **Enumerate open PRs targeting the conductor's current branch** — from the batch's `gh pr list` output above (do not re-run the query). $wrap writes AGENTS.md and memory.md additions onto the conductor's current branch (typically `main`). If those additions cite file paths or feature keys that live on branches with open PRs not yet merged, the doc additions will land on the target branch describing files/keys that do not yet exist there.
 
-  ```bash
-  CURRENT_BRANCH=$(git -C $REPO branch --show-current)
-  gh pr list --state open --base "$CURRENT_BRANCH" --json number,headRefName,files \
-    --jq '.[] | {n: .number, branch: .headRefName, files: [.files[].path]}'
-  ```
-
-  Record the resulting `{pr_number, head_branch, modified_files[]}` set as the **open-PR overlap set**. If `gh` is unavailable or returns an error, log "open-PR overlap check skipped (gh unavailable)" to the wrap run output and pass an empty set forward — the deferral logic becomes a no-op rather than blocking the run. The set is supplied to the draft Worker as a dedicated field (see Step 1) so it can flag deferral candidates; the conductor enforces deferral at write time in Step 4.
+  Record the resulting `{pr_number, head_branch, modified_files[]}` set as the **open-PR overlap set**. If the batch logged `GH_UNAVAILABLE` or `GH_PR_LIST_FAILED`, log "open-PR overlap check skipped (gh unavailable)" to the wrap run output and pass an empty set forward — the deferral logic becomes a no-op rather than blocking the run. The set is supplied to the draft Worker as a dedicated field (see Step 1) so it can flag deferral candidates; the conductor enforces deferral at write time in Step 4.
 
 This raw data is what the draft Worker will format. The Worker is a fresh agent with no session memory, so if you don't supply the details here, they won't appear in the output.
 
 **Step 0.5 - Route to light, zero-substance, or standard path.**
 
 Inspect what Outputs 2 and 3 would contain based on the raw data already compiled in Step 0. Do not spawn anything yet.
+
+**Reached two ways.** Normally this step runs after full Step 0 compiles its raw data. It can also be reached directly from Step 0-pre's fast short-circuit, which evaluates the same criteria below from conversation context already in hand, before Step 0's expensive reads ever run. The criteria themselves are defined here and only here - Step 0-pre does not redefine them or replace them with a weaker mechanical proxy; it falls through to full Step 0 on any doubt rather than guessing. Do not read Step 0-pre's earlier evaluation as license to skip re-checking these criteria in spirit - if anything about the session's substance is unclear, the standard or light path is the safe default.
 
 **Zero-substance path** - triggers when ALL of the following hold:
 - Output 2 (memory entries) would be "None"
@@ -410,7 +470,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires all four elements: (a) "Reviewed:", (b) "Findings:", (c) "Active search:", (d) "No unresolved Critical or Major findings. Sign-off granted." If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires the mandatory elements defined in `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 11 (the six always-required lines: Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:; the conditional spec-deviation and PR-SHA-range elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -436,7 +496,7 @@ Inside the Part A `context.md` write window (the whole-flow `wrap/lock` acquired
 
 1. **Atomic spillover drain** - the 3-step rename-first procedure in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"Spillover-drain procedure": rename `$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl` -> `$AE_PROJECT_DIR/.agentic/wrap/deferred-activity.jsonl.draining.<pid>`, fold its records into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance), then unlink the renamed copy. Apply the Recent-Focus dedup rule from that reference (key the folded draft by `session_id`+`staged_at`; skip a re-folded duplicate) so a duplicate enrichment of the same marker is idempotent.
 
-2. **Rolling-session-label merge write** of `$AE_PROJECT_DIR/.agentic/context.md` - the algorithm in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/wrap / merge branches, the duplicate-claim dedup, the 1-to-5 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by $wrap` (the matcher contract); no site parses the header date.
+2. **Rolling-session-label merge write** of `$AE_PROJECT_DIR/.agentic/context.md` - the algorithm in `$AE_REPO_DIR/content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/wrap / merge branches, the duplicate-claim dedup, the 1-to-10 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by $wrap` (the matcher contract); no site parses the header date.
 
 3. **Write `$AE_PROJECT_DIR/.agentic/wrap/last-wrap`** = this session's `session_id` (atomic) - per `$AE_REPO_DIR/content/references/wrap-context-format.md` §"`$AE_PROJECT_DIR/.agentic/wrap/last-wrap` write contract".
 
@@ -618,9 +678,9 @@ Otherwise skip that target silently.
    >
    > Require this statement before sign-off: "Active search: I walked the original section by section and verified every fact appears in the compressed output."
    >
-   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... No unresolved Critical or Major findings. Sign-off granted."
+   > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted."
 
-3. Validate sign-off format the same way Step 3 does (all four elements: "Reviewed:", "Findings:", "Active search:", "No unresolved Critical or Major findings. Sign-off granted."). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
+3. Validate sign-off format the same way Step 3 does (the mandatory elements per `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 11 - the six always-required lines; the conditional spec-deviation and PR-SHA-range elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
    If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
 

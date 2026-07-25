@@ -1,1 +1,1 @@
-{"compatibility_inventory_sha256":"f1d786414cab93d048b9614e09fc1e1f6edee8275ed8f3113d30c31bdd1eb2d0","resources":{"core":{"path":"resources","type":"directory"},"workflow":{"path":"resources/commands/brief.md","type":"file"}},"schema_version":1,"skill":"brief"}
+{"compatibility_inventory_sha256":"5ffd095aa81a73c2f18eb00d6f9a0635a47a810c39706e7ddb8162285334b4ac","resources":{"core":{"path":"resources","type":"directory"},"workflow":{"path":"resources/commands/brief.md","type":"file"}},"schema_version":1,"skill":"brief"}
