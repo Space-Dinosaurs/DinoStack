@@ -809,6 +809,37 @@ for file_matcher in ("Write", "Edit"):
         f"PreToolUse({file_matcher}) planning-artifact advisory hook",
     )
 
+# ---- PreToolUse shippable-edit guard (Write + Edit + MultiEdit matchers) ---
+# Denies a conductor-direct (agent_id absent) Write/Edit/MultiEdit against a
+# shippable file inside the DinoStack checkout; allows the same edit from an
+# engineer subagent (agent_id present). Mechanically backstops METHODOLOGY
+# §Git Workflow's shippable/exempt classifier for the conductor (DS-94).
+# Fully fail-open on any error. Kill-switch: AE_SHIPPABLE_GUARD_DISABLE=1.
+# Wired on "Write", "Edit", and "MultiEdit" matchers; same idempotent
+# upsert pattern as the planning-artifact block above.
+ENFORCE_SHIPPABLE_CMD = f"python3 {hooks_root}/hooks/enforce-shippable-edit.py"
+
+for file_matcher in ("Write", "Edit", "MultiEdit"):
+    # Find or create a matcher block for this tool name.
+    ptu_shippable_block = None
+    for block in ptu_list:
+        if block.get("matcher") == file_matcher:
+            ptu_shippable_block = block
+            break
+
+    if ptu_shippable_block is None:
+        ptu_shippable_block = {"matcher": file_matcher, "hooks": []}
+        ptu_list.append(ptu_shippable_block)
+
+    ptu_shippable_block.setdefault("hooks", [])
+
+    upsert_hook(
+        ptu_shippable_block["hooks"],
+        "enforce-shippable-edit.py",
+        {"type": "command", "command": ENFORCE_SHIPPABLE_CMD, "timeout": 5},
+        f"PreToolUse({file_matcher}) shippable-edit guard hook",
+    )
+
 # Symlink guard: never write through a symlink (open("w") follows it and truncates
 # the real target). PoC verified: symlinking settings.json to a victim file and
 # running installer overwrites the victim's content through the link.
@@ -820,6 +851,39 @@ with open(settings_path, "w") as f:
     f.write("\n")
 
 print("  settings.json written.")
+
+# ---- Anti-orphan check: warn (non-fatal) on any hook command referencing a
+# script path that does not exist on disk. Catches drift such as a hook
+# wired against a moved/renamed/deleted script. Scoped to tokens containing
+# "/hooks/" that end in .py, .js, or .sh, to avoid false-positiving on the
+# echo-based risk-classification hook commands (which have no script path).
+def _find_orphaned_hook_scripts(obj):
+    orphans = []
+
+    def _walk(node):
+        if isinstance(node, list):
+            for item in node:
+                _walk(item)
+        elif isinstance(node, dict):
+            cmd = node.get("command")
+            if isinstance(cmd, str):
+                for token in cmd.split():
+                    if "/hooks/" in token and token.endswith((".py", ".js", ".sh")):
+                        if not os.path.exists(token):
+                            orphans.append(token)
+            for v in node.values():
+                if isinstance(v, (dict, list)):
+                    _walk(v)
+
+    _walk(obj)
+    return orphans
+
+_orphans = _find_orphaned_hook_scripts(settings)
+if _orphans:
+    print()
+    for _orphan in sorted(set(_orphans)):
+        print("  !! ORPHANED HOOK: " + _orphan + " referenced in " + settings_path + " does not exist on disk")
+    print("  !! Non-fatal - re-run install.sh after the hook script is restored, or remove the stale entry.")
 PYEOF
 
 # ---------------------------------------------------------------------------
