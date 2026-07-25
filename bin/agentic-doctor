@@ -4,10 +4,14 @@ Purpose: Inspect global agentic-engineering install health and (with --fix)
          converge drift. Checks that managed symlinks under ~/.claude resolve
          into the canonical repo_dir, that ~/.local/bin/ wrappers exist for
          each bin/agentic-* script, that hook commands in ~/.claude/settings.json
-         point into repo_dir, and that the repo_dir pre-commit hook is wired.
-         With --fix, re-points ours-to-own broken/stale symlinks and rewrites
-         hook paths in settings.json (atomic read-merge-write). Never invokes
-         install.sh, never touches real files or foreign symlinks.
+         point into repo_dir, that every managed hook script referenced in
+         settings.json actually exists on disk (orphaned-hook detection),
+         and that the repo_dir pre-commit hook is wired. With --fix,
+         re-points ours-to-own broken/stale symlinks and rewrites hook paths
+         in settings.json (atomic read-merge-write); the orphaned-hook check
+         is read-only (FAIL only, no --fix repair - the fix is restoring the
+         script or re-running install.sh). Never invokes install.sh, never
+         touches real files or foreign symlinks.
 
 Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
             --cross-harness: also validate the cross-harness team stack
@@ -90,6 +94,7 @@ MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
     "enforce-askuserquestion-default.py",
     "enforce-background-spawn.py",
     "enforce-orchestrator-singularity.py",
+    "enforce-shippable-edit.py",
     "post-tool-use-capture-nudge.js",
     "session-end-wrap.js",
     "session-start-version-check.sh",
@@ -506,6 +511,55 @@ def _atomic_patch_settings(
         doc.mark_unfixable(settings_path)
 
 
+def check_hook_scripts_exist(doc: Doctor) -> None:
+    """FAIL each managed hook script referenced in settings.json that is
+    missing on disk (an orphaned hook wiring - e.g. a moved, renamed, or
+    deleted script). Read-only: never repointed or removed by --fix; the
+    fix for a missing script is restoring the file or re-running install.sh
+    to re-wire against a corrected path, not a doctor-side patch.
+    """
+    settings_path = _settings_path()
+    if not settings_path.exists():
+        doc.skip("hook_scripts", settings_path, "settings.json not found")
+        return
+
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        doc.fail("hook_scripts", f"could not parse {settings_path}: {exc}")
+        return
+
+    missing: set[str] = set()
+
+    def _walk(obj: object) -> None:
+        if isinstance(obj, list):
+            for item in obj:
+                _walk(item)
+        elif isinstance(obj, dict):
+            cmd = obj.get("command")
+            if isinstance(cmd, str):
+                for token in cmd.split():
+                    if "/hooks/" not in token or not token.endswith((".py", ".js", ".sh")):
+                        continue
+                    basename = os.path.basename(token)
+                    if basename not in MANAGED_HOOK_BASENAMES:
+                        continue
+                    if not os.path.exists(token):
+                        missing.add(token)
+            for v in obj.values():
+                if isinstance(v, (dict, list)):
+                    _walk(v)
+
+    _walk(data)
+
+    if not missing:
+        doc.ok("hook_scripts", f"{settings_path}: all managed hook scripts exist on disk")
+        return
+
+    for token in sorted(missing):
+        doc.fail("hook_scripts", f"{token} referenced in {settings_path} does not exist on disk")
+
+
 # ---------------------------------------------------------------------------
 # Check (d): ~/.local/bin/<name> symlinks for each bin/agentic-* script
 # ---------------------------------------------------------------------------
@@ -876,13 +930,16 @@ def main() -> int:
     # (c) hook paths in settings.json
     check_hook_paths(doc)
 
-    # (d) ~/.local/bin wrappers
+    # (d) managed hook scripts exist on disk (orphaned-hook detection)
+    check_hook_scripts_exist(doc)
+
+    # (e) ~/.local/bin wrappers
     check_local_bin_symlinks(doc)
 
-    # (e) git pre-commit hook
+    # (f) git pre-commit hook
     check_git_precommit(doc)
 
-    # (f) cross-harness team stack (opt-in via --cross-harness)
+    # (g) cross-harness team stack (opt-in via --cross-harness)
     if args.cross_harness:
         check_cross_harness(doc)
 

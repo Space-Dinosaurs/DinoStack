@@ -100,6 +100,8 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 3. conductor-direct PRINT/DECISION/RESOLVER-EXECUTION -> EXEMPT.
 4. any other tracked-file write -> SHIPPABLE -> delegate to worktree-isolated engineer (Trivial: no Skeptic/no brief; Elevated: full Worker+Skeptic).
 
+**Mechanical backstop (Claude Code, DinoStack checkout only).** A PreToolUse hook (`hooks/enforce-shippable-edit.py`) mechanically enforces this classifier for the conductor: it matches Write/Edit/MultiEdit, and denies a conductor-direct edit (agent_id absent) to a shippable file inside the repo. Exempt: `.agentic/**`, `docs/planning/**`, the instruction-layer basenames `AGENTS.md`/`MEMORY.md`/`CLAUDE.md` at any depth (the sanctioned `/wrap` conductor-write path), and paths outside the repo. Fail-open on any error. Kill-switch: `AE_SHIPPABLE_GUARD_DISABLE=1`. Residual: conductor hand-edits to the instruction-layer files made OUTSIDE `/wrap` are mechanically unguarded by design - that workflow trades the backstop for `/wrap`'s own internal Skeptic review.
+
 **Base branch resolution** - resolve `BASE_BRANCH` in this order and cache the result for the session:
 1. **Explicit declaration wins.** If the project declares a base/integration branch via a `BASE_BRANCH:` line in `AGENTS.md`, use it. Highest priority.
 2. Else if a local `develop` branch exists - use `develop`.
