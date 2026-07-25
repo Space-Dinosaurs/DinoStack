@@ -231,7 +231,7 @@ content/
   rules/        3 rule files (module-manifest, code-standards, conventions)
   references/   31 reference docs (agent-team, skeptic-protocol, qa-gate,
                     capability-preflight, events-log, planning-artifacts, ...)
-  commands/     25 command files (implement-ticket, init-project, wrap, brief, ...)
+  commands/     25 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
   agents/       18 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
 ```
 

@@ -20,7 +20,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 ## Decisions
 
-- **2026-05-18: Adapter-drift CI gate (`adapter-sync.yml`) is advisory-only** - drift is CI-visible (red X) on every PR but not a required status check, not hard-blocked at merge. Upgrade path: add `check-adapter-sync` as a required status check on `main`.
+- **2026-07-25 (supersedes 2026-05-18): Adapter-drift CI gate (`check-adapter-sync`) is now a required status check on `main` and hard-blocks merge on drift.** The upgrade path proposed by the original entry has been completed - verified 2026-07-25 against the live branch-protection ruleset (14 required checks total, `check-adapter-sync` among them). No longer advisory-only.
 
 - **2026-07-01: "Works for everyone" (universality) is a North Star pillar.** Shared DinoStack behavior must never bake in one operator's identity, workspace, tracker, or local setup - resolve per-operator context at runtime and degrade gracefully when a capability isn't configured. Test: would this behave correctly for a teammate with different credentials/tracker/harness?
 
@@ -42,7 +42,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-01: A bare `git pull` here can silently rewire hooks in every other open session** - hooks wire into `~/.claude/settings.json` by absolute path and reload on every tool call, no restart needed. Fix: a session-stable per-checkout hook snapshot dir that a bare pull doesn't mutate; restart other open sessions after any `hooks/` change lands.
 
-- **2026-07-08: Vision-alignment enforcement shipped; `vision-alignment-check` CI is advisory-only by design** (mirrors adapter-drift). Canonical trigger-path list is owned by `content/agents/skeptic.md` step 3.6 (grep `keep.*sync` to find the two derived copies). Do NOT add to required branch-protection checks without an explicit operator decision.
+- **2026-07-25 (supersedes 2026-07-08): `check-vision-alignment` CI is now a required status check on `main`**, following an explicit operator decision to promote it - verified 2026-07-25 against the live branch-protection ruleset (14 required checks total, `check-vision-alignment` among them). No longer advisory-only; the original entry's "do NOT add without an explicit operator decision" caveat is what was subsequently satisfied. Canonical trigger-path list is still owned by `content/agents/skeptic.md` step 3.6 (grep `keep.*sync` to find the two derived copies).
 
 - **2026-07-09: When drafting an "execution required" obligation clause, avoid phrasing a reviewer could read as permitting the check without re-executing.** DS-78's first draft of `qa-regression-obligation.md` had exactly this wording and was flagged Major by the plan Skeptic. Precise, unambiguous execution-obligation language is worth a second read before spawning the Worker.
 
