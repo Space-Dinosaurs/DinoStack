@@ -11,7 +11,8 @@ Purpose: Canonical reference for the ticket-rework alert - the notice that
          shape); the command-scoped-notice disclaimer; the trigger rule,
          notice template, escalation table, and known limitations.
 
-Public API: Read-only reference document. Cross-referenced from:
+Public API: Read-only reference document. Planned consumers (ship in units
+            U2-U4 of the ticket-rework Plan; not yet live on main as of U1):
             content/commands/ds-implement-ticket.md (Phase 1 detection +
             notice, Phase 9 ledger write, Phase 2/3 risk floor, Phase 6
             Skeptic-brief callout, Tier-3 escalation at 2+ prior attempts);
@@ -27,7 +28,9 @@ Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
                qa-regression-obligation.md (structural precedent for a new
                reference doc with no prior art in this domain).
 
-Downstream consumers: content/commands/ds-implement-ticket.md,
+Downstream consumers: Planned (ship in units U2-U4 of the ticket-rework
+                      Plan; not yet live on main as of U1):
+                      content/commands/ds-implement-ticket.md,
                       content/commands/ds-ticket-triage.md. Read on trigger
                       only - nothing in this file enters an always-loaded
                       path; it is never assembled into METHODOLOGY.md by
@@ -46,6 +49,8 @@ Performance: Standard (static reference text; no runtime cost).
 -->
 
 # Ticket rework alert
+
+The mechanism described in this reference ships across units U2-U5 of the ticket-rework Plan; as of U1 it is not yet live on `main`.
 
 ## What this is, and deliberately is not
 
@@ -111,11 +116,11 @@ One residual, deliberately accepted case: after a branch name is reused (a prior
 
 The ledger write happens once, at the `/ds-implement-ticket` Phase 9 PR-creation step - specifically at the capture point immediately after the PR is created and its number is captured, downstream of PR creation regardless of which body-composition path was used (see Dual-branch anchoring pattern below).
 
-**Why Phase 9 and not later.** Every later phase in the flow has at least one escalation exit that terminates the run before reaching it: the Skeptic loop can hit its iteration cap or a convergence failure; the QA loop can hit its own cap; the fix-loop can exhaust its budget; CI can time out. A first invocation that successfully opened a PR and then died on red CI, or stalled in a later escalation, is precisely the kind of prior attempt a later re-invocation should be told about - and Phase 9 is the earliest point at which "a PR now exists for this ticket" becomes true, so anchoring there catches every run that got that far, independent of what happens afterward.
+**Why Phase 9 and not later.** The exits that actually discriminate between Phase 9 and a later anchor are the ones that fire after a PR already exists but before the run reaches a clean finish: the Phase 10 CI timeout and the Phase 10a fix-loop cap. A first invocation that successfully opened a PR and then died on red CI, or exhausted its CI-fix budget, is precisely the kind of prior attempt a later re-invocation should be told about - and Phase 9 is the earliest point at which "a PR now exists for this ticket" becomes true, so anchoring there catches every run that got that far, independent of what happens afterward. (The Skeptic-loop cap, the QA-loop cap, and fix-loop exhaustion earlier in the flow do not discriminate between Phase 9 and any later anchor - no PR exists yet on those exits, so neither anchor would record them; see "Pre-PR failures are never recorded" in Known limitations below.)
 
 **Why not Phase 12.** Phase 12 sits downstream of all of the escalation exits described above. Anchoring the write there would silently drop every attempt that opened a PR but then stalled or was escalated before reaching Phase 12 - exactly the runs where a manual-verification pointer matters most, because those are the ones that ended in an unresolved state rather than a clean finish.
 
-**Why not Phase 11c.** Phase 11c is skipped on two paths that still need to be recorded: the Trivial path (which never reaches it) and any run where Phase 9 itself was skipped (dry-run open-goal iterations, which never open a PR at all and correctly write nothing). Anchoring there would drop the Trivial-path record shown above, which is exactly the record this doc uses to illustrate the null-render rule.
+**Why not Phase 11c.** Phase 11c is skipped on the Trivial path, which never reaches it. Anchoring the write there would drop the Trivial-path record shown above, which is exactly the record this doc uses to illustrate the null-render rule.
 
 **Open-goal dry-run is correctly silent.** When an open-goal loop runs in dry-run mode, Phase 9 (along with the rest of the ship-side phases) is skipped for every iteration - no PR is ever opened, so there is nothing to derive a `pr_number` from, and no record is written. Synthetic per-iteration identifiers used internally by an open-goal loop never enter the ledger.
 
@@ -123,7 +128,7 @@ The ledger write happens once, at the `/ds-implement-ticket` Phase 9 PR-creation
 
 The ledger is written with an unconditional append (`O_APPEND` semantics) and never read before writing. All deduplication happens on read, not on write.
 
-**Why this is safe, stated on the correct grounds.** For a regular file, `O_APPEND` guarantees that the seek-to-end and the subsequent write are atomic with respect to the file's offset - two concurrent appenders cannot interleave their writes into a single corrupted line, because each writer's data lands as a whole at whatever the end-of-file position was at the moment of its write. This atomicity guarantee is specific to regular files; it does **not** extend to pipes or FIFOs, where a different atomicity bound (`PIPE_BUF`) applies instead. `.agentic/ticket-ledger.jsonl` is a regular file, so `O_APPEND` offset atomicity is the correct and sufficient guarantee here - **do not cite `PIPE_BUF`** for this file; that bound governs a different kind of file object and citing it here would be citing the wrong guarantee for what is actually being relied on. (An earlier draft of this design made exactly that mistake during review; it is recorded here so it is not reintroduced.)
+**Why this is safe, stated on the correct grounds.** For a regular file, `O_APPEND` guarantees that the seek-to-end and the subsequent write are atomic with respect to the file's offset - two concurrent appenders cannot have their writes interleave into a single corrupted position, because each individual `write()` call's data lands atomically at whatever the end-of-file offset was at the moment that call executed. This is a per-`write()`-call guarantee, not a per-logical-record one, and the design depends on that distinction: the write contract appends **one ledger line via a single `O_APPEND` `write()` call**, never composed from multiple separate writes, so the offset-atomicity guarantee covers the whole line as one unit. A writer that split one line across several `write()` calls would lose this guarantee and could interleave with a concurrent writer's output. This atomicity guarantee is specific to regular files; it does **not** extend to pipes or FIFOs, where a different atomicity bound (`PIPE_BUF`) applies instead. `.agentic/ticket-ledger.jsonl` is a regular file, so `O_APPEND` offset atomicity is the correct and sufficient guarantee here - **do not cite `PIPE_BUF`** for this file; that bound governs a different kind of file object and citing it here would be citing the wrong guarantee for what is actually being relied on. (An earlier draft of this design made exactly that mistake during review; it is recorded here so it is not reintroduced.)
 
 One caveat worth carrying forward: `O_APPEND`'s atomicity guarantee does **not** hold over NFS. A ledger on a networked filesystem could, in principle, see interleaved writes from truly concurrent appenders. This is accepted as a known limitation rather than solved with a lock, because a lock protocol would reintroduce exactly the contention this design avoids, and the read side already tolerates a duplicated or malformed line without harm (a duplicate `pr_number` collapses under dedupe; a malformed line causes detection to soft-fail rather than crash).
 
@@ -157,7 +162,7 @@ Detection makes zero tracker and zero network calls - it is a single local file 
 ## Notice template
 
 ```
-REWORK: ticket <ID> has <N> prior AE attempt(s) that opened a PR - this ticket is being re-worked.
+REWORK: ticket <ID> has <N> prior AE attempt(s) that opened a PR - prior work on this ticket may need verification.
   Last attempt: PR #<n> (<date>), risk <class>, <r> Skeptic round(s), QA <status>, <u> unit(s).
 Risk floored to Elevated; architect and Skeptic briefed on the prior attempt.
 Manual verification of PR #<n> is recommended.
