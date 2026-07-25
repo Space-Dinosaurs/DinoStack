@@ -48,6 +48,10 @@
  *       accumulated once the cap is crossed, not at EOF. Resolves much later
  *       (via EOF) on pre-fix code (no byte-cap concept existed), which this
  *       case's elapsed-time bound catches.
+ *   12. DS-82 production importer inventory parses JavaScript with espree,
+ *       detects only real static CommonJS/ESM imports and re-exports of the
+ *       shared guard, and traverses in-repository symlinks without cycles or
+ *       repository escapes.
  *
  * Run with: node hooks/tests/test-stdin-guard.js
  */
@@ -58,6 +62,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const EventEmitter = require('events');
+const espree = require('espree');
+const eslintScope = require('eslint-scope');
 
 const { readStdinGuarded } = require('../lib/stdin-guard.js');
 const { spawnSilentStdin, spawnDelayedChunks } = require('./lib/spawn-stdin-helpers.js');
@@ -501,6 +507,394 @@ async function testMaxStdinBytesBackstop() {
 }
 
 // ---------------------------------------------------------------------------
+// Case 12 (DS-82): fail-closed production importer inventory. Parsing with
+// espree distinguishes executable imports from comments, strings, regexes,
+// and member calls while retaining expressions inside template interpolation.
+// ---------------------------------------------------------------------------
+
+const productionImporterExtensions = new Set(['.js', '.cjs', '.mjs']);
+const productionImporterIgnoredDirectories = new Set([
+  '.agentic',
+  '.git',
+  'node_modules',
+  'test',
+  'tests',
+]);
+
+function isWithinDirectory(rootDirectory, candidatePath) {
+  const relativePath = path.relative(rootDirectory, candidatePath);
+  return relativePath === ''
+    || (!path.isAbsolute(relativePath)
+      && relativePath !== '..'
+      && !relativePath.startsWith(`..${path.sep}`));
+}
+
+function parseJavaScript(source, filename) {
+  const extension = path.extname(filename);
+  const sourceTypes = extension === '.mjs'
+    ? ['module']
+    : extension === '.cjs'
+      ? ['script']
+      : ['module', 'script'];
+  const failures = [];
+  for (const sourceType of sourceTypes) {
+    try {
+      return {
+        ast: espree.parse(source, {
+          ecmaVersion: 'latest',
+          sourceType,
+          range: true,
+        }),
+        sourceType,
+      };
+    } catch (error) {
+      failures.push(`${sourceType}: ${error.message}`);
+    }
+  }
+  throw new Error(`Cannot parse importer candidate ${filename}: ${failures.join('; ')}`);
+}
+
+function visitAst(node, visitor) {
+  if (!node || typeof node !== 'object') return;
+  if (typeof node.type === 'string') visitor(node);
+  for (const [key, child] of Object.entries(node)) {
+    if (key === 'loc' || key === 'range' || key === 'tokens' || key === 'comments') continue;
+    if (Array.isArray(child)) {
+      for (const item of child) visitAst(item, visitor);
+    } else {
+      visitAst(child, visitor);
+    }
+  }
+}
+
+function staticString(node) {
+  return node?.type === 'Literal' && typeof node.value === 'string'
+    ? node.value
+    : null;
+}
+
+function importedSpecifiers(source, filename) {
+  const { ast, sourceType } = parseJavaScript(source, filename);
+  const scopeManager = eslintScope.analyze(ast, {
+    ecmaVersion: 2022,
+    sourceType,
+    ignoreEval: true,
+  });
+  const unresolvedGlobalRequires = new Set();
+  for (const scope of scopeManager.scopes) {
+    for (const reference of scope.through) {
+      if (reference.identifier.name === 'require') {
+        unresolvedGlobalRequires.add(reference.identifier);
+      }
+    }
+  }
+
+  const specifiers = [];
+  visitAst(ast, (node) => {
+    if (
+      node.type === 'ImportDeclaration'
+      || node.type === 'ExportNamedDeclaration'
+      || node.type === 'ExportAllDeclaration'
+    ) {
+      const specifier = staticString(node.source);
+      if (specifier !== null) specifiers.push(specifier);
+      return;
+    }
+    if (node.type === 'ImportExpression') {
+      const specifier = staticString(node.source);
+      if (specifier !== null) specifiers.push(specifier);
+      return;
+    }
+    if (
+      node.type === 'CallExpression'
+      && node.callee?.type === 'Identifier'
+      && node.callee.name === 'require'
+      && unresolvedGlobalRequires.has(node.callee)
+      && node.arguments.length === 1
+    ) {
+      const specifier = staticString(node.arguments[0]);
+      if (specifier !== null) specifiers.push(specifier);
+    }
+  });
+  return specifiers;
+}
+
+function sourceImportsStdinGuard(source, sourcePath, guardRealPath) {
+  for (const specifier of importedSpecifiers(source, sourcePath)) {
+    if (
+      path.basename(specifier) !== 'stdin-guard.js'
+      || (!specifier.startsWith('./') && !specifier.startsWith('../'))
+    ) {
+      continue;
+    }
+    const candidatePath = path.resolve(path.dirname(sourcePath), specifier);
+    let candidateRealPath;
+    try {
+      candidateRealPath = fs.realpathSync(candidatePath);
+    } catch (error) {
+      throw new Error(
+        `Importer ${sourcePath} references an unreadable stdin guard ${specifier}: ${error.message}`
+      );
+    }
+    if (candidateRealPath === guardRealPath) return true;
+  }
+  return false;
+}
+
+function discoverProductionImporters(rootDirectory) {
+  const rootRealPath = fs.realpathSync(rootDirectory);
+  const guardRealPath = fs.realpathSync(path.join(rootRealPath, 'hooks/lib/stdin-guard.js'));
+  const discovered = new Set();
+
+  function walkDirectory(directory, relativeDirectory, ancestorRealPaths) {
+    const directoryRealPath = fs.realpathSync(directory);
+    if (!isWithinDirectory(rootRealPath, directoryRealPath)) {
+      throw new Error(`Importer inventory symlink escapes repository scope: ${directory}`);
+    }
+    if (ancestorRealPaths.has(directoryRealPath)) return;
+    const nextAncestors = new Set(ancestorRealPaths);
+    nextAncestors.add(directoryRealPath);
+
+    const entries = fs.readdirSync(directory, { withFileTypes: true })
+      .sort((left, right) => left.name.localeCompare(right.name));
+    for (const entry of entries) {
+      const entryPath = path.join(directory, entry.name);
+      const relativePath = relativeDirectory
+        ? `${relativeDirectory}/${entry.name}`
+        : entry.name;
+      let entryKind = entry;
+
+      if (entry.isSymbolicLink()) {
+        const targetRealPath = fs.realpathSync(entryPath);
+        if (!isWithinDirectory(rootRealPath, targetRealPath)) {
+          throw new Error(`Importer inventory symlink escapes repository scope: ${relativePath}`);
+        }
+        entryKind = fs.statSync(entryPath);
+      }
+
+      if (entryKind.isDirectory()) {
+        if (productionImporterIgnoredDirectories.has(entry.name)) continue;
+        walkDirectory(entryPath, relativePath, nextAncestors);
+        continue;
+      }
+      if (
+        !entryKind.isFile()
+        || !productionImporterExtensions.has(path.extname(entry.name))
+      ) {
+        continue;
+      }
+      const source = fs.readFileSync(entryPath, 'utf8');
+      const sourceRealPath = fs.realpathSync(entryPath);
+      if (sourceImportsStdinGuard(source, sourceRealPath, guardRealPath)) {
+        discovered.add(relativePath);
+      }
+    }
+  }
+
+  walkDirectory(rootDirectory, '', new Set());
+  return [...discovered].sort();
+}
+
+function writeFixture(root, relativePath, source) {
+  const destination = path.join(root, relativePath);
+  fs.mkdirSync(path.dirname(destination), { recursive: true });
+  fs.writeFileSync(destination, source, 'utf8');
+}
+
+function testImporterScannerExactRegressions() {
+  const fixtureRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stdin-guard-inventory-'));
+  const outsideRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'stdin-guard-inventory-outside-'));
+  try {
+    writeFixture(fixtureRoot, 'hooks/lib/stdin-guard.js', "'use strict';\n");
+    writeFixture(
+      fixtureRoot,
+      'hooks/control-regex.js',
+      "if (ok) /require('stdin-guard.js')/.test(value);\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'hooks/member-call.js',
+      "loader.require('./stdin-guard.js');\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'hooks/template.js',
+      'const loaded = `${require("./lib/stdin-guard.js")}`;\n'
+    );
+    writeFixture(
+      fixtureRoot,
+      'hooks/static-esm.js',
+      "import { readStdinGuarded } from './lib/stdin-guard.js';\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'hooks/comment-only.js',
+      "// require('./lib/stdin-guard.js');\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'hooks/string-only.js',
+      "const example = \"require('./lib/stdin-guard.js')\";\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'hooks/regex-only.js',
+      "const example = /require\\('.\\/lib\\/stdin-guard\\.js'\\)/;\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'hooks/shadowed-require.js',
+      "function load(require) { return require('./lib/stdin-guard.js'); }\n"
+    );
+    writeFixture(fixtureRoot, 'other/stdin-guard.js', "'use strict';\n");
+    writeFixture(
+      fixtureRoot,
+      'hooks/different-guard.js',
+      "require('../other/stdin-guard.js');\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'production/common.cjs',
+      "const { readStdinGuarded } = require('../hooks/lib/stdin-guard.js');\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'production/module.mjs',
+      "import guard from '../hooks/lib/stdin-guard.js';\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'production/dynamic.mjs',
+      "const guard = await import('../hooks/lib/stdin-guard.js');\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'production/named-reexport.mjs',
+      "export { readStdinGuarded } from '../hooks/lib/stdin-guard.js';\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'production/star-reexport.mjs',
+      "export * from '../hooks/lib/stdin-guard.js';\n"
+    );
+    writeFixture(
+      fixtureRoot,
+      'tests/symlink-target/linked.js',
+      "require('../../hooks/lib/stdin-guard.js');\n"
+    );
+    fs.symlinkSync(
+      path.join('tests', 'symlink-target'),
+      path.join(fixtureRoot, 'linked-production'),
+      'dir'
+    );
+    fs.symlinkSync(fixtureRoot, path.join(fixtureRoot, 'tests/symlink-target/cycle'), 'dir');
+
+    const fixtureConsumers = discoverProductionImporters(fixtureRoot);
+    const expectedFixtureConsumers = [
+      'hooks/static-esm.js',
+      'hooks/template.js',
+      'linked-production/linked.js',
+      'production/common.cjs',
+      'production/dynamic.mjs',
+      'production/module.mjs',
+      'production/named-reexport.mjs',
+      'production/star-reexport.mjs',
+    ];
+    assert(
+      !fixtureConsumers.includes('hooks/control-regex.js'),
+      'case 12 (DS-82 exact 1): regex literal after a control-flow paren is not an importer'
+    );
+    assert(
+      !fixtureConsumers.includes('hooks/member-call.js'),
+      'case 12 (DS-82 exact 2): member require call is not an importer'
+    );
+    assert(
+      fixtureConsumers.includes('hooks/template.js'),
+      'case 12 (DS-82 exact 3): require inside template interpolation is an importer'
+    );
+    assert(
+      !fixtureConsumers.includes('hooks/comment-only.js')
+        && !fixtureConsumers.includes('hooks/string-only.js')
+        && !fixtureConsumers.includes('hooks/regex-only.js'),
+      'case 12: comments, strings, and regex literals do not satisfy importer discovery'
+    );
+    assert(
+      !fixtureConsumers.includes('hooks/shadowed-require.js')
+        && !fixtureConsumers.includes('hooks/different-guard.js'),
+      'case 12: only global require calls resolving to the shared guard are importers'
+    );
+    assert(
+      fixtureConsumers.includes('production/common.cjs')
+        && fixtureConsumers.includes('production/module.mjs')
+        && fixtureConsumers.includes('hooks/static-esm.js'),
+      'case 12: .js, .cjs, and .mjs static CommonJS/ESM importers are discovered'
+    );
+    assert(
+      fixtureConsumers.includes('production/dynamic.mjs')
+        && fixtureConsumers.includes('production/named-reexport.mjs')
+        && fixtureConsumers.includes('production/star-reexport.mjs'),
+      'case 12: dynamic imports and named/star ESM re-exports are discovered'
+    );
+    assert(
+      fixtureConsumers.includes('linked-production/linked.js'),
+      'case 12: importer reached through an in-repository directory symlink is discovered'
+    );
+    assert(
+      JSON.stringify(fixtureConsumers) === JSON.stringify(expectedFixtureConsumers),
+      'case 12: fixture importer set is exact and symlink cycles terminate '
+        + `(discovered=${JSON.stringify(fixtureConsumers)})`
+    );
+
+    const outsideSentinel = path.join(outsideRoot, 'sentinel.txt');
+    fs.writeFileSync(outsideSentinel, 'preserve\n', 'utf8');
+    fs.symlinkSync(outsideRoot, path.join(fixtureRoot, 'escaped-production'), 'dir');
+    let escapeError = null;
+    try {
+      discoverProductionImporters(fixtureRoot);
+    } catch (error) {
+      escapeError = error;
+    }
+    assert(
+      escapeError?.message.includes('escapes repository scope'),
+      'case 12: importer inventory fails closed on a directory symlink escaping the repository'
+    );
+    assert(
+      fs.readFileSync(outsideSentinel, 'utf8') === 'preserve\n',
+      'case 12: repository-escape rejection leaves the external target untouched'
+    );
+  } finally {
+    fs.rmSync(fixtureRoot, { recursive: true, force: true });
+    fs.rmSync(outsideRoot, { recursive: true, force: true });
+  }
+
+  const repoRoot = path.resolve(__dirname, '..', '..');
+  const expectedConsumers = [
+    '.codex/hooks/stop-context-codex.js',
+    '.copilot/hooks/stop-context-copilot.js',
+    '.cursor/hooks/stop-context-cursor.js',
+    '.gemini/hooks/stop-context-gemini.js',
+    '.github/hooks/stop-context-copilot.js',
+    'hooks/post-tool-use-capture-nudge.js',
+    'hooks/pre-tool-use-spawn-emit.js',
+    'hooks/session-end-wrap.js',
+    'hooks/stop-context.js',
+  ].sort();
+  const consumers = discoverProductionImporters(repoRoot);
+  assert(
+    JSON.stringify(consumers) === JSON.stringify(expectedConsumers),
+    'case 12: discovered production importer set exactly matches canonical consumers '
+      + `(discovered=${JSON.stringify(consumers)})`
+  );
+  for (const relativePath of consumers) {
+    const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
+    assert(
+      /^(?:#![^\n]*\n)?\s*\/\*\*/.test(source),
+      `case 12: ${relativePath} retains a leading module manifest`
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Sanity: module loads clean with no side effects at require time
 // ---------------------------------------------------------------------------
 
@@ -556,6 +950,9 @@ async function main() {
 
     console.log('Case 11: REGRESSION - byte-cap backstop (Major 1)');
     await testMaxStdinBytesBackstop();
+
+    console.log('Case 12: DS-82 exact importer-scanner regressions');
+    testImporterScannerExactRegressions();
   } finally {
     try { fs.unlinkSync(fixturePath); } catch (_) { /* ignore */ }
     try { fs.unlinkSync(fixtureNoExitPath); } catch (_) { /* ignore */ }
