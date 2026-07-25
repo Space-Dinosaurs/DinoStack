@@ -49,6 +49,12 @@ Upstream deps: Python 3 stdlib only (json, os, sys, pathlib). Reads
                <hooks-dir>/../.snapshot-meta.json (optional; DS-54 session-
                stable snapshot metadata) to resolve the live repo root when
                running from a snapshot copy instead of the checkout itself.
+               `from __future__ import annotations` keeps the file importable
+               on Python 3.8/3.9 (PEP 604 `str | None` hints would otherwise
+               raise TypeError at module import time, before the kill-switch
+               and outer try/except can catch it - see enforce-tier.py's
+               manifest for the same trap; macOS system python3 is 3.9 and is
+               the documented supported floor).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Write,
                       Edit, and MultiEdit). Wired via ~/.claude/settings.json
@@ -104,6 +110,8 @@ Performance: < 2 ms per call (in-memory JSON parse, a handful of path
 #   Therefore: deny only when agent_id is ABSENT (or blank) at the TOP
 #   LEVEL of the parsed JSON (NOT inside tool_input) - i.e. only the
 #   conductor is ever a deny candidate.
+
+from __future__ import annotations
 
 import json
 import os

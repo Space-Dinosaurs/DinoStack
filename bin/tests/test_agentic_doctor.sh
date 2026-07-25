@@ -376,6 +376,99 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 7: check_hook_scripts_exist FAILs on a managed hook command whose
+# script does not exist on disk (orphaned-hook detection, DS-94).
+# ---------------------------------------------------------------------------
+setup_fixture
+
+mkdir -p "$FAKE_REPO/hooks"
+# One managed hook script that DOES exist on disk...
+cat > "$FAKE_REPO/hooks/enforce-orchestrator-singularity.py" <<'EOF'
+# fixture stub
+EOF
+# ...and settings.json references it plus a second managed hook basename
+# whose script is MISSING from disk.
+cat > "$TEMP_HOME/.claude/settings.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {"type": "command", "command": "python3 $FAKE_REPO/hooks/enforce-orchestrator-singularity.py", "timeout": 5},
+          {"type": "command", "command": "python3 $FAKE_REPO/hooks/enforce-shippable-edit.py", "timeout": 5}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+invoke_doctor
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT" | grep -q "^FAIL hook_scripts:.*enforce-shippable-edit.py.*does not exist on disk"; then
+  _pass "T7 hook_scripts: missing managed hook script reported as FAIL"
+else
+  _fail "T7 hook_scripts: expected FAIL for missing enforce-shippable-edit.py\n$OUT"
+fi
+
+if echo "$OUT" | grep -q "FAIL hook_scripts:.*enforce-orchestrator-singularity.py"; then
+  _fail "T7 hook_scripts: enforce-orchestrator-singularity.py exists on disk and must NOT be reported as FAIL\n$OUT"
+else
+  _pass "T7 hook_scripts: existing managed hook script not falsely flagged"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 8: check_hook_scripts_exist reports OK when every referenced managed
+# hook script exists on disk.
+# ---------------------------------------------------------------------------
+setup_fixture
+
+mkdir -p "$FAKE_REPO/hooks"
+cat > "$FAKE_REPO/hooks/enforce-orchestrator-singularity.py" <<'EOF'
+# fixture stub
+EOF
+cat > "$FAKE_REPO/hooks/enforce-shippable-edit.py" <<'EOF'
+# fixture stub
+EOF
+cat > "$TEMP_HOME/.claude/settings.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {"type": "command", "command": "python3 $FAKE_REPO/hooks/enforce-orchestrator-singularity.py", "timeout": 5},
+          {"type": "command", "command": "python3 $FAKE_REPO/hooks/enforce-shippable-edit.py", "timeout": 5}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+invoke_doctor
+OUT=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT" | grep -q "^OK hook_scripts:.*all managed hook scripts exist on disk"; then
+  _pass "T8 hook_scripts: all-present case reports OK"
+else
+  _fail "T8 hook_scripts: expected OK hook_scripts line when all scripts exist\n$OUT"
+fi
+
+if echo "$OUT" | grep -q "^FAIL hook_scripts:"; then
+  _fail "T8 hook_scripts: unexpected FAIL hook_scripts line when all scripts exist\n$OUT"
+else
+  _pass "T8 hook_scripts: no FAIL hook_scripts lines when all scripts exist"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo
