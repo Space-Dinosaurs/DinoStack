@@ -511,13 +511,18 @@ console.log('\n[10] acquireWrapLock: auto-clears a stale lock, defers on a fresh
   lib.releaseWrapLock(projectDir);
   assert(!fs.existsSync(lockDir), 'releaseWrapLock removes the lock directory');
 
-  // (c) STALE lock -> auto-cleared + re-acquired.
+  // (c) No-PID legacy lock with a stale owner timestamp -> auto-cleared + re-acquired.
   fs.mkdirSync(lockDir, { recursive: true });
   const old = new Date(Date.now() - 40 * 60 * 1000);
-  fs.utimesSync(lockDir, old, old); // backdate mtime so it reads as stale
-  assert(lib.wrapLockStale(projectDir, STALE_MS) === true, 'a backdated lock reads as stale');
+  fs.writeFileSync(lib.wrapLockOwnerPath(projectDir), `\n${old.toISOString()}\n`);
+  const now = new Date();
+  fs.utimesSync(lockDir, now, now);
+  assert(lib.wrapLockStale(projectDir, STALE_MS) === false,
+    'legacy lock directory mtime remains fresh');
+  assert(lib.wrapLockProvablyStale(projectDir, STALE_MS) === true,
+    'no-PID legacy owner timestamp is provably stale');
   assert(lib.acquireWrapLock(projectDir, 'owner-3', STALE_MS) === true,
-    'acquireWrapLock auto-clears a STALE lock and re-acquires');
+    'acquireWrapLock auto-clears a stale no-PID legacy lock and re-acquires');
   lib.releaseWrapLock(projectDir);
 
   cleanup(base);

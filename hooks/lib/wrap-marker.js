@@ -105,7 +105,10 @@
  *                releaseWrapLock retain legacy lock behavior. Tokenless release
  *                requires a successful helper classification plus a positive
  *                legacy owner classification; signed, unavailable, and ambiguous
- *                cases are retained. Migrated consumers use
+ *                cases are retained. Compatibility acquisition pins a positive
+ *                legacy owner before reclaim and treats a PID as stale only when
+ *                liveness proves ESRCH; no-PID owners retain the timestamp fallback.
+ *                Migrated consumers use
  *                acquireWrapLockToken / releaseWrapLockToken, which delegate
  *                to the Python helper through a fixed, validated system Python
  *                path rather than inherited PATH.
@@ -898,9 +901,17 @@ function acquireWrapLock(cwd, owner, staleMs) {
     if (!clearProvablyStaleWrapLockTokenized(safe, staleMs)) return false;
     return tryMkdir();
   }
-  if (inspected.status === 'invalid' && wrapLockStale(safe, staleMs)) {
-    try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch (_) {}
-    return tryMkdir();
+  if (inspected.status === 'invalid') {
+    const legacy = readPositiveLegacyWrapLock(safe);
+    if (legacy) {
+      if (!ownerIsStale(legacy, staleMs)) return false;
+      if (!removePositiveLegacyWrapLock(safe, legacy)) return false;
+      return tryMkdir();
+    }
+    if (wrapLockProvablyStale(safe, staleMs)) {
+      try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch (_) {}
+      return tryMkdir();
+    }
   }
   return false;
 }
@@ -1005,6 +1016,8 @@ function readPositiveLegacyWrapLock(cwd) {
     const pid = Number(pidText);
     if (!Number.isSafeInteger(pid) || pid <= 0) return null;
     return {
+      pid,
+      ts: timestamp,
       lockDev: lockSt.dev,
       lockIno: lockSt.ino,
       ownerDev: ownerSt.dev,

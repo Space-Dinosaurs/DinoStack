@@ -166,6 +166,61 @@ console.log('\n[8] compatibility boundary preserves boolean acquire and tokenles
     'compatibility release leaves no lock residue');
 }
 
+console.log('\n[8a] legacy reclaim follows owner liveness and timestamp, never directory mtime');
+{
+  const staleMs = 1000;
+  const oldDate = new Date(Date.now() - 60_000);
+
+  const liveProject = temp('wrap-acquire-live-legacy-');
+  const liveOwner = `${process.pid}\n${new Date().toISOString()}\n`;
+  fs.mkdirSync(lib.wrapLockPath(liveProject), { recursive: true });
+  fs.writeFileSync(lib.wrapLockOwnerPath(liveProject), liveOwner);
+  fs.utimesSync(lib.wrapLockPath(liveProject), oldDate, oldDate);
+  assert(lib.acquireWrapLock(liveProject, 'legacy-contender', staleMs) === false,
+    'live legacy PID remains authoritative despite stale lock-directory mtime');
+  assert(fs.readFileSync(lib.wrapLockOwnerPath(liveProject), 'utf8') === liveOwner,
+    'live legacy owner bytes are not replaced');
+
+  const deadProject = temp('wrap-acquire-dead-legacy-');
+  const deadPid = Number(execFileSync(
+    process.execPath,
+    ['-e', 'process.stdout.write(String(process.pid))'],
+    { encoding: 'utf8' },
+  ));
+  fs.mkdirSync(lib.wrapLockPath(deadProject), { recursive: true });
+  fs.writeFileSync(
+    lib.wrapLockOwnerPath(deadProject),
+    `${deadPid}\n${new Date().toISOString()}\n`,
+  );
+  fs.utimesSync(lib.wrapLockPath(deadProject), oldDate, oldDate);
+  assert(lib.acquireWrapLock(deadProject, 'legacy-contender', staleMs) === true,
+    'dead legacy PID is reclaimed');
+  assert(lib.releaseWrapLock(deadProject) === true,
+    'reclaimed legacy lock remains tokenlessly releasable');
+
+  const noPidProject = temp('wrap-acquire-no-pid-legacy-');
+  fs.mkdirSync(lib.wrapLockPath(noPidProject), { recursive: true });
+  fs.writeFileSync(
+    lib.wrapLockOwnerPath(noPidProject),
+    `\n${new Date().toISOString()}\n`,
+  );
+  fs.utimesSync(lib.wrapLockPath(noPidProject), oldDate, oldDate);
+  assert(lib.clearProvablyStaleWrapLock(noPidProject, staleMs) === false,
+    'fresh no-PID legacy timestamp is retained despite stale directory mtime');
+  assert(fs.existsSync(lib.wrapLockPath(noPidProject)),
+    'fresh no-PID legacy lock remains present');
+  fs.writeFileSync(
+    lib.wrapLockOwnerPath(noPidProject),
+    `\n${oldDate.toISOString()}\n`,
+  );
+  const now = new Date();
+  fs.utimesSync(lib.wrapLockPath(noPidProject), now, now);
+  assert(lib.clearProvablyStaleWrapLock(noPidProject, staleMs) === true,
+    'stale no-PID legacy timestamp is reclaimed despite fresh directory mtime');
+  assert(!fs.existsSync(lib.wrapLockPath(noPidProject)),
+    'stale no-PID legacy reclaim removes the lock');
+}
+
 console.log('\n[9] attacker-controlled PATH cannot substitute the Python helper');
 {
   const project = temp('wrap-acquire-trusted-python-project-');
