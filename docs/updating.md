@@ -12,7 +12,7 @@ Flags:
 - `--no-doctor` - skip the `agentic-doctor --fix` repair step
 - `--adapters=cursor,codex` - rebuild only the specified adapters
 
-First time? `agentic-update` installs itself to `~/.local/bin/` on your next `./update.sh` or `/pull-and-install` run; after that it works from anywhere.
+First time? `agentic-update` installs itself to `~/.local/bin/` on your next `./update.sh` or `/ds-pull-and-install` run; after that it works from anywhere.
 
 ## TUI updater (`./update.sh`)
 

@@ -104,7 +104,7 @@ ${lastMsgSection}
 ## Notes
 
 This context file is written by the VS Code Copilot stop hook.
-For richer context (paths referenced, tools used, uncommitted changes), run /wrap
+For richer context (paths referenced, tools used, uncommitted changes), run /ds-wrap
 manually before ending a session.
 `;
 

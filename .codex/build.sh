@@ -70,7 +70,7 @@ For detailed protocol specs, see the reference docs:
 
 These live in `~/.agents/skills/agentic-engineering/references/` (global install) or `.codex/references/` (local copies).
 
-For command templates (skeptic, implement-ticket, wrap, etc.), see `.codex/commands/`.
+For command templates (ds-skeptic, ds-implement-ticket, ds-wrap, etc.), see `.codex/commands/`.
 FOOTER
 
 } > "$AGENTS_DST"
@@ -179,13 +179,36 @@ echo "Rebuilt skill/project-scaffolding.yml and templates/"
 # /agentic-engineering prerequisite blockquote is NOT present in content/
 # (it is Claude Code-specific and prepended only by .claude/build.sh),
 # so no transform is needed here.
+#
+# Side-effects: also removes any stale .codex/commands/*.md file whose
+# basename no longer matches a content/commands/*.md source (e.g. after a
+# command rename or deletion upstream).
 # ---------------------------------------------------------------------------
 
 mkdir -p "$COMMANDS_DST"
 
+declare -a generated_commands=()
 for src in "$CONTENT/commands/"*.md; do
   name="$(basename "$src")"
+  generated_commands+=("$name")
   hardlink_from_content "$src" "$COMMANDS_DST/$name"
+done
+
+# Remove stale command files (source was renamed or deleted upstream)
+for existing in "$COMMANDS_DST"/*.md; do
+  [ -f "$existing" ] || continue
+  bname="$(basename "$existing")"
+  found=0
+  for gen in "${generated_commands[@]}"; do
+    if [[ "$gen" == "$bname" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    rm "$existing"
+    echo "Removed stale command: $bname"
+  fi
 done
 
 echo "Rebuilt commands/ hardlinks"

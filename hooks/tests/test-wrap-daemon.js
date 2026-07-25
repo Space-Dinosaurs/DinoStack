@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Smoke tests: hooks/wrap-daemon.js - the per-project deferred-`/wrap` daemon (U3).
+ * Smoke tests: hooks/wrap-daemon.js - the per-project deferred-`/ds-wrap` daemon (U3).
  *
  * Covers architect-plan verification-gate cases:
  *   (7)  singleton: a second launch no-ops on a LIVE pid file; reclaims a stale +
@@ -85,7 +85,7 @@ function assert(condition, message) {
 // ---------------------------------------------------------------------------
 // One mock dir is shared by all tests. The mock branches on argv:
 //   - `auth status`  -> exit 0 unless MOCK_CLAUDE_AUTH=fail (then exit 1).
-//   - `--resume ...`  (the /wrap-deferred drain) -> behavior from MOCK_CLAUDE_WRAP:
+//   - `--resume ...`  (the /ds-wrap-deferred drain) -> behavior from MOCK_CLAUDE_WRAP:
 //        "ok"   (default) -> exit 0
 //        "fail"           -> exit 7
 //        "hang"           -> sleep MOCK_CLAUDE_HANG_MS (default 60000) then exit 0
@@ -398,7 +398,7 @@ console.log('\n[14] heartbeat-fresh -> defer: a live session keeps its ready mar
 // ---------------------------------------------------------------------------
 // (16) timeout-and-kill -> hung child killed, marker reset (attempts++)
 // ---------------------------------------------------------------------------
-console.log('\n[16] timeout-and-kill: a hung /wrap-deferred is killed and the marker is reset (attempts++)');
+console.log('\n[16] timeout-and-kill: a hung /ds-wrap-deferred is killed and the marker is reset (attempts++)');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-to-');
   // timeout_minutes 0.02 min = 1200 ms; the mock hangs 60 s -> the daemon must kill it.
@@ -584,7 +584,7 @@ console.log('\n[SEC-C1] drain spawn passes --disallowedTools Bash (Bash removed 
   // pager / alias / ext::) - under bypassPermissions, --allowedTools alone cannot
   // close it because unlisted tools (Bash) remain in context and auto-approve.
   const disallowIdx = drainArgv.indexOf('--disallowedTools');
-  assert(disallowIdx >= 0, '--disallowedTools flag is present on the /wrap-deferred drain spawn (SEC-C1)');
+  assert(disallowIdx >= 0, '--disallowedTools flag is present on the /ds-wrap-deferred drain spawn (SEC-C1)');
   assert(drainArgv[disallowIdx + 1] === 'Bash',
     `--disallowedTools value is exactly "Bash" so Bash is removed from model context (got: ${drainArgv[disallowIdx + 1]}) (SEC-C1)`);
   // The value carries no git verb or other tool - Bash removal is the whole boundary.
@@ -669,10 +669,10 @@ console.log('\n[LOG-1] success capture: wrap-daemon.log contains the done line +
   assert(new RegExp(SID.a + ' done').test(logTxt),
     'log records the per-run outcome line (session <id> done)');
   // The captured child stdout must be inside the delimited block for this session.
-  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+  const block = (logTxt.split('----- /ds-wrap-deferred output for ' + SID.a)[1] || '')
     .split('----- end output for ' + SID.a)[0] || '';
   assert(/WRAP_OK_MARKER/.test(block),
-    'child stdout (WRAP_OK_MARKER) captured inside the delimited /wrap-deferred block');
+    'child stdout (WRAP_OK_MARKER) captured inside the delimited /ds-wrap-deferred block');
   cleanup(base);
 }
 
@@ -705,7 +705,7 @@ console.log('\n[LOG-2] gave_up + stderr capture + log/marker last_error agreemen
   assert(/last_error:exit:7/.test(logTxt),
     'log gave_up line carries last_error:exit:7 (agrees with the marker)');
   // The child stderr is captured inside the delimited block.
-  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+  const block = (logTxt.split('----- /ds-wrap-deferred output for ' + SID.a)[1] || '')
     .split('----- end output for ' + SID.a)[0] || '';
   assert(/WRAP_ERR_MARKER/.test(block), 'child stderr (WRAP_ERR_MARKER) captured in the block');
   cleanup(base);
@@ -747,13 +747,13 @@ console.log('\n[LOG-3] anti-wedge cap: 512 KB flood is bounded at ~256 KB AND th
   // It also finished well under the 30 s per-child timeout (a wedge would hit ~30 s).
   assert(elapsed < 25000, `flood drain finished promptly (no wedge); took ${elapsed} ms`);
   // (a) The captured block is bounded at ~256 KB + delimiters and carries the notice.
-  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+  const block = (logTxt.split('----- /ds-wrap-deferred output for ' + SID.a)[1] || '')
     .split('----- end output for ' + SID.a)[0] || '';
   assert(/\[output truncated at 256 KB\]/.test(block),
     'captured block carries the [output truncated at 256 KB] notice');
   // Bounded: the captured payload is EXACTLY <= 256 KB (byte-accurate cap, truncated
   // on a code-point boundary), NOT the full 512 KB flood. The 2048-byte slack covers
-  // only the surrounding delimiter/notice lines ("----- /wrap-deferred output for
+  // only the surrounding delimiter/notice lines ("----- /ds-wrap-deferred output for
   // <sid>", "[output truncated at 256 KB]", "----- end output for <sid>", newlines;
   // ~150-250 bytes) plus margin - far tighter than the old 300 KB bound, which masked
   // an up-to-~321 KB overshoot. The captured payload itself never exceeds 256 KB.
@@ -794,7 +794,7 @@ console.log("\n[LOG-3b] multi-byte flood: cap truncates on a code-point boundary
   const m = readMarker(agenticDir, SID.b);
   assert(m !== null && m.status === 'done', 'multi-byte flood marker retained as done tombstone - child exited NORMALLY, no pipe wedge');
   const logTxt = readDaemonLog(agenticDir);
-  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.b)[1] || '')
+  const block = (logTxt.split('----- /ds-wrap-deferred output for ' + SID.b)[1] || '')
     .split('----- end output for ' + SID.b)[0] || '';
   // (c) the cap path was actually hit (so we know the truncation branch ran).
   assert(/\[output truncated at 256 KB\]/.test(block),
@@ -1021,7 +1021,7 @@ console.log('\n[LOCK-4] live-PID owner + recent ts: lock KEPT (never clears a li
 
 // ---------------------------------------------------------------------------
 // (LOCK-5) no-owner race -> lock KEPT (no usable signal -> keep, covers the
-// interactive /wrap mkdir-before-owner window).
+// interactive /ds-wrap mkdir-before-owner window).
 // ---------------------------------------------------------------------------
 console.log('\n[LOCK-5] no-owner race: lock KEPT (no signal -> keep)');
 {
@@ -1190,7 +1190,7 @@ console.log('\n[CAP-multibyte] multi-byte UTF-8 straddling a chunk boundary capt
 
   assert(code === 0, 'daemon exits 0 after a multibyte drain');
   const logTxt = readDaemonLog(agenticDir);
-  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+  const block = (logTxt.split('----- /ds-wrap-deferred output for ' + SID.a)[1] || '')
     .split('----- end output for ' + SID.a)[0] || '';
   // The exact sentinel the mock emitted (e-acute 2B, euro 3B, rocket 4B), reassembled.
   const expected = 'MB_STARTé€🚀MB_END';
@@ -1218,7 +1218,7 @@ console.log('\n[WRITE-short] a long captured line is present byte-complete in wr
 
   assert(code === 0, 'daemon exits 0 after the large-output drain');
   const logTxt = readDaemonLog(agenticDir);
-  const block = (logTxt.split('----- /wrap-deferred output for ' + SID.a)[1] || '')
+  const block = (logTxt.split('----- /ds-wrap-deferred output for ' + SID.a)[1] || '')
     .split('----- end output for ' + SID.a)[0] || '';
   // Not truncated (200 KB < 256 KB cap), so the full ~200 KB of 'x' is byte-complete.
   assert(!/\[output truncated at 256 KB\]/.test(block),

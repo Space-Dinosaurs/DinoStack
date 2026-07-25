@@ -41,7 +41,7 @@ Your spawn prompt will contain:
 - `completion_conditions` - your acceptance criteria. You are done when every condition listed here is met and quality gates pass.
 - `output_paths` - the specific file paths you are expected to write or modify. If the value is "conductor-directed", report what you actually touched in your output summary.
 
-When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract block, the engineer includes `task_id` in its return summary so the conductor can correlate the result with the task entry. The engineer does NOT write to `.agentic/tasks.jsonl` - the conductor handles all task-state writes.
+When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the execution contract block, the engineer includes `task_id` in its return summary so the conductor can correlate the result with the task entry. The engineer does NOT write to `.agentic/tasks.jsonl` - the conductor handles all task-state writes.
 
 **Elevated-path return-shape contract.** Engineer return summaries on the Elevated path must include a `quality_gate_results: { lint, typecheck, test, smoke_test, raw_output }` block. This is a binding return-shape contract; absence is a Major Skeptic finding. Trivial-path solo spawns are not subject to this contract.
 
@@ -174,7 +174,7 @@ After the structured block, return a plain-text summary covering:
 
 Keep prose brief. A reviewer reading the structured block plus prose summary plus a diff should be able to verify the implementation quickly.
 
-**Trivial-path solo spawns** are exempt from the fenced structured block: the lightweight return (status line + prose) is sufficient because no `quality_gate_results` contract applies (see Trivial-path carve-out in `/implement-ticket` Phase 5).
+**Trivial-path solo spawns** are exempt from the fenced structured block: the lightweight return (status line + prose) is sufficient because no `quality_gate_results` contract applies (see Trivial-path carve-out in `/ds-implement-ticket` Phase 5).
 
 ## Rules
 
@@ -182,7 +182,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **No suppression.** Never use `// @ts-ignore`, `# noqa`, `eslint-disable`, or similar to silence errors. Fix the code.
 - **Match conventions.** Read before you write. Use the same naming style, file structure, and patterns as the surrounding code.
 - **If context is missing** - no file paths, no task description, or the task requires an architecture decision you were not given - say so at the top of your output before attempting anything. Do not invent assumptions to fill the gap.
-- **Do not initiate commit or push yourself.** In the `/implement-ticket` flow, commit and push are orchestrated by the conductor via the `git_finalization` contract; the engineer's job is to implement, run quality gates, and report. For non-`/implement-ticket` spawns where the contract does not include `git_finalization`, implement and report only and leave VCS operations to the caller.
+- **Do not initiate commit or push yourself.** In the `/ds-implement-ticket` flow, commit and push are orchestrated by the conductor via the `git_finalization` contract; the engineer's job is to implement, run quality gates, and report. For non-`/ds-implement-ticket` spawns where the contract does not include `git_finalization`, implement and report only and leave VCS operations to the caller.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
 - **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
 - **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Before claiming it as a regression test, run it against the unfixed code and confirm it fails - a test that passes without the fix does not count. Reference it in the fix summary, including that pre-fix attestation: `[finding ID] → fixed by [description]. Regression test: [file, test name]. Confirmed failing pre-fix: [what was observed when run against the unfixed code].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.

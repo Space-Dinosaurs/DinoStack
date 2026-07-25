@@ -2,9 +2,9 @@
 
 /**
  * Purpose: Per-project background daemon that finalizes forgotten session wraps.
- *          It drains the deferred-`/wrap` `ready` marker queue (FIFO by staged_at)
+ *          It drains the deferred-`/ds-wrap` `ready` marker queue (FIFO by staged_at)
  *          by headlessly resuming each cleanly-ended Claude session and running the
- *          NON-interactive `/wrap-deferred` command IN THE MAIN PROJECT DIR (no
+ *          NON-interactive `/ds-wrap-deferred` command IN THE MAIN PROJECT DIR (no
  *          worktree, no copy-back, no merge). It is the SOLE consumer of `ready`
  *          markers and the highest-blast-radius unit of the feature: it spawns
  *          `claude` subprocesses, owns a PID-file singleton, reclaims markers a
@@ -25,13 +25,13 @@
  *             imported by any module.
  *
  * Upstream deps: Node built-ins only (fs, path, child_process) plus the local
- *                CommonJS module hooks/lib/wrap-marker.js (the deferred-`/wrap`
+ *                CommonJS module hooks/lib/wrap-marker.js (the deferred-`/ds-wrap`
  *                marker single source of truth - all marker reads/transitions, the
  *                pid-path helper, the reclaim/janitor, the heartbeat read, the
  *                auth-failed path). Reads [project_root]/.agentic/config.json for
  *                tuning params (all optional, defaulted). Spawns the `claude` CLI
  *                (`claude auth status` for the pre-flight; `claude --resume <id> -p
- *                "/wrap-deferred" ...` for each drain) with AGENTIC_WRAP_DAEMON=1 in
+ *                "/ds-wrap-deferred" ...` for each drain) with AGENTIC_WRAP_DAEMON=1 in
  *                the child env so the child's own hooks no-op (loop-guard).
  *                Writes/owns [project_root]/.agentic/wrap/daemon.pid (O_EXCL
  *                singleton) and may write [project_root]/.agentic/wrap/daemon-auth-failed.
@@ -41,7 +41,7 @@
  *
  * Downstream consumers: none (terminal process). Its side effects - the canonical
  *                       context.md / memory.md / AGENTS.md writes - are performed by
- *                       the `/wrap-deferred` command it spawns, not by the daemon
+ *                       the `/ds-wrap-deferred` command it spawns, not by the daemon
  *                       itself; the daemon only drives the marker state machine.
  *
  * Failure modes: Defensive and fail-open at the marker layer - a daemon bug must
@@ -87,7 +87,7 @@
  *                defense-in-depth GIT_CONFIG_GLOBAL=/dev/null,
  *                GIT_CONFIG_SYSTEM=/dev/null, GIT_CONFIG_NOSYSTEM=1 in every spawned
  *                child env (childEnv) so the global/system config tiers are
- *                neutralized regardless. The interactive `/wrap` is OUT OF SCOPE:
+ *                neutralized regardless. The interactive `/ds-wrap` is OUT OF SCOPE:
  *                it is human-driven under normal (non-bypassed) permissions and
  *                reads git normally. Both config and marker/scan reads are
  *                size-bounded (SEC-M2 / SEC-M3) so a planted multi-GB file or a
@@ -160,7 +160,7 @@ const UUID_RE = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0
 // Bound the headless wrap so a single hung run cannot starve the queue forever.
 const DEFAULT_MAX_TURNS = 40;
 
-// SEC-C1 (CRITICAL, repo-local .git/config RCE): the headless `/wrap-deferred`
+// SEC-C1 (CRITICAL, repo-local .git/config RCE): the headless `/ds-wrap-deferred`
 // child runs under --permission-mode bypassPermissions. Under that mode,
 // --allowedTools does NOT constrain the tool set - it only suppresses the approval
 // PROMPT for the tools it lists. Any tool NOT listed (including Bash) still remains
@@ -189,7 +189,7 @@ const DEFAULT_MAX_TURNS = 40;
 // The deferred wrap does not need git: it is best-effort and conversation-driven.
 // It writes context.md/memory.md/AGENTS.md via Write/Edit, and derives any git-state
 // section of context.md from the resumed CONVERSATION transcript (or omits it). The
-// interactive `/wrap` - run by a human under normal permissions, not bypassed - is
+// interactive `/ds-wrap` - run by a human under normal permissions, not bypassed - is
 // out of scope and still reads git normally.
 //
 // --allowedTools is still passed: under bypassPermissions it is harmless (it
@@ -486,11 +486,11 @@ function writeAuthFailed(cwd) {
 }
 
 // ---------------------------------------------------------------------------
-// Child drain (spawn /wrap-deferred with timeout-and-kill of the process group)
+// Child drain (spawn /ds-wrap-deferred with timeout-and-kill of the process group)
 // ---------------------------------------------------------------------------
 
 /**
- * Headlessly run `/wrap-deferred` for one session via `claude --resume`, bounded by
+ * Headlessly run `/ds-wrap-deferred` for one session via `claude --resume`, bounded by
  * a timeout-and-kill of the whole child process group. Returns a promise resolving
  * to { ok: boolean, error: string|null } - ok=true ONLY on a clean exit-0.
  *
@@ -507,7 +507,7 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
     try {
       child = spawn('claude', [
         '--resume', sessionId,
-        '-p', '/wrap-deferred',
+        '-p', '/ds-wrap-deferred',
         '--permission-mode', 'bypassPermissions',
         // SEC-C1 (THE security boundary): --disallowedTools removes Bash from the
         // model's context BEFORE the bypass-mode step, so the headless run cannot
@@ -525,7 +525,7 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
         // headless run spawned, not just the immediate child.
         detached: true,
         // Capture the headless child's stdout+stderr (previously discarded) so the
-        // /wrap-deferred output lands in .agentic/wrap/daemon.log. The boundary is
+        // /ds-wrap-deferred output lands in .agentic/wrap/daemon.log. The boundary is
         // UNCHANGED: --disallowedTools Bash + childEnv() git hardening still apply.
         stdio: ['ignore', 'pipe', 'pipe'],
         env: childEnv(),
@@ -630,7 +630,7 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
 }
 
 /**
- * Flush one headless /wrap-deferred child's captured output to the log as a single
+ * Flush one headless /ds-wrap-deferred child's captured output to the log as a single
  * delimited block (via log(), so it also appears on stdout). Called on EVERY terminal
  * path - clean exit, non-zero exit, signal/timeout kill, and child error. The
  * spawn-failure early-return has no child object and nothing to flush, so it is the
@@ -643,7 +643,7 @@ function runDeferredWrap(sessionId, projectRoot, timeoutMs) {
  */
 function flushChildCapture(sessionId, captured, capTruncated, result) {
   const status = result && result.ok ? 'ok' : ('FAILED: ' + ((result && result.error) || 'unknown'));
-  let block = '----- /wrap-deferred output for ' + sessionId + ' [' + status + '] -----\n';
+  let block = '----- /ds-wrap-deferred output for ' + sessionId + ' [' + status + '] -----\n';
   block += captured;
   if (captured && !captured.endsWith('\n')) block += '\n';
   if (capTruncated) block += '[output truncated at 256 KB]\n';
@@ -695,7 +695,7 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
   const ownerToken = String(process.pid);
 
   // Clear a PROVABLY-stale wrap/lock BEFORE any child spawn (the headless
-  // /wrap-deferred child runs with Bash removed and cannot `rm` it; the trusted
+  // /ds-wrap-deferred child runs with Bash removed and cannot `rm` it; the trusted
   // daemon must). Clearing here means the child sees no stale lock and won't
   // re-flag it on every run. The lib's predicate NEVER clears a live lock. Reuses
   // reclaimMs as the staleness window (same 30-min reclaim semantics).
@@ -710,7 +710,7 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
   // claiming any marker. Acquire-before-claim is deliberate: on acquire-fail the
   // marker was never claimed so it stays `ready` with no revert needed (M1 fix).
   // acquireWrapLock is intentionally NOT daemonGuardActive()-guarded - the daemon
-  // MUST call it. On fail (a foreign/live lock is held, e.g. an interactive /wrap):
+  // MUST call it. On fail (a foreign/live lock is held, e.g. an interactive /ds-wrap):
   // return 'idle' (not 'deferred') so the daemon's idle self-exit fires; a planted
   // live lock must NOT spin the daemon until the watchdog SIGKILLs it.
   //
@@ -770,7 +770,7 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
       // From here on this session has been attempted this run, regardless of outcome.
       attemptedThisRun.add(sessionId);
 
-      // (c)+(d) Run /wrap-deferred in the MAIN project dir, bounded by timeout-kill.
+      // (c)+(d) Run /ds-wrap-deferred in the MAIN project dir, bounded by timeout-kill.
       log('draining session ' + sessionId + ' (attempt ' + claimed.attempts + ')');
       const startedAt = Date.now();
       const result = await runDeferredWrap(sessionId, cwd, timeoutMs);

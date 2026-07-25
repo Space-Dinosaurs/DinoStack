@@ -13,7 +13,7 @@ Upstream deps: content/sections/04-risk-classification.md (Tier declaration);
 Downstream consumers: content/sections/04-risk-classification.md (inline pointer);
                       content/agents/skeptic.md;
                       content/agents/security-auditor.md;
-                      content/commands/init-project.md;
+                      content/commands/ds-init-project.md;
                       bin/agentic-status.
 
 Failure modes: Prose + YAML schema; not auto-executed. Mis-set author-model

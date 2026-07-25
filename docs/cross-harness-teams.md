@@ -148,7 +148,7 @@ dispatch:
 The recommended entry point is the slash command (available in all harnesses):
 
 ```
-/configure-team
+/ds-configure-team
 ```
 
 Or run the binary directly:

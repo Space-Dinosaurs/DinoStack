@@ -3,7 +3,7 @@
 # Purpose: Canonical repo_dir resolver for the agentic-engineering install.
 #          Centralises the resolution logic previously duplicated inline in
 #          .claude/install.sh, hooks/lib/version-check-core.sh, bootstrap.sh,
-#          and content/commands/update-agentic-engineering.md Step 0a.
+#          and content/commands/ds-update-agentic-engineering.md Step 0a.
 #
 # Public API:
 #   resolve_repo_dir [--quiet]   - Resolve AE_REPO_DIR from config or fallback.
@@ -23,7 +23,7 @@
 #
 # Downstream consumers (planned migrators):
 #   .claude/install.sh, hooks/lib/version-check-core.sh, bootstrap.sh,
-#   content/commands/update-agentic-engineering.md Step 0a.
+#   content/commands/ds-update-agentic-engineering.md Step 0a.
 #
 # Failure modes:
 #   - Config absent or missing repo_dir key: falls back to $HOME/DinoStack.

@@ -6,9 +6,9 @@ The merged write always begins with the pinned header prefix above (the matcher 
 
 2. **If the file does not exist**: write the new draft content directly to the output path. Result: "Wrote fresh context to [path] (no existing file)."
 
-3. **If the file exists but is empty, or its second line does not begin with `*Written by /wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file. Result: "Wrote fresh context to [path] (replaced non-/wrap file)."
+3. **If the file exists but is empty, or its second line does not begin with `*Written by /ds-wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file. Result: "Wrote fresh context to [path] (replaced non-/ds-wrap file)."
 
-4. **If the file exists and its second line begins with `*Written by /wrap`** (i.e. it was produced by a previous `/wrap` run): proceed to the merge step below.
+4. **If the file exists and its second line begins with `*Written by /ds-wrap`** (i.e. it was produced by a previous `/ds-wrap` run): proceed to the merge step below.
 
 ### Merge step
 
@@ -38,7 +38,7 @@ First, check how many session labels are already present in the existing file's 
 
 **Merge rules (existing file = prior session(s), new draft = newest session):**
 
-- **Header line** (`*Written by /wrap...`): replace with a new line using today's date and the note "(merged context)". Keep the `*Project:` line from the new draft.
+- **Header line** (`*Written by /ds-wrap...`): replace with a new line using today's date and the note "(merged context)". Keep the `*Project:` line from the new draft.
 - **Recent Focus**: apply the labeling logic above.
 - **Current Task / Next Steps**: combine all items from both. Remove exact duplicate lines. Keep all non-duplicate items.
 - **Key File Paths**: union both lists. Remove exact duplicate lines.

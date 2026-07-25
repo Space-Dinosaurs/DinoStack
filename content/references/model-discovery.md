@@ -12,7 +12,7 @@ Upstream deps: content/references/role-models.md (parent schema);
                routing tier); bin/agentic-models (ranking implementation).
 
 Downstream consumers: bin/agentic-configure (TUI; ranking input);
-                      content/commands/init-project.md (Step 6g seed path);
+                      content/commands/ds-init-project.md (Step 6g seed path);
                       content/sections/04-risk-classification.md.
 
 Failure modes: If no role-models.yml exists, the conductor omits model/effort/

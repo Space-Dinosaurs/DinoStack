@@ -225,7 +225,7 @@ Small stuff stays direct and cheap. Big stuff is delegated out. Neither bloats t
 
 <div class="columns-3">
 <div class="card">
-<strong>/init-project</strong><br/>
+<strong>/ds-init-project</strong><br/>
 One-time per repo. Seeds AGENTS.md, captures conventions, bootstraps memory.
 </div>
 <div class="card">
@@ -233,13 +233,13 @@ One-time per repo. Seeds AGENTS.md, captures conventions, bootstraps memory.
 <code>cwd</code> is the project identity. Running <code>claude</code> from the same directory always reads the same persistent memory.
 </div>
 <div class="card">
-<strong>/wrap</strong><br/>
+<strong>/ds-wrap</strong><br/>
 End-of-session ritual. Commits learnings into memory so the next session reads richer context than this one.
 </div>
 </div>
 
 <div class="callout">
-<code>/init-project</code> -> work -> <code>/wrap</code> -> next session from the same dir is a <strong>feedback loop</strong>. Each run starts smarter than the last.
+<code>/ds-init-project</code> -> work -> <code>/ds-wrap</code> -> next session from the same dir is a <strong>feedback loop</strong>. Each run starts smarter than the last.
 </div>
 
 ---
@@ -252,7 +252,7 @@ End-of-session ritual. Commits learnings into memory so the next session reads r
   .callout { font-size: 0.88em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-The **cwd is the project directory**. Every bit of persistence - AGENTS.md, MEMORY.md, session history, `/wrap` outputs - is keyed to the directory `claude` was started in. Nothing else matters for memory continuity.
+The **cwd is the project directory**. Every bit of persistence - AGENTS.md, MEMORY.md, session history, `/ds-wrap` outputs - is keyed to the directory `claude` was started in. Nothing else matters for memory continuity.
 
 ```bash
 cd ~/code/myproject
@@ -275,10 +275,10 @@ Session naming (<code>-n myproject</code>) and resumption (<code>-r</code>) are 
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.5em; }
 </style>
 
-1. **`/init-project`** seeds baseline context for a repo
+1. **`/ds-init-project`** seeds baseline context for a repo
 2. You work a focused session - one clear goal
 3. Heavy lifting is delegated so the main thread stays clean
-4. **`/wrap`** commits learnings into memory
+4. **`/ds-wrap`** commits learnings into memory
 5. **Same cwd** next time - Claude Code reads the same memory and AGENTS.md automatically
 6. Next session starts with richer AGENTS.md, fuller MEMORY.md, sharper defaults
 7. Repeat - each loop is a step up, not a reset
@@ -306,15 +306,15 @@ The whole system is designed around one bet: <strong>context hygiene beats raw m
 Fires after every turn. Writes <code>.agentic/context.md</code> with recent user messages, files touched, uncommitted changes, and tools used. Zero ceremony - it just runs.
 </div>
 <div class="card">
-<strong>/wrap (on demand)</strong><br/>
+<strong>/ds-wrap (on demand)</strong><br/>
 Replaces the stop hook's raw snapshot with a structured, enriched version. Captures decisions, conventions, and gotchas into AGENTS.md and memory. Merges across sessions.
 </div>
 </div>
 
-<p style="margin-top: 0.8em;">If <code>/wrap</code> has already written <code>.agentic/context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/wrap</code> content is never lost.</p>
+<p style="margin-top: 0.8em;">If <code>/ds-wrap</code> has already written <code>.agentic/context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/ds-wrap</code> content is never lost.</p>
 
 <div class="callout">
-The stop hook is the safety net - you always get <em>something</em>. <code>/wrap</code> is the upgrade - you get structured, compounding context.
+The stop hook is the safety net - you always get <em>something</em>. <code>/ds-wrap</code> is the upgrade - you get structured, compounding context.
 </div>
 
 <div class="callout">
@@ -334,13 +334,13 @@ Close the session cleanly so the Stop hook can finish writing <code>.agentic/con
 
 You can run **multiple sessions in parallel** - open separate terminals, each with `claude` in the same project directory. They share the same persistent memory and AGENTS.md.
 
-When you `/wrap` each session, they merge into a shared `.agentic/context.md` using a **rolling window of ten slots** (Session A through J):
+When you `/ds-wrap` each session, they merge into a shared `.agentic/context.md` using a **rolling window of ten slots** (Session A through J):
 
 - First wrap writes Session A. Second wrap labels the existing as A, adds B.
 - At ten sessions, the oldest (A) drops off and everything shifts down.
 - Non-focus sections (next steps, file paths, gotchas) merge across all sessions - duplicates removed.
 
-This means you can work on ten parallel streams in a project and `/wrap` each one. The next session that starts sees a merged view of all recent work.
+This means you can work on ten parallel streams in a project and `/ds-wrap` each one. The next session that starts sees a merged view of all recent work.
 
 <div class="callout">
 The rolling window keeps <code>.agentic/context.md</code> bounded. Ten slots capture even heavily parallel workflows while keeping the file bounded.
@@ -352,6 +352,6 @@ The rolling window keeps <code>.agentic/context.md</code> bounded. Ten slots cap
 
 # Keep context clean. Let it compound.
 
-Focused sessions. Same project dir. `/wrap` every time.
+Focused sessions. Same project dir. `/ds-wrap` every time.
 
 github.com/Space-Dinosaurs/DinoStack

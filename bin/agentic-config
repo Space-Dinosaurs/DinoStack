@@ -4,7 +4,7 @@ Purpose: Non-interactive CLI writer for agentic-engineering methodology
          settings. Accepts a setting name, value, and optional scope flag,
          validates the pair, and atomically writes to the appropriate target
          file (~/.claude/agentic-engineering.json, .agentic/config.json, or
-         AGENTS.md). The CLI backing for the /agentic-config command.
+         AGENTS.md). The CLI backing for the /ds-config command.
 
 Public API: agentic-config <setting> <value> [--scope global|project]
             Exit 0: success (prints "Changed: <setting> = <value> in <file>.
@@ -20,7 +20,7 @@ Upstream deps: Python 3 stdlib only (json, os, sys, re, datetime, pathlib,
                atomic_write from bin/_lib.py via importlib.machinery.
                SourceFileLoader (same pattern as test_agentic_status.py).
 
-Downstream consumers: content/commands/agentic-config.md (command spec);
+Downstream consumers: content/commands/ds-config.md (command spec);
                       bin/tests/test_agentic_config.py; developers running
                       settings changes non-interactively.
 
@@ -433,7 +433,7 @@ def main(argv: list[str]) -> int:
     if setting not in _SETTINGS:
         print(
             f"Error: unknown setting '{setting}'. "
-            "Run /agentic-config or agentic-config --help for available settings.",
+            "Run /ds-config or agentic-config --help for available settings.",
             file=sys.stderr,
         )
         return 2

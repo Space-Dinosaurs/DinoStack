@@ -64,7 +64,7 @@ Each line is one JSON object:
 
 **The conductor** is the primary writer. It appends one line at each
 orchestration boundary: worker spawn, worker return, Skeptic finding/sign-off,
-QA result, /wrap completion, finding fix.
+QA result, /ds-wrap completion, finding fix.
 
 **The Stop hook** (`hooks/stop-context.js`) appends a single `session_total`
 event at session exit. This is the only sanctioned non-conductor writer;
@@ -136,7 +136,7 @@ agentic-cost team       # per-developer rollup across all committed session logs
 ```
 
 Session logs at `.agentic/session-log/<developer_id>.jsonl` are committed to
-git via `/implement-ticket` Phase 8 (when `commit_telemetry: true` and
+git via `/ds-implement-ticket` Phase 8 (when `commit_telemetry: true` and
 identity is confirmed). `agentic-cost team` therefore reflects sessions from
 all developers whose telemetry has landed on the branch via pull after merge.
 
@@ -152,7 +152,7 @@ if the file grows past concern. Roughly 50 KB per active session.
 content, file paths in tool I/O, user messages, finding text, task
 descriptions, commit messages, environment variable values.
 
-**No events.jsonl.** `/wrap` works normally on projects with no events log.
+**No events.jsonl.** `/ds-wrap` works normally on projects with no events log.
 The log is supplementary signal for the session skeleton, not required.
 
 ## Related references

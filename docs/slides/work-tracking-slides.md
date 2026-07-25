@@ -298,7 +298,7 @@ No external tracker. Work is captured in docs/worklog.md.
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
 
-- **`/init-project`** can seed the file during project setup - you edit it to match your tracker
+- **`/ds-init-project`** can seed the file during project setup - you edit it to match your tracker
 - **The orchestration-planner** reads it every time it plans a task - no caching, no staleness
 - **Every other agent ignores it** - engineer, skeptic, qa-engineer, investigator never touch it
 - **Version control it** - same as `AGENTS.md`, `decisions.md`, and other tool-agnostic config in `.agentic/`

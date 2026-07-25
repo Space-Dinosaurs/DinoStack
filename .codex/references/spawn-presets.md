@@ -12,7 +12,7 @@ Upstream deps: content/sections/04-risk-classification.md (parent section;
 
 Downstream consumers: content/sections/04-risk-classification.md (inline pointer),
                       content/agents/architect.md (architect:grill variant reference),
-                      content/commands/init-project.md (presets.yml seeding).
+                      content/commands/ds-init-project.md (presets.yml seeding).
 
 Failure modes: Prose + YAML schema; not auto-executed. Resolution rule 4
                (explicit `Tier:` line wins over preset tier on collision) is the

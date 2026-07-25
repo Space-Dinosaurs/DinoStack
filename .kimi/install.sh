@@ -507,6 +507,39 @@ for cmd_dir in "$REPO_DIR/.kimi/skills/"*/; do
 done
 
 # ---------------------------------------------------------------------------
+# Remove stale pre-DS-26 command skill symlinks
+#
+# DS-26 renamed all 25 methodology commands to a ds- prefix. This is a
+# LITERAL hand-enumerated allowlist of the 25 OLD names - never a glob or a
+# set-difference against ~/.kimi/skills/. That directory is a shared,
+# operator-owned user-level location that may contain skills we do not own;
+# scanning it and removing anything not in our generated set would delete
+# operator skills we have no business touching. Only entries in this exact
+# allowlist are candidates, and even then only removed if the symlink
+# target resolves inside this methodology checkout's .kimi/skills/ tree.
+# ---------------------------------------------------------------------------
+
+_ae_stale_pre_ds26_commands=(
+  agentic-config agentic-cost agentic-disable agentic-help
+  agentic-identity agentic-status brief cleanup-worktrees
+  configure-team feedback-triage implement-ticket init-project
+  memory-update migrate-project prune-harness pull-and-install
+  representation-audit skeptic skill-candidates
+  test-suite-comprehension ticket-status-sync ticket-triage
+  update-agentic-engineering wrap-deferred wrap
+)
+for _ae_old_name in "${_ae_stale_pre_ds26_commands[@]}"; do
+  _ae_old_dst="$HOME/.kimi/skills/$_ae_old_name"
+  if [[ -L "$_ae_old_dst" ]]; then
+    _ae_current_target="$(readlink "$_ae_old_dst")"
+    if [[ "$_ae_current_target" == "$REPO_DIR/.kimi/skills/"* ]]; then
+      rm "$_ae_old_dst"
+      echo "  - removed $_ae_old_name (stale pre-DS-26 command skill symlink)"
+    fi
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # Symlink bin/ scripts to ~/.local/bin
 # ---------------------------------------------------------------------------
 
@@ -581,6 +614,6 @@ echo "AGENTS.md and per-command skills. The global skill's symlinks will pick up
 echo "content changes instantly, but SKILL.md changes require re-running install.sh."
 echo ""
 echo "Invoke commands directly: /skill:<command-name>"
-echo "   Examples: /skill:wrap    /skill:skeptic    /skill:implement-ticket"
+echo "   Examples: /skill:ds-wrap    /skill:ds-skeptic    /skill:ds-implement-ticket"
 echo "Or load the full skill: /skill:agentic-engineering <command-name>"
-echo "Or just ask: 'run init-project'"
+echo "Or just ask: 'run ds-init-project'"

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
 /**
- * Purpose: Claude Code SessionEnd hook for the daemon-driven deferred-`/wrap`
+ * Purpose: Claude Code SessionEnd hook for the daemon-driven deferred-`/ds-wrap`
  *          feature. On a genuine terminal session end it performs the SOLE
  *          pending->ready marker transition (finalizeReady) and removes the
  *          session heartbeat, then - when the project opts in via the
  *          `deferred_wrap_daemon` config toggle - launches the wrap daemon
  *          detached so a forgotten session is enriched in the background. It is
- *          the load-bearing stop on the daemon's own headless `/wrap-deferred`
+ *          the load-bearing stop on the daemon's own headless `/ds-wrap-deferred`
  *          run: under the AGENTIC_WRAP_DAEMON loop-guard it exits immediately
  *          without finalizing or launching, so the daemon can never re-wrap
  *          itself forever. There is NO stale-sweep here (CRITICAL-A).
@@ -18,7 +18,7 @@
  *               reason }. Not imported by any module.
  *
  * Upstream deps: Node built-ins only (fs, path, child_process) plus two local
- *                CommonJS modules: hooks/lib/wrap-marker.js (the deferred-`/wrap`
+ *                CommonJS modules: hooks/lib/wrap-marker.js (the deferred-`/ds-wrap`
  *                marker single source of truth) and hooks/lib/stdin-guard.js
  *                (readStdinGuarded, bounded stdin reader). Reads stdin (fd 0) via
  *                the bounded reader and [cwd]/.agentic/config.json
@@ -50,7 +50,7 @@
  *                {clear, logout, prompt_input_exit, bypass_permissions_disabled,
  *                other}; reason `resume` does NOT finalize (the session may
  *                continue) and the marker stays `pending` (recovered by manual
- *                `/wrap`, never auto-wrapped - the deliberate CRITICAL-A trade).
+ *                `/ds-wrap`, never auto-wrapped - the deliberate CRITICAL-A trade).
  *                The daemon launch is best-effort detached + unref'd; if the
  *                daemon file is absent or the spawn errors, it is swallowed.
  *
@@ -137,7 +137,7 @@ async function run() {
   if (!payload || typeof payload !== 'object') return;
 
   // --- 2. Loop-guard: bail IMMEDIATELY under AGENTIC_WRAP_DAEMON=1 ---
-  // This is the load-bearing stop on the daemon's own headless `/wrap-deferred`
+  // This is the load-bearing stop on the daemon's own headless `/ds-wrap-deferred`
   // SessionEnd: do NOT finalize, do NOT remove the heartbeat, do NOT launch the
   // daemon. Without this the daemon would re-wrap forever.
   if (wrapMarker.daemonGuardActive()) return;
@@ -158,7 +158,7 @@ async function run() {
   // finalizeReady is the SOLE pending->ready transition (no sweep, no daemon, no
   // SessionStart - CRITICAL-A). It carries no branch/sha and no-ops in the lib on
   // any non-pending marker. `resume` is non-terminal: the marker stays `pending`
-  // and is recovered only by a manual `/wrap` (never auto-wrapped). Both
+  // and is recovered only by a manual `/ds-wrap` (never auto-wrapped). Both
   // finalizeReady and removeHeartbeat require a session id.
   // Gated on deferredDaemonEnabled so the flag-off default never accumulates markers.
   if (sessionId && TERMINAL_REASONS.has(reason) && deferredDaemonEnabled(cwd)) {

@@ -40,7 +40,7 @@
  *             hooks/lib/wrap-marker.js, the single source of truth.
  *
  * Upstream deps: Node built-ins only (fs, path, os, child_process) plus four
- *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/wrap
+ *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/ds-wrap
  *                marker single source of truth - lock gate, per-session staging,
  *                heartbeat), hooks/lib/capture-gap.js (the shared capture-gap
  *                detector - detectCaptureGap, GUARDRAIL_PATTERNS, _tokenize,
@@ -133,7 +133,7 @@
  *                cursor update is also best-effort and never blocks exit.
  *                (10) appendSpilloverRecord appends one JSONL record to
  *                .agentic/wrap/deferred-activity.jsonl when wrapLockHeld(cwd) is
- *                true (a /wrap holds .agentic/wrap/lock); in that case BOTH
+ *                true (a /ds-wrap holds .agentic/wrap/lock); in that case BOTH
  *                context.md write paths (path 1) are skipped so the background
  *                enrichment's locked Part-A merge is not clobbered, and the
  *                skipped activity is spilled instead for the enrichment to drain.
@@ -171,11 +171,11 @@
  *
  *                Lock-aware interactions: wrapLockHeld(cwd) (a single fail-open
  *                fs.existsSync on .agentic/wrap/lock, a DIRECTORY created by
- *                /wrap) gates path 1; it is re-checked immediately before each
+ *                /ds-wrap) gates path 1; it is re-checked immediately before each
  *                context.md writeFileSync to minimize TOCTOU. stageWrapPending
  *                (delegated to wrap-marker lib stagePending) stages a per-session
  *                .agentic/wrap/pending-<session_id>.json marker (schema_version 3,
- *                atomic tmp+rename, NORMATIVE schema in content/commands/wrap.md)
+ *                atomic tmp+rename, NORMATIVE schema in content/commands/ds-wrap.md)
  *                so the next session or the daemon can complete enrichment for an
  *                un-wrapped session; staging is suppressed when the current
  *                session_id equals .agentic/wrap/last-wrap (this session already
@@ -206,12 +206,12 @@
  *  - Silent failure: any error exits 0, nothing written to stderr
  *  - No external dependencies: only Node built-ins
  *  - Fast: no LLM call, pure text extraction
- *  - /wrap coexistence: if context.md was written by /wrap (detected by
- *    "# Session Context\n*Written by /wrap" at the file start), the Stop hook
+ *  - /ds-wrap coexistence: if context.md was written by /ds-wrap (detected by
+ *    "# Session Context\n*Written by /ds-wrap" at the file start), the Stop hook
  *    appends a "Session Activity" block rather than overwriting. Any previous
  *    activity block is replaced, not accumulated - most recent session only.
- *    /wrap content is preserved indefinitely; only another /wrap run replaces
- *    the whole file. The Stop hook is the fallback for sessions where /wrap
+ *    /ds-wrap content is preserved indefinitely; only another /ds-wrap run replaces
+ *    the whole file. The Stop hook is the fallback for sessions where /ds-wrap
  *    was never run.
  *
  * Output path: ~/.claude/projects/[hash]/context.md
@@ -225,7 +225,7 @@ const path = require('path');
 const os = require('os');
 const { execSync } = require('child_process');
 
-// Single source of truth for the deferred-/wrap marker state machine, lock,
+// Single source of truth for the deferred-/ds-wrap marker state machine, lock,
 // heartbeat, and sentinel. The local helpers that previously lived in this file
 // (wrapLockHeld, readLastWrap, liveMarkerExists, stageWrapPending) are now
 // delegated to this lib so stop-context.js, the SessionEnd hook, and the daemon
@@ -497,7 +497,7 @@ function writeBatchState(cwd, sessionId) {
  *     spawn_start events replace them for ad-hoc session tracking).
  *   - spawn_start events with data.source === 'hook' contribute spawn count
  *     (wall_seconds 0, no tokens) ONLY when the session has zero spawn_complete
- *     events (ad-hoc session double-count guard). In /implement-ticket sessions
+ *     events (ad-hoc session double-count guard). In /ds-implement-ticket sessions
  *     that carry conductor spawn_complete events the hook spawn_starts are
  *     skipped to avoid inflating counts with unverified duplicates. The resulting
  *     mild undercount of advisory spawn counts in mixed sessions is accepted
@@ -1047,7 +1047,7 @@ function appendSpilloverRecord(cwd, record) {
 }
 
 /**
- * Write context.md, OR spill the activity when a /wrap holds the lock.
+ * Write context.md, OR spill the activity when a /ds-wrap holds the lock.
  * Lock-aware: if wrapLockHeld(cwd) is true, the context.md write is skipped and
  * one spillover record is appended instead (so the enrichment's locked Part-A
  * merge is not clobbered). The lock is re-checked immediately before the
@@ -1089,7 +1089,7 @@ function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecor
  * predicate, the MAJOR-3 ready/pending/in_progress suppression, the .last-wrap
  * suppression, the substantive-activity gate, the atomic tmp+rename write, and
  * the loop-guard NO-OP all live in hooks/lib/wrap-marker.js (single source of
- * truth). NORMATIVE marker schema lives in content/commands/wrap.md.
+ * truth). NORMATIVE marker schema lives in content/commands/ds-wrap.md.
  *
  * @param {string} cwd - Verified project directory.
  * @param {string|null} sessionId - Current session uuid from the Stop payload.
@@ -1351,7 +1351,7 @@ async function run() {
 
   // --- 8b. Deferred-wrap inputs (lock-aware skip + marker staging) ---
   // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-  // The spillover record (NORMATIVE schema in content/commands/wrap.md) is built
+  // The spillover record (NORMATIVE schema in content/commands/ds-wrap.md) is built
   // from the already-computed scan vars - no new git/subprocess calls. It is
   // appended only when wrapLockHeld(cwd) is true and the context.md write is
   // therefore skipped. spilloverScan carries the substantive-activity counts the
@@ -1393,16 +1393,16 @@ ${toolsLine}
 `;
 
   // --- 9. Append/replace session activity on /wrap-authored files ---
-  // If existing context.md was written by /wrap (detected by exact two-line
+  // If existing context.md was written by /ds-wrap (detected by exact two-line
   // startsWith to avoid false matches from user messages in ## Recent Focus),
   // append a "Session Activity" block rather than overwriting. Any previous
   // activity block is stripped first (replace mode — most recent session only,
-  // not accumulated). /wrap content is preserved; only another /wrap run
+  // not accumulated). /ds-wrap content is preserved; only another /ds-wrap run
   // replaces the whole file. The Stop hook is the fallback for sessions where
-  // /wrap was never run.
+  // /ds-wrap was never run.
   try {
     const existing = fs.readFileSync(outputPath, 'utf8');
-    if (existing.startsWith('# Session Context\n*Written by /wrap')) {
+    if (existing.startsWith('# Session Context\n*Written by /ds-wrap')) {
       // Strip any previous Session Activity block (sentinel marks its start).
       const ACTIVITY_SENTINEL = '\n\n---\n\n## Session Activity\n';
       const sentinelIdx = existing.indexOf(ACTIVITY_SENTINEL);
@@ -1425,7 +1425,7 @@ ${uncommittedChangesLines}
 ### Tools Used
 ${toolsLine}
 `;
-      // Lock-aware context.md write: skip + spill while a /wrap holds the lock.
+      // Lock-aware context.md write: skip + spill while a /ds-wrap holds the lock.
       writeContextMdOrSpill(cwd, outputPath, projectDir, wrapContent + activityBlock, spilloverRecord);
       // M1: write loop-state on ALL exit paths, including the wrap-coexistence path.
       writeLoopState(cwd);
@@ -1462,7 +1462,7 @@ ${toolsLine}
           // Provisional or no identity: pending buffer
           writePendingBuffer(cwd, sessionId, cachedEventsRaw);
           // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-          // The identity nudge is a context.md writer; defer it while a /wrap
+          // The identity nudge is a context.md writer; defer it while a /ds-wrap
           // holds the lock so the locked Part-A merge is not clobbered. The
           // sentinel is consumed atomically with the nudge, so skipping both
           // here means the one-time nudge fires on a later unlocked session
@@ -1517,7 +1517,7 @@ ${toolsLine}
   }
 
   // --- 10. Write file (silent failure on any error) ---
-  // Lock-aware context.md write: skip + spill while a /wrap holds the lock.
+  // Lock-aware context.md write: skip + spill while a /ds-wrap holds the lock.
   writeContextMdOrSpill(cwd, outputPath, projectDir, content, spilloverRecord);
 
   // --- 11. Write interrupted status to loop-state.json if an active loop exists ---
@@ -1563,7 +1563,7 @@ ${toolsLine}
       // Provisional or no identity: pending buffer
       writePendingBuffer(cwd, sessionId, cachedEventsRaw);
       // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-      // Defer the identity nudge (a context.md writer) while a /wrap holds the
+      // Defer the identity nudge (a context.md writer) while a /ds-wrap holds the
       // lock; the sentinel is consumed atomically with the nudge, so skipping
       // both defers the one-time nudge to a later unlocked session.
       if (!identity && !wrapLockHeld(cwd)) {

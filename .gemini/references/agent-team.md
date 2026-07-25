@@ -17,10 +17,10 @@
 | `orchestration-planner` | Team composition and sequencing. Given a goal, produces a structured execution plan: which agents to spawn, in what order, with what handoffs, and where Skeptic review is needed. | No |
 | `engineer` | Implements the change. Reads conventions, writes code, runs quality gates, reports clearly. | Yes |
 | `qa-engineer` | Post-Skeptic browser verification. Spawns after Skeptic sign-off when the diff matches QA trigger patterns in `.agentic/qa.md` (resolved via resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). Verifies changes in a real browser, returns structured pass/fail report. Appends learned quirks to the resolved qa.md's Knowledge section. | No (appends to qa.md only) |
-| `learning-extractor` | Per-ticket learning extraction. Mechanically wired to `/implement-ticket` Phase 6 clean exit - fires automatically after every ticketed Skeptic loop completion. Reads the resolved `findings_log`, extracts durable fix-pattern learnings, appends to `.agentic/learnings.md`. The conductor does NOT spawn this manually. | Yes (learnings.md) |
+| `learning-extractor` | Per-ticket learning extraction. Mechanically wired to `/ds-implement-ticket` Phase 6 clean exit - fires automatically after every ticketed Skeptic loop completion. Reads the resolved `findings_log`, extracts durable fix-pattern learnings, appends to `.agentic/learnings.md`. The conductor does NOT spawn this manually. | Yes (learnings.md) |
 | `learnings-agent` | Session-scoped background learnings capture. Conductor-discretionary - spawned ad-hoc on the first learning-worthy event in a session; no automatic phase trigger. Receives events in real-time, writes structured entries to .agentic/learnings.md and project MEMORY.md. | Yes (learnings.md, MEMORY.md) |
-| `wrap-ticket` | Per-ticket learnings capture at `/implement-ticket` Phase 11b. Constrained automated subset of `/wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/context.md Recent Focus only) |
-| `goal-condition-evaluator` | Cheap per-turn stop-condition check for open-goal loops. Mechanically fired strictly after a clean Skeptic sign-off on an Elevated iteration to evaluate the operator-declared `goal_condition` and return continue-vs-stop; never substitutes for the Skeptic. Tier 1 (haiku) leaf agent. Wired at `content/commands/implement-ticket.md` Phase 6 "Open-goal condition check" for `goal_mode=open_goal` invocations, scoped to elevated-risk iterations with a clean Skeptic sign-off (see `content/references/trigger-catalog.md` §Risk and review discipline (e)). Newly wired as of DS-75 - low field mileage. | No |
+| `wrap-ticket` | Per-ticket learnings capture at `/ds-implement-ticket` Phase 11b. Constrained automated subset of `/ds-wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/context.md Recent Focus only) |
+| `goal-condition-evaluator` | Cheap per-turn stop-condition check for open-goal loops. Mechanically fired strictly after a clean Skeptic sign-off on an Elevated iteration to evaluate the operator-declared `goal_condition` and return continue-vs-stop; never substitutes for the Skeptic. Tier 1 (haiku) leaf agent. Wired at `content/commands/ds-implement-ticket.md` Phase 6 "Open-goal condition check" for `goal_mode=open_goal` invocations, scoped to elevated-risk iterations with a clean Skeptic sign-off (see `content/references/trigger-catalog.md` §Risk and review discipline (e)). Newly wired as of DS-75 - low field mileage. | No |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
 
 The `skeptic` is the cross-cutting review layer - its specialty is adversarial review itself, applied across every flow rather than producing a forward artifact. The `qa-engineer` is a conditional gate that fires only when UI-visible changes are detected. All others are specialists that produce output feeding into the main flow.
@@ -186,7 +186,7 @@ When spawning `engineer`, include:
 - Session context (`~/.claude/projects/[hash]/context.md`)
 - For Elevated-path spawns: the execution contract block from `METHODOLOGY.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
-When spawned via `/implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
+When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
 
 **Fan-out spawning.** When fan-out is active (N >= 2 parallel units), the conductor reads `unit_slug`, `merge_order`, and `skeptic_strategy` from the orchestration-planner's JSONL block at Phase 5 to determine worktree naming (`${FEATURE_BRANCH}-${unit_slug}`), merge ordering (sequential by `merge_order` value), and Skeptic review strategy (`per-unit` spawns one Skeptic per unit in parallel; `integration` defers to a single Skeptic after all units merge onto a scratch integration branch). All N engineers are spawned in a single message (parallel, background). The `task_id` field in each engineer's execution contract uses the format `<ticket_id>-<unit_slug>` for multi-unit correlation.
 
@@ -198,7 +198,7 @@ When spawning `skeptic` for architect plan review, include:
 - Any established architectural constraints or prior decisions the Skeptic should check against
 
 When spawning `skeptic` for engineer output review, include:
-- The adversarial brief (run `/skeptic` for templates)
+- The adversarial brief (run `/ds-skeptic` for templates)
 - The engineer's output (file paths or inline)
 - Resolved issues preflight from prior rounds
 

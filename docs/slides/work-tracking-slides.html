@@ -1137,7 +1137,7 @@ hr {
 <h2 id="how-it-composes-with-the-rest-of-the-protocol">How it composes with the rest of the protocol</h2>
 
 <ul>
-<li><strong><code>/init-project</code></strong> can seed the file during project setup - you edit it to match your tracker</li>
+<li><strong><code>/ds-init-project</code></strong> can seed the file during project setup - you edit it to match your tracker</li>
 <li><strong>The orchestration-planner</strong> reads it every time it plans a task - no caching, no staleness</li>
 <li><strong>Every other agent ignores it</strong> - engineer, skeptic, qa-engineer, investigator never touch it</li>
 <li><strong>Version control it</strong> - same as <code>AGENTS.md</code>, <code>decisions.md</code>, and other tool-agnostic config in <code>.agentic/</code></li>

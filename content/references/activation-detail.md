@@ -52,12 +52,12 @@ Performance: Standard (single file write + optional binary shell-out).
    ```
    # agentic-engineering: first-activation notice has been shown for this project.
    # Deleting this file re-arms the notice only; it does not change activation state.
-   # To opt out, use /agentic-disable.
+   # To opt out, use /ds-disable.
    ```
 
    **Notice text (verbatim, single line, printed to stdout when create succeeds):**
    ```
-   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>). Run /agentic-status to inspect, /agentic-disable to opt out.
+   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>). Run /ds-status to inspect, /ds-disable to opt out.
    ```
    Values come from the resolver outputs of Steps 1-3.
 
@@ -67,5 +67,5 @@ Performance: Standard (single file write + optional binary shell-out).
 
    a. Invoke `agentic-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
    b. If status is "ok" (project version >= manifest version): no-op.
-   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends one-line audit to `.agentic/context.md`. The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/migrate-project --include-destructive` only).
-   d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/migrate-project --include-destructive`.
+   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends one-line audit to `.agentic/context.md`. The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/ds-migrate-project --include-destructive` only).
+   d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/ds-migrate-project --include-destructive`.

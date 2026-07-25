@@ -222,7 +222,7 @@ latency-vs-depth without owning model names.
 - `content/references/model-discovery.md` - model selection paths, heuristics,
   effort/reasoning field semantics
 - `content/references/role-models-example.yml` - copy-paste starter
-- `content/commands/init-project.md` - Step 6g seeds the global file on
+- `content/commands/ds-init-project.md` - Step 6g seeds the global file on
   fresh projects
 - `bin/agentic-configure` - interactive setup wizard
 - `bin/agentic-models` - per-role rank/suggest over a user-supplied model list

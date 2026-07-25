@@ -51,7 +51,7 @@ Context is managed in three complementary tiers, each with different characteris
 
 1. **Ephemeral turn-level context** (`~/.claude/projects/[hash]/context.md`) — written automatically by the Stop hook after every agent turn. Contains: recent user messages, files touched, tools used. No LLM call; pure text extraction from the session payload. Always current because it is overwritten on every turn — never stale. Workers read this at task start to orient without needing the full session history in their prompt.
 
-2. **Decision log** (`.claude/rules/decisions.md`) — persistent, version-controlled, auto-loaded by Claude Code at startup. Contains architectural choices, technology decisions, scope resolutions, and deliberate tradeoffs. Updated via `/memory-update`, which spawns a background Worker with its own Skeptic loop to ensure accuracy before writing. Decisions are curated: a new entry that contradicts a prior one updates the prior one rather than appending a conflicting record.
+2. **Decision log** (`.claude/rules/decisions.md`) — persistent, version-controlled, auto-loaded by Claude Code at startup. Contains architectural choices, technology decisions, scope resolutions, and deliberate tradeoffs. Updated via `/ds-memory-update`, which spawns a background Worker with its own Skeptic loop to ensure accuracy before writing. Decisions are curated: a new entry that contradicts a prior one updates the prior one rather than appending a conflicting record.
 
 3. **Architecture documentation** (`AGENTS.md`) - lean, auto-loaded, kept under ~40 lines for project roots. Architecture only - not decisions, not session state. The global `~/.claude/CLAUDE.md` is exempt from the line limit.
 
@@ -59,9 +59,9 @@ Context is managed in three complementary tiers, each with different characteris
 
 - The Stop hook runs silently after every turn. No user action is required to maintain turn-level context.
 - The main agent includes the project context file content in each Worker's spawn prompt. Workers must not be expected to self-direct reads — they may not have reliable path knowledge.
-- `/memory-update` is the only write path to `decisions.md`. Direct edits bypass the Skeptic accuracy loop.
+- `/ds-memory-update` is the only write path to `decisions.md`. Direct edits bypass the Skeptic accuracy loop.
 - `AGENTS.md` does not accumulate decisions. The separation between architecture (`AGENTS.md`) and decisions (`decisions.md`) is a deliberate design constraint, not a style preference.
-- `/wrap` is available for richer on-demand context enrichment — e.g., before handing off complex in-progress work. It is not required for normal operation; the Stop hook provides sufficient baseline continuity.
+- `/ds-wrap` is available for richer on-demand context enrichment — e.g., before handing off complex in-progress work. It is not required for normal operation; the Stop hook provides sufficient baseline continuity.
 
 **An evaluator should ask:** Is the Stop hook actually firing and writing current context? Is `decisions.md` accurate and up-to-date — not stale or conflicted? Is `AGENTS.md` staying lean, or accumulating decisions it should not hold? Are Workers receiving context at spawn time?
 

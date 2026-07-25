@@ -55,7 +55,7 @@ def test_prints_help_text():
 def test_known_commands_listed():
     """Core slash commands appear in the output."""
     _, out = _capture_main(["agentic-help"])
-    for cmd in ("/agentic-status", "/implement-ticket", "/brief", "/agentic-cost", "/agentic-config"):
+    for cmd in ("/ds-status", "/ds-implement-ticket", "/ds-brief", "/ds-cost", "/ds-config"):
         assert cmd in out, f"Expected {cmd!r} in help output"
     print("PASS test_known_commands_listed")
 

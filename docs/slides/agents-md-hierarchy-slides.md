@@ -320,7 +320,7 @@ Drift between code and these files is <strong>intent debt</strong> - distinct fr
 
 ---
 
-## How /init-project scaffolds it
+## How /ds-init-project scaffolds it
 
 <style scoped>
   ol { font-size: 0.88em; }
@@ -344,12 +344,12 @@ myproject/
 ```
 
 <div class="callout">
-Running /init-project is idempotent - it updates existing files and adds new tracks without overwriting what's already there.
+Running /ds-init-project is idempotent - it updates existing files and adds new tracks without overwriting what's already there.
 </div>
 
 ---
 
-## How /wrap keeps it current
+## How /ds-wrap keeps it current
 
 <style scoped>
   ul { font-size: 0.88em; }
@@ -360,7 +360,7 @@ Running /init-project is idempotent - it updates existing files and adds new tra
 
 <div class="columns">
 <div class="card">
-<strong>What /wrap reads</strong>
+<strong>What /ds-wrap reads</strong>
 
 - Files touched this session
 - Git diff and commit history
@@ -368,7 +368,7 @@ Running /init-project is idempotent - it updates existing files and adds new tra
 - Current `.agentic/context.md`
 </div>
 <div class="card">
-<strong>What /wrap writes</strong>
+<strong>What /ds-wrap writes</strong>
 
 - Updates root AGENTS.md with new decisions
 - Creates/updates track AGENTS.md files
@@ -378,12 +378,12 @@ Running /init-project is idempotent - it updates existing files and adds new tra
 </div>
 </div>
 
-- If you touched a new subdirectory, /wrap creates its track AGENTS.md automatically
+- If you touched a new subdirectory, /ds-wrap creates its track AGENTS.md automatically
 - Stable facts (architecture, gotchas, setup commands) get extracted and persisted
 - Ephemeral details (current task, next steps) stay in `.agentic/context.md` where they belong
 
 <div class="callout">
-The hierarchy grows organically. You don't plan it upfront - /wrap builds it from what actually happened in each session.
+The hierarchy grows organically. You don't plan it upfront - /ds-wrap builds it from what actually happened in each session.
 </div>
 
 ---

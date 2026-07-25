@@ -22,7 +22,7 @@ Upstream deps: bin/agentic-models (optional ranking aid, invoked only when
                bin/agentic-team (back-compat team shim target);
                Python 3 stdlib only otherwise.
 
-Downstream consumers: content/commands/init-project.md (Step 6g reuses the
+Downstream consumers: content/commands/ds-init-project.md (Step 6g reuses the
                       same seed-on-first-run logic for install-time).
 
 Failure modes: File exists -> exit 0 without modifying unless --force.

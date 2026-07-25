@@ -17,15 +17,15 @@ Upstream deps: content/sections/02-delegation.md (parent section; gate rules,
                content/references/capture-classification.md (guardrail-first
                precedence chain and two-gate MUST/SHOULD/SKIP table).
                content/agents/wrap-ticket.md, content/agents/learnings-agent.md.
-               content/commands/wrap.md (authoritative `/wrap` write paths and
-               wrap/lock scope) and content/commands/wrap-deferred.md (the
+               content/commands/ds-wrap.md (authoritative `/ds-wrap` write paths and
+               wrap/lock scope) and content/commands/ds-wrap-deferred.md (the
                non-interactive single-pass enrichment the daemon runs; owns the
                `pending.json` marker data model and the spillover drain). The
                carve-out points to both rather than restating field semantics.
                hooks/stop-context.js and .opencode/plugins/session-context.ts (the
                two lock-aware context.md auto-writers the carve-out names) and
                hooks/wrap-daemon.js (the per-project daemon that drains the
-               spillover by running `/wrap-deferred` headlessly).
+               spillover by running `/ds-wrap-deferred` headlessly).
 
 Downstream consumers: content/sections/02-delegation.md (inline pointers from
                       each extracted block), content/agents/wrap-ticket.md
@@ -45,7 +45,7 @@ Failure modes: Prose reference; does not auto-execute. Permission-blocked
                A mandatory trigger with no Capture: declaration is a protocol
                gap; the Stop-hook backstop is the mechanical catch.
                The deferred-wrap marker data model and lock semantics are owned by
-               content/commands/wrap-deferred.md and hooks/wrap-daemon.js; this
+               content/commands/ds-wrap-deferred.md and hooks/wrap-daemon.js; this
                carve-out only summarizes that the two context.md auto-writers are
                lock-aware and that the daemon drains their spillover, and points
                there - it is not the implementation contract, so divergence from
@@ -60,7 +60,7 @@ Performance: Standard.
 
 ## Permission-blocked fallback
 
-This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents - installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/DinoStack/` - those are governed by `/update-agentic-engineering` (see that command for the authoritative process). The boundary is physical location - any file under `~/DinoStack/` is governed by /update-agentic-engineering regardless of its role; any infrastructure file outside that path is governed by this fallback.
+This fallback applies exclusively to protocol/infrastructure files that are NOT methodology documents - installer scripts (`install.sh`, `build.sh`), git hooks, project configs, and `settings.json`. It does NOT apply to any file under `~/DinoStack/` - those are governed by `/ds-update-agentic-engineering` (see that command for the authoritative process). The boundary is physical location - any file under `~/DinoStack/` is governed by /ds-update-agentic-engineering regardless of its role; any infrastructure file outside that path is governed by this fallback.
 
 When all three conditions are met:
 
@@ -72,7 +72,7 @@ Then: the main session may apply the edit directly, followed immediately by spaw
 
 ## Editing methodology files
 
-Always route through `/update-agentic-engineering` for edits to `content/**`, `.codex/skill/**`, the build scripts (`.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`), `hooks/**`, or `.codex/hooks/**`. These are the methodology and tooling source files; the command exists to handle the git sync (pull before edit, commit+push after) that prevents cross-machine conflicts. Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/` and they remain in scope via the `content/**` rule. Files outside those paths - docs/, README, top-level config, and regenerated build artifacts under `.claude/commands/`, `.codex/commands/`, `.cursor/commands/` - may be edited directly under the normal Trivial/Elevated tiers; no special routing needed. If you find yourself about to Edit a methodology file in one of the in-scope paths, stop and invoke `/update-agentic-engineering` instead.
+Always route through `/ds-update-agentic-engineering` for edits to `content/**`, `.codex/skill/**`, the build scripts (`.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`), `hooks/**`, or `.codex/hooks/**`. These are the methodology and tooling source files; the command exists to handle the git sync (pull before edit, commit+push after) that prevents cross-machine conflicts. Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/` and they remain in scope via the `content/**` rule. Files outside those paths - docs/, README, top-level config, and regenerated build artifacts under `.claude/commands/`, `.codex/commands/`, `.cursor/commands/` - may be edited directly under the normal Trivial/Elevated tiers; no special routing needed. If you find yourself about to Edit a methodology file in one of the in-scope paths, stop and invoke `/ds-update-agentic-engineering` instead.
 
 ## Parallel Investigators
 
@@ -80,11 +80,11 @@ When investigation spans multiple independent surfaces (e.g., backend data layer
 
 ## wrap-ticket writer carve-out
 
-wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. `/wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
 
-**`.agentic/context.md` lock-aware auto-writers (deferred-wrap feature).** Under the deferred / background `/wrap` feature there are **two** lock-aware `context.md` auto-writers, not one: the Node Stop hook (`hooks/stop-context.js`) on Claude Code and the OpenCode plugin (`.opencode/plugins/session-context.ts`). Both check `.agentic/wrap/lock` before writing `context.md`; while the lock is held they **skip** their `context.md` write and append a spillover record to `.agentic/wrap/deferred-activity.jsonl`, which the per-project deferred-wrap daemon drains into the activity block when it runs `/wrap-deferred` and performs its own `context.md` write. Neither hook is "the one/only unlocked `context.md` writer" any longer - both serialize against the daemon's `/wrap-deferred` (and a manual `/wrap`) via `wrap/lock`. The daemon's headless `/wrap-deferred` likewise serializes its own `context.md` write via `.agentic/wrap/lock`, holding the lock only around the narrow Part-A read-merge-write window (not the whole flow); correctness otherwise rests on idempotency (the Part A merge dedups). The daemon is launched by the SessionStart hook (see the daemon `hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/wrap-deferred`, which is the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/wrap-deferred.md`.
+**`.agentic/context.md` lock-aware auto-writers (deferred-wrap feature).** Under the deferred / background `/ds-wrap` feature there are **two** lock-aware `context.md` auto-writers, not one: the Node Stop hook (`hooks/stop-context.js`) on Claude Code and the OpenCode plugin (`.opencode/plugins/session-context.ts`). Both check `.agentic/wrap/lock` before writing `context.md`; while the lock is held they **skip** their `context.md` write and append a spillover record to `.agentic/wrap/deferred-activity.jsonl`, which the per-project deferred-wrap daemon drains into the activity block when it runs `/ds-wrap-deferred` and performs its own `context.md` write. Neither hook is "the one/only unlocked `context.md` writer" any longer - both serialize against the daemon's `/ds-wrap-deferred` (and a manual `/ds-wrap`) via `wrap/lock`. The daemon's headless `/ds-wrap-deferred` likewise serializes its own `context.md` write via `.agentic/wrap/lock`, holding the lock only around the narrow Part-A read-merge-write window (not the whole flow); correctness otherwise rests on idempotency (the Part A merge dedups). The daemon is launched by the SessionStart hook (see the daemon `hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/ds-wrap-deferred`, which is the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/ds-wrap-deferred.md`.
 
-The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learnings-agent, append-with-dedup) and `/wrap`'s own paths is unchanged by the deferred-wrap feature: root `MEMORY.md` is not a `/wrap` target and is not added to the `wrap/lock` scope.
+The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learnings-agent, append-with-dedup) and `/ds-wrap`'s own paths is unchanged by the deferred-wrap feature: root `MEMORY.md` is not a `/ds-wrap` target and is not added to the `wrap/lock` scope.
 
 ## learnings-agent background capture
 
@@ -95,7 +95,7 @@ The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learni
 > precedence chain that runs BEFORE this gate.
 
 > **Two feeders, distinct triggers.** `learning-extractor` is mechanically wired to
-> `/implement-ticket` Phase 6 clean exit and fires automatically - the conductor does
+> `/ds-implement-ticket` Phase 6 clean exit and fires automatically - the conductor does
 > NOT spawn it manually. `learnings-agent` (described here) is triggered by the 6
 > mandatory events below; the conductor spawns it the first time a trigger fires in
 > a session.
@@ -207,6 +207,6 @@ When a Worker digest (engineer, investigator, or debugger return) contains a non
 
 **Cap discipline.** Workers emit at most 5 entries. If a malformed return carries more, the conductor processes the first 5 and logs a warning.
 
-This is additive - `/wrap` still handles AGENTS.md updates, rolling session labels,
+This is additive - `/ds-wrap` still handles AGENTS.md updates, rolling session labels,
 compression, and full session wrap. If learnings-agent fails, the conductor warns
 and proceeds (soft-fail).

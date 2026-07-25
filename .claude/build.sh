@@ -8,6 +8,8 @@
 # Downstream consumers: .claude/commands/, .claude/skills/agentic-engineering/{SKILL.md,METHODOLOGY.md,references/,
 #                       project-scaffolding.yml,templates/}.
 # Failure modes: exits non-zero on missing inputs, broken hardlinks, or assembly script failure.
+# Side-effects: removes stale .claude/commands/*.md files whose basename no longer matches any
+#               content/commands/*.md source (e.g. after a command rename or deletion upstream).
 # Performance: standard.
 
 set -euo pipefail
@@ -57,14 +59,33 @@ fi
 # a cheaper model on this adapter without touching the shared content/commands/
 # source (other adapters consume that file verbatim or wrap it themselves).
 FRONTMATTER_DIR="$REPO_DIR/.claude/commands.frontmatter"
+declare -a generated_commands=()
 for src in "$CONTENT/commands/"*.md; do
   name="$(basename "$src")"
   base="${name%.md}"
   sidecar="$FRONTMATTER_DIR/$base.yaml"
+  generated_commands+=("$name")
   if [[ -f "$sidecar" ]]; then
     { echo "---"; cat "$sidecar"; echo "---"; echo; echo "$PREREQ"; echo; cat "$src"; } > "$COMMANDS_DST/$name"
   else
     { echo "$PREREQ"; echo; cat "$src"; } > "$COMMANDS_DST/$name"
+  fi
+done
+
+# Remove stale command files (source was renamed or deleted upstream)
+for existing in "$COMMANDS_DST"/*.md; do
+  [ -f "$existing" ] || continue
+  bname="$(basename "$existing")"
+  found=0
+  for gen in "${generated_commands[@]}"; do
+    if [[ "$gen" == "$bname" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    rm "$existing"
+    echo "Removed stale command: $bname"
   fi
 done
 

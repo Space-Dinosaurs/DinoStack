@@ -1,35 +1,35 @@
 <!--
-Purpose: Operator-facing guide for the /wrap-deferred command and the
-         deferred-wrap daemon. Explains what it is, how it differs from /wrap,
+Purpose: Operator-facing guide for the /ds-wrap-deferred command and the
+         deferred-wrap daemon. Explains what it is, how it differs from /ds-wrap,
          when it runs, the non-interactive contract, and the security model.
 
 Public API: Operator-facing prose. Entry point for anyone who sees the daemon
             in logs or wants to understand why a session was enriched without
-            a manual /wrap call. Full daemon setup, runtime state, and security
+            a manual /ds-wrap call. Full daemon setup, runtime state, and security
             design live in hooks/wrap-deferred.README.md.
 
-Upstream deps: content/commands/wrap-deferred.md (command spec);
+Upstream deps: content/commands/ds-wrap-deferred.md (command spec);
                hooks/wrap-deferred.README.md (daemon setup and security model);
-               content/commands/wrap.md (interactive counterpart).
+               content/commands/ds-wrap.md (interactive counterpart).
 
 Downstream consumers: docs site root index.
 
 Failure modes: Stale if the non-interactive contract, omission table, or
                security model changes. Update alongside
-               content/commands/wrap-deferred.md in the same change.
+               content/commands/ds-wrap-deferred.md in the same change.
 
 Performance: Standard.
 -->
 
-# /wrap-deferred
+# /ds-wrap-deferred
 
-`/wrap-deferred` is the non-interactive counterpart of `/wrap`. It runs
+`/ds-wrap-deferred` is the non-interactive counterpart of `/ds-wrap`. It runs
 automatically via a background daemon to finalize session enrichment when a
-session ends without a manual `/wrap` call.
+session ends without a manual `/ds-wrap` call.
 
 You do not invoke this command yourself. The daemon (`hooks/wrap-daemon.js`)
 detects cleanly-ended sessions, resumes them headlessly, and runs
-`/wrap-deferred` to write the same three targets as `/wrap` - session context,
+`/ds-wrap-deferred` to write the same three targets as `/ds-wrap` - session context,
 memory, and AGENTS.md updates - in a single unattended pass.
 
 The daemon setup, runtime state, stop/reset procedure, and security model
@@ -38,22 +38,22 @@ does and why it exists.
 
 ## Why it exists
 
-The interactive `/wrap` hangs headlessly. It reaches a human-decision point
+The interactive `/ds-wrap` hangs headlessly. It reaches a human-decision point
 early in its pipeline (a stale-lock prompt) and waits for input that never
-arrives. `/wrap-deferred` exists to close that gap: a single-pass command with
+arrives. `/ds-wrap-deferred` exists to close that gap: a single-pass command with
 no prompts, no subagents, and no loops that the daemon can run safely without
 a human at the other end.
 
-The result: sessions that end without a manual `/wrap` still get their context,
+The result: sessions that end without a manual `/ds-wrap` still get their context,
 memory, and AGENTS.md updated - just with less fidelity than the full
 interactive path.
 
-## How it differs from /wrap
+## How it differs from /ds-wrap
 
-The interactive `/wrap` is a multi-pass, Skeptic-reviewed pipeline. `/wrap-deferred`
+The interactive `/ds-wrap` is a multi-pass, Skeptic-reviewed pipeline. `/ds-wrap-deferred`
 is a single in-session model pass with the same write targets but fewer steps.
 
-| `/wrap` step | `/wrap-deferred` |
+| `/ds-wrap` step | `/ds-wrap-deferred` |
 |---|---|
 | Draft Worker (subagent) | Omitted - conductor surveys inline |
 | Skeptic review (two passes) | Omitted |
@@ -63,7 +63,7 @@ is a single in-session model pass with the same write targets but fewer steps.
 | Part D skill-candidate signal | Omitted - Bash tool is removed in daemon context |
 | Part E compression | Omitted |
 | open-PR enumeration | Omitted |
-| /cleanup-worktrees | Omitted |
+| /ds-cleanup-worktrees | Omitted |
 | Marker transition to `done` | Omitted - the daemon owns this after the child exits 0 |
 | Scaffold migration prompts | Omitted - detected drift becomes a "Watch Out For" bullet in context.md |
 
@@ -73,7 +73,7 @@ is no draft-review loop - it is a best-effort single pass.
 
 ## The non-interactive contract
 
-`/wrap-deferred` satisfies these constraints on every execution path:
+`/ds-wrap-deferred` satisfies these constraints on every execution path:
 
 - **Never prompts.** No question, no confirmation, no escalation. Any
   ambiguity, blocker, or drift becomes a `## Watch Out For` bullet in
@@ -90,7 +90,7 @@ is no draft-review loop - it is a best-effort single pass.
 
 ## The Bash removal and why it matters
 
-The daemon launches `/wrap-deferred` with `--disallowedTools "Bash"` under
+The daemon launches `/ds-wrap-deferred` with `--disallowedTools "Bash"` under
 `--permission-mode bypassPermissions`. Under bypass-permissions mode,
 `--allowedTools` does not constrain the tool set - it only suppresses approval
 prompts. The actual boundary is `--disallowedTools "Bash"`, which removes the
@@ -106,7 +106,7 @@ The consequence for the command itself: git state (uncommitted changes, recent
 commits, branch, stashes) is derived from the resumed conversation transcript
 when the ended session described that state, and is omitted otherwise. No
 `git status`, `git log`, `git stash list`, or `git diff` runs under the daemon.
-The interactive `/wrap`, which runs under normal permissions with a human
+The interactive `/ds-wrap`, which runs under normal permissions with a human
 present, still reads git normally.
 
 ## What it writes
@@ -134,10 +134,10 @@ The write sequence is fixed:
 
 5. **Exit 0.** The daemon then transitions the per-session marker to `done`.
 
-## Manual /wrap --sync is still the full-fidelity path
+## Manual /ds-wrap --sync is still the full-fidelity path
 
-`/wrap-deferred` is a fallback for forgotten wraps, not a replacement. Run
-`/wrap --sync` manually when the session's work matters and you want:
+`/ds-wrap-deferred` is a fallback for forgotten wraps, not a replacement. Run
+`/ds-wrap --sync` manually when the session's work matters and you want:
 
 - Skeptic review of the draft context and memory entries.
 - Open-PR deferral for memory and AGENTS.md changes that need review before
@@ -150,5 +150,5 @@ The daemon enriches unattended; you enrich deliberately.
 ## Related references
 
 - `hooks/wrap-deferred.README.md` - daemon setup, runtime state, stop/reset, and full security model.
-- `content/commands/wrap-deferred.md` - command spec: non-interactive contract, inputs, procedure, and the full omission table vs `/wrap`.
-- `content/commands/wrap.md` - interactive `/wrap` pipeline.
+- `content/commands/ds-wrap-deferred.md` - command spec: non-interactive contract, inputs, procedure, and the full omission table vs `/ds-wrap`.
+- `content/commands/ds-wrap.md` - interactive `/ds-wrap` pipeline.

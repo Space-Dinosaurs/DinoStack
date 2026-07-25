@@ -204,7 +204,7 @@ For UI-visible changes, Skeptic and qa-engineer run concurrently - no sequential
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
 
-Per-project file, seeded by `/init-project` when a web UI is detected. Two jobs:
+Per-project file, seeded by `/ds-init-project` when a web UI is detected. Two jobs:
 
 **1. Config** - how to run the app for QA
 

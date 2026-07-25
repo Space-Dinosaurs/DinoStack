@@ -256,12 +256,12 @@ Learnings, conventions, and decisions persist across sessions instead of dying w
 
 | Command | When you'd reach for it |
 |---|---|
-| `/init-project` | One-time setup when bringing the protocol into a repo |
-| `/brief` | Open a planning dialogue before architect/engineer spawn |
-| `/implement-ticket` | Run a ticket end-to-end: architect -> engineer -> skeptic -> PR |
-| `/skeptic` | Force a review pass on recent changes |
-| `/wrap` | On-demand session summarization and memory capture |
-| `/memory-update` | Persist a learning you want to keep |
+| `/ds-init-project` | One-time setup when bringing the protocol into a repo |
+| `/ds-brief` | Open a planning dialogue before architect/engineer spawn |
+| `/ds-implement-ticket` | Run a ticket end-to-end: architect -> engineer -> skeptic -> PR |
+| `/ds-skeptic` | Force a review pass on recent changes |
+| `/ds-wrap` | On-demand session summarization and memory capture |
+| `/ds-memory-update` | Persist a learning you want to keep |
 
 <div class="callout">
 Most sessions don't invoke any of these. Commands are accents, not the interface.
@@ -392,7 +392,7 @@ The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration 
 </div>
 
 <div class="callout">
-<strong>Loop durability:</strong> state is written to <code>.agentic/loop-state.json</code> at each phase transition (atomic write). Loops survive rate limits and session exits — the next session resumes from the last phase boundary via <code>/implement-ticket</code>'s built-in resume check.
+<strong>Loop durability:</strong> state is written to <code>.agentic/loop-state.json</code> at each phase transition (atomic write). Loops survive rate limits and session exits — the next session resumes from the last phase boundary via <code>/ds-implement-ticket</code>'s built-in resume check.
 </div>
 
 ---
@@ -439,7 +439,7 @@ The loop terminates cleanly or escalates. It never runs forever.
   .callout { font-size: 0.76em; padding: 0.35em 0.9em; margin-top: 0.3em; }
 </style>
 
-When `orchestration-planner` returns 2+ independent units, `/implement-ticket` Phase 5 fans out:
+When `orchestration-planner` returns 2+ independent units, `/ds-implement-ticket` Phase 5 fans out:
 
 ```
 orchestration-planner

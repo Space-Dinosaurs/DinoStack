@@ -2,23 +2,23 @@
 Purpose: Operator-facing guide for the skill-candidate detection system.
          Explains what it is, how candidates are detected at wrap time,
          what the operator sees (session-start notices and the backlog file),
-         how to use /skill-candidates, and how to act on or dismiss a candidate.
+         how to use /ds-skill-candidates, and how to act on or dismiss a candidate.
 
 Public API: Operator-facing prose. Entry point for anyone who sees a
             SKILL-CANDIDATE notice or finds .agentic/skill-candidates.md.
-            Deeper spec lives in content/commands/skill-candidates.md and
-            content/commands/wrap.md §Part D.
+            Deeper spec lives in content/commands/ds-skill-candidates.md and
+            content/commands/ds-wrap.md §Part D.
 
-Upstream deps: content/commands/skill-candidates.md (command spec and entry format);
-               content/commands/wrap.md §Part D (detection and deep-cluster invocation);
+Upstream deps: content/commands/ds-skill-candidates.md (command spec and entry format);
+               content/commands/ds-wrap.md §Part D (detection and deep-cluster invocation);
                content/rules/conventions.md §Skill-candidate sweep at session start
                (session-start notice logic and pagination);
                hooks/lib/skill-candidate-deep-cluster.js (the cluster merge helper).
 
 Downstream consumers: docs site root index.
 
-Failure modes: Stale if entry format, detection threshold, or /skill-candidates
-               command behavior changes. Update alongside content/commands/skill-candidates.md.
+Failure modes: Stale if entry format, detection threshold, or /ds-skill-candidates
+               command behavior changes. Update alongside content/commands/ds-skill-candidates.md.
 
 Performance: Standard.
 -->
@@ -30,12 +30,12 @@ kind of manual workaround appears at least three times, it promotes the pattern
 to a **skill candidate** - a suggestion that the friction is worth turning into
 a reusable command, named agent, preset, or lint rule.
 
-You do not configure this. It runs automatically at the end of every `/wrap`
+You do not configure this. It runs automatically at the end of every `/ds-wrap`
 call and surfaces results the next time you start a session.
 
 ## How detection works
 
-Detection runs in two stages, both during `/wrap`:
+Detection runs in two stages, both during `/ds-wrap`:
 
 **1. Inline LLM extraction (Part D).**
 At wrap time, the conductor reflects on the session and extracts 0-5 entries
@@ -70,7 +70,7 @@ entries that have not yet been surfaced to you. For each new unsurfaced entry,
 it emits a non-blocking notice before your first response:
 
 ```
-SKILL-CANDIDATE: domain 'adapter-rebuild' has accumulated 4 occurrences - consider creating a skill (suggested artifact: command). Run /skill-candidates for the full backlog.
+SKILL-CANDIDATE: domain 'adapter-rebuild' has accumulated 4 occurrences - consider creating a skill (suggested artifact: command). Run /ds-skill-candidates for the full backlog.
 [phase: skill-candidate]
 ```
 
@@ -107,12 +107,12 @@ match - keep slugs lowercase-hyphenated (e.g. `adapter-rebuild`, not
 Fields maintained by the detector: `Count`, `First seen`, `Last seen`.
 Field you control: `Status` (`open` or `dismissed`).
 
-## Using /skill-candidates
+## Using /ds-skill-candidates
 
-Run `/skill-candidates` from any session to view the full backlog:
+Run `/ds-skill-candidates` from any session to view the full backlog:
 
 ```
-/skill-candidates
+/ds-skill-candidates
 ```
 
 No flags, no subcommands. It reads `.agentic/skill-candidates.md` from the
@@ -127,7 +127,7 @@ If the file is absent:
 ```
 No skill candidates detected yet.
 
-The detector runs at the end of each `/wrap` call and writes candidates here
+The detector runs at the end of each `/ds-wrap` call and writes candidates here
 when a domain tag accumulates >= 3 occurrences. Check back after a few
 more sessions, or verify that skill_candidate_detection is true in
 .agentic/config.json.
@@ -171,7 +171,7 @@ suggested artifact type, and a concrete example to guide authoring.
 **Dismiss a candidate.**
 Open `.agentic/skill-candidates.md` and change the entry's `**Status:**` field
 from `open` to `dismissed`. The session-start notice will no longer fire for
-that domain, and `/skill-candidates` will list it under DISMISSED.
+that domain, and `/ds-skill-candidates` will list it under DISMISSED.
 
 Do not delete entries - the detector will re-promote them if the same friction
 continues. Setting `dismissed` signals that you have decided not to build a
@@ -183,16 +183,16 @@ skill for this domain (or that the friction has been resolved another way).
   the session-start sweep are both disabled.
 - Fewer than 3 occurrences for any domain across sessions - the threshold has
   not been reached.
-- The `/wrap` command is never run, or `$CLAUDE_CODE_SESSION_ID` is unset at
+- The `/ds-wrap` command is never run, or `$CLAUDE_CODE_SESSION_ID` is unset at
   wrap time - the deep-cluster helper is skipped (soft no-op).
 - You are in the DinoStack methodology source repo itself - `.agentic/*` is
   gitignored there by design. DinoStack is the source, not a consumer project.
 
 ## Related references
 
-- `content/commands/skill-candidates.md` - full command spec: entry format,
+- `content/commands/ds-skill-candidates.md` - full command spec: entry format,
   grouping logic, gating, and the intent-layer note on file commit behavior
-- `content/commands/wrap.md` §Part D - the wrap-time detection flow and
+- `content/commands/ds-wrap.md` §Part D - the wrap-time detection flow and
   deep-cluster helper invocation
 - `content/rules/conventions.md` §Skill-candidate sweep at session start -
   the session-start notice logic, surfacing rules, and pagination

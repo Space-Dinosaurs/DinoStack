@@ -31,13 +31,13 @@ Three ways a conductor flow can start, and the contract governing iterative open
 
 ## Trigger types
 
-**Manual** (default): the operator invokes `/implement-ticket` directly. All existing conductor behavior applies unchanged. This is the baseline; every other trigger type is an extension of it, not a replacement.
+**Manual** (default): the operator invokes `/ds-implement-ticket` directly. All existing conductor behavior applies unchanged. This is the baseline; every other trigger type is an extension of it, not a replacement.
 
 **Scheduled**: a time-based external or harness-layer trigger - a cron entry, a user-global `/schedule` skill, a CI scheduled workflow, etc. - invokes the existing conductor flow at a predetermined interval. AE contributes the entry-point contract and risk discipline; scheduling infrastructure is outside AE scope. Note: `/schedule` is an external user-global Claude Code skill, not an AE methodology command - this catalog documents the contract it must satisfy, not the skill itself.
 
 **Action-triggered**: a repository event (PR opened, push to a branch, CI-green status check) fires the workflow via CI or webhook at the harness layer, which in turn invokes the conductor. AE's contribution is the entry-point convention and risk discipline; the CI/webhook plumbing is outside AE scope. Note: `/loop` is similarly an external user-global skill - this catalog documents the contract it must satisfy.
 
-All three trigger types enter the conductor at the same point: the start of the standard `/implement-ticket` flow. From that point, normal methodology rules apply without exception.
+All three trigger types enter the conductor at the same point: the start of the standard `/ds-implement-ticket` flow. From that point, normal methodology rules apply without exception.
 
 ## Open-goal loop contract
 
@@ -45,7 +45,7 @@ An open-goal loop is an iterative conductor flow where the operator declares a m
 
 **Trigger**: one of the three trigger types above fires the conductor.
 
-**Action**: the conductor runs `/implement-ticket` with `goal_mode=open_goal`. Each iteration produces one or more units of work, which go through the standard architect -> orchestration-planner -> engineer -> Skeptic sequence. `goal_mode=open_goal` invocations MUST also declare `max_iterations` (positive integer) and `max_wallclock_min` (positive integer) - see Hard-stop rule 5. No default; an invocation missing either is refused before Phase 1.
+**Action**: the conductor runs `/ds-implement-ticket` with `goal_mode=open_goal`. Each iteration produces one or more units of work, which go through the standard architect -> orchestration-planner -> engineer -> Skeptic sequence. `goal_mode=open_goal` invocations MUST also declare `max_iterations` (positive integer) and `max_wallclock_min` (positive integer) - see Hard-stop rule 5. No default; an invocation missing either is refused before Phase 1.
 
 **Measured condition**: an operator-declared `goal_condition` string evaluated after each iteration. Example: `"zero open Critical findings in content/references/"`. When an iteration's `risk_declared` is `elevated` and produced a clean Skeptic sign-off, the conductor spawns `goal-condition-evaluator` (Tier 1/haiku default; see `content/agents/goal-condition-evaluator.md`) to check the condition cheaply rather than spending conductor-tier reasoning on every iteration. The evaluator is read-only and returns only `GOAL_MET: true|false` plus a one-line evidence quote - it makes no correctness or safety judgment and never substitutes for the Skeptic (see §Risk and review discipline (b) and (e), neither of which this evaluator's existence relaxes). When an iteration's `risk_declared` is `low` or `trivial` (no Skeptic sign-off exists to spawn after - per (b), the fresh-independent-Skeptic requirement scopes to Elevated units only), the conductor evaluates `goal_condition` itself directly and never spawns the evaluator for that iteration. The same conductor-direct evaluation is also the fallback whenever the evaluator is spawned but is unavailable, times out, returns a malformed result, or returns `BLOCKED`: none of those outcomes routes to the generic BLOCKED-is-`cap_reached` escalation semantics in `content/references/subagent-protocol.md` §Loop transition rules - they route to conductor-direct evaluation, and the loop proceeds exactly as it would have before this role existed. When the condition is true (evaluator-confirmed or conductor-direct), the loop exits cleanly.
 
@@ -99,17 +99,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Run AE conductor (action-triggered)
-        # This step invokes the existing /implement-ticket conductor flow.
+        # This step invokes the existing /ds-implement-ticket conductor flow.
         # The conductor then applies standard risk classification before
         # spawning any workers - the trigger does not bypass review.
         run: |
-          claude --project . /implement-ticket "${{ github.event.pull_request.title }}"
+          claude --project . /ds-implement-ticket "${{ github.event.pull_request.title }}"
 ```
 
 `/schedule` and `/loop` are external user-global Claude Code skills, not AE methodology commands. This catalog documents the contract they must satisfy (trigger fires conductor, conductor applies risk classification, every Elevated unit gets a fresh Skeptic), not the skills themselves.
 
 ## Related config
 
-`auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json` is the companion toggle that enables unsupervised merge when an action-triggered flow completes CI-green. When `true`, `/implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. Documented in `content/sections/04-risk-classification.md` §Project config.
+`auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json` is the companion toggle that enables unsupervised merge when an action-triggered flow completes CI-green. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. Documented in `content/sections/04-risk-classification.md` §Project config.
 
-`content/sections/07-cross-session-loop-resume.md` documents the loop-state persistence and resume semantics that the open-goal loop inherits: `loop-state.json` writes at every phase transition, resumable phases, and the interruption recovery protocol. As of DS-75 - newly wired, low field mileage - `goal_mode=open_goal` is a live invocation parameter. The outer-loop cursor (`active`, `goal_condition`, `iteration`, `max_iterations`, `risk_declared`, `termination_reason`, `dry_run`) lives in the DURABLE `batch-state.json.open_goal` object, not `loop-state.json` (which Phase 12 clears every iteration), alongside a `mode` discriminator (`"batch" | "open_goal" | "single_ticket_capped"`). See `content/commands/implement-ticket.md` "Phase 0a-open-goal", Phase 6 "Open-goal condition check", and Phase 12a for the wiring. The manual/scheduled/action-triggered TRIGGER plumbing (cron, CI, webhook infrastructure) remains outside AE scope, unchanged.
+`content/sections/07-cross-session-loop-resume.md` documents the loop-state persistence and resume semantics that the open-goal loop inherits: `loop-state.json` writes at every phase transition, resumable phases, and the interruption recovery protocol. As of DS-75 - newly wired, low field mileage - `goal_mode=open_goal` is a live invocation parameter. The outer-loop cursor (`active`, `goal_condition`, `iteration`, `max_iterations`, `risk_declared`, `termination_reason`, `dry_run`) lives in the DURABLE `batch-state.json.open_goal` object, not `loop-state.json` (which Phase 12 clears every iteration), alongside a `mode` discriminator (`"batch" | "open_goal" | "single_ticket_capped"`). See `content/commands/ds-implement-ticket.md` "Phase 0a-open-goal", Phase 6 "Open-goal condition check", and Phase 12a for the wiring. The manual/scheduled/action-triggered TRIGGER plumbing (cron, CI, webhook infrastructure) remains outside AE scope, unchanged.

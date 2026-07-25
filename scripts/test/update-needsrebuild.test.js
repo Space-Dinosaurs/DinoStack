@@ -61,7 +61,7 @@ assert(!needsRebuild('abc123', 'abc123', ['content/agents/foo.md']), 'identical 
 
 console.log('\nCase (c): content/ changed -> rebuild');
 assert(needsRebuild('aaa', 'bbb', ['content/agents/engineer.md']), 'content/agents/... -> rebuild');
-assert(needsRebuild('aaa', 'bbb', ['content/commands/brief.md']),  'content/commands/... -> rebuild');
+assert(needsRebuild('aaa', 'bbb', ['content/commands/ds-brief.md']),  'content/commands/... -> rebuild');
 assert(needsRebuild('aaa', 'bbb', ['content/foo.txt']),             'content/foo.txt -> rebuild');
 assert(needsRebuild('aaa', 'bbb', ['README.md', 'content/x.md']), 'mixed: content/ among others -> rebuild');
 

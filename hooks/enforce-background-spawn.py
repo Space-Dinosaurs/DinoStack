@@ -248,7 +248,7 @@ def _resolve_role_harness(config: dict, role: str) -> tuple[str | None, str | No
     return None, None
 
 # Documented foreground-exempt agents. wrap-ticket runs foreground/blocking
-# in /implement-ticket Phase 11b: it holds .agentic/wrap.lock and MUST complete
+# in /ds-implement-ticket Phase 11b: it holds .agentic/wrap.lock and MUST complete
 # before Phase 12 cleanup, so it cannot be forced to background. This is the
 # only methodology-sanctioned foreground spawn. Add others here only with
 # an equivalent documented blocking-ordering requirement.

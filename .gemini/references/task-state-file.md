@@ -3,7 +3,7 @@ Purpose: Full reference for the task-state file (.agentic/tasks.jsonl)
          extracted from content/sections/08-task-state-file.md. Contains:
          multi-unit plan initialization and maintenance lifecycle; conductor-
          sole-writer invariant; single-unit skip rule; protocol cross-
-         reference (/implement-ticket Phase 3b and Phase 5); and the
+         reference (/ds-implement-ticket Phase 3b and Phase 5); and the
          author_model field (model id for reviewer-diversity routing).
 
 Public API: Read-only reference document. Cross-referenced from:
@@ -12,14 +12,14 @@ Public API: Read-only reference document. Cross-referenced from:
             Protocol Details entry).
 
 Upstream deps: content/sections/08-task-state-file.md (parent section);
-               /implement-ticket Phase 3b (task-state initialization schema,
+               /ds-implement-ticket Phase 3b (task-state initialization schema,
                file-absent/present behavior, orphan detection, field-level
                merge algorithm) and Phase 5 (task_id correlation, author_model
                recording); content/agents/skeptic.md and
                content/agents/security-auditor.md (reviewer-diversity prose
                that consumes author_model).
 
-Downstream consumers: conductor (/implement-ticket multi-unit orchestration;
+Downstream consumers: conductor (/ds-implement-ticket multi-unit orchestration;
                       reads and writes tasks.jsonl as sole writer); engineer
                       agents (receive task_id in execution contract for
                       identification only - never write to tasks.jsonl);
@@ -39,7 +39,7 @@ Performance: Standard (local JSONL append/read; no network).
 
 ## Task-state file
 
-When `/implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+When `/ds-implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/ds-implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
 
 **Field: `author_model`** (string, nullable). The model id the implementing
 engineer ran under for this task, or `null` when unknown (single-unit plans,

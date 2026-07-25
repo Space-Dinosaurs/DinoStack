@@ -115,7 +115,7 @@ The `|| true` guards ensure an already-closed session or unbound port never erro
 
 **Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Run this in teardown after the browser/dev-server steps above, choosing the branch that matches the result you are about to report:
 
-- If the result you are reporting is **PASS**: do NOT delete `/tmp/qa_*.png`. Leave the screenshots in place so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Still delete the dev-server log:
+- If the result you are reporting is **PASS**: do NOT delete `/tmp/qa_*.png`. Leave the screenshots in place so `/ds-implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Still delete the dev-server log:
 
   ```bash
   rm -f /tmp/qa_devserver.log 2>/dev/null || true
@@ -390,7 +390,7 @@ Always capture:
 - After each key interaction or state change
 - Any failure state
 
-Screenshot files remain in `/tmp/` on PASS so `/implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Delete them on all other exit paths during teardown. **Note:** Screenshot and diff-image paths referenced in this report may be stale after teardown. On non-PASS exits, `qa-engineer` deletes `/tmp/qa_*` files as part of temp-file cleanup. The paths remain in the report for reference only. Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
+Screenshot files remain in `/tmp/` on PASS so `/ds-implement-ticket` Phase 8.5 can copy them to the `qa-evidence` branch. Delete them on all other exit paths during teardown. **Note:** Screenshot and diff-image paths referenced in this report may be stale after teardown. On non-PASS exits, `qa-engineer` deletes `/tmp/qa_*` files as part of temp-file cleanup. The paths remain in the report for reference only. Reference screenshot paths in the Evidence field of each criterion. Also populate the `## Screenshot Evidence JSON` block described in §Output format so that downstream consumers can parse screenshot metadata without scraping the human-readable list.
 
 ## Output format
 

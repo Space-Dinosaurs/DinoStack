@@ -7,7 +7,7 @@ Purpose: Defines the tiered planning-artifact protocol (Brief and Plan) that
 Public API: This file is methodology prose, not code. It is consumed by the
             conductor at the promotion gate (post orchestration-planner,
             pre engineer spawn), by the Skeptic when reviewing Brief or
-            Plan artifacts, and by /brief (content/commands/brief.md) which
+            Plan artifacts, and by /ds-brief (content/commands/ds-brief.md) which
             produces the Brief artifact via interactive dialogue before the
             promotion gate runs.
 

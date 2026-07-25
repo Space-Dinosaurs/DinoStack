@@ -9,7 +9,7 @@
 #   agentic-migrate diff   [--manifest PATH] [--project-root PATH]
 # Upstream: content/project-scaffolding.yml (canonical) or adapter-replicated copy.
 #           Shared helpers: bin/_lib (atomic_write).
-# Downstream: invoked by Activation preflight Step 6 and /migrate-project command
+# Downstream: invoked by Activation preflight Step 6 and /ds-migrate-project command
 # Failure modes: silent-fail discipline; never throws to caller; exit codes signal status
 #   0 = success / no-op
 #   1 = drift detected (check subcommand only)
@@ -324,7 +324,7 @@ def _warn_manifest_not_found(project_root: Path) -> None:
         except FileExistsError:
             return
 
-        suffix = "" if session_id else " Run /migrate-project to re-attempt."
+        suffix = "" if session_id else " Run /ds-migrate-project to re-attempt."
         _append_context_line(
             project_root,
             "[scaffolding-sync] WARNING: manifest not found, sync skipped. "

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Unit tests: hooks/lib/wrap-marker.js - the deferred-`/wrap` marker state
+ * Unit tests: hooks/lib/wrap-marker.js - the deferred-`/ds-wrap` marker state
  * machine, reclaim, janitor, lock, sentinel and per-session isolation.
  *
  * Covers architect-plan verification-gate cases at the LIB level:

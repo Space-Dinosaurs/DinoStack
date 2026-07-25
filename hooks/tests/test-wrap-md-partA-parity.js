@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Part-A parity guard: prevent silent divergence of the rolling-session-label
- * merge algorithm between content/commands/wrap.md and the shared normative
+ * merge algorithm between content/commands/ds-wrap.md and the shared normative
  * reference content/references/wrap-context-format.md.
  *
  * WHY THIS TEST EXISTS
@@ -43,7 +43,7 @@ const fs = require('fs');
 const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
-const WRAP_MD = path.join(REPO_ROOT, 'content', 'commands', 'wrap.md');
+const WRAP_MD = path.join(REPO_ROOT, 'content', 'commands', 'ds-wrap.md');
 const REFERENCE = path.join(REPO_ROOT, 'content', 'references', 'wrap-context-format.md');
 
 // The normative section header that owns the merge algorithm in the reference.

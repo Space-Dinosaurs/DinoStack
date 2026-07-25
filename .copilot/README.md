@@ -94,11 +94,11 @@ See `.github/agents/` for the full list.
 
 Type `/` in the Copilot chat input to see available prompts. Key prompts:
 
-- `/implement-ticket` - full orchestrated ticket implementation
-- `/skeptic` - run adversarial review on a diff
-- `/brief` - open a planning brief session
-- `/wrap` - summarize and save session context
-- `/init-project` - scaffold a new project
+- `/ds-implement-ticket` - full orchestrated ticket implementation
+- `/ds-skeptic` - run adversarial review on a diff
+- `/ds-brief` - open a planning brief session
+- `/ds-wrap` - summarize and save session context
+- `/ds-init-project` - scaffold a new project
 
 See `.github/prompts/` for the full list.
 

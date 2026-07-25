@@ -17,7 +17,7 @@ Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
 Downstream consumers: conductor preflight (session-start prune script and
                       branch prune block); conductor cleanup flows (isolation
                       and feature worktree removal commands);
-                      /cleanup-worktrees command; /implement-ticket lifecycle
+                      /ds-cleanup-worktrees command; /ds-implement-ticket lifecycle
                       cleanup.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove

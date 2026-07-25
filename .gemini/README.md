@@ -41,7 +41,7 @@ After running the installer, verify the following:
    The answer should reference Trivial/Low/Elevated/Elevated+Cleanup. If it does not, check that `~/.gemini/GEMINI.md` exists and is a valid symlink.
 
 2. **Slash commands available:**
-   In a Gemini CLI session, run `/commands reload` then type `/skeptic` - it should appear in autocomplete. If not, check that `~/.gemini/commands/` is a symlink to the repo's `.gemini/commands/` directory.
+   In a Gemini CLI session, run `/commands reload` then type `/ds-skeptic` - it should appear in autocomplete. If not, check that `~/.gemini/commands/` is a symlink to the repo's `.gemini/commands/` directory.
 
 3. **Named agents available:**
    In a Gemini CLI session, type `@engineer` - Gemini should auto-complete and activate the engineer agent. Check `~/.gemini/agents/` if it does not.
@@ -85,7 +85,7 @@ Hooks are configured in `~/.gemini/settings.json` under the `hooks` key. Two hoo
 
 **BeforeAgent** fires after a user submits a prompt but before the agent begins planning. The hook outputs structured JSON (`hookSpecificOutput.additionalContext`) which Gemini appends to the prompt for that turn.
 
-**SessionEnd** fires on clean session termination (explicit `/exit` or graceful shutdown). Abrupt terminations (crashes, SIGKILL) do **not** trigger this hook. The context save is therefore **best-effort** and may be missed on unclean exits. For reliable context capture, use the `/wrap` command before ending a session.
+**SessionEnd** fires on clean session termination (explicit `/exit` or graceful shutdown). Abrupt terminations (crashes, SIGKILL) do **not** trigger this hook. The context save is therefore **best-effort** and may be missed on unclean exits. For reliable context capture, use the `/ds-wrap` command before ending a session.
 
 ### Reference docs
 

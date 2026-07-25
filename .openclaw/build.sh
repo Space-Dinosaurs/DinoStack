@@ -19,6 +19,12 @@
 # Failure modes: Exits non-zero on any error (set -euo pipefail). Safe to
 #                re-run; ln -sfn and conditional hardlink are idempotent.
 #
+# Side-effects: removes stale command-skill directories under .openclaw/skills/
+#               whose name no longer matches any content/commands/*.md source
+#               (e.g. after a command rename or deletion upstream). Two
+#               skip-guards protect the entry skill (agentic-engineering) and
+#               every agent-<name> skill dir from this pruning pass.
+#
 # Performance: Standard. Regenerates all SKILL.md files on each run.
 # ---------------------------------------------------------------------------
 set -euo pipefail
@@ -147,14 +153,16 @@ if [[ "$need_copy" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Command skills (19): one skill dir per command file
+# Command skills (25): one skill dir per command file
 # ---------------------------------------------------------------------------
 
 cmd_count=0
+declare -a generated_command_skills=()
 while IFS= read -r src; do
   [[ -e "$src" ]] || continue
   name="$(basename "$src" .md)"
   dir="$SKILLS_DIR/$name"
+  generated_command_skills+=("$name")
   mkdir -p "$dir"
 
   python3 - "$src" "$dir/SKILL.md" "$name" "$REPO_DIR" <<'PYEOF'
@@ -244,8 +252,29 @@ PYEOF
   cmd_count=$((cmd_count + 1))
 done < <(LC_ALL=C find "$CONTENT/commands" -maxdepth 1 -name '*.md' | LC_ALL=C sort)
 
+# Remove stale command skill dirs (source was renamed or deleted upstream).
+# Two skip-guards run BEFORE any removal logic: never touch the entry skill
+# dir or any agent-<name> skill dir - only prune command-derived dirs.
+for existing_dir in "$SKILLS_DIR"/*/; do
+  [ -d "$existing_dir" ] || continue
+  existing_name="$(basename "$existing_dir")"
+  [[ "$existing_name" == "agentic-engineering" ]] && continue
+  [[ "$existing_name" == agent-* ]] && continue
+  found=0
+  for gen in "${generated_command_skills[@]}"; do
+    if [[ "$gen" == "$existing_name" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    rm -rf "$existing_dir"
+    echo "  - removed stale command skill: $existing_name"
+  fi
+done
+
 # ---------------------------------------------------------------------------
-# Agent skills (16): one skill dir per agent, prefixed agent-<name>
+# Agent skills (18): one skill dir per agent, prefixed agent-<name>
 # ---------------------------------------------------------------------------
 
 agent_count=0

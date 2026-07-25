@@ -2,13 +2,13 @@
 'use strict';
 
 /**
- * Purpose: Portable, permission-safe release of the /wrap directory lock
+ * Purpose: Portable, permission-safe release of the /ds-wrap directory lock
  *          (.agentic/wrap/lock). Replaces the inline `rm -rf .agentic/wrap/lock`
  *          that Claude Code's permission system denies even under bypass. Invoked
  *          by BARE NAME (PATH-wired like agentic-migrate) from any project root.
  *
  * Public API: CLI. `agentic-wrap-release-lock [cwd]`
- *   - cwd defaults to process.cwd() (the project root during /wrap). Resolved to
+ *   - cwd defaults to process.cwd() (the project root during /ds-wrap). Resolved to
  *     absolute before use (releaseWrapLock -> safeCwd rejects non-absolute paths).
  *   - Always exits 0 (fail-open). Prints exactly one status line to stdout:
  *       "released <lockPath>"            lock existed and was removed
@@ -27,9 +27,9 @@
  *   stat-before-release existence check that disambiguates the true return.
  *   Node built-ins: fs, path. No npm dependencies.
  *
- * Downstream consumers: content/commands/wrap.md (Step 6 + mandatory-release
- *   block), content/commands/implement-ticket.md Phase 11b (conductor-run lock
- *   release after wrap-ticket returns). NOT the deferred path: /wrap-deferred and
+ * Downstream consumers: content/commands/ds-wrap.md (Step 6 + mandatory-release
+ *   block), content/commands/ds-implement-ticket.md Phase 11b (conductor-run lock
+ *   release after wrap-ticket returns). NOT the deferred path: /ds-wrap-deferred and
  *   the daemon clear the lock via clearProvablyStaleWrapLock (Bash removed there).
  *   Lock path: .agentic/wrap/lock (resolved via lib.wrapLockPath; fallback to
  *   hardcoded path.join(cwd, '.agentic', 'wrap', 'lock')).
@@ -38,7 +38,7 @@
  *   swallowed and the process still exits 0 so a release failure never aborts the
  *   caller's exit path. A genuine release failure prints the WARNING line so the
  *   conductor can surface it. SAFETY NET if the lock truly persists: the next
- *   /wrap's acquireWrapLock auto-clears a >30-min stale lock in code, and wrap.md's
+ *   /ds-wrap's acquireWrapLock auto-clears a >30-min stale lock in code, and wrap.md's
  *   acquisition block gives the human a 30-min manual-removal path -- so a persisted
  *   lock is self-healing and never wedges the project permanently.
  *

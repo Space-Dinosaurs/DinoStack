@@ -6,7 +6,7 @@ skill. Detection signal: `tool_failure_workaround` events (by `domain_tag`) and
 `.agentic/learnings.md` entries (by `Domain`), threshold >= 3 across sessions.
 
 Classification rules and routing taxonomy are in
-`content/commands/skill-candidates.md`. The detector is in
+`content/commands/ds-skill-candidates.md`. The detector is in
 `hooks/lib/skill-candidate-detector.js`.
 
 ## Entry format
@@ -31,4 +31,4 @@ the detector. To dismiss a candidate, change `**Status:** open` to
 
 ## Candidates
 
-<!-- Entries appended by wrap-time detector (/wrap Part D + skill-candidate-deep-cluster.js). -->
+<!-- Entries appended by wrap-time detector (/ds-wrap Part D + skill-candidate-deep-cluster.js). -->

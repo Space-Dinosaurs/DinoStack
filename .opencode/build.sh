@@ -88,12 +88,18 @@ done
 #
 # Claude Code commands are plain markdown. OpenCode commands use frontmatter
 # with description, agent, model, template.
+#
+# Side-effects: also removes any stale .opencode/commands/*.md file whose
+# basename no longer matches a content/commands/*.md source (e.g. after a
+# command rename or deletion upstream).
 # ---------------------------------------------------------------------------
 
+declare -a generated_commands=()
 for src in "$CONTENT/commands/"*.md; do
   [[ -e "$src" ]] || continue
   name="$(basename "$src" .md)"
   dst="$COMMANDS_DST/$name.md"
+  generated_commands+=("$name.md")
 
   python3 - "$src" "$dst" "$name" "$REPO_DIR" <<'PYEOF'
 import sys, re
@@ -135,6 +141,23 @@ with open(dst_path, 'w') as f:
 
 print("  + " + cmd_name)
 PYEOF
+done
+
+# Remove stale command files (source was renamed or deleted upstream)
+for existing in "$COMMANDS_DST"/*.md; do
+  [ -f "$existing" ] || continue
+  bname="$(basename "$existing")"
+  found=0
+  for gen in "${generated_commands[@]}"; do
+    if [[ "$gen" == "$bname" ]]; then
+      found=1
+      break
+    fi
+  done
+  if [[ $found -eq 0 ]]; then
+    rm "$existing"
+    echo "  - removed stale: $bname"
+  fi
 done
 
 # ---------------------------------------------------------------------------

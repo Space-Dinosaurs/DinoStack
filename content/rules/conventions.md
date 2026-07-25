@@ -12,7 +12,7 @@ Never use em dashes (--). Use a regular hyphen (-) instead in all generated text
 - **`.claude/settings.json`** - project-scoped MCP servers and shared config (safe to commit).
 - **`.claude/settings.local.json`** - secrets and local env values (always gitignored).
 
-When starting a new project, run `/init-project` to scaffold this structure automatically.
+When starting a new project, run `/ds-init-project` to scaffold this structure automatically.
 
 ## Session Context and Memory
 
@@ -32,7 +32,7 @@ Then append `original_task_id` to the tracker file. The sweep is a standalone sc
 **Skill-candidate sweep at session start.** After the meta-divergence sweep, the conductor checks `.agentic/skill-candidates.md` for entries. Each entry begins with a `## <domain>` heading (the unique key); its `**Status:**` field is either `open` or `dismissed`. For each entry whose `**Status:**` is `open` AND whose domain is NOT present in `.agentic/.skill-candidates-surfaced`, emit at the next user-facing turn boundary:
 
 ```
-SKILL-CANDIDATE: domain '<domain>' has accumulated <count> occurrences - consider creating a skill (suggested artifact: <suggestedArtifact>). Run /skill-candidates for the full backlog.
+SKILL-CANDIDATE: domain '<domain>' has accumulated <count> occurrences - consider creating a skill (suggested artifact: <suggestedArtifact>). Run /ds-skill-candidates for the full backlog.
 [phase: skill-candidate]
 ```
 
@@ -40,14 +40,14 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Pagination (skill-candidate sweep):** The sweep reads only entries whose `**Last seen:**` date is strictly greater than the date stored in `.agentic/.skill-candidates-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), all open un-surfaced entries are candidates. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to `.agentic/.skill-candidates-last-sweep` (atomic: tmp + `mv`). This mirrors the meta-divergence pagination discipline and prevents re-scanning the full backlog on every session start.
 
-**Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/wrap` is available for richer on-demand summarization. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
+**Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **Knowledge-file routing (three distinct stores):**
-- `<cwd>/MEMORY.md` - canonical durable facts; committed; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/init-project`); written by `/wrap`, wrap-ticket, `/memory-update`.
-- `.agentic/memory.md` - `/wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
+- `<cwd>/MEMORY.md` - canonical durable facts; committed; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`); written by `/ds-wrap`, wrap-ticket, `/ds-memory-update`.
+- `.agentic/memory.md` - `/ds-wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
 - `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (discretionary).
 
-**Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - per-developer session rollup written by the Stop hook. Committed to git via the `.agentic/session-log/` carve-out in `.gitignore` when `commit_telemetry: true` (default) and identity is confirmed; the commit happens at `/implement-ticket` Phase 8 as a SEPARATE commit on the PR branch. Teammates receive it on pull after squash merge. See `content/references/events-log.md` "Per-developer session log". Aggregated via `agentic-cost team`.
+**Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - per-developer session rollup written by the Stop hook. Committed to git via the `.agentic/session-log/` carve-out in `.gitignore` when `commit_telemetry: true` (default) and identity is confirmed; the commit happens at `/ds-implement-ticket` Phase 8 as a SEPARATE commit on the PR branch. Teammates receive it on pull after squash merge. See `content/references/events-log.md` "Per-developer session log". Aggregated via `agentic-cost team`.
 
 **Identity setup - auto-derive + confirm-once.** Run `agentic-identity auto` once to derive a provisional handle from your GitHub login (`gh api user`). The identity is written to `~/.agentic/identity.yml` with `provisional: true`. Manual setup remains available via `agentic-identity init <handle>`. To use a per-repo handle, pass `--scope project`: this writes `<cwd>/.agentic/identity.yml` (gitignored, covered by the existing `.agentic/*` umbrella). A confirmed project identity takes precedence over the global file for sessions in that repo. A provisional project file does NOT suppress a confirmed global - see "Scope / effective identity resolution" in the `agentic-identity` command doc.
 
@@ -81,7 +81,7 @@ This is the 4th stacked first-user-turn notice (alongside meta-divergence, skill
 
 **TEAM dimension.** `agentic-cost team` aggregates all `.agentic/session-log/*.jsonl` files found locally. Session-logs are committed to git via the Phase 8 telemetry commit (when `commit_telemetry: true` and identity is confirmed), so `team` reflects sessions from any developer whose telemetry has landed on the current branch via pull after merge.
 
-**MEMORY.md** is loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/init-project`). It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
+**MEMORY.md** is loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`). It stores stable facts learned about the project - architecture, key file paths, user preferences, recurring solutions. Include rationale with each entry ("chose X because Y"). Rules:
 - Before adding an entry, check if it supersedes an existing one and update it in place (adjust the date)
 - Remove entries that are no longer true
 - Do not duplicate what is already in `AGENTS.md`

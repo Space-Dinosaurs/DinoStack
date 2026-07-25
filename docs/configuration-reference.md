@@ -3,7 +3,7 @@
 Every user-facing setting in the agentic-engineering methodology, with its
 default value and where to set it. This is the complete catalog - if you only
 want to tune Skeptic overhead, you need only `profile`. Change settings
-interactively with `/agentic-config` (guided prompts). See
+interactively with `/ds-config` (guided prompts). See
 [safe-configuration.md](safe-configuration.md) for the cost/rigor tradeoff
 and recommended starting points.
 
@@ -54,10 +54,10 @@ a warning is printed.
 
 ## 3. Project: `.agentic/config.json`
 
-Committed to the repo. Seeded with defaults by `/init-project`. Absent file =
+Committed to the repo. Seeded with defaults by `/ds-init-project`. Absent file =
 all defaults, no behavior change. The 16 behavioral toggles plus 6 tuning
 parameters are listed below. The file also carries a `scaffolding_version` key
-that is installer/migration-managed (used by `/migrate-project` as the
+that is installer/migration-managed (used by `/ds-migrate-project` as the
 source-of-truth stamp for "has this project been migrated to vN") - do not edit
 it manually.
 
@@ -74,9 +74,9 @@ it manually.
 | `theme_aware` | `false` | bool | qa-engineer runs scenarios in both light and dark themes |
 | `storybook_enabled` | `false` | bool | qa-engineer targets Storybook iframe for isolated component verification |
 | `motion_aware` | `false` | bool | qa-engineer runs CDP-emulated reduced-motion checks |
-| `storybook_version` | `7` | `6`, `7` | Storybook URL format (`6` = `?selectedKind=&selectedStory=`); set automatically by `/init-project` |
+| `storybook_version` | `7` | `6`, `7` | Storybook URL format (`6` = `?selectedKind=&selectedStory=`); set automatically by `/ds-init-project` |
 | `commit_telemetry` | `true` | bool | Phase 8 commits the per-developer session-log file as a separate PR commit; set to `false` to opt out |
-| `deferred_wrap_daemon` | `false` | bool | Opt-in for out-of-session daemon to run deferred `/wrap` jobs (tuned by the `deferred_wrap_*` params below) |
+| `deferred_wrap_daemon` | `false` | bool | Opt-in for out-of-session daemon to run deferred `/ds-wrap` jobs (tuned by the `deferred_wrap_*` params below) |
 | `abdication_guard_enabled` | `true` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
 | `skill_candidate_detection` | `true` | bool | Master toggle for the skill-candidate detector; `false` disables all layers |
 | `skill_candidate_nudge` | `false` | bool | In-session nudge when a domain crosses the candidate threshold (requires `skill_candidate_detection: true`) |

@@ -35,7 +35,7 @@ Upstream deps: searxng market-scan script ($HOME/.claude/skills/searxng/scripts/
               external libraries; only Read/Glob/Grep/Bash/Write/Edit tools.
 
 Downstream consumers: the operator (ratifies and promotes the staged drafts);
-                      /brief (copies staged outcome-rubric into the Brief's
+                      /ds-brief (copies staged outcome-rubric into the Brief's
                       Outcome rubric field during Section 3 synthesis) and
                       architect (consume the promoted vision.md and
                       requirements.md as authoritative product intent).
@@ -148,7 +148,7 @@ Do not finalize more than 6 lines. If the operator has more than 6, help them pr
 
 ### 6. Propose, do not commit
 
-Write the three files to `docs/overview/_proposed/` (`vision.md`, `requirements.md`, and `outcome-rubric.md`), present them in your return, and hand off explicitly: "These are proposals staged in `docs/overview/_proposed/`. Review them, edit anything that does not match your intent, and promote them to `docs/overview/` when they are right - I have not touched the canonical files. The outcome rubric in `outcome-rubric.md` is a proposal; it moves into the Brief's Outcome rubric field when you start `/brief`." Offer to revise based on the operator's reaction.
+Write the three files to `docs/overview/_proposed/` (`vision.md`, `requirements.md`, and `outcome-rubric.md`), present them in your return, and hand off explicitly: "These are proposals staged in `docs/overview/_proposed/`. Review them, edit anything that does not match your intent, and promote them to `docs/overview/` when they are right - I have not touched the canonical files. The outcome rubric in `outcome-rubric.md` is a proposal; it moves into the Brief's Outcome rubric field when you start `/ds-brief`." Offer to revise based on the operator's reaction.
 
 ## Output templates
 

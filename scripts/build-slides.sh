@@ -11,7 +11,7 @@
 #                find+sort+mktemp+cmp.
 #
 # Downstream consumers: .github/workflows/slides-sync.yml (drift gate);
-#                       content/commands/update-agentic-engineering.md slide
+#                       content/commands/ds-update-agentic-engineering.md slide
 #                       step; contributors regenerating decks locally.
 #
 # Failure modes: exits non-zero on zero-glob (no decks found), marp render

@@ -5,7 +5,7 @@ Purpose: Read .agentic/events.jsonl and render per-agent / per-task /
          .agentic/session-log/*.jsonl for team-level per-developer aggregation.
          Reads ~/.agentic/session-log/*.jsonl for operator-level cross-project
          rollup. Optionally renders dollar columns when ~/.agentic/pricing.yml
-         is present (opt-in, never invented). The CLI for the /agentic-cost
+         is present (opt-in, never invented). The CLI for the /ds-cost
          command. Also provides `retro` subcommand for pre-telemetry historical
          rollups reconstructed from git log and gh pr list.
 
@@ -28,7 +28,7 @@ Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
                output with the "Install pyyaml for pricing support." line.
                `retro` also shells out to git (always) and gh (optional).
 
-Downstream consumers: content/commands/agentic-cost.md (command spec);
+Downstream consumers: content/commands/ds-cost.md (command spec);
                       developers running the command interactively.
 
 Failure modes: missing .agentic/events.jsonl -> prints empty rollup with
@@ -64,7 +64,7 @@ from pathlib import Path
 
 V1_FOOTER = (
     "Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; "
-    "conductor spawn_complete for /implement-ticket sessions). "
+    "conductor spawn_complete for /ds-implement-ticket sessions). "
     "Hook-spawn wall-time and tokens are unavailable (harness ceiling) and render as n/a."
 )
 
@@ -131,7 +131,7 @@ def _filter_events(events: list[dict], filt) -> list[dict]:
 def _aggregate_by_agent(events: list[dict]) -> dict:
     """Aggregate spawn events by agent name.
 
-    For sessions with spawn_complete events (ticketed /implement-ticket path),
+    For sessions with spawn_complete events (ticketed /ds-implement-ticket path),
     count spawn_complete events and skip any co-present hook spawn_start events
     to avoid double-counting.  For sessions with NO spawn_complete events
     (ad-hoc sessions), count hook-emitted spawn_start events whose
