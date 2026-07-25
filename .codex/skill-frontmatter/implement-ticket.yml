@@ -1,0 +1,4 @@
+---
+name: implement-ticket
+description: Execute an existing tracker ticket through DinoStack planning, isolated implementation, adversarial review, QA, PR, merge, and wrap gates.
+---

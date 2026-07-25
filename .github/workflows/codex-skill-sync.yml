@@ -11,8 +11,20 @@ permissions:
 
 jobs:
   check-codex-skill-sync:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - name: Check codex skill sync
         run: bash scripts/check-codex-skill-sync.sh
+      - name: Run native skill generator tests
+        run: python3 -m unittest scripts.test.test_codex_skills
+      - name: Run clean-clone mutation gate
+        run: python3 scripts/test/test_codex_skills.py --clean-clone
+      - name: Run public Codex build
+        run: bash .codex/build.sh
+      - name: Verify public build is clean
+        run: git diff --exit-code

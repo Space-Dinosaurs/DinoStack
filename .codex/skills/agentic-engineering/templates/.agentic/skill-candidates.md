@@ -1,0 +1,1 @@
+../../../../../content/templates/.agentic/skill-candidates.md

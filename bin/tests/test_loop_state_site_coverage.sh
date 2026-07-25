@@ -301,6 +301,7 @@ content/references/task-state-file.md
 content/sections/03-planning-artifacts.md
 content/sections/09-events-log.md
 docs/agentic-engineering-comparison.html
+scripts/codex-skills.py
 EOF
 
 diff "$TMP/actual" "$TMP/accounted" > "$TMP/gatec" 2>&1 || true

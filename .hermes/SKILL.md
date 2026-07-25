@@ -198,7 +198,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Permission-blocked fallback (non-methodology files only).** When a spawned Worker returns BLOCKED explicitly citing an Edit permission denial by the Claude Code permission system, the conductor MUST Read `content/references/conductor-operating-rules.md` §Permission-blocked fallback before applying any edit directly. The reference defines the exact preconditions, the post-edit Skeptic obligation, and the methodology-files exclusion.
 
-**Editing methodology files under `~/DinoStack/`.** Before editing any file under `content/**`, `.codex/skill/**`, build scripts, or hooks, the conductor MUST Read `content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `/ds-update-agentic-engineering` instead of direct Edit/Write.
+**Editing methodology files under `~/DinoStack/`.** Before editing any file under `content/**`, Codex native-skill generation inputs or outputs (`.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `scripts/codex-skills.py`, `.codex/skills/**`), build scripts, or hooks, the conductor MUST Read `content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `/ds-update-agentic-engineering` instead of direct Edit/Write.
 
 **Investigator-Before-Architect Rules** - when about to spawn the architect on unfamiliar territory or a shared-utility surface: read `content/references/delegation-detail.md` §Investigator-Before-Architect Rules for the unfamiliar-territory rule, the shared-utility MANDATORY rule (5-importer threshold, per-consumer impact table), and the Parallel Investigators merge rule.
 
@@ -1620,7 +1620,7 @@ Then: the main session may apply the edit directly, followed immediately by spaw
 
 ## Editing methodology files
 
-Always route through `/ds-update-agentic-engineering` for edits to `content/**`, `.codex/skill/**`, the build scripts (`.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`), `hooks/**`, or `.codex/hooks/**`. These are the methodology and tooling source files; the command exists to handle the git sync (pull before edit, commit+push after) that prevents cross-machine conflicts. Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/` and they remain in scope via the `content/**` rule. Files outside those paths - docs/, README, top-level config, and regenerated build artifacts under `.claude/commands/`, `.codex/commands/`, `.cursor/commands/` - may be edited directly under the normal Trivial/Elevated tiers; no special routing needed. If you find yourself about to Edit a methodology file in one of the in-scope paths, stop and invoke `/ds-update-agentic-engineering` instead.
+Always route through `/ds-update-agentic-engineering` for edits to `content/**`, Codex native-skill generation inputs or outputs (`.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `scripts/codex-skills.py`, `.codex/skills/**`), the build scripts (`.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`), `hooks/**`, or `.codex/hooks/**`. These are the methodology and tooling source files; the command exists to handle the git sync (pull before edit, commit+push after) that prevents cross-machine conflicts. Note: `.claude/skills/agentic-engineering/**` files are hardlinks into `content/` (same inodes) - editing them is functionally editing `content/` and they remain in scope via the `content/**` rule. Files outside those paths - docs/, README, top-level config, and regenerated build artifacts under `.claude/commands/`, `.codex/commands/`, `.cursor/commands/` - may be edited directly under the normal Trivial/Elevated tiers; no special routing needed. If you find yourself about to Edit a methodology file in one of the in-scope paths, stop and invoke `/ds-update-agentic-engineering` instead.
 
 ## Parallel Investigators
 
@@ -10223,7 +10223,7 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
 3.6. **Vision-alignment check (methodology-shaping changes only).** Applicability gate: this step applies only when the diff under review (Global-context field 6) touches one of the following canonical methodology-shaping paths - this is the single source of truth for the trigger set; the PR template comment and the vision-alignment-check CI workflow both reference this list - keep them in sync with it:
 
    - `content/**`
-   - `hooks/**`, `.codex/hooks/**`, `.codex/skill/**`, `.codex/config/hooks.json`, `.gemini/hooks/**`, `.kimi/hooks/**`
+   - `hooks/**`, `.codex/hooks/**`, `.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `.codex/skills/**`, `scripts/codex-skills.py`, `.codex/config/hooks.json`, `.gemini/hooks/**`, `.kimi/hooks/**`
    - `.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`
    - `bin/**`
    - `*/install.sh` (any adapter's install script), `scripts/install*.sh`
@@ -18881,7 +18881,7 @@ Handles the full edit-sync-build-commit-push cycle for methodology and tooling f
 **When to use - use whenever ANY of these hold:**
 - (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under your agentic-engineering install.
 - (b) The user says "update the methodology", "change the protocol", "edit the wrap skill", "add an agent", "rename a command", or anything similar that implies changing a file in the agentic-engineering repo.
-- (c) You are about to use Edit or Write on any file whose absolute path is within one of the in-scope directories listed in Scope below (e.g. `<AE_REPO_DIR>/content/**`, `<AE_REPO_DIR>/.codex/skill/**`, the build scripts, `<AE_REPO_DIR>/hooks/**`, or `<AE_REPO_DIR>/.codex/hooks/**`). Files outside those directories (docs, README, build artifacts, top-level config) may be edited directly.
+- (c) You are about to use Edit or Write on any file whose absolute path is within one of the in-scope directories listed in Scope below (e.g. `<AE_REPO_DIR>/content/**`, the Codex native-skill generator inputs or outputs, the build scripts, `<AE_REPO_DIR>/hooks/**`, or `<AE_REPO_DIR>/.codex/hooks/**`). Files outside those directories (docs, README, unrelated build artifacts, top-level config) may be edited directly.
 
 **Why it matters:** Without this command's Step 0 git sync, concurrent edits from multiple machines produce push conflicts and messy rebases; without Step 4 commit+push, edits pile up uncommitted locally.
 
@@ -18891,7 +18891,7 @@ Handles the full edit-sync-build-commit-push cycle for methodology and tooling f
 
 In scope (must route through `/ds-update-agentic-engineering`):
 - `content/**` - the single source of truth for all rules, commands, references, and agent definitions
-- `.codex/skill/**` - the Codex adapter source
+- `.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `scripts/codex-skills.py`, and `.codex/skills/**` - Codex native-skill generation inputs, reviewed compatibility inventory, generator, and generated outputs
 - `.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh` - build scripts that generate the adapter artifacts
 - `hooks/**` and `.codex/hooks/**` - git hooks (pre-commit, etc.) and Codex session hooks (risk-reminder, stop-context)
 

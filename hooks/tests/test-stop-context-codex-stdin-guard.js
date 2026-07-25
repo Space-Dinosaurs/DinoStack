@@ -116,6 +116,10 @@ async function testNormalPayloadWritesContext() {
       const content = fs.readFileSync(contextPath, 'utf8');
       assert(content.includes('codex stdin-guard smoke test assistant message'),
         '(b) context.md contains the delivered last_assistant_message');
+      assert(content.includes('run $wrap'),
+        '(b) context.md advertises the native Codex wrap skill');
+      assert(!/(?<![\w./-])\/ds-[a-z0-9-]+\b/.test(content),
+        '(b) context.md contains no operational bare DinoStack slash workflow');
     }
   } finally {
     cleanup(tmpDir);
