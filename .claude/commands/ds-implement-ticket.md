@@ -327,35 +327,42 @@ Reusable subagent invocation pattern. Used by Phase 11 (existing) and 7 new site
 
 When the conductor reaches a writeback boundary:
 1. Skip entirely if `TRACKER == none`.
-2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase).
+2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers (`/ds-ticket-status-sync`, `/ds-wrap` Part F) are enumerated in the guard's step 4.d.iv below.
 3. Pass to the subagent:
    - `tracker`: `linear` | `jira`
    - `ticket_id`: from current task context
    - `target_state`: one of the resolved `TRACKER_STATE_*` variables
    - `forward_only_guard`: `true` for all 7 new sites; preserves existing Phase 11 behavior (which used hardcoded `Testing`)
+   - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 5 values resolved once in Setup; required by the forward-only guard's same-category pipeline sub-rank
    - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
 
 **Subagent responsibilities (extended for `forward_only_guard`):**
 
-1. **Pre-read current state:** call `mcp__linear__get_issue` (or Jira `mcp__mcp-atlassian__jira_get_issue`) to read the ticket's current state including `state.type` (Linear: `backlog`, `unstarted`, `started`, `completed`, `cancelled`; Jira: map via status category).
-2. **Forward-only guard:** compute rank of current state and target state.
+1. **Pre-read current state:**
+   - Linear: call `mcp__linear__get_issue` to read the ticket's current state, capturing both `state.type` and `state.name` (e.g. `"In Review"`) from the response.
+   - Jira: call `mcp__mcp-atlassian__jira_get_issue` to read the ticket's current status, capturing both `fields.status.statusCategory.key` and `fields.status.name` (e.g. `"In Review"`) from the response.
 
-   **Linear ranking** (uses `state.type` directly):
-   `backlog` < `unstarted` < `started` < `completed`; `cancelled` is terminal (never overwritten by any automatic transition).
+2. **Field-absence guard.** If the pre-read call succeeds (no MCP/API error) but the returned object omits `state.type` (Linear) or `fields.status.statusCategory.key` (Jira) - a successful call with an incomplete response, not a call failure - treat it identically to the pre-read failure in step 5: **skip** the transition, do not compute any rank, and emit one stderr line: `tracker-writeback: <ticket_id> pre-read succeeded but response omitted the state-type field ('state.type' / 'statusCategory.key') - skipping, no rank assumed.` Absence always routes to skip, never to permit - a missing category must never be read as "already past every target" or "not yet at any target."
 
-   **Jira ranking** (map via status category, available on every Jira status via `statusCategory.key`):
-   - `new` (To Do, Open, Backlog) → rank `unstarted`
-   - `indeterminate` (In Progress, In Review, Testing) → rank `started`
-   - `done` (Done, Closed, Resolved) → rank `completed`
-   - Custom categories or names matching cancellation semantics (Won't Do, Cancelled, Will Not Fix) → terminal (never overwritten)
+3. **Compute category rank** (governs cross-category comparisons only):
+   - Linear: `backlog` < `unstarted` < `started` < `completed` < `canceled` < `duplicate`; `canceled` and `duplicate` are both terminal (never overwritten by any automatic transition).
+   - Linear defensive fallback (separate from the primary enum above): if a state's `type` is instead spelled `cancelled` (double L) - e.g. a differently-shaped MCP response or a stale cached row - treat it as terminal too. The canonical/primary spelling the Linear API emits is single-L `canceled`; this fallback exists only for robustness against a non-conforming response shape.
+   - Jira: `new` < `indeterminate` < `done` (via `statusCategory.key`); a status whose category or name matches cancellation semantics (Won't Do, Cancelled, Duplicate, Will Not Fix) is terminal (never overwritten).
 
-   Apply the same rank-comparison rule for both trackers: if current rank >= target rank, skip the transition.
-3. **Skip semantics:**
-   - If current state read fails (MCP/API error): skip transition silently. Do NOT assume position; do NOT proceed with the transition. Log a one-line warning to stderr.
-   - If current rank >= target rank (already there or past it): skip transition. No notification noise.
-   - If current state is `cancelled`: skip transition unconditionally.
-   - Otherwise: perform the transition via `mcp__linear__save_issue` (or Jira equivalent).
-4. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase.
+4. **Apply the guard** - category rank first, then a same-category pipeline sub-rank:
+   a. If current state is terminal (Linear `canceled` / `duplicate` / defensive `cancelled` (double L), or Jira cancellation-semantic): **skip** unconditionally.
+   b. If `category_rank(current) < category_rank(target)`: **permit** (forward move across categories).
+   c. If `category_rank(current) > category_rank(target)`: **skip** (backward move across categories - this is what prevents Blocked or In Review from ever overwriting Done).
+   d. If `category_rank(current) == category_rank(target)` (the same-category band that holds In Progress / In Review / QA / Blocked on both trackers), apply the **pipeline sub-rank** by case-insensitive exact-name match against the 5 values in `tracker_state_values`:
+      - i. If `target_state`'s name case-insensitive-exact-matches the CURRENT state's name: **skip** (idempotent no-op - already there).
+      - ii. Else if `target_state` matches `BLOCKED`: **permit** unconditionally. Blocked is always a permitted same-category target on both trackers - a genuine problem signal that must never be silently dropped, regardless of where the tracker's columns happen to sit.
+      - iii. Else if the CURRENT state's name matches `BLOCKED`: **permit** unconditionally. Resuming or unblocking a ticket must always be able to move it forward into In Progress, In Review, or QA - Blocked never blocks a later forward transition.
+      - iv. Else, look up current and target against the fixed pipeline sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2) from `tracker_state_values`. This order is fixed by which writeback site fires it (W1 < W2 < W3) - it is not read from any tracker API and does not depend on operator-configured board/column order.
+        - If BOTH names resolve to a pipeline rank: **permit** iff `pipeline_rank(current) < pipeline_rank(target)`; otherwise **skip**.
+        - If EITHER name does not resolve to one of the 5 known `tracker_state_values`: **skip**, and set the return payload's `unmatched_state_name` to that name. **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** (`/ds-ticket-status-sync`, `/ds-wrap` Part F) do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+5. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase. A state pre-read failure (MCP/API error) is also a skip: log a one-line warning to stderr and do not proceed. Do not assume any rank when the pre-read fails.
+
+**This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state (step 1) and the 5 `tracker_state_values` strings resolved once in Setup. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
 
 **Failure logging:** subagent stderr is captured by the conductor's `agentic-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. No block.
 
@@ -383,7 +390,7 @@ Helper returns:
 
 Before calling any tracker create API, scan in-flight tickets in the same tracker project/team for overlapping output surfaces. Overlap surface = same source files, same exported symbols, same DB tables/migrations, or same shared utility/config that the proposed TICKET_BODY scope touches. This is the cross-ticket boundary analysis that prevents two parallel sessions from colliding on the same file - the failure mode where a boundary gets retrofitted AFTER the ticket already exists instead of at creation time.
 
-Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team and state not in (Done, Cancelled). For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies but relies on the conductor's own scope knowledge rather than a scan).
+Scan target: open AND in-progress tickets in the same project/team. For Linear: `mcp__linear__list_issues` filtered by team, excluding state types completed, canceled, and duplicate. For Jira: `mcp__mcp-atlassian__jira_search` with project JQL scoped to statusCategory != Done. For trackers with no query branch: skip silently (fail-safe - the boundary-in-body rule below still applies but relies on the conductor's own scope knowledge rather than a scan).
 
 Decision:
 
@@ -2300,6 +2307,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > - `qa_summary`: Per §External Comment Discipline in `content/rules/conventions.md`: lead with status + PR link, then bullet only what the reviewer cannot see from the PR itself (QA caveats, known limitations, what to focus testing on). Omit restating the ticket.
 > - `target_state`: `$TRACKER_STATE_QA` (resolved in Setup; defaults to `"Testing"` for Linear, `"QA"` for Jira)
 > - `forward_only_guard`: `true`
+> - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }`
 > - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured)
 > - For Jira: `JIRA_QA_TRANSITION` (optional - omit if not configured); `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional - omit if not configured)
 >
