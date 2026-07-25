@@ -213,6 +213,90 @@ class CodexSkillGenerationTests(unittest.TestCase):
                 self.public_build()
                 self.check()
 
+    def test_public_build_rejects_external_symlink_mirror_roots_without_mutation(self) -> None:
+        mirrors = (
+            (".codex/commands", "brief.md"),
+            (".codex/references", "skeptic-protocol.md"),
+            (".codex/hooks", "skill-auto-load-check.sh"),
+        )
+        for relative, collision_name in mirrors:
+            with self.subTest(mirror_root=relative):
+                fixture = Path(self.temporary.name) / relative.replace("/", "-").lstrip(".")
+                fixture.mkdir()
+                repo = copy_repo(fixture)
+                outside = fixture / "outside"
+                outside.mkdir()
+                sentinel = outside / "sentinel.bin"
+                collision = outside / collision_name
+                unrelated = outside / "unrelated" / "preserve.txt"
+                sentinel.write_bytes(b"\x00external-sentinel\xff")
+                collision.write_bytes(b"external-collision-must-survive\n")
+                unrelated.parent.mkdir()
+                unrelated.write_bytes(b"unrelated-external-content\n")
+
+                destination = repo / relative
+                shutil.rmtree(destination)
+                destination.symlink_to(outside, target_is_directory=True)
+                before = fingerprint(outside)
+                repo_before = fingerprint(repo)
+                before_entries = {
+                    path.relative_to(outside).as_posix()
+                    for path in outside.rglob("*")
+                }
+
+                result = execute(
+                    ["bash", str(repo / ".codex/build.sh")],
+                    cwd=repo,
+                    expected=1,
+                )
+
+                self.assertEqual(before, fingerprint(outside))
+                self.assertEqual(repo_before, fingerprint(repo))
+                self.assertEqual(
+                    before_entries,
+                    {
+                        path.relative_to(outside).as_posix()
+                        for path in outside.rglob("*")
+                    },
+                )
+                self.assertEqual(b"\x00external-sentinel\xff", sentinel.read_bytes())
+                self.assertEqual(
+                    b"external-collision-must-survive\n",
+                    collision.read_bytes(),
+                )
+                self.assertEqual(
+                    b"unrelated-external-content\n",
+                    unrelated.read_bytes(),
+                )
+                self.assertIn("unsafe Codex mirror root", result.stderr)
+
+    def test_public_build_rejects_non_directory_mirror_roots_before_mutation(self) -> None:
+        for relative in (".codex/commands", ".codex/references", ".codex/hooks"):
+            with self.subTest(mirror_root=relative):
+                fixture = (
+                    Path(self.temporary.name)
+                    / f"non-directory-{relative.replace('/', '-').lstrip('.')}"
+                )
+                fixture.mkdir()
+                repo = copy_repo(fixture)
+                destination = repo / relative
+                shutil.rmtree(destination)
+                destination.write_bytes(b"non-directory-root-must-survive\n")
+                before = fingerprint(repo)
+
+                result = execute(
+                    ["bash", str(repo / ".codex/build.sh")],
+                    cwd=repo,
+                    expected=1,
+                )
+
+                self.assertEqual(before, fingerprint(repo))
+                self.assertEqual(
+                    b"non-directory-root-must-survive\n",
+                    destination.read_bytes(),
+                )
+                self.assertIn("unsafe Codex mirror root", result.stderr)
+
     def test_unexpected_paths_fail_then_build_prunes_and_repairs(self) -> None:
         stale_file = self.repo / ".codex/skills/stale.txt"
         stale_directory = self.repo / ".codex/skills/agentic-engineering/stale"

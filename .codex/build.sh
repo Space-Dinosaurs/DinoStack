@@ -8,8 +8,9 @@
 #
 # Downstream consumers: .codex/install.sh, pre-commit, CI sync checks, and developers.
 #
-# Failure modes: exits non-zero on methodology assembly, mirror replacement,
-#                native-skill validation, or named-agent generation failure.
+# Failure modes: exits non-zero before mutation when a mirror root is unsafe,
+#                or on methodology assembly, mirror replacement, native-skill
+#                validation, or named-agent generation failure.
 #
 # Performance: linear in canonical content and generated Codex artifact size.
 
@@ -19,7 +20,43 @@ CONTENT="$REPO_DIR/content"
 CODEX_DIR="$REPO_DIR/.codex"
 REFS_DST="$CODEX_DIR/references"
 COMMANDS_DST="$CODEX_DIR/commands"
+HOOKS_DST="$CODEX_DIR/hooks"
 SKILLS_DST="$CODEX_DIR/skills"
+
+validate_mirror_root() {
+  local label="$1"
+  local destination_dir="$2"
+  local ancestor
+
+  case "$destination_dir" in
+    "$CODEX_DIR"/*) ;;
+    *)
+      echo "ERROR: unsafe Codex mirror root ($label): path escapes $CODEX_DIR: $destination_dir" >&2
+      return 1
+      ;;
+  esac
+
+  if [[ -L "$destination_dir" || ( -e "$destination_dir" && ! -d "$destination_dir" ) ]]; then
+    echo "ERROR: unsafe Codex mirror root ($label): expected a real directory: $destination_dir" >&2
+    return 1
+  fi
+
+  ancestor="$(dirname "$destination_dir")"
+  while [[ "$ancestor" != "$REPO_DIR" ]]; do
+    if [[ -L "$ancestor" || ! -d "$ancestor" ]]; then
+      echo "ERROR: unsafe Codex mirror root ($label): unsafe parent directory: $ancestor" >&2
+      return 1
+    fi
+    ancestor="$(dirname "$ancestor")"
+  done
+}
+
+# Validate every destination root as one read-only preflight. This must run
+# before AGENTS.md or any mirror is changed so one hostile root cannot expose
+# an external tree to a later rm, ln, or mkdir.
+validate_mirror_root "references" "$REFS_DST"
+validate_mirror_root "commands" "$COMMANDS_DST"
+validate_mirror_root "hooks" "$HOOKS_DST"
 
 # ---------------------------------------------------------------------------
 # Build AGENTS.md
@@ -104,7 +141,7 @@ echo "Built AGENTS.md"
 # command resolves to a real script.
 # ---------------------------------------------------------------------------
 
-mkdir -p "$CODEX_DIR/hooks"
+mkdir -p "$HOOKS_DST"
 
 # ---------------------------------------------------------------------------
 # Build tracked relative symlink mirrors
@@ -140,15 +177,15 @@ sync_link_directory() {
 sync_link_directory "$CONTENT/references" "$REFS_DST" "../../content/references"
 sync_link_directory "$CONTENT/commands" "$COMMANDS_DST" "../../content/commands"
 
-if [[ -e "$CODEX_DIR/hooks/skill-auto-load-check.sh" && ! -L "$CODEX_DIR/hooks/skill-auto-load-check.sh" ]]; then
-  rm "$CODEX_DIR/hooks/skill-auto-load-check.sh"
+if [[ -e "$HOOKS_DST/skill-auto-load-check.sh" && ! -L "$HOOKS_DST/skill-auto-load-check.sh" ]]; then
+  rm "$HOOKS_DST/skill-auto-load-check.sh"
 fi
-if [[ -L "$CODEX_DIR/hooks/skill-auto-load-check.sh" && \
-      "$(readlink "$CODEX_DIR/hooks/skill-auto-load-check.sh")" != "../../hooks/skill-auto-load-check.sh" ]]; then
-  rm "$CODEX_DIR/hooks/skill-auto-load-check.sh"
+if [[ -L "$HOOKS_DST/skill-auto-load-check.sh" && \
+      "$(readlink "$HOOKS_DST/skill-auto-load-check.sh")" != "../../hooks/skill-auto-load-check.sh" ]]; then
+  rm "$HOOKS_DST/skill-auto-load-check.sh"
 fi
-if [[ ! -L "$CODEX_DIR/hooks/skill-auto-load-check.sh" ]]; then
-  ln -s "../../hooks/skill-auto-load-check.sh" "$CODEX_DIR/hooks/skill-auto-load-check.sh"
+if [[ ! -L "$HOOKS_DST/skill-auto-load-check.sh" ]]; then
+  ln -s "../../hooks/skill-auto-load-check.sh" "$HOOKS_DST/skill-auto-load-check.sh"
 fi
 
 echo "Rebuilt command, reference, and shared-hook symlinks"
