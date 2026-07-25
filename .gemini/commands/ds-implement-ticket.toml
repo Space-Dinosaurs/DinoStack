@@ -861,22 +861,31 @@ No ticket to fetch. **Use `normalized_input.freeform_task` as the ticket content
 Detection makes **zero tracker calls and zero network calls** - it is a single local file read, so it behaves identically at `TRACKER=none` as it does with a tracker configured. `TRACKER=none` is in fact the case the ledger matters most for: there is no tracker comment thread to carry prior-attempt signal.
 
 1. If `REWORK_DETECTION` is `false`, or the current `[TICKET_ID]` is null/empty: skip detection entirely. Set `PRIOR_ATTEMPTS = 0`, `IS_REWORK = false`, `PRIOR_COMPLETED = []`. Emit nothing.
-2. Otherwise read `.agentic/ticket-ledger.jsonl` and collect every record whose `ticket_id` is an **exact string match** for the current `[TICKET_ID]`. Dedupe the collected records by `pr_number` (read-side dedupe is what makes the lockless append at Phase 9 safe - a benign duplicate collapses here rather than inflating the count).
+2. Otherwise read `.agentic/ticket-ledger.jsonl` and collect every record whose `ticket_id` is an **exact string match** for the current `[TICKET_ID]`. Dedupe the collected records by `pr_number`, keeping the record with the **latest `opened_ts`** within each duplicate group (read-side dedupe is what makes the lockless append at Phase 9 safe - a benign duplicate collapses here rather than inflating the count). Latest-wins matters: a duplicate `pr_number` arises from a Phase 9 replay, and the later record is the one carrying the resolved `qa_status` and the higher `skeptic_rounds`. Keeping the earliest would show the operator the staler of the two.
 3. Set `PRIOR_COMPLETED` to the deduped record set ordered by `opened_ts` ascending, `PRIOR_ATTEMPTS` to its size, and `IS_REWORK` to `PRIOR_ATTEMPTS >= 1`.
-4. **Soft-fail.** If the ledger is absent, unreadable, or a line is malformed, skip the bad line and continue; a wholly unusable ledger resolves to `PRIOR_ATTEMPTS = 0`. A missing or corrupt ledger must never block the ticket it exists to help with.
+4. **Soft-fail, per line.** If the ledger is absent or unreadable, resolve to `PRIOR_ATTEMPTS = 0`. If an individual line is malformed, **skip that line and keep going** - a single partial write must not disable detection for every other ticket in the file. A missing or corrupt ledger must never block the ticket it exists to help with.
 
 ```bash
 # Phase 1: ticket-rework detection (soft-fail; zero tracker/network calls - one local file read).
-# Emits the deduped prior-attempt records, most recent last. Malformed lines are skipped, not fatal.
+# Emits the deduped prior-attempt records, most recent last.
 PRIOR_COMPLETED_JSON='[]'
 PRIOR_ATTEMPTS=0
 if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ] && [ -f .agentic/ticket-ledger.jsonl ]; then
-  # `X=$(...) || X=default` puts the fallback on jq's own exit status and discards any
-  # partial output. Do NOT use `$(jq ... || echo '[]')` here: on an unreadable file some
-  # jq builds emit a result AND fail, so the fallback would concatenate onto it.
-  PRIOR_COMPLETED_JSON=$(jq -cs --arg t "$TICKET_ID" '
-    [ .[] | select(type == "object" and .ticket_id == $t and (.pr_number != null)) ]
-    | unique_by(.pr_number)
+  # `-Rn` + `inputs` + `fromjson? // empty` parses PER LINE and drops only the lines that fail.
+  # Do NOT use `-s` (slurp) here: slurp aborts the whole parse on the first malformed line, so
+  # one partial write from a concurrent appender would silently disable detection for every
+  # ticket in the file, permanently and with no operator signal. The ledger is written
+  # locklessly and O_APPEND is not atomic over NFS, so a torn line is a real, expected input.
+  #
+  # `X=$(...) || X=default` puts the fallback on jq's own exit status and discards any partial
+  # output. Do NOT use `$(jq ... || echo '[]')`: on an unreadable file some jq builds emit a
+  # result AND fail, so the fallback would concatenate onto it.
+  PRIOR_COMPLETED_JSON=$(jq -Rn --arg t "$TICKET_ID" '
+    [ inputs
+      | fromjson? // empty
+      | select(type == "object" and .ticket_id == $t and (.pr_number != null)) ]
+    | group_by(.pr_number)
+    | map(max_by(.opened_ts // ""))
     | sort_by(.opened_ts // "")
   ' .agentic/ticket-ledger.jsonl 2>/dev/null) || PRIOR_COMPLETED_JSON='[]'
   [ -n "$PRIOR_COMPLETED_JSON" ] || PRIOR_COMPLETED_JSON='[]'
@@ -888,7 +897,9 @@ if [ "$PRIOR_ATTEMPTS" -ge 1 ]; then IS_REWORK=true; else IS_REWORK=false; fi
 
 `PRIOR_COMPLETED_JSON` is the shell-variable form of the conductor's in-context `PRIOR_COMPLETED` record set, matching the existing `$BRANCH_NAME` / `$GH_REPO` pattern used elsewhere in this command.
 
-(`jq -cs` slurps the whole file, so a single malformed line aborts the parse and the fallback resolves to `PRIOR_ATTEMPTS = 0` - the conservative direction, and the one that cannot block the ticket. A per-line parse that salvages the good lines and skips only the bad one is equally acceptable and strictly better; either way, detection must never error.)
+`group_by | map(max_by(...))` is used in place of `unique_by(.pr_number)` deliberately: jq's `unique_by` is `group_by | map(.[0])` over a stable sort, so it keeps the *earliest* member of each duplicate group - the opposite of what a replay duplicate calls for.
+
+Regression coverage for this block lives in `bin/tests/test_ticket_rework_ledger.sh`.
 
 **The REWORK notice.** When `IS_REWORK` is true, emit this at the conductor's first user-facing turn after Phase 1, before any spawn:
 
@@ -938,13 +949,17 @@ Trivial-classified tickets skip the investigator (not required); the shippable c
 
 ### Ticket-rework escalation: Elevated risk floor
 
-**Applies at the risk-classification declaration point** - the classification the conductor declares here is what Phase 2b, Phase 3, Phase 5, Phase 6, and Phase 9 all consume, so the floor must be applied before that declaration is made, not retrofitted downstream.
+**Applies at the risk-classification declaration point** - the classification the conductor declares here is what Phase 2b, Phase 3, Phase 5, Phase 6, and Phase 9 all consume, so the floor must be applied before that declaration is made, not retrofitted downstream. One consumer sits *upstream* of this point and is therefore not covered: Phase 0b's `qa.md` snapshot, which reads the classification before Phase 1 detection has run. See the known gap at the end of this section.
 
 When `IS_REWORK` is true (Phase 1 detection found one or more prior PR-opening attempts on this ticket), the risk classification for this ticket is **floored to Elevated**. It is never Trivial and never Low, regardless of how small the change looks and regardless of any profile-level Low override that would otherwise apply (`relaxed`-profile single-file behavioral edits, the bounded 2-3-file override, UI-only copy, and so on). A ticket that already came back once is, by construction, a ticket where the previous classification was not conservative enough.
 
 The floor raises the classification only. A ticket independently classified Elevated stays Elevated; the floor never lowers anything.
 
+Set `RISK_CLASS` to the declared, **post-floor** classification (`Trivial` | `Low` | `Elevated`). This is the in-context variable the Phase 9 ticket-rework ledger write records as `risk_class`.
+
 Placing the floor here puts it upstream of the Phase 2b gate, which applies only when risk is Elevated - a floored ticket therefore correctly receives the pre-architect ambiguity scan it would have skipped as Trivial or Low.
+
+**Known gap - the Phase 0b qa.md snapshot is not retroactive.** Phase 0b's `qa.md` snapshot is Elevated-only and runs *before* Phase 1, so it has already been skipped by the time the floor fires. A would-be-Trivial ticket floored to Elevated here therefore has no `.agentic/qa.md.snapshot-<ticket_id>`, and Phase 11b's `qa_md_diff` comes back empty for it. This is bounded and degrades gracefully - `wrap-ticket` already handles an absent snapshot - so the floor does not attempt to reach backwards and create one. The consequence is a missing qa.md-additions summary on floored tickets, nothing more.
 
 This is a **command-scoped** trigger. It does not add an entry to the global Elevated-signal list in `content/sections/04-risk-classification.md`, and nothing outside `/ds-implement-ticket` reads it. When `REWORK_DETECTION` is `false`, `IS_REWORK` is always false and the floor never fires.
 
@@ -1503,7 +1518,9 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, gitignored under the `.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
-- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
+- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
+
+**`SKEPTIC_ROUNDS` must be captured here, at Phase 6 clean exit - not read back later.** Phase 6b initializes its own loop state **overwriting the Phase 6 state** with `phase: qa, iteration: 1`, and Phase 6b fires for every Elevated unit with `qa_skip == null` - the common case. By the time Phase 9 runs, `loop_state.iteration` on disk is the QA iteration count, not the Skeptic round count: a ticket with 3 Skeptic rounds and a first-pass QA reads back as `1`. Capturing at clean exit is the same pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6, so it never sets `SKEPTIC_ROUNDS`, which is exactly why the ledger's `skeptic_rounds` is legitimately null there.
 - If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human (see Escalation section below). Phase 6b does NOT run.
 - If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
 
@@ -1671,7 +1688,7 @@ After normalization, re-evaluate the trigger conditions (with `qa_skip` now null
 
 - **If trigger conditions hold (QA fires) - UI-visible changes (concurrent path):** when the unit's diff is UI-visible, `qa-engineer` was already spawned IN PARALLEL with the Skeptic during Phase 6 (single message, both background). If QA passed concurrently, Phase 6b is already satisfied - skip to Phase 7. If QA failed concurrently or was deferred, proceed with the QA loop contract below. See `content/references/qa-gate.md` §"QA gate flow (UI-visible - concurrent)" for the full concurrent QA spec.
 - **If trigger conditions hold (QA fires) - non-UI changes (sequential path):** proceed with the QA loop contract below.
-- **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7.
+- **If trigger conditions do not hold (QA skipped):** record the skip rationale (`qa_skip` value or "Trivial path") in the conductor's status update and proceed directly to Phase 7. Also set `QA_STATUS="skipped:<rationale>"` using that same rationale (in-context variable consumed by the Phase 9 ticket-rework ledger write). Writing the rationale rather than leaving it empty is what lets the rework notice distinguish "QA was deliberately skipped, here is why" from "QA status unavailable".
 
 For full QA gate rules, see `METHODOLOGY.md §QA Gate`.
 
@@ -1724,7 +1741,7 @@ The following failures were identified and fix attempts were made in earlier ite
 - Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
 
 **Step 3. Termination check:**
-- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
+- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section) and `QA_STATUS` to the qa-engineer's result verdict - one of `PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE` (in-context variable used by the Phase 9 ticket-rework ledger write). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
 - If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
 
@@ -2260,27 +2277,50 @@ Capture the PR number from the URL printed by `gh pr create`.
 **Soft-fail throughout.** Any failure in this block (missing `jq`, unwritable `.agentic/`, failed `gh` lookup) is swallowed. It must never block Phase 9 or anything downstream.
 
 Field derivation:
-- `risk_class` - the conductor's in-context risk classification (`Trivial` | `Low` | `Elevated`), the same value declared at Phase 2/3.
-- `skeptic_rounds` - `.agentic/loop-state.json` `loop_state.iteration`. **Null on the Trivial path**, which never enters the Skeptic loop and therefore never writes that field.
-- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA ran, else `"skipped:<rationale>"` where `<rationale>` is the `qa_criteria.qa_skip` enum value or the literal `Trivial path` (the same rationale Phase 6b already records on its skip branch). **Null on two paths**: Trivial, and Elevated with a non-null `qa_skip`.
+- `risk_class` - `$RISK_CLASS`, **set at the Phase 2 risk-classification declaration point** (see "Ticket-rework escalation: Elevated risk floor") to the conductor's declared classification, post-floor: `Trivial` | `Low` | `Elevated`.
+- `skeptic_rounds` - `$SKEPTIC_ROUNDS`, **captured at Phase 6 clean exit**, before Phase 6b overwrites the loop state. Do **not** read `loop_state.iteration` at this point unguarded: Phase 6b reinitializes that file with `phase: qa, iteration: 1`, so a post-QA read returns the QA iteration count, not the Skeptic round count. **Null on the Trivial path**, which never reaches Phase 6 and therefore never sets the variable. The disk fallback below exists only for a resumed session that lost the in-context variable, and it is doubly guarded - on `ticket_id` *and* on `loop_state.phase == "skeptic"`.
+- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA ran; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value or the literal `Trivial path` (the same rationale Phase 6b already records on its skip branch). **Both non-QA paths - Trivial, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
 - `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path). `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
+
+**Variable definition sites.** `RISK_CLASS` and `QA_STATUS` carry the record's semantic content, so unlike `$BRANCH_NAME` / `$GH_REPO` they are stated explicitly rather than assumed:
+
+| Variable | Set where | Value |
+|---|---|---|
+| `RISK_CLASS` | Phase 2, at the risk-classification declaration (post-floor) | `Trivial` \\| `Low` \\| `Elevated` |
+| `SKEPTIC_ROUNDS` | Phase 6, Step 3 clean exit | final `loop_state.iteration`; unset on the Trivial path |
+| `QA_STATUS` | Phase 6b - clean exit sets the QA result; the skip branch sets `skipped:<rationale>` | see the bullet above |
 
 ```bash
 # Phase 9: ticket-rework ledger write (soft-fail; never blocks Phase 9 or anything downstream).
 # Anchored AFTER the Case A / Case B if/else above - fires for both branches, Trivial included.
-# REWORK_DETECTION / TICKET_ID / RISK_CLASS / QA_STATUS are the shell-variable form of the
-# conductor's in-context state, matching the existing $BRANCH_NAME / $GH_REPO pattern.
-# QA_STATUS holds the QA result when QA ran, "skipped:<qa_skip enum>" or "skipped:Trivial path"
-# when it did not, and is empty when it is legitimately null (Trivial, or Elevated with qa_skip).
+# REWORK_DETECTION / TICKET_ID / RISK_CLASS / SKEPTIC_ROUNDS / QA_STATUS are the shell-variable
+# form of the conductor's in-context state (definition sites in the table above).
+# QA_STATUS holds the QA result when QA ran, and "skipped:<qa_skip enum>" or
+# "skipped:Trivial path" when it did not. It is empty ONLY in the degenerate case where neither
+# a result nor a rationale exists - the two ordinary non-QA paths both carry a rationale.
 if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
   # pr_number derived live from the ticket currently in flight's own branch - never $PR_NUMBER.
   TRL_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
 
   if [ -n "$TRL_PR_NUMBER" ]; then
-    # skeptic_rounds: null on the Trivial path (loop-state.json has no iteration to read).
-    TRL_ROUNDS=""
-    if [ -f .agentic/loop-state.json ]; then
-      TRL_ROUNDS=$(jq -r '.loop_state.iteration // empty' .agentic/loop-state.json 2>/dev/null) || TRL_ROUNDS=""
+    # skeptic_rounds: prefer the value captured at Phase 6 clean exit. Empty on the Trivial
+    # path, which never reaches Phase 6 - that is a correct null, not a missing read.
+    TRL_ROUNDS="${SKEPTIC_ROUNDS:-}"
+
+    # Disk fallback for a resumed session that lost the in-context variable. TWO guards, both
+    # required and for different reasons:
+    #   ticket_id  - loop-state.json persists across tickets in a batch (Phase 12 may leave it
+    #                at status:complete rather than deleting). Without this guard, Trivial
+    #                ticket 2 inherits Elevated ticket 1's round count - telling the operator
+    #                a Trivial attempt got three rounds of review when it got none.
+    #   phase      - Phase 6b overwrites the file with phase:qa, iteration:1. Without this
+    #                guard, an Elevated ticket that passed QA on the first try records 1
+    #                Skeptic round regardless of how many it actually took.
+    if [ -z "$TRL_ROUNDS" ] && [ -f .agentic/loop-state.json ]; then
+      TRL_ROUNDS=$(jq -r --arg t "$TICKET_ID" '
+        select(.ticket_id == $t and .loop_state.phase == "skeptic")
+        | .loop_state.iteration // empty
+      ' .agentic/loop-state.json 2>/dev/null) || TRL_ROUNDS=""
     fi
     case "$TRL_ROUNDS" in ''|*[!0-9]*) TRL_ROUNDS="" ;; esac
 
