@@ -51,7 +51,11 @@
  *   12. DS-82 production importer inventory parses JavaScript with espree,
  *       detects only real static CommonJS/ESM imports and re-exports of the
  *       shared guard, and traverses in-repository symlinks without cycles or
- *       repository escapes.
+ *       repository escapes. Generated Codex skill resource mirrors under the
+ *       exact production-root prefix .codex/skills are excluded because they
+ *       expose canonical files rather than independent production consumers;
+ *       other in-repository symlinks and independently tracked mirrors remain
+ *       part of the inventory.
  *
  * Run with: node hooks/tests/test-stdin-guard.js
  */
@@ -520,6 +524,9 @@ const productionImporterIgnoredDirectories = new Set([
   'test',
   'tests',
 ]);
+const productionImporterIgnoredRootDirectories = new Set([
+  '.codex/skills',
+]);
 
 function isWithinDirectory(rootDirectory, candidatePath) {
   const relativePath = path.relative(rootDirectory, candidatePath);
@@ -673,7 +680,12 @@ function discoverProductionImporters(rootDirectory) {
       }
 
       if (entryKind.isDirectory()) {
-        if (productionImporterIgnoredDirectories.has(entry.name)) continue;
+        if (
+          productionImporterIgnoredDirectories.has(entry.name)
+          || productionImporterIgnoredRootDirectories.has(relativePath)
+        ) {
+          continue;
+        }
         walkDirectory(entryPath, relativePath, nextAncestors);
         continue;
       }
@@ -788,6 +800,21 @@ function testImporterScannerExactRegressions() {
       'dir'
     );
     fs.symlinkSync(fixtureRoot, path.join(fixtureRoot, 'tests/symlink-target/cycle'), 'dir');
+    fs.mkdirSync(
+      path.join(fixtureRoot, '.codex/skills/agentic-engineering'),
+      { recursive: true }
+    );
+    fs.symlinkSync(
+      '../../../hooks',
+      path.join(fixtureRoot, '.codex/skills/agentic-engineering/hooks'),
+      'dir'
+    );
+    fs.mkdirSync(path.join(fixtureRoot, '.codex/skills/brief'), { recursive: true });
+    fs.symlinkSync(
+      '../agentic-engineering',
+      path.join(fixtureRoot, '.codex/skills/brief/resources'),
+      'dir'
+    );
 
     const fixtureConsumers = discoverProductionImporters(fixtureRoot);
     const expectedFixtureConsumers = [
@@ -840,6 +867,12 @@ function testImporterScannerExactRegressions() {
       'case 12: importer reached through an in-repository directory symlink is discovered'
     );
     assert(
+      !fixtureConsumers.some((consumer) => consumer.startsWith('.codex/skills/'))
+        && fixtureConsumers.includes('linked-production/linked.js'),
+      'case 12: generated Codex skill resource mirrors are excluded without hiding '
+        + 'other in-repository symlink consumers'
+    );
+    assert(
       JSON.stringify(fixtureConsumers) === JSON.stringify(expectedFixtureConsumers),
       'case 12: fixture importer set is exact and symlink cycles terminate '
         + `(discovered=${JSON.stringify(fixtureConsumers)})`
@@ -884,6 +917,11 @@ function testImporterScannerExactRegressions() {
     JSON.stringify(consumers) === JSON.stringify(expectedConsumers),
     'case 12: discovered production importer set exactly matches canonical consumers '
       + `(discovered=${JSON.stringify(consumers)})`
+  );
+  assert(
+    consumers.includes('.copilot/hooks/stop-context-copilot.js')
+      && consumers.includes('.github/hooks/stop-context-copilot.js'),
+    'case 12: independently tracked production mirror paths remain individually accounted for'
   );
   for (const relativePath of consumers) {
     const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');

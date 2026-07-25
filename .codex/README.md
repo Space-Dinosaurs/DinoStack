@@ -1,14 +1,30 @@
-# DinoStack - Codex Adapter
+# DinoStack Codex adapter
 
-## What this provides
+The Codex adapter installs DinoStack's global methodology, named agents,
+lifecycle hooks, and exactly four native Codex skills.
 
-- **AGENTS.md** - Always-loaded rules: agent methodology, code standards, conventions (combined from 3 source files)
-- **Reference docs** - generated/hardlinked protocol references from `content/references/`
-- **Global skill** - `~/.agents/skills/agentic-engineering/` with SKILL.md and bundled references
-- **Global AGENTS.md** - `~/.codex/AGENTS.md` symlinked to `.codex/AGENTS.md` for global session loading
-- **Named agents** - `~/.codex/agents/` symlinked to `.codex/agents/` - TOML files generated from `content/agents/*.md`
-- **Lifecycle hooks** - `~/.codex/hooks.json` symlinked to a snapshot-backed `.codex/config/hooks.json` - UserPromptSubmit (risk reminder and skill auto-load) and Stop (context save)
-- **Command templates** - `.codex/commands/` contains the workflow templates for `skeptic`, `implement-ticket`, `wrap`, `memory-update`, `init-project`, and `update-agentic-engineering`
+## Native skills
+
+`.codex/skills/` is generated and contains only:
+
+| Skill | Source and purpose |
+|---|---|
+| `agentic-engineering` | Core engineering methodology generated from `content/SKILL.md` and the assembled methodology. |
+| `brief` | Native `$brief` workflow generated from `content/commands/brief.md`. |
+| `wrap` | Native `$wrap` workflow generated from `content/commands/wrap.md`. |
+| `implement-ticket` | Native `$implement-ticket` workflow generated from `content/commands/implement-ticket.md`. |
+
+Each directory has a generated `SKILL.md`, `RESOURCE-MAP.json`, and
+`.dinostack-skill.json`. The core skill also has generated `METHODOLOGY.md` and
+relative resource symlinks to repository-owned rules, commands, agents,
+references, sections, scripts, hooks, binaries, and project templates. The
+three workflow skills link their `resources` entry to the core skill instead
+of duplicating those resources.
+
+`scripts/codex-skills.py` performs the deterministic transformation.
+`.codex/skill-compatibility.yml` is the reviewed occurrence inventory, and
+`.codex/skill-frontmatter/*.yml` supplies the four frontmatter blocks. Generated
+skill files must not be edited by hand.
 
 ## Installation
 
@@ -17,147 +33,31 @@ git clone https://github.com/Space-Dinosaurs/DinoStack.git ~/DinoStack
 bash ~/DinoStack/.codex/install.sh
 ```
 
-This:
-1. Runs `.codex/build.sh` to ensure all artifacts are current
-2. Symlinks `.codex/skill/` to `~/.agents/skills/agentic-engineering/` (the correct Codex user-scope skill path per Codex docs)
-3. Symlinks `.codex/AGENTS.md` to `~/.codex/AGENTS.md` (global instructions, loaded by Codex in every session)
-4. Symlinks `.codex/agents/` to `~/.codex/agents/` (named agent TOML files, loaded by Codex for subagent spawning)
-5. Symlinks a snapshot-backed `.codex/config/hooks.json` to `~/.codex/hooks.json` (lifecycle hooks for risk reminder, skill auto-load, and context save without project-local auto-loading)
-6. Adds `codex_hooks = true` under `[features]` in `~/.codex/config.toml` if not already present (required to activate hooks)
+The installer runs `.codex/build.sh`, then creates these user-scope skill
+symlinks:
 
-For sandbox, approval, model, provider, and MCP settings, Codex supports both user-level `~/.codex/config.toml` and trusted project-level `.codex/config.toml` files. DinoStack's installer only manages the user-level hook flag; see `docs/codex-permissions.md` for the recommended trusted-work posture and when to scope it to a project.
-
-If `~/.codex/AGENTS.md` already exists and is not a symlink, the installer backs it up to `~/.codex/AGENTS.md.backup-<timestamp>` before replacing it with the symlink, printing a loud warning. The uninstaller restores the most recent backup if one exists.
-Existing installs that still point `~/.codex/hooks.json` at the legacy `.codex/hooks.json` source are migrated automatically on reinstall.
-
-To remove:
-
-```bash
-~/DinoStack/.codex/uninstall.sh
+```text
+~/.agents/skills/agentic-engineering -> <checkout>/.codex/skills/agentic-engineering
+~/.agents/skills/brief               -> <checkout>/.codex/skills/brief
+~/.agents/skills/wrap                -> <checkout>/.codex/skills/wrap
+~/.agents/skills/implement-ticket    -> <checkout>/.codex/skills/implement-ticket
 ```
 
-## How it works
+It does not overwrite a real file/directory or a symlink owned by another
+installation. Reinstalling is idempotent, refreshes checkout-owned links, and
+migrates the former single core-skill link when present. Old checkout-owned
+links under the Codex config directory are removed because Codex user skills
+belong under `~/.agents/skills/`.
 
-### Always-loaded rules (AGENTS.md)
+The installer also:
 
-Codex automatically reads `AGENTS.md` from the project root. The `.codex/AGENTS.md` in this repo contains the full DinoStack methodology (all 3 rules files concatenated).
+- links `.codex/AGENTS.md` to the selected Codex config directory;
+- links generated `.codex/agents/` TOML definitions;
+- links snapshot-backed lifecycle hooks and enables `codex_hooks` when needed;
+- links DinoStack command-line helpers into `~/.local/bin`;
+- preserves or backs up user-owned config according to the installer guards.
 
-For projects outside this repo that want the methodology, either:
-1. Add an `AGENTS.md` to your project root referencing or copying the rules, or
-2. Copy `.codex/AGENTS.md` to your project root as `AGENTS.md`
-
-### Global skill
-
-The `~/.agents/skills/agentic-engineering/` skill (per Codex's user-scope skill path spec) triggers automatically for software development tasks. It provides:
-- A methodology summary in `SKILL.md`
-- Reference docs (skeptic protocol, subagent protocol, agent team, design goals) in `references/`
-
-### Named agents
-
-Named agents are TOML files that Codex loads from `~/.codex/agents/` for personal agents or `.codex/agents/` for project-scoped agents. Each file defines one agent (name, description, developer_instructions, and optionally model and other config).
-
-The installer symlinks `~/.codex/agents/` to `.codex/agents/`, which contains generated TOML files. The TOML files are generated by `build.sh` from `content/agents/*.md` - each markdown file's frontmatter provides the `name` and `description` fields; the markdown body becomes `developer_instructions`. The `model` field from frontmatter is intentionally omitted so each agent inherits the session model (Anthropic model IDs are not valid in Codex).
-
-The following agents are installed:
-
-| Agent | When to use |
-|---|---|
-| `engineer` | Code changes: features, bug fixes, refactors, scripts |
-| `architect` | Pre-implementation technical design |
-| `debugger` | Root cause analysis for failing tests or stack traces |
-| `investigator` | Codebase exploration and blast radius mapping |
-| `qa-engineer` | Runtime verification in a browser after Skeptic sign-off |
-| `security-auditor` | OWASP-structured security audit |
-| `dependency-auditor` | Supply-chain review across lockfiles, CVEs, and licenses |
-| `perf-analyst` | Performance profiling and regression analysis |
-| `release-orchestrator` | Release sequencing, versioning, deploy, and rollback coordination |
-| `orchestration-planner` | Decompose a complex goal into a sequenced agent execution plan |
-| `skeptic` | Adversarial review of Worker output |
-| `adr-drift-detector` | Audit codebase compliance against Architecture Decision Records |
-| `adr-generator` | Create new Architecture Decision Records |
-
-Codex also ships three built-in agents (`default`, `worker`, `explorer`). If you define a custom agent with one of those names, your custom agent takes precedence.
-
-### Lifecycle hooks
-
-Hooks are shell/JS commands that run at key points in the Codex agentic loop. They are configured in `.codex/config/hooks.json` and symlinked into `~/.codex/hooks.json` by the installer. The source file intentionally lives outside `.codex/hooks.json` so opening this repo in Codex does not auto-register the same hook twice. Re-running the installer migrates legacy installs that still point at the old `.codex/hooks.json` path. Hooks require `codex_hooks = true` under `[features]` in `~/.codex/config.toml` (added automatically by the installer).
-
-Three hook commands are wired:
-
-| Hook event | Script | What it does |
-|---|---|---|
-| `UserPromptSubmit` | `.codex/hooks/risk-reminder.sh` | Emits the risk classification reminder as developer context before every prompt |
-| `UserPromptSubmit` | `hooks/skill-auto-load-check.sh` | Emits the Codex skill-load instruction when `skill_auto_load=true` |
-| `Stop` | `.codex/hooks/stop-context-codex.js` | Writes a minimal `context.md` to `~/.codex/projects/[hash]/` on session end |
-
-The `Stop` hook is a thin port of the Claude Code `stop-context.js`. It captures the last assistant message, session ID, model, and cwd. For richer context (paths referenced, tools used, uncommitted changes), use the `wrap` template from `.codex/commands/` before ending a session.
-
-**Feature flag:** Hooks are experimental and require explicit opt-in. The installer adds `codex_hooks = true` to `~/.codex/config.toml` automatically. The uninstaller removes it. If you remove the flag manually, hooks will silently not fire.
-
-**Note:** Hooks are currently disabled on Windows per Codex docs.
-
-### Permissions
-
-For trusted DinoStack work, configure top-level keys in `~/.codex/config.toml` so Codex can run the methodology without repeated approval prompts:
-
-```toml
-sandbox_mode = "danger-full-access"
-approval_policy = "never"
-```
-
-Verify with `codex --strict-config doctor`. This is a high-trust posture, not a sandbox boundary; use stricter sandboxing and approvals for untrusted repositories or prompts. See [docs/codex-permissions.md](../docs/codex-permissions.md) for the full guidance.
-
-### Command templates
-
-The Codex adapter keeps workflow templates in `.codex/commands/` as plain markdown files. These are the Codex-facing equivalents of the Claude Code slash commands, but they are not installed as user slash commands because the current Codex docs and CLI surface built-in slash commands, not a supported user command install path.
-
-| Command | Invocation |
-|---|---|
-| `skeptic.md` | Read or paste `.codex/commands/skeptic.md` |
-| `implement-ticket.md` | Read or paste `.codex/commands/implement-ticket.md` |
-| `wrap.md` | Read or paste `.codex/commands/wrap.md` |
-| `memory-update.md` | Read or paste `.codex/commands/memory-update.md` |
-| `init-project.md` | Read or paste `.codex/commands/init-project.md` |
-| `update-agentic-engineering.md` | Read or paste `.codex/commands/update-agentic-engineering.md` |
-
-In practice, this means you invoke the workflow by asking Codex to follow the relevant template or by pasting the template contents into the session. The agentic-engineering skill (`~/.agents/skills/agentic-engineering/`) remains the primary integration point.
-
-### Commands (fallback - manual paste)
-
-Command templates live in `.codex/commands/` as plain markdown files. These can be read and pasted directly into a Codex session, or used as source material when you tell Codex to "follow the init-project template" or similar.
-
-Commands live in `.codex/commands/` as hardlinks from `content/commands/`. The `/agentic-engineering` prerequisite line that Claude Code prepends is not present here because it is never in the source - it is a Claude Code-specific addition made only by `.claude/build.sh`, not part of the `content/` files.
-
-### Reference docs
-
-Reference docs are available in two places:
-- `~/.agents/skills/agentic-engineering/references/` (via global skill install)
-- `.codex/references/` (local copies in this repo)
-
-`.codex/references/` contains hardlinks to `content/references/`. `.codex/skill/references/` is a symlink to `.codex/references/` - a single source of truth so `build.sh` only manages one set of hardlinks.
-
-## Build
-
-The build script generates `AGENTS.md` and hardlinks reference/command files:
-
-```bash
-bash ~/DinoStack/.codex/build.sh
-```
-
-Run after `git pull` to regenerate artifacts from updated source files. The pre-commit hook in this repo runs `.claude/build.sh`, `.cursor/build.sh`, and `.codex/build.sh` automatically whenever `content/` files are staged.
-
-## Coexistence with Claude Code
-
-This adapter is designed to run alongside the Claude Code adapter without collision:
-
-- **Config paths are disjoint:** Codex uses `~/.codex/`, Claude Code uses `~/.claude/`
-- **Install writes to `~/.agents/skills/`, `~/.codex/AGENTS.md`, `~/.codex/agents/`, and `~/.codex/hooks.json`** - it may also add `codex_hooks = true` to `~/.codex/config.toml` when enabling hooks. The source hooks file remains in `.codex/config/hooks.json` so the repo itself does not self-register hooks locally.
-- **Hook scripts:** The Claude Code `hooks/stop-context.js` writes to `~/.claude/projects/`. The Codex adapter has a parallel `.codex/hooks/stop-context-codex.js` that writes to `~/.codex/projects/` instead. The two paths are disjoint and do not collide.
-- **AGENTS.md vs CLAUDE.md:** Codex reads `AGENTS.md` natively. Claude Code reads `CLAUDE.md` and supports importing `AGENTS.md` via a one-line `CLAUDE.md` containing `@AGENTS.md`. This repo treats `AGENTS.md` as the canonical source; Claude Code users should keep a thin `CLAUDE.md` that imports it. No collision risk.
-
-## Updating
-
-Pull and re-run the installer - it is idempotent:
+To update:
 
 ```bash
 cd ~/DinoStack
@@ -165,41 +65,85 @@ git pull
 bash .codex/install.sh
 ```
 
-For a clean refresh:
+To remove checkout-owned installed artifacts:
 
 ```bash
-bash .codex/uninstall.sh
-git pull
-bash .codex/install.sh
+bash ~/DinoStack/.codex/uninstall.sh
 ```
 
-## Known limitations vs Claude Code adapter
+The uninstaller removes only owned symlinks/configuration and leaves real user
+files, foreign symlinks, and the generated repository tree untouched.
 
-| Feature | Claude Code | Codex |
-|---|---|---|
-| Risk reminder | Fires automatically via `UserPromptSubmit` hook before every prompt | Supported via hooks (requires `codex_hooks = true` in user config, added by installer). Fires as developer context injection before each prompt. |
-| Session context save | Fires automatically via `Stop` hook on session end | Supported via hooks (thin port - captures last assistant message only). For richer context, use the `wrap` template from `.codex/commands/`. Writes to `~/.codex/projects/[hash]/context.md`. |
-| Slash commands | First-class slash commands (`/skeptic`, `/wrap`, etc.) | Built-in slash commands exist, but this adapter does not install user slash commands. Workflow templates live in `.codex/commands/` and are used manually. |
-| Named agents | `~/.claude/agents/*.md` loaded automatically | Supported. `~/.codex/agents/*.toml` files loaded by Codex. The installer symlinks `~/.codex/agents/` to `.codex/agents/` (generated from `content/agents/*.md`). |
-| Background subagents | spawned via the `Agent` tool; background by default | Depends on Codex version - verify in your Codex release. |
-| Global AGENTS.md | `~/.claude/CLAUDE.md` loaded globally | `~/.codex/AGENTS.md` is confirmed - installed as a symlink to `.codex/AGENTS.md`. Backup behavior applies if a file already exists (see Installation). |
+## Build and verification lifecycle
 
-## Customizing for a project
+`.codex/build.sh`:
 
-To add the methodology to a project that doesn't have `.codex/AGENTS.md` checked in, create an `AGENTS.md` at your project root:
+1. assembles `.codex/AGENTS.md`;
+2. rebuilds the relative `.codex/commands/` and `.codex/references/` symlink
+   mirrors plus the shared hook symlink;
+3. generates exactly four native skills through `scripts/codex-skills.py`;
+4. regenerates named-agent TOML files.
+
+Run the public build:
 
 ```bash
-cp ~/DinoStack/.codex/AGENTS.md /path/to/your/project/AGENTS.md
+bash .codex/build.sh
 ```
 
-Or reference the methodology from your project's `AGENTS.md`:
+Run the read-only skill and mirror check:
 
-```markdown
-# [Your Project]
-
-[Project-specific context here]
-
----
-
-[Paste relevant sections from ~/DinoStack/.codex/AGENTS.md]
+```bash
+bash scripts/check-codex-skill-sync.sh
 ```
+
+The equivalent direct check works from any current directory:
+
+```bash
+python3 scripts/codex-skills.py check --repo /absolute/path/to/DinoStack
+```
+
+If a reviewed canonical prose change creates or removes compatibility
+occurrences, inspect and refresh the inventory before rebuilding:
+
+```bash
+python3 scripts/codex-skills.py inventory --repo . > .codex/skill-compatibility.yml
+bash .codex/build.sh
+bash scripts/check-codex-skill-sync.sh
+```
+
+CI runs the read-only check, the generator/mutation suite, a clean-clone build,
+the public build, and a final clean-diff assertion. The repository pre-commit
+hook also invokes the Codex skill check whenever relevant canonical inputs,
+generator configuration, workflow gates, mirrors, or generated outputs are
+staged.
+
+## Other Codex adapter artifacts
+
+- `.codex/AGENTS.md` - generated global methodology.
+- `.codex/agents/*.toml` - generated named-agent definitions.
+- `.codex/config/hooks.json` - lifecycle hook configuration.
+- `.codex/hooks/` - Codex hook implementations and the shared-hook symlink.
+- `.codex/commands/` - relative symlink mirror of canonical command documents
+  for manual workflows not exposed as native skills.
+- `.codex/references/` - relative symlink mirror of canonical references.
+
+The native `$brief`, `$wrap`, and `$implement-ticket` skills are the supported
+registered workflow entry points. Other command documents remain manual
+resources loaded through the repository dispatcher when the generated
+methodology directs Codex to them.
+
+## Coexistence and permissions
+
+Codex uses `~/.codex/` and `~/.agents/skills/`; Claude Code uses
+`~/.claude/`. The adapters can coexist. Codex session context is written under
+`~/.codex/projects/`, separate from Claude Code's project context path.
+
+For a trusted checkout, the recommended Codex configuration is:
+
+```toml
+sandbox_mode = "danger-full-access"
+approval_policy = "never"
+```
+
+Use stricter settings for untrusted repositories or prompts. See
+[`docs/codex-permissions.md`](../docs/codex-permissions.md) for details.

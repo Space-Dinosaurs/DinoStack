@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# Module: .codex/install.sh
-# Role: Install the Codex CLI adapter into ~/.codex/ and ~/.agents/skills/
-# Inputs: .codex/ build artifacts (AGENTS.md, agents/, skill/), .codex/config/hooks.json
-# Outputs: symlinks at ~/.agents/skills/agentic-engineering, ~/.codex/AGENTS.md,
-#          ~/.codex/agents/; ~/.codex/hooks.json symlinked to the session-stable
-#          hooks snapshot (DS-54, scripts/lib/hooks-snapshot.sh) when sync
-#          succeeds, else the checkout's .codex/config/hooks.json; codex_hooks
-#          feature flag ensured in ~/.codex/config.toml
-# Side-effects: backs up existing non-symlink targets with .backup-<timestamp>
-#               suffix; syncs the hooks snapshot dir; may append to config.toml
-# Consumers: user runs manually; re-run after repo move (or to refresh the
-#            hooks snapshot) to update absolute hook paths
+# Purpose: Install the generated Codex adapter, exactly four native DinoStack
+#          skills, named agents, hooks, activation/profile state, and PATH tools.
+# Public API: bash .codex/install.sh [--mode=opt-in|opt-out]
+#             [--profile=relaxed|default|strict] [--identity=<handle>]
+#             [--no-identity] [--config-dir=<dir>]. AGENTIC_CONFIG_DIR provides
+#             the config-dir fallback.
+# Upstream deps: .codex/build.sh and its generated AGENTS.md, agents/, skills/,
+#                and config/hooks.json outputs; scripts/lib/identity.sh and
+#                scripts/lib/hooks-snapshot.sh when present; Bash and Python 3.
+# Downstream consumers: manual installs and update workflows that populate
+#                       ~/.agents/skills/, the selected Codex config directory,
+#                       ~/.local/bin/, and shared activation/identity state.
+# Failure modes: set -e aborts on required build or install failures; symlinked
+#                config directories are refused; existing non-owned targets are
+#                backed up before replacement; optional identity and snapshot
+#                helpers degrade with explicit warnings.
+# Performance: local synchronous build and filesystem installation work, linear
+#              in generated adapter size; no network access.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -214,9 +220,10 @@ else
   echo "    Override with: bash .codex/install.sh --profile=relaxed|default|strict"
 fi
 
-SKILL_SRC="$REPO_DIR/.codex/skill"
-SKILL_DST="$HOME/.agents/skills/agentic-engineering"
-OLD_SKILL_DST="$CODEX_CONFIG_DIR/skills/agentic-engineering"
+SKILLS_SRC="$REPO_DIR/.codex/skills"
+SKILLS_DST="$HOME/.agents/skills"
+LEGACY_SKILL_SRC="$REPO_DIR/.codex/skill"
+SKILL_NAMES=(agentic-engineering brief wrap implement-ticket)
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
 AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
@@ -232,44 +239,60 @@ echo "Running build..."
 bash "$REPO_DIR/.codex/build.sh"
 
 # ---------------------------------------------------------------------------
-# Clean up old (incorrect) skill symlink at ~/.codex/skills/agentic-engineering/
-# The correct path per Codex docs is ~/.agents/skills/<name>/, not ~/.codex/skills/.
+# Clean up old (incorrect) skill symlinks under the Codex config directory.
+# The correct path per Codex docs is ~/.agents/skills/<name>/.
 # ---------------------------------------------------------------------------
 
-if [[ -L "$OLD_SKILL_DST" ]]; then
-  old_target="$(readlink "$OLD_SKILL_DST")"
-  if [[ "$old_target" == "$SKILL_SRC" ]]; then
-    rm "$OLD_SKILL_DST"
-    echo "  - Removed stale symlink at $OLD_SKILL_DST (was pointing to $SKILL_SRC)"
-  else
-    echo "  ! $OLD_SKILL_DST points to $old_target (not ours - leaving it)"
+for skill_name in "${SKILL_NAMES[@]}"; do
+  old_skill_dst="$CODEX_CONFIG_DIR/skills/$skill_name"
+  skill_src="$SKILLS_SRC/$skill_name"
+  if [[ -L "$old_skill_dst" ]]; then
+    old_target="$(readlink "$old_skill_dst")"
+    if [[ "$old_target" == "$skill_src" || \
+          ( "$skill_name" == "agentic-engineering" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
+      rm "$old_skill_dst"
+      echo "  - Removed stale symlink at $old_skill_dst"
+    else
+      echo "  ! $old_skill_dst points to $old_target (not ours - leaving it)"
+    fi
+  elif [[ -e "$old_skill_dst" ]]; then
+    echo "  ! Real file/directory at $old_skill_dst - not removing (manual cleanup may be needed)"
   fi
-elif [[ -e "$OLD_SKILL_DST" ]]; then
-  echo "  ! Real file/directory at $OLD_SKILL_DST - not removing (manual cleanup may be needed)"
-fi
+done
 
 # ---------------------------------------------------------------------------
-# Symlink the agentic-engineering skill into ~/.agents/skills/
+# Symlink all four native skills into ~/.agents/skills/
 # Per Codex docs: user-scope skills load from $HOME/.agents/skills/<name>/SKILL.md
 # ---------------------------------------------------------------------------
 
-echo "Linking skill: agentic-engineering..."
+echo "Linking native skills..."
 
-mkdir -p "$(dirname "$SKILL_DST")"
+mkdir -p "$SKILLS_DST"
 
-if [[ -L "$SKILL_DST" ]]; then
-  current_target="$(readlink "$SKILL_DST")"
-  if [[ "$current_target" == "$SKILL_SRC" ]]; then
-    echo "  = agentic-engineering (already linked)"
-  else
-    echo "  ! agentic-engineering (symlink points elsewhere: $current_target - skipping)"
+for skill_name in "${SKILL_NAMES[@]}"; do
+  skill_src="$SKILLS_SRC/$skill_name"
+  skill_dst="$SKILLS_DST/$skill_name"
+  if [[ ! -d "$skill_src" || ! -f "$skill_src/SKILL.md" ]]; then
+    echo "  ! generated skill is missing or incomplete: $skill_src" >&2
+    exit 1
   fi
-elif [[ -e "$SKILL_DST" ]]; then
-  echo "  ! agentic-engineering (real file/directory exists at destination - skipping)"
-else
-  ln -s "$SKILL_SRC" "$SKILL_DST"
-  echo "  + agentic-engineering skill linked to $SKILL_DST"
-fi
+  if [[ -L "$skill_dst" ]]; then
+    current_target="$(readlink "$skill_dst")"
+    if [[ "$current_target" == "$skill_src" ]]; then
+      echo "  = $skill_name (already linked)"
+    elif [[ "$skill_name" == "agentic-engineering" && "$current_target" == "$LEGACY_SKILL_SRC" ]]; then
+      ln -sfn "$skill_src" "$skill_dst"
+      echo "  ~ $skill_name (migrated from deleted singular skill source)"
+    else
+      echo "  ! $skill_name (symlink points elsewhere: $current_target - skipping)"
+    fi
+  elif [[ -e "$skill_dst" ]]; then
+    echo "  ! $skill_name (real file/directory exists at destination - skipping)"
+  else
+    ln -s "$skill_src" "$skill_dst"
+    echo "  + $skill_name skill linked to $skill_dst"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Symlink ~/.codex/AGENTS.md to .codex/AGENTS.md
@@ -570,9 +593,10 @@ echo ""
 echo "Install complete."
 echo ""
 echo "What was installed:"
-echo "  ~/.agents/skills/agentic-engineering  -> $SKILL_SRC"
-echo "    Contains: SKILL.md (trigger + methodology summary)"
-echo "              references/ (skeptic-protocol, subagent-protocol, agent-team, design-goals)"
+for skill_name in "${SKILL_NAMES[@]}"; do
+  echo "  ~/.agents/skills/$skill_name  -> $SKILLS_SRC/$skill_name"
+done
+echo "    Four native Codex skills: core methodology plus brief, wrap, and implement-ticket workflows"
 echo ""
 echo "  ~/.codex/AGENTS.md  -> $AGENTS_SRC"
 echo "    Contains: Full agentic engineering methodology (loaded globally by Codex)"
@@ -591,8 +615,8 @@ echo "  .codex/AGENTS.md       - Source for the global ~/.codex/AGENTS.md symlin
 echo "  .codex/agents/         - Generated named agent TOML files (source: content/agents/*.md)"
 echo "  .codex/config/hooks.json - Source hooks configuration for ~/.codex/hooks.json"
 echo "  .codex/hooks/          - Hook scripts (risk-reminder.sh, stop-context-codex.js)"
-echo "  .codex/commands/       - Source command templates (hardlinks from content/commands/)"
-echo "  .codex/references/     - Local copies of reference docs"
+echo "  .codex/commands/       - Source command templates (tracked relative symlinks to ../../content/commands/*.md)"
+echo "  .codex/references/     - Reference docs (tracked relative symlinks to ../../content/references/*.md)"
 echo ""
 echo "IMPORTANT - coexistence note:"
 echo "  This install writes to ~/.agents/skills/, ~/.codex/AGENTS.md,"
