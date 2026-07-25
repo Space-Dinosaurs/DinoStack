@@ -22,12 +22,16 @@ Public API: /ds-ticket-triage                         -- triage operator's open 
             are identical between the two commands.
 
 Upstream deps: content/commands/ds-implement-ticket.md Phase 0 (input normalizer,
-               invoked by reference - no copy); METHODOLOGY.md (activation
+               invoked by reference - no copy) and Phase 1 Ticket-rework
+               detection (per-entry ledger read, invoked by reference - no
+               fork of the jq algorithm); METHODOLOGY.md (activation
                preflight); AGENTS.md ## Tracker / ## Linear sections (TRACKER
                resolution chain, same as implement-ticket Setup); Jira MCP
                (mcp__mcp-atlassian__jira_get_issue / jira_search); Linear MCP
                (mcp__linear__get_issue); content/references/trigger-catalog.md
-               (yolo-guard, §d).
+               (yolo-guard, §d); .agentic/ticket-ledger.jsonl (local,
+               gitignored, tracker-independent read - see content/references/
+               ticket-rework.md for schema and algorithm).
 
 Downstream consumers: operator-invoked only (standalone) OR /ds-implement-ticket
                       Phase 0a (integration path - algorithm reused by reference,
@@ -53,7 +57,10 @@ Failure modes: soft-fail per ticket throughout; fetch failures treated as
                heuristic-only notice; no-args + no-tracker exits immediately
                (explicit list required). 0 assigned tickets exits immediately.
                Phase 4b Skeptic skipped when artifact contains zero lanes and
-               zero chains (all deferred / in-progress).
+               zero chains (all deferred / in-progress). Ticket-rework ledger
+               read soft-fails per line (absent/unreadable ledger or a single
+               malformed line never blocks triage of the remaining set - see
+               Ticket-rework detection below).
 
 Performance: one tracker API call per ticket in Phase 1 (conductor-direct);
              one background investigator in Phase 2b when !HEURISTIC_ONLY;
@@ -89,6 +96,8 @@ Run the activation preflight (see `METHODOLOGY.md`). If inactive, no-op and exit
 
 Resolve `TRACKER`, `TICKET_PREFIX`, and `JIRA_BASE_URL` using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Tracker` / `## Linear` sections). Cache results in-context for the session; do not re-resolve mid-command.
 
+Resolve `REWORK_DETECTION` the SAME way as `/ds-implement-ticket` Setup: read `.agentic/config.json` key `rework_detection` (boolean, default `true`; absent key resolves to `true`). This governs the per-entry ledger read below - see `content/references/ticket-rework.md`.
+
 ## Phase 0: Input normalization
 
 **No-args default (invoked with no `<input>` argument).**
@@ -113,6 +122,21 @@ Reuse `/ds-implement-ticket` Phase 0 by reference - invoke the same normalizatio
 **Large-list gate:** if `len(entries) > 20`, prompt: "Ticket count exceeds 20 - investigator pass will be skipped (HEURISTIC_ONLY=true). Conflict analysis will be Level 1 only (component/label overlap). Continue? [y/N]". On `y`: set `HEURISTIC_ONLY=true` and proceed. On `n`: exit.
 
 `[phase: ticket-triage | phase=normalize]`
+
+## Ticket-rework detection (per-entry, runs after entries[] resolves via EITHER Phase 0 branch)
+
+**Anchoring (binding).** Phase 0 above has two mutually exclusive branches - the no-args default (terminal breadcrumb `phase=resolve-assigned`) and explicit input (terminal breadcrumb `phase=normalize`) - each ending in its own breadcrumb. This detection step sits downstream of BOTH: it runs once `entries[]` has been resolved, regardless of which branch produced the list, and before Phase 1 begins. Anchoring to the `normalize` breadcrumb alone would silently skip the badge for every no-args invocation, which is the documented default form for a tracker-connected operator - see the dual-branch anchoring pattern in `content/references/ticket-rework.md`.
+
+**Outside the Phase 1 tracker gate, deliberately.** This step does NOT sit inside Phase 1 and is NOT gated on `TRACKER != none`. Detection makes zero tracker and zero network calls - it is a single local file read, so it works identically whether a tracker is configured or not. Phase 1's no-tracker skip ("if `TRACKER == none`, skip Phase 1 metadata fetch") would, if this read were nested inside Phase 1, hide the badge at exactly the state most consumer repos are in. `TRACKER=none` is in fact the case this ledger matters most for - there is no tracker comment thread to carry prior-attempt signal.
+
+For each entry in the resolved `entries[]`, reuse `/ds-implement-ticket` Phase 1's "Ticket-rework detection" sub-section by reference - same file (`.agentic/ticket-ledger.jsonl`), same exact-`ticket_id`-match + dedupe-by-`pr_number`-latest-wins jq algorithm, same soft-fail-per-line discipline (one malformed line is skipped, not fatal to the whole read; an absent or unreadable ledger resolves to zero prior attempts rather than erroring). Do not fork or re-derive that algorithm here.
+
+1. If `REWORK_DETECTION` is `false` (see Preflight), or a given entry's `ticket_id` is null/empty (a freeform/local entry with no ticket reference), skip detection for that entry: `entry.PRIOR_ATTEMPTS = 0`, `entry.IS_REWORK = false`. No badge, no lane-rule effect.
+2. Otherwise set `entry.PRIOR_ATTEMPTS`, `entry.IS_REWORK`, and `entry.LATEST_PR` (the `pr_number` of the most recent deduped prior record) exactly as the implement-ticket detection produces `PRIOR_ATTEMPTS` / `IS_REWORK` / the last element of `PRIOR_COMPLETED`.
+
+`entry.IS_REWORK` feeds the `[REWORK xN]` badge (Phase 4a) and the never-parallel lane rule (Phase 3) below.
+
+`[phase: ticket-triage | phase=rework-detect]`
 
 ## Phase 1: Metadata fetch
 
@@ -205,7 +229,11 @@ Defer the following; they are removed from all downstream rules:
 
 **In-progress removal (after Rule 1):** tickets with `in_progress: true` are removed from lane assignment. They appear in the artifact badged `[IN PROGRESS]` and are excluded from kickoff prompts. They are NOT deferred and NOT lane-assigned.
 
-**Rule 2 - Sequential chains (consume DAG-connected components with edges):**
+**Rework isolation (after in-progress removal, before Rule 2):** every remaining ticket with `entry.IS_REWORK: true` (see Ticket-rework detection above) is consumed here, unconditionally, and assigned its own single-ticket chain lane - **never** `parallel`, regardless of Phase 2a's DAG or Phase 2b's conflict-group findings for it. A rework ticket carries a forced Elevated risk floor and may draw a Tier-3 Skeptic (`content/references/ticket-rework.md` §Escalation table); folding it into a same-lane parallel batch with other tickets would misrepresent its cost as parallel-safe filler. It is neither deferred nor excluded from kickoff - it runs, just never batched with anything else. Its Notes cell (At-a-glance and Per-ticket summary tables) records `rework xN - Elevated floor, may draw Tier-3 Skeptic; verify PR #<n>`, where `N = entry.PRIOR_ATTEMPTS` and `<n> = entry.LATEST_PR`. Each isolated rework ticket = one lane slot consumed in the Rule 4 cap accounting, same as a Rule 2 chain.
+
+Accepted trade-off: a rework ticket that also has a DAG edge to another remaining ticket (it blocks, or is blocked by, a non-rework ticket) loses Rule 2's chain-ordering guarantee for that edge, because rework isolation removes it from the DAG-chain pool before Rule 2 runs. This is deliberate given the never-parallel mandate above; if it proves to lose real dependency information in practice, the fix is to special-case DAG-connected rework tickets, not to weaken the isolation rule for the common (no-DAG-edge) case.
+
+**Rule 2 - Sequential chains (consume DAG-connected components with edges, from the remainder after rework isolation):**
 
 For every connected component of the DAG that has at least one internal edge, topo-sort its members (blockers first) and assign the chain as a single lane (run as an ordered comma-list `/ds-implement-ticket A, B, C` batch). Non-linear components (multiple paths) are still serialized in topological order. All members of a chained component are consumed by Rule 2.
 
@@ -245,19 +273,26 @@ Conflict analysis: Level 1 only (component/label overlap; >20 tickets, investiga
 |------|---------|------|-------|
 | Lane 1 | A, B | chain | B blocked by A |
 | Lane 2 | C, D | parallel | independent |
+| Lane 3 | E | chain | rework x2 - Elevated floor, may draw Tier-3 Skeptic; verify PR #458 |
 | ...   | ...  | ...  | ... |
 
 ## Per-ticket summary
 
 <!-- Est column: shows the captured estimate (story points / time estimate) or "-" when absent.
      Display-only; no distribution rule consumes it.
-     ⚠ column: populated with "⚠ large" when context_risk: high (≥5 pts); otherwise empty. -->
+     ⚠ column: populated with "⚠ large" when context_risk: high (≥5 pts); otherwise empty.
+     Ticket column: append "[REWORK xN]" when entry.IS_REWORK is true, N = entry.PRIOR_ATTEMPTS
+     (see Ticket-rework detection above). Never combined with a `parallel` Lane/Type value -
+     a rework ticket's own single-ticket chain lane always shows Type "chain" (Rework isolation
+     rule). Its Notes cell carries the same "rework xN - ...; verify PR #<n>" annotation as the
+     At-a-glance row for that lane. -->
 
 | Ticket | Priority | Status | Est | ⚠ | Lane | Notes |
 |--------|----------|--------|-----|---|------|-------|
 | A | High | To Do | 3 | | Lane 1 | |
 | B | Med | To Do | 2 | | Lane 1 | blocked by A |
 | C | High | To Do | 8 | ⚠ large | Lane 2 | |
+| E [REWORK x2] | High | To Do | 3 | | Lane 3 | rework x2 - Elevated floor, may draw Tier-3 Skeptic; verify PR #458 |
 | ... | | | | | | |
 
 ## Dependency notes
@@ -315,6 +350,11 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
 ```
 /ds-implement-ticket C, D
 ```
+
+**Lane 3** (rework - single-ticket chain, never parallel; verify PR #458 before running):
+```
+/ds-implement-ticket E
+```
 ```
 
 `[phase: ticket-triage | phase=draft]`
@@ -325,7 +365,7 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
 
 Otherwise: spawn a fresh background Skeptic on the artifact with this adversarial brief:
 
-> "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented?"
+> "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented? (6) Rework isolation - was every ticket with `IS_REWORK: true` given the `[REWORK xN]` badge, placed in its own single-ticket chain lane (never `parallel`), and is its Notes cell annotated with the prior PR number?"
 
 Max 3 fix passes, then escalate to the operator with open findings listed.
 
@@ -376,9 +416,11 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 | Terminal-status ticket (Done/Cancelled) | Deferred via Rule 1 with reason "terminal". Not included in lane assignment or kickoff prompts. |
 | In-progress ticket | Carried through analysis; removed from lane assignment after Rule 1. Shown badged `[IN PROGRESS]`. Excluded from kickoff prompts. |
 | No tracker configured (with explicit input) | Skip Phase 1; run Phase 2a with zero link data; run Phase 2b Level 1 with zero component/label data; print notice. |
+| Ticket with `IS_REWORK: true` (one or more prior AE PR-opening attempts recorded in the ledger) | Badged `[REWORK xN]`. Isolated into its own single-ticket chain lane (never `parallel`). NOT deferred, NOT excluded from kickoff. Notes cell names the prior PR. Runs identically at `TRACKER=none` - detection is tracker-independent. |
+| `rework_detection` disabled, or ledger absent/unreadable | Detection soft-fails to `PRIOR_ATTEMPTS = 0` for every entry; no badge, no lane-rule effect. Triage proceeds unaffected. |
 
 ## Soft-fail discipline
 
-Every tracker and MCP call soft-fails: log and continue. A fetch failure on one ticket never aborts the triage of the remaining set. Fetch-failed tickets are treated as independent with no known metadata. The command never errors out on external API failure.
+Every tracker and MCP call soft-fails: log and continue. A fetch failure on one ticket never aborts the triage of the remaining set. Fetch-failed tickets are treated as independent with no known metadata. The command never errors out on external API failure. The ticket-rework ledger read (a local file, not a tracker/MCP call) follows the same discipline: an absent or unreadable ledger, or a single malformed line within it, resolves to zero prior attempts for the affected entry(ies) rather than erroring - see Ticket-rework detection above.
 
 Emit one breadcrumb per phase as shown in each section above. The terminal breadcrumb is `[phase: ticket-triage | phase=complete]`.
