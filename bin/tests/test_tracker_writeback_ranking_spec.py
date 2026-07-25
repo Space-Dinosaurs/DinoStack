@@ -11,10 +11,15 @@ Covers:
     'duplicate', the field-absence phrase, and the fire-and-forget-vs-
     awaiting-caller distinction.
   - (a2) semantic-inversion coverage: the central pipeline_rank comparator is
-    literally `<` (not `>` or `<=`), and steps 4.a/4.c/4.d.ii/4.d.iii resolve
-    to the specific permit/skip outcome the algorithm requires. These pin
-    outcomes byte-identity (b) cannot catch a reversal applied uniformly to
-    the canonical block and every adapter copy at once.
+    literally `<` (not `>` or `<=`), and steps 4.a/4.b/4.c/4.d.i/4.d.ii/4.d.iii/
+    4.d.iv resolve to the specific permit/skip outcome the algorithm requires,
+    the fixed IN_PROGRESS < IN_REVIEW < QA pipeline sequence and the Linear
+    category-rank sequence are pinned as ORDERED literals (not just unordered
+    token presence), and the invocation contract's tracker_state_values and
+    forward_only_guard parameters are checked against a scoped window (the
+    pass-list itself), not the whole block. These pin outcomes byte-identity
+    (b) cannot catch a reversal applied uniformly to the canonical block and
+    every adapter copy at once.
   - (b) the canonical block is byte-identical across all adapter copies.
   - (c) a spelling heuristic: any line in the canonical block that mentions
     3+ of the category-rank tokens (backlog/unstarted/started/completed/
@@ -205,6 +210,134 @@ def test_canonical_block_step_4d_ii_and_iii_permit(canonical_block):
         r"iii\. Else if the CURRENT state's name matches `BLOCKED`: \*\*permit\*\* unconditionally",
         canonical_block,
     ), "step 4.d.iii (current is BLOCKED) must resolve to permit"
+
+
+def test_canonical_block_step_4d_i_idempotent_skips(canonical_block):
+    # Line-scoped, same rationale as 4.a above: a `.*?`/DOTALL span could
+    # jump forward to an unrelated later "**skip**" and pass even if this
+    # exact branch were flipped to permit.
+    step_4d_i_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith(
+            "- i. If `target_state`'s name case-insensitive-exact-matches the CURRENT state's name"
+        )
+    ]
+    assert step_4d_i_lines, "step 4.d.i (idempotent no-op) line not found"
+    assert all("**skip**" in line for line in step_4d_i_lines), (
+        "step 4.d.i (idempotent no-op, target name == current name) must resolve to skip"
+    )
+
+
+def test_canonical_block_step_4b_forward_category_move_permits(canonical_block):
+    # No DOTALL, no wildcard spanning lines - `category_rank(current) <
+    # category_rank(target)` is a unique literal phrase (its ">" counterpart
+    # is step 4.c, tested separately below), so this cannot match anywhere
+    # but the intended 4.b branch.
+    assert re.search(
+        r"b\. If `category_rank\(current\) < category_rank\(target\)`: \*\*permit\*\*",
+        canonical_block,
+    ), "step 4.b (forward category move) must resolve to permit"
+
+
+def test_canonical_block_step_4d_iv_fallthrough_skips(canonical_block):
+    # Line-scoped: the "Otherwise (at least one name does not resolve..." bullet
+    # is a single (long) markdown line in the source file. Scoping the check to
+    # that exact line - rather than a block-wide substring or a cross-line
+    # wildcard - means a flip of THIS branch's verdict to permit cannot be
+    # masked by the "**skip**"/"**permit**" tokens that appear in neighboring
+    # branches or in the fire-and-forget/awaiting-caller prose later in the
+    # same sentence.
+    fallthrough_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith(
+            "- Otherwise (at least one name does not resolve to a pipeline rank"
+        )
+    ]
+    assert fallthrough_lines, "step 4.d.iv fall-through (unmatched pipeline rank) line not found"
+    assert all("**skip** unconditionally" in line for line in fallthrough_lines), (
+        "step 4.d.iv fall-through (name does not resolve to a pipeline rank) must resolve to skip unconditionally"
+    )
+
+
+def test_canonical_block_pipeline_sequence_is_ordered_literal(canonical_block):
+    # M13: an earlier version of this suite only checked unordered token/rank
+    # presence (test_canonical_block_contains_fixed_pipeline_ranks above),
+    # which a full permutation of the sequence (e.g. QA(0) < IN_REVIEW(1) <
+    # IN_PROGRESS(2)) satisfies without any diff to that test. Pin the exact
+    # ordered clause as one literal substring - a permutation changes this
+    # exact string and cannot pass.
+    assert (
+        "the fixed pipeline sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2)"
+        in canonical_block
+    ), "the fixed pipeline sequence must be the literal ordered IN_PROGRESS(0) < IN_REVIEW(1) < QA(2) clause"
+
+
+def test_canonical_block_category_rank_sequence_is_ordered_literal(canonical_block):
+    # Same M13-class fix applied to the Linear category-rank order: pin the
+    # ordered literal, not just presence of each token.
+    assert (
+        "`backlog` < `unstarted` < `started` < `completed` < `canceled` < `duplicate`"
+        in canonical_block
+    ), "the Linear category-rank sequence must be the literal ordered backlog<unstarted<started<completed<canceled<duplicate clause"
+
+
+def test_spelling_heuristic_fires_on_at_least_one_line(canonical_block):
+    # Regression against a silent-vacuity regression: the heuristic in
+    # test_spelling_heuristic_single_l_on_trigger_lines only asserts the
+    # ABSENCE of violations. If a future rewording of the trigger line ever
+    # drops its category-rank-token count below the 3-token threshold, that
+    # test would keep passing having checked zero lines. This asserts the
+    # heuristic actually evaluates at least one qualifying line.
+    triggered = any(
+        sum(1 for tok in _TRIGGER_TOKENS if _token_present(line.lower(), tok)) >= 3
+        for line in canonical_block.splitlines()
+    )
+    assert triggered, (
+        "no line in the canonical block triggers the spelling heuristic "
+        "(3+ category-rank tokens) - the heuristic is vacuous"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Invocation-contract pass-list scoping (M10/M11) - the block-wide substring
+# checks in (a) above (test_canonical_block_has_tracker_state_values_param)
+# pass even when the parameter is stripped from the pass-list itself, because
+# the same token/phrase also appears in step 4's prose elsewhere in the block.
+# These assertions scope the check to the pass-list window: from the literal
+# "3. Pass to the subagent:" line up to (exclusive) the literal
+# "**Subagent responsibilities" heading that immediately follows it. Both
+# anchors are unique literal strings within the canonical block, so the
+# window cannot expand to swallow unrelated later content.
+# ---------------------------------------------------------------------------
+
+def test_invocation_contract_pass_list_has_tracker_state_values_param(canonical_block):
+    start = canonical_block.index("3. Pass to the subagent:")
+    end = canonical_block.index("**Subagent responsibilities", start)
+    pass_list_window = canonical_block[start:end]
+    assert "tracker_state_values" in pass_list_window, (
+        "tracker_state_values is missing from the invocation contract's pass-list (step 3) - "
+        "block-wide presence alone is not sufficient, it also appears in step 4's prose"
+    )
+
+
+def test_invocation_contract_forward_only_guard_covers_every_writeback_caller(canonical_block):
+    # M11: the broadened forward_only_guard line (covering ALL writeback
+    # callers - the 7 new sites, Phase 11, and the 2 awaiting callers - not
+    # just the original 7 new sites) had no regression test; reverting to the
+    # narrower original phrasing passed the rest of the suite. Line-scoped on
+    # the literal pass-list bullet.
+    guard_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- `forward_only_guard`: `true`")
+    ]
+    assert guard_lines, "forward_only_guard pass-list line not found"
+    assert all(
+        "for every writeback caller" in line and "awaiting callers" in line
+        for line in guard_lines
+    ), (
+        "forward_only_guard pass-list line must cover every writeback caller "
+        "(including the 2 awaiting callers), not just the 7 new sites"
+    )
 
 
 # ---------------------------------------------------------------------------
