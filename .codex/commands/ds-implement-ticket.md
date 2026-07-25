@@ -826,6 +826,41 @@ When Phase 0a-pre or the per-ticket Resume check detects an in-flight ticket who
 
 When `normalized_input.additional_operator_context` is non-null, append it verbatim to every entry's downstream architect (Phase 3) and engineer (Phase 5) brief, prefixed with `"Additional operator context (applied to all entries):"`. This routes mixed-input residue into the per-entry brief without dropping operator intent.
 
+### Per-ticket variable reset (binding, runs FIRST on every entry)
+
+**Before the tracker sub-section dispatch below, clear every in-context variable that feeds the Phase 9 ticket-rework ledger write or the rework notice:**
+
+```bash
+# Phase 1: per-ticket variable reset (runs first on EVERY entry, before sub-section dispatch).
+# These three have exactly one definition site each, on one path. A ticket that does not take
+# that path inherits the previous batch ticket's value - see the table below.
+RISK_CLASS=""
+SKEPTIC_ROUNDS=""
+QA_STATUS=""
+```
+
+**Why this is binding rather than housekeeping.** The conductor carries ONE variable scope across an entire batch; Phase 1 iterates per entry but nothing else in this command resets anything. Every one of these three variables has exactly one definition site on one path, so a ticket that does not take that path silently inherits the previous ticket's value. The failure is always an affirmative false statement, never an error:
+
+| Variable | Set only on | Batch failure without this reset |
+|---|---|---|
+| `SKEPTIC_ROUNDS` | Phase 6 clean exit | Trivial ticket 2 inherits Elevated ticket 1's round count - the notice reports adversarial review that never happened. **It also disables the Phase 9 disk-fallback guards**, which are gated on `[ -z "$TRL_ROUNDS" ]` and never execute when a stale value is present. |
+| `QA_STATUS` | Phase 6b (both branches) | Trivial ticket 2 skips Phase 6b entirely and inherits `PASS` - the notice reports that QA passed when no QA ran. |
+| `RISK_CLASS` | Phase 2 declaration | Ticket 2 inherits ticket 1's class, or writes `""` if ticket 1 never set it - an empty slot the null-render rule forbids. |
+
+This is the same hazard the Phase 9 write already hardens `pr_number` against by deriving it live rather than reading `$PR_NUMBER` (see "Ticket-rework ledger write"). `pr_number` can be re-derived from an external source; these three cannot, so they are reset at the per-ticket entry point instead. **Any future in-context variable that feeds the ledger or the notice belongs in this reset block** - the hazard is structural to a single scope spanning a batch, not specific to these three names.
+
+**Full sweep of the Phase 9 write's external reads**, so a future editor can see the analysis rather than redo it. Every variable the write block reads without assigning locally, and why it is or is not exposed:
+
+| Variable | Scope | Exposed to batch carry-over? |
+|---|---|---|
+| `RISK_CLASS`, `SKEPTIC_ROUNDS`, `QA_STATUS` | per-ticket, single definition path | **Yes** - reset above |
+| `TICKET_ID` | per-entry, from Phase 1 iteration | No - re-bound on every entry by construction |
+| `BRANCH_NAME` | per-ticket | No - Phase 4 resolves it "regardless of path", so every ticket re-sets it before Phase 9 |
+| `GH_REPO`, `REWORK_DETECTION` | session constants from Setup | No - batch-scoped is correct for both |
+| `PR_NUMBER` | per-ticket | Not read - the write derives `pr_number` live precisely to avoid it |
+
+Clearing rather than leaving unset is deliberate: it makes the Phase 9 disk fallback for `SKEPTIC_ROUNDS` reachable (its `[ -z "$TRL_ROUNDS" ]` gate now passes on a ticket that never reached Phase 6), so the `ticket_id` and `loop_state.phase` guards actually run in the batch scenario they exist to prevent.
+
 #### If TRACKER is `linear`
 
 1. Call `mcp__linear__get_issue` with the ticket ID and `includeRelations: true`.
@@ -949,13 +984,33 @@ When `IS_REWORK` is true (Phase 1 detection found one or more prior PR-opening a
 
 The floor raises the classification only. A ticket independently classified Elevated stays Elevated; the floor never lowers anything.
 
-Set `RISK_CLASS` to the declared, **post-floor** classification (`Trivial` | `Low` | `Elevated`). This is the in-context variable the Phase 9 ticket-rework ledger write records as `risk_class`.
+Apply the floor to the classification *before* it is declared in the next subsection, which is where `RISK_CLASS` is actually set.
 
 Placing the floor here puts it upstream of the Phase 2b gate, which applies only when risk is Elevated - a floored ticket therefore correctly receives the pre-architect ambiguity scan it would have skipped as Trivial or Low.
 
 **Known gap - the Phase 0b qa.md snapshot is not retroactive.** Phase 0b's `qa.md` snapshot is Elevated-only and runs *before* Phase 1, so it has already been skipped by the time the floor fires. A would-be-Trivial ticket floored to Elevated here therefore has no `.agentic/qa.md.snapshot-<ticket_id>`, and Phase 11b's `qa_md_diff` comes back empty for it. This is bounded and degrades gracefully - `wrap-ticket` already handles an absent snapshot - so the floor does not attempt to reach backwards and create one. The consequence is a missing qa.md-additions summary on floored tickets, nothing more.
 
 This is a **command-scoped** trigger. It does not add an entry to the global Elevated-signal list in `content/sections/04-risk-classification.md`, and nothing outside `/ds-implement-ticket` reads it. When `REWORK_DETECTION` is `false`, `IS_REWORK` is always false and the floor never fires.
+
+### Risk classification declaration (unconditional - runs on every ticket)
+
+**This subsection is NOT gated on `IS_REWORK`, `REWORK_DETECTION`, or anything else. It runs for every ticket on every path**, including when the rework floor above did not fire and when the feature is switched off entirely. It is a sibling of the floor section, not part of it: the floor *adjusts* the classification, this *records* it.
+
+Declare the risk classification and set:
+
+```
+RISK_CLASS="<Trivial | Low | Elevated>"     # post-floor
+```
+
+**When the declared classification is `Trivial`, also set:**
+
+```
+QA_STATUS="skipped:Trivial path"
+```
+
+**This is the only point in the command a Trivial ticket can record that rationale.** Phase 6b's skip branch carries the same string, but Phase 6b is unreachable on the Trivial path - "The Trivial path never enters Phase 6b" - so that branch only ever fires for an Elevated ticket with a non-null `qa_skip`. Setting it there alone would leave every Trivial ticket writing `qa_status: null`, and the notice rendering `QA n/a` for precisely the record `content/references/ticket-rework.md` uses as its canonical worked example.
+
+Both assignments are unconditional in the sense that matters: they do not depend on the rework feature being active. A ticket whose ledger write is later skipped simply never reads them.
 
 ---
 
@@ -1735,7 +1790,9 @@ The following failures were identified and fix attempts were made in earlier ite
 - Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
 
 **Step 3. Termination check:**
-- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section) and `QA_STATUS` to the qa-engineer's result verdict - one of `PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE` (in-context variable used by the Phase 9 ticket-rework ledger write). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
+- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section) and `QA_STATUS="PASS"` (in-context variable used by the Phase 9 ticket-rework ledger write). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
+
+**`QA_STATUS` on every other terminal QA outcome.** Whenever Phase 6b reaches a terminal verdict for this ticket by any route, set `QA_STATUS` to that verdict - one of `PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`. In particular, when the operator accepts INCONCLUSIVE with `qa_unverified=true` on the `qa_blocked` path and the ticket continues to Phase 9, set `QA_STATUS="INCONCLUSIVE"`. A known verdict must never be discarded to null: the ledger's contract reserves null for the case where *neither* a result *nor* a rationale can be resolved, and "the operator looked at this and accepted that QA could not verify it" is a result. Recording it as `n/a` would tell a later rework attempt that QA status was simply unavailable, hiding an accepted-unverified ticket - the exact class of silent downgrade this field exists to surface.
 - If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
 - If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
 
@@ -2273,16 +2330,18 @@ Capture the PR number from the URL printed by `gh pr create`.
 Field derivation:
 - `risk_class` - `$RISK_CLASS`, **set at the Phase 2 risk-classification declaration point** (see "Ticket-rework escalation: Elevated risk floor") to the conductor's declared classification, post-floor: `Trivial` | `Low` | `Elevated`.
 - `skeptic_rounds` - `$SKEPTIC_ROUNDS`, **captured at Phase 6 clean exit**, before Phase 6b overwrites the loop state. Do **not** read `loop_state.iteration` at this point unguarded: Phase 6b reinitializes that file with `phase: qa, iteration: 1`, so a post-QA read returns the QA iteration count, not the Skeptic round count. **Null on the Trivial path**, which never reaches Phase 6 and therefore never sets the variable. The disk fallback below exists only for a resumed session that lost the in-context variable, and it is doubly guarded - on `ticket_id` *and* on `loop_state.phase == "skeptic"`.
-- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA ran; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value or the literal `Trivial path` (the same rationale Phase 6b already records on its skip branch). **Both non-QA paths - Trivial, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
+- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA reached a terminal verdict; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value (set on Phase 6b's skip branch) or the literal `Trivial path` (set at the **Phase 2 declaration**, because Phase 6b is unreachable on the Trivial path). **Both non-QA paths - Trivial, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
 - `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path). `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
 
 **Variable definition sites.** `RISK_CLASS` and `QA_STATUS` carry the record's semantic content, so unlike `$BRANCH_NAME` / `$GH_REPO` they are stated explicitly rather than assumed:
 
-| Variable | Set where | Value |
-|---|---|---|
-| `RISK_CLASS` | Phase 2, at the risk-classification declaration (post-floor) | `Trivial` \| `Low` \| `Elevated` |
-| `SKEPTIC_ROUNDS` | Phase 6, Step 3 clean exit | final `loop_state.iteration`; unset on the Trivial path |
-| `QA_STATUS` | Phase 6b - clean exit sets the QA result; the skip branch sets `skipped:<rationale>` | see the bullet above |
+| Variable | Reset | Set where | Value |
+|---|---|---|---|
+| `RISK_CLASS` | Phase 1, per-ticket reset | Phase 2 "Risk classification declaration (unconditional)" | `Trivial` \| `Low` \| `Elevated`, post-floor |
+| `SKEPTIC_ROUNDS` | Phase 1, per-ticket reset | Phase 6, Step 3 clean exit | final `loop_state.iteration`; stays empty on the Trivial path, which never reaches Phase 6 |
+| `QA_STATUS` | Phase 1, per-ticket reset | **Three** sites: Phase 2 declaration (`skipped:Trivial path`, the only Trivial-reachable one); Phase 6b skip branch (`skipped:<qa_skip enum>`); Phase 6b terminal outcome (the QA verdict) | see the bullet above |
+
+Every row is cleared at the Phase 1 per-ticket reset and re-set on this ticket's own path. Without that reset each variable's single definition site would leak the previous batch ticket's value into any ticket that does not take that path - see "Per-ticket variable reset" in Phase 1.
 
 ```bash
 # Phase 9: ticket-rework ledger write (soft-fail; never blocks Phase 9 or anything downstream).

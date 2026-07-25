@@ -71,6 +71,7 @@ trap 'rm -rf "$TMP_ROOT"' EXIT
 # is renamed the extraction fails loudly rather than testing a stale copy.
 WRITE_MARKER='# Phase 9: ticket-rework ledger write'
 READ_MARKER='# Phase 1: ticket-rework detection'
+RESET_MARKER='# Phase 1: per-ticket variable reset'
 
 _extract() { # _extract <marker> <outfile>
   python3 - "$SPEC" "$1" "$2" <<'PY'
@@ -102,7 +103,14 @@ if ! _extract "$READ_MARKER" "$READ_BLOCK"; then
 fi
 _pass "extracted Phase 1 detection block from the shipped spec"
 
-for b in "$WRITE_BLOCK" "$READ_BLOCK"; do
+RESET_BLOCK="$TMP_ROOT/reset.sh"
+if ! _extract "$RESET_MARKER" "$RESET_BLOCK"; then
+  _fail "could not extract the Phase 1 per-ticket reset block from the spec"
+  echo "Results: $PASS passed, $FAIL failed"; exit 1
+fi
+_pass "extracted Phase 1 per-ticket reset block from the shipped spec"
+
+for b in "$WRITE_BLOCK" "$READ_BLOCK" "$RESET_BLOCK"; do
   if bash -n "$b" 2>/dev/null; then
     _pass "extracted block parses: $(basename "$b")"
   else
@@ -206,6 +214,71 @@ _eq "foreign ticket rounds not inherited" "$(_field '.skeptic_rounds|type')" "nu
 
 # ===========================================================================
 echo ""
+echo "--- Major B: batch carry-over in ONE shell scope (the real conductor shape) ---"
+# Every fixture above builds a fresh env per invocation, which CANNOT model the
+# actual failure: the conductor carries ONE variable scope across a whole batch.
+# This block runs two tickets in a single `bash -c` with no env reset between
+# them, exactly as the conductor does, and applies the spec's own reset block at
+# the top of ticket 2 - the mechanism under test.
+: > .agentic/ticket-ledger.jsonl
+printf '{"ticket_id":"DS-87","loop_state":{"phase":"skeptic","iteration":3}}' > .agentic/loop-state.json
+
+BATCH_OUT=$(env GH_REPO=o/r REWORK_DETECTION=true bash -c '
+  # ---- ticket 1: Elevated. Sets all three variables on its own path. ----
+  RISK_CLASS="Elevated"; SKEPTIC_ROUNDS=3; QA_STATUS="PASS"
+  TICKET_ID="DS-87"; BRANCH_NAME="feature/ds-87"; FAKE_GH_PR=458
+  export FAKE_GH_PR
+  source "'"$WRITE_BLOCK"'"
+
+  # ---- ticket 2: Trivial. Reaches neither Phase 6 nor Phase 6b. ----
+  # The spec reset runs first, then only what a Trivial ticket actually sets.
+  source "'"$RESET_BLOCK"'"
+  RISK_CLASS="Trivial"; QA_STATUS="skipped:Trivial path"   # Phase 2 declaration
+  TICKET_ID="DS-91"; BRANCH_NAME="fix/ds-91"; FAKE_GH_PR=462
+  export FAKE_GH_PR
+  source "'"$WRITE_BLOCK"'"
+')
+
+t1=$(head -1 .agentic/ticket-ledger.jsonl)
+t2=$(tail -1 .agentic/ticket-ledger.jsonl)
+_eq "batch t1 records its own rounds"       "$(echo "$t1" | jq -r .skeptic_rounds)"      "3"
+_eq "batch t1 records its own qa_status"    "$(echo "$t1" | jq -r .qa_status)"           "PASS"
+_eq "batch t2 does NOT inherit rounds"      "$(echo "$t2" | jq -r '.skeptic_rounds|type')" "null"
+_eq "batch t2 does NOT inherit PASS"        "$(echo "$t2" | jq -r .qa_status)"           "skipped:Trivial path"
+_eq "batch t2 does NOT inherit risk_class"  "$(echo "$t2" | jq -r .risk_class)"          "Trivial"
+_eq "batch t2 is its own ticket"            "$(echo "$t2" | jq -r .ticket_id)"           "DS-91"
+
+# The reset is what makes the Phase 9 disk fallback REACHABLE. Without it,
+# SKEPTIC_ROUNDS is still 3 from ticket 1, the `[ -z "$TRL_ROUNDS" ]` gate is
+# false, and the ticket_id/phase guards never execute. Prove the guards run:
+# loop-state.json still says DS-87/skeptic/3, and ticket 2 must still get null.
+_eq "disk fallback ran and its ticket_id guard rejected the foreign record" \
+    "$(echo "$t2" | jq -r '.skeptic_rounds|type')" "null"
+
+# Isolate the RESET itself. Above, ticket 2 sets QA_STATUS explicitly (modelling
+# the Phase 2 declaration), so that assertion would hold even with no reset at
+# all. Here ticket 2 sets NOTHING beyond its identity: any non-empty field can
+# only have come from ticket 1. This is the assertion that fails without the
+# reset block, independent of whether any later definition site fires.
+: > .agentic/ticket-ledger.jsonl
+env GH_REPO=o/r REWORK_DETECTION=true bash -c '
+  RISK_CLASS="Elevated"; SKEPTIC_ROUNDS=3; QA_STATUS="PASS"
+  TICKET_ID="DS-87"; BRANCH_NAME="feature/ds-87"; FAKE_GH_PR=458
+  export FAKE_GH_PR
+  source "'"$WRITE_BLOCK"'"
+
+  source "'"$RESET_BLOCK"'"      # <- the mechanism under test, and nothing else
+  TICKET_ID="DS-91"; BRANCH_NAME="fix/ds-91"; FAKE_GH_PR=462
+  export FAKE_GH_PR
+  source "'"$WRITE_BLOCK"'"
+' >/dev/null 2>&1
+bare=$(tail -1 .agentic/ticket-ledger.jsonl)
+_eq "reset alone neutralises qa_status carry-over"  "$(echo "$bare" | jq -r '.qa_status|type')"      "null"
+_eq "reset alone neutralises rounds carry-over"     "$(echo "$bare" | jq -r '.skeptic_rounds|type')" "null"
+_eq "reset alone neutralises risk_class carry-over" "$(echo "$bare" | jq -r .risk_class)"            ""
+
+# ===========================================================================
+echo ""
 echo "--- Phase 9 skip conditions: no record written ---"
 : > .agentic/ticket-ledger.jsonl
 _write REWORK_DETECTION=false TICKET_ID=DS-94 BRANCH_NAME=b GH_REPO=o/r RISK_CLASS=Elevated QA_STATUS=PASS FAKE_GH_PR=999
@@ -300,8 +373,32 @@ _present "both non-QA paths documented as writing the rationale" \
          'Both non-QA paths .* write the rationale, not null'
 _present "Phase 6b skip branch sets QA_STATUS" \
          'QA_STATUS="skipped:<rationale>"'
-_present "Phase 6b clean exit sets QA_STATUS" \
-         'QA_STATUS. to the qa-engineer.s result verdict'
+_present "Phase 6b PASS exit sets QA_STATUS" \
+         'QA_STATUS="PASS"'
+_present "every other terminal QA verdict sets QA_STATUS (incl. INCONCLUSIVE)" \
+         'QA_STATUS="INCONCLUSIVE"'
+
+# Major A: the contract above is only real if a Trivial ticket can REACH a
+# definition site. Phase 6b is unreachable on the Trivial path, so a
+# Phase-6b-only definition satisfies the prose and still writes null. Pin the
+# mechanism, not just the promise: the Trivial rationale must be set at the
+# Phase 2 declaration, which is on the Trivial path.
+_present "a Trivial-REACHABLE QA_STATUS definition site exists (Phase 2 declaration)" \
+         'QA_STATUS="skipped:Trivial path"'
+_present "the Phase 2 declaration subsection is unconditional" \
+         '### Risk classification declaration \(unconditional'
+_present "spec states why Phase 6b alone is insufficient for Trivial" \
+         'only point in the command a Trivial ticket can record that rationale'
+
+echo ""
+echo "--- Major B (prose): per-ticket reset must exist and cover all three ---"
+_present "per-ticket reset section exists" \
+         '### Per-ticket variable reset'
+_present "reset clears RISK_CLASS"    'RISK_CLASS=""'
+_present "reset clears SKEPTIC_ROUNDS" 'SKEPTIC_ROUNDS=""'
+_present "reset clears QA_STATUS"      'QA_STATUS=""'
+_present "reset explains it makes the disk fallback reachable" \
+         'makes the Phase 9 disk fallback .*reachable'
 
 echo ""
 echo "--- Major 2 (prose): SKEPTIC_ROUNDS captured before Phase 6b overwrites ---"
