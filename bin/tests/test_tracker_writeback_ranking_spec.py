@@ -10,6 +10,11 @@ Covers:
     parameter, the never-reads-cache invariant, single-L 'canceled',
     'duplicate', the field-absence phrase, and the fire-and-forget-vs-
     awaiting-caller distinction.
+  - (a2) semantic-inversion coverage: the central pipeline_rank comparator is
+    literally `<` (not `>` or `<=`), and steps 4.a/4.c/4.d.ii/4.d.iii resolve
+    to the specific permit/skip outcome the algorithm requires. These pin
+    outcomes byte-identity (b) cannot catch a reversal applied uniformly to
+    the canonical block and every adapter copy at once.
   - (b) the canonical block is byte-identical across all adapter copies.
   - (c) a spelling heuristic: any line in the canonical block that mentions
     3+ of the category-rank tokens (backlog/unstarted/started/completed/
@@ -18,8 +23,10 @@ Covers:
   - (d) content/commands/ds-ticket-triage.md's already-correct single-L
     enumeration is untouched.
   - (e) content/commands/ds-ticket-status-sync.md no longer restates the
-    ranking inline, and every target_state/forward_only_guard call site also
-    carries tracker_state_values.
+    ranking inline, and each of its 2 tracker-writeback spawn sites carries
+    an explicit forward_only_guard: true and tracker_state_values alongside
+    target_state (checked via a bounded window after the spawn-site sentence,
+    not same-line co-location).
   - (f) content/commands/ds-wrap.md's Part F Gate line resolves the 5
     TRACKER_STATE_* values (regression guard against a future edit silently
     dropping the Gate extension).
@@ -153,6 +160,54 @@ def test_canonical_block_fire_and_forget_vs_awaiting_caller(canonical_block):
 
 
 # ---------------------------------------------------------------------------
+# (a2) semantic-inversion coverage - literal comparison/branch outcomes.
+# Byte-identity (b) alone cannot catch a reversal applied uniformly to the
+# canonical block AND all 9 adapter copies together (the shape a real edit
+# plus build-all.sh produces); these assertions pin the literal outcome of
+# each branch so a flipped comparator or swapped permit/skip fails here.
+# ---------------------------------------------------------------------------
+
+def test_canonical_block_pipeline_rank_comparison_is_strictly_less_than(canonical_block):
+    assert (
+        "**permit** iff `pipeline_rank(current) < pipeline_rank(target)`" in canonical_block
+    ), "the central pipeline-rank comparison must be permit iff current < target"
+
+
+def test_canonical_block_step_4a_terminal_current_state_skips(canonical_block):
+    # Line-scoped (not a `.*?` span over the whole block): a wildcard gap that
+    # can cross newlines would happily jump to some LATER, unrelated
+    # "**skip**" elsewhere in the block and pass even if this exact branch
+    # were flipped to permit - exactly the vacuous-guard failure mode these
+    # tests exist to close.
+    step_4a_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("a. If current state is terminal")
+    ]
+    assert step_4a_lines, "step 4.a (terminal current state) line not found"
+    assert all("**skip** unconditionally" in line for line in step_4a_lines), (
+        "step 4.a (terminal current state) must resolve to skip"
+    )
+
+
+def test_canonical_block_step_4c_backward_category_move_skips(canonical_block):
+    assert re.search(
+        r"c\. If `category_rank\(current\) > category_rank\(target\)`: \*\*skip\*\*",
+        canonical_block,
+    ), "step 4.c (backward category move) must resolve to skip"
+
+
+def test_canonical_block_step_4d_ii_and_iii_permit(canonical_block):
+    assert re.search(
+        r"ii\. Else if `target_state` matches `BLOCKED`: \*\*permit\*\* unconditionally",
+        canonical_block,
+    ), "step 4.d.ii (target is BLOCKED) must resolve to permit"
+    assert re.search(
+        r"iii\. Else if the CURRENT state's name matches `BLOCKED`: \*\*permit\*\* unconditionally",
+        canonical_block,
+    ), "step 4.d.iii (current is BLOCKED) must resolve to permit"
+
+
+# ---------------------------------------------------------------------------
 # (b) byte-identity of the extracted block across all adapter copies
 # ---------------------------------------------------------------------------
 
@@ -212,14 +267,36 @@ def test_ticket_triage_already_correct_enumeration_untouched():
 # (e) ds-ticket-status-sync.md no stale enumeration / restated ranking
 # ---------------------------------------------------------------------------
 
-def test_ticket_status_sync_no_bare_target_state_enumeration():
+def test_ticket_status_sync_each_spawn_site_has_forward_only_guard_and_tracker_state_values():
+    """Each `/ds-ticket-status-sync` tracker-writeback spawn site (single-ticket
+    step 6 and `--all` step 6) must carry an explicit `forward_only_guard: true`
+    and `tracker_state_values` alongside `target_state` - not just a bare
+    pointer to the shared contract. Anchored on the literal spawn-site
+    sentence (which appears exactly once per call site) and a bounded window
+    after it, rather than a same-line co-location check - the same-line check
+    silently stopped firing once the parameter enumeration was replaced by a
+    pointer sentence with no parameters on the line at all."""
     path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
     text = path.read_text(encoding="utf-8")
-    for line in text.splitlines():
-        if "target_state" in line and "forward_only_guard: true" in line:
-            assert "tracker_state_values" in line, (
-                f"line enumerates target_state/forward_only_guard without tracker_state_values: {line!r}"
-            )
+    anchor = (
+        "spawn the tracker-writeback subagent using the "
+        "`## Tracker Writeback Helper` invocation contract"
+    )
+    positions = [m.start() for m in re.finditer(re.escape(anchor), text)]
+    assert len(positions) == 2, (
+        f"expected exactly 2 tracker-writeback spawn sites in ds-ticket-status-sync.md, found {len(positions)}"
+    )
+    for pos in positions:
+        window = text[pos:pos + 500]
+        assert "forward_only_guard: true" in window, (
+            f"spawn site at offset {pos} is missing an explicit forward_only_guard: true"
+        )
+        assert "tracker_state_values" in window, (
+            f"spawn site at offset {pos} is missing tracker_state_values"
+        )
+        assert "target_state: <expected>" in window, (
+            f"spawn site at offset {pos} is missing target_state: <expected>"
+        )
 
 
 def test_ticket_status_sync_no_stale_inline_ranking_restatement():
