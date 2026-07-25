@@ -5485,8 +5485,9 @@ Purpose: Canonical reference for the ticket-rework alert - the notice that
 Public API: Read-only reference document. Consumers (shipped across units
             U1-U4 of the ticket-rework Plan; live on main):
             content/commands/ds-implement-ticket.md (Phase 1 detection +
-            notice, Phase 9 ledger write, Phase 2/3 risk floor, Phase 6
-            Skeptic-brief callout, Tier-3 escalation at 2+ prior attempts);
+            notice, Phase 9 ledger write, Phase 2 risk floor, Phase 3
+            architect-brief callout, Phase 6 Skeptic-brief callout, Tier-3
+            escalation at 2+ prior attempts);
             content/commands/ds-ticket-triage.md (per-entry ledger read,
             [REWORK xN] badge, lane rule).
 
