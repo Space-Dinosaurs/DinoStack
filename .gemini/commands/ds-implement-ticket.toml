@@ -285,6 +285,7 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 - `DEBUGGER_ON_FAILURE` — read from `.agentic/config.json` key `debugger_on_failure` (boolean, default `false`). When `true` and the path is Elevated, a Debugger diagnosis step is interposed between a failed quality gate and the next engineer fix pass in Phase 7 - see Phase 7 for the full flow.
 - `AUTO_MERGE_ON_CI_GREEN` — read from `.agentic/config.json` key `auto_merge_on_ci_green` (boolean, default `false`). When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Default `false` leaves the PR open for human review.
 - `PR_WORKFLOW_REVIEWERS` — read from `AGENTS.md` `## PR Workflow` section, `Reviewers:` field (comma-separated GitHub usernames). Default: empty string. Section absence = empty. Used in Phase 10b as fallback reviewer assignment when no CODEOWNERS file is found.
+- `REWORK_DETECTION` — read from `.agentic/config.json` key `rework_detection` (boolean, default `true`; absent key resolves to `true`). When `false`, the ticket-rework alert goes fully dark: the Phase 9 ledger write, the Phase 1 detection read, the REWORK notice, and the escalation (Elevated risk floor, architect/Skeptic callouts, Tier-3 bump) are all disabled. See `content/references/ticket-rework.md`.
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
@@ -853,6 +854,62 @@ No ticket to fetch. **Use `normalized_input.freeform_task` as the ticket content
 
 ---
 
+### Ticket-rework detection (per-entry, runs after the sub-section dispatch above)
+
+**Anchoring (binding).** This step sits at the per-entry level, AFTER the three mutually exclusive tracker sub-sections above have dispatched - so it runs exactly once per entry regardless of which sub-section executed. The `TRACKER is none` sub-section only executes when `entries` is empty and `freeform_task` is set; anchoring detection inside any single sub-section would skip it for the other paths. Do not move it into one.
+
+Detection makes **zero tracker calls and zero network calls** - it is a single local file read, so it behaves identically at `TRACKER=none` as it does with a tracker configured. `TRACKER=none` is in fact the case the ledger matters most for: there is no tracker comment thread to carry prior-attempt signal.
+
+1. If `REWORK_DETECTION` is `false`, or the current `[TICKET_ID]` is null/empty: skip detection entirely. Set `PRIOR_ATTEMPTS = 0`, `IS_REWORK = false`, `PRIOR_COMPLETED = []`. Emit nothing.
+2. Otherwise read `.agentic/ticket-ledger.jsonl` and collect every record whose `ticket_id` is an **exact string match** for the current `[TICKET_ID]`. Dedupe the collected records by `pr_number` (read-side dedupe is what makes the lockless append at Phase 9 safe - a benign duplicate collapses here rather than inflating the count).
+3. Set `PRIOR_COMPLETED` to the deduped record set ordered by `opened_ts` ascending, `PRIOR_ATTEMPTS` to its size, and `IS_REWORK` to `PRIOR_ATTEMPTS >= 1`.
+4. **Soft-fail.** If the ledger is absent, unreadable, or a line is malformed, skip the bad line and continue; a wholly unusable ledger resolves to `PRIOR_ATTEMPTS = 0`. A missing or corrupt ledger must never block the ticket it exists to help with.
+
+```bash
+# Phase 1: ticket-rework detection (soft-fail; zero tracker/network calls - one local file read).
+# Emits the deduped prior-attempt records, most recent last. Malformed lines are skipped, not fatal.
+PRIOR_COMPLETED_JSON='[]'
+PRIOR_ATTEMPTS=0
+if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ] && [ -f .agentic/ticket-ledger.jsonl ]; then
+  # `X=$(...) || X=default` puts the fallback on jq's own exit status and discards any
+  # partial output. Do NOT use `$(jq ... || echo '[]')` here: on an unreadable file some
+  # jq builds emit a result AND fail, so the fallback would concatenate onto it.
+  PRIOR_COMPLETED_JSON=$(jq -cs --arg t "$TICKET_ID" '
+    [ .[] | select(type == "object" and .ticket_id == $t and (.pr_number != null)) ]
+    | unique_by(.pr_number)
+    | sort_by(.opened_ts // "")
+  ' .agentic/ticket-ledger.jsonl 2>/dev/null) || PRIOR_COMPLETED_JSON='[]'
+  [ -n "$PRIOR_COMPLETED_JSON" ] || PRIOR_COMPLETED_JSON='[]'
+  PRIOR_ATTEMPTS=$(printf '%s' "$PRIOR_COMPLETED_JSON" | jq 'length' 2>/dev/null) || PRIOR_ATTEMPTS=0
+  case "$PRIOR_ATTEMPTS" in ''|*[!0-9]*) PRIOR_ATTEMPTS=0 ;; esac
+fi
+if [ "$PRIOR_ATTEMPTS" -ge 1 ]; then IS_REWORK=true; else IS_REWORK=false; fi
+```
+
+`PRIOR_COMPLETED_JSON` is the shell-variable form of the conductor's in-context `PRIOR_COMPLETED` record set, matching the existing `$BRANCH_NAME` / `$GH_REPO` pattern used elsewhere in this command.
+
+(`jq -cs` slurps the whole file, so a single malformed line aborts the parse and the fallback resolves to `PRIOR_ATTEMPTS = 0` - the conservative direction, and the one that cannot block the ticket. A per-line parse that salvages the good lines and skips only the bad one is equally acceptable and strictly better; either way, detection must never error.)
+
+**The REWORK notice.** When `IS_REWORK` is true, emit this at the conductor's first user-facing turn after Phase 1, before any spawn:
+
+```
+REWORK: ticket <ID> has <N> prior AE attempt(s) that opened a PR - prior work on this ticket may need verification.
+  Last attempt: PR #<n> (<date>), risk <class>, <r> Skeptic round(s), QA <status>, <u> unit(s).
+Risk floored to Elevated; architect and Skeptic briefed on the prior attempt.
+Manual verification of PR #<n> is recommended.
+[phase: rework-detected]
+```
+
+- `<n>`, `<date>`, `<class>`, `<r>`, `<status>`, `<u>` come from the **most recent** record in `PRIOR_COMPLETED` (the highest `opened_ts`); `<date>` renders that record's `opened_ts` as a date.
+- **Null-render rule.** A null field renders `n/a` - never a bare `null`, never an empty slot. `<r>` renders `n/a` when `skeptic_rounds` is null (the prior attempt took the Trivial path and never entered the Skeptic loop). `<status>` is the one exception: it prefers the record's skip rationale (`skipped:<rationale>`) over `n/a`, because "QA never ran, and here is why" is exactly what an operator doing manual verification needs; only a genuinely absent `qa_status` with no rationale renders `n/a`. A Trivial-path prior record therefore reads `risk Trivial, n/a Skeptic round(s), QA skipped:Trivial path`.
+- When `PRIOR_ATTEMPTS > 1`, append `(+<N-1> earlier: PR #<a>, #<b>)` to the `Last attempt:` line, listing the older attempts by PR number only. Only the most recent attempt is described inline.
+
+This notice is **command-scoped**: it fires inside Phase 1, once per ticket, for this specific ticket. It is not one of the stacked session-start first-user-turn notices enumerated in `content/rules/conventions.md` and does not add to that count.
+
+The notice's third line asserts an escalation. That escalation is applied at the risk-classification declaration point, in the Phase 3 architect brief, and in the Phase 6 Skeptic brief - see "Ticket-rework escalation" in each. Full rationale, schema, and limitations: `content/references/ticket-rework.md`.
+
+---
+
 Proceed to Phase 2 regardless of which sub-section executed.
 
 ---
@@ -878,6 +935,18 @@ Focus on understanding enough to make a solid plan - don't over-read.
 **Investigator conditional:** If the task risk is **Low or above AND** the code area touched by this ticket is unfamiliar to the current session (files not yet read, subsystems not yet traced), spawn an `investigator` agent first. Pass its brief to the Architect in Phase 3. Skip this step if Phase 2 reads already covered the relevant area.
 
 Trivial-classified tickets skip the investigator (not required); the shippable change is still performed by a worktree-isolated `engineer` (no Skeptic, no brief) per METHODOLOGY.md §Risk Classification - the conductor does not edit the shippable tree directly.
+
+### Ticket-rework escalation: Elevated risk floor
+
+**Applies at the risk-classification declaration point** - the classification the conductor declares here is what Phase 2b, Phase 3, Phase 5, Phase 6, and Phase 9 all consume, so the floor must be applied before that declaration is made, not retrofitted downstream.
+
+When `IS_REWORK` is true (Phase 1 detection found one or more prior PR-opening attempts on this ticket), the risk classification for this ticket is **floored to Elevated**. It is never Trivial and never Low, regardless of how small the change looks and regardless of any profile-level Low override that would otherwise apply (`relaxed`-profile single-file behavioral edits, the bounded 2-3-file override, UI-only copy, and so on). A ticket that already came back once is, by construction, a ticket where the previous classification was not conservative enough.
+
+The floor raises the classification only. A ticket independently classified Elevated stays Elevated; the floor never lowers anything.
+
+Placing the floor here puts it upstream of the Phase 2b gate, which applies only when risk is Elevated - a floored ticket therefore correctly receives the pre-architect ambiguity scan it would have skipped as Trivial or Low.
+
+This is a **command-scoped** trigger. It does not add an entry to the global Elevated-signal list in `content/sections/04-risk-classification.md`, and nothing outside `/ds-implement-ticket` reads it. When `REWORK_DETECTION` is `false`, `IS_REWORK` is always false and the floor never fires.
 
 ---
 
@@ -992,6 +1061,39 @@ Factor these into the implementation plan. Ensure the plan explicitly addresses 
 ```
 
 Omit this entire section when `COMMENT_THREAD_SUMMARY` is empty (TRACKER=none, empty thread, or comment fetch failed).
+
+**Ticket-rework callout (inject only when `IS_REWORK` is true) — independent top-level block:**
+
+**This block is gated SOLELY on `IS_REWORK`. It is deliberately NOT part of the "Prior ticket context" section above and is NOT subject to that section's omit rule.** The two signals are unrelated: "Prior ticket context" is omitted when `COMMENT_THREAD_SUMMARY` is empty, which is exactly the `TRACKER=none` case - and `TRACKER=none` is precisely where the ledger is the only prior-attempt signal that exists, because there is no comment thread to carry one. Nesting this callout inside that section would drop it in the single case it matters most. Inject it whenever `IS_REWORK` is true, whether or not "Prior ticket context" was injected, and in either order.
+
+Append the following block to the architect spawn brief when `IS_REWORK` is true:
+
+```
+## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK
+
+AE has already carried this ticket to an opened PR [PRIOR_ATTEMPTS] time(s). The most recent attempt:
+
+- PR: #[pr_number] ([opened_ts])
+- Risk class: [risk_class]
+- Skeptic rounds: [skeptic_rounds, or "n/a" when null]
+- QA: [qa_status, or its "skipped:<rationale>" value, or "n/a"]
+- Units: [unit_count]
+[when PRIOR_ATTEMPTS > 1: - Earlier attempts: PR #<a>, #<b>]
+
+Something about the prior attempt was insufficient, OR this ticket was always going to need
+another wave - AE cannot tell which, and does not guess. Treat it as the former.
+
+Your plan MUST:
+1. Identify what the prior attempt missed, got wrong, or left incomplete. Read the prior PR's
+   diff before planning. State your conclusion explicitly, even if it is "the prior attempt
+   looks complete and this appears to be planned continuation" - that is a finding, not a
+   non-answer, and the Skeptic will grade it.
+2. Include at least one `qa_criteria` scenario that exercises the specific regression or gap
+   you identified. A rework plan whose QA criteria do not cover the failure mode that brought
+   the ticket back has not addressed the rework.
+```
+
+Apply the null-render rule when filling this block: a null `skeptic_rounds` renders `n/a`; a null `qa_status` renders its `skipped:<rationale>` value when one exists, otherwise `n/a`. Never emit a bare `null` into a spawn brief.
 
 **Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every genuine Open Question before proceeding - see `METHODOLOGY.md` for resolution paths. A plan with only a "Deferred defaults" section (empty or non-empty) and an empty "Open questions" section does not block. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
@@ -1289,10 +1391,17 @@ Spawn a `skeptic` agent with:
 - The full diff: `git -C $REPO diff origin/$BASE_BRANCH..HEAD`
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
+- **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Reviewing only whether the new diff is internally sound is insufficient - a diff can be clean on its own terms and still repeat or fail to fix what the prior attempt got wrong. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`.
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
+
+**Ticket-rework tier escalation.** When `PRIOR_ATTEMPTS >= 2` — two or more prior attempts, not one — declare `Tier: 3` for this Skeptic spawn and pass an explicit `model: opus` on the Agent tool call. At `PRIOR_ATTEMPTS == 1` the tier is unchanged (Tier 2, role default, omit the model param): one prior attempt gets the callout and the Elevated floor, not an Opus Skeptic. A ticket that has come back twice has had a review-depth problem, not just an implementation problem.
+
+This trigger is **command-scoped and advisory-only — there is no mechanical backstop.** `hooks/enforce-tier.py` backstops Tier-3 by matching the five *global* escalation signals against the spawn brief's text; `PRIOR_ATTEMPTS >= 2` is conductor-computed state that appears in no marker pattern the hook recognises, so the hook will neither detect this trigger nor deny a sub-Opus spawn under it. The conductor's explicit `model: opus` is the only enforcement. Omitting it silently downgrades the review with no error anywhere. This also does not add to the Mandatory Tier-3 escalation category count in `content/references/risk-config-and-tiers.md`.
+
+Known cost: a genuinely multi-wave ticket (big, always needed three passes, never actually regressed) draws an Opus Skeptic from its third wave onward, because `PRIOR_ATTEMPTS` cannot distinguish that from a ticket that came back twice. This is accepted; if it proves expensive the fix is raising this threshold, not adding a discriminator. See `content/references/ticket-rework.md` §Known limitations.
 
 **Findings handling - loop contract:**
 
@@ -2135,6 +2244,75 @@ fi
 For `TRACKER=none`, omit the tracker reference block line and drop the `[TICKET_PREFIX]-NNN:` prefix from `--title`.
 
 Capture the PR number from the URL printed by `gh pr create`.
+
+### Ticket-rework ledger write
+
+**Anchoring (binding).** This write sits HERE - after the Case A / Case B `if`/`else` above has closed, at the PR-number capture point - precisely because it must fire downstream of BOTH `gh pr create` calls. Case B is not a fallback: it is the branch every Trivial ticket takes, since a Trivial ticket never produces QA evidence. Anchoring this write inside Case A would silently drop every Trivial ticket's record. Do not move it into either branch. See `content/references/ticket-rework.md` §The dual-branch anchoring pattern.
+
+**Skip conditions.** Skip the write entirely (no file created, no line appended) when either holds:
+- `REWORK_DETECTION` is `false`.
+- `TICKET_ID` is null or empty (pure-freeform work has nothing to key a ledger record on).
+
+**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11c uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
+
+**One line, one `write()`.** The record is appended as a single `O_APPEND` write of one complete line. Never compose the line from multiple appends - the offset-atomicity guarantee that makes a lockless append safe is per-`write()`-call, not per-logical-record. There is no write-time lock and no read-before-write; all deduplication happens on read, keyed on `pr_number`.
+
+**Soft-fail throughout.** Any failure in this block (missing `jq`, unwritable `.agentic/`, failed `gh` lookup) is swallowed. It must never block Phase 9 or anything downstream.
+
+Field derivation:
+- `risk_class` - the conductor's in-context risk classification (`Trivial` | `Low` | `Elevated`), the same value declared at Phase 2/3.
+- `skeptic_rounds` - `.agentic/loop-state.json` `loop_state.iteration`. **Null on the Trivial path**, which never enters the Skeptic loop and therefore never writes that field.
+- `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA ran, else `"skipped:<rationale>"` where `<rationale>` is the `qa_criteria.qa_skip` enum value or the literal `Trivial path` (the same rationale Phase 6b already records on its skip branch). **Null on two paths**: Trivial, and Elevated with a non-null `qa_skip`.
+- `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path). `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
+
+```bash
+# Phase 9: ticket-rework ledger write (soft-fail; never blocks Phase 9 or anything downstream).
+# Anchored AFTER the Case A / Case B if/else above - fires for both branches, Trivial included.
+# REWORK_DETECTION / TICKET_ID / RISK_CLASS / QA_STATUS are the shell-variable form of the
+# conductor's in-context state, matching the existing $BRANCH_NAME / $GH_REPO pattern.
+# QA_STATUS holds the QA result when QA ran, "skipped:<qa_skip enum>" or "skipped:Trivial path"
+# when it did not, and is empty when it is legitimately null (Trivial, or Elevated with qa_skip).
+if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
+  # pr_number derived live from the ticket currently in flight's own branch - never $PR_NUMBER.
+  TRL_PR_NUMBER=$(gh pr view "$BRANCH_NAME" --repo "$GH_REPO" --json number -q .number 2>/dev/null || true)
+
+  if [ -n "$TRL_PR_NUMBER" ]; then
+    # skeptic_rounds: null on the Trivial path (loop-state.json has no iteration to read).
+    TRL_ROUNDS=""
+    if [ -f .agentic/loop-state.json ]; then
+      TRL_ROUNDS=$(jq -r '.loop_state.iteration // empty' .agentic/loop-state.json 2>/dev/null) || TRL_ROUNDS=""
+    fi
+    case "$TRL_ROUNDS" in ''|*[!0-9]*) TRL_ROUNDS="" ;; esac
+
+    # unit_count: derived from tasks.jsonl; 1 when absent, unreadable, or no matching records.
+    TRL_UNITS=$(jq -r --arg t "$TICKET_ID" 'select(.ticket_id == $t) | .task_id' \\
+      .agentic/tasks.jsonl 2>/dev/null | grep -c . || true)
+    case "$TRL_UNITS" in ''|0|*[!0-9]*) TRL_UNITS=1 ;; esac
+
+    # Build the whole record first, then append it with ONE write. Do not split this append.
+    TRL_LINE=$(jq -cn \\
+      --arg tid "$TICKET_ID" \\
+      --argjson pr "$TRL_PR_NUMBER" \\
+      --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \\
+      --arg br "$BRANCH_NAME" \\
+      --arg rc "$RISK_CLASS" \\
+      --arg sr "${TRL_ROUNDS:-}" \\
+      --arg qs "${QA_STATUS:-}" \\
+      --argjson uc "$TRL_UNITS" \\
+      '{ticket_id:$tid, pr_number:$pr, opened_ts:$ts, branch:$br, risk_class:$rc,
+        skeptic_rounds:(if $sr == "" then null else ($sr|tonumber) end),
+        qa_status:(if $qs == "" then null else $qs end),
+        unit_count:$uc}' 2>/dev/null || true)
+
+    if [ -n "$TRL_LINE" ]; then
+      mkdir -p .agentic 2>/dev/null || true
+      printf '%s\\n' "$TRL_LINE" >> .agentic/ticket-ledger.jsonl 2>/dev/null || true
+    fi
+  fi
+fi
+```
+
+`.agentic/ticket-ledger.jsonl` is append-only and gitignored under the existing `.agentic/` umbrella (machine-local; no `.gitignore` change needed). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
 
 **QA Evidence section (append to PR body after `gh pr create` - Case B only).**
 
