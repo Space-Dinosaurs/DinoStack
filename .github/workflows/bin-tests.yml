@@ -42,3 +42,55 @@ jobs:
             exit 1
           fi
           echo "Ran $count Python hook test files"
+  # Discovers and runs shell-based test suites no other workflow covers: the
+  # bin/tests/test_*.sh convention plus 4 orphaned *.test.sh files scattered
+  # across other dirs (different naming convention, previously unwired anywhere).
+  bin-sh-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
+      - name: run shell bin tests
+        run: |
+          set -e
+          # bin/tests/test_codex_hooks_resolve.sh is also run by adapter-sync.yml -
+          # intentional double coverage, not an exclusion candidate.
+          files=(bin/tests/test_*.sh)
+          orphans=(
+            tests/bootstrap-guard.test.sh
+            scripts/test/repo-dir.test.sh
+            .claude/tests/install-converge.test.sh
+            .cursor/tests/install-converge.test.sh
+          )
+          for f in "${orphans[@]}"; do
+            if [ ! -f "$f" ]; then
+              echo "ERROR: expected orphaned test file '$f' not found - it may have been renamed or moved" >&2
+              exit 1
+            fi
+            files+=("$f")
+          done
+          count=0
+          for f in "${files[@]}"; do
+            case "$f" in
+              __no_quarantined_tests_yet__)
+                # QUARANTINE mechanism (precedent: DS-89 in hooks-sh-tests, see
+                # hooks-tests.yml): if a test in this job proves flaky, add a case
+                # arm here matching its path, `continue`, and a one-line reason
+                # comment referencing the tracking ticket.
+                continue
+                ;;
+            esac
+            echo "::group::$f"
+            bash "$f"
+            echo "::endgroup::"
+            count=$((count+1))
+          done
+          if [ "$count" -eq 0 ]; then
+            echo "ERROR: discovery matched zero runnable files - discovery is broken, not clean" >&2
+            exit 1
+          fi
+          echo "Ran $count shell bin test files"
