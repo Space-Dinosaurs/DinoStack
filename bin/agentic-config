@@ -137,6 +137,7 @@ _SETTINGS: dict[str, dict] = {
     "abdication_guard_enabled": {"target": "project_config", "type": "bool"},
     "skill_candidate_detection": {"target": "project_config", "type": "bool"},
     "skill_candidate_nudge": {"target": "project_config", "type": "bool"},
+    "rework_detection": {"target": "project_config", "type": "bool"},
     # .agentic/config.json enums
     "model_profile": {
         "target": "project_config",

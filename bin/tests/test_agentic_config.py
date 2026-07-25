@@ -547,6 +547,22 @@ class TestWriteRoundTrips:
         assert data["storybook_version"] == 7
         assert isinstance(data["storybook_version"], int)
 
+    def test_rework_detection_round_trip(self, tmp_path, monkeypatch):
+        """Write rework_detection=false via the CLI then read back as JSON bool.
+
+        Regression test for a Skeptic Major finding on PR #484: rework_detection
+        was documented in four places as disable-able via "a single toggle" but
+        was never added to the _SETTINGS whitelist, so the CLI rejected it with
+        "unknown setting 'rework_detection'". Confirmed failing pre-fix: this
+        test raised SystemExit(2) from _cmd_set's unknown-setting branch before
+        the _SETTINGS entry was added.
+        """
+        monkeypatch.chdir(tmp_path)
+        result = main(["agentic-config", "rework_detection", "false"])
+        assert result == 0
+        data = json.loads((tmp_path / ".agentic" / "config.json").read_text())
+        assert data["rework_detection"] is False
+
     def test_capability_preflight_mode_round_trip(self, tmp_path, monkeypatch):
         """Write capability_preflight_mode=blocking then read back."""
         monkeypatch.chdir(tmp_path)
