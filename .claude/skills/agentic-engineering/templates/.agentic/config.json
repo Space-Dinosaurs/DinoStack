@@ -19,5 +19,7 @@
   "deferred_wrap_pending_ttl_days": 7,
   "abdication_guard_enabled": true,
   "skill_candidate_detection": true,
-  "skill_candidate_nudge": false
+  "skill_candidate_nudge": false,
+  "ticket_driven": "offer",
+  "rework_detection": true
 }
