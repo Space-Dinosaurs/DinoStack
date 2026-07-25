@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
-# Purpose: Regression guard for the ticket-rework alert's two executable
-#          blocks in content/commands/ds-implement-ticket.md - the Phase 9
-#          ledger write and the Phase 1 detection read. The blocks are
-#          EXTRACTED FROM THE SHIPPED SPEC and executed, not copied here, so
-#          this test fails if the spec's bash drifts from the behaviour the
-#          spec's own prose promises.
+# Purpose: Regression guard for the ticket-rework alert's THREE executable
+#          blocks in content/commands/ds-implement-ticket.md:
+#            1. the Phase 1 per-ticket variable reset  (RESET_MARKER)
+#            2. the Phase 1 detection read             (READ_MARKER)
+#            3. the Phase 9 ledger write               (WRITE_MARKER)
+#          All three are EXTRACTED FROM THE SHIPPED SPEC by their marker
+#          comment and executed, not copied here, so this test fails if the
+#          spec's bash drifts from the behaviour the spec's own prose
+#          promises. Each marker is part of the contract - see Failure modes.
 #
 #          Each fixture below pins a defect found in Skeptic review of the
-#          originating PR, so a future edit that reintroduces one fails here:
+#          originating PR, so a future edit that reintroduces one fails here.
+#          Review round 1:
 #            - qa_status must carry the skip rationale on BOTH non-QA paths
 #              (Trivial, and Elevated with qa_skip), never a bare null. A
 #              null renders "n/a" in the operator notice, which says QA was
@@ -15,15 +19,31 @@
 #            - skeptic_rounds must be the SKEPTIC round count, not the QA
 #              loop's. Phase 6b overwrites loop-state.json with
 #              phase:qa, iteration:1 before Phase 9 runs.
-#            - skeptic_rounds must not be inherited from another ticket.
-#              loop-state.json persists across a batch, so an unscoped read
-#              gives Trivial ticket 2 Elevated ticket 1's round count.
+#            - skeptic_rounds must not be inherited from another ticket via
+#              loop-state.json, which persists across a batch, so an unscoped
+#              read gives Trivial ticket 2 Elevated ticket 1's round count.
 #            - detection must skip ONE malformed line, not abort the whole
 #              parse. The ledger is appended locklessly; a torn line is an
 #              expected input, and slurp would disable detection for every
 #              ticket in the file permanently.
 #            - duplicate pr_number must resolve latest-wins (replay carries
 #              the resolved qa_status and higher skeptic_rounds).
+#          Review round 2:
+#            - the Trivial rationale needs a definition site a Trivial ticket
+#              can actually REACH. Phase 6b's skip branch carries the same
+#              string but is unreachable on the Trivial path, so a
+#              Phase-6b-only definition satisfies the prose and still writes
+#              null. It must be set at the Phase 2 declaration. Pinned by
+#              prose invariants, because a runtime fixture that injects
+#              QA_STATUS asserts pass-through, not derivation - which is
+#              precisely how this defect survived a green suite once.
+#            - the three in-context variables that feed the record
+#              (RISK_CLASS, SKEPTIC_ROUNDS, QA_STATUS) must be reset per
+#              ticket. The conductor carries ONE scope across a batch, so
+#              without the reset a Trivial ticket inherits the previous
+#              Elevated ticket's values - and a stale SKEPTIC_ROUNDS also
+#              short-circuits the [ -z "$TRL_ROUNDS" ] gate, disabling the
+#              ticket_id/phase guards in the exact case they exist for.
 #
 # Public API: ./bin/tests/test_ticket_rework_ledger.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -109,6 +129,18 @@ if ! _extract "$RESET_MARKER" "$RESET_BLOCK"; then
   echo "Results: $PASS passed, $FAIL failed"; exit 1
 fi
 _pass "extracted Phase 1 per-ticket reset block from the shipped spec"
+
+# Self-check: this file's own manifest must name every marker it extracts.
+# The manifest tells a maintainer which comments are load-bearing; a manifest
+# that undercounts them invites removing one that is. (This exact staleness
+# was a Major finding in review round 3, when a third marker was added and
+# the header still said "two executable blocks".)
+MARKER_COUNT=3
+if [[ "$(grep -cE '^[A-Z]+_MARKER=' "$0")" -eq "$MARKER_COUNT" ]]; then
+  _pass "marker count matches the manifest's stated $MARKER_COUNT blocks"
+else
+  _fail "this file defines $(grep -cE '^[A-Z]+_MARKER=' "$0") markers but its manifest documents $MARKER_COUNT - update the Purpose field"
+fi
 
 for b in "$WRITE_BLOCK" "$READ_BLOCK" "$RESET_BLOCK"; do
   if bash -n "$b" 2>/dev/null; then
@@ -275,7 +307,10 @@ env GH_REPO=o/r REWORK_DETECTION=true bash -c '
 bare=$(tail -1 .agentic/ticket-ledger.jsonl)
 _eq "reset alone neutralises qa_status carry-over"  "$(echo "$bare" | jq -r '.qa_status|type')"      "null"
 _eq "reset alone neutralises rounds carry-over"     "$(echo "$bare" | jq -r '.skeptic_rounds|type')" "null"
-_eq "reset alone neutralises risk_class carry-over" "$(echo "$bare" | jq -r .risk_class)"            ""
+# risk_class normalizes ""->null like its two siblings, so a cleared value
+# stores an explicit null (which the null-render rule renders "n/a") rather
+# than an empty string, which that rule has nothing sensible to render.
+_eq "reset alone neutralises risk_class carry-over" "$(echo "$bare" | jq -r '.risk_class|type')"    "null"
 
 # ===========================================================================
 echo ""

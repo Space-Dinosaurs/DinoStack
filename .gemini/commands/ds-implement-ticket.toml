@@ -2334,7 +2334,7 @@ Capture the PR number from the URL printed by `gh pr create`.
 **Soft-fail throughout.** Any failure in this block (missing `jq`, unwritable `.agentic/`, failed `gh` lookup) is swallowed. It must never block Phase 9 or anything downstream.
 
 Field derivation:
-- `risk_class` - `$RISK_CLASS`, **set at the Phase 2 risk-classification declaration point** (see "Ticket-rework escalation: Elevated risk floor") to the conductor's declared classification, post-floor: `Trivial` | `Low` | `Elevated`.
+- `risk_class` - `$RISK_CLASS`, **set at the Phase 2 "Risk classification declaration (unconditional)" subsection** to the conductor's declared classification, post-floor: `Trivial` | `Low` | `Elevated`. All three of `risk_class`, `skeptic_rounds`, and `qa_status` normalize an empty value to `null` in the record builder. For `risk_class` this is defence-in-depth rather than a reachable path - the Phase 2 declaration is unconditional, so an empty value would mean the declaration was skipped - but the three fields are read from the same per-ticket-reset in-context variables and are handled identically, so that a bug upstream produces an explicit `null` (which the null-render rule renders `n/a`) rather than an empty string, which that rule has nothing sensible to render.
 - `skeptic_rounds` - `$SKEPTIC_ROUNDS`, **captured at Phase 6 clean exit**, before Phase 6b overwrites the loop state. Do **not** read `loop_state.iteration` at this point unguarded: Phase 6b reinitializes that file with `phase: qa, iteration: 1`, so a post-QA read returns the QA iteration count, not the Skeptic round count. **Null on the Trivial path**, which never reaches Phase 6 and therefore never sets the variable. The disk fallback below exists only for a resumed session that lost the in-context variable, and it is doubly guarded - on `ticket_id` *and* on `loop_state.phase == "skeptic"`.
 - `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA reached a terminal verdict; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value (set on Phase 6b's skip branch) or the literal `Trivial path` (set at the **Phase 2 declaration**, because Phase 6b is unreachable on the Trivial path). **Both non-QA paths - Trivial, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
 - `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path). `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
@@ -2398,7 +2398,8 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
       --arg sr "${TRL_ROUNDS:-}" \\
       --arg qs "${QA_STATUS:-}" \\
       --argjson uc "$TRL_UNITS" \\
-      '{ticket_id:$tid, pr_number:$pr, opened_ts:$ts, branch:$br, risk_class:$rc,
+      '{ticket_id:$tid, pr_number:$pr, opened_ts:$ts, branch:$br,
+        risk_class:(if $rc == "" then null else $rc end),
         skeptic_rounds:(if $sr == "" then null else ($sr|tonumber) end),
         qa_status:(if $qs == "" then null else $qs end),
         unit_count:$uc}' 2>/dev/null || true)
