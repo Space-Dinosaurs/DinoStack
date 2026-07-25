@@ -566,6 +566,50 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("relative resource symlinks", readme)
         self.assertIn("bash scripts/check-codex-skill-sync.sh", readme)
 
+    def test_codex_adapter_describes_exact_relative_symlink_mirrors(self) -> None:
+        build = (self.repo / ".codex/build.sh").read_text(encoding="utf-8")
+        install = (self.repo / ".codex/install.sh").read_text(encoding="utf-8")
+        generated_agents = (self.repo / ".codex/AGENTS.md").read_text(encoding="utf-8")
+
+        reference_claim = (
+            ".codex/references/` (tracked relative symlinks to "
+            "`../../content/references/*.md`)"
+        )
+        with self.subTest(surface="reference mirrors"):
+            self.assertNotIn(".codex/references/` (local copies)", build)
+            self.assertNotIn(".codex/references/` (local copies)", generated_agents)
+            self.assertEqual(2, build.count(reference_claim))
+            self.assertEqual(2, generated_agents.count(reference_claim))
+
+        command_claim = (
+            ".codex/commands/       - Source command templates "
+            "(tracked relative symlinks to ../../content/commands/*.md)"
+        )
+        installer_reference_claim = (
+            ".codex/references/     - Reference docs "
+            "(tracked relative symlinks to ../../content/references/*.md)"
+        )
+        with self.subTest(surface="installer command mirrors"):
+            self.assertNotIn(
+                "Source command templates (hardlinks from content/commands/)",
+                install,
+            )
+            self.assertNotIn("Local copies of reference docs", install)
+            self.assertIn(command_claim, install)
+            self.assertIn(installer_reference_claim, install)
+
+        hook_claim = (
+            "Create a tracked relative symlink at"
+            "\n# .codex/hooks/skill-auto-load-check.sh targeting"
+            "\n# ../../hooks/skill-auto-load-check.sh"
+        )
+        with self.subTest(surface="shared hook mirror"):
+            self.assertNotIn(
+                "hardlink it into .codex/hooks/",
+                build,
+            )
+            self.assertIn(hook_claim, build)
+
     def test_touched_nontrivial_modules_have_current_leading_manifests(self) -> None:
         required_fields = (
             "Purpose:",
