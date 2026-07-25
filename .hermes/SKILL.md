@@ -5482,11 +5482,12 @@ Purpose: Canonical reference for the ticket-rework alert - the notice that
          shape); the command-scoped-notice disclaimer; the trigger rule,
          notice template, escalation table, and known limitations.
 
-Public API: Read-only reference document. Planned consumers (ship in units
-            U2-U4 of the ticket-rework Plan; not yet live on main as of U1):
+Public API: Read-only reference document. Consumers (shipped across units
+            U1-U4 of the ticket-rework Plan; live on main):
             content/commands/ds-implement-ticket.md (Phase 1 detection +
-            notice, Phase 9 ledger write, Phase 2/3 risk floor, Phase 6
-            Skeptic-brief callout, Tier-3 escalation at 2+ prior attempts);
+            notice, Phase 9 ledger write, Phase 2 risk floor, Phase 3
+            architect-brief callout, Phase 6 Skeptic-brief callout, Tier-3
+            escalation at 2+ prior attempts);
             content/commands/ds-ticket-triage.md (per-entry ledger read,
             [REWORK xN] badge, lane rule).
 
@@ -5499,9 +5500,8 @@ Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
                qa-regression-obligation.md (structural precedent for a new
                reference doc with no prior art in this domain).
 
-Downstream consumers: Planned (ship in units U2-U4 of the ticket-rework
-                      Plan; not yet live on main as of U1):
-                      content/commands/ds-implement-ticket.md,
+Downstream consumers: Shipped (units U1-U4 of the ticket-rework Plan;
+                      live on main): content/commands/ds-implement-ticket.md,
                       content/commands/ds-ticket-triage.md. Read on trigger
                       only - nothing in this file enters an always-loaded
                       path; it is never assembled into METHODOLOGY.md by
@@ -5521,7 +5521,7 @@ Performance: Standard (static reference text; no runtime cost).
 
 # Ticket rework alert
 
-The mechanism described in this reference ships across units U2-U5 of the ticket-rework Plan; as of U1 it is not yet live on `main`.
+The mechanism described in this reference shipped across units U1-U4 of the ticket-rework Plan and is live on `main`.
 
 ## What this is, and deliberately is not
 
