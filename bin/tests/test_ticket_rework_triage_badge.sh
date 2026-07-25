@@ -103,8 +103,8 @@ _present "badge placement is the Ticket cell of the per-ticket summary table" \
 
 echo ""
 echo "--- The never-parallel lane rule ---"
-_present "rework isolation rule exists" \
-         'Rework isolation \(after in-progress removal, before Rule 2\)'
+_present "rework isolation rule exists, anchored after Rule 2 (Critical fix)" \
+         'Rework isolation \(after Rule 2, before Rule 3\)'
 _present "rework tickets are never designated parallel" \
          'never\*\* .parallel.'
 _present "rework tickets get their own single-ticket chain" \
@@ -113,13 +113,35 @@ _present "rework tickets are not deferred and not excluded from kickoff" \
          'neither deferred nor excluded from kickoff'
 _present "Notes cell annotation names the prior PR" \
          'Elevated floor, may draw Tier-3 Skeptic; verify PR'
-_absent  "rework tickets are not silently folded into Rule 3 parallel grouping" \
-         'rework .{0,40}parallel grouping'
+_present "Rule 2 explicitly consumes DAG-connected rework tickets (Critical fix)" \
+         'including any member separately flagged .entry\.IS_REWORK: true'
+_present "Rule 2 explains why isolation would sever the in-set edge" \
+         'silently severing that edge'
+_present "Rule 3 excludes rework tickets from its own remainder" \
+         'zero internal DAG edges AND .entry\.IS_REWORK: false'
+_present "Notes-cell rule documents the blocked-by + rework combined format" \
+         'blocked by A; rework x2 - Elevated floor'
+_present "Rule 4 message distinguishes rework-induced lanes from dependency chains (Minor 1)" \
+         'dependency chain\(s\) plus'
+_present "Rule 4 message names num_rework_lanes distinctly from num_dep_chains" \
+         'num_rework_lanes.*rework-isolated ticket'
+
+echo ""
+echo "--- In-progress + rework interaction (Minor 2) ---"
+_present "in-progress rework ticket gets a combined badge" \
+         '\[IN PROGRESS\] \[REWORK xN\]'
+_present "spec states this is the only place that signal appears" \
+         'ONLY place an in-progress rework ticket'
+
+echo ""
+echo "--- No-args fallthrough no longer reads as bypassing the new section (Minor 3) ---"
+_present "no-args >=2 branch names Ticket-rework detection before Phase 1+" \
+         'proceed into Ticket-rework detection and Phase 1\+'
 
 echo ""
 echo "--- Phase 4b checklist gains a 6th point ---"
-_present "Phase 4b Skeptic brief checks rework isolation as item (6)" \
-         '\(6\) Rework isolation'
+_present "Phase 4b Skeptic brief checks rework annotation as item (6)" \
+         '\(6\) Rework annotation'
 
 echo ""
 echo "--- Module manifest Upstream deps ---"
@@ -131,6 +153,42 @@ if printf '%s' "$HEADER_FLAT" | grep -qE 'Upstream deps:.*\.agentic/ticket-ledge
   _pass "manifest Upstream deps names the ledger file"
 else
   _fail "manifest Upstream deps names the ledger file - header no longer contains .agentic/ticket-ledger.jsonl in the Upstream deps field"
+fi
+
+echo ""
+echo "--- Module manifest Performance field (Minor 5) ---"
+if printf '%s' "$HEADER_FLAT" | grep -qE 'Performance:.*ticket-ledger\.jsonl'; then
+  _pass "manifest Performance field names the per-entry ledger read cost"
+else
+  _fail "manifest Performance field does not mention the per-entry ticket-ledger.jsonl read cost"
+fi
+
+echo ""
+echo "--- Positional check (Minor 4): heading must sit after BOTH breadcrumbs, before Phase 1 ---"
+# All 19 assertions above are string presence/absence - none of them pin the
+# *position* of the '## Ticket-rework detection' heading. Someone could move
+# the heading back inside the explicit-input branch (leaving all the prose
+# above intact) and every string check would still pass. This is the exact
+# defect class flagged during review: a move that string-matching cannot see.
+LINE_RESOLVE="$(grep -n 'phase=resolve-assigned' "$SPEC" | head -1 | cut -d: -f1)"
+LINE_NORMALIZE="$(grep -n 'phase=normalize' "$SPEC" | head -1 | cut -d: -f1)"
+LINE_HEADING="$(grep -n '^## Ticket-rework detection' "$SPEC" | head -1 | cut -d: -f1)"
+LINE_PHASE1="$(grep -n '^## Phase 1: Metadata fetch' "$SPEC" | head -1 | cut -d: -f1)"
+
+if [[ -z "$LINE_RESOLVE" || -z "$LINE_NORMALIZE" || -z "$LINE_HEADING" || -z "$LINE_PHASE1" ]]; then
+  _fail "positional check: one or more anchor lines missing (resolve=$LINE_RESOLVE normalize=$LINE_NORMALIZE heading=$LINE_HEADING phase1=$LINE_PHASE1)"
+else
+  if (( LINE_HEADING > LINE_RESOLVE && LINE_HEADING > LINE_NORMALIZE )); then
+    _pass "Ticket-rework detection heading (line $LINE_HEADING) sits AFTER both Phase 0 breadcrumbs (resolve=$LINE_RESOLVE, normalize=$LINE_NORMALIZE)"
+  else
+    _fail "Ticket-rework detection heading (line $LINE_HEADING) does NOT sit after both breadcrumbs (resolve=$LINE_RESOLVE, normalize=$LINE_NORMALIZE) - it may have been moved back inside a Phase 0 branch"
+  fi
+
+  if (( LINE_HEADING < LINE_PHASE1 )); then
+    _pass "Ticket-rework detection heading (line $LINE_HEADING) sits BEFORE Phase 1 (line $LINE_PHASE1)"
+  else
+    _fail "Ticket-rework detection heading (line $LINE_HEADING) does NOT sit before Phase 1 (line $LINE_PHASE1)"
+  fi
 fi
 
 echo ""
