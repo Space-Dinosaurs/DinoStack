@@ -115,13 +115,13 @@ The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learni
 
 > **Two feeders, distinct triggers.** `learning-extractor` is mechanically wired to
 > `/ds-implement-ticket` Phase 6 clean exit and fires automatically - the conductor does
-> NOT spawn it manually. `learnings-agent` (described here) is triggered by the 6
+> NOT spawn it manually. `learnings-agent` (described here) is triggered by the 7
 > mandatory events below; the conductor spawns it the first time a trigger fires in
 > a session.
 
 ### Mandatory triggers
 
-The conductor MUST evaluate capture at each of these 6 events and emit a
+The conductor MUST evaluate capture at each of these 7 events and emit a
 `Capture:` declaration (format below) before proceeding:
 
 1. **Investigator or debugger returns a root cause.** Any investigator/debugger
@@ -154,8 +154,19 @@ The conductor MUST evaluate capture at each of these 6 events and emit a
    style preference), evaluate capture. KNW is the typical type; MEMORY.md is
    the alternative home if it is project-wide and permanent.
 
-6. **End-of-task or end-of-session capture sweep.** Before declaring a task
-   complete or closing a session, sweep for any trigger 1-5 events that occurred
+6. **An instruction-layer contradiction is detected and resolved by tiebreak.** Two
+   same-tier instructions conflicted (see METHODOLOGY.md §Delegation, Equal-precedence
+   tiebreak). Write KNW (`event_type: architectural-decision` when the resolution
+   constrains future work, `cross-component-gotcha` otherwise) naming both loci by
+   `file:line`, which tiebreak step applied, and the resolution. **Recording satisfies
+   this trigger.** Guardrail-first still applies - a doc correction or a grep-able CI
+   check is the durable fix and is the better capture - but it MAY be deferred to a
+   follow-up unit or ticket: do NOT open a shippable edit mid-decision to satisfy this
+   trigger. Never SKIP on the grounds that the tiebreak already resolved it; an
+   unrecorded contradiction is re-litigated by every later session at full cost.
+
+7. **End-of-task or end-of-session capture sweep.** Before declaring a task
+   complete or closing a session, sweep for any trigger 1-6 events that occurred
    but were not yet evaluated. Declare `Capture: SKIP` or `Capture: MUST` for
    each outstanding event. This is the last-resort catch before the Stop-hook
    backstop fires.
@@ -205,7 +216,7 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 
 ### Routing hop for `learnings_candidate[]` (new input source)
 
-When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-5 sweep:
+When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-6 sweep:
 
 1. Run guardrail-first classification (steps a, b, c from capture-classification.md).
 2. If `Capture: MUST`:
@@ -220,7 +231,7 @@ When a Worker digest (engineer, investigator, or debugger return) contains a non
    b. Forward to `learnings-agent` with: `event_type` per the kind map (`workaround` -> `tool-failure-workaround`; `dead-end` -> `cross-component-gotcha`; `gotcha` -> `cross-component-gotcha`; `decision` -> `architectural-decision`), `description` = entry `fact`, `resolution` = entry `why`, `domain_tag` = entry `domain_tag`, and omit `severity` (all mapped types are KNW).
 3. If `Capture: SKIP`: declare `Capture: SKIP - [reason]` inline and proceed.
 
-**Relation to triggers 1-5.** `learnings_candidate[]` is a new INPUT SOURCE for the existing trigger machinery, not a 7th trigger. `kind: workaround` is a new input path for trigger 3; `kind: dead-end`/`gotcha` map to `cross-component-gotcha`; `kind: decision` is a new input path for trigger 5. Trigger 1 (investigator/debugger root cause) is NOT replaced - the conductor still evaluates the root cause under trigger 1 independently, and the `learnings_candidate[]` section on those agents' returns carries incidental discoveries only, never the root cause itself.
+**Relation to the mandatory triggers.** `learnings_candidate[]` is a new INPUT SOURCE for the existing trigger machinery, not an additional trigger. `kind: workaround` is a new input path for trigger 3; `kind: dead-end`/`gotcha` map to `cross-component-gotcha`; `kind: decision` is a new input path for trigger 5. Trigger 1 (investigator/debugger root cause) is NOT replaced - the conductor still evaluates the root cause under trigger 1 independently, and the `learnings_candidate[]` section on those agents' returns carries incidental discoveries only, never the root cause itself.
 
 **Trivial-path engineers.** A Trivial engineer skips Skeptic and wrap-ticket, but the conductor still reads its return. `learnings_candidate[]` entries that pass `Capture: MUST` are still routed to `learnings-agent`. The lightweight Trivial posture (no Skeptic, no brief) is otherwise preserved.
 

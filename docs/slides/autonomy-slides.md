@@ -216,6 +216,10 @@ Every time the conductor is tempted to ask, it first tries to derive a default b
 If any source yields a reasonable default, the conductor proceeds and notes the choice: "Picked X because of Y; flag if wrong." It does NOT pause.
 </div>
 
+<div class="callout">
+<strong>Same-tier contradiction?</strong> The chain cannot resolve it. An explicit decision record wins; else narrower scope wins unless the narrow file is the stale one; else take the reading that changes least. Then act, state the resolution, and record it as an intent-layer defect - never re-litigate in-session.
+</div>
+
 ---
 
 ## Hard-stop vs surface-and-proceed

@@ -3,10 +3,12 @@ Purpose: Detailed delegation-model reference blocks extracted from
          content/sections/02-delegation.md. Contains: Open Questions /
          Deferred Defaults bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
-         signal + table; Common rationalizations to reject; Investigator-
-         before-Architect rules (incl shared-utility-MANDATORY + Parallel
-         Investigators); Learnings pipeline; Worker preamble + execution
-         contract template; Digest-return discipline.
+         signal + table; Common rationalizations to reject; Decision
+         Stability and Contradiction Resolution (reversal counting, soft
+         round cap, tripwire routing, anti-inversion test, worked example);
+         Investigator-before-Architect rules (incl shared-utility-MANDATORY
+         and Parallel Investigators); Learnings pipeline; Worker preamble +
+         execution contract template; Digest-return discipline.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -89,6 +91,27 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
 - "The change is obviously fine and a Skeptic would just rubber-stamp it" - that gut feel is itself a **cognitive-surrender flag**, not a green light. The instinct that review is unnecessary is precisely when independent review is most valuable. Reclassify as Elevated and spawn the Skeptic anyway.
 - "I have subagent output in hand, so writing from it is just synthesizing results" - synthesis means aggregating what agents returned into a conductor update, not authoring a new document, specification, plan, or recommendation. The moment the output is a new artifact, it is "Document synthesis" (Elevated) regardless of whether the inputs came from subagents.
+- "The inputs have not changed but I am still not confident - let me re-read it once more" - re-reading a source already consulted produces no new evidence. If two same-tier instructions genuinely conflict, apply the equal-precedence tiebreak, act, and record it; confidence is not a terminating condition.
+
+## Decision Stability and Contradiction Resolution
+
+**Reversal counting.** A reversal is adopting position X then not-X on one decision with no new tool result, no new user message, and no new file content in between. Maintain the integer; "am I looping?" is not self-observable, "have I flipped this twice?" is.
+
+**Soft round cap.** Two full re-derivation passes of one decision with no new input is tripwire-adjacent: take the terminal action rather than starting a third.
+
+**Routing on tripwire** (mirrors R1's branch). Contradiction between instructions goes to the tiebreak. Everything else - a library choice, a naming call, a design-taste fork with no instruction conflict - takes the five-source derived default (falling to source 5's most-conservative reading if nothing earlier yields), acts, and notes the choice. "Record the conflict" does not apply where there is no conflict; inventing one to satisfy the rule is a defect.
+
+**What is NOT an equal-precedence contradiction.** A general rule plus a named exception; a specific procedure refining a general convention; two statements resolvable by the five-source ordering or by reading one more file. Read first.
+
+**The anti-inversion test, required before applying step 2.** Does the broad instruction read as a deliberate, recent, or policy-shaped statement the narrow file has not caught up to? Signals the broad file is authoritative and the narrow one stale: the broad text is a decision record or reads as one; it is more specific about intent while the narrow file is merely older; the narrow file's claim is an omission (a missing step) rather than a contrary assertion. When those signals are present, step 2 flips - the broad instruction wins and the narrow file is the defect. When the staleness question cannot be answered from what is in hand, do not guess: fall to step 3. A rule that always prefers the narrow file discards deliberate policy changes, which is worse than the loop this section ends.
+
+**Declaration line format**, emitted at resolution: `Contradiction: <fileA:line> vs <fileB:line> - applied step <1|2|3>; proceeding with <resolution>. Recorded as intent-layer defect.`
+
+**Worked example, both directions.** *Direction A (narrow file correct):* `content/rules/conventions.md:46` says root `MEMORY.md` is "written by `/ds-wrap`"; `content/commands/ds-wrap.md` has no promotion step and `content/references/conductor-operating-rules.md:87` states root `MEMORY.md` is not a `/ds-wrap` target. No decision record covers it and the broad line reads as an unmaintained summary, so step 2 resolves: the command file governs its own command. Act, declare, record - and do not decide in-session whether `/ds-wrap` *should* promote, which is a feature decision and is ticket-shaped. *Direction B (broad file correct):* had `conventions.md:46` been edited last week as a deliberate policy change with `ds-wrap.md` merely not yet updated, the anti-inversion test flips step 2, the broad instruction governs, and the command file is the defect. Same rule, opposite outcome, decided by staleness and decision-record standing rather than scope alone.
+
+**Why recording is the load-bearing half.** Every session re-encountering an unrecorded contradiction pays the tiebreak again. A recorded KNW entry promotes into root `MEMORY.md`, which is source 2 of the five-source chain, so the next session resolves by first-match-wins with zero deliberation. Recording is cheap and in-session; a doc fix is a shippable edit and is not.
+
+**Scope note.** The worked example's contradiction is real and still live on `main`; a separate ticket owns the fix. This section documents the resolution procedure, not the fix.
 
 ## Investigator-Before-Architect Rules
 
@@ -103,7 +126,7 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 **Learnings pipeline (two feeders, distinct triggers).** The learnings pipeline has two separate feeders with different trigger mechanisms:
 
 - **`learning-extractor`** - mechanically wired to `/ds-implement-ticket` Phase 6 clean exit. Fires automatically on every ticketed Skeptic loop completion. The conductor does NOT spawn this manually; it is part of the Phase 6 sequence.
-- **`learnings-agent`** - conductor-discretionary background capture. The conductor spawns it ad-hoc the first time a learning-worthy event occurs in a session (Skeptic finding resolved, error->fix cycle, tool failure workaround, architectural decision, cross-component gotcha, user-called-out reusable pattern). No automatic phase trigger.
+- **`learnings-agent`** - background capture spawned by the conductor the first time one of the mandatory capture triggers fires in a session. Trigger evaluation is MANDATORY and each trigger requires a `Capture:` declaration; the spawn itself is conductor-initiated rather than phase-wired. See `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory triggers and the declaration format.
 
 For `learnings-agent` session-tracking semantics, see `content/references/conductor-operating-rules.md` §learnings-agent background capture.
 
