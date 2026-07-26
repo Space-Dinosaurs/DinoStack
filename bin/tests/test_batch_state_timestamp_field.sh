@@ -17,8 +17,11 @@
 #          staleness reader in content/commands/ds-implement-ticket.md keys on
 #          `updated_at`, that dual-file sentences (Contract A step 2) state
 #          the per-file mapping explicitly rather than naming one field for
-#          both files, that Contract A step 2 carries the `status=active`
-#          precondition that fixes the resume-abort Critical, that Contract
+#          both files, that Contract A step 2's `status=active` precondition
+#          (which fixes the resume-abort Critical) is scoped to
+#          `batch-state.json` ONLY - loop-state.json's unconditional abort
+#          stays intact because its Phase 7 stall path can leave a live
+#          session holding a non-active file - that Contract
 #          C's refusal message offers a file-removal remedy, that the
 #          updated_at refresh-cadence claim is qualified to the Claude Code
 #          Stop hook, that batch-state's updated_at is documented as
@@ -100,19 +103,28 @@ _absent "$SPEC" "Contract A step 2 no longer keys the shared abort condition on 
          'does not match the current session, AND its .last_updated. is within the last 10 minutes'
 
 echo ""
-echo "--- Contract A step 2 carries a status=active precondition (resume-abort fix) ---"
+echo "--- Contract A step 2's status=active precondition is scoped to batch-state.json ONLY ---"
 # Without this precondition, the first Contract A write of an approved resume of an
 # interrupted or paused batch aborts against the dead session's own (terminal-mark
 # refreshed) timestamp - there is no live session left to kill. See the batch-state
-# module's touchTimestampOnTerminal:true in hooks/lib/state-mark.js.
-_present "$SPEC" "Contract A step 2 requires status field is active before aborting" \
-         'its .status. field is .active., its .session_id. field is a non-empty string'
-_present "$SPEC" "Contract A step 2 states the precondition applies to BOTH files" \
-         'The .status=active. precondition applies to BOTH files'
-_present "$SPEC" "Contract A step 2 documents the resume-abort rationale (no live owner to kill)" \
-         'no live owner by definition'
-_present "$SPEC" "Contract A step 2 explains the harm this precondition prevents on resume" \
-         'no live session left to kill'
+# module's touchTimestampOnTerminal:true in hooks/lib/state-mark.js. Scoped to
+# batch-state.json ONLY: loop-state.json's stall path (Phase 7 -> mark-blocked-and-
+# continue) can leave a live session holding a non-active loop-state.json, so adding
+# the precondition there would let a foreign session clobber a live file.
+_present "$SPEC" "Contract A step 2 scopes the precondition to batch-state.json only" \
+         'EXCEPT that on .batch-state\.json. ONLY, this condition additionally requires .status. to be .active.'
+_absent "$SPEC" "Contract A step 2 no longer claims the precondition applies to BOTH files" \
+        'precondition applies to BOTH files'
+_present "$SPEC" "Contract A step 2 states batch-state's rationale (touchTimestampOnTerminal true)" \
+         'touchTimestampOnTerminal: true.*hooks/lib/state-mark\.js'
+_present "$SPEC" "Contract A step 2 cites the pause path's clean exit" \
+         'Exit cleanly\. Do NOT advance to the next ticket'
+_present "$SPEC" "Contract A step 2 states loop-state does NOT carry the precondition" \
+         'loop-state\.json. does NOT carry the precondition'
+_present "$SPEC" "Contract A step 2 cites loop-state's touchTimestampOnTerminal:false shield" \
+         'touchTimestampOnTerminal: false'
+_present "$SPEC" "Contract A step 2 cites the stall path leaving a live session holding a non-active loop-state" \
+         'mark-blocked-and-continue'
 
 echo ""
 echo "--- Contract C's REFUSE message offers a file-removal remedy (Minor 1) ---"
