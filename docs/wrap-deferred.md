@@ -38,11 +38,17 @@ does and why it exists.
 
 ## Why it exists
 
-The interactive `/ds-wrap` hangs headlessly. It reaches a human-decision point
-early in its pipeline (a stale-lock prompt) and waits for input that never
-arrives. `/ds-wrap-deferred` exists to close that gap: a single-pass command with
-no prompts, no subagents, and no loops that the daemon can run safely without
-a human at the other end.
+The interactive `/ds-wrap` still has genuine human-decision points a headless
+session cannot satisfy: it escalates to the user when scaffolding drift needs
+manual input (e.g. confirming release commands, a missing tracker workspace
+slug) and when a Skeptic re-route loop hits its retry limit or a finding stays
+contested across re-routes. `/ds-wrap-deferred` also runs with the `Bash` tool
+removed entirely (a deliberate security boundary - see "No git execution
+under the daemon" in `content/commands/ds-wrap-deferred.md`), so it cannot
+even perform the git reads the interactive path does. `/ds-wrap-deferred`
+exists to close both gaps: a single-pass command with no prompts, no
+subagents, and no loops that the daemon can run safely without a human at
+the other end.
 
 The result: sessions that end without a manual `/ds-wrap` still get their context,
 memory, and AGENTS.md updated - just with less fidelity than the full
@@ -124,7 +130,9 @@ The write sequence is fixed:
 
 2. **Write context.md** using the shared rolling-session-label merge algorithm.
    The daemon holds a `wrap/lock` window across this step; the child never
-   touches the lock directly.
+   touches the lock directly. The daemon's hold is PID-liveness-protected (it
+   publishes a `role:'daemon'` descriptor with its own PID) and cannot be
+   stolen by another waiter while the daemon process is alive.
 
 3. **Write memory.md** with append-dedup. Skip if there is nothing stable to
    record. No Open-PR deferral path - writes directly.
