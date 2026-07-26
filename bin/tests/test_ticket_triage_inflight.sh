@@ -141,6 +141,8 @@ _present_section "AC-4: states this creates no new category" \
          'no new category'
 _present_section "AC-4: enumerates all four inherited consumers (item 4 present)" \
          '\(4\) .triage_result\.in_progress_excluded\[\].'
+_present_section "Minor regression (fix pass 2): consumer (4) carries the same Rule-1 carve-out as consumers (1) and (3)" \
+         'never also in .in_progress_excluded\[\].'
 
 echo ""
 echo "--- AC-5: one call per run; no git branch -r / --repo INSIDE the section's code fences ---"
@@ -234,6 +236,69 @@ else
 fi
 
 echo ""
+echo "--- Fix-pass-2 regression: the WRITER of entry.IN_PROGRESS_TRACKER, not just mentions of it ---"
+# Fix pass 1 added three assertions that merely MENTION IN_PROGRESS_TRACKER; none pinned the
+# statement that actually SETS it. Deleting the writer (Phase 1's In-progress detection
+# sentence) leaves the flag permanently false for every ticket - clause 4's trigger
+# ("entry.IN_PROGRESS_TRACKER is false") then fires unconditionally, reintroducing Major 1's
+# false claim across all six cells, with zero presence-only assertion noticing. This is the
+# DS-96 failure class: a field read by a gate with no writer, failing open.
+_present "Fix-pass-2 regression: the WRITER statement for entry.IN_PROGRESS_TRACKER exists" \
+         'marked `in_progress: true` and `entry\.IN_PROGRESS_TRACKER = true`'
+
+echo ""
+echo "--- Fix-pass-2 regression: clause 4's trigger condition, both polarities, pinned verbatim ---"
+# Pinning only the omit-sentence (as fix pass 1 did) leaves the TRIGGER unguarded: flipping
+# "IN_PROGRESS_TRACKER is false" to "is true" instructs the conductor to print the false claim
+# in exactly the overlap case, while the omit-sentence a few words later still says the
+# opposite - self-contradictory, and invisible to a presence-only check on the omit sentence.
+_present_section "Fix-pass-2 regression: clause 4 trigger requires IN_FLIGHT true AND IN_PROGRESS_TRACKER false (both polarities pinned)" \
+         '`entry\.IN_FLIGHT` is true AND `entry\.IN_PROGRESS_TRACKER` is false'
+
+echo ""
+echo "--- Fix-pass-2 regression: DS-40 and DS-41 get the same positive/negative content checks as DS-12/DS-34 ---"
+# DS-40 (PR+rework, tracker did NOT move) MUST carry the qualifier.
+DS40_ROW="$(grep -E '^\| DS-40 \[IN PROGRESS\] \[REWORK x1\] \|' "$SPEC")"
+if [ -z "$DS40_ROW" ]; then
+  _fail "Fix-pass-2 regression: DS-40 example row not found"
+elif printf '%s' "$DS40_ROW" | grep -q 'not the tracker column'; then
+  _pass "Fix-pass-2 regression: DS-40 (PR+rework, tracker did not move) row correctly carries the qualifier"
+else
+  _fail "Fix-pass-2 regression: DS-40 row is missing the tracker-column qualifier it should carry"
+fi
+# DS-41 (tracker+PR+rework overlap) must NOT carry the qualifier - the column DID move.
+DS41_ROW="$(grep -E '^\| DS-41 \[IN PROGRESS\] \[REWORK x1\] \|' "$SPEC")"
+if [ -z "$DS41_ROW" ]; then
+  _fail "Fix-pass-2 regression: DS-41 example row not found"
+elif printf '%s' "$DS41_ROW" | grep -q 'not the tracker column'; then
+  _fail "Fix-pass-2 regression: DS-41 (tracker+PR+rework overlap) row still claims 'not the tracker column' - the column DID move"
+elif printf '%s' "$DS41_ROW" | grep -q 'prior attempt PR'; then
+  _pass "Fix-pass-2 regression: DS-41 (tracker+PR+rework overlap) row names both PRs WITHOUT the false tracker-column claim"
+else
+  _fail "Fix-pass-2 regression: DS-41 row does not carry the dual-PR rework clause"
+fi
+
+echo ""
+echo "--- Fix-pass-2 regression: Z and W (no PR evidence) never render an in-flight clause ---"
+# Extends the same content-check discipline to the two tracker-only cells - a corruption that
+# added a bogus in-flight clause to a tracker-only ticket would have been invisible to the
+# presence-only row-existence loop above.
+Z_ROW="$(grep -E '^\| Z \[IN PROGRESS\] \|' "$SPEC")"
+if printf '%s' "$Z_ROW" | grep -qE 'in flight:|not the tracker column'; then
+  _fail "Fix-pass-2 regression: Z (tracker-only, no PR) row wrongly carries an in-flight clause or qualifier"
+else
+  _pass "Fix-pass-2 regression: Z (tracker-only, no PR) row carries no in-flight clause"
+fi
+W_ROW="$(grep -E '^\| W \[IN PROGRESS\] \[REWORK x1\] \|' "$SPEC")"
+if printf '%s' "$W_ROW" | grep -qE 'in flight:|not the tracker column'; then
+  _fail "Fix-pass-2 regression: W (tracker+rework, no PR) row wrongly carries an in-flight clause or qualifier"
+elif printf '%s' "$W_ROW" | grep -q 'verify PR #501 once back from in-progress'; then
+  _pass "Fix-pass-2 regression: W (tracker+rework, no PR) row carries the rework-only clause and no in-flight clause"
+else
+  _fail "Fix-pass-2 regression: W row is missing its rework-only clause"
+fi
+
+echo ""
 echo "--- AC-9: manifest Upstream deps names gh pr list; Performance names one-call-per-run ---"
 # The manifest header is a multi-line HTML comment; grep -E has no cross-line
 # match, so flatten the header block (between "<!--" and the FIRST "-->")
@@ -301,14 +366,17 @@ _present "AC-19: zero-lane-with-in-flight-exclusions output line present" \
 
 echo ""
 echo "--- Minor 1 regression: the zero-lane honesty line requires ALL exclusions to be in-flight, not just >=1 ---"
-# Pre-fix, the print condition was "zero lanes AND >=1 in-flight exclusion" - a mix of
-# (2 terminal-deferred + 1 in-flight) also has zero lanes and would have wrongly triggered
-# "All candidate tickets are already in flight". The fix requires EVERY excluded/deferred
-# ticket to be in-flight-sourced, and provides a documented fallback for the mixed case.
-_present "Minor-1 regression: condition requires every deferred-or-excluded ticket to be in-flight" \
-         'every deferred-or-excluded ticket carries .entry\.IN_FLIGHT: true.'
-_present "Minor-1 regression: documented fallback for the mixed case" \
-         'If the zero-lane result arises from a MIX of in-flight and unrelated exclusions/deferrals'
+# Pre-fix (original), the print condition was "zero lanes AND >=1 in-flight exclusion" - a mix
+# of (2 terminal-deferred + 1 in-flight) also has zero lanes and would have wrongly triggered
+# "All candidate tickets are already in flight". Fix pass 1's remedy introduced a SECOND
+# defect (Skeptic fix-pass-2 Minor): its main clause and parenthetical were non-equivalent for
+# a terminal-plus-open-PR ticket. Fix pass 2 replaces both with a single unambiguous,
+# table-structure definition that reuses the skip condition's own "IN_FLIGHT-sourced
+# exclusion" term instead of inventing a second gloss.
+_present "Minor-1 regression: condition is stated as a single unambiguous, table-structure definition" \
+         'equivalently: .## Deferred tickets. is empty AND every entry in .## In-progress tickets. carries .entry\.IN_FLIGHT: true.'
+_present "Minor-1 regression: fallback correctly routes the terminal-plus-open-PR edge case away from the false claim" \
+         'a terminal-plus-open-PR ticket lands in .## Deferred tickets., so its presence alone routes here, not to the special print'
 
 echo ""
 echo "--- Minor 2 regression: Disclaimer enumerates all three false-positive paths, not just one ---"
