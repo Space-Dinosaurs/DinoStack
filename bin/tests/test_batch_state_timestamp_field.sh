@@ -1,7 +1,15 @@
 #!/usr/bin/env bash
 # Purpose: Prose-invariant regression guard for DS-96 (batch-state.json's
-#          staleness gates keyed on a field nothing writes, and failed OPEN).
-#          The canonical timestamp field for `.agentic/batch-state.json` is
+#          staleness gates keyed on a field nothing writes, and failed OPEN)
+#          AND its Tier-3-Skeptic-flagged follow-on Critical: turning on
+#          Contract A step 2's abort gate for batch-state.json (by fixing the
+#          field name) had a first-order consequence nobody traced forward -
+#          it also aborted the FIRST write of every approved resume of an
+#          interrupted or paused batch, because batch-state's
+#          touchTimestampOnTerminal:true (hooks/lib/state-mark.js) refreshes
+#          `updated_at` on the terminal mark while leaving the dead session's
+#          `session_id` on disk, and step 2 had no `status` precondition. The
+#          canonical timestamp field for `.agentic/batch-state.json` is
 #          `updated_at` (matching the schema block and the merged writer
 #          `hooks/lib/state-mark.js`'s `tsField: 'updated_at'`); the
 #          `.agentic/loop-state.json` file's equivalent field is `last_updated`
@@ -9,13 +17,18 @@
 #          staleness reader in content/commands/ds-implement-ticket.md keys on
 #          `updated_at`, that dual-file sentences (Contract A step 2) state
 #          the per-file mapping explicitly rather than naming one field for
-#          both files, that the schema still declares `updated_at`, that
-#          absent-timestamp tolerance is documented, and that the stale
-#          "out of scope here" placeholder note is gone. Pure text
-#          assertions - there is no executable block to extract here (the
-#          gates are prose contracts the conductor applies, not code), the
-#          same rationale as test_ticket_rework_triage_badge.sh's sibling
-#          spec.
+#          both files, that Contract A step 2 carries the `status=active`
+#          precondition that fixes the resume-abort Critical, that Contract
+#          C's refusal message offers a file-removal remedy, that the
+#          updated_at refresh-cadence claim is qualified to the Claude Code
+#          Stop hook, that batch-state's updated_at is documented as
+#          canonical (not a fallback) on the loop-state side, that the schema
+#          still declares `updated_at`, that absent-timestamp tolerance is
+#          documented, and that the stale "out of scope here" placeholder
+#          note is gone. Pure text assertions - there is no executable block
+#          to extract here (the gates are prose contracts the conductor
+#          applies, not code), the same rationale as
+#          test_ticket_rework_triage_badge.sh's sibling spec.
 #
 # Public API: ./bin/tests/test_batch_state_timestamp_field.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -85,6 +98,42 @@ _present "$SPEC" "Contract A step 2 names both field names in the same clause" \
          'liveness-timestamp field \(.last_updated. for .loop-state\.json., .updated_at. for .batch-state\.json.'
 _absent "$SPEC" "Contract A step 2 no longer keys the shared abort condition on last_updated alone" \
          'does not match the current session, AND its .last_updated. is within the last 10 minutes'
+
+echo ""
+echo "--- Contract A step 2 carries a status=active precondition (resume-abort fix) ---"
+# Without this precondition, the first Contract A write of an approved resume of an
+# interrupted or paused batch aborts against the dead session's own (terminal-mark
+# refreshed) timestamp - there is no live session left to kill. See the batch-state
+# module's touchTimestampOnTerminal:true in hooks/lib/state-mark.js.
+_present "$SPEC" "Contract A step 2 requires status field is active before aborting" \
+         'its .status. field is .active., its .session_id. field is a non-empty string'
+_present "$SPEC" "Contract A step 2 states the precondition applies to BOTH files" \
+         'The .status=active. precondition applies to BOTH files'
+_present "$SPEC" "Contract A step 2 documents the resume-abort rationale (no live owner to kill)" \
+         'no live owner by definition'
+_present "$SPEC" "Contract A step 2 explains the harm this precondition prevents on resume" \
+         'no live session left to kill'
+
+echo ""
+echo "--- Contract C's REFUSE message offers a file-removal remedy (Minor 1) ---"
+_present "$SPEC" "Contract C message offers removing batch-state.json as a remedy" \
+         'kill it and re-invoke, or remove \.agentic/batch-state\.json and re-invoke'
+_absent "$SPEC" "Contract C message no longer lacks a file-removal remedy" \
+        'Wait for it to finish, or kill it and re-invoke\.'
+
+echo ""
+echo "--- updated_at refresh cadence is qualified to the Claude Code Stop hook (Minor 2) ---"
+_present "$SPEC" "batch-state updated_at bullet names the Claude Code Stop hook, not a bare per-turn claim" \
+         'refreshed per-turn by the Claude Code Stop hook'
+_present "$SPEC" "batch-state updated_at bullet documents the off-Claude-Code coarser-cadence, fail-open direction" \
+         'fail-open'
+
+echo ""
+echo "--- loop-state Field notes call batch-state's updated_at canonical, not a fallback (Minor 3) ---"
+_present "$SPEC" "loop-state Field notes call updated_at canonical on batch-state.json" \
+         '.updated_at. is the CANONICAL field on .batch-state\.json.'
+_absent "$SPEC" "loop-state Field notes no longer call updated_at an accepted reader fallback" \
+        'accepted reader fallback'
 
 echo ""
 echo "--- N=1 foreign-batch warning keys on updated_at ---"

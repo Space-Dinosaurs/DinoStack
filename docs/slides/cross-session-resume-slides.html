@@ -974,9 +974,10 @@ hr {
 <p>When <code>/ds-implement-ticket</code> runs with 2 or more ticket IDs, a sibling file <code>.agentic/batch-state.json</code> tracks batch-level cursor alongside <code>loop-state.json</code>'s per-ticket phase cursor.</p>
 <p><strong>Session ownership gate:</strong> both files carry a <code>session_id</code> field. Every write applies a per-write gate that aborts (with an operator-visible warning) if:</p>
 <ul>
-<li>The existing <code>session_id</code> belongs to a different session whose liveness timestamp (<code>last_updated</code> for <code>loop-state.json</code>, <code>updated_at</code> for <code>batch-state.json</code>) is within 10 minutes</li>
-<li>The existing <code>session_id</code> is null or absent (legacy state - force-takeover eligible)</li>
+<li>The file's <code>status</code> is <code>active</code> AND the existing <code>session_id</code> belongs to a different session whose liveness timestamp (<code>last_updated</code> for <code>loop-state.json</code>, <code>updated_at</code> for <code>batch-state.json</code>) is within 10 minutes</li>
+<li>The existing <code>session_id</code> is null or absent, regardless of <code>status</code> (legacy state - force-takeover eligible)</li>
 </ul>
+<p>A non-<code>active</code> file has no live owner, so the first bullet's <code>status=active</code> precondition keeps this gate from aborting the first write of an approved resume.</p>
 <p>This prevents orphan-session corruption uniformly across both files.</p>
 <p><strong>Concurrency limits:</strong></p>
 <ul>
