@@ -1988,17 +1988,16 @@
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
-        <h4 style="color: var(--violet);">Concurrent-run protection (wrap.lock)</h4>
+        <h4 style="color: var(--violet);">Concurrent-run protection (wrap/lock)</h4>
         <p class="desc" style="font-size: 14px; margin-top: 0; max-width: none;">
-          /ds-wrap acquires a project-local lock at <code>&lt;cwd&gt;/.agentic/wrap.lock</code> before writing any shared files. This prevents two simultaneous /ds-wrap runs from clobbering each other.
+          /ds-wrap acquires a project-local lock directory at <code>&lt;cwd&gt;/.agentic/wrap/lock</code> before writing any shared files, and holds it for the whole /ds-wrap flow. This prevents two simultaneous /ds-wrap runs from clobbering each other.
         </p>
         <ul>
-          <li><strong>Lock acquisition</strong> - atomic <code>mkdir</code> (POSIX-safe); owner file written immediately with a UTC timestamp.</li>
-          <li><strong>Live lock (under 30 min old)</strong> - /ds-wrap waits, polling every 5 seconds. Reports once to the user: "Another /ds-wrap run is in progress. Waiting..." When the lock disappears it retries acquisition once. If a third session grabbed the lock between the poll and the retry, /ds-wrap aborts with a live-lock message rather than waiting again.</li>
-          <li><strong>Stale lock (30+ min old)</strong> - /ds-wrap does NOT auto-remove the lock. It reports the lock path, pid, and timestamp, instructs the user to remove it manually (<code>rm -rf &lt;cwd&gt;/.agentic/wrap.lock</code>), and aborts.</li>
-          <li><strong>Unreadable/malformed owner file</strong> - if the owner file is missing, unreadable, or contains no valid timestamp, /ds-wrap treats the lock as stale, reports the lock path, instructs manual removal, and aborts.</li>
-          <li><strong>No PID liveness check</strong> - the timestamp is the authoritative signal; <code>ps -p</code> is omitted because Claude Code process hierarchies make PID reuse unreliable.</li>
-          <li><strong>Lock release</strong> - mandatory on every exit path (success, escalation, or abort). If /ds-wrap aborts before acquiring the lock, no release is needed.</li>
+          <li><strong>Lock acquisition</strong> - atomic <code>mkdir</code> (POSIX-safe); a legacy owner file and a schema-validated JSON descriptor (<code>owner.json</code>) are published atomically alongside it.</li>
+          <li><strong>Liveness, not age, decides staleness</strong> - a waiter polls on a jittered ~5 second interval and checks whether the lock's owner is a genuinely live process wherever the owner record carries a checkable PID. A live holder is never stolen and never causes the waiter to abort, no matter how long it has held the lock.</li>
+          <li><strong>Unreadable or malformed owner file</strong> - treated as a progress condition, not a give-up: /ds-wrap keeps waiting rather than aborting.</li>
+          <li><strong>The 30-minute mark is advisory only</strong> - once a hold looks that old, the waiter's progress line adds a manual <code>rm -rf</code> recovery hint, but the mark never gates or aborts acquisition; a lock older than 30 minutes and still genuinely live is never stolen.</li>
+          <li><strong>Lock release</strong> - owner-scoped: refuses to remove anything at the lock path that isn't a lock directory it created, and refuses a tokenless removal when the descriptor names a live foreign-process PID. Mandatory on every exit path (success, escalation, or abort) once acquired; if /ds-wrap aborts before acquiring the lock, no release is needed.</li>
         </ul>
       </div>
     </div>

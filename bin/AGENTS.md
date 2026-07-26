@@ -24,8 +24,8 @@ module-group map, not a duplicate of those manifests.
 | `agentic-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
 | `agentic-status` | Python | Read-only dump of the activation resolver state with provenance and plain-English explainer. |
 | `agentic-update` | Python | Non-interactive updater: fetch origin, rebuild adapters, reset version-check cache, run `agentic-doctor --fix`. |
-| `agentic-wrap-acquire-lock` | Node | Poll-wait (background) for the /ds-wrap directory lock, exiting when acquired or after a 20-minute timeout; never removes a lock. |
-| `agentic-wrap-release-lock` | Node | Release the `/ds-wrap` directory lock (`.agentic/wrap/lock`) safely where `rm -rf` is permission-denied. |
+| `agentic-wrap-acquire-lock` | Node | Poll-wait (background) for the /ds-wrap directory lock, exiting when acquired, on a 20-minute timeout, or (`--no-wait`) immediately busy; publishes a role-tagged (`--role=agent\|daemon\|commit`) lock descriptor and structurally never removes a lock. |
+| `agentic-wrap-release-lock` | Node | Release the `/ds-wrap` directory lock (`.agentic/wrap/lock`) safely where `rm -rf` is permission-denied; owner-scoped - refuses removal when the descriptor names a live foreign-process PID, and refuses to touch anything at the lock path that isn't a lock directory it created. |
 
 ## Upstream dependencies
 

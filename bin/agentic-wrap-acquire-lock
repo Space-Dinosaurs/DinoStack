@@ -9,68 +9,162 @@
  *          the "foreground sleep is blocked; model gives up" failure mode of the
  *          previous prose-directed poll loop.
  *
- * Public API: CLI. `agentic-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N]`
+ * Public API: CLI. `agentic-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N]
+ *   [--role=agent|daemon|commit] [--no-wait] [--print-token] [--advisory-ms=N]`
  *   - cwd defaults to process.cwd(). Resolved to absolute via path.resolve.
  *   - --timeout-ms: total wait budget in milliseconds (default 1200000 = 20 min).
- *   - --poll-ms: interval between poll attempts in milliseconds (default 5000 = 5 s).
- *   - On success, prints exactly one line to stdout, then exits:
- *       "acquired <lockPath>"                    exit 0  lock acquired
- *       "timeout elapsed=<N>s"                   exit 2  timed out without acquiring
- *       "unreadable-owner <lockPath>"            exit 3  lock held but owner unparseable
- *       "stale-needs-manual pid=<P> started=<T>" exit 4  lock >30min old (NOT removed)
- *       "WARNING: ..."                           exit 1  unexpected failure (lib load etc.)
- *   - During the wait loop, prints a "waiting ..." line before each retry so the
- *     conductor knows the process is alive and can surface progress.
+ *     A non-finite or negative value falls back to the default (forward guard;
+ *     the live regex parser already rejects a non-numeric value outright, so
+ *     this only protects against a future looser parser).
+ *   - --poll-ms: interval between poll attempts in milliseconds (default 5000 =
+ *     5 s), jittered +/-20% so N concurrent waiters do not lock-step their polls.
+ *   - --role: publishes a JSON lock descriptor (see wrap-marker.js
+ *     makeLockDescriptor) tagging who holds the lock. One of agent|daemon|commit;
+ *     default agent. Validated against the enum HERE (exit 1 on anything else) -
+ *     an unvalidated role would otherwise publish a descriptor the lib's own
+ *     reader rejects, silently degrading to source:'legacy' and disabling the
+ *     daemon-side live-lock protection the whole design rests on.
+ *   - --no-wait: single acquisition attempt; never schedules a retry timer.
+ *     Exits 0 (acquired) or 5 (busy).
+ *   - --print-token: on acquisition, additionally prints "token=<uuid>" - the
+ *     token that must be passed to agentic-wrap-release-lock --token=<uuid> to
+ *     release this specific hold (see that binary's token-scoped refusal).
+ *   - --advisory-ms: age threshold (default 1800000 = 30 min) past which a
+ *     progress/timeout line escalates to include an operator recovery HINT
+ *     (see hintText()). Advisory only - it never gates acquisition.
+ *   - Prints exactly one line per poll attempt, then exits:
+ *       "acquired <lockPath>"                          exit 0  lock acquired
+ *       ["token=<uuid>"]                                       (iff --print-token)
+ *       "waiting ... elapsed=<N>s"                     (loop)  verdict=live
+ *       "waiting-stale ... elapsed=<N>s [HINT: ...]"   (loop)  verdict=dead
+ *       "waiting-unknown ... elapsed=<N>s [HINT: ...]" (loop)  verdict=unknown/free
+ *       "busy ..."                                     exit 5  --no-wait, not acquired
+ *       "timeout elapsed=<N>s ... [HINT: ...]"          exit 2  timed out (always
+ *                                                               carries the HINT)
+ *       "WARNING: ..."                                 exit 1  lib load failure or
+ *                                                               invalid --role
  *
  * Exit codes (each maps to a distinct conductor action in wrap.md):
  *   0 - acquired: lock is now held; /ds-wrap may proceed normally.
- *   1 - unexpected failure: lib not loadable or fatal error; surface the WARNING line.
- *   2 - timeout (20 min elapsed): conductor reports and aborts without touching the lock.
- *   3 - unreadable owner: conductor reports the same message as the unreadable-owner
- *       sub-case in wrap.md and aborts.
- *   4 - stale-needs-manual (owner ts >30 min): conductor reports the same >30-minute
- *       message as wrap.md's stale sub-case; this binary did NOT remove the lock - that
- *       is the lock owner's (or human operator's) responsibility.
+ *   1 - unexpected failure: lib not loadable, or an invalid --role was passed;
+ *       surface the WARNING line.
+ *   2 - timeout (default 20 min elapsed): conductor reports and aborts without
+ *       touching the lock; the printed line carries the HINT recovery command.
+ *   5 - busy (--no-wait only): a single attempt found the lock held; the caller
+ *       decides whether to retry, escalate, or abort. Never emitted without
+ *       --no-wait.
+ *   (3 and 4 are RETIRED - see design decision 1 below. Neither is ever emitted
+ *   by this binary; test-wrap-acquire-lock.js NEW 9 pins their absence.)
  *
  * Design decisions (deliberate, do NOT change without updating wrap.md):
  *
- *   1. NEVER auto-removes a lock, including stale ones. acquireWrapLock is called with
- *      staleMs=Number.MAX_SAFE_INTEGER so its mtime-based auto-steal branch never fires.
- *      The binary exits 4 when it detects a >30-minute owner timestamp, letting the
- *      conductor surface a human-readable prompt rather than silently clobbering a lock
- *      that might still belong to a live but slow /ds-wrap run. This mirrors wrap.md's
- *      documented rationale: "only the process that wrote the lock should remove it -
- *      auto-removal risks clobbering a live run if the 30-minute heuristic is wrong."
+ *   1. NEVER removes a lock, and this is now a STRUCTURAL property, not a
+ *      policy choice enforced by a staleness branch. The two retired give-up
+ *      exit codes (one for an owner file that could not be parsed, one for a
+ *      lock whose owner timestamp looked old) gave up the instant a lock
+ *      LOOKED old or unreadable - the exact bug this
+ *      rewrite fixes: an owner timestamp cannot distinguish a live, slow
+ *      /ds-wrap from a crashed one, so treating "old" as "give up" abandoned
+ *      wrap runs that were still legitimately in progress. Exit 0 is now
+ *      gated SOLELY on `acquireWrapLock(...) === true` (see the poll loop
+ *      below); every other outcome (dead lock, unknown lock, unreadable
+ *      owner, momentarily-free-then-recontested lock) is a RETRY signal, never
+ *      a give-up signal, until the timeout budget is exhausted. There is
+ *      exactly one success-exit call site in this file, lexically inside the
+ *      `acquired === true` branch (test-wrap-acquire-lock.js NEW 15 and the
+ *      `grep -c` structural pin both verify this - deliberately not spelled
+ *      out as a literal code fragment here so the grep count stays accurate).
  *
- *   2. PID liveness check is deliberately omitted. wrap.md §Pre-flight step 5:
- *      "Do not perform a PID liveness check. PID reuse makes the check unreliable for
- *      Claude Code processes - the timestamp is the authoritative signal." The >30-min
- *      timestamp is the staleness heuristic; this binary follows that convention.
+ *   2. PID liveness is used only where a PID names a real, checkable process.
+ *      wrapLockVerdict (hooks/lib/wrap-marker.js) already encodes this: a
+ *      legacy 2-line owner body (PID + timestamp, written by an interactive
+ *      /ds-wrap) is PID-BLIND - that PID is a shell that has already exited
+ *      by the time the file lands, so liveness there would always read
+ *      "dead" and defeat the purpose. A legacy 1-line body or a JSON
+ *      descriptor with role daemon/commit DOES carry a genuinely checkable
+ *      PID, and there liveness is authoritative. This binary never
+ *      second-guesses that classification - it only asks wrapLockVerdict for
+ *      one of 'free'/'live'/'dead'/'unknown' and maps that to a message, never
+ *      to an acquisition decision.
  *
- *   3. Poll loop uses recursive setTimeout (not setInterval) with a single exit funnel
- *      so a slow synchronous fs call can never stack timers. startMs is captured once
- *      before the first attempt.
+ *   3. Poll loop uses recursive setTimeout (not setInterval) with a single exit
+ *      funnel so a slow synchronous fs call can never stack timers. startMs is
+ *      captured once before the first attempt. Poll interval is jittered +/-20%
+ *      so that many concurrent waiters (e.g. 10 tabs) do not retry in lockstep.
+ *
+ *   4. Progress lines are throttled to the first print plus roughly one per 30s
+ *      thereafter - a legitimately multi-minute holder must not produce
+ *      thousands of "waiting" lines.
  *
  * Upstream dependencies: hooks/lib/wrap-marker.js (REPO copy, resolved via a
  *   __dirname-relative require so a symlinked bin still loads the repo lib, NOT a
- *   cwd-relative copy). Exports used: acquireWrapLock, readWrapLockOwner, wrapLockPath.
- *   Node built-ins: path. No npm dependencies.
+ *   cwd-relative copy). Exports used: acquireWrapLock, wrapLockVerdict, wrapLockPath.
+ *   Node built-ins: path, crypto (for a UUID token; falls back to a Math.random
+ *   v4 generator on runtimes without crypto.randomUUID). No npm dependencies.
  *
- * Downstream consumers: content/commands/ds-wrap.md "Pre-flight lock acquisition" step 4
- *   (live-lock sub-case). Conductor invokes via run_in_background: true; branches on
- *   the exit code returned in the completion notification.
+ * Downstream consumers: content/commands/ds-wrap.md's Pre-flight lock acquisition
+ *   step (BOTH the initial acquisition attempt and the live-lock contention
+ *   sub-case - this binary is now the sole acquisition path, not just the
+ *   contention fallback, since the old instant give-up branches are gone).
+ *   Conductor invokes via run_in_background: true; branches on the exit code
+ *   returned in the completion notification. --role/--print-token let a caller
+ *   (daemon, commit hook) tag and later release its own hold distinctly from an
+ *   interactive agent's.
  *
- * Failure modes: exit 1 on lib load failure; exit 2 on timeout; exit 3 on unreadable
- *   owner (empty/missing/symlink owner file); exit 4 on >30-min owner timestamp (stale
- *   signal but no auto-clear). A genuine fs failure inside the poll loop is swallowed
- *   and treated as "lock still held", continuing to poll until the timeout is reached.
- *   This is fail-open: the lock is never wrongly cleared by a transient error.
+ * Failure modes: exit 1 on lib load failure or an invalid --role; exit 2 on
+ *   timeout; exit 5 on --no-wait finding the lock held. A genuine fs failure
+ *   inside the poll loop is swallowed (acquired treated as false) and polling
+ *   continues until the timeout is reached. This is fail-open toward retrying,
+ *   never toward falsely reporting acquisition: the only path to exit 0 is a
+ *   literal `true` return from acquireWrapLock.
  *
- * Performance: standard. Synchronous fs only inside each poll tick; recursive setTimeout
- *   with configurable interval (default 5 s). No network, no subprocess, no git.
+ * Performance: standard. Synchronous fs only inside each poll tick (via the
+ *   lib); recursive setTimeout with a jittered, configurable interval (default
+ *   5 s +/-20%). No network, no subprocess, no git.
  */
 
 const path = require('path');
+
+/** UUID v4 via crypto.randomUUID (Node 14.17+), falling back to Math.random. */
+function generateUuid() {
+  try {
+    const crypto = require('crypto');
+    if (typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+  } catch (_) { /* no crypto module */ }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+const VALID_ROLES = ['agent', 'daemon', 'commit'];
+
+/** Build the "role=... pid=... started=..." fragment shared by progress/timeout/busy lines. */
+function fmt(v) {
+  const roleLabel = v.source === 'json' ? (v.role || 'unknown')
+    : v.source === 'legacy' ? 'legacy'
+    : 'unknown';
+  const pidLabel = v.pid !== null && v.pid !== undefined ? String(v.pid) : 'null';
+  const tsLabel = v.ts !== null && v.ts !== undefined ? v.ts : 'null';
+  return 'role=' + roleLabel + ' pid=' + pidLabel + ' started=' + tsLabel;
+}
+
+/** Map a wrapLockVerdict() verdict to its progress-line label. */
+function waitingLabel(verdict) {
+  if (verdict === 'dead') return 'waiting-stale';
+  if (verdict === 'unknown') return 'waiting-unknown';
+  // 'live' and 'free' (the lock vanished between our failed mkdir and our
+  // lstat - routine on the release path) both mean "retry, nothing wrong".
+  return 'waiting';
+}
+
+/** The SOLE literal occurrence of the operator recovery command in this file. */
+function hintText(lockPath) {
+  return ' HINT: rm -rf ' + lockPath;
+}
 
 function main() {
   // -------------------------------------------------------------------------
@@ -82,13 +176,40 @@ function main() {
 
   let timeoutMs = 1200000; // 20 minutes
   let pollMs = 5000;       // 5 seconds
+  let role = 'agent';
+  let noWait = false;
+  let printToken = false;
+  let advisoryMs = 1800000; // 30 minutes
 
   for (let i = 2; i < process.argv.length; i++) {
     const arg = process.argv[i];
+    if (arg === '--no-wait') { noWait = true; continue; }
+    if (arg === '--print-token') { printToken = true; continue; }
     const tmMatch = arg.match(/^--timeout-ms=(\d+)$/);
+    if (tmMatch) { timeoutMs = Number(tmMatch[1]); continue; }
     const pmMatch = arg.match(/^--poll-ms=(\d+)$/);
-    if (tmMatch) timeoutMs = Number(tmMatch[1]);
-    if (pmMatch) pollMs = Number(pmMatch[1]);
+    if (pmMatch) { pollMs = Number(pmMatch[1]); continue; }
+    const roleMatch = arg.match(/^--role=(.+)$/);
+    if (roleMatch) { role = roleMatch[1]; continue; }
+    const advMatch = arg.match(/^--advisory-ms=(\d+)$/);
+    if (advMatch) { advisoryMs = Number(advMatch[1]); continue; }
+  }
+
+  // Forward guard: the live regex parsers above already reject a non-numeric
+  // value outright (it simply never matches, leaving the default in place),
+  // so this does not fix an existing hang - it protects against a future
+  // looser parser ever producing a non-finite/negative timeout.
+  if (!Number.isFinite(timeoutMs) || timeoutMs < 0) timeoutMs = 1200000;
+
+  // CONSTRAINT: validate --role against the enum HERE, at the CLI boundary.
+  // An unvalidated role would publish a descriptor makeLockDescriptor's own
+  // caller-side validator accepts but readWrapLockOwnerV2 (the reader) may
+  // still reject downstream in exotic cases - failing loud here is cheaper
+  // and clearer than a silent legacy-source degrade three files away.
+  if (!VALID_ROLES.includes(role)) {
+    process.stdout.write('WARNING: invalid --role=' + role + '; must be one of ' + VALID_ROLES.join('/') + '\n');
+    process.exit(1);
+    return;
   }
 
   // -------------------------------------------------------------------------
@@ -103,18 +224,17 @@ function main() {
   } catch (_) {
     process.stdout.write('WARNING: agentic-wrap-acquire-lock could not load wrap-marker lib; cannot poll for lock\n');
     process.exit(1);
+    return;
   }
 
   // -------------------------------------------------------------------------
-  // Owner string written to the lock/owner file on successful acquisition.
-  // Two-line format: PID on line 0, ISO timestamp on line 1.
-  // readWrapLockOwner parses both lines back into { pid, ts }.
+  // Owner string written to the lock/owner file on successful acquisition
+  // (legacy 2-line body, VERBATIM - existing readers depend on this shape).
+  // The JSON descriptor (role/pid/token) is published alongside via opts.
   // -------------------------------------------------------------------------
   const ownerStr = process.pid + '\n' + new Date().toISOString();
-
-  // Staleness threshold for exit 4: owner timestamp older than this is
-  // reported as "stale-needs-manual" (binary does NOT remove the lock).
-  const STALE_MANUAL_MS = 30 * 60 * 1000; // 30 minutes
+  const rolePid = role === 'agent' ? null : process.pid;
+  const token = generateUuid();
 
   let lockPath;
   try {
@@ -127,65 +247,74 @@ function main() {
   // Poll loop (recursive setTimeout - single exit funnel)
   // -------------------------------------------------------------------------
   const startMs = Date.now();
+  let lastProgressPrintMs = null;
+  const THROTTLE_MS = 30000;
+
+  function safeVerdict() {
+    try {
+      return lib.wrapLockVerdict(cwd);
+    } catch (_) {
+      return { verdict: 'unknown', source: null, role: null, pid: null, ts: null, ageMs: null };
+    }
+  }
+
+  function jitter(ms) {
+    const delta = ms * 0.2;
+    return Math.max(0, Math.round(ms - delta + Math.random() * delta * 2));
+  }
+
+  function maybePrintWaiting(v, elapsedMs) {
+    const now = Date.now();
+    const isFirst = lastProgressPrintMs === null;
+    if (!isFirst && (now - lastProgressPrintMs) < THROTTLE_MS) return;
+    lastProgressPrintMs = now;
+    const elapsedS = Math.round(elapsedMs / 1000);
+    let line = waitingLabel(v.verdict) + ' ' + fmt(v) + ' elapsed=' + elapsedS + 's';
+    if (v.ageMs !== null && v.ageMs !== undefined && v.ageMs > advisoryMs) {
+      line += hintText(lockPath);
+    }
+    process.stdout.write(line + '\n');
+  }
 
   function attempt() {
-    // 1. Try to acquire. Pass MAX_SAFE_INTEGER so the lib's mtime-auto-steal
-    //    branch NEVER fires - this binary controls all staleness decisions.
+    // 1. Try to acquire. This is the ONLY signal that gates exit 0 - a verdict
+    //    is never used to infer acquisition (see design decision 1).
     let acquired = false;
     try {
-      acquired = lib.acquireWrapLock(cwd, ownerStr, Number.MAX_SAFE_INTEGER);
+      acquired = lib.acquireWrapLock(cwd, ownerStr, 0, { role, pid: rolePid, token });
     } catch (_) {
       acquired = false;
     }
 
-    if (acquired) {
+    if (acquired === true) {
       process.stdout.write('acquired ' + lockPath + '\n');
+      if (printToken) process.stdout.write('token=' + token + '\n');
       process.exit(0);
       return;
     }
 
-    // 2. Read owner to classify the held lock.
-    let owner = { pid: null, ts: null };
-    try {
-      owner = lib.readWrapLockOwner(cwd);
-    } catch (_) {
-      owner = { pid: null, ts: null };
-    }
+    // Below this line exit 0 is UNREACHABLE. The verdict below selects the
+    // MESSAGE only; it never gates acquisition. In particular verdict 'free'
+    // (the lock vanished between our failed mkdir and our lstat - routine on
+    // the release path) means RETRY, never "acquired".
+    const v = safeVerdict();
 
-    // 3. Unreadable owner (both null).
-    if (owner.pid === null && owner.ts === null) {
-      process.stdout.write('unreadable-owner ' + lockPath + '\n');
-      process.exit(3);
+    if (noWait) {
+      process.stdout.write('busy ' + fmt(v) + '\n');
+      process.exit(5);
       return;
     }
 
-    // 4. Stale-needs-manual: owner ts present and >30 minutes old.
-    //    The binary deliberately does NOT remove the lock (see design decision 1).
-    if (owner.ts !== null) {
-      const ownerTsMs = Date.parse(owner.ts);
-      if (Number.isFinite(ownerTsMs) && (Date.now() - ownerTsMs) > STALE_MANUAL_MS) {
-        const pidLabel = owner.pid !== null ? String(owner.pid) : 'null';
-        process.stdout.write('stale-needs-manual pid=' + pidLabel + ' started=' + owner.ts + '\n');
-        process.exit(4);
-        return;
-      }
-    }
-
-    // 5. Timeout check.
     const elapsedMs = Date.now() - startMs;
     if (elapsedMs >= timeoutMs) {
       const elapsedS = Math.round(elapsedMs / 1000);
-      process.stdout.write('timeout elapsed=' + elapsedS + 's\n');
+      process.stdout.write('timeout elapsed=' + elapsedS + 's ' + fmt(v) + hintText(lockPath) + '\n');
       process.exit(2);
       return;
     }
 
-    // 6. Still waiting - print a progress line and schedule the next attempt.
-    const elapsedS = Math.round(elapsedMs / 1000);
-    const pidLabel = owner.pid !== null ? String(owner.pid) : 'null';
-    const tsLabel = owner.ts !== null ? owner.ts : 'null';
-    process.stdout.write('waiting pid=' + pidLabel + ' started=' + tsLabel + ' elapsed=' + elapsedS + 's\n');
-    setTimeout(attempt, pollMs);
+    maybePrintWaiting(v, elapsedMs);
+    setTimeout(attempt, jitter(pollMs));
   }
 
   attempt();

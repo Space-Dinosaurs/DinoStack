@@ -7,48 +7,79 @@
  *          that Claude Code's permission system denies even under bypass. Invoked
  *          by BARE NAME (PATH-wired like agentic-migrate) from any project root.
  *
- * Public API: CLI. `agentic-wrap-release-lock [cwd]`
+ * Public API: CLI. `agentic-wrap-release-lock [cwd] [--token=<uuid>]`
  *   - cwd defaults to process.cwd() (the project root during /ds-wrap). Resolved to
  *     absolute before use (releaseWrapLock -> safeCwd rejects non-absolute paths).
+ *   - --token: must match the token printed by `agentic-wrap-acquire-lock
+ *     --print-token` for the hold being released. Required to release a
+ *     foreign-process daemon/commit-role hold; a legacy (no-descriptor) or
+ *     role:'agent' hold remains tokenlessly releasable (see wrap-marker.js
+ *     releaseWrapLock's owner-scoping rules).
  *   - Always exits 0 (fail-open). Prints exactly one status line to stdout:
- *       "released <lockPath>"            lock existed and was removed
+ *       "released <lockPath>"           lock existed and was removed
  *       "no lock present"               nothing to remove
+ *       "not-owner <lockPath> (held by live pid N; if this is wrong: rm -rf <lockPath>)"
+ *                                        refused: token mismatch, or a live
+ *                                        foreign-process owner without a token
+ *       "not-a-lock <lockPath> (a symlink existed at the lock path and was
+ *        removed - the link only; any target it pointed at is untouched)"
+ *                                        refused: lock path was a symlink,
+ *                                        which releaseWrapLock already
+ *                                        unlinked (CWE-59 discipline) before
+ *                                        returning this result
+ *       "not-a-lock <lockPath> (a file exists at the lock path; not removing.
+ *        If this is wrong: rm -rf <lockPath>)"
+ *                                        refused: lock path is a non-directory
+ *                                        plain file, left in place untouched
  *       "WARNING: lock release failed, lock may persist at <lockPath>"
- *                                       releaseWrapLock returned false (fs error)
+ *                                        releaseWrapLock returned 'error'
  *
  * Upstream dependencies: hooks/lib/wrap-marker.js (REPO copy, resolved via a
  *   __dirname-relative require so a symlinked bin still loads the repo lib, NOT a
- *   cwd-relative copy). Depends on releaseWrapLock's RETURN CONTRACT:
- *   true = lock removed-or-already-absent (ENOENT suppressed by force:true),
- *   false = genuine fs error (EACCES/EPERM) or safeCwd rejection. This helper is
- *   the FIRST production caller of releaseWrapLock; a future change to that
- *   contract (e.g. returning false on absent) must update the stat-driven
- *   messaging here to stay in sync. Also reads wrapLockPath(cwd) for the
- *   stat-before-release existence check that disambiguates the true return.
- *   Node built-ins: fs, path. No npm dependencies.
+ *   cwd-relative copy). Depends on releaseWrapLock's RETURN CONTRACT: it now
+ *   returns one of five STRINGS - 'absent'|'released'|'refused-not-a-lock'|
+ *   'refused-not-owner'|'error' - never a boolean. `releaseWrapLock(cwd) === true`
+ *   is therefore ALWAYS false and would misreport every outcome as a failure;
+ *   this helper switches on the exact string. Node built-ins: fs, path. No npm
+ *   dependencies.
  *
  * Downstream consumers: content/commands/ds-wrap.md (Step 6 + mandatory-release
  *   block), content/commands/ds-implement-ticket.md Phase 11b (conductor-run lock
- *   release after wrap-ticket returns). NOT the deferred path: /ds-wrap-deferred and
- *   the daemon clear the lock via clearProvablyStaleWrapLock (Bash removed there).
+ *   release after wrap-ticket returns). The wrap daemon (hooks/wrap-daemon.js)
+ *   releases its own hold via releaseWrapLock(cwd, token) directly (no CLI
+ *   round-trip needed there, since it runs in-process); clearProvablyStaleWrapLock
+ *   is that daemon's SEPARATE crash-backstop path (a dead/never-released hold
+ *   found at next launch), not the normal release path this binary serves.
  *   Lock path: .agentic/wrap/lock (resolved via lib.wrapLockPath; fallback to
  *   hardcoded path.join(cwd, '.agentic', 'wrap', 'lock')).
  *
  * Failure modes: fail-open. Any error (require failure, fs error, bad cwd) is
  *   swallowed and the process still exits 0 so a release failure never aborts the
- *   caller's exit path. A genuine release failure prints the WARNING line so the
- *   conductor can surface it. SAFETY NET if the lock truly persists: the next
- *   /ds-wrap's acquireWrapLock auto-clears a >30-min stale lock in code, and wrap.md's
- *   acquisition block gives the human a 30-min manual-removal path -- so a persisted
- *   lock is self-healing and never wedges the project permanently.
+ *   caller's exit path. A genuine release failure, or a refusal (not-owner /
+ *   not-a-lock), prints its own line so the conductor can surface it. Nothing
+ *   auto-clears a persisted lock anymore (releaseWrapLock never removes another
+ *   owner's live hold) - an operator unwedges it manually via the `rm -rf` command
+ *   printed in the refusal/HINT lines, or agentic-wrap-acquire-lock's own waiter
+ *   surfaces the same command once the hold crosses --advisory-ms.
  *
- * Performance: standard. One stat + one rmSync, synchronous, no network/subprocess.
+ * Performance: standard. One lstat + one owner read (V2) + at most one rmSync,
+ *   synchronous, no network/subprocess.
  */
 
 const path = require('path');
 
 function main() {
-  const cwd = path.resolve(process.argv[2] || process.cwd());
+  const cwd = path.resolve(process.argv[2] && !process.argv[2].startsWith('--')
+    ? process.argv[2]
+    : process.cwd());
+
+  let token;
+  for (let i = 2; i < process.argv.length; i++) {
+    const arg = process.argv[i];
+    const tokenMatch = arg.match(/^--token=(.+)$/);
+    if (tokenMatch) token = tokenMatch[1];
+  }
+
   let lib;
   try {
     // __dirname-relative require: resolves to the REPO's lib even when this file
@@ -59,6 +90,7 @@ function main() {
     // Lib not loadable (e.g. running outside a proper install): fail-open, exit 0.
     process.stdout.write('WARNING: lock release helper could not load wrap-marker lib; lock may persist\n');
     process.exit(0);
+    return;
   }
 
   let lockPath = path.join(cwd, '.agentic', 'wrap', 'lock');
@@ -73,30 +105,67 @@ function main() {
   if (!lockPath.endsWith(LOCK_SUFFIX)) {
     process.stdout.write('WARNING: resolved lock path does not end in ' + LOCK_SUFFIX + '; refusing release (path: ' + lockPath + ')\n');
     process.exit(0);
+    return;
   }
 
-  // Stat BEFORE release so we can label the outcome accurately. releaseWrapLock
-  // returns true for both "removed" and "already absent" (ENOENT suppressed), so
-  // the lib's return alone cannot distinguish them.
-  let existedBefore = false;
+  let result;
   try {
-    const fs = require('fs');
-    existedBefore = fs.existsSync(lockPath);
-  } catch (_) { /* treat as not-present */ }
-
-  let released = false;
-  try {
-    released = lib.releaseWrapLock(cwd) === true;
+    result = lib.releaseWrapLock(cwd, token);
   } catch (_) {
-    released = false;
+    result = 'error';
   }
 
-  if (!released) {
-    process.stdout.write('WARNING: lock release failed, lock may persist at ' + lockPath + '\n');
-  } else if (existedBefore) {
-    process.stdout.write('released ' + lockPath + '\n');
-  } else {
-    process.stdout.write('no lock present\n');
+  switch (result) {
+    case 'released':
+      process.stdout.write('released ' + lockPath + '\n');
+      break;
+    case 'absent':
+      process.stdout.write('no lock present\n');
+      break;
+    case 'refused-not-owner': {
+      let pidLabel = 'unknown';
+      try {
+        const o = lib.readWrapLockOwnerV2(cwd);
+        if (o && o.pid !== null && o.pid !== undefined) pidLabel = String(o.pid);
+      } catch (_) { /* best-effort label only */ }
+      process.stdout.write(
+        'not-owner ' + lockPath + ' (held by live pid ' + pidLabel
+        + '; if this is wrong: rm -rf ' + lockPath + ')\n'
+      );
+      break;
+    }
+    case 'refused-not-a-lock': {
+      // releaseWrapLock already unlinked a symlink AT the lock path (CWE-59
+      // discipline, link only - never its target) before returning this
+      // result, so by the time we get here a symlink case shows up as
+      // ENOENT. A non-directory plain file case is left untouched, so it
+      // still lstats successfully. Distinguish the two so the message never
+      // claims a link still exists when it has already been removed, and
+      // never recommends `rm -rf` against a path that no longer exists.
+      let stillPresent = true;
+      try {
+        const fs = require('fs');
+        fs.lstatSync(lockPath);
+      } catch (_) {
+        stillPresent = false; // ENOENT: the symlink was already removed
+      }
+      if (stillPresent) {
+        process.stdout.write(
+          'not-a-lock ' + lockPath + ' (a file exists at the lock path; not removing. '
+          + 'If this is wrong: rm -rf ' + lockPath + ')\n'
+        );
+      } else {
+        process.stdout.write(
+          'not-a-lock ' + lockPath + ' (a symlink existed at the lock path and was removed'
+          + ' - the link only; any target it pointed at is untouched)\n'
+        );
+      }
+      break;
+    }
+    case 'error':
+    default:
+      process.stdout.write('WARNING: lock release failed, lock may persist at ' + lockPath + '\n');
+      break;
   }
   process.exit(0);
 }

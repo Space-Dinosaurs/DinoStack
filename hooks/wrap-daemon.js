@@ -14,8 +14,9 @@
  *          symlink-safe clearProvablyStaleWrapLock - the headless child runs with Bash
  *          removed and cannot `rm` the lock itself, and the predicate never clears a
  *          live lock), OWNS the `.agentic/wrap/lock` around each child spawn
- *          (acquireWrapLock before claimMarker, releaseWrapLock on every post-acquire
- *          terminal path; the headless child never touches the lock directly), and
+ *          (acquireWrapLock with a `{role:'daemon', pid, token}` descriptor before
+ *          claimMarker, token-scoped releaseWrapLock on every post-acquire terminal
+ *          path; the headless child never touches the lock directly), and
  *          bounds every child with a timeout-and-kill of the whole process group.
  *          It NEVER promotes a `pending` marker to `ready` (that is SessionEnd's sole
  *          job - CRITICAL-A), so it can never resume a live/idle session.
@@ -134,6 +135,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { spawn, spawnSync } = require('child_process');
 const { StringDecoder } = require('string_decoder');
 
@@ -714,14 +716,30 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
   // return 'idle' (not 'deferred') so the daemon's idle self-exit fires; a planted
   // live lock must NOT spin the daemon until the watchdog SIGKILLs it.
   //
+  // opts publishes a schema-validated JSON descriptor (role:'daemon', this
+  // process's pid, a fresh per-call token) alongside the legacy 2-line owner
+  // body. The token is what makes releaseWrapLock() below owner-scoped: only
+  // the holder of this exact token (or this exact live pid) may release it.
+  //
+  // Historical note: `reclaimMs` is still passed positionally for signature
+  // compatibility, but it is now INERT - acquireWrapLock's old mtime-driven
+  // force-clear-and-steal path (the one the invariant below used to guard
+  // against) was deleted in U1. acquireWrapLock is now a pure mkdir-EEXIST
+  // primitive that never removes an existing lock, live or stale, so a
+  // concurrent daemon launch can no longer treat a live lock as stale via
+  // THIS call. The invariant is retained below purely as defense-in-depth for
+  // clearProvablyStaleWrapLock's legacy/no-pid-owner staleness window, which
+  // still consults reclaimMs.
+  //
   // Invariant: timeoutMs MUST remain strictly below reclaimMs. The daemon holds
   // the wrap lock for up to timeoutMs (deferred_wrap_timeout_minutes, default 10 min)
   // while the stale-lock reclaim window is reclaimMs (deferred_wrap_inprogress_reclaim_minutes,
-  // default 30 min). If timeoutMs >= reclaimMs, a concurrent daemon launch could
-  // treat the live lock as stale and force-clear it mid-run, enabling a double-acquire
-  // and a corrupt marker state. The defaults (10 < 30) satisfy the invariant; ensure
-  // any operator override preserves it.
-  const lockAcquired = wrapMarker.acquireWrapLock(cwd, ownerToken, reclaimMs);
+  // default 30 min). If timeoutMs >= reclaimMs, clearProvablyStaleWrapLock could treat a
+  // legacy/no-pid owner as reclaimable mid-run on a future tick. The defaults (10 < 30)
+  // satisfy the invariant; ensure any operator override preserves it.
+  const lockToken = crypto.randomUUID();
+  const lockAcquired = wrapMarker.acquireWrapLock(cwd, ownerToken, reclaimMs,
+    { role: 'daemon', pid: process.pid, token: lockToken });
   if (!lockAcquired) {
     log('wrap/lock is held by another process; skipping drain this tick (ready markers will be picked up on next launch)');
     return 'idle';
@@ -729,8 +747,17 @@ async function drainOnce(cwd, cfg, attemptedThisRun) {
 
   // Helper: release the lock on every post-acquire terminal path. Fail-open.
   // Called exclusively from the finally block below - do not call it manually.
+  // releaseWrapLock now returns one of five STRINGS (never a boolean) - only
+  // 'released' is success. A non-'released' outcome is logged rather than
+  // silently swallowed: treating e.g. 'refused-not-owner' as truthy/success
+  // would hide a genuine ownership failure (this daemon's own token not
+  // matching the published descriptor, which should never happen but must
+  // not be silently ignored if it does).
   const releaseLock = () => {
-    try { wrapMarker.releaseWrapLock(cwd); } catch (_) {}
+    try {
+      const outcome = wrapMarker.releaseWrapLock(cwd, lockToken);
+      if (outcome !== 'released') log('wrap lock release returned ' + outcome);
+    } catch (_) {}
   };
 
   // try/finally guarantees releaseLock() fires on every post-acquire exit path -

@@ -7,7 +7,14 @@
  *        dead pid file.
  *   (8)  idle self-exit (no ready markers, short idle window -> daemon exits).
  *   (9)  FIFO over ready markers by staged_at (oldest drained first).
- *   (10) acquireWrapLock auto-clears a STALE lock + defers on a FRESH one (lib).
+ *   (10) acquireWrapLock defers (false) on ANY existing lock, fresh or mtime-stale
+ *        (lib). UPDATED (U1, DS-wrap-lock-verdict): the old mtime-driven
+ *        force-clear-and-steal path inside acquireWrapLock was deleted - it was the
+ *        single observation-then-removal path that let a waiter steal a LIVE lock.
+ *        acquireWrapLock is now a pure mkdir-EEXIST primitive with no steal logic at
+ *        all; the ONLY code path that may ever remove another holder's lock is the
+ *        daemon-side clearProvablyStaleWrapLock, which is owner-liveness-gated (see
+ *        the LOCK-1..8 cases below), never mtime-gated.
  *   (11/toggle) the daemon acts only when launched; it is launched only when the
  *        toggle is true (asserted at the lib/hook level; here we assert that a
  *        directly-run daemon with NO ready markers does nothing destructive).
@@ -492,9 +499,13 @@ console.log('\n[7] singleton: a LIVE pid file blocks a second launch; a stale+de
 }
 
 // ---------------------------------------------------------------------------
-// (10) acquireWrapLock auto-clears a STALE lock; defers on a FRESH one (lib)
+// (10) acquireWrapLock defers (false) on ANY existing lock, fresh or mtime-stale
+// (lib). UPDATED (U1): the mtime-driven force-clear-and-steal path was deleted -
+// see the header comment block above for the rationale. acquireWrapLock is now a
+// pure mkdir-EEXIST primitive: it NEVER removes an existing lock, regardless of
+// how old its mtime is. `releaseWrapLock` now returns a STRING, not a boolean.
 // ---------------------------------------------------------------------------
-console.log('\n[10] acquireWrapLock: auto-clears a stale lock, defers on a fresh one');
+console.log('\n[10] acquireWrapLock: defers (false) on any existing lock, fresh or mtime-stale');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock-');
   const lockDir = lib.wrapLockPath(projectDir);
@@ -508,17 +519,20 @@ console.log('\n[10] acquireWrapLock: auto-clears a stale lock, defers on a fresh
   // (b) FRESH lock held by someone else -> a new acquire defers (false).
   assert(lib.acquireWrapLock(projectDir, 'owner-2', STALE_MS) === false,
     'acquireWrapLock defers (false) on a FRESH held lock');
-  lib.releaseWrapLock(projectDir);
+  assert(lib.releaseWrapLock(projectDir) === 'released', 'releaseWrapLock removed the lock (returns "released")');
   assert(!fs.existsSync(lockDir), 'releaseWrapLock removes the lock directory');
 
-  // (c) STALE lock -> auto-cleared + re-acquired.
+  // (c) mtime-STALE lock (no owner published) -> acquireWrapLock NO LONGER steals
+  // it. wrapLockStale (unchanged, mtime-only) still reports it as stale by its own
+  // predicate; acquireWrapLock simply no longer consults that predicate at all.
   fs.mkdirSync(lockDir, { recursive: true });
   const old = new Date(Date.now() - 40 * 60 * 1000);
-  fs.utimesSync(lockDir, old, old); // backdate mtime so it reads as stale
-  assert(lib.wrapLockStale(projectDir, STALE_MS) === true, 'a backdated lock reads as stale');
-  assert(lib.acquireWrapLock(projectDir, 'owner-3', STALE_MS) === true,
-    'acquireWrapLock auto-clears a STALE lock and re-acquires');
-  lib.releaseWrapLock(projectDir);
+  fs.utimesSync(lockDir, old, old); // backdate mtime
+  assert(lib.wrapLockStale(projectDir, STALE_MS) === true, 'a backdated lock still reads as stale via wrapLockStale (unchanged predicate)');
+  assert(lib.acquireWrapLock(projectDir, 'owner-3', STALE_MS) === false,
+    'acquireWrapLock does NOT auto-clear a merely mtime-stale lock (steal path removed)');
+  assert(fs.existsSync(lockDir), 'the mtime-stale lock directory is left untouched');
+  assert(lib.releaseWrapLock(projectDir) === 'released', 'cleanup: lock (no owner published) is tokenlessly releasable');
 
   cleanup(base);
 }
@@ -1114,6 +1128,45 @@ console.log('\n[LOCK-8] readWrapLockOwner parent-symlink guard: does not read ow
   assert(attackerOwnerContent.startsWith(ATTACKER_PID),
     'LOCK-8: attacker owner file content is unchanged (no side effects)');
 
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
+// (LOCK-9) live JSON descriptor (role:'agent') REFUSES the clear, even though a
+// legacy dead-PID owner is ALSO present. This is the direct contrast with
+// LOCK-1/LOCK-7 (which clear a dead-PID legacy-only lock): here the JSON
+// descriptor takes precedence and the daemon must NOT steal a live interactive
+// /ds-wrap's lock. Regression coverage for the U2 bug this unit fixes.
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-9] live JSON descriptor (role:agent) refuses the clear despite a dead-PID legacy owner (daemon must not steal a live interactive lock)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock9-');
+  writeConfig(agenticDir, FAST_IDLE);
+
+  // Legacy 2-line owner with a DEAD pid - on its own (per LOCK-1/LOCK-7) this
+  // would be cleared. The JSON descriptor below must override that.
+  const lockDir = plantLockDir(projectDir, DEAD_PID + '\n' + new Date().toISOString() + '\n');
+  // Schema-valid JSON descriptor: role:'agent' is unconditionally 'live' per
+  // wrapLockVerdict row 10, regardless of pid/age - modeling a live interactive
+  // /ds-wrap holder whose backdated acquired_at (40 min ago) would otherwise look
+  // stale by age alone.
+  const descriptor = lib.makeLockDescriptor({ role: 'agent', acquiredAt: agoIso(40 * 60) });
+  fs.writeFileSync(lib.wrapLockOwnerJsonPath(projectDir), JSON.stringify(descriptor), 'utf8');
+
+  // Preconditions - assert BEFORE the behavior. Without these the fixture could
+  // silently degrade to source:'legacy' (e.g. a typo in the descriptor shape),
+  // the case would fail for the WRONG reason, and the tempting "fix" would be to
+  // loosen the schema validator - which would disable the protection entirely.
+  assert(lib.readWrapLockOwnerV2(projectDir).source === 'json',
+    'LOCK-9 precondition: descriptor is schema-valid (source:json)');
+  assert(lib.wrapLockVerdict(projectDir).verdict === 'live',
+    'LOCK-9 precondition: verdict is live');
+
+  const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'LOCK-9: daemon exits 0');
+  assert(fs.existsSync(lockDir),
+    'LOCK-9: lock KEPT - live JSON descriptor refusal wins over the dead-PID legacy owner');
   cleanup(base);
 }
 
