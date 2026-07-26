@@ -974,9 +974,10 @@ hr {
 <p>When <code>/ds-implement-ticket</code> runs with 2 or more ticket IDs, a sibling file <code>.agentic/batch-state.json</code> tracks batch-level cursor alongside <code>loop-state.json</code>'s per-ticket phase cursor.</p>
 <p><strong>Session ownership gate:</strong> both files carry a <code>session_id</code> field. Every write applies a per-write gate that aborts (with an operator-visible warning) if:</p>
 <ul>
-<li>The existing <code>session_id</code> belongs to a different session whose <code>last_updated</code> is within 10 minutes</li>
-<li>The existing <code>session_id</code> is null or absent (legacy state - force-takeover eligible)</li>
+<li>The existing <code>session_id</code> belongs to a different session whose liveness timestamp (<code>last_updated</code> for <code>loop-state.json</code>, <code>updated_at</code> for <code>batch-state.json</code>) is within 10 minutes - and on <code>batch-state.json</code> ONLY, <code>status</code> is also <code>active</code></li>
+<li>The existing <code>session_id</code> is null or absent, regardless of <code>status</code> (legacy state - force-takeover eligible)</li>
 </ul>
+<p><code>batch-state.json</code> alone carries the <code>status=active</code> precondition: its terminal mark stamps a fresh timestamp on exit, so without it the gate would abort the first write of an approved resume. <code>loop-state.json</code> skips it - a live session can hold a non-<code>active</code> <code>loop-state.json</code> (the Phase 7 stall path continues to the next ticket), so adding the precondition there would let a foreign session clobber a live file.</p>
 <p>This prevents orphan-session corruption uniformly across both files.</p>
 <p><strong>Concurrency limits:</strong></p>
 <ul>

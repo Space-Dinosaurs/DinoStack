@@ -277,8 +277,10 @@ On resume, the conductor re-reads the Brief or Plan **before spawning the next w
 When `/ds-implement-ticket` runs with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor alongside `loop-state.json`'s per-ticket phase cursor.
 
 **Session ownership gate:** both files carry a `session_id` field. Every write applies a per-write gate that aborts (with an operator-visible warning) if:
-- The existing `session_id` belongs to a different session whose `last_updated` is within 10 minutes
-- The existing `session_id` is null or absent (legacy state - force-takeover eligible)
+- The existing `session_id` belongs to a different session whose liveness timestamp (`last_updated` for `loop-state.json`, `updated_at` for `batch-state.json`) is within 10 minutes - and on `batch-state.json` ONLY, `status` is also `active`
+- The existing `session_id` is null or absent, regardless of `status` (legacy state - force-takeover eligible)
+
+`batch-state.json` alone carries the `status=active` precondition: its terminal mark stamps a fresh timestamp on exit, so without it the gate would abort the first write of an approved resume. `loop-state.json` skips it - a live session can hold a non-`active` `loop-state.json` (the Phase 7 stall path continues to the next ticket), so adding the precondition there would let a foreign session clobber a live file.
 
 This prevents orphan-session corruption uniformly across both files.
 
