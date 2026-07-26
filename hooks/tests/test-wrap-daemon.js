@@ -1132,6 +1132,45 @@ console.log('\n[LOCK-8] readWrapLockOwner parent-symlink guard: does not read ow
 }
 
 // ---------------------------------------------------------------------------
+// (LOCK-9) live JSON descriptor (role:'agent') REFUSES the clear, even though a
+// legacy dead-PID owner is ALSO present. This is the direct contrast with
+// LOCK-1/LOCK-7 (which clear a dead-PID legacy-only lock): here the JSON
+// descriptor takes precedence and the daemon must NOT steal a live interactive
+// /ds-wrap's lock. Regression coverage for the U2 bug this unit fixes.
+// ---------------------------------------------------------------------------
+console.log('\n[LOCK-9] live JSON descriptor (role:agent) refuses the clear despite a dead-PID legacy owner (daemon must not steal a live interactive lock)');
+{
+  const { base, projectDir, agenticDir } = makeProject('ae-wd-lock9-');
+  writeConfig(agenticDir, FAST_IDLE);
+
+  // Legacy 2-line owner with a DEAD pid - on its own (per LOCK-1/LOCK-7) this
+  // would be cleared. The JSON descriptor below must override that.
+  const lockDir = plantLockDir(projectDir, DEAD_PID + '\n' + new Date().toISOString() + '\n');
+  // Schema-valid JSON descriptor: role:'agent' is unconditionally 'live' per
+  // wrapLockVerdict row 10, regardless of pid/age - modeling a live interactive
+  // /ds-wrap holder whose backdated acquired_at (40 min ago) would otherwise look
+  // stale by age alone.
+  const descriptor = lib.makeLockDescriptor({ role: 'agent', acquiredAt: agoIso(40 * 60) });
+  fs.writeFileSync(lib.wrapLockOwnerJsonPath(projectDir), JSON.stringify(descriptor), 'utf8');
+
+  // Preconditions - assert BEFORE the behavior. Without these the fixture could
+  // silently degrade to source:'legacy' (e.g. a typo in the descriptor shape),
+  // the case would fail for the WRONG reason, and the tempting "fix" would be to
+  // loosen the schema validator - which would disable the protection entirely.
+  assert(lib.readWrapLockOwnerV2(projectDir).source === 'json',
+    'LOCK-9 precondition: descriptor is schema-valid (source:json)');
+  assert(lib.wrapLockVerdict(projectDir).verdict === 'live',
+    'LOCK-9 precondition: verdict is live');
+
+  const { code } = runDaemonToExit(projectDir, { MOCK_CLAUDE_AUTH: 'ok' }, 30000);
+
+  assert(code === 0, 'LOCK-9: daemon exits 0');
+  assert(fs.existsSync(lockDir),
+    'LOCK-9: lock KEPT - live JSON descriptor refusal wins over the dead-PID legacy owner');
+  cleanup(base);
+}
+
+// ---------------------------------------------------------------------------
 // (LOCK-M1) daemon owns the wrap lock: a live lock WITH a ready marker present
 // causes the daemon to skip the drain (return 'idle') and self-exit cleanly
 // (code 0, no watchdog SIGKILL); after release the daemon drains normally and
