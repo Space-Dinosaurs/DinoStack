@@ -178,11 +178,60 @@ _present_section "AC-10: evidence cap of 3 entries with (+N more) documented" \
          'at most 3 entries per ticket.*\(\+N more\)'
 
 echo ""
-echo "--- AC-17: precedence rule - orthogonal flags, dual-PR Notes format ---"
-_present_section "AC-17: precedence rule states IN_FLIGHT and IS_REWORK are orthogonal" \
-         'IN_FLIGHT.*IS_REWORK.*are \*\*orthogonal\*\*'
-_present "AC-17: dual-PR Notes format documented" \
-         'in flight: open PR #<n>; prior attempt PR #<m> - verify both once back from in-progress'
+echo "--- AC-17: precedence rule - independent sources, IS_REWORK orthogonal, no fixed 'both true' string ---"
+_present_section "AC-17: precedence rule states IN_FLIGHT and IN_PROGRESS_TRACKER are independent" \
+         'entry\.IN_FLIGHT.*entry\.IN_PROGRESS_TRACKER.*are \*\*independent\*\*'
+_present_section "AC-17: precedence rule states IS_REWORK is orthogonal to both" \
+         'entry\.IS_REWORK. is \*\*orthogonal\*\* to both'
+
+echo ""
+echo "--- Major 1 regression: Notes-cell composition is compositional, not three fixed strings ---"
+# The Skeptic's diagnosis: the suite must pin STATE COVERAGE, not just sentence presence.
+# These assertions would have failed against the pre-fix spec, where the Notes cell was a
+# fixed three-way branch that printed "not the tracker column" even when the tracker column
+# genuinely had moved (the tracker+PR overlap case - the common real-world workflow).
+_present_section "Major-1 regression: composition rule defines the tracker-column qualifier's own omission condition" \
+         'Omit this qualifier whenever .entry\.IN_PROGRESS_TRACKER. is also true'
+_present_section "Major-1 regression: in-flight clause template documented" \
+         'in flight: open PR #<n>'
+_present_section "Major-1 regression: rework-with-in-flight clause template documented" \
+         'prior attempt PR #<m> - verify both once back from in-progress'
+_present_section "Major-1 regression: rework-only (no in-flight) clause template documented" \
+         'verify PR #<m> once back from in-progress'
+_present_section "Major-1 regression: tracker-column qualifier template documented" \
+         'detected from an open PR, not the tracker column'
+# State-coverage: all six reachable (tracker-moved x PR-open x rework) combinations have a
+# worked example row in the In-progress tickets table.
+for ROW_ANCHOR in \
+  '\| Z \[IN PROGRESS\] \|' \
+  '\| W \[IN PROGRESS\] \[REWORK x1\] \|' \
+  '\| DS-12 \[IN PROGRESS\] \|' \
+  '\| DS-34 \[IN PROGRESS\] \|' \
+  '\| DS-40 \[IN PROGRESS\] \[REWORK x1\] \|' \
+  '\| DS-41 \[IN PROGRESS\] \[REWORK x1\] \|'
+do
+  _present "Major-1 regression: worked-example row present: /$ROW_ANCHOR/" "$ROW_ANCHOR"
+done
+# THE failure mode itself: the tracker+PR overlap example (DS-34) must NOT carry the false
+# "not the tracker column" claim - this is the literal defect the Skeptic found.
+DS34_ROW="$(grep -E '^\| DS-34 \[IN PROGRESS\] \|' "$SPEC")"
+if [ -z "$DS34_ROW" ]; then
+  _fail "Major-1 regression: DS-34 example row not found - cannot verify the false-claim fix"
+elif printf '%s' "$DS34_ROW" | grep -q 'not the tracker column'; then
+  _fail "Major-1 regression: DS-34 (tracker+PR overlap) row still claims 'not the tracker column' - this is the exact false claim the fix removes"
+elif printf '%s' "$DS34_ROW" | grep -q 'in flight: open PR'; then
+  _pass "Major-1 regression: DS-34 (tracker+PR overlap) row names the PR WITHOUT the false tracker-column claim"
+else
+  _fail "Major-1 regression: DS-34 row does not name an in-flight PR at all"
+fi
+# Sanity: DS-12 (PR-only, tracker did NOT move) DOES carry the qualifier - proves the
+# qualifier-omission logic is conditional, not simply deleted.
+DS12_ROW="$(grep -E '^\| DS-12 \[IN PROGRESS\] \|' "$SPEC")"
+if printf '%s' "$DS12_ROW" | grep -q 'not the tracker column'; then
+  _pass "Major-1 regression: DS-12 (PR-only, tracker did not move) row correctly carries the qualifier"
+else
+  _fail "Major-1 regression: DS-12 row is missing the tracker-column qualifier it should carry"
+fi
 
 echo ""
 echo "--- AC-9: manifest Upstream deps names gh pr list; Performance names one-call-per-run ---"
@@ -208,6 +257,27 @@ _present "AC-11: Phase 4b brief contains item (7) In-flight provenance" \
          '\(7\) In-flight provenance'
 
 echo ""
+echo "--- Major 2 regression: IN_FLIGHT on a Rule-1-deferred ticket has a defined, non-universal disposition ---"
+# Pre-fix, item (7) was universally quantified over EVERY entry.IN_FLIGHT: true ticket,
+# including ones Rule 1 defers before they ever reach a Notes-bearing table - an
+# unsatisfiable obligation for a correctly-produced artifact. These assertions pin the
+# scoping fix, not just sentence presence.
+_present "Major-2 regression: item (7) scopes the Notes-cell obligation to the In-progress table" \
+         'reaching the In-progress tickets table \(Notes-bearing\) with .entry\.IN_FLIGHT: true.'
+_present "Major-2 regression: item (7) defines the disjoint Rule-1-deferred disposition" \
+         'ticket Rule 1 deferred \(no Notes cell in that table\) that also carries .entry\.IN_FLIGHT: true.'
+_present "Major-2 regression: Interaction-with-Rule-1-deferral note exists" \
+         '\*\*Interaction with Rule 1 deferral \(binding\)\.\*\*'
+_present "Major-2 regression: Deferred tickets Reason-cell IN_FLIGHT extension documented" \
+         'Reason cell IN_FLIGHT extension'
+_present "Major-2 regression: Deferred tickets worked example (terminal + in-flight) present" \
+         '\| V \| terminal \(Done\); in flight: open PR #440 \|'
+_present "Major-2 regression: Edge cases row for Rule-1-deferred + in-flight ticket" \
+         'Ticket deferred by Rule 1 .terminal / external blocker / fetch-failed / cycle. that also has an open PR'
+_present "Major-2 regression: that Edge-cases row states it is NOT an IN_FLIGHT-sourced exclusion" \
+         'Does NOT count as an IN_FLIGHT-sourced kickoff exclusion'
+
+echo ""
 echo "--- AC-14: Soft-fail discipline names the gh call as neither tracker nor MCP ---"
 _present "AC-14: Soft-fail discipline carries the gh-call extension" \
          'gh pr list. call \(neither a tracker call nor an MCP call\)'
@@ -221,11 +291,50 @@ echo ""
 echo "--- AC-16: Phase 4b skip condition includes the no-IN_FLIGHT-exclusions clause ---"
 _present "AC-16: Phase 4b skip condition names no IN_FLIGHT-sourced exclusions" \
          'zero lanes AND zero chains AND no IN_FLIGHT-sourced exclusions'
+_present "Major-2 regression: skip condition explicitly excludes Rule-1-deferred+in-flight tickets from the count" \
+         'a Rule-1-deferred ticket that also carries .entry\.IN_FLIGHT. does NOT count here'
 
 echo ""
 echo "--- AC-19: Output carries the zero-lane honesty line verbatim ---"
 _present "AC-19: zero-lane-with-in-flight-exclusions output line present" \
          'All candidate tickets are already in flight \(open PRs: <keys>\)\. No lanes to recommend\. Recommended next action: review those PRs before starting new work - or re-invoke with an explicit ticket id to override\.'
+
+echo ""
+echo "--- Minor 1 regression: the zero-lane honesty line requires ALL exclusions to be in-flight, not just >=1 ---"
+# Pre-fix, the print condition was "zero lanes AND >=1 in-flight exclusion" - a mix of
+# (2 terminal-deferred + 1 in-flight) also has zero lanes and would have wrongly triggered
+# "All candidate tickets are already in flight". The fix requires EVERY excluded/deferred
+# ticket to be in-flight-sourced, and provides a documented fallback for the mixed case.
+_present "Minor-1 regression: condition requires every deferred-or-excluded ticket to be in-flight" \
+         'every deferred-or-excluded ticket carries .entry\.IN_FLIGHT: true.'
+_present "Minor-1 regression: documented fallback for the mixed case" \
+         'If the zero-lane result arises from a MIX of in-flight and unrelated exclusions/deferrals'
+
+echo ""
+echo "--- Minor 2 regression: Disclaimer enumerates all three false-positive paths, not just one ---"
+# Pre-fix, the Disclaimer claimed the stale-open-PR case was "the ONE remaining
+# false-positive path" - contradicted by the plan's own Known limitations, which name two
+# more (title-match false positives; DS-4.1 matching key DS-4).
+_present_section "Minor-2 regression: disclaimer names the title-match false positive" \
+         'title match on unrelated wording'
+_present_section "Minor-2 regression: disclaimer names the dotted-key over-match false positive" \
+         'dotted-key over-match'
+_absent_section "Minor-2 regression: disclaimer no longer asserts a false 'one remaining' absolute" \
+         'is the one remaining false-positive path'
+
+echo ""
+echo "--- Minor 3 regression: --limit 100 truncation follows the file's own truncate-plus-warning convention ---"
+_present_section "Minor-3 regression: truncation notice documented" \
+         '\*\*Truncation notice\.\*\*'
+_present_section "Minor-3 regression: truncation notice specifies the emitted text" \
+         'In-flight evidence truncated at 100 open PRs'
+
+echo ""
+echo "--- Minor 4 regression: degradation notice line specifies its emission point ---"
+_absent_section "Minor-4 regression: degradation row no longer promises an unspecified 'one notice line'" \
+         'call fails \| total no-op; no flags set; one notice line'
+_present_section "Minor-4 regression: degradation row specifies the notice text and emission point" \
+         'In-flight code detection skipped: <reason>. once, immediately after the failed/skipped call, before Phase 1 begins'
 
 echo ""
 echo "--- AC-20: Composition and non-goals carries the .agentic/-read non-goal ---"

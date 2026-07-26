@@ -161,26 +161,38 @@ gh pr list --state open --limit 100 --json number,title,headRefName,isDraft,url
 
 No `--repo` flag: `gh` infers the repository from the git remote, so no `AGENTS.md` value is required.
 
+**Truncation notice.** `--limit 100` truncates silently unless flagged, and this file already establishes the opposite convention (Phase 0's 50-result JQL cap emits a truncate-plus-warning - see the Edge cases table below). Follow it here: if the call returns exactly 100 PRs (the cap reached), print `In-flight evidence truncated at 100 open PRs - recall may be incomplete for repos with more open PRs than that.` once, immediately after the call, before matching proceeds.
+
 **Precondition (binding).** Detection is skipped for any entry whose `ticket_id` is null or empty - mirroring the Ticket-rework detection guard above (a freeform/local entry with no ticket reference). Sets `entry.IN_FLIGHT = false`, leaves `entry.in_progress` untouched.
 
 **Match predicate (binding).** For non-empty `<KEY>` and candidate `S`: occurs case-insensitively, the following character is **non-alphanumeric or absent**, and the preceding character is **non-alphanumeric or absent**. Candidates: each open PR's `title` and `headRefName`.
 
-**Precedence rule (binding).** `IN_FLIGHT` and `IS_REWORK` are **orthogonal**; neither suppresses the other and both may be true. When both are true the badge stays `[IN PROGRESS] [REWORK xN]` in the In-progress tickets table, and the Notes cell names both PRs: `in flight: open PR #<n>; prior attempt PR #<m> - verify both once back from in-progress`.
+**Precedence rule (binding).** `entry.IN_FLIGHT` (this section) and `entry.IN_PROGRESS_TRACKER` (Phase 1's tracker-column mapping, below) are **independent** sources of `entry.in_progress` - neither suppresses the other, and both are commonly true at once (a developer moves the column and opens a PR in the same workflow). `entry.IS_REWORK` is **orthogonal** to both. There is no single "both-true" format - see the **Notes-cell composition** rule immediately below for how every combination renders.
+
+**Notes-cell composition (binding).** The In-progress tickets table's Notes cell is composed, not a fixed string per source combination. Render these clauses in order, joined by `; `:
+1. **Base** (always): `Excluded from kickoff prompts`.
+2. **In-flight clause** (when `entry.IN_FLIGHT`): `in flight: open PR #<n>` (the highest-numbered evidence entry), followed by ` (+N more)` when `entry.IN_FLIGHT_EVIDENCE[]` exceeds the Evidence cap below.
+3. **Rework clause** (when `entry.IS_REWORK`): if clause 2 rendered, append `prior attempt PR #<m> - verify both once back from in-progress`; otherwise append `verify PR #<m> once back from in-progress`.
+4. **Tracker-column qualifier** (when `entry.IN_FLIGHT` is true AND `entry.IN_PROGRESS_TRACKER` is false - the column genuinely did not move): append `detected from an open PR, not the tracker column`. Omit this qualifier whenever `entry.IN_PROGRESS_TRACKER` is also true - claiming the column did not move would be false in the common overlap case.
+
+All combinations of (`entry.IN_PROGRESS_TRACKER`, `entry.IN_FLIGHT`, `entry.IS_REWORK`) that reach this table (i.e. `entry.in_progress` is true) render under this rule; none is a fixed three-way branch. See the In-progress tickets table below for a worked example of each combination.
 
 **Degradation** (all silent-and-continue):
 
 | Condition | Behavior |
 |---|---|
-| `gh` absent, unauthenticated, no remote, or call fails | total no-op; no flags set; one notice line; output identical to today's |
+| `gh` absent, unauthenticated, no remote, or call fails | total no-op; no flags set; print `In-flight code detection skipped: <reason>` once, immediately after the failed/skipped call, before Phase 1 begins - the same emission point as Phase 0's "No tracker configured" notice; output otherwise identical to today's |
 | `HEURISTIC_ONLY == true` | step still runs - O(1), not per-ticket; the >20-ticket lever does not apply |
 
 **Evidence cap:** at most 3 entries per ticket, descending PR number, then `(+N more)`.
 
-**Assignment rule.** On a match, set `entry.IN_FLIGHT = true`, append the matching PR to `entry.IN_FLIGHT_EVIDENCE[]` (`{kind: "pr", ref, title, is_draft, url}`), and set `entry.in_progress = true` (see **In-progress detection** in Phase 1 below). This creates **no new category** - it feeds the existing `in_progress` machinery through a second source. Four consumers inherit this assignment unchanged: (1) Phase 3's removal from lane assignment before Rule 2 / Rework isolation; (2) the Phase 1 story-size preflight, which suppresses size warnings for `in_progress: true` tickets; (3) the Phase 4a In-progress table and kickoff-prompt exclusion; (4) `triage_result.in_progress_excluded[]` and the `## Output` count. All four are intended under open-PR evidence.
+**Assignment rule.** On a match, set `entry.IN_FLIGHT = true`, append the matching PR to `entry.IN_FLIGHT_EVIDENCE[]` (`{kind: "pr", ref, title, is_draft, url}`), and set `entry.in_progress = true` (see **In-progress detection** in Phase 1 below, which sets the separate `entry.IN_PROGRESS_TRACKER` provenance flag from its own source). This creates **no new category** - it feeds the existing `in_progress` machinery through a second source. Four consumers inherit this assignment unchanged: (1) Phase 3's removal from lane assignment before Rule 2 / Rework isolation - **except** when Rule 1 already deferred the ticket for an unrelated reason first, see the Interaction-with-Rule-1-deferral note below; (2) the Phase 1 story-size preflight, which suppresses size warnings for `in_progress: true` tickets; (3) the Phase 4a In-progress table and kickoff-prompt exclusion, rendered per the Notes-cell composition rule above; (4) `triage_result.in_progress_excluded[]` and the `## Output` count. All four are intended under open-PR evidence.
+
+**Interaction with Rule 1 deferral (binding).** Detection runs before Phase 1, so `entry.IN_FLIGHT` can be set on a ticket that Phase 3 Rule 1 later defers for an unrelated reason (`terminal: true`, an outside-the-set `external_dep`, `fetch_failed: true`, or `cycle_warning: true`). Rule 1 deferred tickets do not reach a Notes cell at all. Rule 1's deferral takes precedence: such a ticket is removed by Rule 1 before the In-progress-removal step ever runs, so it never reaches the In-progress tickets table, Rule 2, or Rework isolation, and Phase 4b item (7)'s Notes-cell obligation does not apply to it - `entry.in_progress` and `entry.IN_FLIGHT` remain set as data, but the only place this surfaces is the `## Deferred tickets` table's Reason-cell extension below.
 
 **Why *remote-ref enumeration* is not evidence.** What is dropped is enumerating `git branch -r`: stale refs persist with `fetch.prune` unset (82 remote-tracking refs vs 76 live heads vs 7 open PRs measured), so a bare ref name is near-noise, and a merged prior-attempt ref would flag every rework ticket. What is **kept** is `headRefName` as a match candidate above - the head branch of an open PR is live by construction, and dropping it would halve recall for no precision gain.
 
-**Disclaimer.** A pushed branch with no PR yet is an accepted false negative. A stale *open* PR is the one remaining false-positive path; printed evidence lets the operator verify it by hand.
+**Disclaimer.** A pushed branch with no PR yet is an accepted false negative. Three false-positive paths remain, all visible via the printed evidence so the operator can dismiss them by hand: a stale *open* PR (abandoned, author departed); a title match on unrelated wording (e.g. a PR titled "revert DS-34 change"); and a dotted-key over-match (`DS-4.1` matches key `DS-4` - dotted keys do not occur in this ticket-numbering convention, so this is accepted).
 
 **Reserved for Unit 2.** A future unit may enrich this same `IN_FLIGHT` flag with additional evidence sources - do not build a third enumerator; extend this one.
 
@@ -198,7 +210,7 @@ The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) popu
 
 **Terminal-status detection:** tickets whose status maps to a Done/Cancelled/Won't-do state are marked `terminal: true`. They are added to the deferred set in Phase 3 Rule 1 without further analysis.
 
-**In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true`. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts). When `entry.IS_REWORK` is also true (see Ticket-rework detection above), the badge becomes `[IN PROGRESS] [REWORK xN]` in the In-progress tickets table - the only place that ticket's rework signal appears, since in-progress removal happens before Rule 2 and Rework isolation and the ticket never reaches a lane. `in_progress: true` has two sources: this tracker-column mapping, and In-flight code detection above (open-PR evidence) - when the latter sets it, `entry.IN_FLIGHT` is also true and the Notes cell in the In-progress tickets table below names the causing PR.
+**In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true` and `entry.IN_PROGRESS_TRACKER = true` - the tracker-column provenance flag consumed by the Notes-cell composition rule in In-flight code detection above. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts). When `entry.IS_REWORK` is also true (see Ticket-rework detection above), the badge becomes `[IN PROGRESS] [REWORK xN]` in the In-progress tickets table - the only place that ticket's rework signal appears, since in-progress removal happens before Rule 2 and Rework isolation and the ticket never reaches a lane. `in_progress: true` has two independent sources - this tracker-column mapping (`entry.IN_PROGRESS_TRACKER`) and In-flight code detection above (`entry.IN_FLIGHT`, open-PR evidence) - and BOTH are commonly true at once (a developer moves the column and opens a PR in the same workflow). The In-flight section's Notes-cell composition rule renders every combination; it does not assume the two sources are mutually exclusive.
 
 > **Story-size preflight** - runs once, immediately after all metadata is collected.
 >
@@ -389,10 +401,19 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
 
 ## Deferred tickets
 
+<!-- Reason cell IN_FLIGHT extension: when a Rule-1-deferred ticket also carries entry.IN_FLIGHT:
+     true (see the Interaction-with-Rule-1-deferral note in In-flight code detection above),
+     append "; in flight: open PR #<n>" (with the "(+N more)" cap, same rendering as the
+     in-flight clause in the Notes-cell composition rule) to the Reason cell. This does NOT
+     count as an IN_FLIGHT-sourced kickoff exclusion (Phase 4b skip condition / Output item 7
+     below) - the ticket was already deferred for its own Rule 1 reason; the PR mention is
+     context only, since Rule 1 deferred tickets do not reach a Notes-bearing table. -->
+
 | Ticket | Reason |
 |--------|--------|
 | X | terminal (Done) |
 | Y | external blocker outside set |
+| V | terminal (Done); in flight: open PR #440 |
 
 ## In-progress tickets
 
@@ -400,20 +421,24 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
      Ticket-rework detection above. This is the ONLY place an in-progress rework ticket's signal
      appears: in-progress removal happens before Rule 2 and Rework isolation, so it never gets a
      lane, a Per-ticket-summary badge, or a Notes-cell annotation elsewhere.
-     Notes cell provenance: a ticket whose in_progress came from the tracker column reads
-     "Excluded from kickoff prompts"; one detected via In-flight code detection (open-PR
-     evidence) reads "Excluded from kickoff prompts; in flight: open PR #<n> (+N more) -
-     detected from an open PR, not the tracker column"; one where entry.IS_REWORK is also
-     true names BOTH PRs: "Excluded from kickoff prompts; in flight: open PR #<n>; prior
-     attempt PR #<m> - verify both once back from in-progress" (see the Precedence rule in
-     In-flight code detection above). -->
+     Notes cell: composed per the Notes-cell composition rule in In-flight code detection above -
+     base clause, then an in-flight clause (when entry.IN_FLIGHT, cap-rendered), then a rework
+     clause (when entry.IS_REWORK - its wording depends on whether an in-flight clause rendered),
+     then the tracker-column qualifier (only when entry.IN_FLIGHT is true AND
+     entry.IN_PROGRESS_TRACKER is false - i.e. the tracker column genuinely did not move). The
+     rows below cover all six combinations of (tracker-moved, PR-open, rework) that reach this
+     table: Z is tracker-only; W is tracker+rework; DS-12 is PR-only (qualifier present); DS-34
+     is tracker+PR overlap (qualifier correctly OMITTED - the column DID move); DS-40 is
+     PR+rework (qualifier present); DS-41 is tracker+PR+rework (qualifier omitted). -->
 
 | Ticket | Assignee | Notes |
 |--------|----------|-------|
 | Z [IN PROGRESS] | ... | Excluded from kickoff prompts |
 | W [IN PROGRESS] [REWORK x1] | ... | Excluded from kickoff prompts; verify PR #501 once back from in-progress |
-| DS-34 [IN PROGRESS] | ... | Excluded from kickoff prompts; in flight: open PR #420 (+1 more) - detected from an open PR, not the tracker column |
-| DS-40 [IN PROGRESS] [REWORK x1] | ... | Excluded from kickoff prompts; in flight: open PR #421; prior attempt PR #388 - verify both once back from in-progress |
+| DS-12 [IN PROGRESS] | ... | Excluded from kickoff prompts; in flight: open PR #430 (+1 more); detected from an open PR, not the tracker column |
+| DS-34 [IN PROGRESS] | ... | Excluded from kickoff prompts; in flight: open PR #420 |
+| DS-40 [IN PROGRESS] [REWORK x1] | ... | Excluded from kickoff prompts; in flight: open PR #421; prior attempt PR #388 - verify both once back from in-progress; detected from an open PR, not the tracker column |
+| DS-41 [IN PROGRESS] [REWORK x1] | ... | Excluded from kickoff prompts; in flight: open PR #422; prior attempt PR #390 - verify both once back from in-progress |
 
 ## Kickoff prompts
 
@@ -445,11 +470,11 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
 
 ## Phase 4b: Skeptic review
 
-**Skip condition:** if the artifact contains zero lanes AND zero chains AND no IN_FLIGHT-sourced exclusions (e.g. all tickets are deferred or in-progress with no open-PR evidence), skip Phase 4b entirely and proceed to output.
+**Skip condition:** if the artifact contains zero lanes AND zero chains AND no IN_FLIGHT-sourced exclusions - meaning no ticket reaches the In-progress tickets table because of `entry.IN_FLIGHT` (a Rule-1-deferred ticket that also carries `entry.IN_FLIGHT` does NOT count here; it is annotated in the Deferred tickets table's Reason cell instead, per the Interaction-with-Rule-1-deferral note in In-flight code detection above) - skip Phase 4b entirely and proceed to output.
 
 Otherwise: spawn a fresh background Skeptic on the artifact with this adversarial brief:
 
-> "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented? (6) Rework annotation - was every ticket with `IS_REWORK: true` given the `[REWORK xN]` badge and a Notes-cell annotation naming the prior PR? Is it placed in a chain, never `parallel` - either its own single-ticket rework-isolated chain, or the DAG-connected chain Rule 2 already assigned it, with the in-set blocker relationship preserved first in that case? (7) In-flight provenance - was every ticket with `entry.IN_FLIGHT: true` given a Notes-cell annotation naming the causing open PR, using the dual-PR format when `entry.IS_REWORK` is also true?"
+> "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented? (6) Rework annotation - was every ticket with `IS_REWORK: true` given the `[REWORK xN]` badge and a Notes-cell annotation naming the prior PR? Is it placed in a chain, never `parallel` - either its own single-ticket rework-isolated chain, or the DAG-connected chain Rule 2 already assigned it, with the in-set blocker relationship preserved first in that case? (7) In-flight provenance - for every ticket reaching the In-progress tickets table (Notes-bearing) with `entry.IN_FLIGHT: true`, does its Notes cell render per the Notes-cell composition rule, correctly OMITTING the tracker-column qualifier whenever `entry.IN_PROGRESS_TRACKER` is also true? For every ticket Rule 1 deferred (no Notes cell in that table) that also carries `entry.IN_FLIGHT: true`, does its Reason cell in `## Deferred tickets` name the causing PR instead - see the Interaction-with-Rule-1-deferral note?"
 
 Max 3 fix passes, then escalate to the operator with open findings listed.
 
@@ -465,7 +490,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 4. A one-line summary: "N tickets triaged: M lane-assigned across K lanes, P deferred, Q in-progress."
 5. If any conflict warnings were emitted, restate the fixed caveat.
 6. If `HEURISTIC_ONLY=true`, restate the Level 1 stamp.
-7. **Zero lanes with in-flight exclusions.** When the artifact contains zero lanes AND at least one ticket was excluded by in-flight code evidence, print: `All candidate tickets are already in flight (open PRs: <keys>). No lanes to recommend. Recommended next action: review those PRs before starting new work - or re-invoke with an explicit ticket id to override.` Note the Phase 4b Skeptic does still run in this case, per the extended skip condition.
+7. **Zero lanes with in-flight exclusions.** When the artifact contains zero lanes AND zero chains AND every deferred-or-excluded ticket carries `entry.IN_FLIGHT: true` (no ticket was deferred or excluded for an unrelated reason - see the Interaction-with-Rule-1-deferral note in In-flight code detection above) AND at least one such ticket exists, print: `All candidate tickets are already in flight (open PRs: <keys>). No lanes to recommend. Recommended next action: review those PRs before starting new work - or re-invoke with an explicit ticket id to override.` If the zero-lane result arises from a MIX of in-flight and unrelated exclusions/deferrals, use the ordinary one-line summary (item 4) instead - do not claim ALL tickets are in flight when some are not. Note the Phase 4b Skeptic does still run in this case, per the extended skip condition.
 
 `[phase: ticket-triage | phase=complete]`
 
@@ -501,7 +526,9 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 | JQL returns many results | Phase 0's 50-result cap applies first (truncate + warning). Then, on the surviving set: if count >20, the HEURISTIC_ONLY gate fires (Level 1 conflict analysis only; header stamped). Both rules sequence in that order; a 60-result JQL trips both. |
 | Terminal-status ticket (Done/Cancelled) | Deferred via Rule 1 with reason "terminal". Not included in lane assignment or kickoff prompts. |
 | In-progress ticket | Carried through analysis; removed from lane assignment after Rule 1. Shown badged `[IN PROGRESS]`. Excluded from kickoff prompts. |
-| Ticket with an open PR naming its key, tracker column not moved | Badged `[IN PROGRESS]` via In-flight code detection (open-PR evidence); Notes cell states `in flight: open PR #<n>...`. Excluded from kickoff prompts, same as a tracker-sourced in-progress ticket. |
+| Ticket with an open PR naming its key, tracker column not moved | Badged `[IN PROGRESS]` via In-flight code detection (open-PR evidence); Notes cell states `in flight: open PR #<n>...; detected from an open PR, not the tracker column`. Excluded from kickoff prompts, same as a tracker-sourced in-progress ticket. |
+| Ticket with an open PR naming its key, tracker column ALSO moved (both sources true) | Badged `[IN PROGRESS]`; Notes cell renders the in-flight clause WITHOUT the "not the tracker column" qualifier (`entry.IN_PROGRESS_TRACKER` is true) - see the Notes-cell composition rule in In-flight code detection above. |
+| Ticket deferred by Rule 1 (terminal / external blocker / fetch-failed / cycle) that also has an open PR naming its key | Appears in `## Deferred tickets` with its normal Rule 1 reason. Reason cell additionally names the open PR (`; in flight: open PR #<n>`, cap-rendered). Does NOT count as an IN_FLIGHT-sourced kickoff exclusion and does NOT reach the In-progress tickets table - see the Interaction-with-Rule-1-deferral note in In-flight code detection above. |
 | No tracker configured (with explicit input) | Skip Phase 1; run Phase 2a with zero link data; run Phase 2b Level 1 with zero component/label data; print notice. |
 | Ticket with `IS_REWORK: true`, no in-set DAG edge | Badged `[REWORK xN]`. Given its own single-ticket chain lane by Rework isolation (never `parallel`). NOT deferred, NOT excluded from kickoff. Notes cell names the prior PR. Runs identically at `TRACKER=none` - detection is tracker-independent. |
 | Ticket with `IS_REWORK: true` AND an in-set DAG edge (blocks or is blocked by another surviving ticket) | Badged `[REWORK xN]`. Consumed by Rule 2, not Rework isolation - stays in its topo-sorted chain (Type `chain`, never `parallel`) so the dependency edge is preserved. Notes cell leads with the in-set blocker relationship, then the rework annotation (e.g. `blocked by F; rework x1 - ...`). |
