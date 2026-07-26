@@ -2,8 +2,18 @@
 /**
  * Regression test: a legacy loop-state.json (status:"active", NO session_id
  * field, last_updated already stale by more than 10 minutes) must NEVER have
- * its last_updated refreshed by refreshLiveness, no matter how many turns
- * fire the per-turn cadence with an unrelated session id.
+ * its last_updated refreshed, no matter how many turns fire the per-turn
+ * cadence with an unrelated session id.
+ *
+ * This spawns the REAL hooks/stop-context.js CLI with --cadence=turn three
+ * times (not hooks/lib/state-mark.js directly) - a Skeptic finding on the
+ * original direct-lib version noted that calling refreshLiveness() in-process
+ * exercises the lib but NOT stop-context.js's own --cadence parsing/dispatch
+ * ternary, so an inverted or defaulted dispatch in stop-context.js itself
+ * would still pass a lib-only version of this test. See
+ * hooks/tests/test-stop-context-cadence.js for the sibling CLI-level cases
+ * (flagless fallback, --cadence=bogus fallback, matching-session positive
+ * control).
  *
  * This is the exact Round-1 Critical scenario: a legacy or unowned
  * loop-state.json present in every consumer repo on day one, refreshed every
@@ -18,8 +28,13 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execSync } = require('child_process');
 
-const stateMark = require(path.resolve(__dirname, '..', 'lib', 'state-mark.js'));
+const hookScript = path.resolve(__dirname, '..', 'stop-context.js');
+if (!fs.existsSync(hookScript)) {
+  console.error(`FAIL: hook not found at ${hookScript}`);
+  process.exit(1);
+}
 
 let passed = 0;
 let failed = 0;
@@ -34,8 +49,32 @@ function assert(condition, message) {
   }
 }
 
+/**
+ * Spawn the real stop-context.js CLI with --cadence=turn against fakeHome,
+ * feeding sessionId as the payload's session_id. stdio's stderr is ignored to
+ * silence stray git noise ("fatal: not a git repository") in a non-git tmp
+ * dir, matching the convention used by the sibling stop-context tests.
+ */
+function runHookCadenceTurn(projectDir, fakeHome, sessionId) {
+  const payload = JSON.stringify({
+    cwd: projectDir,
+    session_id: sessionId,
+    transcript: [],
+  });
+  execSync(`node "${hookScript}" --cadence=turn`, {
+    input: payload,
+    encoding: 'utf8',
+    env: { ...process.env, HOME: fakeHome },
+    timeout: 10000,
+    stdio: ['pipe', 'pipe', 'ignore'],
+  });
+}
+
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ae-state-mark-legacy-'));
-const agenticDir = path.join(tmpDir, '.agentic');
+const fakeHome = path.join(tmpDir, 'home');
+const projectDir = path.join(tmpDir, 'project');
+const agenticDir = path.join(projectDir, '.agentic');
+fs.mkdirSync(fakeHome, { recursive: true });
 fs.mkdirSync(agenticDir, { recursive: true });
 const loopStatePath = path.join(agenticDir, 'loop-state.json');
 
@@ -47,9 +86,14 @@ fs.writeFileSync(loopStatePath, JSON.stringify({
   last_updated: STALE_TIMESTAMP,
 }, null, 2));
 
-console.log('Invoking refreshLiveness 3x with an unrelated sessionId ("some-other-session")');
+console.log('Invoking the real stop-context.js CLI 3x with --cadence=turn and an unrelated sessionId ("some-other-session")');
 for (let i = 1; i <= 3; i++) {
-  stateMark.refreshLiveness(tmpDir, 'some-other-session');
+  try {
+    runHookCadenceTurn(projectDir, fakeHome, 'some-other-session');
+  } catch (err) {
+    assert(false, `invocation ${i}: hook must not throw (got: ${err.message})`);
+    continue;
+  }
   const state = JSON.parse(fs.readFileSync(loopStatePath, 'utf8'));
   assert(state.last_updated === STALE_TIMESTAMP,
     `after invocation ${i}: last_updated unchanged (got: ${state.last_updated})`);

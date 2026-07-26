@@ -20,7 +20,7 @@
  *          no identity also appends a one-time nudge to context.md. Runs a
  *          capture-gap backstop that detects learning-worthy sessions with no
  *          captured learnings and appends a nudge to context.md. ALWAYS creates
- *          [cwd]/.agentic/events.jsonl on every session exit (zero-aggregate
+ *          [cwd]/.agentic/events.jsonl on every TURN (zero-aggregate
  *          fallback) so the telemetry substrate is present even in ad-hoc sessions
  *          that produce no conductor spawn_complete events.
  *
@@ -574,7 +574,7 @@ function writeSessionTotal(cwd, sessionId, cachedRaw) {
     // ad-hoc sessions where no other hook has created the directory yet.
     fs.mkdirSync(agenticDir, { recursive: true });
     // Bootstrap: when no qualifying events exist, write a zero-aggregate
-    // session_total so events.jsonl is ALWAYS created on every session exit.
+    // session_total so events.jsonl is ALWAYS created on every TURN.
     const agg = scanSessionAggregate(eventsPath, sessionId, cachedRaw) || {
       wall_seconds: 0,
       tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
