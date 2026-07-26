@@ -450,7 +450,7 @@ For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` (sole writer
 
 `.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /ds-wrap completion, finding fix). The file is gitignored.
 
-**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a single `session_total` event at session exit; this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, loop-state.json by conductor + Stop hook).
+**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a `session_total` event on every TURN (not just at session exit); this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, loop-state.json by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
 
 **Schema** (one JSON object per line):
 - `ts`: ISO8601 UTC timestamp (required)
@@ -2263,12 +2263,13 @@ boundary is transparent to the Skeptic/QA layer.
 Purpose: Full reference for cross-session loop resume mechanics extracted
          from content/sections/07-cross-session-loop-resume.md. Contains:
          loop-state.json disk-write discipline (atomic tmp+rename at every
-         phase transition); resume check on session start; Stop hook
+         phase transition); resume check on session start; the Stop hook's
+         per-turn liveness refresh vs the SessionEnd hook's terminal
          interrupted-status write; resumable phases (automatic and with
          human confirmation); restart-required phases; full Skeptic re-run
          on interruption; Brief/Plan path recording; file hygiene; and
-         batch-state coexistence (session_id gate, Stop hook mirror, N>=2
-         invocation guard).
+         batch-state coexistence (session_id gate, Stop hook/SessionEnd hook
+         mirror, N>=2 invocation guard).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/07-cross-session-loop-resume.md (parent
@@ -2277,19 +2278,25 @@ Public API: Read-only reference document. Cross-referenced from:
 
 Upstream deps: content/sections/07-cross-session-loop-resume.md (parent
                section); /ds-implement-ticket Phase 6 loop initialization
-               (writes loop-state.json); hooks/stop-context.js (Stop hook
-               that writes interrupted status and batch-state mirror).
+               (writes loop-state.json); hooks/stop-context.js (the Stop
+               hook - per-turn liveness refresh only via
+               hooks/lib/state-mark.js's refreshLiveness) and
+               hooks/session-end-wrap.js (the SessionEnd hook - once-per-
+               session terminal interrupted-status write and batch-state
+               mirror via markInterrupted).
 
 Downstream consumers: conductor (/ds-implement-ticket resume check at session
-                      start); Stop hook (interrupted-status write); any
-                      session that may resume a prior implement-ticket run.
+                      start); the Stop hook (per-turn liveness refresh) and
+                      the SessionEnd hook (terminal interrupted-status
+                      write); any session that may resume a prior
+                      implement-ticket run.
 
 Failure modes: loop-state.json is gitignored and must not be committed.
-               Silent Stop hook failure is acceptable - the 10-minute
-               implicit-interrupt heuristic handles missed writes. Batch-
-               state per-write session_id gate prevents orphan-session
-               corruption; EWOULDBLOCK on the scaffolding lock is silently
-               skipped.
+               Silent Stop hook / SessionEnd hook failure is acceptable -
+               the 10-minute implicit-interrupt heuristic handles missed
+               writes. Batch-state per-write session_id gate prevents
+               orphan-session corruption; EWOULDBLOCK on the scaffolding
+               lock is silently skipped.
 
 Performance: Standard (local filesystem reads/writes; no network).
 -->
@@ -2298,13 +2305,13 @@ Performance: Standard (local filesystem reads/writes; no network).
 
 ## Cross-session loop resume
 
-Long-running `/ds-implement-ticket` loops can survive rate limits and session exits via `.agentic/loop-state.json`:
+Long-running `/ds-implement-ticket` loops can survive rate limits and session exits via `.agentic/loop-state.json`: <!-- gate-reviewed: still true - the interrupted-mark now lives on the SessionEnd hook rather than the Stop hook, but the survival property this sentence asserts is unchanged -->
 
 - **Disk writes at every phase transition.** The conductor writes `.agentic/loop-state.json` (atomic: tmp+rename) at initialization and at every phase transition (Skeptic spawn, Skeptic return, Engineer spawn, Engineer return, QA spawn, QA return, quality gate steps). The `last_phase` and `last_phase_action` fields are the authoritative resume keys.
 
 - **Resume check on session start.** When `/ds-implement-ticket` is invoked, it checks for `.agentic/loop-state.json` before reading AGENTS.md. If `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start. See `/ds-implement-ticket` Resume check section for the full protocol.
 
-- **Stop hook writes interrupted status.** The Stop hook writes `status: "interrupted"` to `.agentic/loop-state.json` on session exit if the file exists and `status == "active"`. Silent failure is acceptable - the 10-minute implicit-interrupt heuristic handles missed writes.
+- **Stop hook refreshes liveness; SessionEnd hook writes interrupted status.** The Stop hook (`hooks/stop-context.js`, wired with `--cadence=turn`) fires once per TURN and only refreshes `.agentic/loop-state.json`'s `last_updated` liveness timestamp (via `hooks/lib/state-mark.js`'s `refreshLiveness`) when the file is `status=active` and positively owned by the current session - it never sets `status: "interrupted"`. The SessionEnd hook (`hooks/session-end-wrap.js`, once per session) writes `status: "interrupted"` on a terminal session-end reason via the same lib's `markInterrupted`, if the file exists and `status == "active"`. Silent failure on either hook is acceptable - the 10-minute implicit-interrupt heuristic handles missed writes.
 
 - **Resumable phases (automatic):** Phase 6/6b Skeptic/QA loop at iteration boundaries (committed Engineer output, clean branch); Phase 7 quality gate when engineer committed (`engineer_returned` / `rerun_pending`).
 
@@ -2318,7 +2325,7 @@ Long-running `/ds-implement-ticket` loops can survive rate limits and session ex
 
 - **File hygiene:** `.agentic/loop-state.json` must not be committed to git (gitignored). It is set to `status: "complete"` or deleted after the PR is opened.
 
-- **Batch-state coexistence.** When `/ds-implement-ticket` is invoked with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor (which tickets are pending, in-progress, complete, blocked) alongside `loop-state.json`'s per-ticket phase cursor. Both files carry a `session_id` field written on every conductor write; every write applies a per-write gate that aborts (with an operator-visible warning) if the file's existing `session_id` belongs to a different session whose `last_updated` is within 10 min, OR if the existing `session_id` is null/absent (legacy state from a prior version is force-takeover-eligible). This prevents orphan-session corruption uniformly across both files. The Stop hook mirrors its `loop-state.json` interrupted-mark write to `batch-state.json` via the same best-effort silent-fail discipline. Single-ticket Trivial invocations never create `batch-state.json` and remain bit-for-bit unchanged. Only one batch per project root is supported; a second concurrent N≥2 invocation is refused at Phase 0a-pre. N=1 invocations against an active foreign batch warn but do not refuse.
+- **Batch-state coexistence.** When `/ds-implement-ticket` is invoked with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor (which tickets are pending, in-progress, complete, blocked) alongside `loop-state.json`'s per-ticket phase cursor. Both files carry a `session_id` field written on every conductor write; every write applies a per-write gate that aborts (with an operator-visible warning) if the file's existing `session_id` belongs to a different session whose `last_updated` is within 10 min, OR if the existing `session_id` is null/absent (legacy state from a prior version is force-takeover-eligible - see the self-ownership carve-out in `/ds-implement-ticket` Contract A step 3 for the one exception, when the CURRENT session's own id is also null). This prevents orphan-session corruption uniformly across both files. The SessionEnd hook mirrors its `loop-state.json` terminal interrupted-mark write to `batch-state.json` via the same best-effort silent-fail discipline (the Stop hook's separate per-turn liveness refresh mirrors similarly, updating `updated_at` instead of setting `status`). Single-ticket Trivial invocations never create `batch-state.json` and remain bit-for-bit unchanged. Only one batch per project root is supported; a second concurrent N≥2 invocation is refused at Phase 0a-pre. N=1 invocations against an active foreign batch warn but do not refuse.
 
 ---
 
@@ -2731,8 +2738,11 @@ Upstream deps: content/sections/09-events-log.md (parent section; read that
 
 Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       tool_failure_workaround payloads at orchestration boundaries);
-                      Stop hook (constructs session_total payload at session exit AND
-                      writes per-developer session log to .agentic/session-log/);
+                      the Stop hook (constructs a session_total payload on EVERY
+                      turn - not just at session exit; see hooks/session-end-wrap.js,
+                      the SessionEnd hook, for the once-per-session terminal
+                      loop-state/batch-state mark - AND writes per-developer session
+                      log to .agentic/session-log/);
                       /ds-wrap command (reads events.jsonl for structural session skeleton);
                       bin/agentic-cost team (reads .agentic/session-log/ for team rollup).
 
@@ -2757,10 +2767,10 @@ Performance: Standard.
   - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
 - `conductor_direct`: **[DEPRECATED - no longer emitted; hook-emitted `spawn_start` (data.source:"hook") now provides ad-hoc spawn telemetry]** _(Historical reference only.)_ Was emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carried `wall_seconds`, a `note`, and `session_uuid`; tokens were zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
-- `session_total`: emitted exactly once per session by the Stop hook. `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
+- `session_total`: emitted by the Stop hook on EVERY turn (this is a pre-existing property, not introduced by the Stop hook's `--cadence=turn` loop-state/batch-state split described in `hooks/lib/state-mark.js` and the SessionEnd hook `hooks/session-end-wrap.js` - `writeSessionTotal` has always run on every Stop invocation; "once per session" was a prior inaccuracy in this doc, corrected here). `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
 - `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
 
-**`session_uuid` field (conductor-emitted events).** The four active conductor-emitted event types above (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`. This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` at session exit. **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
+**`session_uuid` field (conductor-emitted events).** The four active conductor-emitted event types above (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`. This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` on every turn (the Stop hook fires once per turn, not once per session). **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
 
 ## Append discipline
 
@@ -5742,7 +5752,7 @@ Exits are non-negotiable. The loop MUST stop when any of these fire:
 4. Hard blocker: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Return BLOCKED.
 5. **Cap exhaustion (mandatory, no default).** The operator MUST declare `max_iterations` (positive integer) and `max_wallclock_min` (positive integer) at `goal_mode=open_goal` invocation time; an optional `dry_run` boolean (default `false`) may also be declared. Neither cap field has a default - an invocation missing either is refused before Phase 1 with the verbatim message: `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` The loop exits with `termination_reason: cap_reached_iterations` or `cap_reached_wallclock` when EITHER (a) `batch-state.json.open_goal.iteration` reaches `max_iterations`, or (b) wallclock elapsed since `batch-state.json.wallclock_started_at` reaches `max_wallclock_min`. **The outer-loop cursor lives in `batch-state.json`, not `loop-state.json` - `loop-state.json` is cleared every iteration by Phase 12 and cannot hold cross-iteration state.** This cap sits above rules 2-3 (which bound Skeptic/QA fix-passes INSIDE a single iteration).
 
-State is written to `loop-state.json` at every phase transition. On interruption or session exit, `status: "interrupted"` is written and the loop can resume per `content/sections/07-cross-session-loop-resume.md`.
+State is written to `loop-state.json` at every phase transition. On a genuine session-terminal exit, the SessionEnd hook (`hooks/session-end-wrap.js`, once per session) writes `status: "interrupted"`; the Stop hook (once per TURN) only refreshes a liveness timestamp and never sets this value. The loop can resume per `content/sections/07-cross-session-loop-resume.md`.
 
 ## Risk and review discipline
 
@@ -7812,8 +7822,8 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook)
-- `.agentic/batch-state.json` (conductor + Stop hook)
+- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `MEMORY.md` (owned by wrap-ticket and /ds-wrap)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
 - `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
@@ -8064,8 +8074,8 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook)
-- `.agentic/batch-state.json` (conductor + Stop hook)
+- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
 - `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
@@ -10493,8 +10503,8 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook)
-- `.agentic/batch-state.json` (conductor + Stop hook)
+- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
 
@@ -12196,9 +12206,15 @@ Before every conductor write to either file:
    WARNING: write to .agentic/<file> aborted - another session (session_id=<X>, last_updated=<Y>) appears to own this file. Identify the live session via .agentic/*.json last_updated. Resolve manually (kill the other session, or remove the file) and retry.
    ```
 3. If the file exists and its `session_id` is null/missing/empty (legacy state from a prior version): treat as mismatch — force-takeover-eligible. Operator may resolve via the Phase 0a-pre force-takeover prompt or by manually removing the file. The same WARNING above is printed.
-4. Otherwise (no file, matching `session_id`, or stale > 10 min): proceed with the write. Set `session_id` to the current session's id and update `updated_at` in the new payload.
 
-Both readers and writers tolerate absence of `session_id` for back-compat with state files written by prior versions; absence is treated as mismatch for write-gating but not for read-only resume prompts (those follow the Phase 0a-pre decision table).
+   **Self-ownership carve-out.** Step 3 applies only when the CURRENT session has a non-empty `session_id` of its own. When the current session's `session_id` is itself null - a harness that has declared it cannot produce an id in the same namespace as its session-exit hook payload - a null/missing/empty `session_id` on disk is **self-owned**: proceed with the write, print nothing, and leave the field null. Rationale: two nulls on such a harness are indistinguishable by construction, so treating them as a mismatch produces a guaranteed false warning on every transition rather than catching a real collision.
+4. Otherwise (no file, matching `session_id`, or stale > 10 min): proceed with the write. Set `session_id` to the current session's id and update the file's liveness-timestamp field in the new payload - the two files use different field names for this same timestamp: `last_updated` for `loop-state.json`, `updated_at` for `batch-state.json`.
+
+**Known separate defect (DS-96, out of scope here):** `batch-state.json` has its own pre-existing read/write field mismatch - every staleness reader in this doc checks `last_updated`, but every conductor writer sets `updated_at`. This means Contract A's and Contract C's 10-minute `batch-state.json` staleness gates are effectively inert and fail OPEN today (they always read an absent/stale `last_updated` and treat the file as stale, regardless of how recently it was actually written). This is a distinct, pre-existing defect from the cadence split in this unit - it is not fixed here and this note exists so it is not mistakenly read as blessed by the surrounding per-file mapping language above.
+
+Both readers and writers tolerate absence of `session_id` for back-compat with state files written by prior versions; absence is treated as mismatch for write-gating - unless the current session's own `session_id` is also null, per the self-ownership carve-out above - but not for read-only resume prompts (those follow the Phase 0a-pre decision table). This is now 5-way logic once the self-ownership carve-out is counted alongside steps 1-4 (see the two prose sites below that still say "4-way" - corrected in this pass).
+
+The hook-side writes (`hooks/lib/state-mark.js`, used by `hooks/stop-context.js` and `hooks/session-end-wrap.js`) apply an intentionally ASYMMETRIC ownership predicate that differs from this conductor-side Contract A: the per-turn liveness refresh requires a POSITIVE `session_id` match (absent/null/empty/differing all skip), while the terminal interrupted-mark proceeds unless the on-disk `session_id` is a POSITIVELY differing non-empty string (absent/null/empty proceeds). See `hooks/lib/state-mark.js`'s module manifest for the full rationale - a false-positive liveness refresh on an unowned file is much worse than a redundant true interrupted-mark.
 
 **Contract B — `replan_log[]` read-merge-write preservation (applies to `batch-state.json`).**
 
@@ -12228,9 +12244,15 @@ NOTE: a batch session is active for this project root (session_id=<X>, last_upda
 
 On `no`: abort. On `yes`: proceed with the single-ticket flow. This is the only single-entry interaction with `batch-state.json`.
 
-**Contract D — Stop hook mirror.**
+**Contract D — Stop hook / SessionEnd hook mirror.**
 
-The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupted-mark write to `batch-state.json` via the helper `writeBatchState(cwd, sessionId)`. The mirror applies an ownership check: if the file's `session_id` is a non-empty string and does not match the Stop hook's session uuid, the write is aborted silently (the hook does not steal another session's batch state). Best-effort silent-fail throughout. The mirror sets `status=interrupted`, `interrupted_at=now`, `interrupt_reason="unknown"`, `updated_at=now`; all other fields including `last_updated_phase`, `tickets[]`, and `replan_log[]` are preserved.
+The Claude Code Stop hook (`hooks/stop-context.js`) fires once per TURN, not once per session. It no longer marks `loop-state.json`/`batch-state.json` interrupted on every turn. Instead it is wired with `--cadence=turn`, which dispatches to `hooks/lib/state-mark.js`'s `refreshLiveness(cwd, sessionId)`: a per-turn liveness-only touch that updates `last_updated` (`loop-state.json`) or `updated_at` (`batch-state.json`) ONLY when the file is `status=active` AND its on-disk `session_id` is a non-empty string EQUAL to the current session's id (POSITIVE match required - absent/null/empty/differing all skip). It never sets `status=interrupted`.
+
+The terminal interrupted-mark now lives on `hooks/session-end-wrap.js` (the SessionEnd hook, which fires once per session). On a terminal reason (`clear`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled`, `other` - `resume` is excluded), it calls `hooks/lib/state-mark.js`'s `markInterrupted(cwd, sessionId)`, which mirrors the ownership check across both files: if the file's `session_id` is a non-empty string and does not match the current session's uuid, the write is aborted silently (the hook does not steal another session's state); absent/null/empty `session_id` on disk PROCEEDS (opposite polarity from `refreshLiveness` - see `hooks/lib/state-mark.js`'s module manifest for why). Best-effort silent-fail throughout, gated per file. The mirror sets `status=interrupted`, `interrupted_at=now`, `interrupt_reason="unknown"` on both files, plus `updated_at=now` on `batch-state.json` only (`loop-state.json`'s `last_updated` is deliberately NOT touched by the terminal mark - see below); all other fields including `last_updated_phase`, `tickets[]`, and `replan_log[]` are preserved.
+
+`--cadence=session` (or an absent/unrecognized flag) is `hooks/stop-context.js`'s fallback dispatch, preserved so callers that invoke the script directly without the flag (e.g. Pi's `session_shutdown`) keep their pre-existing once-per-invocation interrupted-mark behavior.
+
+**Why `loop-state.json`'s `last_updated` is never touched by the terminal mark:** the Resume check above branches on `last_updated` staleness with no `status` exemption. Writing `last_updated` on the terminal interrupted-mark would make a freshly-interrupted loop look "recently live" to a resuming session for the full 10-minute staleness window, offering a resume it cannot actually execute. `interrupted_at` already timestamps the terminal event, which is sufficient.
 
 ---
 
@@ -12286,7 +12308,7 @@ The Stop hook (`hooks/stop-context.js`) mirrors its `loop-state.json` interrupte
 - `batch_id`: stable identifier for the batch. Format `<prefix>-batch-<ISO8601>-<4hex>` where `<prefix>` is the first ticket's `TICKET_PREFIX` (used when tickets span multiple prefixes; the first ticket wins).
 - `status`: enum `active | paused | interrupted | complete | stalled`.
 - `mode`: enum `"batch" | "open_goal" | "single_ticket_capped"`. Absent = `"batch"` (100% back-compat). `"open_goal"` is set by Phase 0a-open-goal's Fresh init; `"single_ticket_capped"` is set by the Phase 0a-pre single-ticket wallclock carve-out - the ONLY N=1 path that creates `batch-state.json`.
-- `interrupt_reason`: enum `unknown | null` — only `unknown` is a writable value (other values reserved for future writers; the Stop hook cannot distinguish rate-limit vs crash at hook time).
+- `interrupt_reason`: enum `unknown | null` — only `unknown` is a writable value (other values reserved for future writers; the terminal-mark writer - the SessionEnd hook's `markInterrupted`, not the per-turn Stop hook - cannot distinguish rate-limit vs crash at hook time).
 - `pause_reason`: enum `stale_pace | operator_pause | wallclock_cap | open_goal_iteration_cap | null` - these four values match the four Phase 12a triggers. NOTE: `paused_stale_pace` / `paused_operator_request` / `cap_reached_wallclock` / `cap_reached_iterations` / `goal_met` / `blocked` are `open_goal.termination_reason` values, NOT `pause_reason` values - deliberately avoiding a dual-enum collision. Only `open_goal_iteration_cap` was added to `pause_reason`; triggers 1-3 keep their existing `pause_reason` values `stale_pace` / `operator_pause` / `wallclock_cap`.
 - `wallclock_started_at`: set once at Phase 0a init; preserved across resume. The wallclock cap is per-batch lifetime, not per-session.
 - `wallclock_cap_min`: integer minutes. Default `90`. Overridable via env `AGENTIC_BATCH_MAX_WALLCLOCK_MIN`.
@@ -12308,7 +12330,7 @@ Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state.json
 - If "fresh": delete the file. Proceed normally from Setup below.
 - If "resume": apply wait strategy (see below), then jump to the resume entry point determined by `last_phase` / `last_phase_action` per the table below.
 
-**If the file exists and `status == "active"` with `last_updated` more than 10 minutes ago:** treat as implicitly interrupted (the Stop hook may not have fired). Print: "Found an active loop state last written [elapsed] ago — treating as interrupted." Then follow the "interrupted" path above.
+**If the file exists and `status == "active"` with `last_updated` more than 10 minutes ago:** treat as implicitly interrupted (the SessionEnd hook's terminal `markInterrupted` write may not have fired - e.g. a hard kill with no clean session end - and the Stop hook's own `--cadence=turn` write only refreshes `last_updated` liveness, never `status`). Print: "Found an active loop state last written [elapsed] ago — treating as interrupted." Then follow the "interrupted" path above.
 
 **If the file exists and `status == "complete"` or `"stalled"`:**
 - Print: "A completed/stalled loop state file exists for ticket [ticket_id]. Clearing it."
@@ -12665,16 +12687,17 @@ Read `.agentic/batch-state.json` if present.
 
   **B. `termination_reason == null` (7th bucket; sub-partitioned on `status`, exhaustively):**
   - `status` in `{paused, interrupted}` → RESUMABLE.
-  - `status == "active"` → apply Contract A's existing per-write `session_id`-mismatch determination to this READ (same 4-way logic Contract A uses to gate every `batch-state.json` WRITE, applied here as read-time classification):
+  - `status == "active"` → apply Contract A's existing per-write `session_id`-mismatch determination to this READ (same 5-way logic Contract A uses to gate every `batch-state.json` WRITE - including the self-ownership carve-out - applied here as read-time classification):
     - `session_id` non-empty and matches current session → RESUMABLE (same-session continuation; covers crash-mid-advance re-invoked same session).
     - `session_id` non-empty, differs, AND `last_updated` older than 10 min → RESUMABLE, treated as implicitly interrupted (mirrors Phase 0a-pre "status=active AND last_updated>10min → implicit interrupt"). Covers crash-mid-advance surviving into a later session.
     - `session_id` non-empty, differs, AND `last_updated` within last 10 min → REFUSE, verbatim Contract C message: `"Another batch session is active for this project root (session_id=<X>, last_updated=<Y>). Wait for it to finish, or kill it and re-invoke."` Exit. (live-foreign-session; closes the null+active Contract-C bypass.)
-    - `session_id` null/absent (legacy) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` `yes` → RESUMABLE; `no` → exit/wait.
+    - `session_id` null/absent AND the CURRENT session's own id is ALSO null (self-ownership carve-out - see Contract A step 3) → RESUMABLE (self-owned, same as the matching-session row above; no force-takeover prompt - on a harness that cannot produce a matching session id, two nulls are indistinguishable by construction).
+    - `session_id` null/absent AND the CURRENT session HAS its own non-null id (i.e. the self-ownership carve-out row above does NOT apply) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` `yes` → RESUMABLE; `no` → exit/wait. (This is a READ-time classification of the ON-DISK file's null/absent id, distinct from but complementary to Contract A's WRITE-time self-ownership carve-out.)
   - `status == "complete"` → TERMINAL, fresh ONLY (safe default; unexpected/legacy combo).
   - `status == "stalled"` → TERMINAL, fresh ONLY (same rationale).
   - any other/unrecognized `status` → TERMINAL, fresh ONLY (safe default).
 
-**Completeness statement:** every `(termination_reason, status)` pair lands in exactly one of {Fresh init, RESUMABLE, raise-caps-or-fresh (terminal-cap bucket), refuse}. Bucket A resolves 6 of 7 `termination_reason` values without consulting `status`. Bucket B exhaustively covers the 7th value (`null`) across all 5 named `status` enum values + explicit catch-all; `status==active` within bucket B is itself exhaustively partitioned by Contract A's 4-way `session_id`/staleness logic. No pair unclassified.
+**Completeness statement:** every `(termination_reason, status)` pair lands in exactly one of {Fresh init, RESUMABLE, raise-caps-or-fresh (terminal-cap bucket), refuse}. Bucket A resolves 6 of 7 `termination_reason` values without consulting `status`. Bucket B exhaustively covers the 7th value (`null`) across all 5 named `status` enum values + explicit catch-all; `status==active` within bucket B is itself exhaustively partitioned by Contract A's 5-way `session_id`/staleness logic (including the self-ownership carve-out). No pair unclassified.
 
 - On fresh (any TERMINAL branch): delete `batch-state.json` → Fresh init. (force-takeover "no" exits/waits, does NOT go fresh.)
 - On raise-caps: refuse unless declared `max_iterations`/`max_wallclock_min` strictly greater than on-disk: `"raise-caps requires re-invoking with max_iterations and/or max_wallclock_min set higher than the existing values (current: max_iterations=<X>, max_wallclock_min=<Y>). Re-invoke with a higher value, or choose fresh."` On success: Contract A write (update, NO Contract C - update not create) setting raised cap(s), `termination_reason:null`, `status:"active"` → Advance to next iteration (idempotency-checked).
@@ -12731,7 +12754,8 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 | `status=interrupted` | Print: `"Batch interrupted (reason: [interrupt_reason]). N completed, M pending/blocked."` Prompt: `resume / fresh`. On `fresh`: delete file and fall through. On `resume`: apply re-plan migration and pick next pending ticket. |
 | `status=active` AND `last_updated > 10 min` ago | Treat as implicit interrupt. Same prompt as `interrupted` row. |
 | `status=active` AND `last_updated ≤ 10 min` AND `session_id` matches current | Silent re-entry resume (rare; e.g. `/ds-implement-ticket` re-invoked within the same session). Pick next pending ticket from `tickets[]`. |
-| `status=active` AND `last_updated ≤ 10 min` AND (`session_id` differs OR `session_id` is null/absent) | If Phase 0 produced ≥ 2 entries: refuse with the verbatim Contract C message. If Phase 0 produced exactly 1 entry: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre runs only when Phase 0 produced ≥ 2 entries). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` and require explicit operator confirmation. |
+| `status=active` AND `last_updated ≤ 10 min` AND `session_id` is null/absent AND the CURRENT session's own id is ALSO null (self-ownership carve-out - see Contract A step 3) | Treat as self-owned: same as the row above (silent re-entry resume). Do NOT force-takeover-prompt or refuse - on a harness that cannot produce a matching session id, two nulls are indistinguishable by construction, so this is the only branch that lets such a harness resume its own batch at all. |
+| `status=active` AND `last_updated ≤ 10 min` AND (`session_id` differs OR (`session_id` is null/absent AND the CURRENT session HAS its own non-null id, i.e. the self-ownership carve-out row above does NOT apply)) | If Phase 0 produced ≥ 2 entries: refuse with the verbatim Contract C message. If Phase 0 produced exactly 1 entry: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre runs only when Phase 0 produced ≥ 2 entries). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, last_updated=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` and require explicit operator confirmation. |
 | Parse failure | Print warning. Prompt: `delete-and-fresh / abort`. On `abort`: exit. On `delete-and-fresh`: delete file and fall through. |
 | Inconsistent pair (`batch-state.json` says `active`, `loop-state.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. |
 
@@ -13574,6 +13598,7 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
   "repo": "<string>",
   "base_branch": "<string>",
   "status": "active",
+  "last_updated": "<ISO8601>",
   "interrupted_at": null,
   "interrupt_reason": null,
   "last_phase": "skeptic",
@@ -13592,12 +13617,13 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 ```
 
 **Field notes:**
-- `session_id` is the conductor session uuid. Every conductor write to `loop-state.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
+- `session_id` is the conductor session uuid - specifically **`$CLAUDE_CODE_SESSION_ID`** (the same value `content/references/events-log.md` binds MUST-equal to the Stop hook's `payload.session_id`), and explicitly **NOT** the `<ISO-date>-<4hex>` id form used for `tasks.jsonl` entries. Every conductor write to `loop-state.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. A harness that cannot produce an id matching this namespace MUST write `session_id: null` rather than synthesizing a value in the wrong namespace (see Contract A's self-ownership carve-out for how writers and readers treat a null value on such a harness). Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
+- `last_updated` is the per-turn liveness timestamp written ONLY by `hooks/lib/state-mark.js`'s `refreshLiveness` (via the Stop hook's `--cadence=turn` dispatch) or by the conductor's own Contract A writes; it is never written by the terminal interrupted-mark (`markInterrupted`, on the SessionEnd hook `hooks/session-end-wrap.js`). `batch-state.json`'s equivalent field is named `updated_at`, not `last_updated` - readers falling back to the wrong file's field name will silently see a stale/absent value; treat `updated_at` as an accepted reader fallback only on `batch-state.json`, never on `loop-state.json`.
 - `loop_state.tier` is written at loop initialization from the conductor's declared tier for the Skeptic spawn (default 2, per the existing tier-declaration prose). Readers treat an ABSENT `tier` key (pre-DS-87 state files) as `"2 (default, undeclared)"` - the same back-compat pattern used for `session_id` above.
 - `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
 - `last_engineer_summary` must be written verbatim to disk when an Engineer returns, capped at 2000 characters if longer. This allows resume to reconstruct the brief for the next Skeptic spawn.
-- `status` values: `"active"` (loop running), `"interrupted"` (Stop hook or crash), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
+- `status` values: `"active"` (loop running), `"interrupted"` (SessionEnd hook or crash - see Contract D; the Stop hook only refreshes `last_updated` liveness on `--cadence=turn` and never sets this value), `"complete"` (loop exited cleanly), `"stalled"` (cap_reached/convergence_failure/blocked escalation).
 
 **Write triggers for Phase 6 Skeptic loop (overwrite using atomic write at each transition):**
 - At loop initialization (before first Skeptic spawn): `last_phase=skeptic`, `last_phase_action=spawned`. The conductor also records its declared tier for this Skeptic spawn into `loop_state.tier` at this same write.
@@ -15097,7 +15123,7 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 
 **On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
-> Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the Stop hook on session-exit crash. These are two distinct paths; `last_summary` is only populated on graceful pause (the Stop hook cannot synthesize it).
+> Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the SessionEnd hook (`hooks/session-end-wrap.js`, once per session, on a terminal reason) or on crash - see Contract D. These are two distinct paths; `last_summary` is only populated on graceful pause (the SessionEnd hook cannot synthesize it).
 
 ---
 
@@ -16213,7 +16239,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 !.agentic/learnings.md
 ```
 
-The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6 and the Stop hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
+The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
 
 ### 10. Create `docs/` structure
 
@@ -19569,7 +19595,7 @@ Relay confirmation to the user. Include all paths written (context.md, memory.md
 
 Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
 
-**Final reminder:** After `/ds-wrap` completes, close the session cleanly so the Stop hook can finish writing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting.
+**Final reminder:** After `/ds-wrap` completes, close the session cleanly so the Stop hook can finish writing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting. <!-- gate-reviewed: about context.md, unaffected by the loop-state/batch-state cadence split -->
 
 ---
 

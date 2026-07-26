@@ -207,9 +207,9 @@ QA spawn       ->  write loop-state.json (last_phase=qa, action=spawned)
 QA return      ->  write loop-state.json (last_phase=qa, action=returned)
 ```
 
-`last_phase` and `last_phase_action` are the authoritative resume keys. When the Stop hook fires on session exit, it writes `status: "interrupted"` if the file exists and `status == "active"`.
+`last_phase` and `last_phase_action` are the authoritative resume keys. The Stop hook fires once per **turn** and only refreshes a `last_updated` liveness timestamp; on a genuine terminal session end, the **SessionEnd hook** writes `status: "interrupted"` if the file exists and `status == "active"`.
 
-- Silent Stop hook failure is acceptable - the **10-minute implicit-interrupt heuristic** handles missed writes: any `status == "active"` file with `last_updated` more than 10 minutes old is treated as interrupted
+- Silent Stop hook / SessionEnd hook failure is acceptable - the **10-minute implicit-interrupt heuristic** handles missed writes: any `status == "active"` file with `last_updated` more than 10 minutes old is treated as interrupted
 
 ---
 
@@ -289,7 +289,7 @@ This prevents orphan-session corruption uniformly across both files.
 - Single-ticket Trivial invocations never create `batch-state.json`
 
 <div class="callout">
-The Stop hook mirrors its <code>loop-state.json</code> interrupted-mark write to <code>batch-state.json</code> via the same best-effort silent-fail discipline.
+The SessionEnd hook mirrors its <code>loop-state.json</code> terminal interrupted-mark write to <code>batch-state.json</code> via the same best-effort silent-fail discipline. The Stop hook's separate per-turn liveness refresh mirrors similarly.
 </div>
 
 ---

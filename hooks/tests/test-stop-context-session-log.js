@@ -46,15 +46,19 @@ function assert(condition, message) {
   }
 }
 
-function runHook(projectDir, fakeHome, sessionId) {
+function runHook(projectDir, fakeHome, sessionId, cadence) {
   const payload = JSON.stringify({
     cwd: projectDir,
     session_id: sessionId,
     transcript: [],
   });
+  // cadence is optional: omitted -> the hook's fallback dispatch
+  // (markInterrupted, today's pre-existing behavior); pass 'turn' to exercise
+  // the --cadence=turn refreshLiveness dispatch (hooks/lib/state-mark.js).
+  const cadenceFlag = cadence ? ` --cadence=${cadence}` : '';
   // stdio: ['pipe', 'pipe', 'ignore'] silences stray git stderr ("fatal: not a
   // git repository") that appears when the tmp dir is not a git repo.
-  execSync(`node "${hookScript}"`, {
+  execSync(`node "${hookScript}"${cadenceFlag}`, {
     input: payload,
     encoding: 'utf8',
     env: { ...process.env, HOME: fakeHome },
@@ -256,6 +260,14 @@ console.log('\n[5] No orphan .tmp files: loop-state atomic write leaves no .tmp 
   // Both scenarios assert that no .tmp files remain after the hook exits, which
   // is the invariant #262 introduces. If the catch cleanup is removed, a .tmp
   // planted before scenario (b) would survive and the test would catch it.
+  //
+  // Both invocations pass --cadence=turn (this hook's install.sh-wired
+  // default) so the atomic write path exercised here is refreshLiveness, not
+  // markInterrupted. Scenario (a)'s fixture session_id ('test-session-uuid')
+  // deliberately MATCHES the sessionId passed to runHook: under
+  // refreshLiveness's POSITIVE-match ownership predicate (hooks/lib/state-mark.js),
+  // an absent/differing session_id would skip the write entirely, making this
+  // scenario vacuous (it would pass trivially with no write ever attempted).
 
   // --- (a) success path ---
   const { tmpDir, fakeHome, projectDir, agenticDir, identityDir } = makeTmp('ae-stop-t5a-');
@@ -265,7 +277,7 @@ console.log('\n[5] No orphan .tmp files: loop-state atomic write leaves no .tmp 
     path.join(agenticDir, 'loop-state.json'),
     JSON.stringify({ status: 'active', session_id: 'test-session-uuid' }),
   );
-  try { runHook(projectDir, fakeHome, 'test-session-uuid'); } catch (_) {}
+  try { runHook(projectDir, fakeHome, 'test-session-uuid', 'turn'); } catch (_) {}
   const tmpFilesA = fs.readdirSync(agenticDir).filter((f) => f.endsWith('.tmp'));
   assert(tmpFilesA.length === 0,
     `(a) no .tmp in .agentic/ after successful atomic write (found: ${tmpFilesA.join(', ') || 'none'})`);
@@ -286,7 +298,7 @@ console.log('\n[5] No orphan .tmp files: loop-state atomic write leaves no .tmp 
   // Pre-plant a stale .tmp at the exact path writeLoopState would use.
   const staleTmp = loopStatePath2 + '.tmp';
   fs.writeFileSync(staleTmp, 'stale content from a previous crashed session');
-  try { runHook(proj2, fakeHome2, 'test-session-uuid'); } catch (_) {}
+  try { runHook(proj2, fakeHome2, 'test-session-uuid', 'turn'); } catch (_) {}
   const tmpFilesB = fs.readdirSync(ag2).filter((f) => f.endsWith('.tmp'));
   assert(tmpFilesB.length === 0,
     `(b) stale .tmp cleaned up by catch block (found: ${tmpFilesB.join(', ') || 'none'})`);

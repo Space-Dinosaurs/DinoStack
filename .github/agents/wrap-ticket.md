@@ -278,8 +278,8 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook)
-- `.agentic/batch-state.json` (conductor + Stop hook)
+- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
 
