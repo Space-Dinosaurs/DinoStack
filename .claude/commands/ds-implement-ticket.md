@@ -2678,8 +2678,8 @@ These are the same credentials used for existing tracker writebacks. No new cred
 **Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `.agentic/loop-state.json` BEFORE Phase 12 clears it - explicit ordering. The findings-curator at Phase 6 exit reads `findings_log` but does NOT clear it; Phase 12 is the only clearer.
 
 **Skip conditions:**
-- Phase 9 was skipped (no PR was opened): skip Phase 11b entirely.
-- The current ticket was Trivial: skip with `skipped_reason: "trivial-no-brief"`. Do NOT spawn `wrap-ticket`.
+- Phase 9 was skipped (no PR was opened): skip Phase 11b entirely. Lock acquisition below is never attempted - there is nothing to release.
+- The current ticket was Trivial: skip with `skipped_reason: "trivial-no-brief"`. Do NOT spawn `wrap-ticket`. Lock acquisition below is never attempted - there is nothing to release.
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
@@ -2710,7 +2710,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock is released before timeout.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
-Lock release: the conductor runs `agentic-wrap-release-lock` (PATH-wired helper) unconditionally on every Phase 11b exit path before advancing to Phase 12.
+Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `agentic-wrap-release-lock` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The two skip-conditions paths and the lock-held-by-another-session path never acquired the lock in this session and must NOT call the release helper.
 
 **Post-return skill-candidate merge (conductor-side, runs AFTER lock release, soft-fail):**
 

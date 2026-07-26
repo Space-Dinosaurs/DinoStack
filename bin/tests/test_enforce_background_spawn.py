@@ -312,8 +312,9 @@ def test_sentinel_corrupt_failopen():
 def test_wrap_ticket_allowed_when_sentinel_live():
     """MAJOR-1 regression: wrap-ticket Task ALLOWED even when sentinel is live.
 
-    wrap-ticket holds .agentic/wrap.lock and must complete before Phase 12
-    cleanup. Blocking it when a team sentinel is live deadlocks the conductor.
+    The conductor holds .agentic/wrap/lock while wrap-ticket runs, and Phase 12
+    cleanup must wait for it to complete. Blocking it when a team sentinel is
+    live deadlocks the conductor.
     The FOREGROUND_EXEMPT check must fire before sentinel suppression.
     """
     with tempfile.TemporaryDirectory() as tmpdir:
