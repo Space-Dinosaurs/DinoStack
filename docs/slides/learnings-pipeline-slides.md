@@ -199,7 +199,7 @@ Emits <strong>LRN</strong> entries only (bug-fix residuals). Trigger: phase gate
 <div class="card">
 <strong>learnings-agent</strong><br/>
 Background capture on the mandatory triggers. Spawned by the conductor the FIRST time a trigger fires in a session; see the mandatory trigger list in `content/references/conductor-operating-rules.md` §learnings-agent background capture.<br/><br/>
-Emits both <strong>LRN</strong> and <strong>KNW</strong> entries. Trigger: conductor judgment.
+Emits both <strong>LRN</strong> and <strong>KNW</strong> entries. Trigger: mandatory evaluation, conductor-initiated spawn.
 </div>
 </div>
 

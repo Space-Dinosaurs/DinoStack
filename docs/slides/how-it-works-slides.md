@@ -355,7 +355,7 @@ When in doubt, the agent classifies <strong>Elevated</strong>. The cost of a rev
 <div class="card"><strong>dependency-auditor</strong><br/>Supply-chain review</div>
 <div class="card"><strong>product-discovery</strong><br/>Shapes intent before planning</div>
 <div class="card"><strong>learning-extractor</strong><br/>Mines resolved loops for learnings</div>
-<div class="card"><strong>learnings-agent</strong><br/>Captures learnings ad-hoc</div>
+<div class="card"><strong>learnings-agent</strong><br/>Captures learnings on the mandatory triggers</div>
 <div class="card"><strong>wrap-ticket</strong><br/>Closes out a ticket end-to-end</div>
 <div class="card"><strong>goal-condition-evaluator</strong><br/>Cheap stop-condition check for open-goal loops</div>
 </div>
