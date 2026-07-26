@@ -88,9 +88,11 @@ Failure modes:
       is the documented conductor norm, not a violation.
     - Foreground-exempt subagent_type (FOREGROUND_EXEMPT): allow regardless of
       run_in_background - these agents have a documented blocking-ordering
-      requirement (e.g. wrap-ticket holds .agentic/wrap.lock). Exemption is
-      checked FIRST, before routing enforcement and sentinel suppression, so an
-      exempt agent is allowed even while a team run is live/configured.
+      requirement (e.g. the conductor holds .agentic/wrap/lock while
+      wrap-ticket runs, so wrap-ticket must complete synchronously before
+      Phase 12 cleanup proceeds). Exemption is checked FIRST, before routing
+      enforcement and sentinel suppression, so an exempt agent is allowed
+      even while a team run is live/configured.
     - Team routing: missing team.yml (global and project), unreadable file,
       malformed YAML, PyYAML not importable, `enabled` absent/false, role not in
       the dispatchable set, or resolved harness == "claude" -> allow (fall
@@ -248,10 +250,11 @@ def _resolve_role_harness(config: dict, role: str) -> tuple[str | None, str | No
     return None, None
 
 # Documented foreground-exempt agents. wrap-ticket runs foreground/blocking
-# in /ds-implement-ticket Phase 11b: it holds .agentic/wrap.lock and MUST complete
-# before Phase 12 cleanup, so it cannot be forced to background. This is the
-# only methodology-sanctioned foreground spawn. Add others here only with
-# an equivalent documented blocking-ordering requirement.
+# in /ds-implement-ticket Phase 11b: the conductor holds .agentic/wrap/lock
+# for wrap-ticket's duration, and Phase 12 cleanup MUST wait for it to
+# complete, so it cannot be forced to background. This is the only
+# methodology-sanctioned foreground spawn. Add others here only with an
+# equivalent documented blocking-ordering requirement.
 FOREGROUND_EXEMPT = {"wrap-ticket"}
 
 # Sentinel path relative to cwd.
@@ -318,8 +321,9 @@ def main() -> None:
 
         # ------------------------------------------------------------------ #
         # Foreground-exempt check (MUST come before sentinel suppression)    #
-        # wrap-ticket holds .agentic/wrap.lock and MUST complete before      #
-        # Phase 12 cleanup - it is the only sanctioned foreground spawn.     #
+        # wrap-ticket runs foreground because the conductor holds            #
+        # .agentic/wrap/lock for its duration; Phase 12 cleanup must         #
+        # wait for it to complete - the only sanctioned foreground spawn.    #
         # Exemption applies regardless of sentinel state, so check first.    #
         # Skill is NOT foreground-exempt - only Task/Agent spawns.           #
         # ------------------------------------------------------------------ #
