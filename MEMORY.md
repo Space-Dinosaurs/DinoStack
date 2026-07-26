@@ -26,6 +26,8 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-06-24: Decided NOT to build a nested "unit-lead" sub-conductor tier** - the existing background-spawn + digest-return pattern already keeps conductor context clean; an Opus Skeptic withheld sign-off (2 Critical, 4 Major) on the full design. Do not re-propose unless conductor context becomes a *measured* bottleneck. (Full rationale archived.)
 
+- **2026-07-08: Live in-session HUD / real-time agent-dashboard UI belongs in Helios, not in agentic-engineering.** agentic-engineering's job is to produce structured telemetry (`.agentic/hud/*.json`); Helios (the sibling desktop product) is the intended home for rendering it. Static CLI rollups (`agentic-cost session/team/retro`) stay here.
+
 - **2026-06-25: The public installer (`curl | bash`) pulls unpinned `main` HEAD - no checksum, signature, or release tag.** Live hardening gap now that the repo is public (deferred while private). Options: pin install to a release tag with version-bump, and/or publish a checksum/SRI.
 
 - **2026-06-27: A deterministic hook cannot reliably detect an LLM-semantic event.** `events.jsonl` sat empty in ad-hoc sessions because signals like `conductor_direct`/`tool_failure_workaround` depended on the LLM choosing to self-report inline, which it reliably didn't. Fix pattern: derive that signal class at a natural LLM-reflection point (e.g. `/wrap`'s own reflection), not hook instrumentation.
@@ -93,3 +95,5 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 ## Bulk Operations & Adapter Sync
 
 - **2026-07-24:** Adapter dirs contain hand-authored sources that `build.sh` does NOT regenerate (.codex/.copilot/.cursor/.gemini/.github hook files, .opencode/plugins/session-context.ts) - a "rebuild adapters, skip them" assumption during bulk sweeps misses these; check them manually after any adapter source edit or cross-adapter pattern change (ticket: DS-26).
+
+- **2026-07-24:** Bulk file sweeps over evals/ must exclude git worktrees (evals/.worktrees/wt-* are pinned at historical commits) to avoid dirtying worktree checkouts; discovered when a sed sweep unintentionally modified a pinned worktree's tracked files (ticket: DS-26).

@@ -32,8 +32,6 @@ This is the historical tier for DinoStack: entries moved verbatim from `MEMORY.m
 
 - **2026-06-27: A deterministic hook cannot reliably detect an LLM-semantic event.** `events.jsonl` sat empty in ad-hoc (non-`/implement-ticket`) sessions because the events that mattered most (`conductor_direct`, `tool_failure_workaround`) had no concrete emit call site - they depended on the LLM choosing to run an emit command inline, which it reliably didn't. The fix pattern: derive that class of signal at a natural LLM-reflection point instead (e.g., `/wrap`'s own end-of-session reflection), not from hook instrumentation. Keep this in mind before building any new feature that assumes an LLM will self-report an event via a hook-adjacent mechanism.
 
-- **2026-07-08: Live in-session HUD / real-time agent-dashboard UI belongs in Helios, not in agentic-engineering.** agentic-engineering's job is to produce structured telemetry (`.agentic/hud/*.json`); Helios (the sibling desktop product) is the intended home for rendering it. Static CLI rollups (`agentic-cost session/team/retro`) stay here.
-
 ## Methodology Enforcement
 
 - **2026-07-01: The Elevated-signal table and the "when in doubt, classify Elevated" tie-break are duplicated across more files than a quick grep suggests.** At minimum: `content/sections/02-delegation.md`, `content/references/subagent-protocol.md`, and `content/references/skeptic-protocol.md` (as a bullet list, not a table - phrase-grep misses it), plus restatements in `content/agents/orchestration-planner.md` and `content/commands/ds-status.md`. When editing any risk-classification clause, match copies by *semantics*, not by grepping one quoted phrase - a Skeptic pass on DS-48 needed three rounds to find all the copies.
@@ -50,19 +48,11 @@ This is the historical tier for DinoStack: entries moved verbatim from `MEMORY.m
 
 - **2026-07-14: A handoff/plan authored in a different repo or session can encode environment assumptions that don't hold locally.** A 2026-07-13 cross-repo handoff asserted `/cleanup-worktrees` non-force removal was deleting live worktrees; the live DinoStack harness actually auto-locks isolation worktrees (see Worktree & Git Hygiene entry above), contradicting the handoff's stated root cause. Verify a handoff's environmental premises against the live harness/repo state before implementing a fix it prescribes - the same "investigator external-data claims require evidence" discipline applies to handoffs.
 
-- **2026-07-01: A bare `git pull` here can silently rewire hooks in every other open session** - hooks wire into `~/.claude/settings.json` by absolute path and reload on every tool call, no restart needed. Fix: a session-stable per-checkout hook snapshot dir that a bare pull doesn't mutate; restart other open sessions after any `hooks/` change lands.
-
-- **2026-07-09: When drafting an "execution required" obligation clause, avoid phrasing a reviewer could read as permitting the check without re-executing.** DS-78's first draft of `qa-regression-obligation.md` had exactly this wording and was flagged Major by the plan Skeptic. Precise, unambiguous execution-obligation language is worth a second read before spawning the Worker.
-
-- **2026-07-14: A handoff/plan authored in a different repo or session can encode environment assumptions that don't hold locally.** A cross-repo handoff asserted `/cleanup-worktrees` was deleting live worktrees; the live harness actually auto-locks isolation worktrees, contradicting the stated root cause. Verify a handoff's environmental premises against the live repo state before implementing its fix.
-
 ## Knowledge Capture
 
 - **2026-07-07: Claude Code does NOT auto-inject the committed repo-root `MEMORY.md`.** It only injects whatever the resolution-chain `CLAUDE.md` `@`-imports, plus the separate, per-machine, non-teammate-visible private memory store at `~/.claude/projects/<path-hash>/memory/`. The canonical project `CLAUDE.md` is now two import lines - `@AGENTS.md` then `@MEMORY.md` - added by `/init-project`; a bare `@AGENTS.md`-only file will NOT surface a committed `MEMORY.md` to a session. This file (and this section) exist because that import was verified missing until this fix.
 
 - **2026-06-19: Committed root `MEMORY.md` is public and teammate-facing - keep maintainer-internal content out of it.** Route eval/auto-harness internals, one-off session TODOs, and internal file paths to the private memory store instead. Session-scoped knowledge-capture files (session-learnings, `decisions.md`, ad-hoc `context.md` edits) stay local to this repo by standing convention and are never opened as a PR; the one sanctioned exception is a deliberate, curated `docs(memory)` PR like this one, done only when explicitly authorized - never as default `/wrap` cleanup.
-
-- **2026-07-07: Claude Code does NOT auto-inject the committed repo-root `MEMORY.md`** - it only injects whatever `CLAUDE.md` `@`-imports, plus the separate per-machine private memory store. `CLAUDE.md` must be `@AGENTS.md` + `@MEMORY.md` import lines - a bare `@AGENTS.md`-only file will NOT surface a committed `MEMORY.md`.
 
 ## Worktree & Git Hygiene
 
@@ -88,10 +78,6 @@ This is the historical tier for DinoStack: entries moved verbatim from `MEMORY.m
 
 - **2026-07-14: The live Claude Code harness auto-locks every `isolation:"worktree"` worktree at creation.** Directory is `.claude/worktrees/agent-<agentId>` (note: NOT `worktree-agent-<id>` - that's the branch name), branch is `worktree-agent-<agentId>`, and `git worktree list --porcelain` shows `locked claude agent agent-<agentId> (pid <pid> ...)`; a non-force `git worktree remove` already refuses it (`remove -f -f` needed), independent of any methodology-level lock. Any worktree-cleanup detection logic must match the branch-name pattern, not assume the directory path contains the same substring.
 
-- **2026-06-12: `git checkout <sha> -- <path>` inside a worktree resurrects files a later commit deleted** - it doesn't replay deletions. When basing a step on a non-`main` commit this way, explicitly `git rm` anything that commit deleted, and gate on an exact `git ls-files` set.
-
-- **2026-06-04: An adapter-rebuild/baseline-regen engineer commit can silently revert unrelated source files, and green CI will not catch it.** A stale isolation worktree once reverted 51 files from three already-merged PRs while sync gates all passed. Verify any "regenerate generated artifacts" commit's diff touches *only* the intended generated paths before merging.
-
 ## Adapters & Build
 
 - **2026-07-09: A compression/extraction change that moves inline prose into `content/references/*-detail.md` creates a staleness class that merges silently, with no conflict marker.** Later commits keep patching the original inline location; the extracted copy diverges and `git merge origin/main` merges it cleanly since nothing else touches that file. Catching all instances required a file-by-file audit of every post-branch-point commit, not just ad hoc spotting (PR #420, DS-68).
@@ -108,12 +94,6 @@ This is the historical tier for DinoStack: entries moved verbatim from `MEMORY.m
 
 - **2026-07-09: Some `content/` source files are hardlinked (not copied) into their adapter destinations, and this is inconsistent across files - check before assuming a build script alone keeps things in sync.** `content/agents/skeptic.md` and `.claude/agents/skeptic.md` are the same inode; `content/references/regression-test-obligation.md` and `qa-regression-obligation.md` are hardlinked into several adapter dirs. By contrast `.hermes/SKILL.md` is a verbatim concatenated embed at a separate inode, not a hardlink. `bash scripts/build-all.sh` is still required after any edit regardless of hardlink status, since hardlinks only cover a subset of the 11 adapter dirs. (ticket: DS-78)
 
-- **2026-06-24: `gemini-cli` 0.47 tightened agent-schema validation** - `tools:` must be a YAML array, `disallowedTools:` no longer accepted, `description:` must be quoted, and gemini validates each tool name against its own registry (`Read->read_file`, `Bash->run_shell_command`, etc). Mapping lives only in `.gemini/build.sh`.
-
-- **2026-06-26: A harness without isolated-subagent context windows (or with always-injected rules) will reproduce the "Cursor cost ~30x Claude Code" problem** - content flagged `alwaysApply: true` re-injects every tool call, and with no real Agent/Task tool the conductor->Worker->Skeptic loop simulates inline in one ever-growing window. Fix: on-demand loading + an override preamble telling the model to act as conductor-and-implementer.
-
-- **2026-06-17: The `dinostack-docs` Vercel project has its Root Directory set to `docs/`, so Vercel reads `docs/vercel.json` - the repo-root `vercel.json` is ignored for redirects/rewrites/headers.** This caused a live install-URL redirect to 404 silently. Put any Vercel redirect/rewrite/header change in `docs/vercel.json`, not the repo-root file.
-
 ## Hooks & Subagent Mechanics
 
 - **2026-07-08: PreToolUse hook mechanics for Agent/Task spawns.** `tool_input` on a spawn call exposes `subagent_type`, `prompt`, `description`, and `model` (absent - not null - when the spawner omitted it); subagent model resolution precedence is `CLAUDE_CODE_SUBAGENT_MODEL` env > spawn-call `model` param > agent frontmatter `model:` > inherited session model, so a hook gating on `tool_input.model` sees the conductor's stated intent, not an env override. To deny a spawn: print `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}` and exit 0. To **warn without blocking** (e.g., an advisory nudge), use `"permissionDecision":"allow"` with a `permissionDecisionReason` - this surfaces text to the model without a human prompt and without denying; it's the mechanism behind the planning-artifact advisory hook.
@@ -124,16 +104,10 @@ This is the historical tier for DinoStack: entries moved verbatim from `MEMORY.m
 
 - **2026-06-25: AE agents carry an explicit `model:` in frontmatter (opus for `skeptic`/`security-auditor`, sonnet for the rest).** Omit the spawn-call `model` param to accept an agent's role default; pass it explicitly only to override a specific spawn (e.g., escalating a Tier-2 agent to Opus for a mandated-Tier-3 review, or documenting a Tier-3 mandate explicitly even though frontmatter would already resolve it correctly). Passing a param unconditionally on every spawn defeats the point of the frontmatter defaults - it silently overrides Opus on review agents.
 
-- **On a GLM session (or any non-Claude model backing the session), spawning a methodology subagent fails immediately.** Agent frontmatter `model:` is a Claude alias the non-Claude key doesn't carry, and the Agent tool's `model` param enum is Claude-only. Go conductor-direct with mechanical verification, or switch the session to a Claude model first.
-
 ## Slides (Marp decks, docs/slides/)
 
 - **2026-06-11: Dark-theme reskin gotcha — Marp `theme: default` leaks high-specificity light styles.** The 15 `*-slides.md` decks were reskinned to the DinoStack "Iridium" dark look (palette/fonts sourced from `docs/index.html`: `#02050C` canvas + cyan/violet radial aura, Orbitron headings, Nunito Sans body, JetBrains Mono code, `#18E0FF` primary). Two non-obvious traps when overriding Marp's default theme via the inline `style:` block: (1) **Table rows render white** — Marp's `section table tr { background: var(--bgColor-default) }` (white) out-specifies a bare `tr` selector. Fix: match its shape exactly — `table tr { background: transparent }` + `table tr:nth-child(2n) { background: rgba(255,255,255,0.03) }`. (2) **Syntax-highlighted code is dark-on-dark** — language-tagged fences (```yaml/json/bash) get highlight.js tokens whose GitHub-theme vars stay in their light branch because `section` keeps `color-scheme: light`. Fix: add `color-scheme: dark` to the `section` rule (flips all `--color-prettylights-syntax-*` to their legible dark-mode values). Plain ``` fences have no tokens, so screenshot a *highlighted* code slide when QA-ing. Edit the `.md` only, then regenerate via `bash scripts/build-slides.sh` (idempotent; `slides-sync.yml` CI gate enforces .md↔.html sync). Canonical Iridium base block now lives identically in all 15 decks' frontmatter.
 
-- **2026-06-11: Dark-theme reskin gotcha - Marp `theme: default` leaks high-specificity light styles.** (1) Table rows render white (`section table tr` out-specifies bare `tr`) - fix: `table tr { background: transparent }` + `:nth-child(2n)` zebra. (2) Syntax-highlighted code is dark-on-dark (`section` keeps `color-scheme: light`) - fix: add `color-scheme: dark` to `section`; QA a highlighted slide, not a plain fence. Edit `.md`, regenerate via `bash scripts/build-slides.sh`.
-
 ## Bulk Operations & Adapter Sync
 
 - **2026-07-24:** The 6 `agentic-*` to `ds-*` command rename operates by REPLACING the prefix, not prepending - a naive prepend-style "ds-"+oldname produces wrong names like `ds-agentic-identity` instead of `ds-identity`; caught by engineer pre-gate diff review but silent in post-merge verification (ticket: DS-26).
-
-- **2026-07-24:** Bulk file sweeps over evals/ must exclude git worktrees (evals/.worktrees/wt-* are pinned at historical commits) to avoid dirtying worktree checkouts; discovered when a sed sweep unintentionally modified a pinned worktree's tracked files (ticket: DS-26).
