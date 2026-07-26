@@ -214,6 +214,8 @@ console.log('\n[6] plain file at lock path — refused as not-a-lock, file survi
   const stdout = runHelper(SCRIPT_PATH, [tmp]);
   assert(stdout.includes('not-a-lock'), `case 6: stdout includes "not-a-lock" (got: ${JSON.stringify(stdout)})`);
   assert(fs.existsSync(lockPath) && fs.statSync(lockPath).isFile(), 'case 6: the plain file at the lock path survives');
+  assert(stdout.includes('a file exists at the lock path; not removing'), `case 6: message accurately says a file exists and was left in place (got: ${JSON.stringify(stdout)})`);
+  assert(stdout.includes('rm -rf'), 'case 6: message still recommends the manual rm -rf escape hatch (the file genuinely still exists)');
 }
 
 // ---------------------------------------------------------------------------
@@ -247,6 +249,8 @@ console.log('\n[7] symlink-to-sentinel-dir at lock path — refused as not-a-loc
   try { fs.lstatSync(lockPath); } catch (_) { linkGone = true; }
   assert(linkGone, 'case 7: the hostile symlink itself is unlinked by releaseWrapLock\'s own CWE-59 guard (U1 behavior, not a regression - the link is never followed/its target is never touched)');
   assert(fs.existsSync(sentinel), 'case 7: the sentinel directory the link pointed at survives untouched');
+  assert(stdout.includes('a symlink existed at the lock path and was removed'), `case 7: message accurately says the symlink was already removed, not "not removing" (got: ${JSON.stringify(stdout)})`);
+  assert(!stdout.includes('rm -rf'), 'case 7: message does not recommend rm -rf against a path that no longer exists');
 }
 
 // ---------------------------------------------------------------------------

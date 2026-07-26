@@ -637,6 +637,49 @@ console.log('\n[Part F] makeLockDescriptor round trip');
   assert(threwOnPidFloat, 'makeLockDescriptor throws a TypeError on a non-integer pid');
 }
 
+{
+  let threwOnEmptyToken = false;
+  try {
+    lib.makeLockDescriptor({ role: 'daemon', pid: process.pid, token: '' });
+  } catch (e) {
+    threwOnEmptyToken = (e instanceof TypeError);
+  }
+  assert(threwOnEmptyToken, 'makeLockDescriptor throws a TypeError on an empty-string token');
+}
+
+{
+  let threwOnNumericToken = false;
+  try {
+    lib.makeLockDescriptor({ role: 'daemon', pid: process.pid, token: 123 });
+  } catch (e) {
+    threwOnNumericToken = (e instanceof TypeError);
+  }
+  assert(threwOnNumericToken, 'makeLockDescriptor throws a TypeError on a non-string (numeric) token');
+}
+
+{
+  let d = null;
+  let threw = false;
+  try {
+    d = lib.makeLockDescriptor({ role: 'daemon', pid: process.pid, token: null });
+  } catch (e) {
+    threw = true;
+  }
+  assert(!threw && d && d.token === null, 'makeLockDescriptor accepts token:null');
+}
+
+{
+  const uuid = '123e4567-e89b-12d3-a456-426614174000';
+  let d = null;
+  let threw = false;
+  try {
+    d = lib.makeLockDescriptor({ role: 'daemon', pid: process.pid, token: uuid });
+  } catch (e) {
+    threw = true;
+  }
+  assert(!threw && d && d.token === uuid, 'makeLockDescriptor accepts a valid uuid token');
+}
+
 // ---------------------------------------------------------------------------
 // Cleanup
 // ---------------------------------------------------------------------------

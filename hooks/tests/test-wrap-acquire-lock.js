@@ -356,7 +356,6 @@ console.log('\n[11] descriptor shape — fresh acquisition publishes a valid rol
   // Precondition: without this, the six field assertions below would pass
   // vacuously against a schema-invalid (degraded) descriptor.
   assert(o.source === 'json', `case 11 precondition: readWrapLockOwnerV2 source is 'json' (got: ${JSON.stringify(o)})`);
-  assert(o.schema_version === undefined || true, 'case 11: schema_version is validated via readWrapLockOwnerV2 acceptance, not re-checked here');
   const raw = JSON.parse(fs.readFileSync(lib.wrapLockOwnerJsonPath(tmp), 'utf8'));
   assert(raw.schema_version === 1, `case 11: schema_version is 1 (got: ${raw.schema_version})`);
   assert(raw.role === 'agent', `case 11: role is 'agent' (got: ${raw.role})`);

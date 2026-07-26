@@ -17,6 +17,7 @@
  *     lastWrapPath(cwd) -> .agentic/wrap/last-wrap
  *     wrapLockPath(cwd) -> .agentic/wrap/lock
  *     wrapLockOwnerPath(cwd) -> .agentic/wrap/lock/owner
+ *     wrapLockOwnerJsonPath(cwd) -> .agentic/wrap/lock/owner.json
  *     daemonPidPath(cwd) -> .agentic/wrap/daemon.pid
  *     wrapDaemonLogPath(cwd) -> .agentic/wrap/daemon.log
  *     authFailedPath(cwd) -> .agentic/wrap/daemon-auth-failed
@@ -81,8 +82,8 @@
  *                        hooks/session-start-wrap.sh (self-heals the sentinel in bash;
  *                        ensureClaudeHost is the Node-callable equivalent, exported for
  *                        adapter use - U4), bin/agentic-wrap-acquire-lock (acquireWrapLock,
- *                        readWrapLockOwner, wrapLockPath), bin/agentic-wrap-release-lock
- *                        (releaseWrapLock, wrapLockPath).
+ *                        wrapLockVerdict, wrapLockPath), bin/agentic-wrap-release-lock
+ *                        (releaseWrapLock, readWrapLockOwnerV2, wrapLockPath).
  *
  * Failure modes: Every function is fail-open and NEVER throws to a hook - all fs
  *                errors are swallowed and a safe default is returned (false/null/[]
@@ -922,7 +923,8 @@ function readGuardedFile(lockPath, leafPath, maxBytes) {
  * prevent an invalid descriptor from being constructed.
  *
  * @param {{role: 'agent'|'daemon'|'commit', pid?: number|null, token?: string|null, acquiredAt?: string|null}} params
- * @throws {TypeError} on an out-of-enum role or a non-null non-positive-integer pid.
+ * @throws {TypeError} on an out-of-enum role, a non-null non-positive-integer pid,
+ *   or a non-null non-string (or empty-string) token.
  */
 function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null } = {}) {
   if (!LOCK_DESCRIPTOR_ROLES.includes(role)) {
@@ -932,6 +934,9 @@ function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null 
   }
   if (pid !== null && !(Number.isInteger(pid) && pid > 0)) {
     throw new TypeError('makeLockDescriptor: pid must be null or a positive integer (got: ' + pid + ')');
+  }
+  if (token !== null && !(typeof token === 'string' && token.length > 0)) {
+    throw new TypeError('makeLockDescriptor: token must be null or a non-empty string (got: ' + JSON.stringify(token) + ')');
   }
   return {
     schema_version: 1,

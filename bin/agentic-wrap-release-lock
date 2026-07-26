@@ -21,10 +21,16 @@
  *       "not-owner <lockPath> (held by live pid N; if this is wrong: rm -rf <lockPath>)"
  *                                        refused: token mismatch, or a live
  *                                        foreign-process owner without a token
- *       "not-a-lock <lockPath> (a symlink|file exists at the lock path; not
- *        removing. If this is wrong: rm -rf <lockPath>)"
- *                                        refused: lock path is not a directory
- *                                        we created (symlink or plain file)
+ *       "not-a-lock <lockPath> (a symlink existed at the lock path and was
+ *        removed - the link only; any target it pointed at is untouched)"
+ *                                        refused: lock path was a symlink,
+ *                                        which releaseWrapLock already
+ *                                        unlinked (CWE-59 discipline) before
+ *                                        returning this result
+ *       "not-a-lock <lockPath> (a file exists at the lock path; not removing.
+ *        If this is wrong: rm -rf <lockPath>)"
+ *                                        refused: lock path is a non-directory
+ *                                        plain file, left in place untouched
  *       "WARNING: lock release failed, lock may persist at <lockPath>"
  *                                        releaseWrapLock returned 'error'
  *
@@ -129,16 +135,31 @@ function main() {
       break;
     }
     case 'refused-not-a-lock': {
-      let kind = 'symlink or file';
+      // releaseWrapLock already unlinked a symlink AT the lock path (CWE-59
+      // discipline, link only - never its target) before returning this
+      // result, so by the time we get here a symlink case shows up as
+      // ENOENT. A non-directory plain file case is left untouched, so it
+      // still lstats successfully. Distinguish the two so the message never
+      // claims a link still exists when it has already been removed, and
+      // never recommends `rm -rf` against a path that no longer exists.
+      let stillPresent = true;
       try {
         const fs = require('fs');
-        const st = fs.lstatSync(lockPath);
-        kind = st.isSymbolicLink() ? 'symlink' : 'file';
-      } catch (_) { /* best-effort label only */ }
-      process.stdout.write(
-        'not-a-lock ' + lockPath + ' (a ' + kind + ' exists at the lock path; not removing. '
-        + 'If this is wrong: rm -rf ' + lockPath + ')\n'
-      );
+        fs.lstatSync(lockPath);
+      } catch (_) {
+        stillPresent = false; // ENOENT: the symlink was already removed
+      }
+      if (stillPresent) {
+        process.stdout.write(
+          'not-a-lock ' + lockPath + ' (a file exists at the lock path; not removing. '
+          + 'If this is wrong: rm -rf ' + lockPath + ')\n'
+        );
+      } else {
+        process.stdout.write(
+          'not-a-lock ' + lockPath + ' (a symlink existed at the lock path and was removed'
+          + ' - the link only; any target it pointed at is untouched)\n'
+        );
+      }
       break;
     }
     case 'error':
