@@ -40,11 +40,19 @@
  *                Finalization writes (loop-state, batch-state,
  *                events.jsonl) run only on /ds-wrap completion via
  *                command.executed and are independent and best-effort: a
- *                failure in one does not affect the others. A diagnostic
- *                session.prompt (noreply: true) fires once on /ds-wrap. The
- *                prompt is fire-and-forget (no await) so it cannot block
- *                the handler even if delivery hangs. cwd values with
- *                path-traversal components are rejected by all three
+ *                failure in one does not affect the others. writeLoopState now
+ *                carries the same session_id ownership check as
+ *                writeBatchState (absence/null/empty session_id on disk
+ *                proceeds; only a positively-differing session_id skips),
+ *                mirroring hooks/lib/state-mark.js markInterrupted's polarity
+ *                on the Claude Code side. This plugin's cadence is UNCHANGED
+ *                by that addition: it already fires this write once per
+ *                session on command.executed, not once per turn, so it never
+ *                had the Claude Stop hook's per-turn-interrupt bug. A
+ *                diagnostic session.prompt (noreply: true) fires once on
+ *                /ds-wrap. The prompt is fire-and-forget (no await) so it
+ *                cannot block the handler even if delivery hangs. cwd values
+ *                with path-traversal components are rejected by all three
  *                writers (defence in depth). The per-session-once invariant
  *                for session_total relies on the user invoking /ds-wrap;
  *                OpenCode does not expose a guaranteed shutdown hook from
@@ -239,12 +247,20 @@ export const SessionContextPlugin: Plugin = async ({
   }
 
   /**
-   * Write interrupted status to loop-state.json if an active loop exists.
+   * Write interrupted status to loop-state.json if an active loop exists AND
+   * the file is owned by the current session. Mirrors the batch-state
+   * ownership check below and hooks/lib/state-mark.js markInterrupted's
+   * polarity: absence/null/empty session_id on disk PROCEEDS (self-owned);
+   * only a positively-DIFFERING session_id skips (owned by another session).
    * M1: Atomic tmp+rename so a crash mid-write cannot leave the file
    * partially written and unparseable on next session resume.
    * M4: Reject cwd values with traversal components before any path join.
+   *
+   * This plugin fires this write once per session on command.executed
+   * (`/ds-wrap`), NOT on every turn, so it does not have the Claude Stop
+   * hook's per-turn-interrupt bug and its cadence is unchanged by this pass.
    */
-  async function writeLoopState(cwd: string) {
+  async function writeLoopState(cwd: string, sessionID: string | null) {
     const resolvedCwd = path.resolve(cwd);
     if (resolvedCwd !== cwd) {
       await log(
@@ -260,6 +276,25 @@ export const SessionContextPlugin: Plugin = async ({
       const loopStateFile = Bun.file(loopStatePath);
       if (await loopStateFile.exists()) {
         const loopState: any = await loopStateFile.json();
+
+        // Ownership check: do not steal another session's loop state.
+        if (
+          typeof loopState.session_id === "string" &&
+          loopState.session_id.length > 0 &&
+          loopState.session_id !== sessionID
+        ) {
+          await log(
+            "info",
+            "Skipping loop-state write: owned by another session",
+            {
+              loopStatePath,
+              owner: loopState.session_id,
+              current: sessionID,
+            },
+          );
+          return;
+        }
+
         if (loopState.status === "active") {
           loopState.status = "interrupted";
           loopState.interrupted_at = new Date().toISOString();
@@ -707,7 +742,7 @@ ${activityBlock.slice(ACTIVITY_SENTINEL.length)}
           );
 
           // The three finalization writes are independent and best-effort.
-          await writeLoopState(cwd);
+          await writeLoopState(cwd, sid);
           await writeBatchState(cwd, sid);
           await writeSessionTotal(cwd, sid);
 

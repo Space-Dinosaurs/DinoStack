@@ -43,6 +43,7 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
 const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
 const libStdinGuardAbs = path.resolve(__dirname, '..', 'lib', 'stdin-guard.js');
+const libStateMarkAbs = path.resolve(__dirname, '..', 'lib', 'state-mark.js');
 
 const shimmedSource = hookSource
   // Match both the old bare `run();` call and the current
@@ -60,6 +61,10 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/stdin-guard\.js['"]\)/,
     `require(${JSON.stringify(libStdinGuardAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/state-mark\.js['"]\)/,
+    `require(${JSON.stringify(libStateMarkAbs)})`
   );
 
 // Guard: ensure all relative lib requires were rewritten.

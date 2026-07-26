@@ -1,10 +1,19 @@
 #!/usr/bin/env node
 
 /**
- * Purpose: Reads the Claude Code Stop hook JSON payload from stdin and writes
- *          session context to disk so the next session's Workers have lightweight
- *          context about what was happening. Also marks any active orchestration
- *          loop as interrupted so the next session can offer to resume. Writes
+ * Purpose: Reads the Claude Code Stop hook JSON payload from stdin - which
+ *          fires once per TURN, not once per session - and writes session
+ *          context to disk so the next session's Workers have lightweight
+ *          context about what was happening. Also refreshes or terminally
+ *          marks any active loop-state.json/batch-state.json via
+ *          hooks/lib/state-mark.js, dispatched by a --cadence=turn|session CLI
+ *          flag: --cadence=turn (this hook's install.sh-wired default) only
+ *          refreshes a liveness timestamp on every turn; the terminal
+ *          interrupted-mark now lives on hooks/session-end-wrap.js
+ *          (SessionEnd, once per session). --cadence=session (or an
+ *          absent/unrecognized flag) preserves this file's pre-existing
+ *          behavior for callers, such as Pi's session_shutdown, that invoke
+ *          this script directly without the flag. Writes
  *          per-developer session telemetry via a three-branch identity gate:
  *          confirmed identity -> per-project log + global mirror; provisional
  *          identity or no identity -> pending buffer (~/.agentic/session-log/.pending/);
@@ -17,8 +26,8 @@
  *
  * Public API: run() — invoked immediately at module load via run() call at
  *             bottom of file. Not imported; executed as a CLI script by the
- *             Claude Code Stop hook. Internal helpers: writeLoopState(cwd),
- *             writeBatchState(cwd, sessionId), scanSessionAggregate(eventsPath, sessionId[, cachedRaw]),
+ *             Claude Code Stop hook. Internal helpers:
+ *             scanSessionAggregate(eventsPath, sessionId[, cachedRaw]),
  *             writeSessionTotal(cwd, sessionId[, cachedRaw]), computeSessionTotals(cwd, sessionId[, cachedRaw]),
  *             getIdentity(cwd), writeSessionLog(cwd, identity, sessionId[, cachedRaw]),
  *             writeSessionLogGlobal(identity, sessionId, data),
@@ -39,7 +48,7 @@
  *             liveMarkerExists - stagePending, touchHeartbeat, etc.) now live in
  *             hooks/lib/wrap-marker.js, the single source of truth.
  *
- * Upstream deps: Node built-ins only (fs, path, os, child_process) plus four
+ * Upstream deps: Node built-ins only (fs, path, os, child_process) plus five
  *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/ds-wrap
  *                marker single source of truth - lock gate, per-session staging,
  *                heartbeat), hooks/lib/capture-gap.js (the shared capture-gap
@@ -48,10 +57,14 @@
  *                hooks/lib/skill-candidate-detector.js (Stop-hook write path
  *                runSkillCandidateScan; required lazily inside the skill-candidate
  *                detection path, gated by the skill_candidate_detection toggle),
- *                and hooks/lib/stdin-guard.js (readStdinGuarded - the shared
+ *                hooks/lib/stdin-guard.js (readStdinGuarded - the shared
  *                bounded-stdin reader used in place of a blocking
  *                fs.readFileSync(0) so this hook cannot hang a harness's
- *                shutdown path when the spawning process never closes stdin).
+ *                shutdown path when the spawning process never closes stdin),
+ *                and hooks/lib/state-mark.js (refreshLiveness/markInterrupted -
+ *                the single source of truth for the loop-state.json/
+ *                batch-state.json writes, shared with hooks/session-end-wrap.js
+ *                and dispatched here by the --cadence CLI flag).
  *                No npm dependencies. Reads from stdin (fd 0).
  *                Reads/writes
  *                ~/.claude/projects/[hash]/context.md,
@@ -101,18 +114,28 @@
  *                layer described below): (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
  *                write is also best-effort; any fs error is swallowed independently
- *                of path (1). (3) events.jsonl write is best-effort; writeSessionTotal
+ *                of path (1). On the --cadence=turn dispatch (this hook's
+ *                install.sh-wired default) this is a liveness-only refresh
+ *                (last_updated) gated on a POSITIVE session_id match - it
+ *                never sets status:"interrupted" (see hooks/lib/state-mark.js).
+ *                On --cadence=session (or an absent/unrecognized flag) it is
+ *                the terminal interrupted-mark, preserved for callers that
+ *                invoke this script directly without the flag. (3) events.jsonl write is best-effort; writeSessionTotal
  *                now ALWAYS creates events.jsonl (zero-aggregate fallback when no
  *                qualifying events exist) after ensuring .agentic/ dir exists via
  *                mkdirSync({recursive:true}). Any fs error is swallowed independently
  *                of paths (1) and (2). The append failure model is identical to
  *                context.md - the next session can re-derive totals from per-spawn
  *                events if needed.
- *                (4) writeBatchState writes interrupted-status to
- *                .agentic/batch-state.json on session exit; aborts silently on
- *                session_id mismatch with the file's owner, on missing file, or
- *                on parse error. Best-effort silent-fail; failure of
- *                writeBatchState does not block writeSessionTotal.
+ *                (4) the same --cadence dispatch also writes
+ *                .agentic/batch-state.json (hooks/lib/state-mark.js
+ *                refreshLiveness/markInterrupted); on --cadence=turn this
+ *                updates only `updated_at` (POSITIVE session_id match
+ *                required); on --cadence=session (or an absent/unrecognized
+ *                flag) this is the terminal interrupted-status write - aborts
+ *                silently on a positively-differing session_id, on missing
+ *                file, or on parse error. Best-effort silent-fail; failure of
+ *                this path does not block writeSessionTotal.
  *                (5) writeSessionLog appends to .agentic/session-log/<dev>.jsonl;
  *                any fs error is swallowed independently of all other paths.
  *                (6) appendIdentityNudgeToContextMd appends to context.md; any
@@ -245,6 +268,16 @@ const { detectCaptureGap } = require('./lib/capture-gap.js');
 // stdin (round-1 Skeptic Finding 1 / plan-Skeptic M1 on
 // docs/planning/cursor-stop-hook-plan.md).
 const { readStdinGuarded } = require('./lib/stdin-guard.js');
+
+// Single source of truth for the loop-state.json / batch-state.json
+// liveness-vs-terminal-interrupt writes (hooks/lib/state-mark.js). This hook
+// fires once per TURN (per the Claude Code Stop-hook docs), not once per
+// session, so its default dispatch is refreshLiveness (--cadence=turn);
+// markInterrupted (--cadence=session) is reserved for the terminal cadence
+// and is also the fallback when --cadence is absent/unrecognized, preserving
+// this file's historical behavior for callers (e.g. Pi's session_shutdown)
+// that invoke this script without the flag.
+const stateMark = require('./lib/state-mark.js');
 
 // ---------------------------------------------------------------------------
 // Telemetry-health counter (in-memory accumulate + single flush per exit)
@@ -398,92 +431,6 @@ function skillCandidateDetectionEnabled(cwd) {
   } catch (_) {
     // Absent file, unreadable, or parse error -> default true.
     return true;
-  }
-}
-
-/**
- * Write interrupted status to loop-state.json if an active loop exists.
- * Called from ALL exit paths so the loop-state write is never skipped.
- * Silent failure: any error is swallowed independently of the context write.
- * @param {string} cwd - Verified project directory (already traversal-checked by caller).
- */
-function writeLoopState(cwd) {
-  // M3: Reject cwd values with traversal components before any path join.
-  // path.resolve normalizes '..' segments; if the result differs from the
-  // input, cwd was not a clean absolute path and could escape the project dir.
-  const resolvedCwd = path.resolve(cwd);
-  if (resolvedCwd !== cwd) {
-    // cwd contains traversal components - skip loop-state write silently.
-    return;
-  }
-
-  const loopStatePath = path.join(cwd, '.agentic', 'loop-state.json');
-  try {
-    if (fs.existsSync(loopStatePath)) {
-      const loopState = JSON.parse(fs.readFileSync(loopStatePath, 'utf-8'));
-      if (loopState.status === 'active') {
-        loopState.status = 'interrupted';
-        loopState.interrupted_at = new Date().toISOString();
-        loopState.interrupt_reason = 'unknown'; // cannot distinguish rate_limit vs crash at hook time
-        const tmpPath = loopStatePath + '.tmp';
-        fs.writeFileSync(tmpPath, JSON.stringify(loopState, null, 2));
-        fs.renameSync(tmpPath, loopStatePath);
-        recordHealth('writeLoopState', true, null);
-      }
-    }
-  } catch (_) {
-    recordHealth('writeLoopState', false, _ && _.message);
-    // Silent failure - the 10-minute implicit-interrupt heuristic handles missed writes
-    try { fs.unlinkSync(loopStatePath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
-  }
-}
-
-/**
- * Write interrupted status to batch-state.json if an active batch exists AND
- * the file is owned by the current session. Mirrors writeLoopState but with
- * an additional session_id ownership check (the Stop hook must not steal
- * another session's batch state). Silent failure: any error swallowed.
- *
- * @param {string} cwd - Verified project directory.
- * @param {string|null} sessionId - Current session uuid from the Stop payload.
- */
-function writeBatchState(cwd, sessionId) {
-  // Reject cwd values with traversal components before any path join.
-  const resolvedCwd = path.resolve(cwd);
-  if (resolvedCwd !== cwd) {
-    return;
-  }
-
-  const batchStatePath = path.join(cwd, '.agentic', 'batch-state.json');
-  try {
-    if (!fs.existsSync(batchStatePath)) return;
-    const batchState = JSON.parse(fs.readFileSync(batchStatePath, 'utf-8'));
-
-    // Ownership check: do not steal another session's batch state.
-    // If the file's session_id is a non-empty string and does not match the
-    // current session, abort silently.
-    if (typeof batchState.session_id === 'string'
-        && batchState.session_id.length > 0
-        && batchState.session_id !== sessionId) {
-      return;
-    }
-
-    if (batchState.status !== 'active') return;
-
-    const nowIso = new Date().toISOString();
-    batchState.status = 'interrupted';
-    batchState.interrupted_at = nowIso;
-    batchState.interrupt_reason = 'unknown';
-    batchState.updated_at = nowIso;
-
-    const tmpPath = batchStatePath + '.tmp';
-    fs.writeFileSync(tmpPath, JSON.stringify(batchState, null, 2));
-    fs.renameSync(tmpPath, batchStatePath);
-    recordHealth('writeBatchState', true, null);
-  } catch (_) {
-    recordHealth('writeBatchState', false, _ && _.message);
-    // Silent failure - best-effort write; resume-time logic tolerates absent mark.
-    try { fs.unlinkSync(batchStatePath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
   }
 }
 
@@ -1194,6 +1141,15 @@ async function run() {
     ? payload.session_id.trim()
     : null;
 
+  // --- 3a. Dispatch cadence: --cadence=turn -> refreshLiveness (per-turn
+  // liveness only, never marks interrupted); --cadence=session or
+  // absent/unrecognized -> markInterrupted (today's behavior, preserved as
+  // the fallback for callers such as Pi's session_shutdown that invoke this
+  // script without the flag). See hooks/lib/state-mark.js for both.
+  const cadenceArg = process.argv.find((a) => a.startsWith('--cadence='));
+  const cadence = cadenceArg ? cadenceArg.slice('--cadence='.length) : 'session';
+  const stateMarkFn = cadence === 'turn' ? stateMark.refreshLiveness : stateMark.markInterrupted;
+
   // --- 3b-pre. Single events.jsonl read for the entire run() ---
   // All consumers (writeSessionTotal, computeSessionTotals, writeSessionLog,
   // writePendingBuffer, detectCaptureGap) receive this string instead of
@@ -1427,11 +1383,10 @@ ${toolsLine}
 `;
       // Lock-aware context.md write: skip + spill while a /ds-wrap holds the lock.
       writeContextMdOrSpill(cwd, outputPath, projectDir, wrapContent + activityBlock, spilloverRecord);
-      // M1: write loop-state on ALL exit paths, including the wrap-coexistence path.
-      writeLoopState(cwd);
-      // Mirror to batch-state.json (sibling envelope; ordered after loop-state
-      // so per-ticket inner state is marked first, then outer batch envelope).
-      writeBatchState(cwd, sessionId);
+      // M1: write loop-state/batch-state on ALL exit paths, including the
+      // wrap-coexistence path. Dispatches to refreshLiveness (--cadence=turn)
+      // or markInterrupted (--cadence=session/absent) per hooks/lib/state-mark.js.
+      stateMarkFn(cwd, sessionId, recordHealth);
       // Write session_total to events.jsonl on this exit path too.
       writeSessionTotal(cwd, sessionId, cachedEventsRaw);
       // Three-branch identity gate (independent of all other paths).
@@ -1520,15 +1475,10 @@ ${toolsLine}
   // Lock-aware context.md write: skip + spill while a /ds-wrap holds the lock.
   writeContextMdOrSpill(cwd, outputPath, projectDir, content, spilloverRecord);
 
-  // --- 11. Write interrupted status to loop-state.json if an active loop exists ---
-  // Delegated to writeLoopState() which is also called from the wrap-coexistence
-  // path (section 9) so the write executes on ALL exit paths.
-  writeLoopState(cwd);
-
-  // --- 11b. Mirror interrupted status to batch-state.json if owned by this session ---
-  // Independent best-effort write; ordered after loop-state so per-ticket inner
-  // state is marked first, then the outer batch envelope.
-  writeBatchState(cwd, sessionId);
+  // --- 11. Refresh liveness or mark loop-state/batch-state interrupted ---
+  // Dispatched by --cadence per hooks/lib/state-mark.js; also called from the
+  // wrap-coexistence path (section 9) so this executes on ALL exit paths.
+  stateMarkFn(cwd, sessionId, recordHealth);
 
   // --- 12. Append session_total event to .agentic/events.jsonl if present ---
   // Independent best-effort write; any failure swallowed.

@@ -606,7 +606,11 @@ upsert_hook(
 )
 
 # ---- Stop hook --------------------------------------------------------------
-STOP_CMD = f"node {hooks_root}/hooks/stop-context.js"
+# --cadence=turn: the Stop hook fires once per TURN (not once per session per
+# the Claude Code docs), so it only refreshes loop-state/batch-state liveness
+# here - the terminal interrupted-mark lives on the SessionEnd hook below
+# (session-end-wrap.js), which fires once per session.
+STOP_CMD = f"node {hooks_root}/hooks/stop-context.js --cadence=turn"
 
 stop_list = hooks.setdefault("Stop", [])
 

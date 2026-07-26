@@ -483,9 +483,9 @@ Engineer return -&gt; write loop-state.json (last_phase=engineer, action=returne
 QA spawn       -&gt;  write loop-state.json (last_phase=qa, action=spawned)
 QA return      -&gt;  write loop-state.json (last_phase=qa, action=returned)
 </code></pre>
-<p><code>last_phase</code> and <code>last_phase_action</code> are the authoritative resume keys. When the Stop hook fires on session exit, it writes <code>status: &quot;interrupted&quot;</code> if the file exists and <code>status == &quot;active&quot;</code>.</p>
+<p><code>last_phase</code> and <code>last_phase_action</code> are the authoritative resume keys. The Stop hook fires once per <strong>turn</strong> and only refreshes a <code>last_updated</code> liveness timestamp; on a genuine terminal session end, the <strong>SessionEnd hook</strong> writes <code>status: &quot;interrupted&quot;</code> if the file exists and <code>status == &quot;active&quot;</code>.</p>
 <ul>
-<li>Silent Stop hook failure is acceptable - the <strong>10-minute implicit-interrupt heuristic</strong> handles missed writes: any <code>status == &quot;active&quot;</code> file with <code>last_updated</code> more than 10 minutes old is treated as interrupted</li>
+<li>Silent Stop hook / SessionEnd hook failure is acceptable - the <strong>10-minute implicit-interrupt heuristic</strong> handles missed writes: any <code>status == &quot;active&quot;</code> file with <code>last_updated</code> more than 10 minutes old is treated as interrupted</li>
 </ul>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="4" data-marpit-scope-s003="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -986,7 +986,7 @@ hr {
 <li>Single-ticket Trivial invocations never create <code>batch-state.json</code></li>
 </ul>
 <div class="callout">
-The Stop hook mirrors its <code>loop-state.json</code> interrupted-mark write to <code>batch-state.json</code> via the same best-effort silent-fail discipline.
+The SessionEnd hook mirrors its <code>loop-state.json</code> terminal interrupted-mark write to <code>batch-state.json</code> via the same best-effort silent-fail discipline. The Stop hook's separate per-turn liveness refresh mirrors similarly.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="7" data-marpit-scope-s006="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

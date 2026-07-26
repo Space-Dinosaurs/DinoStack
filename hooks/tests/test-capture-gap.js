@@ -73,6 +73,10 @@ const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
 // reader via ./lib/stdin-guard.js. Anchor it to the real lib too so the /tmp
 // shim resolves all three relative lib requires.
 const libStdinGuardAbs = path.resolve(__dirname, '..', 'lib', 'stdin-guard.js');
+// Fourth re-anchor: stop-context.js now requires the shared loop-state/
+// batch-state writer via ./lib/state-mark.js. Anchor it to the real lib too
+// so the /tmp shim resolves all four relative lib requires.
+const libStateMarkAbs = path.resolve(__dirname, '..', 'lib', 'state-mark.js');
 const shimmedSource = hookSource
   // Replace the final `run();` (or, post-stdin-guard, `run().catch(() => { ... });`)
   // call so the hook doesn't try to read stdin during test setup.
@@ -94,6 +98,10 @@ const shimmedSource = hookSource
   .replace(
     /require\(['"]\.\/lib\/stdin-guard\.js['"]\)/,
     `require(${JSON.stringify(libStdinGuardAbs)})`
+  )
+  .replace(
+    /require\(['"]\.\/lib\/state-mark\.js['"]\)/,
+    `require(${JSON.stringify(libStateMarkAbs)})`
   )
   + `\n
 // Expose helpers for unit tests via a module-level export shim.
