@@ -972,6 +972,13 @@ function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null 
  * descriptor was ever successfully published (a descriptor on disk means a
  * concurrent reader may already be trusting this lock as live; removing it
  * out from under that reader would be worse than leaving a stale owner file).
+ * The inode check is BEST-EFFORT and platform-dependent: Linux commonly
+ * reuses a just-freed directory's inode number immediately (observed
+ * 200/200 in a same-path rmdir+mkdir repro on ext4/tmpfs/overlay2), while
+ * macOS/APFS empirically does not (0/200 in the same repro) - so the inode
+ * half provides no protection against a same-path swap on Linux. The
+ * !existsSync(ownerJsonPath) half is the only one of the two conditions
+ * guaranteed cross-platform, since it never depends on inode reuse.
  *
  * Returns true on acquisition, false otherwise. Fail-open (never throws).
  *

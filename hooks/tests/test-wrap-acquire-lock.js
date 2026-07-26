@@ -465,7 +465,16 @@ console.log('\n[14] fail-closed publication — stubbed fs.writeFileSync failure
   }
 
   // (c) publication fails AND the lock dir is swapped for a different-inode
-  // dir before the catch runs - the cleanup rmSync must NOT fire on it.
+  // dir before the catch runs. NOTE: this case does NOT assert that the
+  // swapped-in directory survives cleanup - whether it does is an OS-level
+  // inode-reuse detail, not a portable guarantee. A 200-trial repro of an
+  // identical mkdir -> lstat(ino) -> rmSync -> mkdir -> lstat(ino) cycle at
+  // the same path found: Linux (node:20-bookworm, ext4/tmpfs/overlay2)
+  // reused the identical inode 200/200 times; macOS/APFS reused it 0/200
+  // times. Do NOT restore an fs.existsSync(sentinelPath) assertion here -
+  // it would pass on macOS and fail on Linux CI. See case 14d below for the
+  // portable version of this guarantee (the !existsSync(ownerJsonPath) half
+  // of the guard, which does not depend on inode comparison).
   {
     const tmp = makeTmp('wal-case14c-');
     const lockDirC = lib.wrapLockPath(tmp);
@@ -488,7 +497,39 @@ console.log('\n[14] fail-closed publication — stubbed fs.writeFileSync failure
       fs.writeFileSync = realWriteFileSync;
     }
     assert(acquired === false, `case 14c: acquireWrapLock returns false on the race (got: ${acquired})`);
-    assert(fs.existsSync(sentinelPath), 'case 14c: the swapped-in directory survives (cleanup did not fire on a different inode)');
+  }
+
+  // (d) same swap as (c), but the swapped-in directory ALSO has an
+  // owner.json published in it before the throw - simulating a competitor
+  // that has already published its descriptor. This is the PORTABLE half of
+  // the guard: acquireWrapLock's cleanup skips removal whenever
+  // !fs.existsSync(ownerJsonPath) is false, regardless of inode. Unlike
+  // 14c, this assertion is deterministic on every platform because it never
+  // compares inodes.
+  {
+    const tmp = makeTmp('wal-case14d-');
+    const lockDirD = lib.wrapLockPath(tmp);
+    const sentinelPath = path.join(lockDirD, 'sentinel');
+    let swapped = false;
+    fs.writeFileSync = function (p, ...rest) {
+      if (String(p).endsWith('owner.tmp') && !swapped) {
+        swapped = true;
+        fs.rmSync(lockDirD, { recursive: true, force: true });
+        fs.mkdirSync(lockDirD, { recursive: true });
+        realWriteFileSync.call(fs, sentinelPath, 'x', 'utf8');
+        realWriteFileSync.call(fs, lib.wrapLockOwnerJsonPath(tmp), '{}', 'utf8');
+        throw new Error('EFAIL-owner-tmp-race-with-descriptor');
+      }
+      return realWriteFileSync.call(fs, p, ...rest);
+    };
+    let acquired;
+    try {
+      acquired = lib.acquireWrapLock(tmp, '1\n2020-01-01T00:00:00.000Z', 0, { role: 'agent' });
+    } finally {
+      fs.writeFileSync = realWriteFileSync;
+    }
+    assert(acquired === false, `case 14d: acquireWrapLock returns false on the race (got: ${acquired})`);
+    assert(fs.existsSync(sentinelPath), 'case 14d: the swapped-in directory survives when a competitor has published owner.json (portable, inode-independent)');
   }
 }
 
