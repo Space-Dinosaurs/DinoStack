@@ -136,7 +136,7 @@ _present "spec states this is the only place that signal appears" \
 echo ""
 echo "--- No-args fallthrough no longer reads as bypassing the new section (Minor 3) ---"
 _present "no-args >=2 branch names Ticket-rework detection before Phase 1+" \
-         'proceed into Ticket-rework detection and Phase 1\+'
+         'proceed into Ticket-rework detection, In-flight code detection, and Phase 1\+'
 
 echo ""
 echo "--- Phase 4b checklist gains a 6th point ---"

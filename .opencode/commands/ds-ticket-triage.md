@@ -31,7 +31,8 @@ Upstream deps: content/commands/ds-implement-ticket.md Phase 0 (input normalizer
                (mcp__linear__get_issue); content/references/trigger-catalog.md
                (yolo-guard, §d); .agentic/ticket-ledger.jsonl (local,
                gitignored, tracker-independent read - see content/references/
-               ticket-rework.md for schema and algorithm).
+               ticket-rework.md for schema and algorithm); gh CLI (pr list
+               --state open, one call per run, repo inferred from git remote).
 
 Downstream consumers: operator-invoked only (standalone) OR /ds-implement-ticket
                       Phase 0a (integration path - algorithm reused by reference,
@@ -56,11 +57,15 @@ Failure modes: soft-fail per ticket throughout; fetch failures treated as
                exits before Phase 1. No-tracker exits after Phase 0 with
                heuristic-only notice; no-args + no-tracker exits immediately
                (explicit list required). 0 assigned tickets exits immediately.
-               Phase 4b Skeptic skipped when artifact contains zero lanes and
-               zero chains (all deferred / in-progress). Ticket-rework ledger
+               Phase 4b Skeptic skipped when artifact contains zero lanes,
+               zero chains, and no IN_FLIGHT-sourced exclusions (all deferred
+               / in-progress with no open-PR evidence). Ticket-rework ledger
                read soft-fails per line (absent/unreadable ledger or a single
                malformed line never blocks triage of the remaining set - see
-               Ticket-rework detection below).
+               Ticket-rework detection below). In-flight code detection's
+               `gh pr list` call degrades to a total no-op (no flags set) when
+               `gh` is absent, unauthenticated, has no remote, or the call
+               fails - see In-flight code detection below.
 
 Performance: one tracker API call per ticket in Phase 1 (conductor-direct);
              one background investigator in Phase 2b when !HEURISTIC_ONLY;
@@ -68,7 +73,9 @@ Performance: one tracker API call per ticket in Phase 1 (conductor-direct);
              >20 tickets: investigator pass skipped (HEURISTIC_ONLY=true) after
              a proceed prompt. Ticket-rework detection adds N entries x one
              full-file jq parse of the local `.agentic/ticket-ledger.jsonl`
-             (no network, no tracker call) once per triage run.
+             (no network, no tracker call) once per triage run. In-flight code
+             detection adds exactly one `gh pr list` call per triage run, not
+             per ticket.
 -->
 
 # /ds-ticket-triage
@@ -111,7 +118,7 @@ When `/ds-ticket-triage` is invoked with no input, resolve the operator's open a
 - **Linear:** query issues where `assignee: me`, team = the resolved team (from `Team`/`TICKET_PREFIX` in the tracker resolution), and state type not in `(completed, canceled)` using `mcp__linear__list_issues`. Collect entries as `{ticket_id, source: "assigned"}`.
 - **0 results:** print "No open tickets assigned to you." and exit.
 - **1 result:** fall through to the single-ticket degenerate path (print "Single ticket: run /ds-implement-ticket <id> directly." and exit).
-- **>=2 results:** proceed into Ticket-rework detection and Phase 1+ exactly as for an explicit list input. Print the resolved ticket IDs (one per line) before proceeding so the operator can confirm the scope.
+- **>=2 results:** proceed into Ticket-rework detection, In-flight code detection, and Phase 1+ exactly as for an explicit list input. Print the resolved ticket IDs (one per line) before proceeding so the operator can confirm the scope.
 
 `[phase: ticket-triage | phase=resolve-assigned]`
 
@@ -140,6 +147,45 @@ For each entry in the resolved `entries[]`, reuse `/ds-implement-ticket` Phase 1
 
 `[phase: ticket-triage | phase=rework-detect]`
 
+## In-flight code detection (cross-checkout, runs after entries[] resolves via EITHER Phase 0 branch)
+
+**Anchoring (binding).** Phase 0 above has two mutually exclusive branches - the no-args default (terminal breadcrumb `phase=resolve-assigned`) and explicit input (terminal breadcrumb `phase=normalize`) - each ending in its own breadcrumb. This detection step sits downstream of BOTH: it runs once `entries[]` has been resolved and Ticket-rework detection above has completed, regardless of which Phase 0 branch produced the list, and before Phase 1 begins - see the dual-branch anchoring pattern in `content/references/ticket-rework.md` §Anchoring Instance 2.
+
+**Phase-siting ruling.** This section sits before `## Phase 1: Metadata fetch` and is therefore NOT executed on the `/ds-implement-ticket` Phase 0a integration path: Phase 0a feeds its OWN already-normalized `entries[]` directly into triage Phase 1. Consequence (a): no self-detection - a triage run reached via Phase 0a never checks its own tickets for in-flight PRs. Consequence (b), **stated as a LIMITATION, not a compensation**: `/ds-implement-ticket A, B, C` - the exact comma-list form the Kickoff prompts section emits - receives **no** in-flight code detection. `## Tracker Create Helper` does not cover this gap (it runs at create time, is tracker-status-based, and reads no PR); `## Scope boundary` is a ticket-body block, not a backstop. Closing this gap is a follow-up unit, named here so it is not mistaken for already-covered ground.
+
+**The call - one network call per run, O(1), zero shell `git` calls:**
+
+```
+gh pr list --state open --limit 100 --json number,title,headRefName,isDraft,url
+```
+
+No `--repo` flag: `gh` infers the repository from the git remote, so no `AGENTS.md` value is required.
+
+**Precondition (binding).** Detection is skipped for any entry whose `ticket_id` is null or empty - mirroring the Ticket-rework detection guard above (a freeform/local entry with no ticket reference). Sets `entry.IN_FLIGHT = false`, leaves `entry.in_progress` untouched.
+
+**Match predicate (binding).** For non-empty `<KEY>` and candidate `S`: occurs case-insensitively, the following character is **non-alphanumeric or absent**, and the preceding character is **non-alphanumeric or absent**. Candidates: each open PR's `title` and `headRefName`.
+
+**Precedence rule (binding).** `IN_FLIGHT` and `IS_REWORK` are **orthogonal**; neither suppresses the other and both may be true. When both are true the badge stays `[IN PROGRESS] [REWORK xN]` in the In-progress tickets table, and the Notes cell names both PRs: `in flight: open PR #<n>; prior attempt PR #<m> - verify both once back from in-progress`.
+
+**Degradation** (all silent-and-continue):
+
+| Condition | Behavior |
+|---|---|
+| `gh` absent, unauthenticated, no remote, or call fails | total no-op; no flags set; one notice line; output identical to today's |
+| `HEURISTIC_ONLY == true` | step still runs - O(1), not per-ticket; the >20-ticket lever does not apply |
+
+**Evidence cap:** at most 3 entries per ticket, descending PR number, then `(+N more)`.
+
+**Assignment rule.** On a match, set `entry.IN_FLIGHT = true`, append the matching PR to `entry.IN_FLIGHT_EVIDENCE[]` (`{kind: "pr", ref, title, is_draft, url}`), and set `entry.in_progress = true` (see **In-progress detection** in Phase 1 below). This creates **no new category** - it feeds the existing `in_progress` machinery through a second source. Four consumers inherit this assignment unchanged: (1) Phase 3's removal from lane assignment before Rule 2 / Rework isolation; (2) the Phase 1 story-size preflight, which suppresses size warnings for `in_progress: true` tickets; (3) the Phase 4a In-progress table and kickoff-prompt exclusion; (4) `triage_result.in_progress_excluded[]` and the `## Output` count. All four are intended under open-PR evidence.
+
+**Why *remote-ref enumeration* is not evidence.** What is dropped is enumerating `git branch -r`: stale refs persist with `fetch.prune` unset (82 remote-tracking refs vs 76 live heads vs 7 open PRs measured), so a bare ref name is near-noise, and a merged prior-attempt ref would flag every rework ticket. What is **kept** is `headRefName` as a match candidate above - the head branch of an open PR is live by construction, and dropping it would halve recall for no precision gain.
+
+**Disclaimer.** A pushed branch with no PR yet is an accepted false negative. A stale *open* PR is the one remaining false-positive path; printed evidence lets the operator verify it by hand.
+
+**Reserved for Unit 2.** A future unit may enrich this same `IN_FLIGHT` flag with additional evidence sources - do not build a third enumerator; extend this one.
+
+`[phase: ticket-triage | phase=inflight-detect]`
+
 ## Phase 1: Metadata fetch
 
 Conductor-direct (no subagent). For each entry in `normalized_input.entries[]`, fetch:
@@ -152,7 +198,7 @@ The captured estimate (`story_points` / `timeestimate` / Linear `estimate`) popu
 
 **Terminal-status detection:** tickets whose status maps to a Done/Cancelled/Won't-do state are marked `terminal: true`. They are added to the deferred set in Phase 3 Rule 1 without further analysis.
 
-**In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true`. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts). When `entry.IS_REWORK` is also true (see Ticket-rework detection above), the badge becomes `[IN PROGRESS] [REWORK xN]` in the In-progress tickets table - the only place that ticket's rework signal appears, since in-progress removal happens before Rule 2 and Rework isolation and the ticket never reaches a lane.
+**In-progress detection:** tickets whose status maps to an active/started/in-progress workflow state are marked `in_progress: true`. They are carried through Phase 2 analysis but removed from lane assignment after Rule 1 (shown badged `[IN PROGRESS]` in the artifact; excluded from kickoff prompts). When `entry.IS_REWORK` is also true (see Ticket-rework detection above), the badge becomes `[IN PROGRESS] [REWORK xN]` in the In-progress tickets table - the only place that ticket's rework signal appears, since in-progress removal happens before Rule 2 and Rework isolation and the ticket never reaches a lane. `in_progress: true` has two sources: this tracker-column mapping, and In-flight code detection above (open-PR evidence) - when the latter sets it, `entry.IN_FLIGHT` is also true and the Notes cell in the In-progress tickets table below names the causing PR.
 
 > **Story-size preflight** - runs once, immediately after all metadata is collected.
 >
@@ -353,12 +399,21 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
 <!-- Ticket column: append "[REWORK xN]" after "[IN PROGRESS]" when entry.IS_REWORK is true - see
      Ticket-rework detection above. This is the ONLY place an in-progress rework ticket's signal
      appears: in-progress removal happens before Rule 2 and Rework isolation, so it never gets a
-     lane, a Per-ticket-summary badge, or a Notes-cell annotation elsewhere. -->
+     lane, a Per-ticket-summary badge, or a Notes-cell annotation elsewhere.
+     Notes cell provenance: a ticket whose in_progress came from the tracker column reads
+     "Excluded from kickoff prompts"; one detected via In-flight code detection (open-PR
+     evidence) reads "Excluded from kickoff prompts; in flight: open PR #<n> (+N more) -
+     detected from an open PR, not the tracker column"; one where entry.IS_REWORK is also
+     true names BOTH PRs: "Excluded from kickoff prompts; in flight: open PR #<n>; prior
+     attempt PR #<m> - verify both once back from in-progress" (see the Precedence rule in
+     In-flight code detection above). -->
 
 | Ticket | Assignee | Notes |
 |--------|----------|-------|
 | Z [IN PROGRESS] | ... | Excluded from kickoff prompts |
 | W [IN PROGRESS] [REWORK x1] | ... | Excluded from kickoff prompts; verify PR #501 once back from in-progress |
+| DS-34 [IN PROGRESS] | ... | Excluded from kickoff prompts; in flight: open PR #420 (+1 more) - detected from an open PR, not the tracker column |
+| DS-40 [IN PROGRESS] [REWORK x1] | ... | Excluded from kickoff prompts; in flight: open PR #421; prior attempt PR #388 - verify both once back from in-progress |
 
 ## Kickoff prompts
 
@@ -390,11 +445,11 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
 
 ## Phase 4b: Skeptic review
 
-**Skip condition:** if the artifact contains zero lanes AND zero chains (e.g. all tickets are deferred or in-progress), skip Phase 4b entirely and proceed to output.
+**Skip condition:** if the artifact contains zero lanes AND zero chains AND no IN_FLIGHT-sourced exclusions (e.g. all tickets are deferred or in-progress with no open-PR evidence), skip Phase 4b entirely and proceed to output.
 
 Otherwise: spawn a fresh background Skeptic on the artifact with this adversarial brief:
 
-> "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented? (6) Rework annotation - was every ticket with `IS_REWORK: true` given the `[REWORK xN]` badge and a Notes-cell annotation naming the prior PR? Is it placed in a chain, never `parallel` - either its own single-ticket rework-isolated chain, or the DAG-connected chain Rule 2 already assigned it, with the in-set blocker relationship preserved first in that case?"
+> "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented? (6) Rework annotation - was every ticket with `IS_REWORK: true` given the `[REWORK xN]` badge and a Notes-cell annotation naming the prior PR? Is it placed in a chain, never `parallel` - either its own single-ticket rework-isolated chain, or the DAG-connected chain Rule 2 already assigned it, with the in-set blocker relationship preserved first in that case? (7) In-flight provenance - was every ticket with `entry.IN_FLIGHT: true` given a Notes-cell annotation naming the causing open PR, using the dual-PR format when `entry.IS_REWORK` is also true?"
 
 Max 3 fix passes, then escalate to the operator with open findings listed.
 
@@ -410,6 +465,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 4. A one-line summary: "N tickets triaged: M lane-assigned across K lanes, P deferred, Q in-progress."
 5. If any conflict warnings were emitted, restate the fixed caveat.
 6. If `HEURISTIC_ONLY=true`, restate the Level 1 stamp.
+7. **Zero lanes with in-flight exclusions.** When the artifact contains zero lanes AND at least one ticket was excluded by in-flight code evidence, print: `All candidate tickets are already in flight (open PRs: <keys>). No lanes to recommend. Recommended next action: review those PRs before starting new work - or re-invoke with an explicit ticket id to override.` Note the Phase 4b Skeptic does still run in this case, per the extended skip condition.
 
 `[phase: ticket-triage | phase=complete]`
 
@@ -422,6 +478,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 - Mutate tracker tickets (no status transitions, no comment posts).
 - Produce Briefs, Plans, or ADRs.
 - Perform file-level conflict analysis (directory-level only via the Phase 2b investigator).
+- Perform any .agentic/ state read for in-flight detection (no batch-state, loop-state, or tasks.jsonl read - those are gitignored and cannot cross a checkout boundary).
 
 **Distinction from related commands:**
 - `/ds-implement-ticket` - executes a ticket through to a merged PR; `/ds-ticket-triage` is upstream planning only.
@@ -436,7 +493,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 | No args, no tracker | Print "No tracker configured - an explicit ticket list or URL is required when no tracker is connected." and exit. |
 | No args, 0 assigned | Print "No open tickets assigned to you." and exit. |
 | No args, 1 assigned | Print "Single ticket: run /ds-implement-ticket <id> directly." and exit. |
-| No args, >=2 assigned | Print resolved ticket IDs, then proceed into Ticket-rework detection and Phase 1+ as for an explicit list. |
+| No args, >=2 assigned | Print resolved ticket IDs, then proceed into Ticket-rework detection, In-flight code detection, and Phase 1+ as for an explicit list. |
 | Single ticket | Print "run /ds-implement-ticket <id> directly." and exit before Phase 1. |
 | All tickets independent (no DAG edges) | Rule 2 is a no-op; all tickets go to Rule 3 parallel grouping. |
 | Circular dependency | Break at lowest-confidence link; defer both with `cycle_warning`. Do not abort. |
@@ -444,6 +501,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 | JQL returns many results | Phase 0's 50-result cap applies first (truncate + warning). Then, on the surviving set: if count >20, the HEURISTIC_ONLY gate fires (Level 1 conflict analysis only; header stamped). Both rules sequence in that order; a 60-result JQL trips both. |
 | Terminal-status ticket (Done/Cancelled) | Deferred via Rule 1 with reason "terminal". Not included in lane assignment or kickoff prompts. |
 | In-progress ticket | Carried through analysis; removed from lane assignment after Rule 1. Shown badged `[IN PROGRESS]`. Excluded from kickoff prompts. |
+| Ticket with an open PR naming its key, tracker column not moved | Badged `[IN PROGRESS]` via In-flight code detection (open-PR evidence); Notes cell states `in flight: open PR #<n>...`. Excluded from kickoff prompts, same as a tracker-sourced in-progress ticket. |
 | No tracker configured (with explicit input) | Skip Phase 1; run Phase 2a with zero link data; run Phase 2b Level 1 with zero component/label data; print notice. |
 | Ticket with `IS_REWORK: true`, no in-set DAG edge | Badged `[REWORK xN]`. Given its own single-ticket chain lane by Rework isolation (never `parallel`). NOT deferred, NOT excluded from kickoff. Notes cell names the prior PR. Runs identically at `TRACKER=none` - detection is tracker-independent. |
 | Ticket with `IS_REWORK: true` AND an in-set DAG edge (blocks or is blocked by another surviving ticket) | Badged `[REWORK xN]`. Consumed by Rule 2, not Rework isolation - stays in its topo-sorted chain (Type `chain`, never `parallel`) so the dependency edge is preserved. Notes cell leads with the in-set blocker relationship, then the rework annotation (e.g. `blocked by F; rework x1 - ...`). |
@@ -452,6 +510,6 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 
 ## Soft-fail discipline
 
-Every tracker and MCP call soft-fails: log and continue. A fetch failure on one ticket never aborts the triage of the remaining set. Fetch-failed tickets are treated as independent with no known metadata. The command never errors out on external API failure. The ticket-rework ledger read (a local file, not a tracker/MCP call) follows the same discipline: an absent or unreadable ledger, or a single malformed line within it, resolves to zero prior attempts for the affected entry(ies) rather than erroring - see Ticket-rework detection above.
+Every tracker and MCP call soft-fails: log and continue. A fetch failure on one ticket never aborts the triage of the remaining set. Fetch-failed tickets are treated as independent with no known metadata. The command never errors out on external API failure. The ticket-rework ledger read (a local file, not a tracker/MCP call) follows the same discipline: an absent or unreadable ledger, or a single malformed line within it, resolves to zero prior attempts for the affected entry(ies) rather than erroring - see Ticket-rework detection above. The In-flight code detection `gh pr list` call (neither a tracker call nor an MCP call) follows the same discipline: `gh` absent, unauthenticated, having no remote, or the call failing all degrade to a total no-op with one notice line - see In-flight code detection above.
 
 Emit one breadcrumb per phase as shown in each section above. The terminal breadcrumb is `[phase: ticket-triage | phase=complete]`.
