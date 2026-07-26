@@ -7,7 +7,14 @@
  *        dead pid file.
  *   (8)  idle self-exit (no ready markers, short idle window -> daemon exits).
  *   (9)  FIFO over ready markers by staged_at (oldest drained first).
- *   (10) acquireWrapLock auto-clears a STALE lock + defers on a FRESH one (lib).
+ *   (10) acquireWrapLock defers (false) on ANY existing lock, fresh or mtime-stale
+ *        (lib). UPDATED (U1, DS-wrap-lock-verdict): the old mtime-driven
+ *        force-clear-and-steal path inside acquireWrapLock was deleted - it was the
+ *        single observation-then-removal path that let a waiter steal a LIVE lock.
+ *        acquireWrapLock is now a pure mkdir-EEXIST primitive with no steal logic at
+ *        all; the ONLY code path that may ever remove another holder's lock is the
+ *        daemon-side clearProvablyStaleWrapLock, which is owner-liveness-gated (see
+ *        the LOCK-1..8 cases below), never mtime-gated.
  *   (11/toggle) the daemon acts only when launched; it is launched only when the
  *        toggle is true (asserted at the lib/hook level; here we assert that a
  *        directly-run daemon with NO ready markers does nothing destructive).
@@ -492,9 +499,13 @@ console.log('\n[7] singleton: a LIVE pid file blocks a second launch; a stale+de
 }
 
 // ---------------------------------------------------------------------------
-// (10) acquireWrapLock auto-clears a STALE lock; defers on a FRESH one (lib)
+// (10) acquireWrapLock defers (false) on ANY existing lock, fresh or mtime-stale
+// (lib). UPDATED (U1): the mtime-driven force-clear-and-steal path was deleted -
+// see the header comment block above for the rationale. acquireWrapLock is now a
+// pure mkdir-EEXIST primitive: it NEVER removes an existing lock, regardless of
+// how old its mtime is. `releaseWrapLock` now returns a STRING, not a boolean.
 // ---------------------------------------------------------------------------
-console.log('\n[10] acquireWrapLock: auto-clears a stale lock, defers on a fresh one');
+console.log('\n[10] acquireWrapLock: defers (false) on any existing lock, fresh or mtime-stale');
 {
   const { base, projectDir, agenticDir } = makeProject('ae-wd-lock-');
   const lockDir = lib.wrapLockPath(projectDir);
@@ -508,17 +519,20 @@ console.log('\n[10] acquireWrapLock: auto-clears a stale lock, defers on a fresh
   // (b) FRESH lock held by someone else -> a new acquire defers (false).
   assert(lib.acquireWrapLock(projectDir, 'owner-2', STALE_MS) === false,
     'acquireWrapLock defers (false) on a FRESH held lock');
-  lib.releaseWrapLock(projectDir);
+  assert(lib.releaseWrapLock(projectDir) === 'released', 'releaseWrapLock removed the lock (returns "released")');
   assert(!fs.existsSync(lockDir), 'releaseWrapLock removes the lock directory');
 
-  // (c) STALE lock -> auto-cleared + re-acquired.
+  // (c) mtime-STALE lock (no owner published) -> acquireWrapLock NO LONGER steals
+  // it. wrapLockStale (unchanged, mtime-only) still reports it as stale by its own
+  // predicate; acquireWrapLock simply no longer consults that predicate at all.
   fs.mkdirSync(lockDir, { recursive: true });
   const old = new Date(Date.now() - 40 * 60 * 1000);
-  fs.utimesSync(lockDir, old, old); // backdate mtime so it reads as stale
-  assert(lib.wrapLockStale(projectDir, STALE_MS) === true, 'a backdated lock reads as stale');
-  assert(lib.acquireWrapLock(projectDir, 'owner-3', STALE_MS) === true,
-    'acquireWrapLock auto-clears a STALE lock and re-acquires');
-  lib.releaseWrapLock(projectDir);
+  fs.utimesSync(lockDir, old, old); // backdate mtime
+  assert(lib.wrapLockStale(projectDir, STALE_MS) === true, 'a backdated lock still reads as stale via wrapLockStale (unchanged predicate)');
+  assert(lib.acquireWrapLock(projectDir, 'owner-3', STALE_MS) === false,
+    'acquireWrapLock does NOT auto-clear a merely mtime-stale lock (steal path removed)');
+  assert(fs.existsSync(lockDir), 'the mtime-stale lock directory is left untouched');
+  assert(lib.releaseWrapLock(projectDir) === 'released', 'cleanup: lock (no owner published) is tokenlessly releasable');
 
   cleanup(base);
 }

@@ -43,18 +43,31 @@
  *     reclaimAbandonedInProgress(cwd, staleMs) -> {reclaimed:[], gaveUp:[]}
  *     cleanStalePending(cwd, ttlMs) -> {deleted:[]}
  *   Lock (NEVER prompts):
- *     acquireWrapLock(cwd, owner, staleMs) -> boolean, releaseWrapLock(cwd)
+ *     acquireWrapLock(cwd, owner, staleMs, opts) -> boolean (staleMs is now an INERT
+ *       positional slot - see LOCK CLEAR below; opts.role publishes a JSON descriptor)
+ *     releaseWrapLock(cwd, token) -> 'absent'|'released'|'refused-not-a-lock'|
+ *       'refused-not-owner'|'error' (a STRING, not a boolean - see LOCK CLEAR below;
+ *       `if (releaseWrapLock(cwd))` is a correctness hazard, every non-'absent' string
+ *       including the refusal strings is truthy)
  *     readWrapLockOwner(cwd) -> { pid, ts } (symlink-guarded: guards both parent lock
- *       dir AND leaf owner against symlinks, no-follow; safe for any caller),
+ *       dir AND leaf owner against symlinks, no-follow; safe for any caller; LEGACY
+ *       2-line-body reader only - does not see a JSON descriptor)
+ *     readWrapLockOwnerV2(cwd) -> { source:'json'|'legacy'|null, ... } (schema-validated
+ *       JSON descriptor reader with legacy fallback; see LOCK CLEAR below)
+ *     makeLockDescriptor({role, pid, token, acquiredAt}) -> descriptor object (the SOLE
+ *       producer of the JSON descriptor shape; throws TypeError on an invalid role/pid)
+ *     wrapLockVerdict(cwd) -> { verdict: 'free'|'live'|'dead'|'unknown', ... } (total,
+ *       time-independent liveness predicate; see LOCK CLEAR below)
  *     clearProvablyStaleWrapLock(cwd, staleMs) -> boolean (daemon-side stale-lock clear)
  *     wrapLockProvablyStale(cwd, staleMs) -> boolean (staleness predicate, NEW path)
  *     wrapLockProvablyStaleLegacy(cwd, staleMs) -> boolean (staleness predicate, OLD path)
  *   Heartbeat:
  *     touchHeartbeat(cwd, sessionId) (NO-OP under guard), removeHeartbeat(cwd, sessionId)
  *
- * Upstream deps: Node built-ins only (fs, path). No npm dependencies.
+ * Upstream deps: Node built-ins only (fs, path, os). No npm dependencies.
  *                Reads/writes under [cwd]/.agentic/wrap/: pending-<id>.json markers,
- *                last-wrap, lock (directory) + lock/owner, daemon.pid,
+ *                last-wrap, lock (directory) + lock/owner, lock/owner.json (+ their
+ *                .owner.tmp / .owner.json.tmp atomic-write staging files), daemon.pid,
  *                daemon-auth-failed, heartbeats/<id>, deferred-activity.jsonl.
  *                Also exposes a path helper for daemon.log (this lib does NOT
  *                write that log - the daemon does; the helper only derives the path).
@@ -67,7 +80,9 @@
  *                        cleanStalePending, acquireWrapLock, transitionDone/GaveUp - U3),
  *                        hooks/session-start-wrap.sh (self-heals the sentinel in bash;
  *                        ensureClaudeHost is the Node-callable equivalent, exported for
- *                        adapter use - U4).
+ *                        adapter use - U4), bin/agentic-wrap-acquire-lock (acquireWrapLock,
+ *                        readWrapLockOwner, wrapLockPath), bin/agentic-wrap-release-lock
+ *                        (releaseWrapLock, wrapLockPath).
  *
  * Failure modes: Every function is fail-open and NEVER throws to a hook - all fs
  *                errors are swallowed and a safe default is returned (false/null/[]
@@ -113,7 +128,37 @@
  *                for any caller without requiring a prior parent-level lstat.
  *                The ownerIsStale(owner, staleMs) helper is shared between
  *                wrapLockProvablyStale (new path) and wrapLockProvablyStaleLegacy (old
- *                path), single-sourcing the CWE-59 symlink-guarded owner read.
+ *                path), single-sourcing the CWE-59 symlink-guarded owner read. The
+ *                symlink + DoS-size guard itself is single-sourced ONE level deeper, in
+ *                readGuardedFile, which both readOwnerAt (legacy 2-line body) and
+ *                readWrapLockOwnerV2 (JSON descriptor) delegate to - the CWE-59
+ *                discipline is never copy-pasted between the two readers.
+ *                JSON-DESCRIPTOR PRECEDENCE (U1): clearProvablyStaleWrapLock now refuses
+ *                unconditionally when a schema-validated JSON descriptor is present
+ *                (lock/owner.json, read via readWrapLockOwnerV2) AND wrapLockVerdict
+ *                independently classifies the lock as 'live' - this refusal is checked
+ *                BEFORE the legacy owner-based staleness predicate below, so a live
+ *                JSON-owned lock can never be cleared by the legacy path. It is a
+ *                provable no-op against every pre-U1 fixture, which plants only the
+ *                legacy `owner` file and never `owner.json`. wrapLockVerdict is the
+ *                new total ('free'|'live'|'dead'|'unknown') liveness predicate: it is
+ *                PID-BLIND for a 2-line legacy body (every interactive `/ds-wrap`
+ *                writer's PID is a shell that has already exited by the time the owner
+ *                file lands) but PID-aware for a 1-line legacy body (the daemon's PID
+ *                is a genuinely live long-running process) and for any JSON descriptor
+ *                whose role is 'daemon'/'commit' - collapsing that distinction either
+ *                steals a live interactive lock or wedges a dead daemon lock forever.
+ *                A JSON descriptor with role:'agent' is unconditionally 'live' forever
+ *                (there is deliberately no TTL and no `boot` field on the descriptor -
+ *                any finite TTL is a lock-steal with extra steps). wrapLockVerdict never
+ *                performs an arithmetic time comparison; `ageMs` is computed only after
+ *                the verdict is already decided, purely for callers' log messages.
+ *
+ * NOTE: `if (releaseWrapLock(cwd))` is a correctness hazard as of U1 - releaseWrapLock
+ *       now returns one of five STRINGS ('absent'|'released'|'refused-not-a-lock'|
+ *       'refused-not-owner'|'error'), all of which are truthy including the refusal
+ *       strings. Compare against the exact string, e.g. `releaseWrapLock(cwd) ===
+ *       'released'`.
  *
  * Performance: standard. Synchronous fs only; no git, no network, no subprocess.
  *              listReadyMarkers / listInProgressMarkers glob one directory
@@ -125,6 +170,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -161,6 +207,16 @@ const MAX_DAEMON_LOG_BYTES = 2 * 1024 * 1024;
 // listener attached past the cap (drain-and-discard) so a chatty child cannot wedge
 // on a full OS pipe; it just stops growing this buffer. 256 KB is ample for a wrap run.
 const MAX_CHILD_CAPTURE_BYTES = 256 * 1024;
+
+// Cap on the lock/owner and lock/owner.json reads. The legacy owner body is at
+// most two short lines (a PID and an ISO timestamp); the JSON descriptor is a
+// small fixed-shape object. Cap both reads so a giant planted file cannot wedge
+// a daemon tick. Mirrors the SEC-M2 stat-then-read discipline. Strict `>` (not
+// `>=`): exactly MAX_OWNER_BYTES is read, one byte over is rejected.
+const MAX_OWNER_BYTES = 4 * 1024;
+
+// The only valid `role` values for a lock descriptor (see makeLockDescriptor).
+const LOCK_DESCRIPTOR_ROLES = ['agent', 'daemon', 'commit'];
 
 // ---------------------------------------------------------------------------
 // Internal helpers (not exported)
@@ -279,6 +335,11 @@ function wrapLockPath(cwd) {
 
 function wrapLockOwnerPath(cwd) {
   return path.join(wrapDir(cwd), 'lock', 'owner');
+}
+
+/** Path to the schema-validated JSON lock descriptor (see makeLockDescriptor). */
+function wrapLockOwnerJsonPath(cwd) {
+  return path.join(wrapDir(cwd), 'lock', 'owner.json');
 }
 
 function daemonPidPath(cwd) {
@@ -812,84 +873,241 @@ function cleanStalePending(cwd, ttlMs) {
 // ---------------------------------------------------------------------------
 
 /**
- * Acquire the wrap.lock directory via atomic mkdir (O_EXCL semantics). On
- * collision, if the existing lock is stale (older than staleMs) it is force-cleared
- * (rm -rf) and acquisition is retried ONCE; otherwise acquisition fails. NEVER
- * prompts. Writes an owner file inside the lock dir for diagnostics. Returns true
- * on acquisition, false otherwise. Fail-open: false.
+ * Symlink-guarded, CWE-59-safe, size-bounded file reader. Reads the file at
+ * leafPath, guarding against symlinks at BOTH levels: the parent lockPath
+ * (a directory - the lock dir itself) AND the leaf file. Returns the raw utf8
+ * contents on success, or null on any guard failure, non-file, over-cap size,
+ * or fs error. NEVER throws. This is the ONE canonical size/symlink-guarded
+ * reader shared by readOwnerAt (legacy 2-line body) and readWrapLockOwnerV2
+ * (JSON descriptor) so the CWE-59 + DoS-cap discipline is never copy-pasted.
+ *
+ * Size check is strict `>`: a file of exactly maxBytes IS read; maxBytes + 1
+ * is rejected.
+ *
+ * @param {string} lockPath - The lock directory path (lstat-checked no-follow).
+ * @param {string} leafPath - The file path inside (or under) the lock dir.
+ * @param {number} maxBytes - Strict upper bound on the leaf file's size.
+ * @returns {string|null}
  */
-function acquireWrapLock(cwd, owner, staleMs) {
+function readGuardedFile(lockPath, leafPath, maxBytes) {
+  try {
+    // (1) PARENT guard: if the lock dir itself is a symlink, bail immediately.
+    const lockSt = fs.lstatSync(lockPath); // throws if absent -> caught -> null
+    if (lockSt.isSymbolicLink()) return null;
+
+    // (2) LEAF guard: if the leaf file is a symlink (or not a regular file), or
+    // over the size cap, bail without reading its bytes.
+    const st = fs.lstatSync(leafPath); // no-follow; throws ENOENT when absent -> null
+    if (st.isSymbolicLink()) return null;
+    if (!st.isFile()) return null;
+    if (st.size > maxBytes) return null;
+    return fs.readFileSync(leafPath, 'utf8');
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Construct the SOLE valid shape of a schema-validated JSON lock descriptor.
+ * This is the ONE producer of the descriptor object written to
+ * lock/owner.json - callers must never hand-build this shape.
+ *
+ * Validates at construction time (fail LOUD, not silent): an invalid `role`
+ * or `pid` would otherwise publish a descriptor that readWrapLockOwnerV2's own
+ * validator rejects, silently degrading it to `source:'legacy'` (or `null`)
+ * and disabling the daemon-side live-lock protection this design depends on.
+ * `acquiredAt` is NOT validated here - it exists solely so a test can backdate
+ * a fixture; a garbage `acquiredAt` produces a descriptor that readWrapLockOwnerV2
+ * correctly DETECTS as invalid (falls back to legacy/unknown), it does not
+ * prevent an invalid descriptor from being constructed.
+ *
+ * @param {{role: 'agent'|'daemon'|'commit', pid?: number|null, token?: string|null, acquiredAt?: string|null}} params
+ * @throws {TypeError} on an out-of-enum role or a non-null non-positive-integer pid.
+ */
+function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null } = {}) {
+  if (!LOCK_DESCRIPTOR_ROLES.includes(role)) {
+    throw new TypeError(
+      'makeLockDescriptor: role must be one of ' + LOCK_DESCRIPTOR_ROLES.join('/') + ' (got: ' + role + ')'
+    );
+  }
+  if (pid !== null && !(Number.isInteger(pid) && pid > 0)) {
+    throw new TypeError('makeLockDescriptor: pid must be null or a positive integer (got: ' + pid + ')');
+  }
+  return {
+    schema_version: 1,
+    role,
+    pid,
+    host: os.hostname(),
+    acquired_at: acquiredAt || new Date().toISOString(),
+    token,
+  };
+}
+
+/**
+ * Acquire the wrap/lock directory via atomic mkdir (O_EXCL semantics). This is
+ * the SOLE exclusion primitive: mkdirSync returns EEXIST for every collision
+ * shape (empty dir, symlink-to-dir, dangling symlink, plain file, case-
+ * insensitive sibling - empirically verified), so no separate type-check is
+ * needed before the attempt. There is NO auto-steal of a "stale" lock here -
+ * see the module manifest's LOCK CLEAR discussion; the only path that ever
+ * removes another holder's lock is the daemon-side clearProvablyStaleWrapLock.
+ *
+ * `owner` (when non-null) is written VERBATIM as the legacy 2-line body -
+ * existing 3-arg callers (the daemon, agentic-wrap-acquire-lock) depend on
+ * this untouched. `opts.role` (when present) additionally publishes a
+ * schema-validated JSON descriptor via makeLockDescriptor - opts is fully
+ * optional so 3-arg callers keep working unchanged. `staleMs` is retained
+ * ONLY as an inert positional slot for signature compatibility; it is never
+ * read.
+ *
+ * Publication is atomic (tmp + rename) and FAIL-CLOSED: if writing the owner
+ * body or the JSON descriptor throws after the lock dir was created, the
+ * directory is removed (never left as a phantom hold) - but ONLY when it is
+ * still, by inode, the exact directory this call created AND no JSON
+ * descriptor was ever successfully published (a descriptor on disk means a
+ * concurrent reader may already be trusting this lock as live; removing it
+ * out from under that reader would be worse than leaving a stale owner file).
+ *
+ * Returns true on acquisition, false otherwise. Fail-open (never throws).
+ *
+ * @param {string} cwd
+ * @param {string|number|null} [owner] - Legacy 2-line body content (verbatim).
+ * @param {number} [staleMs] - INERT positional slot; retained for compatibility.
+ * @param {{role: 'agent'|'daemon'|'commit', pid?: number|null, token?: string|null}} [opts]
+ */
+function acquireWrapLock(cwd, owner, staleMs, opts) {
   const safe = safeCwd(cwd);
   if (!safe) return false;
   const lockDir = wrapLockPath(safe);
-  const tryMkdir = () => {
-    try {
-      fs.mkdirSync(path.dirname(lockDir), { recursive: true });
-      fs.mkdirSync(lockDir); // throws EEXIST if held
-      try {
-        fs.writeFileSync(wrapLockOwnerPath(safe), String(owner == null ? '' : owner), 'utf8');
-      } catch (_) {}
-      return true;
-    } catch (err) {
-      if (err && err.code === 'EEXIST') return false;
-      return false; // any other fs error -> treat as not acquired
-    }
-  };
+  const ownerPath = wrapLockOwnerPath(safe);
+  const ownerJsonPath = wrapLockOwnerJsonPath(safe);
 
-  if (tryMkdir()) return true;
-
-  // Collision: clear if stale, then retry once.
-  if (wrapLockStale(safe, staleMs)) {
-    try { fs.rmSync(lockDir, { recursive: true, force: true }); } catch (_) {}
-    return tryMkdir();
-  }
-  return false;
-}
-
-/** Release the wrap.lock directory (rm -rf, idempotent). Fail-open. */
-function releaseWrapLock(cwd) {
-  const safe = safeCwd(cwd);
-  if (!safe) return false;
+  let ownedIno;
   try {
-    fs.rmSync(wrapLockPath(safe), { recursive: true, force: true });
+    // Both mkdir calls share one try: mkdirSync(dirname, {recursive:true}) can
+    // throw ENOTDIR (a path segment is a file), and that must fail closed too.
+    fs.mkdirSync(path.dirname(lockDir), { recursive: true });
+    fs.mkdirSync(lockDir); // throws EEXIST if held (or any other collision shape)
+    ownedIno = fs.lstatSync(lockDir).ino; // proves-ownership token for the fail-closed path below
+  } catch (_) {
+    return false; // EEXIST (already held) or any other fs error -> not acquired
+  }
+
+  try {
+    fs.writeFileSync(ownerPath + '.tmp', String(owner == null ? '' : owner), 'utf8');
+    fs.renameSync(ownerPath + '.tmp', ownerPath);
+
+    if (opts && opts.role) {
+      const descriptor = makeLockDescriptor(opts);
+      fs.writeFileSync(ownerJsonPath + '.tmp', JSON.stringify(descriptor), 'utf8');
+      fs.renameSync(ownerJsonPath + '.tmp', ownerJsonPath);
+    }
     return true;
   } catch (_) {
+    // Publication failed after we created the lock dir. Remove it ONLY if it
+    // is still, by inode, the exact directory we created AND no JSON
+    // descriptor was ever published (see function doc for the rationale).
+    try {
+      const stillOurs = fs.lstatSync(lockDir).ino === ownedIno;
+      if (stillOurs && !fs.existsSync(ownerJsonPath)) {
+        fs.rmSync(lockDir, { recursive: true, force: true });
+      }
+    } catch (_) { /* best-effort cleanup; still return false below */ }
     return false;
   }
 }
 
-// Local cap on the lock/owner read. The owner file is at most two short lines
-// (a PID and an ISO timestamp); cap the read so a giant planted owner file cannot
-// wedge a daemon tick. Mirrors the SEC-M2 stat-then-read discipline.
-const MAX_OWNER_BYTES = 4 * 1024;
+/**
+ * Release the wrap/lock directory. Symlink-guarded (CWE-59): lstat no-follow
+ * at the lock path; a symlink AT the lock path is unlinked (link only, never
+ * its target); a non-directory is left alone (refused).
+ *
+ * Owner-scoped: unlike the old bare rm -rf, this checks who may release.
+ *   - A `token` argument matches ONLY against a published JSON descriptor's
+ *     own non-null token; any other case with a token supplied is refused.
+ *   - Without a token, a JSON descriptor whose pid is ALIVE and is NOT this
+ *     process is refused (a live daemon/commit-role lock cannot be tokenlessly
+ *     released by a different process). Two carve-outs are load-bearing:
+ *     `pid === process.pid` lets a daemon release its own lock tokenlessly,
+ *     and a `pid: null` (role:'agent') descriptor stays tokenless-releasable
+ *     because the interactive /ds-wrap releases from a DIFFERENT process than
+ *     the one that acquired it.
+ *   - A legacy-owner-only lock (no JSON descriptor) is ALWAYS releasable -
+ *     the documented path for interactive holders.
+ *
+ * Returns one of five strings (never a boolean - see the module manifest for
+ * why `if (releaseWrapLock(cwd))` is now a correctness hazard):
+ *   'absent'              - no lock present (nothing to do)
+ *   'released'            - lock existed and was removed
+ *   'refused-not-a-lock'  - lock path is a symlink or non-directory (untouched
+ *                           except a planted symlink, which is unlinked)
+ *   'refused-not-owner'   - token mismatch, or a live foreign-process owner
+ *   'error'               - safeCwd rejection, or rmSync genuinely failed
+ *
+ * @param {string} cwd
+ * @param {string} [token] - Must match a published descriptor's token exactly.
+ */
+function releaseWrapLock(cwd, token) {
+  const safe = safeCwd(cwd);
+  if (!safe) return 'error';
+  const lockDir = wrapLockPath(safe);
+
+  let st;
+  try {
+    st = fs.lstatSync(lockDir); // no-follow; ENOENT -> caught -> 'absent'
+  } catch (_) {
+    return 'absent';
+  }
+  if (st.isSymbolicLink()) {
+    // A symlink AT wrap/lock is a hostile artifact, not our lock. Unlink
+    // removes ONLY the link (never follows it / touches the target).
+    try { fs.unlinkSync(lockDir); } catch (_) {}
+    return 'refused-not-a-lock';
+  }
+  if (!st.isDirectory()) {
+    return 'refused-not-a-lock'; // a plain file is not our (mkdir-created) lock; leave it
+  }
+
+  const hasToken = (typeof token === 'string' && token.length > 0);
+  const o = readWrapLockOwnerV2(safe);
+
+  if (hasToken) {
+    if (!(o.source === 'json' && o.token !== null && o.token === token)) {
+      return 'refused-not-owner';
+    }
+  } else if (o.source === 'json' && o.pid !== null && !pidIsDead(o.pid) && o.pid !== process.pid) {
+    return 'refused-not-owner';
+  }
+
+  try {
+    fs.rmSync(lockDir, { recursive: true, force: true });
+    return 'released';
+  } catch (_) {
+    return 'error';
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Shared lock-staleness helpers (single-sourced, CWE-59 symlink-guarded)
 // ---------------------------------------------------------------------------
 
 /**
- * Symlink-guarded, CWE-59-safe owner-file reader. Reads the two-line owner body
- * at ownerPath under lockPath, guarding against symlinks at BOTH levels.
- * Returns { pid, ts } on success, { pid: null, ts: null } on any guard or error.
- * This is the ONE canonical reader used by readWrapLockOwner, wrapLockProvablyStale,
- * and wrapLockProvablyStaleLegacy so symlink protection is never copy-pasted.
+ * Symlink-guarded, CWE-59-safe owner-file reader. Reads the two-line legacy
+ * owner body at ownerPath under lockPath. Returns { pid, ts } on success,
+ * { pid: null, ts: null } on any guard or error. This is the ONE canonical
+ * legacy reader used by readWrapLockOwner, readWrapLockOwnerV2 (legacy
+ * fallback), wrapLockProvablyStale, and wrapLockProvablyStaleLegacy so
+ * symlink protection is never copy-pasted. Delegates the symlink/size guard
+ * to readGuardedFile.
  *
  * @param {string} lockPath - The lock directory path (lstat-checked no-follow).
  * @param {string} ownerPath - The owner file path inside the lock dir.
  */
 function readOwnerAt(lockPath, ownerPath) {
   const empty = { pid: null, ts: null };
+  const raw = readGuardedFile(lockPath, ownerPath, MAX_OWNER_BYTES);
+  if (raw === null) return empty;
   try {
-    // (1) PARENT guard: if the lock dir itself is a symlink, bail immediately.
-    const lockSt = fs.lstatSync(lockPath); // throws if absent -> caught -> empty
-    if (lockSt.isSymbolicLink()) return empty;
-
-    // (2) LEAF guard: if the owner file is a symlink, bail without reading.
-    const st = fs.lstatSync(ownerPath); // no-follow; throws ENOENT when absent -> empty
-    if (st.isSymbolicLink()) return empty;
-    if (!st.isFile()) return empty;
-    if (st.size > MAX_OWNER_BYTES) return empty;
-    const raw = fs.readFileSync(ownerPath, 'utf8');
     const lines = raw.split('\n');
     const pidNum = Number((lines[0] || '').trim());
     const pid = (Number.isInteger(pidNum) && pidNum > 0) ? pidNum : null;
@@ -899,6 +1117,20 @@ function readOwnerAt(lockPath, ownerPath) {
   } catch (_) {
     return empty;
   }
+}
+
+/**
+ * Compute age in milliseconds from an ISO8601 timestamp string, purely for
+ * callers' diagnostic/log messages. Returns null when ts is null or
+ * unparseable. NEVER used to drive a verdict decision (see wrapLockVerdict,
+ * which computes this only AFTER its verdict is already decided).
+ *
+ * @param {string|null} ts
+ */
+function ageMsFromTs(ts) {
+  if (ts === null) return null;
+  const tms = tsMs(ts);
+  return (tms !== null) ? (Date.now() - tms) : null;
 }
 
 /**
@@ -993,6 +1225,150 @@ function readWrapLockOwner(cwd) {
 }
 
 /**
+ * Read the wrap/lock owner, preferring a SCHEMA-VALIDATED JSON descriptor
+ * (lock/owner.json) over the legacy 2-line body (lock/owner). Unlike a bare
+ * JSON.parse-succeeded check, EVERY field is validated before the result is
+ * trusted as `source:'json'` - a descriptor that parses but fails validation
+ * silently degrades to the legacy reader (and then to `source:null`), which
+ * is exactly the fallback path a stale/corrupt/tampered descriptor should
+ * take. This validation is load-bearing, not hygiene: it is what lets
+ * wrapLockVerdict and clearProvablyStaleWrapLock trust `source:'json'` as an
+ * unconditional signal.
+ *
+ * Returns one of:
+ *   { source: 'json', role, pid, host, acquired_at, token }
+ *   { source: 'legacy', pid, ts }
+ *   { source: null }
+ *
+ * @param {string} cwd
+ */
+function readWrapLockOwnerV2(cwd) {
+  const lockPath = wrapLockPath(cwd);
+  const jsonRaw = readGuardedFile(lockPath, wrapLockOwnerJsonPath(cwd), MAX_OWNER_BYTES);
+  if (jsonRaw !== null) {
+    let d = null;
+    try {
+      d = JSON.parse(jsonRaw);
+    } catch (_) {
+      d = null;
+    }
+    const valid = d
+      && typeof d === 'object'
+      && !Array.isArray(d)
+      && d.schema_version === 1
+      && LOCK_DESCRIPTOR_ROLES.includes(d.role)
+      && (d.pid === null || (Number.isInteger(d.pid) && d.pid > 0))
+      && typeof d.host === 'string' && d.host.length > 0
+      && typeof d.acquired_at === 'string' && tsMs(d.acquired_at) !== null
+      && (d.token === null || (typeof d.token === 'string' && d.token.length > 0));
+    if (valid) {
+      return { source: 'json', role: d.role, pid: d.pid, host: d.host, acquired_at: d.acquired_at, token: d.token };
+    }
+    // Falls through to the legacy reader below - an invalid/corrupt JSON
+    // descriptor must NOT be trusted, but a legacy owner file may still exist.
+  }
+  const o = readOwnerAt(lockPath, wrapLockOwnerPath(cwd));
+  if (o.pid !== null || o.ts !== null) return { source: 'legacy', pid: o.pid, ts: o.ts };
+  return { source: null };
+}
+
+/**
+ * Total liveness predicate for the wrap/lock directory. Returns exactly one
+ * of 'free' | 'live' | 'dead' | 'unknown' (never anything else, never throws).
+ *
+ * MANDATORY invariant: no branch below performs an arithmetic comparison -
+ * `>`, `<`, and `Date.now()` do not appear in this function. `ageMs` is
+ * computed via ageMsFromTs ONLY after the verdict is already decided, purely
+ * for callers' log messages; it never influences the decision. This is what
+ * makes the predicate total and time-independent: an undefined comparison
+ * cannot exist where no comparison exists.
+ *
+ * Decision table (see U1 brief for the full row-by-row rationale):
+ *   1. safeCwd(cwd) === null                                    -> unknown
+ *   2. lstat(lock) throws (absent)                               -> free
+ *   3. lstat(lock).isSymbolicLink()                               -> unknown
+ *   4. !lstat(lock).isDirectory()                                 -> unknown
+ *   5. source === null                                            -> unknown
+ *   6. legacy, pid!==null, ts!==null, tsMs(ts)!==null (2-line,
+ *      interactive - PID-BLIND: liveness never checked)           -> live
+ *   7. legacy, pid!==null, ts===null (1-line, daemon body)         -> pidIsDead(pid) ? dead : live
+ *   8. legacy, pid===null, ts!==null, tsMs(ts)!==null              -> live
+ *   9. legacy, ts non-null with tsMs(ts)===null (garbled)          -> unknown
+ *  10. json, role==='agent'                                       -> live (unconditional, forever)
+ *  11. json, role in {daemon,commit}, host !== os.hostname()       -> unknown
+ *  12. json, role in {daemon,commit}, host matches, pid===null     -> unknown
+ *  13. json, role in {daemon,commit}, host matches, pidIsDead(pid) -> dead
+ *  14. otherwise (json, process role, host match, live pid)        -> live
+ *
+ * Rows 6/7 are NOT the same rule: every interactive `/ds-wrap` writer's owner
+ * PID is a shell that has already exited by the time the owner file lands, so
+ * for a 2-line body liveness must be PID-BLIND (age is the only signal). The
+ * daemon's 1-line body's PID is a genuinely live long-running process, so
+ * there liveness is both meaningful and required. Collapsing these either
+ * steals a live interactive lock or wedges a dead daemon lock forever.
+ *
+ * @param {string} cwd
+ * @returns {{verdict: 'free'|'live'|'dead'|'unknown', source: 'json'|'legacy'|null, role: string|null, pid: number|null, ts: string|null, ageMs: number|null}}
+ */
+function wrapLockVerdict(cwd) {
+  try {
+    const safe = safeCwd(cwd);
+    if (!safe) return { verdict: 'unknown', source: null, role: null, pid: null, ts: null, ageMs: null };
+
+    const lockPath = wrapLockPath(safe);
+    let st;
+    try {
+      st = fs.lstatSync(lockPath); // no-follow; ENOENT -> caught -> 'free'
+    } catch (_) {
+      return { verdict: 'free', source: null, role: null, pid: null, ts: null, ageMs: null };
+    }
+    if (st.isSymbolicLink() || !st.isDirectory()) {
+      return { verdict: 'unknown', source: null, role: null, pid: null, ts: null, ageMs: null };
+    }
+
+    const o = readWrapLockOwnerV2(safe);
+    let verdict = 'unknown';
+    let role = null;
+    let pid = null;
+    let ts = null;
+
+    if (o.source === 'legacy') {
+      pid = o.pid;
+      ts = o.ts;
+      if (pid !== null && ts !== null) {
+        verdict = (tsMs(ts) !== null) ? 'live' : 'unknown';        // rows 6 / 9 (pid-blind)
+      } else if (pid !== null) { // ts === null
+        verdict = pidIsDead(pid) ? 'dead' : 'live';                 // row 7
+      } else if (ts !== null) { // pid === null
+        verdict = (tsMs(ts) !== null) ? 'live' : 'unknown';        // rows 8 / 9
+      }
+      // pid === null && ts === null is unreachable here: readWrapLockOwnerV2
+      // would have returned source:null in that case (handled by row 5 above).
+    } else if (o.source === 'json') {
+      role = o.role;
+      pid = o.pid;
+      ts = o.acquired_at;
+      if (role === 'agent') {
+        verdict = 'live';                                          // row 10 (unconditional)
+      } else if (o.host !== os.hostname()) {
+        verdict = 'unknown';                                       // row 11
+      } else if (pid === null) {
+        verdict = 'unknown';                                       // row 12
+      } else if (pidIsDead(pid)) {
+        verdict = 'dead';                                          // row 13
+      } else {
+        verdict = 'live';                                          // row 14
+      }
+    }
+    // o.source === null falls through with verdict still 'unknown' (row 5).
+
+    return { verdict, source: o.source, role, pid, ts, ageMs: ageMsFromTs(ts) };
+  } catch (_) {
+    return { verdict: 'unknown', source: null, role: null, pid: null, ts: null, ageMs: null };
+  }
+}
+
+/**
  * Clear a PROVABLY-stale wrap.lock DIRECTORY (the headless deferred-`/ds-wrap` child
  * runs with Bash removed and cannot `rm` it; the trusted daemon clears it instead).
  * Returns true IFF a real stale lock directory was removed; false otherwise. Never
@@ -1001,7 +1377,7 @@ function readWrapLockOwner(cwd) {
  * Stale predicate (exact): CLEAR iff
  *   (owner.pid !== null && pidIsDead(owner.pid))                                 -- dead owner PID
  *   OR (owner.pid === null && owner.ts !== null && tsMs(owner.ts) !== null
- *       && (Date.now() - tsMs(owner.ts)) > staleMs)                              -- no PID + old timestamp
+ *       && the elapsed time since tsMs(owner.ts) exceeds staleMs)                -- no PID + old timestamp
  * An ALIVE pid is authoritative-LIVE -> KEEP regardless of timestamp age (this is the
  * live-lock corruption guard: liveness, not age, drives the clear). No usable owner
  * signal (no PID and no parseable timestamp) -> KEEP, covering the interactive `/ds-wrap`
@@ -1030,6 +1406,14 @@ function clearProvablyStaleWrapLock(cwd, staleMs) {
     if (!st.isDirectory()) {
       return false; // a plain file at wrap.lock is not our (mkdir-created) lock; leave it
     }
+    // JSON-descriptor precedence refusal: when a schema-validated descriptor is
+    // present and wrapLockVerdict independently classifies it as 'live', refuse
+    // unconditionally - the legacy owner-based staleness predicate below must
+    // never override a live JSON-owned lock. Gated on source==='json', so this
+    // is a provable no-op on every existing fixture (they plant only the
+    // legacy `owner` file, never `owner.json`).
+    const v2 = readWrapLockOwnerV2(cwd);
+    if (v2.source === 'json' && wrapLockVerdict(cwd).verdict === 'live') return false;
     // Real directory: evaluate the stale predicate via the single-sourced helper.
     const owner = readWrapLockOwner(cwd);
     if (!ownerIsStale(owner, staleMs)) return false; // live / no usable signal -> KEEP
@@ -1095,6 +1479,7 @@ module.exports = {
   lastWrapPath,
   wrapLockPath,
   wrapLockOwnerPath,
+  wrapLockOwnerJsonPath,
   daemonPidPath,
   wrapDaemonLogPath,
   authFailedPath,
@@ -1129,6 +1514,9 @@ module.exports = {
   acquireWrapLock,
   releaseWrapLock,
   readWrapLockOwner,
+  readWrapLockOwnerV2,
+  makeLockDescriptor,
+  wrapLockVerdict,
   clearProvablyStaleWrapLock,
   wrapLockProvablyStale,
   wrapLockProvablyStaleLegacy,
