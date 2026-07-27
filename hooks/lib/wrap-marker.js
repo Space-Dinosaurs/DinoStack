@@ -285,15 +285,27 @@ function wrapDir(cwd) {
   return path.join(agenticDir(cwd), 'wrap');
 }
 
-/** Atomic write (tmp + rename). Fail-open: returns true on success, false otherwise. */
+/**
+ * Atomic write (pid-suffixed tmp + rename). Fail-open: returns true on success,
+ * false otherwise. The tmp name is suffixed with this process's own pid so two
+ * concurrent writers targeting the same targetPath never share one staging
+ * path - single-writer atomicity only (see hooks/lib/state-mark.js for the
+ * precedent this mirrors).
+ */
 function atomicWriteJson(targetPath, obj) {
+  let tmpPath;
   try {
     fs.mkdirSync(path.dirname(targetPath), { recursive: true });
-    const tmpPath = targetPath + '.tmp';
+    tmpPath = targetPath + '.tmp.' + process.pid;
     fs.writeFileSync(tmpPath, JSON.stringify(obj, null, 2), 'utf8');
     fs.renameSync(tmpPath, targetPath);
     return true;
   } catch (_) {
+    // Only unlink OUR OWN pid-suffixed tmp - never a shared/fixed name another
+    // concurrent process could own.
+    if (tmpPath) {
+      try { fs.unlinkSync(tmpPath); } catch (_e) { /* tmp absent or never created */ }
+    }
     return false;
   }
 }

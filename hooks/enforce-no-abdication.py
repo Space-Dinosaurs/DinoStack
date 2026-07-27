@@ -242,7 +242,10 @@ def _write_counter(cwd: str, count: int, last_user_msg_count: int) -> bool:
         agentic_dir = os.path.join(cwd, ".agentic")
         os.makedirs(agentic_dir, exist_ok=True)
         path = _counter_path(cwd)
-        tmp = path + ".tmp"
+        # Per-process tmp suffix: two concurrent hook invocations must never
+        # share a staging path (a fixed name would let one process's write
+        # clobber or race the other's os.replace).
+        tmp = path + ".tmp." + str(os.getpid())
         with open(tmp, "w") as f:
             json.dump({"count": count, "last_user_msg_count": last_user_msg_count}, f)
         os.replace(tmp, path)

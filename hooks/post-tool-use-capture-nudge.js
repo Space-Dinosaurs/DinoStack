@@ -162,7 +162,9 @@ function readSkillNudgeSurfaced(cwd) {
 
 /**
  * Atomically append a dedup entry for (session_id, candidate_id) to the
- * in-session tracker. Uses read-existing + tmp-write + rename for atomicity.
+ * in-session tracker. Uses read-existing + tmp-write + rename for atomicity
+ * (single-writer atomicity - the tmp name is pid-suffixed per DS-109 so two
+ * concurrent hook invocations never share a staging path).
  * Silent failure: a missed write at worst re-nudges on the next spawn.
  *
  * @param {string} cwd - Project root.
@@ -183,7 +185,10 @@ function recordSkillNudgeSurfaced(cwd, sessionId, candidateId) {
   const body = (existing && !existing.endsWith('\n')) ? existing + '\n' : existing;
   const next = body + entry + '\n';
 
-  const tmpPath = trackerPath + '.tmp';
+  // Per-process tmp suffix: two concurrent hook invocations must never share
+  // a staging path (a fixed name would let one process's write clobber or
+  // race the other's rename).
+  const tmpPath = trackerPath + '.tmp.' + process.pid;
   fs.writeFileSync(tmpPath, next, 'utf8');
   fs.renameSync(tmpPath, trackerPath);
 }
@@ -224,7 +229,9 @@ function alreadySurfaced(cwd, sessionId, lastEventTs) {
 /**
  * Append a dedup entry for this (session_id, lastEventTs) tuple. Atomic via
  * read-existing + tmp-write + rename so a concurrent reader never sees a partial
- * file. Silent failure - a missed write at worst re-nudges next spawn.
+ * file (single-writer atomicity - the tmp name is pid-suffixed per DS-109 so
+ * two concurrent hook invocations never share a staging path). Silent failure
+ * - a missed write at worst re-nudges next spawn.
  *
  * @param {string} cwd - Project root.
  * @param {string} sessionId
@@ -244,7 +251,10 @@ function recordSurfaced(cwd, sessionId, lastEventTs) {
   const body = (existing && !existing.endsWith('\n')) ? existing + '\n' : existing;
   const next = body + entry + '\n';
 
-  const tmpPath = trackerPath + '.tmp';
+  // Per-process tmp suffix: two concurrent hook invocations must never share
+  // a staging path (a fixed name would let one process's write clobber or
+  // race the other's rename).
+  const tmpPath = trackerPath + '.tmp.' + process.pid;
   fs.writeFileSync(tmpPath, next, 'utf8');
   fs.renameSync(tmpPath, trackerPath);
 }

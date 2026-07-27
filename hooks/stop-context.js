@@ -1151,16 +1151,18 @@ function appendCaptureGapNoticeToContextMd(cwd, residualOnly, sessionId) {
     // Note: the inner catch uses _cursorErr to avoid shadowing the outer _ at the
     // outer catch below. recordHealth for the cursor write goes in this catch, not
     // in the _e cleanup catch (which handles tmp cleanup only).
+    const tmpCursor = cursorPath + '.tmp.' + process.pid;
     try {
       const nowIso = new Date().toISOString();
-      const tmpCursor = cursorPath + '.tmp';
       fs.writeFileSync(tmpCursor, nowIso, 'utf8');
       fs.renameSync(tmpCursor, cursorPath);
       recordHealth('appendCaptureGapNoticeToContextMd-cursor', true, null);
     } catch (_cursorErr) {
       recordHealth('appendCaptureGapNoticeToContextMd-cursor', false, _cursorErr && _cursorErr.message);
       /* silent - cursor update failure is non-fatal */
-      try { fs.unlinkSync(cursorPath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
+      // Only unlink OUR OWN pid-suffixed tmp - never a shared/fixed name
+      // another concurrent session could own.
+      try { fs.unlinkSync(tmpCursor); } catch (_e) { /* tmp absent or never created */ }
     }
   } catch (_) {
     recordHealth('appendCaptureGapNoticeToContextMd-context', false, _ && _.message);
@@ -1536,5 +1538,5 @@ run().catch(() => { try { process.exit(0); } catch (_) {} });
 // executing run(). stop-context.js has no production module.exports; this shim
 // is only reached when the test replaces `run();` before requiring.
 if (typeof module !== 'undefined') {
-  module.exports = { recordHealth, flushHealth, healthOutcomes };
+  module.exports = { recordHealth, flushHealth, healthOutcomes, appendCaptureGapNoticeToContextMd };
 }

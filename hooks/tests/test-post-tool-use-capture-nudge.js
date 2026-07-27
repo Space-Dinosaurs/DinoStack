@@ -196,6 +196,42 @@ console.log('\nTest 1: fires-when-worthy-event');
 }
 
 // ---------------------------------------------------------------------------
+// Test 1b (DS-109): recordSurfaced's staging file is pid-suffixed, and never
+// clobbers a peer's in-flight tmp at the same base name.
+// ---------------------------------------------------------------------------
+console.log('\nTest 1b (DS-109): recordSurfaced tmp is pid-suffixed; peer tmp survives a real write');
+{
+  const cwd = makeTempProject();
+  const sessionId = 'ptu-session-001b';
+  fs.writeFileSync(
+    path.join(cwd, '.agentic', 'events.jsonl'),
+    makeEvent(sessionId, 'spawn_complete', 'debugger') + '\n', 'utf8'
+  );
+
+  const trackerPath = path.join(cwd, '.agentic', '.capture-gap-surfaced');
+  // Pre-plant a peer's in-flight staging file at the EXACT fixed name every
+  // writer shared pre-DS-109. If recordSurfaced still writes through this
+  // shared name, the real hook invocation below will truncate/consume it.
+  const legacyFixedNamePeerTmp = trackerPath + '.tmp';
+  fs.writeFileSync(legacyFixedNamePeerTmp, 'PEER_INFLIGHT_DATA_LEGACY_NAME');
+
+  const { status } = runHook(taskPayload(cwd, sessionId), cwd);
+  assert(status === 0, 'hook exits 0');
+  assert(fs.existsSync(trackerPath), 'dedup tracker was actually written (recordSurfaced ran for real)');
+  assert(
+    fs.existsSync(legacyFixedNamePeerTmp)
+      && fs.readFileSync(legacyFixedNamePeerTmp, 'utf8') === 'PEER_INFLIGHT_DATA_LEGACY_NAME',
+    'DS-109: a peer\'s legacy fixed-name .tmp file survives a real recordSurfaced write, untouched'
+  );
+  // No leftover own-pid tmp (subprocess pid, not ours - just assert no
+  // stray tmp.<digits> files besides the pre-planted legacy one).
+  const strayTmp = fs.readdirSync(path.join(cwd, '.agentic'))
+    .filter((f) => f.startsWith('.capture-gap-surfaced.tmp') && f !== path.basename(legacyFixedNamePeerTmp));
+  assert(strayTmp.length === 0, `no orphaned own-pid tmp remains (found: ${strayTmp.join(', ') || 'none'})`);
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
 // Test 2: dedup-suppresses-repeat
 // ---------------------------------------------------------------------------
 console.log('\nTest 2: dedup-suppresses-repeat');

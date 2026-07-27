@@ -6,8 +6,11 @@ Test groups:
   1. test_atomic_write_creates_file - basic write + rename.
   2. test_atomic_write_mode_bits    - chmod 0o600 applied to destination.
   3. test_atomic_write_mode_none    - mode=None skips chmod (preserves existing perms).
-  4. test_atomic_write_no_tmp_on_success - .tmp removed after successful write.
-  5. test_atomic_write_cleans_tmp_on_failure - .tmp unlinked when rename impossible.
+  4. test_atomic_write_no_tmp_on_success - .tmp.<pid> removed after successful write.
+  5. test_atomic_write_cleans_tmp_on_failure - .tmp.<pid> unlinked when rename impossible.
+  5a. test_atomic_write_uses_pid_suffixed_tmp_name - DS-109: never stages at the old fixed name.
+  5b. test_atomic_write_failure_does_not_delete_peer_tmp - DS-109: a peer's in-flight
+      tmp (legacy fixed name OR a different pid's suffixed name) survives our failure.
   6. test_acquire_lock_acquires_and_releases - context manager acquires, code runs, releases.
   7. test_acquire_lock_blocks_second - second acquirer times out while first holds lock.
   8. test_acquire_lock_releases_after_with - after 'with' block, second acquirer succeeds.
@@ -80,17 +83,57 @@ class TestAtomicWrite(unittest.TestCase):
         # checking the content round-trips correctly (the main behavioral check).
 
     def test_atomic_write_no_tmp_on_success(self):
-        tmp = self.dest.parent / (self.dest.name + ".tmp")
+        tmp = self.dest.parent / (self.dest.name + f".tmp.{os.getpid()}")
         atomic_write(self.dest, "data\n")
-        self.assertFalse(tmp.exists(), ".tmp file should be removed after successful write")
+        self.assertFalse(tmp.exists(), ".tmp.<pid> file should be removed after successful write")
 
     def test_atomic_write_cleans_tmp_on_failure(self):
-        # Make dest a directory so rename fails; .tmp should be cleaned up.
+        # Make dest a directory so rename fails; .tmp.<pid> should be cleaned up.
         self.dest.mkdir()
-        tmp = self.dest.parent / (self.dest.name + ".tmp")
+        tmp = self.dest.parent / (self.dest.name + f".tmp.{os.getpid()}")
         with self.assertRaises(Exception):
             atomic_write(self.dest, "data\n")
-        self.assertFalse(tmp.exists(), ".tmp file should be removed on failure")
+        self.assertFalse(tmp.exists(), ".tmp.<pid> file should be removed on failure")
+
+    def test_atomic_write_uses_pid_suffixed_tmp_name(self):
+        # DS-109: the staging file must be suffixed with our own pid, not a
+        # fixed name every writer would share.
+        legacy_fixed_tmp = self.dest.parent / (self.dest.name + ".tmp")
+        atomic_write(self.dest, "data\n")
+        self.assertFalse(
+            legacy_fixed_tmp.exists(),
+            "no staging file should ever land at the old fixed <dest>.tmp name",
+        )
+
+    def test_atomic_write_failure_does_not_delete_peer_tmp(self):
+        # DS-109 regression: a concurrent writer's in-flight staging file -
+        # at the legacy fixed name, or at a different pid's suffixed name -
+        # must never be deleted by an unrelated failure in THIS call. Before
+        # the fix, atomic_write unconditionally unlinked a single shared
+        # `<dest>.tmp` name on any exception, which would delete a peer
+        # process's still-in-flight write.
+        self.dest.mkdir()  # forces the rename in this call to fail
+
+        legacy_fixed_peer_tmp = self.dest.parent / (self.dest.name + ".tmp")
+        # Guaranteed to differ from our own pid by construction.
+        foreign_pid = f"{os.getpid()}9"
+        peer_tmp = self.dest.parent / (self.dest.name + f".tmp.{foreign_pid}")
+        legacy_fixed_peer_tmp.write_text("PEER_INFLIGHT_DATA_LEGACY_NAME", encoding="utf-8")
+        peer_tmp.write_text("PEER_INFLIGHT_DATA_PID_SUFFIXED", encoding="utf-8")
+
+        with self.assertRaises(Exception):
+            atomic_write(self.dest, "data\n")
+
+        self.assertEqual(
+            legacy_fixed_peer_tmp.read_text(encoding="utf-8"),
+            "PEER_INFLIGHT_DATA_LEGACY_NAME",
+            "a peer's legacy fixed-name .tmp file must survive our unrelated failure, untouched",
+        )
+        self.assertEqual(
+            peer_tmp.read_text(encoding="utf-8"),
+            "PEER_INFLIGHT_DATA_PID_SUFFIXED",
+            "a peer's pid-suffixed .tmp.<otherpid> file must survive our unrelated failure, untouched",
+        )
 
     def test_atomic_write_overwrites_existing(self):
         self.dest.write_text("old content\n", encoding="utf-8")

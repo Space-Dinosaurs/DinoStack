@@ -182,7 +182,9 @@ def _write_identity(lines: list[str], target_path: Path | None = None) -> int:
 
     When target_path is None, writes to global IDENTITY_PATH (default, unchanged
     for all existing callers). When provided, writes to that path (mkdir -p parent).
-    Uses atomic_write from _lib (write to .tmp, chmod 0o600, rename; .tmp cleaned on failure).
+    Uses atomic_write from _lib (write to a pid-suffixed .tmp.<pid>, chmod 0o600,
+    rename; our own pid-suffixed .tmp cleaned on failure). Atomic for a single
+    writer only.
     """
     dest = target_path if target_path is not None else IDENTITY_PATH
     content = "\n".join(lines) + "\n"
