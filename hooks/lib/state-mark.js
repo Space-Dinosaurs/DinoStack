@@ -25,12 +25,23 @@
  *     Deliberately does NOT touch loop-state's `last_updated` (see Failure
  *     modes) - batch-state's `updated_at` IS touched here, matching its
  *     pre-existing writer behavior.
- *   _candidatePaths - exported array of the two relative paths this module
- *     owns, exactly ['.agentic/loop-state.json', '.agentic/batch-state.json'].
- *     DERIVED from CANDIDATE_FILES below (not a separately maintained list) -
- *     it is the actual list both refreshLiveness and markInterrupted iterate
- *     over, so it is load-bearing: a Unit-2 extension to CANDIDATE_FILES
- *     changes both the write behavior and this exported list together.
+ *   candidatePaths(cwd) - returns the array of relative paths this module owns
+ *     for the given cwd, RESOLVED at call time from CANDIDATE_FILES plus the
+ *     per-ticket keyed loop-state siblings actually present on disk. It is the
+ *     exact list both refreshLiveness and markInterrupted iterate over (all
+ *     three call _resolveCandidates), so it is load-bearing and cannot
+ *     silently drift from what the module reads/writes. Two properties matter:
+ *     (a) the two LEGACY rows ('.agentic/loop-state.json' and
+ *     '.agentic/batch-state.json') are ALWAYS present, even when .agentic/ is
+ *     absent or unreadable - legacy detection can never be lost to a
+ *     directory-read failure; (b) each keyed row ('.agentic/loop-state-<K>.json',
+ *     matching /^loop-state-.+\.json$/) INHERITS tsField, healthTarget and
+ *     touchTimestampOnTerminal VERBATIM from the legacy loop-state row, so a
+ *     keyed file has no semantics of its own and cannot drift from the legacy
+ *     file's. This replaced the former static `_candidatePaths` export, which
+ *     a per-ticket keyed file would have made false on a correctness path
+ *     (a read set larger than the exported list); `module.exports
+ *     ._candidatePaths` is deliberately undefined.
  *
  * The ownership-predicate asymmetry is BETWEEN THE TWO CADENCE FUNCTIONS,
  * not between the two files - both files share identical polarity within
@@ -51,8 +62,12 @@
  * implementation instead of two copies that could silently drift apart.
  *
  * Upstream deps: Node built-ins only (fs, path). No npm dependencies. Reads
- *                and writes [cwd]/.agentic/loop-state.json and
- *                [cwd]/.agentic/batch-state.json.
+ *                and writes [cwd]/.agentic/batch-state.json, the legacy
+ *                [cwd]/.agentic/loop-state.json, and every per-ticket keyed
+ *                sibling [cwd]/.agentic/loop-state-<LOOP_KEY>.json. Additionally
+ *                performs one fs.readdirSync of [cwd]/.agentic (fail-open to []
+ *                so the two legacy rows survive a missing or unreadable
+ *                directory) to discover the keyed siblings.
  *
  * Downstream consumers: hooks/stop-context.js (both functions, dispatched by
  *                        the --cadence=turn|session CLI flag),
@@ -60,8 +75,8 @@
  *                        a terminal SessionEnd reason).
  *
  * Failure modes: Both functions perform their own cwd path-traversal
- *                rejection (path.resolve(cwd) !== cwd -> no-op for both
- *                candidates) since neither caller performs this check
+ *                rejection (path.resolve(cwd) !== cwd -> no-op for every
+ *                candidate) since neither caller performs this check
  *                independently. Each candidate file is processed inside its
  *                OWN try/catch so a failure (parse error, fs error) on one
  *                file never skips the other (fail-open PER PATH, not just
@@ -86,9 +101,15 @@
  *                CANDIDATE_FILES[].healthTarget) on both success and failure -
  *                `onOutcome(target, success, errMsg)`.
  *
- * Performance: standard - one fs.existsSync + one fs.readFileSync + one
+ * Performance: standard - one fs.readdirSync of [cwd]/.agentic per call, then
+ *              one fs.existsSync + one fs.readFileSync + one
  *              fs.writeFileSync/fs.renameSync per active/owned candidate;
- *              no subprocess, no network.
+ *              no subprocess, no network. Keyed loop-state candidates are
+ *              ordered newest-mtime-first and CAPPED AT 100 processed, so a
+ *              checkout that has accumulated more than 100 keyed files does
+ *              bounded work per hook invocation. The cap is safe by
+ *              construction: the file a live session owns is rewritten at
+ *              every phase transition, so it is always among the newest.
  */
 
 'use strict';
@@ -101,6 +122,12 @@ const path = require('path');
 // table directly (see below) - it is not a parallel list kept in sync by
 // hand. Fields:
 //   file                     - relative filename under [cwd]/.agentic/.
+//   keyedPrefix              - non-null when this row also has per-ticket
+//                               keyed siblings ([cwd]/.agentic/<keyedPrefix><K>.json).
+//                               _resolveCandidates emits one extra row per
+//                               matching file on disk, inheriting every other
+//                               field from this row verbatim. null = this file
+//                               has no keyed form.
 //   tsField                  - the liveness-timestamp field name for this
 //                               file (the two files deliberately use
 //                               different names for the same semantic).
@@ -116,24 +143,99 @@ const path = require('path');
 const CANDIDATE_FILES = [
   {
     file: 'loop-state.json',
+    keyedPrefix: 'loop-state-',
     tsField: 'last_updated',
     healthTarget: 'writeLoopState',
     touchTimestampOnTerminal: false,
   },
   {
     file: 'batch-state.json',
+    keyedPrefix: null,
     tsField: 'updated_at',
     healthTarget: 'writeBatchState',
     touchTimestampOnTerminal: true,
   },
 ];
 
-// Derived (not separately maintained) from CANDIDATE_FILES - exactly
-// ['.agentic/loop-state.json', '.agentic/batch-state.json']. This is the
-// same array both cadence functions iterate over (via CANDIDATE_FILES), so
-// it is load-bearing: it cannot silently drift from what the module actually
-// reads/writes.
-const _candidatePaths = CANDIDATE_FILES.map((c) => `.agentic/${c.file}`);
+// Maximum number of per-ticket keyed candidates processed per call, ordered
+// newest-mtime-first. Safe by construction - a live session rewrites its own
+// keyed file at every phase transition, so it is always among the newest.
+const KEYED_CANDIDATE_CAP = 100;
+
+// Matches a per-ticket keyed loop-state sibling. `.+` (not `.*`) so the
+// degenerate `loop-state-.json` (empty key) is never treated as a candidate;
+// the conductor-side derivation floors the key to a non-empty string, so such
+// a file can only arrive by hand.
+const KEYED_FILE_RE = /^loop-state-.+\.json$/;
+
+/**
+ * Resolve the full candidate row set for a cwd: every static row unchanged,
+ * plus one inherited row per per-ticket keyed loop-state file present on disk.
+ *
+ * Binding expansion rules (all four are load-bearing):
+ *   1. Every static row is emitted unchanged, and THE TWO LEGACY ROWS ARE
+ *      ALWAYS PRESENT - even when [cwd]/.agentic is absent or unreadable. The
+ *      readdir failing must never cost us legacy detection.
+ *   2. For a row with a non-null keyedPrefix, emit one row per matching entry,
+ *      INHERITING tsField / healthTarget / touchTimestampOnTerminal VERBATIM
+ *      from the parent static row. No metadata is ever authored for a keyed
+ *      file - that is what makes the extension safe, since a keyed file cannot
+ *      drift from the legacy file's semantics if it has no semantics of its own.
+ *   3. Keyed matches are ordered newest-mtime-first and capped at
+ *      KEYED_CANDIDATE_CAP processed.
+ *   4. `.tmp` staging files and any non-`.json` entry are excluded.
+ *
+ * @param {string} cwd
+ * @returns {Array<{file: string, tsField: string, healthTarget: string, touchTimestampOnTerminal: boolean}>}
+ */
+function _resolveCandidates(cwd) {
+  const agenticDir = path.join(cwd, '.agentic');
+
+  let entries = [];
+  try {
+    entries = fs.readdirSync(agenticDir);
+  } catch (_e) {
+    entries = []; // rule 1: fail open - the static rows below still stand
+  }
+
+  const resolved = [];
+  for (const staticRow of CANDIDATE_FILES) {
+    resolved.push(staticRow); // rule 1
+    if (!staticRow.keyedPrefix) continue;
+
+    // rule 4: only `<prefix><key>.json`; `.tmp` and non-.json never match.
+    const keyed = entries
+      .filter((name) => name !== staticRow.file && KEYED_FILE_RE.test(name))
+      .map((name) => {
+        let mtimeMs = 0;
+        try {
+          mtimeMs = fs.statSync(path.join(agenticDir, name)).mtimeMs;
+        } catch (_e) { /* raced away between readdir and stat - sorts oldest */ }
+        return { name, mtimeMs };
+      })
+      // rule 3: newest-mtime-first, then capped.
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+      .slice(0, KEYED_CANDIDATE_CAP);
+
+    for (const { name } of keyed) {
+      // rule 2: inherit every field but `file` verbatim from the parent row.
+      resolved.push(Object.assign({}, staticRow, { file: name }));
+    }
+  }
+  return resolved;
+}
+
+/**
+ * The relative paths this module owns for a given cwd. Resolved at call time
+ * from the same _resolveCandidates() both cadence functions iterate, so it
+ * cannot silently drift from what the module actually reads/writes.
+ *
+ * @param {string} cwd
+ * @returns {string[]}
+ */
+function candidatePaths(cwd) {
+  return _resolveCandidates(cwd).map((c) => `.agentic/${c.file}`);
+}
 
 /**
  * Refresh one candidate file's liveness timestamp (tsField) when the file is
@@ -183,7 +285,7 @@ function refreshLiveness(cwd, sessionId, onOutcome) {
   const resolvedCwd = path.resolve(cwd);
   if (resolvedCwd !== cwd) return; // traversal component - skip silently
 
-  for (const candidate of CANDIDATE_FILES) {
+  for (const candidate of _resolveCandidates(cwd)) {
     _refreshCandidateLiveness(cwd, sessionId, candidate, onOutcome);
   }
 }
@@ -246,9 +348,9 @@ function markInterrupted(cwd, sessionId, onOutcome) {
   const resolvedCwd = path.resolve(cwd);
   if (resolvedCwd !== cwd) return; // traversal component - skip silently
 
-  for (const candidate of CANDIDATE_FILES) {
+  for (const candidate of _resolveCandidates(cwd)) {
     _markCandidateInterrupted(cwd, sessionId, candidate, onOutcome);
   }
 }
 
-module.exports = { refreshLiveness, markInterrupted, _candidatePaths };
+module.exports = { refreshLiveness, markInterrupted, candidatePaths };

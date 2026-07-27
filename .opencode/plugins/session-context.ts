@@ -57,11 +57,25 @@
  *                for session_total relies on the user invoking /ds-wrap;
  *                OpenCode does not expose a guaranteed shutdown hook from
  *                plugins.
+ *                INTENTIONAL PARALLEL IMPLEMENTATION: writeLoopState's
+ *                candidate resolution (resolveLoopStateCandidates) duplicates
+ *                the expansion rules of hooks/lib/state-mark.js's
+ *                _resolveCandidates - the per-ticket keyed
+ *                `.agentic/loop-state-<LOOP_KEY>.json` siblings newest-mtime-first
+ *                capped at 100, plus the ALWAYS-present legacy
+ *                `.agentic/loop-state.json`. This plugin deliberately does NOT
+ *                `require` that lib: it is a standalone Bun plugin loaded from
+ *                ~/.config/opencode/plugins/ where the repo's hooks/ tree is
+ *                not reachable. The duplication is therefore accepted, and
+ *                THE TWO MUST CHANGE TOGETHER IN THE SAME PR - nothing
+ *                mechanical enforces it. Any change to the candidate rules in
+ *                hooks/lib/state-mark.js must be mirrored here and vice versa.
  *
  * Performance: ~5-20 ms typical on session.idle (one git status subprocess);
  *              slightly heavier on /ds-wrap completion (multiple writes, one
  *              full-file read+parse of events.jsonl for the session_total
- *              rollup). The generic `event` hook fires for every bus event
+ *              rollup, one .agentic/ readdir plus one stat per keyed
+ *              loop-state candidate, capped at 100). The generic `event` hook fires for every bus event
  *              in the session (potentially hundreds per session); the
  *              unmatched-type early-return must stay cheap (a single
  *              property read and three string comparisons, no allocations,
@@ -69,7 +83,7 @@
  */
 
 import path from 'path';
-import { appendFile, rename } from 'fs/promises';
+import { appendFile, rename, readdir, stat } from 'fs/promises';
 import type { Plugin } from "@opencode-ai/plugin";
 
 interface ToolExecuteArgs {
@@ -246,15 +260,69 @@ export const SessionContextPlugin: Plugin = async ({
     }
   }
 
+  /** Maximum keyed loop-state candidates processed per call, newest-mtime-first. */
+  const KEYED_CANDIDATE_CAP = 100;
+
+  /** A per-ticket keyed loop-state sibling: `.agentic/loop-state-<LOOP_KEY>.json`. */
+  const KEYED_LOOP_STATE_RE = /^loop-state-.+\.json$/;
+
   /**
-   * Write interrupted status to loop-state.json if an active loop exists AND
-   * the file is owned by the current session. Mirrors the batch-state
-   * ownership check below and hooks/lib/state-mark.js markInterrupted's
-   * polarity: absence/null/empty session_id on disk PROCEEDS (self-owned);
-   * only a positively-DIFFERING session_id skips (owned by another session).
+   * Resolve every loop-state candidate under [cwd]/.agentic: the per-ticket
+   * keyed siblings `loop-state-<LOOP_KEY>.json` newest-mtime-first (capped at
+   * KEYED_CANDIDATE_CAP), then the LEGACY `loop-state.json`.
+   *
+   * The legacy path is ALWAYS returned, even when the directory read fails, so
+   * legacy detection can never be lost to an unreadable .agentic/. `.tmp`
+   * staging files and non-.json entries never match the regex.
+   *
+   * This is an intentional parallel implementation of
+   * hooks/lib/state-mark.js's _resolveCandidates - see the plugin manifest.
+   */
+  async function resolveLoopStateCandidates(cwd: string): Promise<string[]> {
+    const agenticDir = path.join(cwd, ".agentic");
+    const legacyPath = path.join(agenticDir, "loop-state.json");
+
+    let entries: string[] = [];
+    try {
+      entries = await readdir(agenticDir);
+    } catch {
+      return [legacyPath]; // fail open - legacy detection survives regardless
+    }
+
+    const keyed: Array<{ p: string; mtimeMs: number }> = [];
+    for (const name of entries) {
+      if (name === "loop-state.json" || !KEYED_LOOP_STATE_RE.test(name)) continue;
+      const p = path.join(agenticDir, name);
+      // Per-candidate traversal check: a resolved candidate must be a DIRECT
+      // child of .agentic/ (guard (c) - the key is always wrapped in the fixed
+      // `loop-state-` / `.json` affixes, so it can never be a path component).
+      if (path.dirname(path.resolve(p)) !== path.resolve(agenticDir)) continue;
+      let mtimeMs = 0;
+      try {
+        mtimeMs = (await stat(p)).mtimeMs;
+      } catch { /* raced away between readdir and stat - sorts oldest */ }
+      keyed.push({ p, mtimeMs });
+    }
+    keyed.sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+    return [...keyed.slice(0, KEYED_CANDIDATE_CAP).map((k) => k.p), legacyPath];
+  }
+
+  /**
+   * Write interrupted status to every loop-state candidate that holds an
+   * active loop AND is owned by the current session. Candidates are the
+   * per-ticket keyed `.agentic/loop-state-<LOOP_KEY>.json` siblings plus the
+   * legacy `.agentic/loop-state.json` (see resolveLoopStateCandidates). Mirrors
+   * the batch-state ownership check below and hooks/lib/state-mark.js
+   * markInterrupted's polarity, applied PER CANDIDATE:
+   * absence/null/empty session_id on disk PROCEEDS (self-owned); only a
+   * positively-DIFFERING session_id skips (owned by another session). Because
+   * the predicate is per candidate, a failure or foreign owner on one file
+   * never skips the others.
    * M1: Atomic tmp+rename so a crash mid-write cannot leave the file
    * partially written and unparseable on next session resume.
-   * M4: Reject cwd values with traversal components before any path join.
+   * M4: Reject cwd values with traversal components before any path join, and
+   * re-assert per candidate that it is a direct child of .agentic/.
    *
    * This plugin fires this write once per session on command.executed
    * (`/ds-wrap`), NOT on every turn, so it does not have the Claude Stop
@@ -271,10 +339,14 @@ export const SessionContextPlugin: Plugin = async ({
       return;
     }
 
-    const loopStatePath = path.join(cwd, ".agentic", "loop-state.json");
-    try {
-      const loopStateFile = Bun.file(loopStatePath);
-      if (await loopStateFile.exists()) {
+    const candidates = await resolveLoopStateCandidates(cwd);
+    let found = 0;
+
+    for (const loopStatePath of candidates) {
+      try {
+        const loopStateFile = Bun.file(loopStatePath);
+        if (!(await loopStateFile.exists())) continue;
+        found++;
         const loopState: any = await loopStateFile.json();
 
         // Ownership check: do not steal another session's loop state.
@@ -292,7 +364,7 @@ export const SessionContextPlugin: Plugin = async ({
               current: sessionID,
             },
           );
-          return;
+          continue;
         }
 
         if (loopState.status === "active") {
@@ -314,13 +386,18 @@ export const SessionContextPlugin: Plugin = async ({
             status: loopState.status,
           });
         }
-      } else {
-        await log("info", "No loop-state.json found", { loopStatePath });
+      } catch (err: any) {
+        // Fail open PER CANDIDATE - one unparseable file must not skip the rest.
+        await log("warn", "Failed to write loop-state", {
+          loopStatePath,
+          error: err.message,
+        });
       }
-    } catch (err: any) {
-      await log("warn", "Failed to write loop-state", {
-        loopStatePath,
-        error: err.message,
+    }
+
+    if (found === 0) {
+      await log("info", "No loop-state file found", {
+        agenticDir: path.join(cwd, ".agentic"),
       });
     }
   }

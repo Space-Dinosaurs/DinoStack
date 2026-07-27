@@ -68,7 +68,12 @@
  *                No npm dependencies. Reads from stdin (fd 0).
  *                Reads/writes
  *                ~/.claude/projects/[hash]/context.md,
- *                [cwd]/.agentic/loop-state.json,
+ *                [cwd]/.agentic/loop-state.json (legacy) AND every per-ticket
+ *                keyed sibling [cwd]/.agentic/loop-state-<LOOP_KEY>.json - this
+ *                hook derives no key and enumerates no path itself; the
+ *                candidate set is resolved by hooks/lib/state-mark.js
+ *                (candidatePaths(cwd)), which always includes the legacy path
+ *                and selects by session_id,
  *                [cwd]/.agentic/batch-state.json,
  *                [cwd]/.agentic/session-log/<developer_id>.jsonl,
  *                ~/.agentic/session-log/<developer_id>.jsonl (global mirror),
