@@ -6,8 +6,10 @@ NOT a public CLI - do not invoke directly.
 Purpose: Provide two cross-process primitives reused by multiple CLIs:
   1. acquire_exclusive_lock - fcntl.LOCK_EX context manager with sleep-retry
      until timeout; used for multi-process coordination (e.g. flush lock).
-  2. atomic_write - write content to <path>.tmp then rename; cleans up .tmp on
-     failure; optional chmod mode.
+  2. atomic_write - write content to a pid-suffixed <path>.tmp.<pid> sibling
+     then rename; cleans up OUR OWN pid-suffixed .tmp on failure; optional
+     chmod mode. Atomic for a single writer only - the pid suffix exists to
+     stop two concurrent writers from colliding on one staging path.
 
 Public API:
   acquire_exclusive_lock(lock_path, timeout=30.0)
@@ -116,12 +118,16 @@ def atomic_write(path: Path, content: str, mode: int | None = 0o600) -> None:
     """Write content to path atomically via a .tmp sibling.
 
     Steps:
-      1. Write content to <path>.tmp (text, utf-8).
-      2. If mode is not None, chmod <path>.tmp to mode.
-      3. Rename <path>.tmp -> path.
+      1. Write content to <path>.tmp.<pid> (text, utf-8).
+      2. If mode is not None, chmod <path>.tmp.<pid> to mode.
+      3. Rename <path>.tmp.<pid> -> path.
 
     On any failure, unlinks OUR OWN pid-suffixed <path>.tmp.<pid> (missing_ok)
     and re-raises. The destination file is never partially overwritten.
+    Atomic for a single writer only: the pid suffix guarantees two concurrent
+    callers never share one staging path, but it does not add cross-process
+    locking around the final rename - a last-write-wins race on the
+    destination itself is still possible if two writers target the same path.
 
     The tmp filename is suffixed with the current pid so two concurrent
     callers (e.g. two agentic-identity invocations) never share one staging
