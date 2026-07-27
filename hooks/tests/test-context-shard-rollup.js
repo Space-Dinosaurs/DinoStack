@@ -129,6 +129,26 @@ console.log('\n--- AC12: derived marker placement ---');
   assert(header.indexOf(R.DERIVED_MARKER) === -1,
     'AC12: derived marker is ABSENT from the file header (a header marker survives '
     + "OpenCode's strip-and-append and defeats foreign-preservation)");
+
+  // THE CONSEQUENCE, asserted directly rather than inferred from placement.
+  // OpenCode's legacy strip-and-append PRESERVES the file header and REPLACES
+  // the activity region. Simulate exactly that against our own marked rollup: a
+  // marker living in the file header would survive the foreign write, the
+  // composer would conclude "this is mine", skip foreign-preservation, and
+  // destroy the foreign block. Checking placement alone does not catch a
+  // detector that consults the wrong region; this does.
+  const stripped = body.slice(0, body.indexOf(SENTINEL))
+    + SENTINEL + '*Auto-appended by session idle plugin - 2026-07-26.*\n\nFOREIGN STRIP-AND-APPEND BLOCK\n';
+  assert(stripped.indexOf(R.DERIVED_MARKER) === -1,
+    'AC12: a foreign strip-and-append leaves NO derived marker anywhere in the file');
+  fs.writeFileSync(R.rollupPath(cwd), stripped);
+  R.regenerateRollup(cwd, { banner: null });
+  const preserved = (function () {
+    try { return fs.readFileSync(R.foreignPath(cwd), 'utf8'); } catch (_) { return ''; }
+  })();
+  assert(preserved.includes('FOREIGN STRIP-AND-APPEND BLOCK'),
+    'AC12: the foreign block IS preserved - marker placement actually defends the '
+    + 'unported-adapter path, not just the byte layout');
 }
 
 // ---------------------------------------------------------------------------

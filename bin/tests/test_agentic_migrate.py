@@ -80,9 +80,14 @@ class TestHappyPath(unittest.TestCase):
         expected_version = _manifest_version()
         self.assertEqual(data["scaffolding_version"], expected_version)
 
-        # audit line in context.md
-        ctx = (self.project / ".agentic" / "context.md").read_text()
+        # Audit line lands in the scaffolding-notices SHARD, not in context.md.
+        # DS-107: context.md is a derived rollup recomposed from _wrap.md plus
+        # .agentic/context.d/*.md on every Stop turn, so the old append-to-
+        # context.md target was destroyed by the very next turn.
+        ctx = (self.project / ".agentic" / "context.d" / "scaffolding-notices.md").read_text()
         self.assertIn(f"[scaffolding-sync] Applied v0 -> v{expected_version}", ctx)
+        # And it must NOT be written to the derived rollup.
+        self.assertFalse((self.project / ".agentic" / "context.md").exists())
 
     def test_check_returns_drift_before_apply(self):
         result = run(
@@ -139,7 +144,7 @@ class TestAlreadyCompliant(unittest.TestCase):
         self.assertEqual(data["scaffolding_version"], _manifest_version())
 
         # NO audit line (nothing was written)
-        ctx_path = self.project / ".agentic" / "context.md"
+        ctx_path = self.project / ".agentic" / "context.d" / "scaffolding-notices.md"
         if ctx_path.exists():
             ctx = ctx_path.read_text()
             self.assertNotIn("[scaffolding-sync] Applied", ctx)
@@ -191,7 +196,7 @@ class TestMalformedManifest(unittest.TestCase):
 
 
 class TestManifestNotFound(unittest.TestCase):
-    """Manifest not found: warning appended to context.md, sentinel created, exit 0."""
+    """Manifest not found: warning appended to the notices shard, sentinel created, exit 0."""
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp()
@@ -203,17 +208,19 @@ class TestManifestNotFound(unittest.TestCase):
             ["apply", "--manifest", self.nonexistent, "--project-root", self.tmp],
         )
         self.assertEqual(result.returncode, 0, msg=result.stderr)
-        ctx_path = Path(self.tmp) / ".agentic" / "context.md"
+        ctx_path = Path(self.tmp) / ".agentic" / "context.d" / "scaffolding-notices.md"
         self.assertTrue(ctx_path.exists())
         ctx = ctx_path.read_text()
         self.assertIn("[scaffolding-sync] WARNING: manifest not found", ctx)
+        # The derived rollup is never appended to directly.
+        self.assertFalse((Path(self.tmp) / ".agentic" / "context.md").exists())
 
     def test_no_duplicate_warning(self):
         # Run twice with explicit nonexistent manifest
         run(["apply", "--manifest", self.nonexistent, "--project-root", self.tmp])
         run(["apply", "--manifest", self.nonexistent, "--project-root", self.tmp])
 
-        ctx_path = Path(self.tmp) / ".agentic" / "context.md"
+        ctx_path = Path(self.tmp) / ".agentic" / "context.d" / "scaffolding-notices.md"
         ctx = ctx_path.read_text()
         # Only one occurrence
         self.assertEqual(ctx.count("[scaffolding-sync] WARNING: manifest not found"), 1)

@@ -459,13 +459,13 @@ Why: `context.md` had 13 writer sites and no mutual exclusion between them (the 
 
 **Part A — Write context.md**
 
-The pinned header prefix, the spillover-drain procedure, the `.agentic/wrap/last-wrap` write contract, and the `context.md` rolling-session-label merge algorithm are defined in `content/references/wrap-context-format.md` (the shared normative home cited by both `/ds-wrap` and `/ds-wrap-deferred`). This Part A is the `/ds-wrap`-specific wrapper around that shared algorithm; the algorithm itself is NOT restated here.
+The pinned header prefix, the spillover-drain procedure, the `.agentic/wrap/last-wrap` write contract, and the `_wrap.md` rolling-session-label merge algorithm are defined in `content/references/wrap-context-format.md` (the shared normative home cited by both `/ds-wrap` and `/ds-wrap-deferred`). This Part A is the `/ds-wrap`-specific wrapper around that shared algorithm; the algorithm itself is NOT restated here.
 
 Inside the Part A `context.md` write window (the whole-flow `wrap/lock` acquired at pre-flight is held throughout - see "Pre-flight lock acquisition" and the Step 6 release; Part A introduces no new lock window), run, in this exact order:
 
 1. **Atomic spillover drain** - the 3-step rename-first procedure in `content/references/wrap-context-format.md` §"Spillover-drain procedure": rename `.agentic/wrap/deferred-activity.jsonl` -> `.agentic/wrap/deferred-activity.jsonl.draining.<pid>`, fold its records into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance), then unlink the renamed copy. Apply the Recent-Focus dedup rule from that reference (key the folded draft by `session_id`+`staged_at`; skip a re-folded duplicate) so a duplicate enrichment of the same marker is idempotent.
 
-2. **Rolling-session-label merge write** of `.agentic/context.md` - the algorithm in `content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/ds-wrap / merge branches, the duplicate-claim dedup, the 1-to-10 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by /ds-wrap` (the matcher contract); no site parses the header date.
+2. **Rolling-session-label merge write** of `.agentic/_wrap.md` - the algorithm in `content/references/wrap-context-format.md` §"`_wrap.md` rolling-session-label merge algorithm" (file-absent / non-/ds-wrap / merge branches, the duplicate-claim dedup, the 1-to-10 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by /ds-wrap` (the matcher contract); no site parses the header date.
 
 3. **Write `.agentic/wrap/last-wrap`** = this session's `session_id` (atomic) - per `content/references/wrap-context-format.md` §"`.agentic/wrap/last-wrap` write contract".
 

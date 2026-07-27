@@ -29,7 +29,7 @@
  *       the drift surface MINOR-E removed) fails here.
  *
  * To regenerate the golden after an INTENTIONAL change to the reference algorithm:
- *   node -e 'const fs=require("fs");const r=fs.readFileSync("content/references/wrap-context-format.md","utf8");const i=r.indexOf("## context.md rolling-session-label merge algorithm (NORMATIVE)");fs.writeFileSync("hooks/tests/fixtures/wrap-context-merge-algorithm.golden.md",r.slice(i),"utf8")'
+ *   node -e 'const fs=require("fs");const r=fs.readFileSync("content/references/wrap-context-format.md","utf8");const i=r.indexOf("## `_wrap.md` rolling-session-label merge algorithm (NORMATIVE)");fs.writeFileSync("hooks/tests/fixtures/wrap-context-merge-algorithm.golden.md",r.slice(i),"utf8")'
  * (run from the repo root).
  *
  * Run with: node hooks/tests/test-wrap-context-format-golden.js
@@ -48,7 +48,10 @@ const GOLDEN = path.join(__dirname, 'fixtures', 'wrap-context-merge-algorithm.go
 
 // The deterministic section boundary: the merge-algorithm section runs from this
 // header to EOF (it is the last section of the reference).
-const SECTION_MARKER = '## context.md rolling-session-label merge algorithm (NORMATIVE)';
+// Renamed from '## context.md ...' in DS-107: the algorithm is UNCHANGED, but the
+// file it reads and writes moved to `.agentic/_wrap.md`, so the old heading named
+// a file the algorithm no longer touches.
+const SECTION_MARKER = '## `_wrap.md` rolling-session-label merge algorithm (NORMATIVE)';
 
 let passed = 0;
 let failed = 0;

@@ -47,7 +47,9 @@ const WRAP_MD = path.join(REPO_ROOT, 'content', 'commands', 'ds-wrap.md');
 const REFERENCE = path.join(REPO_ROOT, 'content', 'references', 'wrap-context-format.md');
 
 // The normative section header that owns the merge algorithm in the reference.
-const ALGO_SECTION_MARKER = '## context.md rolling-session-label merge algorithm (NORMATIVE)';
+// Renamed from '## context.md ...' in DS-107 - see the note in
+// test-wrap-context-format-golden.js. The algorithm text itself is unchanged.
+const ALGO_SECTION_MARKER = '## `_wrap.md` rolling-session-label merge algorithm (NORMATIVE)';
 
 // Distinctive algorithm steps. These phrases are unique to the algorithm body and
 // must live ONLY in the reference. Their presence in wrap.md means a second copy
