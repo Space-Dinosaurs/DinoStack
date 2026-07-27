@@ -10,11 +10,11 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-06-24: DinoStack does not commit its own `.agentic/` runtime files** (only `!/.agentic/team.yml` is tracked) - it's the methodology's source, not a consumer. For a per-project AE toggle, create a gitignored `.agentic/config.json`.
 
-- **2026-06-21: An authenticated tracker CLI is not proof it points at this project's workspace.** Verify the workspace/org matches the repo's declared tracker before creating tickets - stop and ask if identity can't be confirmed.
+- **2026-06-21: An authenticated tracker CLI is not proof it points at this project's workspace.** Verify the workspace/org matches the repo's declared tracker before creating/updating tickets - stop and ask if identity can't be confirmed.
 
 - **2026-07-09:** DinoStack's `AGENTS.md` has no `## Tracker` section, so `/implement-ticket` falls through to `TRACKER=none` - infer Jira (solara6.atlassian.net, prefix DS) from `~/.claude/settings.local.json` `ATLASSIAN_*` creds each session. Can't fix via public AGENTS.md (universality); needs a local gitignored mechanism. (DS-74)
 
-- **2026-07-26: DS Jira writebacks to `In Review`/`QA`/`Blocked` don't land because those statuses don't exist in the DS project (workflow is `To Do` / `In Progress` / `Done`), not because of a forward-only guard.** Cached in `.agentic/tracker-states.json` (gitignored). Remediation: add the missing statuses to the DS workflow. (ticket: DS-74)
+- **2026-07-26: DS Jira writebacks to `In Review`/`QA`/`Blocked` don't land because those statuses don't exist in the DS project (workflow is `To Do` / `In Progress` / `Done`) - the forward-only guard is no longer the reason.** Cached in `.agentic/tracker-states.json` (gitignored); cache is a snapshot (`fetched_at: 2026-07-09`), and Phase 2c logs `configured state '...' not found; available: [...]`. What the post-#481 guard does for an absent target is undetermined - no post-#481 DS writeback has been observed. Precondition: this repo resolves `TRACKER=none` (see the DS-74 entry above), so the Helper skips at step 1 unless a session infers Jira manually. Remediation: add the missing statuses to the DS workflow. (ticket: DS-74)
 
 ## Decisions
 
@@ -30,7 +30,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-06-25: The public installer (`curl | bash`) pulls unpinned `main` HEAD - no checksum, signature, or release tag.** Live hardening gap now that the repo is public (deferred while private). Options: pin install to a release tag with version-bump, and/or publish a checksum/SRI.
 
-- **2026-06-27: A deterministic hook cannot reliably detect an LLM-semantic event.** `events.jsonl` sat empty because signals like `conductor_direct`/`tool_failure_workaround` depended on the LLM self-reporting inline, which it reliably didn't. Fix pattern: derive that signal at a natural LLM-reflection point (e.g. `/wrap`'s own reflection), not hook instrumentation.
+- **2026-06-27: A deterministic hook cannot reliably detect an LLM-semantic event.** `events.jsonl` sat empty in ad-hoc sessions because signals like `conductor_direct`/`tool_failure_workaround` depended on the LLM self-reporting inline, which it reliably didn't. Fix pattern: derive that signal at a natural LLM-reflection point (e.g. `/wrap`'s own reflection), not hook instrumentation.
 
 ## Methodology Enforcement
 
@@ -42,7 +42,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 ## Knowledge Capture
 
-- **2026-06-19: Committed root `MEMORY.md` is public and teammate-facing - keep maintainer-internal content out of it.** Route eval/auto-harness internals and session TODOs to the private memory store instead. Session-scoped files (`decisions.md`, ad-hoc `context.md`) stay local, never opened as a PR except a deliberate curated `docs(memory)` PR when authorized.
+- **2026-06-19: Committed root `MEMORY.md` is public and teammate-facing - keep maintainer-internal content out of it.** Route eval/auto-harness internals and session TODOs to the private memory store instead. Session-scoped files (session-learnings, `decisions.md`, ad-hoc `context.md`) stay local, never opened as a PR except a deliberate curated `docs(memory)` PR when authorized.
 
 ## Worktree & Git Hygiene
 
@@ -58,11 +58,11 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-26:** `.claude/install.sh` has a zsh variable conflict: a local variable named `status` is read-only in zsh. Avoid `status` as a variable name in zsh-specific code, and run affected blocks in a bash subshell for mixed-shell compatibility.
 
-- **2026-07-09: The same "silent revert" failure mode also occurs from a hand-authored feature commit, not just a regen commit** - a stale local snapshot silently reverted unrelated content and green CI missed it. Diff the PR's base..tip for unrelated hunks before merging or rebasing (PR #390/#432, DS-47).
+- **2026-07-09: The same "silent revert" failure mode also occurs from a hand-authored feature commit, not just a regen commit** - a stale local snapshot silently reverted unrelated content in files it legitimately touched and green CI missed it. Diff the PR's base..tip for unrelated hunks before merging or rebasing (PR #390/#432, DS-47).
 
 - **2026-07-08: When `origin/main` advances mid-session, a diff against it can make an unrelated, already-merged PR's files look reverted** - a diff-base artifact, not a real revert; your branch predates the merge. Diagnose against your commit's parent; rebase and re-run any generator the merge may have changed.
 
-- **2026-07-02: Checking for duplicate in-flight work only at spawn time misses collisions that start or merge while a Worker runs.** Check open PRs before spawning, and re-check for a superseding merge before opening a PR (dirty `mergeStateStatus` is the symptom); stand down and cite it.
+- **2026-07-02: Checking for duplicate in-flight work only at spawn time misses collisions that start or merge while a Worker runs.** Check open PRs and `git status` before spawning, and re-check for a superseding merge before opening a PR (dirty `mergeStateStatus` on a fresh PR is the symptom); stand down and cite it.
 
 - **2026-06-13: Two reusable git lessons.** (1) To flip a gitignored file to tracked, append a negation line (`!.agentic/<file>`) rather than removing the ignore rule - additive negation is safe, removal leaks. (2) Green CI per-PR doesn't guarantee `main`'s end state when multiple sessions touch it concurrently - assert directly (`git ls-files`, `git check-ignore`).
 
@@ -70,7 +70,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-14: The live Claude Code harness auto-locks every `isolation:"worktree"` worktree at creation.** Directory is `.claude/worktrees/agent-<agentId>` (not `worktree-agent-<id>` - that's the branch name); non-force `git worktree remove` refuses it (`remove -f -f` needed). Cleanup detection must match the branch-name pattern, not the dir path.
 
-- **2026-07-26: Work in an isolation worktree can silently absolutize the `.claude/skills/agentic-engineering/{agents,commands,references,rules}` symlinks to that worktree's own path, and no CI gate catches it** - `check-adapter-sync` compares regenerated content, and the symlink still resolves fine on the machine that broke it. Before staging, check `git status --short` for those four paths and restore with `git restore --staged --worktree`; audit a landed commit with `git ls-tree -r <sha> .claude/skills/agentic-engineering | awk '$1=="120000"{print $4}'` then `git cat-file -p <sha>:<path>` - a leading `/` means broken. (DS-96, DS-104)
+- **2026-07-26: Work in an isolation worktree can silently absolutize the `.claude/skills/agentic-engineering/{agents,commands,references,rules}` symlinks to that worktree's own path** - `check-adapter-sync` compares regenerated content, and the symlink still resolves fine on the machine that broke it, so an absolutized symlink merged to `main` silently breaks the skill for every other clone. `scripts/check-symlinks-relative.sh` (wired in `adapter-sync.yml` since PR #500) now gates this in CI; before staging, check `git status --short` for those four paths and restore with `git restore --staged --worktree`; audit a landed commit with `git ls-tree -r <sha> .claude/skills/agentic-engineering | awk '$1=="120000"{print $4}'` then `git cat-file -p <sha>:<path>` - a leading `/` means broken. (DS-96, DS-104)
 
 ## Adapters & Build
 
@@ -78,13 +78,13 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-09: A compression/extraction change that moves inline prose into `content/references/*-detail.md` creates a staleness class that merges silently, no conflict marker** - later commits keep patching the original location while the extracted copy diverges unnoticed. Catching all instances required a file-by-file audit of every post-branch commit (PR #420, DS-68).
 
-- **2026-06-21: Adapter/methodology build discipline.** `content/` is single-sourced into all adapter dirs; any change requires `bash scripts/build-all.sh` (11 dirs) then `git diff --exit-code -- <adapter dirs>`. `content/sections/**` changes also need `scripts/.methodology-baseline.sha256` regenerated. `check-adapter-sync` CI tests the merge result, not your branch - rebase onto `origin/main` first.
+- **2026-06-21: Adapter/methodology build discipline.** `content/` is single-sourced into all adapter dirs; any change requires `bash scripts/build-all.sh` (11 dirs) then `git diff --exit-code -- <adapter dirs>`. `content/sections/**` changes also need `scripts/.methodology-baseline.sha256` regenerated. `check-adapter-sync` CI tests the merge result, not your branch - rebase onto current `origin/main` and rebuild before merging.
 
-- **2026-07-24 (supersedes 2026-06-16): Repo checkout convention is `DinoStack`, but `agentic-engineering` stays the stable name for install-targets/identifiers.** Do not rename `~/.claude/skills/agentic-engineering/`, config files, the `opt-in`/`opt-out` marker, or the skill name. All methodology slash commands now use the `/ds-*` prefix (e.g. `/ds-implement-ticket`); `bin/agentic-*` CLI names are unaffected by that rename (DS-26).
+- **2026-07-24 (supersedes 2026-06-16): Repo checkout convention is `DinoStack`, but `agentic-engineering` stays the stable name for install-targets/identifiers.** Do not rename `~/.claude/skills/agentic-engineering/`, config files, the `opt-in`/`opt-out` marker, or the skill name. All methodology slash commands now use the `/ds-*` prefix (e.g. `/ds-implement-ticket`); `bin/agentic-*` CLI names and their no-slash usage text are unaffected by that rename (DS-26).
 
 - **2026-07-09: Some `content/` source files are hardlinked (not copied) into adapter destinations, inconsistently - don't assume a build script alone keeps things in sync.** E.g. `content/agents/skeptic.md`/`.claude/agents/skeptic.md` share an inode; `.hermes/SKILL.md` is a verbatim embed, not a hardlink. `bash scripts/build-all.sh` is still required regardless. (DS-78)
 
-- **2026-07-15: `.github/workflows/adapter-sync.yml` is the source of truth for the 11-script adapter build set (including `.copilot/build.sh`).** Two enumerations had drifted to 10 scripts (missing `.copilot`): `/update-agentic-engineering` Step 3 (fixed) and the installed `.git/hooks/pre-commit` hook (fix in progress). Cross-check future changes against the CI workflow.
+- **2026-07-15: `.github/workflows/adapter-sync.yml` is the source of truth for the 11-script adapter build set (including `.copilot/build.sh`).** At least two other enumerations had drifted to 10 scripts (missing `.copilot`): `/update-agentic-engineering` Step 3 (fixed) and the installed `.git/hooks/pre-commit` hook (fix in progress). Cross-check future changes against the CI workflow, not against a duplicated list.
 
 ## Hooks & Subagent Mechanics
 
@@ -98,7 +98,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 ## Slides (Marp decks, docs/slides/)
 
-- **2026-07-01:** Never include `"mode": "opt-in"` in doc/adapter example JSON unless demonstrating opt-in activation - it disables the entire methodology on repos without an `agentic-engineering: opt-in` marker; show only the field being demonstrated (e.g. `{ "profile": "relaxed" }`) or use `"mode": "opt-out"`.
+- **2026-07-01:** Never include `"mode": "opt-in"` in doc/adapter example JSON unless demonstrating opt-in activation - it silently disables the entire methodology on repos without an `agentic-engineering: opt-in` marker; show only the field being demonstrated (e.g. `{ "profile": "relaxed" }`) or use `"mode": "opt-out"`.
 
 ## Bulk Operations & Adapter Sync
 

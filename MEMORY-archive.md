@@ -14,7 +14,7 @@ This is the historical tier for DinoStack: entries moved verbatim from `MEMORY.m
 
 - **2026-04-28:** This project uses `main` as the sole integration branch. Do not use `develop`/`development` branching model for this repository - all feature/fix/chore work branches from `main` and merges back to `main`.
 
-- **2026-07-09 (SUPERSEDED 2026-07-26 - its guard attribution is false; see the next entry. Pending move to `MEMORY-archive.md`):** The DS Jira project's workflow is 3-state only (To Do / In Progress / Done) - status writebacks to `In Review`/`QA`/`Blocked` silently no-op via the tracker's forward-only guard. Cached in `.agentic/tracker-states.json` (gitignored, machine-local). (ticket: DS-74)
+- **2026-07-09 (SUPERSEDED 2026-07-26 - its guard attribution is false; see the next entry. Pending move to `MEMORY-archive.md`):** The DS Jira project's workflow is 3-state only (To Do / In Progress / Done) - status writebacks to `In Review`/`QA`/`Blocked` silently no-op via the tracker's forward-only guard. Cached in `.agentic/tracker-states.json` (gitignored, machine-local). (ticket: DS-74) [archived 2026-07-27; "the next entry" referred to the 2026-07-26 correction in MEMORY.md]
 
 ## Decisions
 
