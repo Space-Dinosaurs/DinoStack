@@ -40,43 +40,23 @@ const path = require('path');
 const hookPath = path.resolve(__dirname, '..', 'stop-context.js');
 const hookSource = fs.readFileSync(hookPath, 'utf8');
 
-const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
-const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
-const libStdinGuardAbs = path.resolve(__dirname, '..', 'lib', 'stdin-guard.js');
-const libStateMarkAbs = path.resolve(__dirname, '..', 'lib', 'state-mark.js');
+// GENERIC re-anchor via hooks/tests/lib/hook-shim.js - see that module's doc for
+// why the former per-library .replace() chain was retired (every new hooks/lib
+// module broke this file and four siblings at once). skill-candidate-detector is
+// deliberately NOT rewritten: it is required lazily inside a function.
+const { reanchorHookRequires } = require('./lib/hook-shim.js');
 
-const shimmedSource = hookSource
-  // Match both the old bare `run();` call and the current
-  // `run().catch(() => { ... });` form (stop-context.js now reads stdin via
-  // the async readStdinGuarded() and needs a .catch() at the call site).
-  .replace(/^run\(\).*;\s*$/m, '// test shim: run() suppressed')
-  .replace(
-    /require\(['"]\.\/lib\/wrap-marker\.js['"]\)/,
-    `require(${JSON.stringify(libMarkerAbs)})`
-  )
-  .replace(
-    /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
-    `require(${JSON.stringify(libCaptureGapAbs)})`
-  )
-  .replace(
-    /require\(['"]\.\/lib\/stdin-guard\.js['"]\)/,
-    `require(${JSON.stringify(libStdinGuardAbs)})`
-  )
-  .replace(
-    /require\(['"]\.\/lib\/state-mark\.js['"]\)/,
-    `require(${JSON.stringify(libStateMarkAbs)})`
+let shimmedSource;
+try {
+  shimmedSource = reanchorHookRequires(
+    // Match both the old bare `run();` call and the current
+    // `run().catch(() => { ... });` form (stop-context.js now reads stdin via
+    // the async readStdinGuarded() and needs a .catch() at the call site).
+    hookSource.replace(/^run\(\).*;\s*$/m, '// test shim: run() suppressed'),
+    path.resolve(__dirname, '..', 'lib')
   );
-
-// Guard: ensure all relative lib requires were rewritten.
-// (skill-candidate-detector is loaded lazily inside a function, not at module
-// scope, so we do NOT require its rewrite here.)
-const relativeRequires = shimmedSource.match(/require\(['"]\.\/lib\/(?!skill-candidate).*?['"]\)/g) || [];
-if (relativeRequires.length > 0) {
-  console.error(
-    '  FATAL: a relative ./lib/ require survived the shim re-anchor - '
-    + 'update the rewrite in test-stop-context-health.js. Survivors: '
-    + relativeRequires.join(', ')
-  );
+} catch (shimErr) {
+  console.error('  FATAL: ' + shimErr.message);
   process.exit(1);
 }
 

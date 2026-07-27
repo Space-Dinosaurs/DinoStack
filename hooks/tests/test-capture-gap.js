@@ -67,43 +67,26 @@ const hookSource = fs.readFileSync(hookPath, 'utf8');
 // cannot resolve from /tmp. Rewrite that one relative require to an absolute
 // path to the REAL hooks/lib/wrap-marker.js before writing the shim, so the
 // shimmed copy still loads the real lib (no behavior change, just resolution).
-const libMarkerAbs = path.resolve(__dirname, '..', 'lib', 'wrap-marker.js');
-const libCaptureGapAbs = path.resolve(__dirname, '..', 'lib', 'capture-gap.js');
-// Third re-anchor: stop-context.js now requires the shared bounded-stdin
-// reader via ./lib/stdin-guard.js. Anchor it to the real lib too so the /tmp
-// shim resolves all three relative lib requires.
-const libStdinGuardAbs = path.resolve(__dirname, '..', 'lib', 'stdin-guard.js');
-// Fourth re-anchor: stop-context.js now requires the shared loop-state/
-// batch-state writer via ./lib/state-mark.js. Anchor it to the real lib too
-// so the /tmp shim resolves all four relative lib requires.
-const libStateMarkAbs = path.resolve(__dirname, '..', 'lib', 'state-mark.js');
-const shimmedSource = hookSource
-  // Replace the final `run();` (or, post-stdin-guard, `run().catch(() => { ... });`)
-  // call so the hook doesn't try to read stdin during test setup.
-  .replace(/^run\(\).*;\s*$/m, '// test shim: run() suppressed')
-  // Re-anchor the relative lib require to an absolute path to the real lib so the
-  // shim resolves it from /tmp. JSON.stringify yields a correctly-escaped literal
-  // on every platform (backslashes on Windows, etc.).
-  .replace(
-    /require\(['"]\.\/lib\/wrap-marker\.js['"]\)/,
-    `require(${JSON.stringify(libMarkerAbs)})`
-  )
-  // Second re-anchor: stop-context.js now requires the shared capture-gap
-  // detector via ./lib/capture-gap.js. Anchor it to the real lib too so the
-  // /tmp shim resolves both relative lib requires.
-  .replace(
-    /require\(['"]\.\/lib\/capture-gap\.js['"]\)/,
-    `require(${JSON.stringify(libCaptureGapAbs)})`
-  )
-  .replace(
-    /require\(['"]\.\/lib\/stdin-guard\.js['"]\)/,
-    `require(${JSON.stringify(libStdinGuardAbs)})`
-  )
-  .replace(
-    /require\(['"]\.\/lib\/state-mark\.js['"]\)/,
-    `require(${JSON.stringify(libStateMarkAbs)})`
-  )
-  + `\n
+const libDirAbs = path.resolve(__dirname, '..', 'lib');
+const libCaptureGapAbs = path.join(libDirAbs, 'capture-gap.js');
+
+// GENERIC re-anchor via hooks/tests/lib/hook-shim.js. It replaced a
+// hand-maintained per-library .replace() chain (four entries and counting) plus a
+// survivor assertion, which meant every new hooks/lib module broke this file and
+// four siblings at once with a FATAL naming the file to patch - exactly what
+// adding hooks/lib/context-rollup.js did. skill-candidate-detector.js stays
+// un-rewritten on purpose: it is required LAZILY inside function bodies gated on
+// a config toggle, and the temp dir has no config.json, so those paths never run.
+const { reanchorHookRequires } = require('./lib/hook-shim.js');
+
+let shimmedSource;
+try {
+  shimmedSource = reanchorHookRequires(
+    // Replace the final `run();` (or, post-stdin-guard, `run().catch(() => { ... });`)
+    // call so the hook doesn't try to read stdin during test setup.
+    hookSource.replace(/^run\(\).*;\s*$/m, '// test shim: run() suppressed'),
+    libDirAbs
+  ) + `\n
 // Expose helpers for unit tests via a module-level export shim.
 // This block is appended by the test loader. detectCaptureGap and
 // appendCaptureGapNoticeToContextMd live in stop-context.js's scope;
@@ -117,21 +100,10 @@ if (typeof module !== 'undefined') {
   };
 }
 `;
-
-// Fail loudly if the re-anchor did not fire (e.g. the source's require text
-// changed form). Without this, a missed rewrite reverts to an opaque
-// MODULE_NOT_FOUND crash at require() time from /tmp.
-// NOTE: skill-candidate-detector.js is loaded lazily (inside function bodies,
-// gated on config toggles). It does NOT resolve from /tmp at module scope, but
-// it will never be called in test paths because the tmp dir has no config.json
-// (so the toggle defaults to off). Exempt it from the fragility guard.
-const relativeRequires = shimmedSource.match(/require\(['"]\.\/lib\/(?!skill-candidate).*?['"]\)/g) || [];
-if (relativeRequires.length > 0) {
-  console.error(
-    '  FATAL: a relative ./lib/ require survived the shim re-anchor - update the '
-    + 'rewrite in test-capture-gap.js so the /tmp shim can resolve it. Survivors: '
-    + relativeRequires.join(', ')
-  );
+} catch (shimErr) {
+  // Fail loudly: a surviving relative require would otherwise revert to an opaque
+  // MODULE_NOT_FOUND crash at require() time from /tmp.
+  console.error('  FATAL: ' + shimErr.message);
   process.exit(1);
 }
 
@@ -461,17 +433,18 @@ console.log('\nTest 9: residualOnly text differentiation');
   const cwd9b = makeTempProject();
   const sessionId = 'session-residual-009';
 
-  // Ensure context.md exists in both (function appends; parent dir must exist)
-  const ctx9a = path.join(cwd9a, '.agentic', 'context.md');
-  const ctx9b = path.join(cwd9b, '.agentic', 'context.md');
-  fs.writeFileSync(ctx9a, '# Session Context\n', 'utf8');
-  fs.writeFileSync(ctx9b, '# Session Context\n', 'utf8');
+  // DS-107: the nudge now lands in THIS SESSION'S shard, not straight into the
+  // shared .agentic/context.md. That retarget is the D3 fix - this writer had NO
+  // lock check at all, so it wrote THROUGH the orphaned lock that was suppressing
+  // every other writer. A session-private target makes the ungated append
+  // harmless instead of adding a fourth gate for the next writer to forget.
+  appendCaptureGapNoticeToContextMd(cwd9a, false, sessionId); // standard
+  appendCaptureGapNoticeToContextMd(cwd9b, true, sessionId);  // residual
 
-  appendCaptureGapNoticeToContextMd(cwd9a, false); // standard
-  appendCaptureGapNoticeToContextMd(cwd9b, true);  // residual
-
-  const textStandard = fs.readFileSync(ctx9a, 'utf8');
-  const textResidual = fs.readFileSync(ctx9b, 'utf8');
+  const textStandard = fs.readFileSync(
+    path.join(cwd9a, '.agentic', 'context.d', sessionId + '.md'), 'utf8');
+  const textResidual = fs.readFileSync(
+    path.join(cwd9b, '.agentic', 'context.d', sessionId + '.md'), 'utf8');
 
   assert(textStandard.includes('CAPTURE-GAP'), 'standard nudge includes CAPTURE-GAP marker');
   assert(textResidual.includes('CAPTURE-GAP'), 'residual nudge includes CAPTURE-GAP marker');

@@ -3,9 +3,11 @@
  * Smoke tests: stop-context.js deferred-wrap behavior (U2 + U3).
  *
  * Sub-tests:
- *   (a) wrap/lock DIRECTORY present (normal write path) -> context.md NOT
- *       written + exactly one spillover record appended to
- *       .agentic/wrap/deferred-activity.jsonl (valid JSON, correct shape).
+ *   (a) wrap/lock DIRECTORY present (normal write path) -> the shard AND the
+ *       derived rollup are written ANYWAY, and no spillover record is produced.
+ *       INVERTED in DS-106/DS-107: this case previously pinned the opposite
+ *       ("context.md NOT written while the lock is held"), which is the contract
+ *       that silently discarded 49 writes across 6 sessions over ~12 hours.
  *   (b) lock absent -> context.md written as today (no regression); no
  *       spillover file created.
  *   (c) .agentic/wrap/last-wrap contains the current session_id -> no marker staged
@@ -16,8 +18,9 @@
  *   (e) read-only/clean session (transcript with only a Read tool_use, clean
  *       tree, no .last-wrap) -> no marker staged.
  *   (f) wrap/lock present on the /wrap-coexistence path (existing context.md
- *       authored by /ds-wrap) -> /ds-wrap content preserved (NOT overwritten) + one
- *       spillover record appended.
+ *       authored by /ds-wrap) -> the curated body is migrated to .agentic/_wrap.md
+ *       with lines 1-2 byte-exact, the rollup still carries it, and the activity
+ *       is written despite the held lock. Also inverted in DS-106/DS-107.
  *
  * Fake-HOME isolation is used throughout so the test never touches the real
  * ~/.agentic/. The tmp project dir is intentionally NOT a git repo, so the
@@ -137,13 +140,21 @@ const READONLY_TRANSCRIPT = [
 ];
 
 // ---------------------------------------------------------------------------
-// (a) wrap.lock present (normal path) -> context.md NOT written + one spillover
+// (a) wrap.lock present -> the write is NOT suppressed. THIS INVERSION IS THE FIX.
 // ---------------------------------------------------------------------------
-console.log('\n[a] wrap/lock present (normal path): context.md skipped + spillover appended');
+// Until DS-106/DS-107 this case asserted the OPPOSITE: "context.md NOT written
+// while wrap/lock held" plus a spillover record. That contract is what silently
+// discarded 49 context.md writes across 6 sessions over ~12 hours behind a lock
+// whose owner pid was dead and which nothing on the default config could clear.
+// It also never delivered the mutual exclusion it appeared to buy: both
+// Stop-hook writers CHECKED the lock and NEITHER acquired it, so two concurrent
+// hooks both saw it free and both whole-file-wrote anyway.
+console.log('\n[a] wrap/lock present: shard + rollup written ANYWAY (no suppression)');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-a-');
   makeWrapLock(projectDir);
   const contextPath = path.join(agenticDir, 'context.md');
+  const shardPath = path.join(agenticDir, 'context.d', 'sess-a.md');
   const spilloverPath = lib.stopDeferredActivityPath(projectDir);
 
   try {
@@ -154,30 +165,15 @@ console.log('\n[a] wrap/lock present (normal path): context.md skipped + spillov
     process.exit(1);
   }
 
-  assert(!fs.existsSync(contextPath), 'context.md NOT written while wrap/lock held');
-  assert(fs.existsSync(spilloverPath), 'spillover file created');
-  if (fs.existsSync(spilloverPath)) {
-    const lines = fs.readFileSync(spilloverPath, 'utf8').trim().split('\n').filter(Boolean);
-    assert(lines.length === 1, `exactly one spillover record (got ${lines.length})`);
-    let rec;
-    try {
-      rec = JSON.parse(lines[0]);
-      assert(true, 'spillover record is valid JSON');
-    } catch (e) {
-      assert(false, `spillover record is valid JSON (parse error: ${e.message})`);
-    }
-    if (rec) {
-      assert(rec.schema_version === 1, 'spillover schema_version === 1');
-      assert(rec.session_id === 'sess-a', `spillover session_id === 'sess-a' (got ${rec.session_id})`);
-      assert(Array.isArray(rec.recent_focus), 'recent_focus is an array');
-      assert(Array.isArray(rec.paths_referenced), 'paths_referenced is an array');
-      assert(Array.isArray(rec.uncommitted), 'uncommitted is an array');
-      assert(Array.isArray(rec.tools_used), 'tools_used is an array');
-      assert(rec.paths_referenced.includes('/Users/dev/project/src/app.js'),
-        'paths_referenced captured the edited file');
-      assert(rec.tools_used.includes('Edit'), 'tools_used captured Edit');
-    }
+  assert(fs.existsSync(shardPath), 'this session\'s shard IS written while wrap/lock is held');
+  assert(fs.existsSync(contextPath), 'the derived rollup IS written while wrap/lock is held');
+  if (fs.existsSync(contextPath)) {
+    const c = fs.readFileSync(contextPath, 'utf8');
+    assert(c.includes('/Users/dev/project/src/app.js'), 'the edited path reached the rollup');
+    assert(c.includes('Edit'), 'the tool use reached the rollup');
   }
+  assert(!fs.existsSync(spilloverPath),
+    'no spillover record is produced any more - nothing was deferred, so there is nothing to spill');
   cleanup(tmpDir);
 }
 
@@ -303,13 +299,19 @@ console.log('\n[e] read-only/clean session: no marker staged');
 }
 
 // ---------------------------------------------------------------------------
-// (f) wrap.lock present on /wrap-coexistence path -> /ds-wrap content preserved
+// (f) /wrap-coexistence with the lock held -> curated content MIGRATED and kept,
+//     activity appended, and the write STILL not suppressed
 // ---------------------------------------------------------------------------
-console.log('\n[f] wrap/lock present (/wrap-coexistence path): /ds-wrap content preserved + spillover');
+// Also inverted from "left untouched while lock held". Under the shard model the
+// curated body is migrated into `.agentic/_wrap.md` (byte-exact on lines 1-2, so
+// the next /ds-wrap takes its MERGE branch and the 10-slot rolling window is
+// preserved) and the rollup is recomposed from it plus the shard set.
+console.log('\n[f] /wrap-coexistence + lock held: curated body migrated to _wrap.md, activity still written');
 {
   const { tmpDir, fakeHome, projectDir, agenticDir } = makeTmp('ae-dw-f-');
   makeWrapLock(projectDir);
   const contextPath = path.join(agenticDir, 'context.md');
+  const curatedPath = path.join(agenticDir, '_wrap.md');
   const spilloverPath = lib.stopDeferredActivityPath(projectDir);
 
   // Pre-seed a /wrap-authored context.md (pinned header prefix).
@@ -324,13 +326,18 @@ console.log('\n[f] wrap/lock present (/wrap-coexistence path): /ds-wrap content 
     process.exit(1);
   }
 
-  const after = fs.readFileSync(contextPath, 'utf8');
-  assert(after === wrapBody, '/wrap-authored context.md left untouched while lock held');
-  assert(fs.existsSync(spilloverPath), 'spillover appended on coexistence path');
-  if (fs.existsSync(spilloverPath)) {
-    const lines = fs.readFileSync(spilloverPath, 'utf8').trim().split('\n').filter(Boolean);
-    assert(lines.length === 1, `exactly one spillover record on coexistence path (got ${lines.length})`);
+  assert(fs.existsSync(curatedPath), 'the curated /ds-wrap body was migrated to _wrap.md');
+  if (fs.existsSync(curatedPath)) {
+    const seed = fs.readFileSync(curatedPath, 'utf8');
+    assert(seed.split('\n').slice(0, 2).join('\n') === wrapBody.split('\n').slice(0, 2).join('\n'),
+      'seeded _wrap.md keeps lines 1-2 BYTE-EXACT (else the next /ds-wrap overwrites it)');
+    assert(seed.includes('- prior wrap content'), 'curated body content survived migration');
   }
+  const after = fs.readFileSync(contextPath, 'utf8');
+  assert(after.includes('- prior wrap content'), 'the rollup still carries the curated body');
+  assert(after.includes('/Users/dev/project/src/app.js'),
+    'the activity IS written despite the held lock (no suppression)');
+  assert(!fs.existsSync(spilloverPath), 'no spillover record on the coexistence path either');
   cleanup(tmpDir);
 }
 
@@ -426,8 +433,9 @@ console.log('\n[i] loop-guard: under AGENTIC_WRAP_DAEMON=1 the Stop hook stages 
 }
 
 // ---------------------------------------------------------------------------
-// (j) flag-OFF: no config (default) -> ZERO markers + ZERO heartbeats across N turns;
-//     context.md IS still written (gate must not break normal context writing).
+// (j) flag-OFF: no config (default) -> ZERO markers across N turns, but heartbeats
+//     ARE written (DS-106 ungate - see the inline note below), and context.md is
+//     still written and ACCUMULATES all N sessions.
 // (k) flag-ON companion: with config flag true, markers + heartbeats DO appear.
 //
 // These cases ARE regression tests: they MUST fail against pre-fix code
@@ -460,16 +468,27 @@ console.log('\n[j] flag-OFF (no config): N turns produce zero pending markers, z
   assert(!fs.existsSync(markerPath2), 'flag-OFF: no marker staged for sess-j2');
   assert(!fs.existsSync(markerPath3), 'flag-OFF: no marker staged for sess-j3');
 
-  // ZERO heartbeats written when flag is off.
-  assert(!fs.existsSync(hb1), 'flag-OFF: no heartbeat for sess-j1');
-  assert(!fs.existsSync(hb2), 'flag-OFF: no heartbeat for sess-j2');
-  assert(!fs.existsSync(hb3), 'flag-OFF: no heartbeat for sess-j3');
+  // HEARTBEATS ARE NOW WRITTEN WITH THE FLAG OFF. INVERTED IN DS-106, and this
+  // is load-bearing rather than incidental: the heartbeat is the ONLY liveness
+  // signal a role:'agent' lock has (it carries pid:null by construction), so
+  // gating it on a toggle that defaults to FALSE meant no heartbeat was ever
+  // written for any session on a default install and wrapLockAbandoned's Arm A
+  // could never fire. The live orphaned checkout's heartbeats/ directory was
+  // empty BY CONSTRUCTION - it carried no information about session liveness at
+  // all. Marker STAGING remains flag-gated (asserted above); only the heartbeat
+  // is ungated, because only the heartbeat has a second, non-daemon consumer.
+  assert(fs.existsSync(hb1), 'flag-OFF: heartbeat IS written for sess-j1 (lock-liveness signal)');
+  assert(fs.existsSync(hb2), 'flag-OFF: heartbeat IS written for sess-j2 (lock-liveness signal)');
+  assert(fs.existsSync(hb3), 'flag-OFF: heartbeat IS written for sess-j3 (lock-liveness signal)');
 
   // context.md STILL written (gate must not break normal context writing).
   assert(fs.existsSync(contextPath), 'flag-OFF: context.md IS still written');
   if (fs.existsSync(contextPath)) {
     const c = fs.readFileSync(contextPath, 'utf8');
     assert(c.startsWith('# Session Context'), 'flag-OFF: context.md has expected header');
+    assert((c.match(/^### Session /gm) || []).length === 3,
+      'flag-OFF: all THREE sessions accumulate in the rollup (the retired strip-and-append '
+      + 'path would have left only the most recent)');
   }
   cleanup(tmpDir);
 }

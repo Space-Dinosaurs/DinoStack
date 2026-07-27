@@ -17,9 +17,9 @@
  *          per-developer session telemetry via a three-branch identity gate:
  *          confirmed identity -> per-project log + global mirror; provisional
  *          identity or no identity -> pending buffer (~/.agentic/session-log/.pending/);
- *          no identity also appends a one-time nudge to context.md. Runs a
- *          capture-gap backstop that detects learning-worthy sessions with no
- *          captured learnings and appends a nudge to context.md. ALWAYS creates
+ *          no identity also appends a one-time nudge to this session's shard.
+ *          Runs a capture-gap backstop that detects learning-worthy sessions with
+ *          no captured learnings and appends a nudge to the shard. ALWAYS creates
  *          [cwd]/.agentic/events.jsonl on every TURN (zero-aggregate
  *          fallback) so the telemetry substrate is present even in ad-hoc sessions
  *          that produce no conductor spawn_complete events.
@@ -32,11 +32,11 @@
  *             getIdentity(cwd), writeSessionLog(cwd, identity, sessionId[, cachedRaw]),
  *             writeSessionLogGlobal(identity, sessionId, data),
  *             writePendingBuffer(cwd, sessionId[, cachedRaw]),
- *             appendIdentityNudgeToContextMd(repoRoot),
- *             appendCaptureGapNoticeToContextMd(cwd, residualOnly),
- *             wrapLockHeld(cwd) (thin alias to wrap-marker lib),
- *             appendSpilloverRecord(cwd, record),
- *             writeContextMdOrSpill(cwd, outputPath, projectDir, body, record),
+ *             appendIdentityNudgeToContextMd(repoRoot, sessionId),
+ *             appendCaptureGapNoticeToContextMd(cwd, residualOnly, sessionId),
+ *             writeContextShardAndRollup(cwd, sessionId, shardBody) — replaces the
+ *             former lock-gated writeContextMdOrSpill/appendSpilloverRecord/
+ *             wrapLockHeld trio (see SHARD MODEL below),
  *             stageWrapPending(cwd, sessionId, scan) (thin alias to wrap-marker
  *             lib stagePending),
  *             recordHealth(target, success, errMsg) — synchronous in-memory
@@ -64,10 +64,16 @@
  *                and hooks/lib/state-mark.js (refreshLiveness/markInterrupted -
  *                the single source of truth for the loop-state.json/
  *                batch-state.json writes, shared with hooks/session-end-wrap.js
- *                and dispatched here by the --cadence CLI flag).
+ *                and dispatched here by the --cadence CLI flag),
+ *                and hooks/lib/context-rollup.js (the per-session shard + derived
+ *                rollup single source of truth - writeShard, appendToShard,
+ *                regenerateRollup; see SHARD MODEL below).
  *                No npm dependencies. Reads from stdin (fd 0).
  *                Reads/writes
- *                ~/.claude/projects/[hash]/context.md,
+ *                [cwd]/.agentic/context.d/<session_id>.md (this session's shard -
+ *                the ONLY context file this hook writes directly),
+ *                [cwd]/.agentic/context.md (DERIVED rollup, regenerated from
+ *                _wrap.md + the shard set; never hand-composed here),
  *                [cwd]/.agentic/loop-state.json (legacy) AND every per-ticket
  *                keyed sibling [cwd]/.agentic/loop-state-<LOOP_KEY>.json - this
  *                hook derives no key and enumerates no path itself; the
@@ -143,12 +149,12 @@
  *                this path does not block writeSessionTotal.
  *                (5) writeSessionLog appends to .agentic/session-log/<dev>.jsonl;
  *                any fs error is swallowed independently of all other paths.
- *                (6) appendIdentityNudgeToContextMd appends to context.md; any
- *                fs error is swallowed independently. Because the nudge is a
- *                context.md writer, it is deferred while wrapLockHeld(cwd) is
- *                true (the sentinel is consumed atomically with the nudge, so
- *                deferring both fires the one-time nudge on a later unlocked
- *                session rather than losing it).
+ *                (6) appendIdentityNudgeToContextMd appends to THIS SESSION'S
+ *                shard; any fs error is swallowed independently. It is no longer
+ *                deferred behind the wrap lock - the target is session-private,
+ *                so there is nothing to serialize against, and deferring behind
+ *                a lock let an ORPHANED lock suppress the one-time notice
+ *                indefinitely.
  *                (7) writeSessionLogGlobal appends to ~/.agentic/session-log/<dev>.jsonl;
  *                any fs error is swallowed independently of the per-project write
  *                (path 5) - a global failure never affects the per-project write.
@@ -156,20 +162,24 @@
  *                ~/.agentic/session-log/.pending/<uuid>.json; enforces cap-100
  *                (drops oldest by ts with one stderr notice); any fs error swallowed
  *                independently of all other paths.
- *                (9) appendCaptureGapNoticeToContextMd appends to context.md; any
- *                fs error is swallowed independently. The .capture-gap-last-sweep
- *                cursor update is also best-effort and never blocks exit.
- *                (10) appendSpilloverRecord appends one JSONL record to
- *                .agentic/wrap/deferred-activity.jsonl when wrapLockHeld(cwd) is
- *                true (a /ds-wrap holds .agentic/wrap/lock); in that case BOTH
- *                context.md write paths (path 1) are skipped so the background
- *                enrichment's locked Part-A merge is not clobbered, and the
- *                skipped activity is spilled instead for the enrichment to drain.
- *                Append-only, fail-open.
+ *                (9) appendCaptureGapNoticeToContextMd appends to THIS SESSION'S
+ *                shard; any fs error is swallowed independently. The
+ *                .capture-gap-last-sweep cursor update is also best-effort and
+ *                never blocks exit.
+ *                (10) RETIRED - appendSpilloverRecord no longer exists. Spillover
+ *                was a consequence of the lock-gated skip in path 1; under the
+ *                shard model no write is ever skipped, so nothing is deferred.
+ *                `/ds-wrap` Part A still DRAINS a pre-existing
+ *                .agentic/wrap/deferred-activity.jsonl - the drain is unchanged;
+ *                only the producer is gone.
  *                (11) wrapMarker.touchHeartbeat writes/utimes
  *                .agentic/wrap/heartbeats/<session_id> once per turn (per-session
- *                liveness mtime); no-op under the AGENTIC_WRAP_DAEMON loop-guard;
- *                any fs error swallowed independently of all other paths.
+ *                liveness mtime). UNGATED from deferred_wrap_daemon (DS-106):
+ *                that toggle defaults to false, so previously NO heartbeat was
+ *                written for ANY session and the lock-liveness signal that
+ *                wrapLockAbandoned's Arm A depends on could never exist. Still a
+ *                no-op under the AGENTIC_WRAP_DAEMON loop-guard; any fs error
+ *                swallowed independently of all other paths.
  *                Marker staging (stageWrapPending -> wrap-marker lib) shares this
  *                fail-open discipline and is never counted as blocking exit.
  *                (12) runSkillCandidateScan writes .agentic/.skill-candidate-tally.json,
@@ -183,7 +193,7 @@
  *                Health-flush observability layer: recordHealth(target, success,
  *                errMsg) is called at success and catch sites for each of the
  *                twelve paths (excludes: marker unlink, JSON-line-skip catches,
- *                git-subprocess catches, appendSpilloverRecord, and the one-time
+ *                git-subprocess catches, and the one-time
  *                sentinel wx writes at ~1271/1367 where EEXIST is the expected
  *                normal path - not a failure). flushHealth(cwd) atomically
  *                merges accumulated counts into .agentic/.telemetry-health.json;
@@ -197,10 +207,28 @@
  *                traversal components are rejected for the loop-state and
  *                batch-state writes (defence in depth).
  *
- *                Lock-aware interactions: wrapLockHeld(cwd) (a single fail-open
- *                fs.existsSync on .agentic/wrap/lock, a DIRECTORY created by
- *                /ds-wrap) gates path 1; it is re-checked immediately before each
- *                context.md writeFileSync to minimize TOCTOU. stageWrapPending
+ *                SHARD MODEL (DS-106/DS-107) - THE CONTEXT.MD WRITE IS NO LONGER
+ *                LOCK-GATED, AND THAT IS THE FIX. This hook previously consulted
+ *                wrapLockHeld(cwd) before writing context.md and SKIPPED the
+ *                write when a /ds-wrap held .agentic/wrap/lock. Three defects
+ *                compounded there: (D1) a role:'agent' lock carries pid:null, so
+ *                its verdict is 'live' forever and nothing on the default config
+ *                could clear it - one was measured held 10.3 h by a dead pid;
+ *                (D2) both Stop-hook writers CHECKED the lock and NEITHER
+ *                acquired it, so it provided zero mutual exclusion between the
+ *                writers it appeared to protect; (D3) the capture-gap append
+ *                ignored the lock entirely and wrote through it. Measured result:
+ *                49 context.md writes across 6 sessions silently discarded over
+ *                ~12 hours, from the file every session reads FIRST.
+ *                Now: each writer writes .agentic/context.d/<session_id>.md (a
+ *                SESSION-PRIVATE target, so concurrent writers cannot collide),
+ *                then regenerates .agentic/context.md as a PURE FUNCTION of
+ *                (_wrap.md, shard set). Because the rollup is derivable, a lost
+ *                update SELF-HEALS next turn instead of losing data - which is
+ *                what licenses writing it without a lock, and what lets the
+ *                stuck-lock banner reach the operator through the very lock it
+ *                reports. Do not reintroduce a lock check on that write path.
+ *                stageWrapPending
  *                (delegated to wrap-marker lib stagePending) stages a per-session
  *                .agentic/wrap/pending-<session_id>.json marker (schema_version 3,
  *                atomic tmp+rename, NORMATIVE schema in content/commands/ds-wrap.md)
@@ -226,24 +254,24 @@
 /**
  * Claude Code Stop Hook — Session Context Writer
  *
- * Reads the Stop hook JSON payload from stdin and writes a minimal context.md
- * file to ~/.claude/projects/[hash]/ so that the next session's Workers have
- * lightweight context about what was happening.
+ * Reads the Stop hook JSON payload from stdin and writes this session's activity
+ * shard, then regenerates the derived [cwd]/.agentic/context.md rollup, so that
+ * the next session's Workers have lightweight context about what was happening.
  *
  * Design goals:
  *  - Silent failure: any error exits 0, nothing written to stderr
  *  - No external dependencies: only Node built-ins
  *  - Fast: no LLM call, pure text extraction
- *  - /ds-wrap coexistence: if context.md was written by /ds-wrap (detected by
- *    "# Session Context\n*Written by /ds-wrap" at the file start), the Stop hook
- *    appends a "Session Activity" block rather than overwriting. Any previous
- *    activity block is replaced, not accumulated - most recent session only.
- *    /ds-wrap content is preserved indefinitely; only another /ds-wrap run replaces
- *    the whole file. The Stop hook is the fallback for sessions where /ds-wrap
- *    was never run.
+ *  - /ds-wrap coexistence, partitioned at the `## Session Activity` sentinel:
+ *    `.agentic/_wrap.md` owns everything up to the sentinel (including
+ *    `## Recent Focus` and its 10-slot rolling label window, whose algorithm is
+ *    unchanged); this hook owns everything from the sentinel onward and
+ *    regenerates it wholesale from the shard set. The old strip-and-append
+ *    "replace mode, most recent session only" semantic is RETIRED - on an
+ *    N-session rollup it destroyed N-1 sessions' activity.
  *
- * Output path: ~/.claude/projects/[hash]/context.md
- *   where hash = cwd with every '/' replaced by '-' (leading '-' is kept)
+ * Output paths: [cwd]/.agentic/context.d/<session_id>.md (written directly) and
+ *   [cwd]/.agentic/context.md (derived; recomposed, never appended to)
  */
 
 'use strict';
@@ -259,6 +287,14 @@ const { execSync } = require('child_process');
 // delegated to this lib so stop-context.js, the SessionEnd hook, and the daemon
 // share one atomic, fail-open implementation.
 const wrapMarker = require('./lib/wrap-marker.js');
+
+// Single source of truth for the per-session SHARD + derived ROLLUP model
+// (hooks/lib/context-rollup.js). EVERY context.md writer in this file now goes
+// through it: each writes its own .agentic/context.d/<session_id>.md and then
+// regenerates .agentic/context.md as a pure function of (_wrap.md, shard set).
+// This is what retires the lock-gated whole-file write - see the LOCK-FREE note
+// on writeContextShardAndRollup below.
+const contextRollup = require('./lib/context-rollup.js');
 
 // Shared capture-gap detector extracted to hooks/lib/capture-gap.js so the
 // Stop-hook backstop below and the in-session PostToolUse(Task) nudge
@@ -690,14 +726,20 @@ function getIdentity(cwd) {
 }
 
 /**
- * Append a one-time identity nudge to .agentic/context.md.
+ * Append a one-time identity nudge to THIS SESSION'S shard, from which the
+ * rollup composer carries it into .agentic/context.md.
  * Silent on any fs error. Idempotent via sentinel at ~/.agentic/.identity-nudged.
  *
+ * Formerly a raw append straight into the shared `.agentic/context.md`, gated on
+ * `!wrapLockHeld(cwd)`. Both halves are gone: the target is now session-private
+ * so there is nothing to serialize against, and deferring the nudge behind a
+ * lock is what let an ORPHANED lock suppress it indefinitely.
+ *
  * @param {string} repoRoot - Verified project directory.
+ * @param {string|null} sessionId - Session uuid from the Stop payload.
  */
-function appendIdentityNudgeToContextMd(repoRoot) {
+function appendIdentityNudgeToContextMd(repoRoot, sessionId) {
   try {
-    const contextPath = path.join(repoRoot, '.agentic', 'context.md');
     const nudge = [
       '',
       '---',
@@ -705,8 +747,8 @@ function appendIdentityNudgeToContextMd(repoRoot) {
       'To enable team telemetry: agentic-identity init <handle>',
       'Sentinel: ~/.agentic/.identity-nudged (delete to re-nudge)',
     ].join('\n') + '\n';
-    fs.appendFileSync(contextPath, nudge, 'utf8');
-    recordHealth('appendIdentityNudgeToContextMd', true, null);
+    const ok = contextRollup.appendToShard(repoRoot, sessionId || NO_SESSION_SHARD, nudge);
+    recordHealth('appendIdentityNudgeToContextMd', ok, null);
   } catch (_) {
     recordHealth('appendIdentityNudgeToContextMd', false, _ && _.message);
     // Silent failure
@@ -972,62 +1014,55 @@ function writePendingBuffer(cwd, sessionId, cachedRaw) {
   }
 }
 
-// OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-// Thin alias: the implementation lives in hooks/lib/wrap-marker.js so the lock
-// gate is shared with the SessionEnd hook and the daemon. Fail-open in the lib.
-function wrapLockHeld(cwd) {
-  return wrapMarker.wrapLockHeld(cwd);
-}
+/**
+ * Deterministic fallback shard key for a payload that carries no `session_id`.
+ * Such a writer has no identity to key on, so it shares ONE slot rather than
+ * losing its turn entirely - strictly better than the whole-file clobber that
+ * preceded this design, and it can never collide with a real session uuid.
+ */
+const NO_SESSION_SHARD = 'no-session-id';
 
 /**
- * Append one spillover record to .agentic/wrap/deferred-activity.jsonl.
- * Called only when wrapLockHeld(cwd) is true and a context.md write was therefore
- * skipped; the background enrichment drains this file into the context.md activity
- * block when it next writes (inside the held Part-A lock). Append-only, fail-open.
+ * Write this turn's activity into THIS SESSION'S shard, then regenerate the
+ * derived `.agentic/context.md` rollup.
+ *
+ * DELIBERATELY LOCK-FREE, and that is the fix - do not reintroduce a lock check
+ * here. The function this replaces consulted `wrapLockHeld(cwd)` twice and, when
+ * the lock was held, SKIPPED the write and spilled a record instead. Three
+ * defects lived in that design:
+ *
+ *   D1 - an abandoned lock was immortal (a role:'agent' descriptor carries
+ *        pid:null, so its verdict was 'live' forever and nothing on the default
+ *        config could clear it). Measured: held 10.3 hours by a dead pid.
+ *   D2 - the lock provided ZERO mutual exclusion between the writers it appeared
+ *        to protect: both Stop-hook writers CHECKED it and NEITHER acquired it,
+ *        so two concurrent hooks both saw it free and both whole-file-wrote.
+ *   D3 - a third writer (the capture-gap append) ignored the lock entirely.
+ *
+ * Net effect, measured live: 49 context.md writes across 6 sessions silently
+ * discarded over ~12 hours, while `.agentic/context.md` is the file every
+ * session reads as its FIRST action - so all six started from stale context and
+ * none of them knew.
+ *
+ * Both halves of the replacement are needed. The shard is SESSION-PRIVATE, so
+ * concurrent writers cannot collide (D2/D3). The rollup is a PURE FUNCTION of
+ * the shard set, so a lost update self-heals on the next turn rather than losing
+ * data - which is what makes writing it without a lock safe, and what lets the
+ * stuck-lock banner reach the operator through the very lock it reports (D1).
+ *
+ * Silent-fail on any fs error, consistent with every other write path here.
  *
  * @param {string} cwd - Verified project directory.
- * @param {object} record - Spillover record (NORMATIVE schema in wrap.md).
+ * @param {string|null} sessionId - Session uuid from the Stop payload.
+ * @param {string} shardBody - This session's activity block.
  */
-function appendSpilloverRecord(cwd, record) {
+function writeContextShardAndRollup(cwd, sessionId, shardBody) {
   try {
-    const spilloverPath = wrapMarker.stopDeferredActivityPath(cwd);
-    fs.mkdirSync(path.dirname(spilloverPath), { recursive: true });
-    fs.appendFileSync(spilloverPath, JSON.stringify(record) + '\n', 'utf8');
-  } catch (_) {
-    // Silent failure - spillover is best-effort; a missed record is tolerated.
-  }
-}
-
-/**
- * Write context.md, OR spill the activity when a /ds-wrap holds the lock.
- * Lock-aware: if wrapLockHeld(cwd) is true, the context.md write is skipped and
- * one spillover record is appended instead (so the enrichment's locked Part-A
- * merge is not clobbered). The lock is re-checked immediately before the
- * writeFileSync to minimize the TOCTOU window. Silent-fail on any fs error.
- * Shared by both context.md write paths (the /wrap-coexistence append and the
- * normal write) so the lock-gate logic lives in exactly one place.
- *
- * @param {string} cwd - Verified project directory.
- * @param {string} outputPath - Absolute path to context.md.
- * @param {string} projectDir - Absolute path to the .agentic/ directory.
- * @param {string} body - The full context.md content to write.
- * @param {object} spilloverRecord - Record to spill when the lock is held.
- */
-function writeContextMdOrSpill(cwd, outputPath, projectDir, body, spilloverRecord) {
-  // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-  if (wrapLockHeld(cwd)) {
-    appendSpilloverRecord(cwd, spilloverRecord);
-    return;
-  }
-  try {
-    fs.mkdirSync(projectDir, { recursive: true });
-    // Re-check immediately before the write to minimize the TOCTOU window.
-    if (wrapLockHeld(cwd)) {
-      appendSpilloverRecord(cwd, spilloverRecord);
-    } else {
-      fs.writeFileSync(outputPath, body, 'utf8');
-      recordHealth('writeContextMd', true, null);
-    }
+    const key = sessionId || NO_SESSION_SHARD;
+    const wrote = contextRollup.writeShard(cwd, key, shardBody);
+    recordHealth('writeContextShard', wrote, null);
+    const res = contextRollup.regenerateRollup(cwd);
+    recordHealth('writeContextMd', res.written, null);
   } catch (_) {
     recordHealth('writeContextMd', false, _ && _.message);
     // Silent failure
@@ -1061,10 +1096,18 @@ function stageWrapPending(cwd, sessionId, scan) {
 // below - the sole writer of the .capture-gap-last-sweep cursor - stays here.
 
 /**
- * Append a capture-gap nudge to .agentic/context.md. Sentinel-gated per session
- * via .agentic/.capture-gap-last-sweep (ISO8601 UTC; absent = cold start). The
+ * Append a capture-gap nudge to THIS SESSION'S shard, from which the rollup
+ * composer carries it into .agentic/context.md. Sentinel-gated per session via
+ * .agentic/.capture-gap-last-sweep (ISO8601 UTC; absent = cold start). The
  * cursor is updated atomically (tmp+rename) after a successful append so the same
  * session does not nag twice. Silent failure on any fs error.
+ *
+ * THIS WRITER IS D3. It was a raw `fs.appendFileSync` straight into the shared
+ * `.agentic/context.md` with NO lock check at all - so while the wrap lock was
+ * suppressing every other writer, this one wrote THROUGH it. (The live orphaned
+ * checkout's context.md ended with a CAPTURE-GAP block for exactly that reason.)
+ * Retargeting it at a session-private shard makes the ungated append harmless
+ * rather than adding a fourth gate that the next writer would forget.
  *
  * When residualOnly === true the nudge text emphasises that a guardrail was added
  * but is not domain-proximate, so only the residual WHY / dead-end reasoning needs
@@ -1073,10 +1116,10 @@ function stageWrapPending(cwd, sessionId, scan) {
  * @param {string} cwd - Verified project root.
  * @param {boolean} residualOnly - True when a guardrail was added but none were
  *   domain-proximate with the learning-worthy event.
+ * @param {string|null} sessionId - Session uuid from the Stop payload.
  */
-function appendCaptureGapNoticeToContextMd(cwd, residualOnly) {
+function appendCaptureGapNoticeToContextMd(cwd, residualOnly, sessionId) {
   try {
-    const contextPath = path.join(cwd, '.agentic', 'context.md');
     const cursorPath = path.join(cwd, '.agentic', '.capture-gap-last-sweep');
 
     let nudgeText;
@@ -1101,8 +1144,8 @@ function appendCaptureGapNoticeToContextMd(cwd, residualOnly) {
       ].join('\n') + '\n';
     }
 
-    fs.appendFileSync(contextPath, nudgeText, 'utf8');
-    recordHealth('appendCaptureGapNoticeToContextMd-context', true, null);
+    const ok = contextRollup.appendToShard(cwd, sessionId || NO_SESSION_SHARD, nudgeText);
+    recordHealth('appendCaptureGapNoticeToContextMd-context', ok, null);
 
     // Update pagination cursor atomically so the same session doesn't fire twice.
     // Note: the inner catch uses _cursorErr to avoid shadowing the outer _ at the
@@ -1170,22 +1213,33 @@ async function run() {
   }
 
   // --- 3b. Touch this session's heartbeat (per-turn liveness signal) ---
-  // Pure wastefulness defense: the daemon defers claiming a `ready` marker whose
-  // session still emits turns. Local fs only (no git/network); no-op under the
-  // loop-guard; fail-open. Never blocks exit.
+  // Two consumers, only one of which is daemon-scoped:
+  //   (1) the daemon defers claiming a `ready` marker whose session still emits
+  //       turns (pure wastefulness defense);
+  //   (2) wrapLockAbandoned's Arm A uses it as THE liveness signal for a
+  //       role:'agent' lock, which carries pid:null and therefore has no process
+  //       to check.
+  // UNGATED from `deferredDaemonEnabled(cwd)` deliberately (DS-106). That gate
+  // returns true only when `deferred_wrap_daemon === true`, and the default is
+  // false - so on a default install NO heartbeat was ever written for ANY
+  // session, and any heartbeat-based liveness check would have been permanently
+  // inert. (The live orphaned checkout's heartbeats/ directory was empty by
+  // CONSTRUCTION, not because sessions had stopped.) The inner guard inside
+  // touchHeartbeat is preserved - it serves a different purpose (the daemon
+  // loop-guard). Local fs only (no git/network); fail-open; never blocks exit.
   // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-  if (sessionId && deferredDaemonEnabled(cwd)) wrapMarker.touchHeartbeat(cwd, sessionId);
+  if (sessionId) wrapMarker.touchHeartbeat(cwd, sessionId);
 
   const transcript = Array.isArray(payload.transcript) ? payload.transcript : [];
 
-  // --- 4. Compute output path ---
-  // Write context.md to the project's .agentic/ directory. Claude Code treats
-  // any .claude/ directory (project-local OR global) as a sensitive file
-  // location, so writing there still triggers the permission prompt even when
-  // allow rules are set. .agentic/ is the same convention already used for
-  // loop-state.json and is not subject to that check.
-  const projectDir = path.join(cwd, '.agentic');
-  const outputPath = path.join(projectDir, 'context.md');
+  // --- 4. Output paths ---
+  // Both live under the project's .agentic/ directory. Claude Code treats any
+  // .claude/ directory (project-local OR global) as a sensitive file location,
+  // so writing there still triggers the permission prompt even when allow rules
+  // are set; .agentic/ is the same convention loop-state.json already uses and
+  // is not subject to that check. The paths themselves are derived inside
+  // hooks/lib/context-rollup.js (shardPath / rollupPath) so exactly one module
+  // knows the layout.
 
   // --- 5. Extract recent user messages (last 3, truncated to ~150 chars) ---
   const userMessages = [];
@@ -1310,179 +1364,64 @@ async function run() {
     ? uncommittedFilesLimited.map(({ statusCode, filePath }) => `- ${statusCode} ${filePath}`).join('\n')
     : '(working tree clean)';
 
-  // --- 8b. Deferred-wrap inputs (lock-aware skip + marker staging) ---
+  // --- 8b. Deferred-wrap marker-staging inputs ---
   // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-  // The spillover record (NORMATIVE schema in content/commands/ds-wrap.md) is built
-  // from the already-computed scan vars - no new git/subprocess calls. It is
-  // appended only when wrapLockHeld(cwd) is true and the context.md write is
-  // therefore skipped. spilloverScan carries the substantive-activity counts the
-  // marker-staging predicate needs.
-  const pathsReferencedArr = [...filePaths].sort();
-  const uncommittedArr = uncommittedFilesLimited.map(
-    ({ statusCode, filePath }) => `${statusCode} ${filePath}`
-  );
-  const spilloverRecord = {
-    schema_version: 1,
-    ts: new Date().toISOString(),
-    session_id: sessionId,
-    recent_focus: recentUserMessages,
-    paths_referenced: pathsReferencedArr,
-    uncommitted: uncommittedArr,
-    tools_used: uniqueTools,
-  };
+  // NO SPILLOVER RECORD IS PRODUCED ANY MORE. Spillover existed solely because a
+  // held wrap lock SKIPPED the context.md write; under the shard model the write
+  // is never skipped, so there is nothing to defer. `/ds-wrap` Part A still
+  // DRAINS a pre-existing `.agentic/wrap/deferred-activity.jsonl` (the 49
+  // preserved records from the live incident drain normally) - the drain step is
+  // deliberately unchanged; only the producer is retired.
   const spilloverScan = {
     uncommittedCount: uncommittedFiles.length,
     pathsReferencedCount: filePaths.size,
     recentFocusCount: recentUserMessages.length,
   };
 
-  const content = `# Session Context
-*Auto-updated by Stop hook — ${dateStr}. Overwritten each turn. Not committed to git.*
-*Project: ${cwd}*
+  // THIS SESSION'S SHARD BODY. The composer wraps it in a `### Session <id>`
+  // heading inside the derived activity region, so it carries no file header and
+  // - critically - NO `## Recent Focus` heading. That heading names CURATED
+  // content owned by `_wrap.md` and its 10-slot rolling label window; a derived,
+  // idempotently regenerated file cannot own it without destroying either the
+  // curation or the idempotence that licenses lock-freedom.
+  const shardBody = `*Auto-updated by Stop hook — ${dateStr}.*
 
-## Recent Focus
+#### Recent Messages
 ${recentFocusLines}
 
-## Paths Referenced
+#### Paths Referenced
 ${pathsReferencedLines}
 
-## Uncommitted Changes
+#### Uncommitted Changes
 ${uncommittedChangesLines}
 
-## Tools Used
+#### Tools Used
 ${toolsLine}
 `;
 
-  // --- 9. Append/replace session activity on /wrap-authored files ---
-  // If existing context.md was written by /ds-wrap (detected by exact two-line
-  // startsWith to avoid false matches from user messages in ## Recent Focus),
-  // append a "Session Activity" block rather than overwriting. Any previous
-  // activity block is stripped first (replace mode — most recent session only,
-  // not accumulated). /ds-wrap content is preserved; only another /ds-wrap run
-  // replaces the whole file. The Stop hook is the fallback for sessions where
-  // /ds-wrap was never run.
-  try {
-    const existing = fs.readFileSync(outputPath, 'utf8');
-    if (existing.startsWith('# Session Context\n*Written by /ds-wrap')) {
-      // Strip any previous Session Activity block (sentinel marks its start).
-      const ACTIVITY_SENTINEL = '\n\n---\n\n## Session Activity\n';
-      const sentinelIdx = existing.indexOf(ACTIVITY_SENTINEL);
-      const wrapContent = sentinelIdx >= 0
-        ? existing.slice(0, sentinelIdx)
-        : existing.trimEnd();
+  // --- 9. Section RETIRED: the /ds-wrap strip-and-append coexistence path ---
+  // DELETED, not converted. It read the existing context.md, found the FIRST
+  // `## Session Activity` sentinel, sliced everything after it away, and appended
+  // exactly ONE fresh block - "replace mode, most recent session only, not
+  // accumulated". On a rollup carrying N sessions that destroys N-1 of them,
+  // which is a variant of the very data-loss bug this change fixes.
+  //
+  // Nothing replaces it, because the composer now regenerates the ENTIRE
+  // post-sentinel region from the shard set on every write. "All but one block"
+  // is therefore not a state any writer in this file can produce. The single
+  // write path below serves both the /ds-wrap-authored and the fresh-file cases,
+  // which also collapses the ~110 lines of exit-path logic that used to be
+  // duplicated between the two branches.
 
-      // Build and append the fresh activity block.
-      const activityBlock = `${ACTIVITY_SENTINEL}*Auto-appended by Stop hook — ${dateStr}. Replaced each session.*
-
-### Recent Messages
-${recentFocusLines}
-
-### Paths Referenced
-${pathsReferencedLines}
-
-### Uncommitted Changes
-${uncommittedChangesLines}
-
-### Tools Used
-${toolsLine}
-`;
-      // Lock-aware context.md write: skip + spill while a /ds-wrap holds the lock.
-      writeContextMdOrSpill(cwd, outputPath, projectDir, wrapContent + activityBlock, spilloverRecord);
-      // M1: write loop-state/batch-state on ALL exit paths, including the
-      // wrap-coexistence path. Dispatches to refreshLiveness (--cadence=turn)
-      // or markInterrupted (--cadence=session/absent) per hooks/lib/state-mark.js.
-      stateMarkFn(cwd, sessionId, recordHealth);
-      // Write session_total to events.jsonl on this exit path too.
-      writeSessionTotal(cwd, sessionId, cachedEventsRaw);
-      // Three-branch identity gate (independent of all other paths).
-      try {
-        const identity = getIdentity(cwd);
-        if (identity && !identity.provisional) {
-          // Confirmed identity: per-project write + global mirror
-          writeSessionLog(cwd, identity, sessionId, cachedEventsRaw);
-          // Build shared metadata for global mirror
-          const totals = computeSessionTotals(cwd, sessionId, cachedEventsRaw);
-          const globalData = Object.assign(
-            {
-              wall_seconds: 0,
-              tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-              spawn_count: 0,
-              by_agent: {},
-            },
-            totals,
-            { project_slug: path.basename(cwd), branch: '' }
-          );
-          try {
-            globalData.branch = execSync('git symbolic-ref --short HEAD', {
-              cwd, timeout: 3000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-            }).trim();
-          } catch (_) { /* detached HEAD or non-git dir */ }
-          writeSessionLogGlobal(identity, sessionId, globalData);
-        } else {
-          // Provisional or no identity: pending buffer
-          writePendingBuffer(cwd, sessionId, cachedEventsRaw);
-          // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-          // The identity nudge is a context.md writer; defer it while a /ds-wrap
-          // holds the lock so the locked Part-A merge is not clobbered. The
-          // sentinel is consumed atomically with the nudge, so skipping both
-          // here means the one-time nudge fires on a later unlocked session
-          // rather than being lost.
-          if (!identity && !wrapLockHeld(cwd)) {
-            // No identity at all: also nudge once
-            const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
-            try {
-              fs.mkdirSync(path.join(os.homedir(), '.agentic'), { recursive: true });
-              // NOTE: this wx write is intentionally NOT instrumented by recordHealth -
-              // EEXIST is the expected normal path (sentinel already written), not a failure.
-              fs.writeFileSync(sentinelPath, '', { flag: 'wx' });
-              // Write succeeded - sentinel did not exist, so nudge once
-              appendIdentityNudgeToContextMd(cwd);
-            } catch (_nudgeErr) {
-              // EEXIST means sentinel already written - skip nudge silently
-            }
-          }
-        }
-      } catch (_) {
-        // Silent failure - never block session exit
-      }
-      // Capture-gap backstop on wrap-coexistence exit path.
-      try {
-        const gap = detectCaptureGap(cwd, sessionId, cachedEventsRaw);
-        if (gap.shouldNudge) {
-          appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly);
-        }
-      } catch (_) { /* silent */ }
-      removeLearningsAgentSession(cwd, sessionId);
-      // --- Skill-candidate detection (path 12 - independent soft-fail) ---
-      // Gated on skill_candidate_detection toggle (default true when absent).
-      // runSkillCandidateScan has its own top-level try/catch; this outer
-      // try/catch is an additional belt-and-suspenders layer so no error inside
-      // the detector can ever reach this exit path and block session exit.
-      try {
-        if (skillCandidateDetectionEnabled(cwd)) {
-          const { runSkillCandidateScan } = require('./lib/skill-candidate-detector.js');
-          runSkillCandidateScan(cwd, sessionId).catch(() => { /* soft-fail: async errors swallowed */ });
-        }
-      } catch (_) { /* soft-fail: require or sync setup errors swallowed */ }
-      // Stage the wrap-pending marker (after the context.md decision, on every
-      // exit path). Gated on deferredDaemonEnabled so the flag-off default never
-      // accumulates markers. Fail-open; never blocks exit.
-      // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-      if (deferredDaemonEnabled(cwd)) stageWrapPending(cwd, sessionId, spilloverScan);
-      flushHealth(cwd);
-      process.exit(0);
-    }
-  } catch (_) {
-    // File does not exist or is unreadable - proceed to write normally.
-  }
-
-  // --- 10. Write file (silent failure on any error) ---
-  // Lock-aware context.md write: skip + spill while a /ds-wrap holds the lock.
-  writeContextMdOrSpill(cwd, outputPath, projectDir, content, spilloverRecord);
+  // --- 10. Write this session's shard + regenerate the rollup ---
+  // LOCK-FREE by design; see writeContextShardAndRollup's doc block for why the
+  // lock gate this replaces provided no mutual exclusion and could suppress
+  // every write indefinitely.
+  writeContextShardAndRollup(cwd, sessionId, shardBody);
 
   // --- 11. Refresh liveness or mark loop-state/batch-state interrupted ---
-  // Dispatched by --cadence per hooks/lib/state-mark.js; also called from the
-  // wrap-coexistence path (section 9) so this executes on ALL exit paths.
+  // Dispatched by --cadence per hooks/lib/state-mark.js. There is now exactly
+  // ONE exit path (section 9's duplicate was deleted), so this simply runs.
   stateMarkFn(cwd, sessionId, recordHealth);
 
   // --- 12. Append session_total event to .agentic/events.jsonl if present ---
@@ -1517,11 +1456,12 @@ ${toolsLine}
     } else {
       // Provisional or no identity: pending buffer
       writePendingBuffer(cwd, sessionId, cachedEventsRaw);
-      // OpenCode intentionally omits this lock-gate / heartbeat / staging logic (Claude-only feature; no parity obligation)
-      // Defer the identity nudge (a context.md writer) while a /ds-wrap holds the
-      // lock; the sentinel is consumed atomically with the nudge, so skipping
-      // both defers the one-time nudge to a later unlocked session.
-      if (!identity && !wrapLockHeld(cwd)) {
+      // The `!wrapLockHeld(cwd)` gate that used to guard this nudge is REMOVED.
+      // Its target is now a session-private shard, so there is nothing to
+      // serialize against - and because the sentinel is consumed atomically with
+      // the nudge, deferring behind a lock meant an ORPHANED lock could suppress
+      // this one-time notice for as long as the orphan lived.
+      if (!identity) {
         // No identity at all: also nudge once
         const sentinelPath = path.join(os.homedir(), '.agentic', '.identity-nudged');
         try {
@@ -1530,7 +1470,7 @@ ${toolsLine}
           // EEXIST is the expected normal path (sentinel already written), not a failure.
           fs.writeFileSync(sentinelPath, '', { flag: 'wx' });
           // Sentinel did not exist - nudge once
-          appendIdentityNudgeToContextMd(cwd);
+          appendIdentityNudgeToContextMd(cwd, sessionId);
         } catch (_nudgeErr) {
           // EEXIST: sentinel already written, skip nudge
         }
@@ -1545,13 +1485,24 @@ ${toolsLine}
 
   // --- 15. Capture-gap backstop (path 9 - independent of all other paths) ---
   // Detects learning-worthy sessions with no captured learnings and appends a
-  // nudge to context.md. Silent failure; never blocks exit.
+  // nudge to THIS SESSION'S shard. Silent failure; never blocks exit.
   try {
     const gap = detectCaptureGap(cwd, sessionId, cachedEventsRaw);
     if (gap.shouldNudge) {
-      appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly);
+      appendCaptureGapNoticeToContextMd(cwd, gap.residualOnly, sessionId);
     }
   } catch (_) { /* silent */ }
+
+  // --- 15b. Re-compose the rollup so THIS turn's notices actually surface ---
+  // The identity nudge (13) and capture-gap nudge (15) append to the shard AFTER
+  // section 10 already composed the rollup, so without this second pass a notice
+  // would not reach .agentic/context.md until the NEXT turn - and never at all if
+  // the session ends here, because both notices consume a one-time sentinel as
+  // they fire. The rollup is a pure function of its inputs, so a redundant
+  // regeneration over an unchanged shard set is byte-identical and free.
+  try {
+    contextRollup.regenerateRollup(cwd);
+  } catch (_) { /* silent - section 10's rollup stands */ }
 
   // --- 16b. Skill-candidate detection (path 12 - independent soft-fail) ---
   // Gated on skill_candidate_detection toggle (default true when absent or
