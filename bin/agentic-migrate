@@ -282,24 +282,51 @@ def _stamp_project_version(project_root: Path, version: int) -> None:
         pass
 
 
+# Shard name for scaffolding audit lines. DELIBERATELY NOT a session id: the
+# Stop hook OVERWRITES its own session shard wholesale on every turn, so sharing
+# a name with it would clobber these notices within one turn.
+_NOTICES_SHARD = "scaffolding-notices"
+
+
 def _append_context_line(project_root: Path, line: str) -> None:
-    """Append a one-line audit entry to .agentic/context.md."""
+    """Append a one-line audit entry to this project's scaffolding-notices shard.
+
+    Formerly an ungated ``open(.agentic/context.md, "a")``. That was writer site
+    13 of 13 on a shared file with no mutual exclusion between its writers, and
+    the line it appended was destroyed by the very next Stop turn's whole-file
+    write. `.agentic/context.md` is now a DERIVED rollup recomposed from
+    `.agentic/context.d/*.md`, so appending to it directly is silently discarded;
+    appending to a shard makes the line survive instead.
+
+    Reached from ``_warn_manifest_not_found`` via the activation-preflight
+    scaffolding shell-out - i.e. potentially every activation on every harness -
+    so it must stay fail-open and cheap.
+    """
     try:
-        ctx_path = project_root / ".agentic" / "context.md"
-        ctx_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(ctx_path, "a", encoding="utf-8") as f:
+        shard_path = project_root / ".agentic" / "context.d" / f"{_NOTICES_SHARD}.md"
+        shard_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(shard_path, "a", encoding="utf-8") as f:
             f.write(line + "\n")
     except Exception:
         pass
 
 
 def _warn_manifest_not_found(project_root: Path) -> None:
-    """Append manifest-not-found warning to context.md, gated by per-session sentinel.
+    """Append a manifest-not-found warning to the scaffolding-notices shard,
+    gated by a per-session sentinel.
 
-    The sentinel is per-session: if AGENTIC_SESSION_ID or CLAUDE_SESSION_UUID is
-    set, the sentinel file includes that value so a new session sees a fresh warning.
-    If neither env var is available, falls back to a persistent sentinel (once-ever)
-    and documents that behavior in the warning text.
+    The sentinel is intended to be per-session: if AGENTIC_SESSION_ID or
+    CLAUDE_SESSION_UUID is set, the sentinel filename includes that value so a new
+    session sees a fresh warning; otherwise it falls back to a persistent
+    once-ever sentinel and says so in the warning text.
+
+    KNOWN LATENT BUG, out of scope here and tracked separately: BOTH of those env
+    vars are empty in a live session, so the ``if session_id:`` branch never fires
+    and this is ALWAYS in once-ever mode. The correct variable is
+    CLAUDE_CODE_SESSION_ID (see bin/agentic-wrap-acquire-lock's --session-id).
+    Deliberately NOT fixed in this change: doing so would alter this warning's
+    firing cadence, which is unrelated to the context.md data-loss fix. Recorded
+    here so the next reader does not mistake it for working code.
     """
     try:
         session_id = (

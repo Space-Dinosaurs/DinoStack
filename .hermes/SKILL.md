@@ -712,7 +712,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Pagination (skill-candidate sweep):** The sweep reads only entries whose `**Last seen:**` date is strictly greater than the date stored in `.agentic/.skill-candidates-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), all open un-surfaced entries are candidates. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to `.agentic/.skill-candidates-last-sweep` (atomic: tmp + `mv`). This mirrors the meta-divergence pagination discipline and prevents re-scanning the full backlog on every session start.
 
-**Session context** is auto-written by the Stop hook to `.agentic/context.md` after every agent turn. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
+**Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **Knowledge-file routing (three distinct stores):**
 - `<cwd>/MEMORY.md` - canonical durable facts; committed; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`); written by `/ds-wrap`, wrap-ticket, `/ds-memory-update`.
@@ -769,7 +769,7 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 **Shippable/exempt classifier (4-rule precedence, first match wins):**
 1. `.agentic/**` -> EXEMPT (conductor sole-writer).
 2. begins `docs/planning/` -> EXEMPT (Briefs/Plans/ADRs/planning subdirs). ALL other docs SHIPPABLE, by name: `docs/research/`, `docs/_archive/`, `docs/overview/`, `docs/technical/`, `docs/images/`, `docs/slides/`, file `docs/index.html` (Vercel `outputDirectory: docs`).
-3. conductor-direct PRINT/DECISION/RESOLVER-EXECUTION -> EXEMPT.
+3. conductor-direct PRINT/DECISION/RESOLVER-EXECUTION -> EXEMPT. **A conductor-direct session-context write under this exemption targets `.agentic/_wrap.md`, NEVER `.agentic/context.md`.** `context.md` is a derived rollup recomposed from `_wrap.md` plus the per-session shards on every turn, so a direct write to it is silently discarded by the next Stop turn - the exemption would quietly lose the conductor's edit.
 4. any other tracked-file write -> SHIPPABLE -> delegate to worktree-isolated engineer (Trivial: no Skeptic/no brief; Elevated: full Worker+Skeptic).
 
 **Mechanical backstop (Claude Code, DinoStack checkout only).** A PreToolUse hook (`hooks/enforce-shippable-edit.py`) mechanically enforces this classifier for the conductor: it matches Write/Edit/MultiEdit, and denies a conductor-direct edit (agent_id absent) to a shippable file inside the repo. Exempt: `.agentic/**`, `docs/planning/**`, the instruction-layer basenames `AGENTS.md`/`MEMORY.md`/`CLAUDE.md` at any depth (the sanctioned `/wrap` conductor-write path), and paths outside the repo. Fail-open on any error. Kill-switch: `AE_SHIPPABLE_GUARD_DISABLE=1`. Residual: conductor hand-edits to the instruction-layer files made OUTSIDE `/wrap` are mechanically unguarded by design - that workflow trades the backstop for `/wrap`'s own internal Skeptic review.
@@ -899,7 +899,7 @@ Performance: Standard (single file write + optional binary shell-out).
 
    a. Invoke `agentic-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
    b. If status is "ok" (project version >= manifest version): no-op.
-   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends one-line audit to `.agentic/context.md`. The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/ds-migrate-project --include-destructive` only).
+   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends a one-line audit entry to the `.agentic/context.d/scaffolding-notices.md` shard (NOT to `.agentic/context.md`, which is a derived rollup that would discard the entry on the next Stop turn). The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/ds-migrate-project --include-destructive` only).
    d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/ds-migrate-project --include-destructive`.
 
 ---
@@ -927,7 +927,7 @@ Performance: Standard (single file write + optional binary shell-out).
 | `qa-engineer` | Post-Skeptic browser verification. Spawns after Skeptic sign-off when the diff matches QA trigger patterns in `.agentic/qa.md` (resolved via resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). Verifies changes in a real browser, returns structured pass/fail report. Appends learned quirks to the resolved qa.md's Knowledge section. | No (appends to qa.md only) |
 | `learning-extractor` | Per-ticket learning extraction. Mechanically wired to `/ds-implement-ticket` Phase 6 clean exit - fires automatically after every ticketed Skeptic loop completion. Reads the resolved `findings_log`, extracts durable fix-pattern learnings, appends to `.agentic/learnings.md`. The conductor does NOT spawn this manually. | Yes (learnings.md) |
 | `learnings-agent` | Session-scoped background learnings capture. Conductor-discretionary - spawned ad-hoc on the first learning-worthy event in a session; no automatic phase trigger. Receives events in real-time, writes structured entries to .agentic/learnings.md and project MEMORY.md. | Yes (learnings.md, MEMORY.md) |
-| `wrap-ticket` | Per-ticket learnings capture at `/ds-implement-ticket` Phase 11b. Constrained automated subset of `/ds-wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/context.md Recent Focus only) |
+| `wrap-ticket` | Per-ticket learnings capture at `/ds-implement-ticket` Phase 11b. Constrained automated subset of `/ds-wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/_wrap.md Recent Focus only - never .agentic/context.md, which is a derived rollup) |
 | `goal-condition-evaluator` | Cheap per-turn stop-condition check for open-goal loops. Mechanically fired strictly after a clean Skeptic sign-off on an Elevated iteration to evaluate the operator-declared `goal_condition` and return continue-vs-stop; never substitutes for the Skeptic. Tier 1 (haiku) leaf agent. Wired at `content/commands/ds-implement-ticket.md` Phase 6 "Open-goal condition check" for `goal_mode=open_goal` invocations, scoped to elevated-risk iterations with a clean Skeptic sign-off (see `content/references/trigger-catalog.md` §Risk and review discipline (e)). Newly wired as of DS-75 - low field mileage. | No |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
 
@@ -1618,9 +1618,28 @@ When investigation spans multiple independent surfaces (e.g., backend data layer
 
 ## wrap-ticket writer carve-out
 
-wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/_wrap.md` (append-merge under `## Recent Focus` only - **not** `.agentic/context.md`, which is now a derived rollup that would discard the write on the next turn; see the writer contract below). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
 
-**`.agentic/context.md` lock-aware auto-writers (deferred-wrap feature).** Under the deferred / background `/ds-wrap` feature there are **two** lock-aware `context.md` auto-writers, not one: the Node Stop hook (`hooks/stop-context.js`) on Claude Code and the OpenCode plugin (`.opencode/plugins/session-context.ts`). Both check `.agentic/wrap/lock` before writing `context.md`; while the lock is held they **skip** their `context.md` write and append a spillover record to `.agentic/wrap/deferred-activity.jsonl`, which the per-project deferred-wrap daemon drains into the activity block when it runs `/ds-wrap-deferred` and performs its own `context.md` write. Neither hook is "the one/only unlocked `context.md` writer" any longer - both serialize against the daemon's `/ds-wrap-deferred` (and a manual `/ds-wrap`) via `wrap/lock`. The daemon's headless `/ds-wrap-deferred` likewise serializes its own `context.md` write via `.agentic/wrap/lock`, holding the lock only around the narrow Part-A read-merge-write window (not the whole flow); correctness otherwise rests on idempotency (the Part A merge dedups). The daemon is launched by the SessionStart hook (see the daemon `hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/ds-wrap-deferred`, which is the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/ds-wrap-deferred.md`.
+**`.agentic/context.md` writer contract: a DERIVED rollup, deliberately lock-free.**
+
+`.agentic/context.md` is not a file anyone writes directly. It is recomposed on every turn as a pure function of two inputs:
+
+- **`.agentic/_wrap.md`** - the CURATED region: everything up to the `## Session Activity` sentinel, including `## Recent Focus` and its 10-slot rolling session-label window. Owned by `/ds-wrap` Part A, `/ds-wrap-deferred`, `wrap-ticket`, and a conductor-direct context write. The rolling-window algorithm in `content/references/wrap-context-format.md` is unchanged; only the path it reads and writes moved.
+- **`.agentic/context.d/<session_id>.md`** - one per-session activity SHARD: everything from the sentinel onward, regenerated wholesale. Written by the Claude Stop hook (`hooks/stop-context.js`), the OpenCode plugin (`.opencode/plugins/session-context.ts`), and `bin/agentic-migrate`.
+
+**The read contract is unchanged:** every session still reads `.agentic/context.md` as its first action.
+
+**What this replaces, and why it is stated at length.** The previous version of this paragraph asserted that there were "two lock-aware `context.md` auto-writers" which "both check `.agentic/wrap/lock` before writing" and therefore "both serialize against the daemon". Three of those claims were false:
+
+1. There were **13 writer sites across 9 files**, not two.
+2. The OpenCode plugin checked nothing - grepping `wrap/lock|wrapLock|lockHeld|deferred-activity|spill` in it returned **zero** matches, and it had two unconditional whole-file writers.
+3. Checking a lock without ACQUIRING it provides **no mutual exclusion between the checkers**. Both Stop-hook writers checked and neither acquired, so two concurrent hooks both saw it free and both whole-file-wrote.
+
+Compounding that, a `role:'agent'` lock carries `pid: null` by construction, so its liveness verdict is `live` forever and, on the default config (`deferred_wrap_daemon: false`), no code path could ever clear it. Measured live in this repo: a lock held **10.3 hours** by a dead pid, during which **49 `context.md` writes across 6 sessions were silently discarded** - from the file every session reads first, so all six started from stale context and none of them knew.
+
+**The fix and its invariants.** Writers write session-private shards, so they cannot collide. The rollup is derivable, so a lost update SELF-HEALS on the next turn instead of losing data - which is what makes the rollup write safe WITHOUT a lock, and what lets a `WRAP-LOCK-STUCK` banner reach the operator through the very lock it is reporting. Do not add a lock check to the rollup write; doing so restores all three defects in one edit. The lock now guards exactly one thing: `/ds-wrap`'s genuine read-modify-write of `_wrap.md`. It also carries a `session_id` and is cleared by `agentic-wrap-acquire-lock` once provably abandoned, so it can no longer be immortal.
+
+`.agentic/wrap/deferred-activity.jsonl` is **no longer produced** - spillover existed only because a held lock skipped the write. `/ds-wrap` Part A still DRAINS a pre-existing file (the drain step is unchanged), so records preserved from before this change are not orphaned. The daemon is launched by the SessionStart hook (`hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/ds-wrap-deferred`, the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/ds-wrap-deferred.md`.
 
 The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learnings-agent, append-with-dedup) and `/ds-wrap`'s own paths is unchanged by the deferred-wrap feature: root `MEMORY.md` is not a `/ds-wrap` target and is not added to the `wrap/lock` scope.
 
@@ -2833,7 +2852,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 
 **PII boundary:** Only the fields above are written. Excluded: prompt content, file paths, tool I/O, user messages, finding text, task descriptions, commit messages, environment variable values.
 
-**No identity:** The session-log write is skipped only when the 4-tier resolution yields no effective identity - i.e. neither the project-local `<repo>/.agentic/identity.yml` nor the global `~/.agentic/identity.yml` resolves a usable handle (both absent, or only provisional handles present such that telemetry is buffered rather than written directly). A developer whose identity is confirmed at any tier (project-confirmed or global-confirmed) receives a normal session-log write; a developer with only provisional identities has telemetry buffered to `~/.agentic/session-log/.pending/` until `agentic-identity confirm` is run. When no tier resolves at all, the Stop hook appends a one-time nudge to `.agentic/context.md` directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
+**No identity:** The session-log write is skipped only when the 4-tier resolution yields no effective identity - i.e. neither the project-local `<repo>/.agentic/identity.yml` nor the global `~/.agentic/identity.yml` resolves a usable handle (both absent, or only provisional handles present such that telemetry is buffered rather than written directly). A developer whose identity is confirmed at any tier (project-confirmed or global-confirmed) receives a normal session-log write; a developer with only provisional identities has telemetry buffered to `~/.agentic/session-log/.pending/` until `agentic-identity confirm` is run. When no tier resolves at all, the Stop hook appends a one-time nudge to this session's `.agentic/context.d/<session_id>.md` shard - from which the derived `.agentic/context.md` rollup carries it - directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
 
 **Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files on the local checkout and renders a per-developer rollup table sorted by total tokens. Because session-logs are committed via Phase 8 telemetry commits, the rollup reflects sessions from all developers whose telemetry has landed on the branch via pull after merge - enabling cross-developer team visibility without a separate aggregation service.
 
@@ -5967,11 +5986,30 @@ This is a fallback only. Worktree isolation is the primary mechanism; the stash 
 
 ### wrap-context-format
 
-# Wrap context.md Format (shared normative reference)
+# Wrap curated-context Format (shared normative reference)
 
-> Consumers: `content/commands/ds-wrap.md` (Part A) and `content/commands/ds-wrap-deferred.md`. Both CITE this file for the pinned header prefix, the `context.md` rolling-session-label merge algorithm, the `.agentic/wrap/last-wrap` write contract, and the spillover-drain procedure. This is the single normative home for those four contracts so that the interactive `/ds-wrap` and the non-interactive `/ds-wrap-deferred` write byte-identical `context.md` output. Edit the algorithm here, not in either consumer.
+> Consumers: `content/commands/ds-wrap.md` (Part A) and `content/commands/ds-wrap-deferred.md`. Both CITE this file for the pinned header prefix, the rolling-session-label merge algorithm, the `.agentic/wrap/last-wrap` write contract, and the spillover-drain procedure. This is the single normative home for those four contracts so that the interactive `/ds-wrap` and the non-interactive `/ds-wrap-deferred` write byte-identical output. Edit the algorithm here, not in either consumer.
 
-This is a prose reference. It restates - verbatim - the shared `context.md` formatting contract that previously lived inline in `content/commands/ds-wrap.md` Part A. The extraction is behavior-preserving: a golden-file byte-identity test pins `/ds-wrap` Part A output across the extraction.
+This is a prose reference. It restates - verbatim - the shared formatting contract that previously lived inline in `content/commands/ds-wrap.md` Part A. The extraction is behavior-preserving: a golden-file byte-identity test pins `/ds-wrap` Part A output across the extraction.
+
+## Output path: `.agentic/_wrap.md`, and the sentinel partition (NORMATIVE)
+
+**The merge algorithm below is UNCHANGED. Only the file it reads and writes moved**, from `.agentic/context.md` to `.agentic/_wrap.md`. This is a path retarget, not a rewrite: `/ds-wrap`, `/ds-wrap-deferred`, and `wrap-ticket` all execute the identical normative algorithm on the new path.
+
+`.agentic/context.md` is now a **derived rollup**, partitioned at the `\n\n---\n\n## Session Activity\n` sentinel:
+
+| Region | Owner | Written by |
+|---|---|---|
+| Everything UP TO the sentinel (the header, `## Recent Focus` and its 10-slot rolling label window, `## Watch Out For`, and every other curated section) | `.agentic/_wrap.md` | `/ds-wrap` Part A, `/ds-wrap-deferred`, `wrap-ticket`, a conductor-direct context write |
+| Everything FROM the sentinel onward (the activity region) | per-session shards in `.agentic/context.d/` | the Claude Stop hook, the OpenCode plugin, `bin/agentic-migrate` |
+
+The two regions carry two DIFFERENT accumulation windows, and that is the accepted cost of the partition: 10 curated session labels before the sentinel, up to 10 session shards after it. They are disjoint. **A derived region must never own curated content** - the rollup is regenerated idempotently on every turn, and a derived file cannot hold curated narrative without destroying either the curation or the idempotence that licenses writing it without a lock.
+
+**Do not write `.agentic/context.md` from any `/ds-wrap` path.** The next Stop turn recomposes it from `_wrap.md` plus the shard set, so a direct write is silently discarded. Write `_wrap.md`.
+
+**Migration is automatic and one-time.** The first rollup regeneration in a project where `_wrap.md` does not yet exist seeds it from any pre-existing `context.md` whose second line matches the pinned prefix below, keeping **lines 1-2 byte-exact** - because step 3 of the merge algorithm overwrites any file whose second line does not begin `*Written by /ds-wrap`, a seed that altered those two lines would be discarded by the very next `/ds-wrap` and the 10-slot window would be lost. A `context.md` that is NOT `/ds-wrap`-authored is preserved as `.agentic/_foreign.md` and never seeds the curated file. Machine-derived blocks (activity regions, capture-gap and identity nudges) are stripped from the seed; content that merely QUOTES the sentinel is preserved verbatim.
+
+The end-to-end rationale - 13 writer sites, no mutual exclusion between them, and an immortal lock that silently discarded 49 writes across 6 sessions in 10.3 hours - lives in `content/references/conductor-operating-rules.md` under "`.agentic/context.md` writer contract".
 
 ## Pinned header prefix (NORMATIVE)
 
@@ -5979,15 +6017,15 @@ Exactly one byte-exact prefix is the contract between writer and matcher:
 
     # Session Context\n*Written by /ds-wrap
 
-This is what the `/ds-wrap`-coexistence `existing.startsWith('# Session Context\n*Written by /ds-wrap')` check in `hooks/stop-context.js` (the "Append/replace session activity on /wrap-authored files" step) and the equivalent `startsWith` check in `.opencode/plugins/session-context.ts` test, and what every `/ds-wrap` Output-1 / merge write must emit as its first two lines. (Referenced by behavior, not line number, so the citation does not rot as those files change.) The on-disk header date is a UTC calendar date (`date -u +%Y-%m-%d`); the header STRING does NOT contain the "UTC" literal - it stays `*Written by /ds-wrap on YYYY-MM-DD. ...` exactly as the Output-1 template reads. The matcher only tests the pinned prefix (which stops before the date), so the date format and the absence of the "UTC" literal are both compatible. The Part A merge rule (the "(merged context)" header rewrite) appends after the date and is outside the pinned prefix - it stays. The rolling-session-label merge (below) is preserved unchanged.
+This is what the **second-line** discriminator tests - in step 3 of the merge algorithm below, and in the one-time migration that seeds `_wrap.md` from a pre-existing `context.md` (`hooks/lib/context-rollup.js` `isWrapAuthored`, and the equivalent check in `.opencode/plugins/session-context.ts`) - and what every `/ds-wrap` Output-1 / merge write must emit as its first two lines. (The former `existing.startsWith(...)` checks in `hooks/stop-context.js` and the OpenCode plugin, which selected a strip-and-append branch, are RETIRED along with that branch; the prefix contract itself is unchanged and is now load-bearing for migration instead.) (Referenced by behavior, not line number, so the citation does not rot as those files change.) The on-disk header date is a UTC calendar date (`date -u +%Y-%m-%d`); the header STRING does NOT contain the "UTC" literal - it stays `*Written by /ds-wrap on YYYY-MM-DD. ...` exactly as the Output-1 template reads. The matcher only tests the pinned prefix (which stops before the date), so the date format and the absence of the "UTC" literal are both compatible. The Part A merge rule (the "(merged context)" header rewrite) appends after the date and is outside the pinned prefix - it stays. The rolling-session-label merge (below) is preserved unchanged.
 
 "Second line" means the literal second line of the file. A `/ds-wrap`-produced file always starts with `# Session Context` on line 1 and `*Written by /ds-wrap on ...` on line 2.
 
 ## `.agentic/wrap/last-wrap` write contract (NORMATIVE)
 
-A single line containing the `session_id` of the session whose `/ds-wrap` (sync, background enrichment, or `/ds-wrap-deferred`) last successfully wrote `context.md`. Atomic write (tmp + rename). This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during marker-staging would suppress that very session's own recovery marker). Note: a same-session `done` tombstone stamped `wrapped_at` ALSO suppresses `stagePending` (covering the case where `last-wrap` has rolled to a different session), so `last-wrap` is not the sole staging-suppression mechanism - the retained tombstone is the durable backstop when `last-wrap` no longer names this session.
+A single line containing the `session_id` of the session whose `/ds-wrap` (sync, background enrichment, or `/ds-wrap-deferred`) last successfully wrote `_wrap.md`. Atomic write (tmp + rename). This sentinel fully replaces any header-date parsing - no site parses the `_wrap.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `_wrap.md` write - never staged early (writing it during marker-staging would suppress that very session's own recovery marker). Note: a same-session `done` tombstone stamped `wrapped_at` ALSO suppresses `stagePending` (covering the case where `last-wrap` has rolled to a different session), so `last-wrap` is not the sole staging-suppression mechanism - the retained tombstone is the durable backstop when `last-wrap` no longer names this session.
 
-The `last-wrap` write is performed inside the same narrow lock window as the `context.md` write: it is the last write before the lock is released (after the merged `context.md` write, before lock release). The interactive `/ds-wrap` releases the lock itself (via the `agentic-wrap-release-lock` helper); on the headless `/ds-wrap-deferred` path the lock is cleared out-of-band by the daemon's stale-lock backstop, since that child has no Bash — so `last-wrap` is the child's last write.
+The `last-wrap` write is performed inside the same narrow lock window as the `_wrap.md` write: it is the last write before the lock is released (after the merged `_wrap.md` write, before lock release). The interactive `/ds-wrap` releases the lock itself (via the `agentic-wrap-release-lock` helper); on the headless `/ds-wrap-deferred` path the lock is cleared out-of-band by the daemon's stale-lock backstop, since that child has no Bash — so `last-wrap` is the child's last write.
 
 <!-- ACCEPTED cross-version window: during an in-place upgrade where old-code sessions use .agentic/wrap.lock and new-code sessions use .agentic/wrap/lock, two sessions may hold different lock paths concurrently. This race is bounded to a transient recency-label discrepancy in context.md (a convenience label, not committed work). It self-heals on the next clean SessionStart. No lost-update of committed work occurs; the window is accepted and documented. -->
 
@@ -5996,20 +6034,20 @@ The `last-wrap` write is performed inside the same narrow lock window as the `co
 Run this as the first action inside the locked Part A window, before the rolling-session-label merge. The three steps; rename-first prevents loss of a record a hook appended just before the lock was observed:
 
 1. `rename(.agentic/wrap/deferred-activity.jsonl -> .agentic/wrap/deferred-activity.jsonl.draining.<pid>)`. Atomic. Any hook append after this rename creates a fresh `deferred-activity.jsonl` belonging to the next drain - not lost.
-2. Read the renamed copy's records and fold them into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance; the block header reflects the enrichment session).
+2. Read the renamed copy's records and fold them into `_wrap.md`'s curated `## Recent Focus` region (each record carries its own `session_id`, preserving cross-session provenance). The rename-first mechanics and the `session_id`+`staged_at` dedup are unchanged. **The destination is not:** records used to be folded into `context.md`'s derived activity block, and they now land in the curated Recent-Focus region, which means drained records are newly subject to the 10-slot rolling window that governs that region. This is the correct home for them - they are prior sessions' curated summaries, not this turn's raw activity, and the activity region is now regenerated wholesale from shards on every turn so nothing appended there would survive. Stated explicitly because "only the target file moved" understates it: the target **region** moved too.
 3. `unlink(.agentic/wrap/deferred-activity.jsonl.draining.<pid>)`.
 
-The spillover log record schema (`.agentic/wrap/deferred-activity.jsonl`, append-only JSONL, one record per Stop-hook / OpenCode-idle invocation that found `wrap/lock` held and skipped its `context.md` write):
+**No new spillover records are produced.** Spillover existed only because a held `wrap/lock` made a per-turn writer SKIP its `context.md` write; per-turn writers now write session-private shards and are never skipped, so nothing is deferred. The drain above is retained deliberately so records written before that change are not orphaned - including the 49 preserved from the live incident. The historical record schema (`.agentic/wrap/deferred-activity.jsonl`, append-only JSONL, one record per skipped write) is kept here for readers of an existing file:
 
     {"schema_version": 1, "ts": "<ISO8601 UTC>", "session_id": "<uuid>", "recent_focus": ["<msg>"], "paths_referenced": ["<path>"], "uncommitted": ["<status code + path>"], "tools_used": ["<tool>"]}
 
 A crash between the rename and the unlink can leave a `.agentic/wrap/deferred-activity.jsonl.draining.*` temp file. A session-start drain-temp sweep (`rm -f .agentic/wrap/deferred-activity.jsonl.draining.*`, fail-open) cleans it.
 
-## context.md rolling-session-label merge algorithm (NORMATIVE)
+## `_wrap.md` rolling-session-label merge algorithm (NORMATIVE)
 
 The merged write always begins with the pinned header prefix above (the matcher contract); no site parses the header date.
 
-1. Read the file at the `context.md` output path.
+1. Read the file at the `_wrap.md` output path (`.agentic/_wrap.md`).
 
 2. **If the file does not exist**: write the new draft content directly to the output path. Result: "Wrote fresh context to [path] (no existing file)."
 
@@ -7836,7 +7874,9 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `MEMORY.md` (owned by wrap-ticket and /ds-wrap)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
-- `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
+- `.agentic/context.md` (DERIVED rollup - written by nothing directly; recomposed from `.agentic/_wrap.md` plus the `.agentic/context.d/` shards)
+- `.agentic/_wrap.md` (curated context - owned by /ds-wrap and wrap-ticket)
+- `.agentic/context.d/` (per-session activity shards - owned by the Stop hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
 
@@ -7859,7 +7899,7 @@ The only file you may write is:
 ---
 name: learnings-agent
 model: sonnet
-description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, or any source/config files.
+description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files.
 tools: Read, Edit, Write
 ---
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory trigger list, session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
@@ -8087,7 +8127,9 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
-- `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
+- `.agentic/context.md` (DERIVED rollup - written by nothing directly; recomposed from `.agentic/_wrap.md` plus the `.agentic/context.d/` shards)
+- `.agentic/_wrap.md` (curated context - owned by /ds-wrap and wrap-ticket)
+- `.agentic/context.d/` (per-session activity shards - owned by the Stop hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
 
@@ -10235,7 +10277,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 ---
 name: wrap-ticket
 model: haiku
-description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
+description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -10244,7 +10286,7 @@ tools: Read, Edit, Write
 <!--
 Purpose: Per-ticket learnings-capture agent. Spawned by /ds-implement-ticket Phase 11b
          on every PR opened (Trivial path skipped). Appends durable learnings to
-         MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only) using
+         MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only) using
          append-discipline writes with dedup. Constrained automated subset of /ds-wrap.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
@@ -10296,7 +10338,7 @@ Performance: ~60s budget. The conductor enforces a 60s timeout on the spawn;
 
 ## Role
 
-You are wrap-ticket - a constrained per-ticket learnings-capture agent. Your job is to extract durable learnings from a just-completed ticket and append them to the project's MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus section only). You run automatically at /ds-implement-ticket Phase 11b, on every PR opened.
+You are wrap-ticket - a constrained per-ticket learnings-capture agent. Your job is to extract durable learnings from a just-completed ticket and append them to the project's MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus section only). You run automatically at /ds-implement-ticket Phase 11b, on every PR opened.
 
 You are a **constrained automated subset of `/ds-wrap`**. The differences are intentional:
 
@@ -10310,7 +10352,7 @@ You are a **constrained automated subset of `/ds-wrap`**. The differences are in
 | Lock | `.agentic/wrap/lock` (shared with /ds-wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
-You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only).
+You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only).
 
 External comments follow §External Comment Discipline in `content/rules/conventions.md`.
 
@@ -10441,9 +10483,10 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - **Dedup before each append:** same case-insensitive whitespace-collapsed substring check against the existing file content.
 - **Cap at 2 appends per run.**
 
-#### .agentic/context.md (## Recent Focus only)
+#### .agentic/_wrap.md (## Recent Focus only)
 
-- Path: `.agentic/context.md`. If absent, do NOT create - the Stop hook owns initial creation. Skip with `writer_actions[]: ["skipped (no .agentic/context.md): Recent Focus addition"]`.
+- Path: `.agentic/_wrap.md` - the CURATED context file. **Never `.agentic/context.md`:** that file is a derived rollup, recomposed from `_wrap.md` plus the per-session shards in `.agentic/context.d/` on every Stop turn, so a paragraph written there is silently discarded within one turn.
+- If absent, do NOT create. **This is no longer "the Stop hook owns initial creation"** - the Stop hook does not write `_wrap.md` at all and never creates `## Recent Focus`; `_wrap.md` is created by `/ds-wrap` Part A, by `/ds-wrap-deferred`, or by the one-time migration that seeds it from a pre-existing `/ds-wrap`-authored `context.md`. Until one of those has run there is no curated file to append to. Skip with `writer_actions[]: ["skipped (no .agentic/_wrap.md): Recent Focus addition"]`.
 - Locate the `## Recent Focus` section. If absent, do NOT create - skip with the same writer_actions note.
 - Append a single new paragraph under `## Recent Focus`, labeled `[Ticket TICKET_ID]`:
   ```
@@ -10523,7 +10566,7 @@ The only files you may write are:
 
 - The project-root `MEMORY.md`
 - The resolved `decisions.md` path (per Step 4)
-- The project-root `.agentic/context.md` (only the `## Recent Focus` section, append-only)
+- The project-root `.agentic/_wrap.md` (only the `## Recent Focus` section, append-only)
 
 A forbidden write is a critical failure of this agent's contract. If a candidate fact would require touching a forbidden file, drop it and proceed.
 
@@ -10531,7 +10574,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 
 - **Append-only.** Never delete, never reorder, never edit existing entries. Each write extends the file at its tail.
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
-- **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to context.md - per run, never exceeded.
+- **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to `_wrap.md` - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
 - **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
@@ -12091,7 +12134,7 @@ migration and continue to work without change.
 |---|---|
 | Confirmed | Per-project `.agentic/session-log/<dev>.jsonl` + global `~/.agentic/session-log/<dev>.jsonl` |
 | Provisional | `~/.agentic/session-log/.pending/<uuid>.json` (buffered; flushed on confirm/init) |
-| None | Same as provisional; Stop hook also appends an identity nudge to `.agentic/context.md` |
+| None | Same as provisional; Stop hook also appends an identity nudge to this session's `.agentic/context.d/` shard, which the derived `.agentic/context.md` rollup then carries |
 
 - `agentic-cost team` reads `.agentic/session-log/` (project-local) - aggregates
   all confirmed developer files for the current repo.
@@ -14938,7 +14981,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
-**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap/lock` (atomic `mkdir`). The lock is shared with `/ds-wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/context.md`.
+**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap/lock` (atomic `mkdir`). The lock is shared with `/ds-wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/_wrap.md` - each a genuine read-modify-write of a curated file. It is NOT and never was mutual exclusion for `.agentic/context.md`: that file is now a derived rollup, deliberately written WITHOUT the lock, because it is recomposed from `_wrap.md` plus the per-session shards and a lost update self-heals on the next turn. (Naming `context.md` here was a false claim even before that change - the two hooks that "protected" it CHECKED the lock and neither ACQUIRED it, so it gave them no exclusion against each other. See `content/references/conductor-operating-rules.md` under "`.agentic/context.md` writer contract".)
 
 - **If the lock is held by another session** (e.g., `/ds-wrap` is running concurrently in another session): skip Phase 11b with the operator note: `"Phase 11b skipped: /ds-wrap is running in another session."` Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
 - **If the lock is acquired:** spawn `wrap-ticket` with the inputs below. The conductor releases the lock on every exit path (success, timeout, soft-fail) before proceeding to Phase 12.
@@ -16382,6 +16425,9 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/tasks.jsonl
 .agentic/events.jsonl
 .agentic/context.md
+.agentic/context.d/
+.agentic/_wrap.md
+.agentic/_foreign.md
 .agentic/memory/
 .agentic/memory.md
 .agentic/wrap/
@@ -16766,7 +16812,7 @@ Applies additive scaffolding rules from the manifest:
 - Appends missing `.gitignore` patterns (exact-line match after `rstrip()`; never duplicates).
 - Seeds missing `.agentic/` files from `content/templates/` (never overwrites existing files).
 - Updates `scaffolding_version` in `.agentic/config.json` when all rules are satisfied.
-- Appends one-line audit entry to `.agentic/context.md` if anything was written.
+- Appends a one-line audit entry to the `.agentic/context.d/scaffolding-notices.md` shard if anything was written. **Not to `.agentic/context.md`:** that file is a derived rollup recomposed from `.agentic/_wrap.md` plus the shards on every Stop turn, so an entry appended there was destroyed by the very next turn. The shard is picked up by the next recomposition and survives. It deliberately does NOT share a name with any session shard, because the Stop hook overwrites its own session shard wholesale each turn.
 - Acquires `~/.agentic/.scaffolding-apply.lock` before writing (EWOULDBLOCK = another session active, skip silently).
 
 The `markers:` key in the manifest is IGNORED by this path. Operator-owned scaffolding (AGENTS.md markers, destructive file changes) requires `--include-destructive`.
@@ -17866,6 +17912,7 @@ No subcommands, no flags. Reads:
 - `<cwd>/AGENTS.md` (project marker; resolves through `CLAUDE.md` `@AGENTS.md` import if present)
 - `<cwd>/.agentic/.activated` (first-activation sentinel)
 - `<cwd>/.agentic/config.json` (project config; surfaces the `deferred_wrap_daemon` toggle - prints its value, or `false` when the file or key is absent)
+- `<cwd>/.agentic/wrap/lock` plus its `owner.json` / `owner` bodies (wrap-lock state: held / abandoned / free, plus the hold age)
 
 ## Output
 
@@ -17880,6 +17927,11 @@ agentic-engineering status
   active: yes (mode=opt-out + marker=none -> active: opt-out activates everywhere unless a project opts out)
   sentinel: .agentic/.activated (present)
   deferred_wrap_daemon: false (source: .agentic/config.json; out-of-session daemon for deferred /ds-wrap jobs)
+  wrap lock: free
+
+Held examples (only when .agentic/wrap/lock exists):
+  wrap lock: held role=agent session=f176f720-a218-4cac-84a0-1489abe7aa1d age=3m
+  wrap lock: held role=agent session=(none) age=10h18m - past the abandonment threshold; the next `agentic-wrap-acquire-lock` clears it if the holder is gone
 
 DEPRECATED example (only shown when a legacy preset key is present at some scope):
   DEPRECATED: preset key 'strict' (global) resolved to profile=strict; migrate by setting
@@ -17932,6 +17984,18 @@ the effective value came from:
 - `.agentic/config.json` - the `deferred_wrap_daemon` line comes from the
   project config file; when the file or the key is absent, the line prints the
   documented default (`false`).
+- `.agentic/wrap/lock` - the `wrap lock` line reports `free` when the directory
+  is absent and `held role=... session=... age=...` when it exists, appending a
+  "past the abandonment threshold" note once the hold exceeds 30 minutes (with a
+  session id) or 4 hours (without one). It is **advisory, not authoritative**:
+  it reports observable facts and does not re-derive the abandonment predicate,
+  which lives once in `wrapLockAbandoned` (`hooks/lib/wrap-marker.js`) and is
+  acted on only by `agentic-wrap-acquire-lock`. This line exists because **no
+  operator-invocable command could previously reveal a wedged lock** - the
+  10.3-hour orphan that silently discarded 49 `context.md` writes across 6
+  sessions had to be diagnosed by hand. `context.md` writes are no longer
+  lock-gated, so an abandoned lock is now an inconvenience rather than a
+  data-loss condition, but it still blocks `/ds-wrap` until cleared.
 
 The `active` line carries the derivation that produced the active state -
 the `(mode=... + marker=... -> active|inactive: <reason>)` clause - so it is
@@ -19108,19 +19172,19 @@ This command is invoked by the deferred-wrap daemon (`hooks/wrap-daemon.js`), no
 ## Inputs
 
 - **The resumed transcript** - the conversation of the ended session, reloaded by `claude --resume`. This is the primary source for Recent Focus, next steps, files touched, stable facts, AND any git-state detail (uncommitted changes, recent commits, branch, stashes) the ended session described in its conversation.
-- **Live file state in the main project dir** - read-only reads of: the existing `.agentic/context.md`, `.agentic/memory.md`, root and track `AGENTS.md` files (merge targets); and `.agentic/learnings.md` (read-only - so a proposed memory entry is not re-derived from a fact already captured as a structured learning).
+- **Live file state in the main project dir** - read-only reads of: the existing `.agentic/_wrap.md` (the curated context file - **not** `.agentic/context.md`, which is a derived rollup recomposed from `_wrap.md` plus the per-session shards in `.agentic/context.d/`; writing it directly is discarded on the next Stop turn), `.agentic/memory.md`, root and track `AGENTS.md` files (merge targets); and `.agentic/learnings.md` (read-only - so a proposed memory entry is not re-derived from a fact already captured as a structured learning).
 
 **No git execution under the daemon (deliberate security boundary).** `/ds-wrap-deferred` has NO Bash/git access: the daemon spawns it with `--disallowedTools "Bash"`, which REMOVES the `Bash` tool from the headless model's context entirely. This is intentional, not an oversight. The headless child runs under `--permission-mode bypassPermissions`, and under that mode `--allowedTools` does NOT constrain the tool set - it only suppresses approval prompts for the tools it lists, while any unlisted tool (including `Bash`) stays in context and is auto-approved by the bypass. So the file-tools allowlist (`Read,Edit,Write,Glob,Grep`) is NOT the boundary; the actual boundary is `--disallowedTools "Bash"`, which deletes `Bash` from context before the bypass-mode step runs. This matters because a malicious cloned repo's own repo-local `.git/config` executes attacker code on ordinary read-only verbs (`core.fsmonitor` on `git status`, `diff.external` on `git diff`, `core.pager`/`alias.*`/`ext::`) - running git in that context is an RCE vector. With `Bash` removed from context the deferred path can NEVER shell git. (Supplementary `GIT_CONFIG_GLOBAL`/`GIT_CONFIG_SYSTEM`/`GIT_CONFIG_NOSYSTEM` env hardening neutralizes the global/system config tiers as defense-in-depth.) Note that the deferred Write/Edit surface (`.agentic/`, `.git/hooks/`, `core.hooksPath` under `bypassPermissions`) is broad and trusted-child-only, not reviewed for adversarial input; RCE-via-read-only-git-verb is closed by `--disallowedTools "Bash"` but not every write-path risk is addressed by that boundary alone.
 
-Consequently the context.md git-state section (uncommitted changes, recent commits, branch, stashes) is derived from the resumed **conversation transcript** when the ended session described that state, and is **OMITTED** otherwise. Do not attempt to run `git status`, `git log`, `git stash list`, `git diff`, `git rev-parse`, or `git branch` - the tool is not granted and the attempt fails. The interactive `/ds-wrap` - run by a human under normal (non-bypassed) permissions - still reads git normally; that path is unaffected.
+Consequently the curated git-state section (uncommitted changes, recent commits, branch, stashes) is derived from the resumed **conversation transcript** when the ended session described that state, and is **OMITTED** otherwise. Do not attempt to run `git status`, `git log`, `git stash list`, `git diff`, `git rev-parse`, or `git branch` - the tool is not granted and the attempt fails. The interactive `/ds-wrap` - run by a human under normal (non-bypassed) permissions - still reads git normally; that path is unaffected.
 
 The daemon enriches in the main project dir (no worktree, no copy-back, no merge), so the schema carries no `branch`/`head_sha`.
 
 ## Procedure (single pass, in this order)
 
-**Step 1 - Survey (inline, no subagent).** From the resumed transcript and the live FILE reads above (no git - see the Inputs note), compile: the main task and its state; files touched this session (full paths); errors/gotchas/near-misses; concrete remaining next steps; tools used; stable project facts worth preserving (distinguish stable facts -> memory.md from temporary state -> context.md); the uncommitted/stashed safety-net lists ONLY when the resumed transcript described them (no `git status`/`git stash list` is run under the daemon - omit if the conversation did not surface them); the touched tracks that are candidates for AGENTS.md updates. Read `.agentic/learnings.md` so already-captured facts are not duplicated into memory.md. This is the same survey `/ds-wrap` Step 0 performs, minus the `gh pr` open-PR enumeration (omitted - no deferral pass here) and minus all git reads (the deferred path has no Bash/git - the interactive `/ds-wrap` keeps them).
+**Step 1 - Survey (inline, no subagent).** From the resumed transcript and the live FILE reads above (no git - see the Inputs note), compile: the main task and its state; files touched this session (full paths); errors/gotchas/near-misses; concrete remaining next steps; tools used; stable project facts worth preserving (distinguish stable facts -> memory.md from temporary state -> `_wrap.md`); the uncommitted/stashed safety-net lists ONLY when the resumed transcript described them (no `git status`/`git stash list` is run under the daemon - omit if the conversation did not surface them); the touched tracks that are candidates for AGENTS.md updates. Read `.agentic/learnings.md` so already-captured facts are not duplicated into memory.md. This is the same survey `/ds-wrap` Step 0 performs, minus the `gh pr` open-PR enumeration (omitted - no deferral pass here) and minus all git reads (the deferred path has no Bash/git - the interactive `/ds-wrap` keeps them).
 
-**Step 2 - Write `.agentic/context.md` (Part A; the lock-guarded write - daemon holds wrap/lock for this step).**
+**Step 2 - Write `.agentic/_wrap.md` (Part A; the lock-guarded write - daemon holds wrap/lock for this step). Retarget only: the Part A algorithm in `content/references/wrap-context-format.md` is unchanged; it now reads and writes `_wrap.md`. Never write `.agentic/context.md` here - it is derived and the next Stop turn would discard the write.**
 
 This step runs inside a `wrap/lock` window the daemon holds (see item (4) below). Run the shared algorithm cited in `content/references/wrap-context-format.md`: (1) the 3-step rename-first spillover drain; (2) the rolling-session-label merge write (file-absent / non-/ds-wrap / merge branches, duplicate-claim dedup, 1-to-10 label rolling window, per-section merge rules) - the merged write begins with the pinned header prefix `# Session Context\n*Written by /ds-wrap`; (3) write `.agentic/wrap/last-wrap` = this `session_id`; (4) the lock is acquired and released by the daemon, not this child - the daemon calls `acquireWrapLock` before spawning and `releaseWrapLock` after the child exits (success or failure); the child never touches the lock. (`clearProvablyStaleWrapLock` is the daemon's crash-backstop only: it clears the lock if the daemon itself died after acquiring but before releasing; under normal operation it is not the release path.)
 
@@ -19130,9 +19194,9 @@ Skip if there are no stable facts to record. Otherwise apply the shared Part B a
 
 **Step 4 - Write AGENTS.md updates (Part C; no lock, no Open-PR deferral).**
 
-Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from `/ds-wrap`: for each touched track's AGENTS.md, append only genuinely-new, session-derived bullets (semantic dedup against existing content); create a minimal stub for a touched directory that has no AGENTS.md and apply the additions into it; apply any `Update:` corrections in place. Root AGENTS.md focuses on `## Decisions` and `## Conventions`; subdir AGENTS.md on `## Stack` / `## Key Conventions` / track-relevant categories. There is NO Open-PR deferral pass and NO `.agentic/agents-md-pending.md` routing - write directly to the AGENTS.md files. Do NOT run the pre-AGENTS.md three-way split (that requires user confirmation `/ds-wrap` cannot provide headlessly either) - if a pre-AGENTS.md layout is detected, record it as a context.md "Watch Out For" bullet instead.
+Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from `/ds-wrap`: for each touched track's AGENTS.md, append only genuinely-new, session-derived bullets (semantic dedup against existing content); create a minimal stub for a touched directory that has no AGENTS.md and apply the additions into it; apply any `Update:` corrections in place. Root AGENTS.md focuses on `## Decisions` and `## Conventions`; subdir AGENTS.md on `## Stack` / `## Key Conventions` / track-relevant categories. There is NO Open-PR deferral pass and NO `.agentic/agents-md-pending.md` routing - write directly to the AGENTS.md files. Do NOT run the pre-AGENTS.md three-way split (that requires user confirmation `/ds-wrap` cannot provide headlessly either) - if a pre-AGENTS.md layout is detected, record it as a `_wrap.md` "Watch Out For" bullet instead.
 
-**Drift is never a prompt.** Any scaffolding drift, ambiguity, or condition that the interactive `/ds-wrap` would surface to the user becomes a single `## Watch Out For` bullet in the `.agentic/context.md` output (e.g. "Pre-AGENTS.md layout detected; run /ds-init-project to migrate", "Linear workspace slug not set", "both .claude/findings.md and .agentic/findings.md exist - resolve manually"). `/ds-wrap-deferred` writes the bullet and moves on; it does not pause, migrate destructively, or ask.
+**Drift is never a prompt.** Any scaffolding drift, ambiguity, or condition that the interactive `/ds-wrap` would surface to the user becomes a single `## Watch Out For` bullet in the `.agentic/_wrap.md` output (e.g. "Pre-AGENTS.md layout detected; run /ds-init-project to migrate", "Linear workspace slug not set", "both .claude/findings.md and .agentic/findings.md exist - resolve manually"). `/ds-wrap-deferred` writes the bullet and moves on; it does not pause, migrate destructively, or ask.
 
 **Exit.** After the writes (or after a clean early exit because the lock could not be acquired, or because the survey found nothing substantive to write), exit. Exit 0 on a successful pass. Do NOT transition the marker - the daemon transitions it to `done` after observing exit 0.
 
@@ -19141,12 +19205,12 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | `/ds-wrap` step | `/ds-wrap-deferred` |
 |---|---|
 | no-active-Workers pre-flight | omitted (daemon already serialized) |
-| scaffold-migration pre-flight (CLAUDE.md->AGENTS.md, legacy `.claude/*` moves) | omitted; detected drift -> context.md "Watch Out For" bullet |
+| scaffold-migration pre-flight (CLAUDE.md->AGENTS.md, legacy `.claude/*` moves) | omitted; detected drift -> `_wrap.md` "Watch Out For" bullet |
 | lock wait-loop + stale-lock prompt | omitted; daemon owns the lock (acquires before spawn, releases after child exits); on contention the daemon skips the drain tick (idle self-exit) - the child never handles lock contention |
 | draft Worker (Step 1) | omitted; conductor surveys inline |
 | Skeptic (Steps 2-3 draft review) | omitted |
 | Step 4 hand-authored on-disk Skeptic | omitted |
-| Part A context.md merge | KEPT (cites `wrap-context-format.md`) |
+| Part A curated merge (now targets `_wrap.md`) | KEPT (cites `wrap-context-format.md`) |
 | Part B Open-PR deferral / memory-pending.md | omitted; direct append-dedup to memory.md |
 | Part C Open-PR deferral / agents-md-pending.md | omitted; direct write to AGENTS.md |
 | Part D skill-candidate wrap-time signal | omitted; `--disallowedTools "Bash"` removes the Bash tool from the daemon child's context, so no `node` shell-out is possible. Daemon-completed sessions do not contribute the wrap-time skill-candidate signal. |
@@ -19155,7 +19219,7 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 | Step 5 `/ds-cleanup-worktrees` | omitted |
 | Step 6 terminal marker transition | omitted; daemon owns `done` |
 | Part F tracker status reconciliation | omitted; daemon has no Bash and spawns nothing |
-| drift-requires-input prompt | omitted; drift -> context.md "Watch Out For" bullet |
+| drift-requires-input prompt | omitted; drift -> `_wrap.md` "Watch Out For" bullet |
 
 ---
 
@@ -19167,9 +19231,9 @@ Skip if there are no AGENTS.md additions. Otherwise apply the shared Part C from
 
 Use when you want a richer context file than the auto-hook provides — e.g. before handing off complex in-progress work to a future session.
 
-The Stop hook auto-writes `<cwd>/.agentic/context.md` after every turn with raw session data. `/ds-wrap` merges with or rewrites that file with a structured, human-curated version when detail matters. It is also the ongoing counterpart to `/ds-init-project`: where `/ds-init-project` scaffolds the AGENTS.md hierarchy, `/ds-wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
+The Stop hook writes this session's `<cwd>/.agentic/context.d/<session_id>.md` activity shard after every turn with raw session data, then recomposes the derived `<cwd>/.agentic/context.md` rollup from it. `/ds-wrap` merges a structured, human-curated version into `<cwd>/.agentic/_wrap.md` - the curated half of that rollup - when detail matters. Neither writes `context.md` directly. It is also the ongoing counterpart to `/ds-init-project`: where `/ds-init-project` scaffolds the AGENTS.md hierarchy, `/ds-wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
 
-**Relationship to `wrap-ticket`.** `/ds-wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `.agentic/context.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `/ds-implement-ticket` — it appends to MEMORY.md, decisions.md, and `.agentic/context.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, context.md) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `/ds-wrap` MUST NOT run concurrently — both acquire `.agentic/wrap/lock`. If `/ds-wrap` is invoked while `wrap-ticket` holds the lock, `/ds-wrap` waits per the standard lock-wait protocol below; if `wrap-ticket` is invoked while `/ds-wrap` holds the lock, `wrap-ticket` skips with `skipped_reason: "wrap-lock-contention"` and proceeds without learnings capture (Phase 11b is non-blocking).
+**Relationship to `wrap-ticket`.** `/ds-wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `.agentic/_wrap.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `/ds-implement-ticket` — it appends to MEMORY.md, decisions.md, and `.agentic/_wrap.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, `_wrap.md`) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `/ds-wrap` MUST NOT run concurrently — both acquire `.agentic/wrap/lock`. If `/ds-wrap` is invoked while `wrap-ticket` holds the lock, `/ds-wrap` waits per the standard lock-wait protocol below; if `wrap-ticket` is invoked while `/ds-wrap` holds the lock, `wrap-ticket` skips with `skipped_reason: "wrap-lock-contention"` and proceeds without learnings capture (Phase 11b is non-blocking).
 
 ## Deferred background enrichment (daemon)
 
@@ -19200,7 +19264,7 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
    - Redo symlinks in `~/.claude/projects/[hash]/` to point at the new `.agentic/` paths.
 
 3. **Legacy config migration (`.claude/<name>.md` → `.agentic/<name>.md`)** — for each of `qa.md`, `deploy.md`, `findings.md`, `tracking.md`, `learnings.md`:
-   - **Both paths exist on disk**: do NOT migrate. Log a drift warning in the wrap run output (e.g. "Drift (both .claude/findings.md and .agentic/findings.md exist - skipping auto-migration; resolve manually via /ds-init-project)"), and add a bullet under the context.md "Watch Out For" section naming the conflicting files. Skip to the next name.
+   - **Both paths exist on disk**: do NOT migrate. Log a drift warning in the wrap run output (e.g. "Drift (both .claude/findings.md and .agentic/findings.md exist - skipping auto-migration; resolve manually via /ds-init-project)"), and add a bullet under the `_wrap.md` "Watch Out For" section naming the conflicting files. Skip to the next name.
    - **Only legacy `.claude/<name>.md` exists**: first, run `git status --porcelain` to check working-tree cleanliness. If there are staged or unstaged changes, do NOT migrate - log a drift note ("Skipped migration of legacy .claude/<name>.md: working tree dirty. Commit or stash, then re-run /ds-wrap or /ds-init-project.") and add a Watch Out For bullet. If the working tree is clean, migrate: `git mv .claude/<name>.md .agentic/<name>.md`. Log the move to the wrap run output only.
    - **Only `.agentic/<name>.md` exists**: no action.
    - **Neither exists**: no action at this step - the missing-stub creation below handles creation.
@@ -19212,9 +19276,9 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
    - Create `.claude/settings.json` (`{}`) if missing.
    - Create `.claude/settings.local.json` with `autoMemoryDirectory` set to `<cwd>/.agentic/memory` if missing or if the key is not yet present (merge rule: never overwrite an existing value). **Scope note:** `autoMemoryDirectory: <cwd>/.agentic/memory` is intentional - it routes Claude Code's native auto-memory writes to a local gitignored scratch area. The canonical conductor-managed, human-reviewed durable-facts store remains `<cwd>/MEMORY.md` (see the **Memory path (memory.md)** note below).
    - Create `.gitignore` entries for `.claude/settings.local.json` and the `.agentic/` runtime-artifact block (per `/ds-init-project` Step 9) if missing.
-   - **Pre-AGENTS.md layout detection (DO NOT auto-split inline).** If root `AGENTS.md` is absent AND root `CLAUDE.md` exists with more than the `@AGENTS.md` and/or `@MEMORY.md` import pointer lines, do NOT attempt the Worker+Skeptic three-way split inline — that migration requires user confirmation of the proposed split, and /ds-wrap's silent contract cannot provide one. Instead, add a "Watch Out For" entry in context.md: `Pre-AGENTS.md layout detected (CLAUDE.md has real content, no root AGENTS.md). Run /ds-init-project to run the Worker+Skeptic split and migrate.`
+   - **Pre-AGENTS.md layout detection (DO NOT auto-split inline).** If root `AGENTS.md` is absent AND root `CLAUDE.md` exists with more than the `@AGENTS.md` and/or `@MEMORY.md` import pointer lines, do NOT attempt the Worker+Skeptic three-way split inline — that migration requires user confirmation of the proposed split, and /ds-wrap's silent contract cannot provide one. Instead, add a "Watch Out For" entry in `_wrap.md`: `Pre-AGENTS.md layout detected (CLAUDE.md has real content, no root AGENTS.md). Run /ds-init-project to run the Worker+Skeptic split and migrate.`
 
-6. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during /ds-wrap. Instead, record a bullet under "Watch Out For" in the context.md output noting which scaffolding items are still incomplete. The user can address these later by running `/ds-init-project` interactively. Specific drift kinds that always require user input and must be listed here:
+6. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during /ds-wrap. Instead, record a bullet under "Watch Out For" in the `_wrap.md` output noting which scaffolding items are still incomplete. The user can address these later by running `/ds-init-project` interactively. Specific drift kinds that always require user input and must be listed here:
    - **CLAUDE.md split** — the pre-AGENTS.md migration requires the user to review and accept the three-way split (AGENTS.md / residual CLAUDE.md / MEMORY.md). /ds-wrap cannot perform this silently; it points at `/ds-init-project`.
    - Linear workspace slug or QA assignee UUID not yet set when `## Linear` is present.
    - Jira `JIRA_BASE_URL`, `TICKET_PREFIX`, or transition name not yet set when `## Tracker` is present.
@@ -19225,17 +19289,17 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 
 **Pre-flight check — no active Workers.** Before doing anything else, check whether any background Workers or subagents are currently running. If any are, stop and tell the user: "Cannot run /ds-wrap while background tasks are active. Please wait for them to finish (or stop them) first." Do not proceed until confirmed.
 
-**Pre-flight lock acquisition.** /ds-wrap writes to several shared project-local files (context.md, memory.md, AGENTS.md, compression-state.json, rolling snapshots). Concurrent /ds-wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:
+**Pre-flight lock acquisition.** /ds-wrap writes to several shared project-local files (`_wrap.md`, memory.md, AGENTS.md, compression-state.json, rolling snapshots). It does NOT write `context.md` - that file is a derived rollup and is deliberately lock-free. Concurrent /ds-wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:
 
 1. Ensure `<cwd>/.agentic/wrap/` exists (`mkdir -p <cwd>/.agentic/wrap`).
-2. Attempt acquisition in the FOREGROUND via the acquire helper, single attempt, no wait: `agentic-wrap-acquire-lock "$cwd" --role=agent --no-wait`. This replaces the old hand-rolled `mkdir <cwd>/.agentic/wrap/lock` plus a separate owner-file write: the helper publishes the lock directory and BOTH owner artifacts (the legacy `owner` 2-line body and the schema-validated `owner.json` descriptor) atomically and fail-closed, inside one process - so the window in which the lock directory exists without an owner is eliminated, not merely narrowed - and the descriptor comes from one code path shared with the daemon rather than shell string-formatting. Run it synchronously (foreground): it is a single `mkdir` plus two `rename` calls with no poll loop and no `sleep`, so this is not the long-foreground-poll failure mode, and it must be synchronous because the conductor needs the result before deciding what to do next. Branch on exit code:
+2. Attempt acquisition in the FOREGROUND via the acquire helper, single attempt, no wait: `agentic-wrap-acquire-lock "$cwd" --role=agent --no-wait --session-id="$CLAUDE_CODE_SESSION_ID"`. This replaces the old hand-rolled `mkdir <cwd>/.agentic/wrap/lock` plus a separate owner-file write: the helper publishes the lock directory and BOTH owner artifacts (the legacy `owner` 2-line body and the schema-validated `owner.json` descriptor) atomically and fail-closed, inside one process - so the window in which the lock directory exists without an owner is eliminated, not merely narrowed - and the descriptor comes from one code path shared with the daemon rather than shell string-formatting. Run it synchronously (foreground): it is a single `mkdir` plus two `rename` calls with no poll loop and no `sleep`, so this is not the long-foreground-poll failure mode, and it must be synchronous because the conductor needs the result before deciding what to do next. Branch on exit code:
    - **0** - lock acquired. Proceed.
    - **5** - busy (lock already held by someone else). Go to step 3 below.
    - **1** - fatal (lib failed to load, or an invalid `--role`). Surface the WARNING line verbatim, then abort.
    - **any other exit code** (including 127, the shell's command-not-found code) - surface it verbatim and abort. Never fall through to "proceed" on an unrecognised code.
 
    If the command is not found on PATH at all, abort with a message naming the install step - do NOT fall back to a manual `mkdir`, which would produce a lock directory with no `owner.json` and forfeit the daemon-side live-lock protection this whole design depends on. Word the message harness-neutrally, since this file is shared across adapters: "`agentic-wrap-acquire-lock` not found on PATH - re-run your harness's DinoStack install script (`<repo>/.claude/install.sh` for Claude Code, the equivalent script under your adapter directory otherwise) to wire `bin/` onto PATH."
-3. **On busy: do not read the owner file, do not classify it, and do not abort.** There is no separate unreadable-owner or stale-owner branch to evaluate here - both are progress conditions the helper itself handles, not give-up conditions for the conductor to decide. Run the acquire helper again, this time as a BACKGROUND command (`run_in_background: true`), letting it wait: `agentic-wrap-acquire-lock "$cwd" --role=agent`. It polls in-process (jittered ~5s interval) and exits once the lock is acquired or after 20 minutes; non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch on exactly three outcomes:
+3. **On busy: do not read the owner file, do not classify it, and do not abort.** There is no separate unreadable-owner or stale-owner branch to evaluate here - both are progress conditions the helper itself handles, not give-up conditions for the conductor to decide. Run the acquire helper again, this time as a BACKGROUND command (`run_in_background: true`), letting it wait: `agentic-wrap-acquire-lock "$cwd" --role=agent --session-id="$CLAUDE_CODE_SESSION_ID"`. It polls in-process (jittered ~5s interval) and exits once the lock is acquired or after 20 minutes; non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch on exactly three outcomes:
    - **0** - acquired; the lock is now held by /ds-wrap. Proceed normally.
    - **2** - timeout. Report the helper's final `timeout ...` line verbatim (it already carries role, pid, start time, and an `rm -rf` recovery command). Then abort.
    - **1** - unexpected failure. Surface the WARNING line from stdout, then abort.
@@ -19243,6 +19307,10 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 
    Exit codes 3 (unreadable owner) and 4 (stale-needs-manual) no longer exist, deliberately: an unreadable owner and an old-looking timestamp are progress conditions, not give-up conditions. A lock whose owner looks old may be held by a /ds-wrap that is legitimately still working - the timestamp alone cannot distinguish that from an abandoned lock, so the waiter keeps waiting and only tells the operator how to unwedge it manually (the HINT's `rm -rf` command) if the operator judges it stuck.
 4. Liveness is the authoritative signal, not the timestamp. The helper determines whether the lock's owner is a live process wherever the owner record carries a genuine, checkable PID; the timestamp is used only where the owner record is PID-blind (e.g. a legacy 2-line body from an interactive /ds-wrap, whose recorded PID is a shell that has already exited by the time the file lands), and even there it is advisory, not decisive. The conductor does not run its own `ps -p` check - it relies entirely on the helper's exit code.
+
+5. **`--session-id` is the liveness signal for an interactive hold, and it is why an abandoned lock is no longer immortal.** A `--role=agent` descriptor carries `pid: null` by construction, so there is no process to liveness-check; without a session id the helper's verdict for such a lock is `live` FOREVER. Pass `--session-id="$CLAUDE_CODE_SESSION_ID"` at BOTH acquisition sites above, keeping the flag on the SAME LINE as the invocation. Use `CLAUDE_CODE_SESSION_ID` and only that variable - `AGENTIC_SESSION_ID` and `CLAUDE_SESSION_UUID` are both empty in a live session (`bin/agentic-migrate` reads them and is already silently degraded as a result). The flag is soft: an unset variable expands to an empty value, the helper publishes `session_id: null`, acquisition still succeeds, and the lock falls back to a pid-blind age rule - degraded, never stealing a live hold. Nothing here is harness-specific beyond the variable name: adapters that do not export it simply get the fallback.
+
+**Self-heal on acquire.** Before each attempt the helper clears a lock it can PROVE abandoned - a `role:agent` hold whose session stopped heartbeating past 30 minutes, or any PID-blind hold older than 4 hours - and prints `cleared-abandoned-lock <path>` when it does. This is the only case in which the helper removes a lock, and it is announced, never silent. An old-but-live hold is still waited on exactly as before. The default config (`deferred_wrap_daemon: false`) never launches the daemon that owns the other clear path, so without this the operator was the only recovery mechanism.
 
 The 30-minute mark is advisory only: it changes the *message* the waiter prints (adding the `rm -rf` HINT to the "waiting"/"timeout" line past that age), never the *decision* to keep waiting.
 
@@ -19281,9 +19349,9 @@ This section is the single source of truth for the on-disk artifacts that drive 
 - `staged_at` is immutable and is the FIFO ordering key the daemon uses to drain `ready` markers oldest-first. `claimed_at` plus a staleness window are a wastefulness reducer, not a correctness invariant - they make a double-claim rare, never impossible; idempotency is what makes a double-run safe.
 - `attempts` increments at claim time, before enrichment begins, so a crash mid-enrichment still counts toward the give-up budget.
 
-**2. `.agentic/wrap/last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `/ds-wrap` (sync or background enrichment) last successfully wrote `context.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `context.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `context.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker).
+**2. `.agentic/wrap/last-wrap` (the wrap-recency sentinel).** A single line containing the `session_id` of the session whose `/ds-wrap` (sync or background enrichment) last successfully wrote `_wrap.md`. Atomic write. This sentinel fully replaces any header-date parsing - no site parses the `_wrap.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `_wrap.md` write - never staged early (writing it during Step 0a would suppress this very session's own recovery marker).
 
-**3. `.agentic/wrap/deferred-activity.jsonl` (the spillover log).** Append-only JSONL, one record per Stop-hook (or OpenCode-idle) invocation that found `wrap/lock` held and therefore skipped its `context.md` write. Drained into the `context.md` activity block by the enrichment flow during its Part A write (atomic three-step drain, see Part A below). Record schema:
+**3. `.agentic/wrap/deferred-activity.jsonl` (the spillover log).** **No longer produced.** Spillover existed only because a held `wrap/lock` made a per-turn writer SKIP its `context.md` write; per-turn writers now write session-private shards and are never skipped, so nothing is deferred. The drain below is RETAINED so records written before that change are not orphaned, and it folds them into `_wrap.md`'s curated `## Recent Focus` region. Historical record schema, for readers of an existing file:
 
     {"schema_version": 1, "ts": "<ISO8601 UTC>", "session_id": "<uuid>", "recent_focus": ["<msg>"], "paths_referenced": ["<path>"], "uncommitted": ["<status code + path>"], "tools_used": ["<tool>"]}
 
@@ -19311,7 +19379,7 @@ When the guard passes, stage `<cwd>/.agentic/wrap/pending-<session_id>.json` (at
 
 The marker is keyed by `session_id` in its filename, so per-session markers never collide. If this session's own marker already exists with status `pending`, `ready`, or `in_progress`, do NOT overwrite it (MAJOR-3 `ready`-non-stageable). A marker with `status: gave_up`, or `done` WITHOUT a `wrapped_at` stamp, is not a completion tombstone; staging may proceed. A `done` marker WITH `wrapped_at` is a completion tombstone for THIS session and suppresses re-staging (the `last-wrap`-rollover guard). With the guard false (off-Claude, toggle-off, or under the daemon guard), `/ds-wrap` stages no marker at all and behaves exactly as the classic synchronous wrap.
 
-**Step 0a does NOT write `.agentic/wrap/last-wrap`.** `last-wrap` is written only after a successful Part A `context.md` write (see Part A). Writing it here would suppress this very session's own recovery marker on the next Stop-hook fire.
+**Step 0a does NOT write `.agentic/wrap/last-wrap`.** `last-wrap` is written only after a successful Part A `_wrap.md` write (see Part A). Writing it here would suppress this very session's own recovery marker on the next Stop-hook fire.
 
 Tell the user: "Writing enriched session context — I'll let you know when it's done."
 
@@ -19343,7 +19411,7 @@ Survey the current conversation and note down:
 - Any errors, gotchas, or near-misses that surfaced
 - Specific remaining next steps (file paths, branch names, commands, open PRs — concrete enough to act on without re-reading the chat)
 - Tools used during the session
-- Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - stable facts will go into memory.md, temporary state into context.md only.
+- Stable project facts worth preserving: setup commands that don't change, persistent project-wide gotchas or quirks, architectural decisions made, recurring patterns or conventions established. Distinguish these from temporary state (current task, files touched this session) - stable facts will go into memory.md, temporary state into `_wrap.md` only.
 - Identify the project root (absolute cwd).
 - Note which tracks (subdirectories) had files touched this session — these are candidates for AGENTS.md updates, and their AGENTS.md paths feed the batch below.
 
@@ -19391,7 +19459,7 @@ Using the batch results:
 - **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
 - **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
 - **Note task-state summary** - if `.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
-- **Note loop-state summary** — loop state is keyed per ticket, so enumerate every `.agentic/loop-state-*.json` **plus** the legacy `.agentic/loop-state.json`, and consider only those whose `session_id == $CLAUDE_CODE_SESSION_ID`. **The `session_id` filter is required, not optional:** it needed no gate in a one-file world, but a keyed checkout routinely holds another session's healthy in-flight loop, and reporting that as this session's incomplete loop is a false alarm on every wrap. For each surviving candidate: if `status=active`, note in the wrap summary that an incomplete loop was active when `/ds-wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `/ds-implement-ticket` invocation on that ticket will offer to resume). Name the candidate by its `loop_key` (falling back to `ticket_id`, then to the filename) so the note identifies which ticket. The wrap command does NOT delete or modify any loop-state file, keyed or legacy - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or context.md beyond the one-line status note.
+- **Note loop-state summary** — loop state is keyed per ticket, so enumerate every `.agentic/loop-state-*.json` **plus** the legacy `.agentic/loop-state.json`, and consider only those whose `session_id == $CLAUDE_CODE_SESSION_ID`. **The `session_id` filter is required, not optional:** it needed no gate in a one-file world, but a keyed checkout routinely holds another session's healthy in-flight loop, and reporting that as this session's incomplete loop is a false alarm on every wrap. For each surviving candidate: if `status=active`, note in the wrap summary that an incomplete loop was active when `/ds-wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `/ds-implement-ticket` invocation on that ticket will offer to resume). Name the candidate by its `loop_key` (falling back to `ticket_id`, then to the filename) so the note identifies which ticket. The wrap command does NOT delete or modify any loop-state file, keyed or legacy - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or `_wrap.md` beyond the one-line status note.
 - **Enumerate open PRs targeting the conductor's current branch** — from the batch's `gh pr list` output above (do not re-run the query). /ds-wrap writes AGENTS.md and memory.md additions onto the conductor's current branch (typically `main`). If those additions cite file paths or feature keys that live on branches with open PRs not yet merged, the doc additions will land on the target branch describing files/keys that do not yet exist there.
 
   Record the resulting `{pr_number, head_branch, modified_files[]}` set as the **open-PR overlap set**. If the batch logged `GH_UNAVAILABLE` or `GH_PR_LIST_FAILED`, log "open-PR overlap check skipped (gh unavailable)" to the wrap run output and pass an empty set forward — the deferral logic becomes a no-op rather than blocking the run. The set is supplied to the draft Worker as a dedicated field (see Step 1) so it can flag deferral candidates; the conductor enforces deferral at write time in Step 4.
@@ -19408,10 +19476,10 @@ Inspect what Outputs 2 and 3 would contain based on the raw data already compile
 - Output 2 (memory entries) would be "None"
 - Output 3 (AGENTS.md updates) would be "None" for every file AND no new AGENTS.md candidates exist
 - No specialist agent (`perf-analyst`, `release-orchestrator`, `dependency-auditor`) ran with session-scoped issues to capture
-- The session had effectively no file activity worth preserving in context.md: no uncommitted tracked changes, no new stashes, no files touched beyond reads, no meaningful next steps to record. The conductor should judge - if the only meaningful session output is "answered a question", it is zero-substance.
+- The session had effectively no file activity worth preserving in `_wrap.md`: no uncommitted tracked changes, no new stashes, no files touched beyond reads, no meaningful next steps to record. The conductor should judge - if the only meaningful session output is "answered a question", it is zero-substance.
 
 Zero-substance procedure:
-- Do NOT write context.md (the Stop hook already writes a raw context file after every turn - running /ds-wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
+- Do NOT write `_wrap.md` (the Stop hook already writes a raw activity shard after every turn, and the rollup already carries it - running /ds-wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)
 - Skip Steps 1-3 entirely (no Worker, no Skeptic)
 - Skip Step 4 Parts A, B, C entirely
 - Skip Part D and Part D.5 (no session activity to extract skill-candidate or feedback signals from)
@@ -19426,7 +19494,7 @@ Zero-substance procedure:
 - No specialist agent ran with session-scoped issues to capture
 
 Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
-1. Main agent drafts context.md inline from the Step 0 raw data, following the Output 1 structure exactly. No Worker, no Skeptic.
+1. Main agent drafts `_wrap.md` inline from the Step 0 raw data, following the Output 1 structure exactly. No Worker, no Skeptic.
 2. Skip Step 1 (draft Worker) and Steps 2-3 (Skeptic + sign-off validation).
 3. Proceed to Step 4 Part A with the inline draft.
 4. Skip Part B (memory.md - input is None), Part C (AGENTS.md - input is None).
@@ -19436,7 +19504,7 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 8. Run Step 6 as normal, including Part F (tracker status reconciliation) - a light-path session can still have committed ticket-referencing work even with no memory/AGENTS.md updates to review.
 9. Step 6 confirmation must say: "light path (no stable facts or AGENTS.md updates to review this session)".
 
-**Escape hatch for light path:** If, while drafting context.md inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
+**Escape hatch for light path:** If, while drafting `_wrap.md` inline, the main agent notices something it wants the Skeptic to review - ambiguous next-step wording, uncertainty about whether a fact is stable or temporary, unfamiliar territory in the raw data - it must abandon the light path and fall back to the standard path. The light path is for cases where there is genuinely nothing worth an adversarial pass.
 
 **Escape hatch for zero-substance path:** If the conductor has ANY uncertainty about whether the session is truly zero-substance - for example, the user asked a question whose answer feels architecturally significant, or an implicit decision was made without writing anything down - it must abandon the zero-substance path and use the light or standard path instead. When in doubt, do not use the zero-substance path.
 
@@ -19469,7 +19537,7 @@ If no AGENTS.md files were found, write "None."]
 **Open-PR overlap set:**
 [paste the `{pr_number, head_branch, modified_files[]}` entries captured in Step 0, or "None" if no open PRs target the conductor's current branch / the check was skipped. The conductor will use this to defer doc additions whose cited paths overlap an open PR — but you should still flag candidates so the conductor's deferral pass has hints.]
 
-**Output 1 — context.md draft**
+**Output 1 — `_wrap.md` draft (the curated context)**
 
 Produce this exact structure. Include only temporary session state here (current task, files touched, recent errors, next steps). Do not include stable project facts in this file - those belong in Output 2.
 
@@ -19578,7 +19646,7 @@ Return all three outputs clearly labeled. Do not write to disk.
 
 Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites - never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
 
-Provide the draft, the existing AGENTS.md file contents from Step 0, and this adversarial brief. **Omit any section below whose corresponding Output is "None"** - always keep the Output 1 (context.md accuracy) review as the baseline pass; drop the memory-review language if Output 2 is "None"; drop the AGENTS.md-review paragraph if Output 3 is "None". The full brief below is the "all outputs present" case:
+Provide the draft, the existing AGENTS.md file contents from Step 0, and this adversarial brief. **Omit any section below whose corresponding Output is "None"** - always keep the Output 1 (`_wrap.md` accuracy) review as the baseline pass; drop the memory-review language if Output 2 is "None"; drop the AGENTS.md-review paragraph if Output 3 is "None". The full brief below is the "all outputs present" case:
 
 > "Is this context file accurate and actionable? Check each section: Does Recent Focus correctly describe what was actually happening — or is it vague, generic, or wrong? Are the Next Steps specific enough to act on without reading the chat history (file paths, commands, branch names)? Are Key File Paths complete — is anything relevant omitted? Does Watch Out For capture real gotchas, or is it empty when it shouldn't be? Is any section still template text rather than real content?"
 >
@@ -19596,25 +19664,29 @@ If Critical or Major findings remain: spawn a new draft Worker with the original
 
 Background subagents cannot reliably get Write/Edit permissions. The main agent must perform all writes directly. Invoking /ds-wrap implies permission to write these files.
 
-**Mandatory Skeptic on hand-authored output.** If the conductor authored any of the final outputs inline — for example, after a draft Worker hallucination, after a re-route loop hit its limit, after a light-path escape hatch fell back to the standard path mid-flight, or any other case where the conductor bypassed the Worker → Skeptic chain in Steps 1–3 — the conductor MUST spawn a fresh Skeptic on the on-disk files BEFORE releasing the lock in Step 6. The conductor's escape hatch from Worker iteration does NOT exempt the outputs from Skeptic review; that loophole is closed. The Skeptic in this case reads the on-disk files directly (`.agentic/context.md`, `.agentic/memory.md`, any AGENTS.md files updated, plus any deferred-write files at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`) and applies the same adversarial brief from Step 2 (with the same scope constraint — the Skeptic's findings only trigger doc rewrites, never code changes). If the Skeptic raises Critical or Major findings, the conductor revises the on-disk files inline and re-spawns a fresh Skeptic until sign-off, subject to the same 3-re-route limit; on cap exhaustion, escalate to the user with the open findings.
+**Mandatory Skeptic on hand-authored output.** If the conductor authored any of the final outputs inline — for example, after a draft Worker hallucination, after a re-route loop hit its limit, after a light-path escape hatch fell back to the standard path mid-flight, or any other case where the conductor bypassed the Worker → Skeptic chain in Steps 1–3 — the conductor MUST spawn a fresh Skeptic on the on-disk files BEFORE releasing the lock in Step 6. The conductor's escape hatch from Worker iteration does NOT exempt the outputs from Skeptic review; that loophole is closed. The Skeptic in this case reads the on-disk files directly (`.agentic/_wrap.md`, `.agentic/memory.md`, any AGENTS.md files updated, plus any deferred-write files at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`) and applies the same adversarial brief from Step 2 (with the same scope constraint — the Skeptic's findings only trigger doc rewrites, never code changes). If the Skeptic raises Critical or Major findings, the conductor revises the on-disk files inline and re-spawns a fresh Skeptic until sign-off, subject to the same 3-re-route limit; on cap exhaustion, escalate to the user with the open findings.
 
 **Project directory:** [absolute cwd]
 
-**Output path (context.md):** `<cwd>/.agentic/context.md`. Project-local. The file lives next to the code it describes and is gate-free (no sensitive-file check). The Stop hook writes to the same path. Create the `<cwd>/.agentic/` directory if it does not exist.
+**Output path (curated context):** `<cwd>/.agentic/_wrap.md`. Project-local, gate-free, created if absent. **This is a retarget, not a rewrite** - `/ds-wrap` executes the identical Part A algorithm; only the file it reads and writes changed from `context.md` to `_wrap.md`.
 
-**Memory path (memory.md):** `<cwd>/.agentic/memory.md`. Same directory as context.md. `.agentic/memory.md` is /wrap-internal rolling scratch (written exclusively by /ds-wrap). It is gitignored and is NOT the canonical durable-facts store. The canonical durable-facts store is `<cwd>/MEMORY.md`, loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`).
+`<cwd>/.agentic/context.md` is now a DERIVED ROLLUP: `_wrap.md` (this curated region, everything up to the `## Session Activity` sentinel) plus one block per per-session shard in `<cwd>/.agentic/context.d/` (everything from the sentinel onward), recomposed on every Stop turn. Every session still READS `context.md` as its first action - that contract is unchanged. What changed is that `/ds-wrap` must never write `context.md` directly: the next Stop turn regenerates it, so a direct write is silently discarded. Write `_wrap.md` and let the rollup pick it up.
+
+Why: `context.md` had 13 writer sites and no mutual exclusion between them (the wrap lock was CHECKED by two of them and ACQUIRED by neither, and a third ignored it entirely). Making the shared file DERIVED means a lost update self-heals on the next turn instead of losing data, which is what lets the rollup write be lock-free - and therefore what lets a stuck-lock banner reach the operator through a lock that would previously have suppressed it. Create the `<cwd>/.agentic/` directory if it does not exist.
+
+**Memory path (memory.md):** `<cwd>/.agentic/memory.md`. Same directory as `_wrap.md`. `.agentic/memory.md` is /wrap-internal rolling scratch (written exclusively by /ds-wrap). It is gitignored and is NOT the canonical durable-facts store. The canonical durable-facts store is `<cwd>/MEMORY.md`, loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`).
 
 **Migration note:** Earlier versions of this skill wrote to `~/.claude/projects/[hash]/{context,memory}.md`. If those files exist for the current project but the project-local files do not, copy them once into `<cwd>/.agentic/` before merging. Symlinks at the old hashed location pointing at the new project paths are acceptable - they preserve any platform mechanism that auto-loads from the legacy path while keeping writes gate-free.
 
-**Part A — Write context.md**
+**Part A — Write `_wrap.md` (the curated context)**
 
-The pinned header prefix, the spillover-drain procedure, the `.agentic/wrap/last-wrap` write contract, and the `context.md` rolling-session-label merge algorithm are defined in `content/references/wrap-context-format.md` (the shared normative home cited by both `/ds-wrap` and `/ds-wrap-deferred`). This Part A is the `/ds-wrap`-specific wrapper around that shared algorithm; the algorithm itself is NOT restated here.
+The pinned header prefix, the spillover-drain procedure, the `.agentic/wrap/last-wrap` write contract, and the `_wrap.md` rolling-session-label merge algorithm are defined in `content/references/wrap-context-format.md` (the shared normative home cited by both `/ds-wrap` and `/ds-wrap-deferred`). This Part A is the `/ds-wrap`-specific wrapper around that shared algorithm; the algorithm itself is NOT restated here.
 
-Inside the Part A `context.md` write window (the whole-flow `wrap/lock` acquired at pre-flight is held throughout - see "Pre-flight lock acquisition" and the Step 6 release; Part A introduces no new lock window), run, in this exact order:
+Inside the Part A `_wrap.md` write window (the whole-flow `wrap/lock` acquired at pre-flight is held throughout - see "Pre-flight lock acquisition" and the Step 6 release; Part A introduces no new lock window), run, in this exact order:
 
-1. **Atomic spillover drain** - the 3-step rename-first procedure in `content/references/wrap-context-format.md` §"Spillover-drain procedure": rename `.agentic/wrap/deferred-activity.jsonl` -> `.agentic/wrap/deferred-activity.jsonl.draining.<pid>`, fold its records into the `context.md` activity block (each record carries its own `session_id`, preserving cross-session provenance), then unlink the renamed copy. Apply the Recent-Focus dedup rule from that reference (key the folded draft by `session_id`+`staged_at`; skip a re-folded duplicate) so a duplicate enrichment of the same marker is idempotent.
+1. **Atomic spillover drain** - the 3-step rename-first procedure in `content/references/wrap-context-format.md` §"Spillover-drain procedure": rename `.agentic/wrap/deferred-activity.jsonl` -> `.agentic/wrap/deferred-activity.jsonl.draining.<pid>`, fold its records into `_wrap.md`'s curated `## Recent Focus` region (each record carries its own `session_id`, preserving cross-session provenance), then unlink the renamed copy. Apply the Recent-Focus dedup rule from that reference (key the folded draft by `session_id`+`staged_at`; skip a re-folded duplicate) so a duplicate enrichment of the same marker is idempotent.
 
-2. **Rolling-session-label merge write** of `.agentic/context.md` - the algorithm in `content/references/wrap-context-format.md` §"context.md rolling-session-label merge algorithm" (file-absent / non-/ds-wrap / merge branches, the duplicate-claim dedup, the 1-to-10 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by /ds-wrap` (the matcher contract); no site parses the header date.
+2. **Rolling-session-label merge write** of `.agentic/_wrap.md` - the algorithm in `content/references/wrap-context-format.md` §"`_wrap.md` rolling-session-label merge algorithm" (file-absent / non-/ds-wrap / merge branches, the duplicate-claim dedup, the 1-to-10 label rolling window, and the per-section merge rules). The merged write always begins with the pinned header prefix `# Session Context\n*Written by /ds-wrap` (the matcher contract); no site parses the header date.
 
 3. **Write `.agentic/wrap/last-wrap`** = this session's `session_id` (atomic) - per `content/references/wrap-context-format.md` §"`.agentic/wrap/last-wrap` write contract".
 
@@ -19740,7 +19812,7 @@ Where `$REPO_CWD` is the same absolute cwd of the project Part D already uses. A
 
 **Part E — Compress always-loaded memory files**
 
-Skip Part E entirely if Parts B and C both reported no changes (no new memory entries, no AGENTS.md updates). Nothing changed this session - no need to recompress. Part A always writes context.md and is not a signal of session-meaningful change.
+Skip Part E entirely if Parts B and C both reported no changes (no new memory entries, no AGENTS.md updates). Nothing changed this session - no need to recompress. Part A always writes `_wrap.md` and is not a signal of session-meaningful change.
 
 **Targets:**
 - The `memory.md` file written by Part B (same absolute path computed in Step 4).
@@ -19819,7 +19891,7 @@ Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired hel
 
 **Terminal marker transition (transitions its OWN marker to a retained `done` tombstone on completion).** When Step 0a staged a per-session `.agentic/wrap/pending-<session_id>.json` marker (the daemon guard passed), this synchronous `/ds-wrap` transitions its OWN marker to a retained `done` tombstone on completion so the daemon does not later re-wrap a session the user already wrapped manually. When the Step 0a guard was false (off-Claude, toggle-off, or under the daemon guard), no marker was staged and there is nothing to transition - skip this block entirely. Transition the marker ONLY at true completion:
 
-- **Full success** (context.md written + Part B/C applied + Part E settled, no escalation outstanding): set this session's marker `status: done` AND stamp `wrapped_at: <now ISO8601 UTC>` and RETAIN the marker (do NOT unlink it). The retained `done` tombstone prevents this same session being re-staged after `.agentic/wrap/last-wrap` rolls to a different session; the daemon janitor reaps it after `deferred_wrap_pending_ttl_days`. A partial or escalated run leaves the marker in its pre-Step-6 state so the daemon can complete it later.
+- **Full success** (`_wrap.md` written + Part B/C applied + Part E settled, no escalation outstanding): set this session's marker `status: done` AND stamp `wrapped_at: <now ISO8601 UTC>` and RETAIN the marker (do NOT unlink it). The retained `done` tombstone prevents this same session being re-staged after `.agentic/wrap/last-wrap` rolls to a different session; the daemon janitor reaps it after `deferred_wrap_pending_ttl_days`. A partial or escalated run leaves the marker in its pre-Step-6 state so the daemon can complete it later.
 
 **Part F - Tracker status reconciliation.**
 
@@ -19843,13 +19915,13 @@ Accumulate any `unmatched_state_name` returned by the guard across all detected 
 
 **Soft-fail (absolute).** Any error anywhere in Part F - tracker resolution failure, git call failure, MCP/gh API failure, subagent spawn failure - is swallowed with a one-line stderr log (`[wrap: Part F] <error>`), and Part F moves on to the next key or exits cleanly. Part F NEVER breaks, delays, retries-with-backoff, or blocks `/ds-wrap`'s return to the user. It runs once, best-effort, after the lock is already released - a slow or failing tracker call costs the user nothing beyond Part F's own runtime.
 
-Relay confirmation to the user. Include all paths written (context.md, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), and the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (`_wrap.md`, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), and the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 
 Include compression results from Part E: for each file compressed, list the file path with before and after byte counts (e.g. "memory.md compressed: 4821 -> 2103 bytes"). If Part E was skipped (no changes this session) write "No compression needed (no session changes)." If no targets crossed the gate write "No compression needed (targets below threshold)." If a target failed after 3 re-routes, write "Compression failed for [path] after 3 re-routes - skipped this session."
 
-**Final reminder:** After `/ds-wrap` completes, close the session cleanly so the Stop hook can finish writing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting. <!-- gate-reviewed: about context.md, unaffected by the loop-state/batch-state cadence split -->
+**Final reminder:** After `/ds-wrap` completes, close the session cleanly so the Stop hook can finish writing this session's activity shard and recomposing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting. <!-- gate-reviewed: about context.md, unaffected by the loop-state/batch-state cadence split -->
 
 ---
 

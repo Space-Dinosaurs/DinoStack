@@ -160,7 +160,25 @@ def _read_memory(
 
 
 def _split_turns(text: str) -> list[tuple[str, str]]:
-    """Split context.md into turns using a cascading heuristic."""
+    """Split context.md into turns using a cascading heuristic.
+
+    EXPLICIT NO-CHANGE VERDICT for the shard/rollup migration (DS-107). This is
+    the only STRUCTURAL reader of `.agentic/context.md`, and it needs no edit:
+
+    - Heuristic 1 (``^##\\s+Turn``) does not fire on `context.md` and must never
+      start to. The rollup composer therefore never emits a ``## Turn``-prefixed
+      heading; if it ever did, segmentation would silently switch heuristics.
+      Pinned by AC16 in `hooks/tests/test-context-shard-rollup.js`.
+    - Heuristic 2 (``^---+$``) already fired before the migration, because
+      ACTIVITY_SENTINEL contains a bare ``---``. Under the rollup it keeps firing
+      and gets BETTER: each session's activity block is ``---``-separated, so an
+      N-session rollup yields one segment per session for a subcommand literally
+      named ``turns``.
+
+    Behaviour change worth stating: segment COUNTS grow on a multi-session
+    rollup. Non-destructive and arguably more correct, but a consumer counting
+    segments will see different numbers than before.
+    """
     lines = text.splitlines()
 
     # Heuristic 1: explicit "## Turn" markers

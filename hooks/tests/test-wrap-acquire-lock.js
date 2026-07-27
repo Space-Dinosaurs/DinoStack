@@ -332,15 +332,69 @@ console.log('\n[9] exit 3/4 unreachable — give-up branches removed, never emit
 }
 
 // ---------------------------------------------------------------------------
-// Case 10: no removal call sites in the binary (U3)
+// Case 10: exactly ONE removal call site, and it is the ABANDONED-lock clear
 // ---------------------------------------------------------------------------
-console.log('\n[10] no removal path — binary never calls a lock-removal primitive');
+// NARROWED in DS-106, deliberately. The original U3 contract was "never removes
+// a lock, full stop", which is exactly why a role:'agent' orphan was IMMORTAL:
+// wrapLockVerdict calls that role live unconditionally (it has pid:null by
+// construction, so there is nothing to liveness-check), and the only clear path
+// in the codebase - clearProvablyStaleWrapLock - is called solely by a daemon
+// that `deferred_wrap_daemon: false` (the default) never launches. Measured
+// consequence: a 10.3-hour orphan that silently discarded 49 context.md writes
+// across 6 sessions.
+//
+// The narrowed contract keeps everything U3 was protecting: no raw removal
+// primitive, no give-up-on-age branch, and the daemon's crash-backstop path
+// untouched. The single permitted removal is lib.clearAbandonedWrapLock, which
+// refuses anything it cannot PROVE abandoned (see hooks/tests/test-wrap-lock-
+// abandoned.js for the full row-by-row proof) and announces every clear.
+console.log('\n[10] one removal path — only the PROVABLY-ABANDONED clear, announced');
 {
   const src = fs.readFileSync(SCRIPT_PATH, 'utf8');
-  assert(!/rmSync|unlinkSync|releaseWrapLock|clearProvablyStale|clearDead|clearUnknown/.test(src),
-    'case 10: no rmSync/unlinkSync/releaseWrapLock/clearProvablyStale/clearDead/clearUnknown call site');
+  assert(!/rmSync|unlinkSync|releaseWrapLock|clearDead|clearUnknown/.test(src),
+    'case 10: no raw removal primitive (rmSync/unlinkSync/releaseWrapLock/clearDead/clearUnknown)');
+  assert(!/clearProvablyStaleWrapLock\s*\(/.test(src),
+    "case 10: the daemon's clearProvablyStaleWrapLock is NOT called from this binary");
+  const abandonedCalls = src.match(/clearAbandonedWrapLock\s*\(/g) || [];
+  assert(abandonedCalls.length === 1,
+    `case 10: exactly ONE clearAbandonedWrapLock call site (got: ${abandonedCalls.length})`);
+  assert(/cleared-abandoned-lock/.test(src),
+    'case 10: the self-heal is ANNOUNCED on stdout - a silent clear is the failure mode being fixed');
   const rmDashRfMatches = src.match(/rm -rf/g) || [];
   assert(rmDashRfMatches.length === 1, `case 10: exactly one "rm -rf" occurrence, inside the printed HINT string literal (got: ${rmDashRfMatches.length})`);
+}
+
+// ---------------------------------------------------------------------------
+// Case 10b: the abandoned-clear is behaviourally live in BOTH directions
+// ---------------------------------------------------------------------------
+console.log('\n[10b] abandoned-clear — clears a provable orphan, refuses a live holder');
+{
+  const tmp = makeTmp('wal-case10b-');
+  fs.mkdirSync(lib.wrapLockPath(tmp), { recursive: true });
+  fs.writeFileSync(lib.wrapLockOwnerJsonPath(tmp), JSON.stringify(lib.makeLockDescriptor({
+    role: 'agent', pid: null,
+    acquiredAt: new Date(Date.now() - 5 * 60 * 60 * 1000).toISOString(),
+  })), 'utf8');
+  const { exitCode, stdout } = runHelper(SCRIPT_PATH, [tmp, '--no-wait']);
+  assert(exitCode === 0, `case 10b: a 5h orphan is cleared and acquired (got: ${exitCode})`);
+  assert(stdout.includes('cleared-abandoned-lock'), 'case 10b: the clear is announced');
+  try { lib.releaseWrapLock(tmp); } catch (_) {}
+}
+{
+  const tmp = makeTmp('wal-case10c-');
+  const sid = 'live-holder-session';
+  fs.mkdirSync(lib.wrapLockPath(tmp), { recursive: true });
+  const hb = lib.heartbeatPath(tmp, sid);
+  fs.mkdirSync(path.dirname(hb), { recursive: true });
+  fs.writeFileSync(hb, '', 'utf8');
+  fs.writeFileSync(lib.wrapLockOwnerJsonPath(tmp), JSON.stringify(lib.makeLockDescriptor({
+    role: 'agent', pid: null, sessionId: sid,
+    acquiredAt: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+  })), 'utf8');
+  const { exitCode, stdout } = runHelper(SCRIPT_PATH, [tmp, '--no-wait']);
+  assert(exitCode === 5, `case 10c: a 45m lock with a FRESH heartbeat is busy, not stolen (got: ${exitCode})`);
+  assert(!stdout.includes('cleared-abandoned-lock'), 'case 10c: no clear was announced');
+  assert(fs.existsSync(lib.wrapLockOwnerJsonPath(tmp)), 'case 10c: the live descriptor is intact');
 }
 
 // ---------------------------------------------------------------------------

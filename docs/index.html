@@ -1650,7 +1650,7 @@
           <li><strong>dependency-auditor</strong> - supply-chain review: CVE scanning, license compliance, and lockfile analysis across all detected ecosystems. Read-only; produces a findings brief for the engineer.</li>
           <li><strong>learning-extractor</strong> - per-ticket learning extraction at Phase 6 clean exit. Reads the resolved <code>findings_log</code> and writes structured fix-pattern entries to <code>.agentic/learnings.md</code>. Tier 1 leaf agent; soft-fail only.</li>
           <li><strong>goal-condition-evaluator</strong> - cheap Tier-1 stop-condition check for open-goal loops; gates continuation only, never correctness/safety.</li>
-          <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and <code>.agentic/context.md</code> (Recent Focus only). Constrained automated subset of <code>/ds-wrap</code>; soft-fail only.</li>
+          <li><strong>wrap-ticket</strong> - per-ticket learnings capture at Phase 11b (PR open). Reads the ticket's findings, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and <code>.agentic/_wrap.md</code> (Recent Focus only). Constrained automated subset of <code>/ds-wrap</code>; soft-fail only.</li>
           <li><strong>learnings-agent</strong> - session-scoped background learnings capture. Spawned when the first learning-worthy event occurs in a session. Receives learning events as messages and writes structured entries to <code>.agentic/learnings.md</code> immediately, with optional MEMORY.md append for project-affecting facts. Tier 1 leaf agent; soft-fail only.</li>
         </ul>
       </div>
@@ -1845,7 +1845,7 @@
         <h4>Persistence Hierarchy</h4>
         <ul>
           <li><strong><code>&lt;cwd&gt;/MEMORY.md</code></strong> <span class="load-badge always">always loaded</span> - canonical durable facts about the project, committed to the repo and loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. Stable architecture, key paths, and preferences with rationale.</li>
-          <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. Written by the Stop hook (basic) or <code>/ds-wrap</code> (enriched). Supports rolling-window merge across 10 sessions. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
+          <li><strong><code>.agentic/context.md</code></strong> <span class="load-badge on-demand">on demand</span> - primary session-continuity store, read at session start. <strong>Derived, not written directly:</strong> it is recomposed every turn from <code>.agentic/_wrap.md</code> (the curated region, written by <code>/ds-wrap</code> and supporting the rolling-window merge across 10 sessions) plus one per-session shard in <code>.agentic/context.d/</code> (the activity region, written by the Stop hook). Session-keyed shards mean concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn instead of losing data. Legacy fallback: <code>~/.claude/projects/[hash]/context.md</code>, used only when <code>.agentic/context.md</code> is absent.</li>
           <li><strong>memory/*.md</strong> <span class="load-badge on-demand">on demand</span> - individual memory files with frontmatter (name, description, type). Read on-demand when relevant to the current task.</li>
           <li><strong>Tasks</strong> - in-session progress tracking. Not persisted across sessions.</li>
           <li><strong>Plans</strong> - in-session alignment with user. Not persisted.</li>
@@ -2121,7 +2121,7 @@
       <li><code>context.md</code> holds temporary session state (what's in progress, what's next).</li>
       <li><code>memory.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
       <li><code>AGENTS.md</code> files hold the canonical project description (structure, tools, conventions).</li>
-      <li>The Stop hook auto-writes a basic context.md every turn; <code>/ds-wrap</code> produces the enriched version when detail matters.</li>
+      <li>The Stop hook auto-writes this session's activity shard every turn and recomposes <code>context.md</code> from it; <code>/ds-wrap</code> produces the enriched curated half (<code>_wrap.md</code>) when detail matters.</li>
       <li>Close the session cleanly so the Stop hook can finish writing <code>context.md</code>: in the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state); in the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.</li>
     </ul>
   </div>

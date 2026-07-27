@@ -1,8 +1,8 @@
-## context.md rolling-session-label merge algorithm (NORMATIVE)
+## `_wrap.md` rolling-session-label merge algorithm (NORMATIVE)
 
 The merged write always begins with the pinned header prefix above (the matcher contract); no site parses the header date.
 
-1. Read the file at the `context.md` output path.
+1. Read the file at the `_wrap.md` output path (`.agentic/_wrap.md`).
 
 2. **If the file does not exist**: write the new draft content directly to the output path. Result: "Wrote fresh context to [path] (no existing file)."
 

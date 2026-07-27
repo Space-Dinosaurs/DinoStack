@@ -1,6 +1,6 @@
 ---
 name: learnings-agent
-description: "Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, or any source/config files."
+description: "Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files."
 tools: [read_file, replace, write_file]
 kind: local
 ---
@@ -232,7 +232,9 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
-- `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
+- `.agentic/context.md` (DERIVED rollup - written by nothing directly; recomposed from `.agentic/_wrap.md` plus the `.agentic/context.d/` shards)
+- `.agentic/_wrap.md` (curated context - owned by /ds-wrap and wrap-ticket)
+- `.agentic/context.d/` (per-session activity shards - owned by the Stop hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
 

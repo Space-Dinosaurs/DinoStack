@@ -1184,7 +1184,7 @@ code {
 </tr>
 <tr>
 <td><code>.agentic/context.md</code></td>
-<td>Ephemeral session state - auto-written by the Stop hook</td>
+<td>Ephemeral session state - DERIVED every turn from <code>.agentic/_wrap.md</code> (curated) plus per-session shards in <code>.agentic/context.d/</code> (auto-written by the Stop hook)</td>
 </tr>
 <tr>
 <td><code>MEMORY.md</code></td>
@@ -1603,7 +1603,7 @@ code {
 <ul>
 <li>Updates root AGENTS.md with new decisions</li>
 <li>Creates/updates track AGENTS.md files</li>
-<li>Enriches <code>.agentic/context.md</code> with session summary</li>
+<li>Enriches <code>.agentic/_wrap.md</code> with the session summary, which the derived <code>.agentic/context.md</code> then carries</li>
 <li>Adds stable facts to MEMORY.md</li>
 <li>Promotes recurring or high-blast-radius Skeptic findings to <code>.agentic/findings.md</code></li>
 </ul>

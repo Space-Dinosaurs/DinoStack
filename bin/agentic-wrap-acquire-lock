@@ -10,7 +10,8 @@
  *          previous prose-directed poll loop.
  *
  * Public API: CLI. `agentic-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N]
- *   [--role=agent|daemon|commit] [--no-wait] [--print-token] [--advisory-ms=N]`
+ *   [--role=agent|daemon|commit] [--no-wait] [--print-token] [--advisory-ms=N]
+ *   [--session-id=<uuid>]`
  *   - cwd defaults to process.cwd(). Resolved to absolute via path.resolve.
  *   - --timeout-ms: total wait budget in milliseconds (default 1200000 = 20 min).
  *     A non-finite or negative value falls back to the default (forward guard;
@@ -32,7 +33,18 @@
  *   - --advisory-ms: age threshold (default 1800000 = 30 min) past which a
  *     progress/timeout line escalates to include an operator recovery HINT
  *     (see hintText()). Advisory only - it never gates acquisition.
+ *   - --session-id: this session's uuid, published into the lock descriptor as
+ *     `session_id`. It is the LIVENESS SIGNAL for a role:'agent' lock, which
+ *     carries `pid: null` by construction and therefore has no process to
+ *     liveness-check (see DS-106). Callers source it from CLAUDE_CODE_SESSION_ID
+ *     and ONLY that variable - AGENTIC_SESSION_ID and CLAUDE_SESSION_UUID are
+ *     both measured EMPTY, and bin/agentic-migrate is already silently degraded
+ *     from reading them. OPTIONAL and permissively handled: an absent or empty
+ *     value publishes `session_id: null` and never fails acquisition, so every
+ *     harness that does not export the variable keeps working (degraded to the
+ *     pid-blind age rule, never stealing a live lock).
  *   - Prints exactly one line per poll attempt, then exits:
+ *       "cleared-abandoned-lock <lockPath>"            (once)  self-heal announced
  *       "acquired <lockPath>"                          exit 0  lock acquired
  *       ["token=<uuid>"]                                       (iff --print-token)
  *       "waiting ... elapsed=<N>s"                     (loop)  verdict=live
@@ -58,8 +70,23 @@
  *
  * Design decisions (deliberate, do NOT change without updating wrap.md):
  *
- *   1. NEVER removes a lock, and this is now a STRUCTURAL property, not a
- *      policy choice enforced by a staleness branch. The two retired give-up
+ *   0. The ONE case in which this binary removes a lock is a PROVABLY ABANDONED
+ *      one (lib.clearAbandonedWrapLock), and it is announced on stdout. This is
+ *      deliberately narrower than the staleness branches design decision 1
+ *      retired: "old" is still never a give-up signal, and an old lock is still
+ *      waited on - but a lock whose holder is provably GONE (a role:'agent'
+ *      descriptor whose session stopped heartbeating past ABANDON_MS, or any
+ *      pid-blind descriptor past LEGACY_ABANDON_MS) is not a holder to wait for.
+ *      Before this, nothing on a default install could EVER clear such a lock:
+ *      wrapLockVerdict calls role:'agent' live unconditionally, and the only
+ *      clear path (clearProvablyStaleWrapLock) is called solely by a daemon that
+ *      `deferred_wrap_daemon: false` never launches. Measured consequence: a
+ *      10.3-hour orphan that silently discarded 49 context.md writes across 6
+ *      sessions (DS-106/DS-107).
+ *
+ *   1. NEVER removes a lock EXCEPT per decision 0, and this is otherwise still a
+ *      STRUCTURAL property, not a policy choice enforced by a staleness branch.
+ *      The two retired give-up
  *      exit codes (one for an owner file that could not be parsed, one for a
  *      lock whose owner timestamp looked old) gave up the instant a lock
  *      LOOKED old or unreadable - the exact bug this
@@ -98,7 +125,8 @@
  *
  * Upstream dependencies: hooks/lib/wrap-marker.js (REPO copy, resolved via a
  *   __dirname-relative require so a symlinked bin still loads the repo lib, NOT a
- *   cwd-relative copy). Exports used: acquireWrapLock, wrapLockVerdict, wrapLockPath.
+ *   cwd-relative copy). Exports used: acquireWrapLock, wrapLockVerdict,
+ *   clearAbandonedWrapLock, wrapLockPath.
  *   Node built-ins: path, crypto (for a UUID token; falls back to a Math.random
  *   v4 generator on runtimes without crypto.randomUUID). No npm dependencies.
  *
@@ -180,6 +208,7 @@ function main() {
   let noWait = false;
   let printToken = false;
   let advisoryMs = 1800000; // 30 minutes
+  let sessionId = null;
 
   for (let i = 2; i < process.argv.length; i++) {
     const arg = process.argv[i];
@@ -193,6 +222,13 @@ function main() {
     if (roleMatch) { role = roleMatch[1]; continue; }
     const advMatch = arg.match(/^--advisory-ms=(\d+)$/);
     if (advMatch) { advisoryMs = Number(advMatch[1]); continue; }
+    // PERMISSIVE by design: `(.*)` (not `(.+)`) so `--session-id=` with an empty
+    // value parses to '' rather than falling through unmatched. The lib coerces
+    // '' to null without throwing - see makeLockDescriptor's session_id note.
+    // A fail-loud arm here would make /ds-wrap unusable on every harness that
+    // does not export CLAUDE_CODE_SESSION_ID.
+    const sidMatch = arg.match(/^--session-id=(.*)$/);
+    if (sidMatch) { sessionId = sidMatch[1] || null; continue; }
   }
 
   // Forward guard: the live regex parsers above already reject a non-numeric
@@ -276,12 +312,27 @@ function main() {
     process.stdout.write(line + '\n');
   }
 
+  let clearAnnounced = false;
+
   function attempt() {
+    // 0. Self-heal a PROVABLY ABANDONED lock before attempting acquisition.
+    //    This is the acquire-side clear path (design decision 0) and the reason
+    //    the D1 fix works on the DEFAULT config, where the daemon that owns the
+    //    only other clear path is never launched. It is fail-open and refuses
+    //    anything it cannot prove abandoned, so a live holder is never stolen
+    //    from. Announced once so a self-heal is never silent.
+    try {
+      if (lib.clearAbandonedWrapLock && lib.clearAbandonedWrapLock(cwd) && !clearAnnounced) {
+        clearAnnounced = true;
+        process.stdout.write('cleared-abandoned-lock ' + lockPath + '\n');
+      }
+    } catch (_) { /* fail-open: a failed clear just means we wait as before */ }
+
     // 1. Try to acquire. This is the ONLY signal that gates exit 0 - a verdict
     //    is never used to infer acquisition (see design decision 1).
     let acquired = false;
     try {
-      acquired = lib.acquireWrapLock(cwd, ownerStr, 0, { role, pid: rolePid, token });
+      acquired = lib.acquireWrapLock(cwd, ownerStr, 0, { role, pid: rolePid, token, sessionId });
     } catch (_) {
       acquired = false;
     }

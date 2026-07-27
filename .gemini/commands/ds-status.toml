@@ -24,6 +24,7 @@ No subcommands, no flags. Reads:
 - `<cwd>/AGENTS.md` (project marker; resolves through `CLAUDE.md` `@AGENTS.md` import if present)
 - `<cwd>/.agentic/.activated` (first-activation sentinel)
 - `<cwd>/.agentic/config.json` (project config; surfaces the `deferred_wrap_daemon` toggle - prints its value, or `false` when the file or key is absent)
+- `<cwd>/.agentic/wrap/lock` plus its `owner.json` / `owner` bodies (wrap-lock state: held / abandoned / free, plus the hold age)
 
 ## Output
 
@@ -38,6 +39,11 @@ agentic-engineering status
   active: yes (mode=opt-out + marker=none -> active: opt-out activates everywhere unless a project opts out)
   sentinel: .agentic/.activated (present)
   deferred_wrap_daemon: false (source: .agentic/config.json; out-of-session daemon for deferred /ds-wrap jobs)
+  wrap lock: free
+
+Held examples (only when .agentic/wrap/lock exists):
+  wrap lock: held role=agent session=f176f720-a218-4cac-84a0-1489abe7aa1d age=3m
+  wrap lock: held role=agent session=(none) age=10h18m - past the abandonment threshold; the next `agentic-wrap-acquire-lock` clears it if the holder is gone
 
 DEPRECATED example (only shown when a legacy preset key is present at some scope):
   DEPRECATED: preset key 'strict' (global) resolved to profile=strict; migrate by setting
@@ -90,6 +96,18 @@ the effective value came from:
 - `.agentic/config.json` - the `deferred_wrap_daemon` line comes from the
   project config file; when the file or the key is absent, the line prints the
   documented default (`false`).
+- `.agentic/wrap/lock` - the `wrap lock` line reports `free` when the directory
+  is absent and `held role=... session=... age=...` when it exists, appending a
+  "past the abandonment threshold" note once the hold exceeds 30 minutes (with a
+  session id) or 4 hours (without one). It is **advisory, not authoritative**:
+  it reports observable facts and does not re-derive the abandonment predicate,
+  which lives once in `wrapLockAbandoned` (`hooks/lib/wrap-marker.js`) and is
+  acted on only by `agentic-wrap-acquire-lock`. This line exists because **no
+  operator-invocable command could previously reveal a wedged lock** - the
+  10.3-hour orphan that silently discarded 49 `context.md` writes across 6
+  sessions had to be diagnosed by hand. `context.md` writes are no longer
+  lock-gated, so an abandoned lock is now an inconvenience rather than a
+  data-loss condition, but it still blocks `/ds-wrap` until cleared.
 
 The `active` line carries the derivation that produced the active state -
 the `(mode=... + marker=... -> active|inactive: <reason>)` clause - so it is

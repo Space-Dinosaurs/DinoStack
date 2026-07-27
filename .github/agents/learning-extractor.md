@@ -170,7 +170,9 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `MEMORY.md` (owned by wrap-ticket and /ds-wrap)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
-- `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
+- `.agentic/context.md` (DERIVED rollup - written by nothing directly; recomposed from `.agentic/_wrap.md` plus the `.agentic/context.d/` shards)
+- `.agentic/_wrap.md` (curated context - owned by /ds-wrap and wrap-ticket)
+- `.agentic/context.d/` (per-session activity shards - owned by the Stop hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
 

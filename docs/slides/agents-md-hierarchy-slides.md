@@ -307,7 +307,7 @@ The intent layer extends beyond `AGENTS.md` - each file has a distinct role (see
 |---|---|
 | `docs/overview/vision.md` + `requirements.md` | Operator-owned product intent - agents read, never write |
 | `decisions.md` | Architecture decisions with full rationale |
-| `.agentic/context.md` | Ephemeral session state - auto-written by the Stop hook |
+| `.agentic/context.md` | Ephemeral session state - DERIVED every turn from `.agentic/_wrap.md` (curated) plus per-session shards in `.agentic/context.d/` (auto-written by the Stop hook) |
 | `MEMORY.md` | Stable facts learned across sessions |
 | `.agentic/learnings.md` | Fix-pattern learnings from resolved Skeptic cycles |
 | `.agentic/findings.md` | Curated recurring Skeptic-finding patterns |
@@ -372,7 +372,7 @@ Running /ds-init-project is idempotent - it updates existing files and adds new 
 
 - Updates root AGENTS.md with new decisions
 - Creates/updates track AGENTS.md files
-- Enriches `.agentic/context.md` with session summary
+- Enriches `.agentic/_wrap.md` with the session summary, which the derived `.agentic/context.md` then carries
 - Adds stable facts to MEMORY.md
 - Promotes recurring or high-blast-radius Skeptic findings to `.agentic/findings.md`
 </div>

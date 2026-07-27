@@ -26,7 +26,10 @@
  *     stopDeferredActivityPath(cwd) -> .agentic/wrap/deferred-activity.jsonl
  *   Constants:
  *     SCHEMA_VERSION, MAX_DAEMON_LOG_BYTES (2 MB log rotation cap),
- *     MAX_CHILD_CAPTURE_BYTES (256 KB per-run child-output cap)
+ *     MAX_CHILD_CAPTURE_BYTES (256 KB per-run child-output cap),
+ *     ABANDON_MS (30 min - heartbeat-backed abandonment),
+ *     LEGACY_ABANDON_MS (4 h - pid-blind age fallback),
+ *     STUCK_NOTICE_MS (30 min - rollup banner threshold)
  *   Reads (unguarded):
  *     readMarker(cwd, sessionId), listReadyMarkers(cwd), listInProgressMarkers(cwd),
  *     liveMarkerForSession(cwd, sessionId), readLastWrap(cwd), wrapLockHeld(cwd),
@@ -55,10 +58,16 @@
  *       2-line-body reader only - does not see a JSON descriptor)
  *     readWrapLockOwnerV2(cwd) -> { source:'json'|'legacy'|null, ... } (schema-validated
  *       JSON descriptor reader with legacy fallback; see LOCK CLEAR below)
- *     makeLockDescriptor({role, pid, token, acquiredAt}) -> descriptor object (the SOLE
- *       producer of the JSON descriptor shape; throws TypeError on an invalid role/pid)
+ *     makeLockDescriptor({role, pid, token, acquiredAt, sessionId}) -> descriptor object
+ *       (the SOLE producer of the JSON descriptor shape; throws TypeError on an invalid
+ *       role/pid/token, but NEVER on sessionId - see the LOCK LIVENESS note below)
  *     wrapLockVerdict(cwd) -> { verdict: 'free'|'live'|'dead'|'unknown', ... } (total,
  *       time-independent liveness predicate; see LOCK CLEAR below)
+ *     wrapLockAbandoned(cwd, opts) -> boolean (TIME-dependent abandonment predicate,
+ *       deliberately SEPARATE from wrapLockVerdict's no-arithmetic invariant; see the
+ *       LOCK LIVENESS note below)
+ *     clearAbandonedWrapLock(cwd, opts) -> boolean (ACQUIRE-side self-heal; works on
+ *       the default config, unlike the daemon-only clearProvablyStaleWrapLock)
  *     clearProvablyStaleWrapLock(cwd, staleMs) -> boolean (daemon-side stale-lock clear)
  *     wrapLockProvablyStale(cwd, staleMs) -> boolean (staleness predicate, NEW path)
  *     wrapLockProvablyStaleLegacy(cwd, staleMs) -> boolean (staleness predicate, OLD path)
@@ -154,6 +163,26 @@
  *                any finite TTL is a lock-steal with extra steps). wrapLockVerdict never
  *                performs an arithmetic time comparison; `ageMs` is computed only after
  *                the verdict is already decided, purely for callers' log messages.
+ *                LOCK LIVENESS (DS-106): "role:'agent' is unconditionally live forever"
+ *                is exactly why an abandoned interactive lock used to be IMMORTAL -
+ *                measured live at 10.3 h, during which 49 context.md writes across 6
+ *                sessions were silently discarded. wrapLockAbandoned is the additive
+ *                fix: a SEPARATE, time-dependent predicate that never touches any of
+ *                wrapLockVerdict's 14 rows nor its no-arithmetic invariant. Its liveness
+ *                signal is the descriptor's `session_id` + that session's heartbeat file
+ *                (Arm A), NOT a pid - putting a real pid in the agent descriptor would
+ *                arm releaseWrapLock's tokenless refuse branch (which keys on
+ *                `o.pid !== null`) and make /ds-wrap, which releases WITHOUT a token,
+ *                leak a lock on every single run. Arm B is the pid-blind 4 h age
+ *                fallback for a descriptor with no session_id, no heartbeat file, or a
+ *                legacy 2-line body. `session_id` validation in makeLockDescriptor is
+ *                PERMISSIVE (coerce to null, never throw) because that constructor runs
+ *                inside acquireWrapLock's try whose catch removes the lock dir and
+ *                returns false - a fail-loud validation would make /ds-wrap refuse to
+ *                run on every harness that does not export CLAUDE_CODE_SESSION_ID.
+ *                clearAbandonedWrapLock is the ACQUIRE-side clear path; the daemon-only
+ *                clearProvablyStaleWrapLock is dead on the default config
+ *                (`deferred_wrap_daemon: false` never launches the daemon).
  *
  * NOTE: `if (releaseWrapLock(cwd))` is a correctness hazard as of U1 - releaseWrapLock
  *       now returns one of five STRINGS ('absent'|'released'|'refused-not-a-lock'|
@@ -922,11 +951,22 @@ function readGuardedFile(lockPath, leafPath, maxBytes) {
  * correctly DETECTS as invalid (falls back to legacy/unknown), it does not
  * prevent an invalid descriptor from being constructed.
  *
- * @param {{role: 'agent'|'daemon'|'commit', pid?: number|null, token?: string|null, acquiredAt?: string|null}} params
+ * `sessionId` is the ONE field validated PERMISSIVELY rather than fail-loud, and
+ * the departure is deliberate (see the module manifest's LOCK LIVENESS note).
+ * This constructor is called INSIDE acquireWrapLock's try block, whose catch
+ * removes the lock directory and returns false. A throwing session_id validation
+ * would therefore convert an unset CLAUDE_CODE_SESSION_ID into an acquisition
+ * FAILURE - i.e. /ds-wrap would refuse to run on every harness that does not
+ * export that variable. `session_id` is an OPTIONAL liveness hint with a defined
+ * safe fallback (the pid-blind age rule in wrapLockAbandoned's Arm B), whereas
+ * `role`/`pid`/`token` are correctness-critical. Empty/absent/non-string
+ * coerces to null; a non-empty string is trimmed and kept.
+ *
+ * @param {{role: 'agent'|'daemon'|'commit', pid?: number|null, token?: string|null, acquiredAt?: string|null, sessionId?: string|null}} params
  * @throws {TypeError} on an out-of-enum role, a non-null non-positive-integer pid,
- *   or a non-null non-string (or empty-string) token.
+ *   or a non-null non-string (or empty-string) token. NEVER throws on sessionId.
  */
-function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null } = {}) {
+function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null, sessionId = null } = {}) {
   if (!LOCK_DESCRIPTOR_ROLES.includes(role)) {
     throw new TypeError(
       'makeLockDescriptor: role must be one of ' + LOCK_DESCRIPTOR_ROLES.join('/') + ' (got: ' + role + ')'
@@ -938,6 +978,8 @@ function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null 
   if (token !== null && !(typeof token === 'string' && token.length > 0)) {
     throw new TypeError('makeLockDescriptor: token must be null or a non-empty string (got: ' + JSON.stringify(token) + ')');
   }
+  // PERMISSIVE by design - never throws. See the doc block above.
+  const session_id = safeSessionId(sessionId);
   return {
     schema_version: 1,
     role,
@@ -945,6 +987,7 @@ function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null 
     host: os.hostname(),
     acquired_at: acquiredAt || new Date().toISOString(),
     token,
+    session_id,
   };
 }
 
@@ -985,7 +1028,7 @@ function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null 
  * @param {string} cwd
  * @param {string|number|null} [owner] - Legacy 2-line body content (verbatim).
  * @param {number} [staleMs] - INERT positional slot; retained for compatibility.
- * @param {{role: 'agent'|'daemon'|'commit', pid?: number|null, token?: string|null}} [opts]
+ * @param {{role: 'agent'|'daemon'|'commit', pid?: number|null, token?: string|null, sessionId?: string|null}} [opts]
  */
 function acquireWrapLock(cwd, owner, staleMs, opts) {
   const safe = safeCwd(cwd);
@@ -1248,9 +1291,18 @@ function readWrapLockOwner(cwd) {
  * unconditional signal.
  *
  * Returns one of:
- *   { source: 'json', role, pid, host, acquired_at, token }
+ *   { source: 'json', role, pid, host, acquired_at, token, session_id }
  *   { source: 'legacy', pid, ts }
  *   { source: null }
+ *
+ * WRITER/READER-TOGETHER CONSTRAINT (do not split): `session_id` MUST appear in
+ * the returned shape whenever makeLockDescriptor writes it. If the writer adds
+ * the field and this reader's returned object does not carry it, the value is
+ * silently dropped, wrapLockAbandoned sees `undefined`, and Arm A is inert with
+ * NO error anywhere - a silent degradation in exactly the class this reader's
+ * validation exists to prevent. `session_id` is validated ADDITIVELY-OPTIONAL:
+ * a pre-upgrade descriptor with no `session_id` key still validates (and yields
+ * null), so an old descriptor is never rejected into the legacy fallback.
  *
  * @param {string} cwd
  */
@@ -1272,9 +1324,20 @@ function readWrapLockOwnerV2(cwd) {
       && (d.pid === null || (Number.isInteger(d.pid) && d.pid > 0))
       && typeof d.host === 'string' && d.host.length > 0
       && typeof d.acquired_at === 'string' && tsMs(d.acquired_at) !== null
-      && (d.token === null || (typeof d.token === 'string' && d.token.length > 0));
+      && (d.token === null || (typeof d.token === 'string' && d.token.length > 0))
+      // Additive-optional: absent (pre-upgrade descriptor) and null both pass.
+      && (d.session_id === undefined || d.session_id === null
+          || (typeof d.session_id === 'string' && d.session_id.length > 0));
     if (valid) {
-      return { source: 'json', role: d.role, pid: d.pid, host: d.host, acquired_at: d.acquired_at, token: d.token };
+      return {
+        source: 'json',
+        role: d.role,
+        pid: d.pid,
+        host: d.host,
+        acquired_at: d.acquired_at,
+        token: d.token,
+        session_id: safeSessionId(d.session_id),
+      };
     }
     // Falls through to the legacy reader below - an invalid/corrupt JSON
     // descriptor must NOT be trusted, but a legacy owner file may still exist.
@@ -1440,6 +1503,172 @@ function clearProvablyStaleWrapLock(cwd, staleMs) {
 }
 
 // ---------------------------------------------------------------------------
+// Abandoned-lock detection (D1)
+// ---------------------------------------------------------------------------
+
+/**
+ * Age past which a role:'agent' lock whose session has STOPPED heartbeating is
+ * considered abandoned. Mirrors session-start-wrap.sh's STALE_MS.
+ */
+const ABANDON_MS = 30 * 60 * 1000;
+
+/**
+ * Age past which a PID-BLIND lock carrying NO usable liveness signal at all
+ * (no session_id, or a session_id with no heartbeat file) is considered
+ * abandoned. Deliberately far above any plausible /ds-wrap run, and well below
+ * the 10.3h orphan this fix exists to prevent.
+ */
+const LEGACY_ABANDON_MS = 4 * 60 * 60 * 1000;
+
+/** Age past which the rollup composer emits a WRAP-LOCK-STUCK banner. */
+const STUCK_NOTICE_MS = ABANDON_MS;
+
+/**
+ * Decide whether the wrap/lock is ABANDONED - i.e. its holder is gone and no
+ * process or session will ever release it. This is the D1 fix: wrapLockVerdict
+ * returns 'live' UNCONDITIONALLY for role:'agent' (row 10) because such a
+ * descriptor carries `pid: null` by construction, so there is no process to
+ * liveness-check and the verdict can never go stale. Without this predicate an
+ * abandoned interactive lock is IMMORTAL - measured live at 10.3 hours, during
+ * which 49 context.md writes across 6 sessions were silently discarded.
+ *
+ * DELIBERATELY NOT PART OF wrapLockVerdict. That function carries a MANDATORY
+ * no-arithmetic invariant (see its doc block): no `>`, `<`, or `Date.now()`
+ * appears in it, which is what makes it total and time-independent. Abandonment
+ * is inherently a time comparison, so it lives here instead - a separate,
+ * additive predicate that never changes any of wrapLockVerdict's 14 rows.
+ *
+ * Two arms:
+ *
+ *   Arm A (session heartbeat) - requires a role:'agent' JSON descriptor with a
+ *     non-null `session_id` AND an EXISTING heartbeat file for that session.
+ *     ABANDONED iff the heartbeat is stale beyond `abandonMs` AND the lock has
+ *     itself been held longer than `abandonMs` (the second conjunct protects a
+ *     single long turn that has not yet emitted its next heartbeat).
+ *
+ *   Arm B (pid-blind age) - the fallback whenever Arm A cannot apply: no
+ *     descriptor, no session_id, or a session_id with NO heartbeat file. Also
+ *     covers the legacy 2-line owner body (row 6, pid-blind 'live'). ABANDONED
+ *     iff the lock is older than `legacyAbandonMs`.
+ *
+ * FAIL-SAFE in both directions. Arm A requires the heartbeat file to EXIST, so
+ * any adapter that never writes one (or any pre-upgrade descriptor) degrades to
+ * Arm B's much more conservative 4h rule rather than stealing a live lock. A
+ * dead-pid daemon/commit lock is NOT this function's business - wrapLockVerdict
+ * already classifies it 'dead' and clearProvablyStaleWrapLock removes it.
+ *
+ * Fail-open: false (never throws, never wrongly reports abandonment).
+ *
+ * @param {string} cwd
+ * @param {{abandonMs?: number, legacyAbandonMs?: number}} [opts]
+ * @returns {boolean}
+ */
+function wrapLockAbandoned(cwd, opts) {
+  try {
+    const o = opts || {};
+    const abandonMs = (typeof o.abandonMs === 'number' && o.abandonMs >= 0) ? o.abandonMs : ABANDON_MS;
+    const legacyAbandonMs = (typeof o.legacyAbandonMs === 'number' && o.legacyAbandonMs >= 0)
+      ? o.legacyAbandonMs
+      : LEGACY_ABANDON_MS;
+
+    const safe = safeCwd(cwd);
+    if (!safe) return false;
+
+    // Only a confirmed real lock DIRECTORY can be abandoned. A symlink or a
+    // plain file at the lock path is a hostile/foreign artifact - refuse.
+    let st;
+    try { st = fs.lstatSync(wrapLockPath(safe)); } catch (_) { return false; }
+    if (st.isSymbolicLink() || !st.isDirectory()) return false;
+
+    const owner = readWrapLockOwnerV2(safe);
+
+    if (owner.source === 'json') {
+      // daemon/commit descriptors carry a real pid; liveness (not age) governs
+      // them and wrapLockVerdict already decides it. Never age them out here.
+      if (owner.role !== 'agent') return false;
+
+      const ageMs = ageMsFromTs(owner.acquired_at);
+      if (ageMs === null) return false; // unparseable timestamp -> no signal -> KEEP
+
+      const sid = safeSessionId(owner.session_id);
+      if (sid) {
+        const hbPath = heartbeatPath(safe, sid);
+        let hbExists = false;
+        try { hbExists = !!hbPath && fs.existsSync(hbPath); } catch (_) { hbExists = false; }
+        if (hbExists) {
+          // Arm A. A fresh heartbeat is authoritative-LIVE regardless of age.
+          if (heartbeatFresh(safe, sid, abandonMs)) return false;      // row A1
+          return ageMs > abandonMs;                                     // rows A2 / A3
+        }
+        // row A4: session_id present but no heartbeat file -> Arm B.
+      }
+      // row A5: no session_id (pre-upgrade descriptor / adapter without the
+      // env var) -> Arm B.
+      return ageMs > legacyAbandonMs;
+    }
+
+    if (owner.source === 'legacy') {
+      // Row L1 (2-line interactive body): pid-blind, so age is the only signal.
+      // Row L2 (1-line daemon body, ts === null) is pid-checkable and belongs to
+      // clearProvablyStaleWrapLock, not here.
+      if (owner.ts === null) return false;
+      const ageMs = ageMsFromTs(owner.ts);
+      if (ageMs === null) return false; // row L3: garbled ts -> KEEP
+      return ageMs > legacyAbandonMs;
+    }
+
+    // source === null: no usable owner signal at all. This is the
+    // mkdir-before-owner race window an interactive /ds-wrap passes through -
+    // KEEP (row L3 semantics).
+    return false;
+  } catch (_) {
+    return false; // fail-open: never wrongly report abandonment
+  }
+}
+
+/**
+ * Remove an ABANDONED wrap/lock directory. Returns true IFF a real abandoned
+ * lock directory was removed; false otherwise. Never throws (fail-open).
+ *
+ * This is the ACQUIRE-SIDE self-heal that makes the fix work on the DEFAULT
+ * config. Its sibling clearProvablyStaleWrapLock is only ever called from
+ * wrap-daemon.js, which `deferred_wrap_daemon: false` (the default) never
+ * launches - so on a default install NOTHING could clear an abandoned lock.
+ * That is why this is a parallel path rather than a rewiring of the daemon's
+ * crash-backstop semantics.
+ *
+ * SECURITY (CWE-59): mirrors clearProvablyStaleWrapLock's symlink discipline -
+ * lstat no-follow, a symlink AT the lock path is unlinked (link only, never its
+ * target) and reported as NOT a clear, a plain file is left alone.
+ *
+ * @param {string} cwd
+ * @param {{abandonMs?: number, legacyAbandonMs?: number}} [opts]
+ * @returns {boolean}
+ */
+function clearAbandonedWrapLock(cwd, opts) {
+  try {
+    const safe = safeCwd(cwd);
+    if (!safe) return false;
+    const lockPath = wrapLockPath(safe);
+
+    let st;
+    try { st = fs.lstatSync(lockPath); } catch (_) { return false; }
+    if (st.isSymbolicLink()) {
+      try { fs.unlinkSync(lockPath); } catch (_) {}
+      return false; // removed a hostile artifact, not a real lock
+    }
+    if (!st.isDirectory()) return false;
+
+    if (!wrapLockAbandoned(safe, opts)) return false;
+
+    fs.rmSync(lockPath, { recursive: true, force: true });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Heartbeat
 // ---------------------------------------------------------------------------
 
@@ -1486,6 +1715,9 @@ module.exports = {
   SCHEMA_VERSION,
   MAX_DAEMON_LOG_BYTES,
   MAX_CHILD_CAPTURE_BYTES,
+  ABANDON_MS,
+  LEGACY_ABANDON_MS,
+  STUCK_NOTICE_MS,
   // paths
   markerPath,
   lastWrapPath,
@@ -1529,6 +1761,8 @@ module.exports = {
   readWrapLockOwnerV2,
   makeLockDescriptor,
   wrapLockVerdict,
+  wrapLockAbandoned,
+  clearAbandonedWrapLock,
   clearProvablyStaleWrapLock,
   wrapLockProvablyStale,
   wrapLockProvablyStaleLegacy,
