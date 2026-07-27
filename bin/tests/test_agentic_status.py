@@ -39,6 +39,7 @@ _role_models_status_block = _mod._role_models_status_block
 _telemetry_health_block = _mod._telemetry_health_block
 _how_to_adjust_block = _mod._how_to_adjust_block
 _telemetry_health_line = _mod._telemetry_health_line
+_wrap_lock_line = _mod._wrap_lock_line
 main = _mod.main
 
 _EXPECTED_VARS = ("PI_HARNESS", "OMP_HARNESS", "OH_MY_PI_HARNESS", "AGENTIC_HARNESS")
@@ -882,6 +883,103 @@ def test_main_output_shows_failures(monkeypatch, tmp_path, capsys):
     out = capsys.readouterr().out
     assert "5 write failure(s)" in out
     assert "events.jsonl" in out
+
+
+# ---------------------------------------------------------------------------
+# wrap-lock advisory line (DS-106)
+# ---------------------------------------------------------------------------
+# This line is the ONLY operator-invocable way to see a wedged wrap lock: the
+# 10.3-hour orphan that silently discarded 49 context.md writes across 6 sessions
+# had to be diagnosed by hand, file by file, because /ds-status surfaced only the
+# deferred_wrap_daemon toggle.
+
+
+def _chdir(monkeypatch, path: Path):
+    monkeypatch.chdir(path)
+
+
+def test_wrap_lock_free_when_absent(monkeypatch, tmp_path):
+    _chdir(monkeypatch, tmp_path)
+    assert _wrap_lock_line() == "wrap lock: free"
+
+
+def test_wrap_lock_reports_held_with_role_session_and_age(monkeypatch, tmp_path):
+    import datetime
+    lock = tmp_path / ".agentic" / "wrap" / "lock"
+    lock.mkdir(parents=True)
+    started = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(minutes=3)
+    (lock / "owner.json").write_text(json.dumps({
+        "schema_version": 1, "role": "agent", "pid": None, "host": "h",
+        "acquired_at": started.isoformat().replace("+00:00", "Z"),
+        "token": None, "session_id": "abc-123",
+    }), encoding="utf-8")
+    _chdir(monkeypatch, tmp_path)
+    line = _wrap_lock_line()
+    assert line.startswith("wrap lock: held role=agent session=abc-123 age=")
+    assert "past the abandonment threshold" not in line
+
+
+def test_wrap_lock_flags_past_threshold(monkeypatch, tmp_path):
+    import datetime
+    lock = tmp_path / ".agentic" / "wrap" / "lock"
+    lock.mkdir(parents=True)
+    started = datetime.datetime.now(datetime.timezone.utc) - datetime.timedelta(hours=10, minutes=18)
+    (lock / "owner.json").write_text(json.dumps({
+        "schema_version": 1, "role": "agent", "pid": None, "host": "h",
+        "acquired_at": started.isoformat().replace("+00:00", "Z"),
+        "token": None, "session_id": None,
+    }), encoding="utf-8")
+    _chdir(monkeypatch, tmp_path)
+    line = _wrap_lock_line()
+    # The exact shape of the live incident.
+    assert "session=(none)" in line
+    assert "age=10h18m" in line
+    assert "past the abandonment threshold" in line
+
+
+def test_wrap_lock_plain_file_is_wedged_not_free(monkeypatch, tmp_path):
+    """A non-directory at the lock path makes acquisition fail FOREVER.
+
+    mkdir-based acquisition returns EEXIST and releaseWrapLock refuses it
+    ('refused-not-a-lock'), so nothing in the system can clear it. Reporting it
+    as "free" from the command added to reveal wedges would hide the one wedge
+    that genuinely needs a human.
+    """
+    wrap = tmp_path / ".agentic" / "wrap"
+    wrap.mkdir(parents=True)
+    (wrap / "lock").write_text("not a dir", encoding="utf-8")
+    _chdir(monkeypatch, tmp_path)
+    line = _wrap_lock_line()
+    assert line != "wrap lock: free"
+    assert "WEDGED" in line
+    assert "non-directory" in line
+
+
+def test_wrap_lock_symlink_is_wedged_not_free(monkeypatch, tmp_path):
+    wrap = tmp_path / ".agentic" / "wrap"
+    wrap.mkdir(parents=True)
+    target = tmp_path / "elsewhere"
+    target.mkdir()
+    (wrap / "lock").symlink_to(target)
+    _chdir(monkeypatch, tmp_path)
+    line = _wrap_lock_line()
+    assert line != "wrap lock: free"
+    assert "WEDGED" in line
+    assert "symlink" in line
+
+
+def test_wrap_lock_unparseable_owner_does_not_crash(monkeypatch, tmp_path):
+    lock = tmp_path / ".agentic" / "wrap" / "lock"
+    lock.mkdir(parents=True)
+    (lock / "owner.json").write_text("{not json", encoding="utf-8")
+    _chdir(monkeypatch, tmp_path)
+    assert "wrap lock:" in _wrap_lock_line()
+
+
+def test_wrap_lock_line_appears_in_main_output(monkeypatch, tmp_path, capsys):
+    _chdir(monkeypatch, tmp_path)
+    main([])
+    assert "wrap lock:" in capsys.readouterr().out
 
 
 # ---------------------------------------------------------------------------

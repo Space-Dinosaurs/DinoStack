@@ -247,6 +247,14 @@ console.log('\n--- AC15: --session-id flag and env-var trap ---');
   // CLAUDE_SESSION_UUID are both measured EMPTY - do not read them"), which is a
   // gate that fails on its own correct implementation. What must never appear is
   // a shell expansion, a process.env access, or an os.environ.get of either name.
+  //
+  // NOTE FOR ANYONE RECONCILING THIS WITH THE PLAN: the plan's §9 verification
+  // script asserts the BARE NAMES are absent from these two files. That form
+  // emits a FALSE POSITIVE against this (correct) implementation, because both
+  // files deliberately NAME the dead variables in prose in order to forbid them.
+  // Do NOT "fix" the implementation by deleting that documentation to satisfy
+  // the bare-name gate - the documentation is the point, and this scoped
+  // assertion is the one that actually holds.
   const DEAD_VAR_READ = /(?:\$\{?|process\.env(?:iron)?\.|environ\.get\(\s*['"]|env\[['"])(?:AGENTIC_SESSION_ID|CLAUDE_SESSION_UUID)/;
   const acquireSrc = fs.readFileSync(ACQUIRE, 'utf8');
   const wrapMd = fs.readFileSync(path.join(REPO, 'content', 'commands', 'ds-wrap.md'), 'utf8');

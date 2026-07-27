@@ -611,7 +611,28 @@ def _wrap_lock_line() -> str:
     """
     lock_dir = Path.cwd() / ".agentic" / "wrap" / "lock"
     try:
+        # SYMLINK CHECK FIRST, and no-follow - mirroring the lstat discipline in
+        # hooks/lib/wrap-marker.js. `is_dir()` FOLLOWS symlinks, so a
+        # symlink-to-directory would otherwise be reported as an ordinary held
+        # lock while the lib (which lstats no-follow) refuses to read its owner.
+        if lock_dir.is_symlink():
+            return (
+                "wrap lock: WEDGED - a symlink sits at .agentic/wrap/lock; "
+                "acquisition fails forever and release refuses it. Remove the link manually."
+            )
         if not lock_dir.is_dir():
+            # A NON-DIRECTORY at the lock path is a wedge, not a free lock.
+            # `acquireWrapLock` uses mkdir for exclusion, so a plain file there
+            # makes every acquisition fail with EEXIST forever, while
+            # `releaseWrapLock` refuses to remove it ('refused-not-a-lock')
+            # precisely because it is not our lock. Reporting that as "free" from
+            # the one command added to REVEAL wedges would hide the hardest wedge
+            # of the set - it needs manual removal and nothing else will say so.
+            if lock_dir.exists():
+                return (
+                    "wrap lock: WEDGED - a non-directory file sits at .agentic/wrap/lock; "
+                    "acquisition fails forever and release refuses it. Remove it manually."
+                )
             return "wrap lock: free"
     except OSError:
         return "wrap lock: unknown (unreadable)"

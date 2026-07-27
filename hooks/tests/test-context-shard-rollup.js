@@ -328,7 +328,8 @@ const AC25_FIXTURE = [
     `AC25: the quoted sentinel (offset ${firstSentinel}) is NOT the region boundary (offset ${realRegion})`);
 
   const migrated = R.migrateIfNeeded(cwd);
-  assert(migrated === true, 'migration ran once');
+  assert(migrated.migrated === true && migrated.failed === false,
+    'migration ran once and every write landed');
   const seed = fs.readFileSync(R.curatedPath(cwd), 'utf8');
 
   const srcHead = AC25_FIXTURE.split('\n').slice(0, 2).join('\n');
@@ -346,7 +347,7 @@ const AC25_FIXTURE = [
 
   // Idempotence: a second call must be a no-op.
   const before = fs.readFileSync(R.curatedPath(cwd), 'utf8');
-  assert(R.migrateIfNeeded(cwd) === false, 'migration is guarded by _wrap.md existence');
+  assert(R.migrateIfNeeded(cwd).migrated === false, 'migration is guarded by _wrap.md existence');
   assert(fs.readFileSync(R.curatedPath(cwd), 'utf8') === before, 'migration is idempotent');
 }
 
@@ -366,8 +367,99 @@ const AC25_FIXTURE = [
   // Empty / whitespace-only existing file: no migration, no crash.
   const cwd = makeProject();
   fs.writeFileSync(R.rollupPath(cwd), '   \n\n');
-  assert(R.migrateIfNeeded(cwd) === false, 'migration: whitespace-only context.md is a no-op');
+  assert(R.migrateIfNeeded(cwd).migrated === false, 'migration: whitespace-only context.md is a no-op');
   assert(!fs.existsSync(R.curatedPath(cwd)), 'migration: no _wrap.md seeded from an empty file');
+}
+
+// ---------------------------------------------------------------------------
+// ABORT-BEFORE-OVERWRITE: a failed save must never be followed by the
+// destructive rollup write (Skeptic round 1, Critical)
+// ---------------------------------------------------------------------------
+// The failure this pins is NOT "one turn is lost". Migration is guarded by the
+// derived marker, so once a marked rollup lands it NEVER runs again: a seed
+// write that fails while the rollup write succeeds destroys the curated region
+// PERMANENTLY, silently, one-way - the opposite of every other failure mode in
+// this module. Both cases below inject a REAL fs failure at the exact write, not
+// a mocked return value.
+console.log('\n--- abort-before-overwrite: a failed save blocks the overwrite ---');
+
+/** Make writes to any path whose basename matches `victim` fail with EACCES. */
+function withFailingWrite(victim, fn) {
+  const realWriteFile = fs.writeFileSync;
+  const realRename = fs.renameSync;
+  // The module writes via tmp + rename, so fail the RENAME onto the victim -
+  // that is the step that actually publishes the file.
+  fs.renameSync = function (from, to) {
+    if (String(to).endsWith(victim)) {
+      const e = new Error('EACCES: permission denied (injected)');
+      e.code = 'EACCES';
+      throw e;
+    }
+    return realRename.apply(fs, arguments);
+  };
+  try { return fn(); } finally {
+    fs.writeFileSync = realWriteFile;
+    fs.renameSync = realRename;
+  }
+}
+
+{
+  // Case 1: SEED failure at migration time. The curated body lives only in
+  // context.md until _wrap.md is written.
+  const cwd = makeProject();
+  const curatedBody = '# Session Context\n*Written by /ds-wrap on 2026-07-26.*\n\n'
+    + '## Recent Focus\n[Session A] IRREPLACEABLE CURATED WORK\n';
+  fs.writeFileSync(R.rollupPath(cwd), curatedBody);
+  R.writeShard(cwd, 'sess-fail', '- a turn\n');
+
+  const res = withFailingWrite('_wrap.md', () => R.regenerateRollup(cwd, { banner: null }));
+
+  assert(res.written === false, 'seed failure: the rollup write is ABORTED, not attempted');
+  assert(!fs.existsSync(R.curatedPath(cwd)), 'seed failure: _wrap.md was genuinely not created');
+  const after = fs.readFileSync(R.rollupPath(cwd), 'utf8');
+  assert(after === curatedBody,
+    'seed failure: context.md still holds the curated body byte-for-byte - it is the '
+    + 'ONLY surviving copy, so overwriting it would be permanent loss');
+
+  // And the whole thing self-heals on the very next turn, once writes work.
+  const res2 = R.regenerateRollup(cwd, { banner: null });
+  assert(res2.migrated === true && res2.written === true, 'self-heal: the next turn migrates and writes');
+  assert(fs.readFileSync(R.curatedPath(cwd), 'utf8').includes('IRREPLACEABLE CURATED WORK'),
+    'self-heal: the curated body reaches _wrap.md intact');
+}
+{
+  // Case 2: FOREIGN-PRESERVATION failure in steady state. An unported adapter's
+  // block lives only in context.md until _foreign.md is written.
+  const cwd = makeProject();
+  fs.writeFileSync(R.curatedPath(cwd), '# Session Context\n*Written by /ds-wrap on 2026-07-26.*\n\ncurated\n');
+  const withForeign = '# Session Context\n*Written by /ds-wrap on 2026-07-26.*\n\ncurated'
+    + SENTINEL + '*Auto-appended by Stop hook - 2026-07-26.*\n\nIRREPLACEABLE ADAPTER BLOCK\n';
+  fs.writeFileSync(R.rollupPath(cwd), withForeign);
+  R.writeShard(cwd, 'sess-fp', '- a turn\n');
+
+  const res = withFailingWrite('_foreign.md', () => R.regenerateRollup(cwd, { banner: null }));
+
+  assert(res.written === false, 'preservation failure: the rollup write is ABORTED');
+  assert(fs.readFileSync(R.rollupPath(cwd), 'utf8') === withForeign,
+    'preservation failure: the adapter block is still on disk in context.md');
+
+  const res2 = R.regenerateRollup(cwd, { banner: null });
+  assert(res2.foreign === true && res2.written === true, 'self-heal: the next turn preserves and writes');
+  assert(fs.readFileSync(R.foreignPath(cwd), 'utf8').includes('IRREPLACEABLE ADAPTER BLOCK'),
+    'self-heal: the adapter block reaches _foreign.md intact');
+}
+{
+  // The unmarked suffix must be preserved EXACTLY ONCE. Migration classifies the
+  // whole pre-existing file, so the steady-state check must not re-preserve it.
+  const cwd = makeProject();
+  fs.writeFileSync(R.rollupPath(cwd),
+    '# Session Context\n*Written by /ds-wrap on 2026-07-26.*\n\ncurated'
+    + SENTINEL + '*Auto-appended by Stop hook - 2026-07-26.*\n\nUNMARKED SUFFIX BLOCK\n');
+  R.writeShard(cwd, 'sess-dup', '- a turn\n');
+  R.regenerateRollup(cwd, { banner: null });
+  const foreign = fs.readFileSync(R.foreignPath(cwd), 'utf8');
+  const n = (foreign.match(/UNMARKED SUFFIX BLOCK/g) || []).length;
+  assert(n === 1, `migration preserves the unmarked suffix exactly once (got ${n})`);
 }
 
 // ---------------------------------------------------------------------------
@@ -438,6 +530,86 @@ console.log('\n--- AC16: agentic-memory segmentation ---');
     `AC16: segments (${segments}) == 1 + fences (${fences}) - a relationship, not a magnitude`);
   assert(fences === 3,
     `AC16: 3 session shards produce 3 fences (1 sentinel + 2 inter-block), got ${fences}`);
+}
+
+// ---------------------------------------------------------------------------
+// AC8 - the bounded-degradation guarantee (Skeptic round 1, Major: this AC had
+// ZERO automated coverage and its falsifying mutation passed the whole suite)
+// ---------------------------------------------------------------------------
+// The plan calls the banner "a guarantee and not a hope". Without a gate it was
+// a hope. The stated falsifying mutation is "gate the banner on
+// deferredDaemonEnabled" - which would restore silence on the DEFAULT config,
+// i.e. the original bug: writes discarded AND nothing said, for 12 hours.
+//
+// Note these cases deliberately do NOT pass `{banner: null}`. Every other test
+// here suppresses the banner to keep output stable; that is exactly why the
+// mutation survived, so these exercise the real default path.
+console.log('\n--- AC8: the WRAP-LOCK-STUCK banner is unsuppressible ---');
+
+/** Plant an abandoned role:'agent' lock of the given age. */
+function plantAbandonedLock(cwd, ageMs, sessionId) {
+  const wm = require('../lib/wrap-marker.js');
+  fs.mkdirSync(wm.wrapLockPath(cwd), { recursive: true });
+  fs.writeFileSync(wm.wrapLockOwnerJsonPath(cwd), JSON.stringify(wm.makeLockDescriptor({
+    role: 'agent',
+    pid: null,
+    sessionId: sessionId || null,
+    acquiredAt: new Date(Date.now() - ageMs).toISOString(),
+  })), 'utf8');
+}
+
+{
+  // The default config has NO .agentic/config.json, so deferred_wrap_daemon is
+  // false. The banner must still appear, within ONE turn.
+  const cwd = makeProject();
+  plantAbandonedLock(cwd, 5 * 60 * 60 * 1000);
+  R.writeShard(cwd, 'sess-banner', '- a turn under an abandoned lock\n');
+  const res = R.regenerateRollup(cwd); // NO banner override - the real path
+  const body = readRollup(cwd) || '';
+
+  assert(res.written === true, 'AC8: the rollup is written even with the lock held');
+  assert(body.includes('WRAP-LOCK-STUCK'),
+    'AC8: the banner appears within ONE turn on the DEFAULT config (deferred_wrap_daemon absent)');
+  assert(body.includes('ABANDONED'), 'AC8: the banner names the lock as abandoned');
+  assert(body.includes('- a turn under an abandoned lock'),
+    'AC8: the activity is written too - the banner rides a write that is never suppressed');
+}
+{
+  // The banner is a pure function of lock state, so it must NOT appear when the
+  // lock is free. A banner that always fires would pass the assertion above
+  // without testing anything.
+  const cwd = makeProject();
+  R.writeShard(cwd, 'sess-nolock', '- a turn\n');
+  R.regenerateRollup(cwd);
+  assert(!(readRollup(cwd) || '').includes('WRAP-LOCK-STUCK'),
+    'AC8 control: no banner when the lock is free (the gate is live in both directions)');
+}
+{
+  // A young, live lock is not "stuck" either.
+  const cwd = makeProject();
+  const wm = require('../lib/wrap-marker.js');
+  const sid = 'live-sess';
+  plantAbandonedLock(cwd, 60 * 1000, sid); // 1 minute old
+  const hb = wm.heartbeatPath(cwd, sid);
+  fs.mkdirSync(path.dirname(hb), { recursive: true });
+  fs.writeFileSync(hb, '', 'utf8');
+  R.writeShard(cwd, 'sess-young', '- a turn\n');
+  R.regenerateRollup(cwd);
+  assert(!(readRollup(cwd) || '').includes('WRAP-LOCK-STUCK'),
+    'AC8 control: no banner for a young, heartbeating holder');
+}
+{
+  // stuckLockBanner itself, unit-level, so a composer refactor cannot silently
+  // drop the call site without a test noticing.
+  const cwd = makeProject();
+  assert(R.stuckLockBanner(cwd) === null, 'AC8: stuckLockBanner returns null with no lock');
+  plantAbandonedLock(cwd, 5 * 60 * 60 * 1000);
+  const banner = R.stuckLockBanner(cwd);
+  assert(typeof banner === 'string' && banner.includes('WRAP-LOCK-STUCK'),
+    'AC8: stuckLockBanner returns the banner for an abandoned lock');
+  assert(banner.includes('NOT being lost'),
+    'AC8: the banner states that context.md writes are NOT being lost - the operator '
+    + 'needs to know this is a /ds-wrap problem, not a data-loss problem');
 }
 
 // ---------------------------------------------------------------------------

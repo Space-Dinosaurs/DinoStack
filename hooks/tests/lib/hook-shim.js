@@ -59,7 +59,15 @@ function reanchorHookRequires(source, libDir, opts) {
     (whole, _q, name) => (skip.test(name) ? whole : `require(${JSON.stringify(libDir + sep + name)})`)
   );
 
-  const survivors = rewritten.match(/require\(['"]\.\/lib\/(?!skill-candidate).*?['"]\)/g) || [];
+  // The survivor scan must use the CALLER'S skip set, not a hardcoded name -
+  // hardcoding `skill-candidate` here would silently ignore a genuine survivor
+  // whenever a caller passed a different skipPattern, which is the one thing
+  // this assertion exists to catch.
+  const survivors = (rewritten.match(/require\(['"]\.\/lib\/([A-Za-z0-9._-]+)['"]\)/g) || [])
+    .filter((hit) => {
+      const m = hit.match(/\.\/lib\/([A-Za-z0-9._-]+)/);
+      return !(m && skip.test(m[1]));
+    });
   if (survivors.length > 0) {
     throw new Error(
       'reanchorHookRequires: a relative ./lib/ require survived the rewrite: '

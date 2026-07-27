@@ -57,10 +57,20 @@
  * regenerated file cannot own it without destroying either the curation or the
  * idempotence that licenses lock-freedom.
  *
- * NO TIMESTAMP APPEARS IN COMPOSER-GENERATED TEXT. Two successive regens over an
+ * NO TIMESTAMP APPEARS IN THE COMPOSED BODY. Two successive regens over an
  * unchanged shard set MUST be byte-identical; embedding a clock read would void
  * that idempotence and with it the argument for writing without a lock. Dates
  * live inside shard bodies, which are inputs written once per turn, not outputs.
+ *
+ * ONE DOCUMENTED EXCEPTION: `stuckLockBanner` embeds an elapsed-minutes count,
+ * so a rollup written while a lock is stuck is NOT byte-stable across regens.
+ * That is deliberate - an operator-facing "held for 45m" is worth far more than
+ * a stale "held for 30m", and the property idempotence actually protects is
+ * "concurrent regens converge on the same SHARD CONTENT", which a banner
+ * difference does not threaten (the banner is derived from live lock state, is
+ * never persisted into `_wrap.md` or any shard, and vanishes the moment the lock
+ * clears). Stating it plainly because the absolute claim was false, and because
+ * AC7 passes `{banner: null}` and therefore never exercises this path.
  *
  * COMPARE-AND-RETRY on the rollup write closes the interleaving
  *   X shard -> X snapshot -> Y shard -> Y snapshot -> Y rollup -> X rollup
@@ -87,9 +97,29 @@
  *                previous rollup in place; the next turn regenerates it from the
  *                same shard set. Three failed compare-and-retry attempts emit a
  *                bounded-degradation banner rather than looping.
+ *                ONE PATH IS NOT MERELY FAIL-OPEN, AND MUST NOT BE MADE SO.
+ *                `regenerateRollup` overwrites `context.md` wholesale. Before it
+ *                does, the pre-existing content must be provably saved - seeded
+ *                into `_wrap.md` by migration, or copied into `_foreign.md`.
+ *                Those writes are CHECKED and a failure ABORTS the overwrite
+ *                (see the abort-before-overwrite comments in `regenerateRollup`
+ *                and `migrateIfNeeded`). Ignoring their return values would make
+ *                a single ENOSPC/EACCES/EROFS/quota failure destroy the curated
+ *                region PERMANENTLY rather than for one turn, because migration
+ *                is guarded by the derived marker and never retries once a
+ *                marked rollup has landed. Aborting keeps the old `context.md`
+ *                on disk so the next turn retries the whole migration.
  *
- * Performance: synchronous fs only; one readdir plus one stat per shard per
- *              regen (retention-capped), no git, no network, no subprocess.
+ * Performance: synchronous fs only; no git, no network, no subprocess. Per
+ *              `snapshotShards` call: one readdir plus one lstat for EVERY shard
+ *              present - the retention cap is applied AFTER the stat pass, in
+ *              `composeRollup`, because ordering must be known before the set
+ *              can be truncated. `regenerateRollup` calls it up to four times a
+ *              turn (once before the compare-and-retry loop, then once per
+ *              attempt to detect a shard-set change), and the Stop hook calls
+ *              `regenerateRollup` twice. Bounded in practice: the shard
+ *              directory holds one file per session that has ever run in the
+ *              project, and only shard READS are retention-capped.
  */
 
 'use strict';
@@ -508,9 +538,17 @@ function stuckLockBanner(cwd, opts) {
 // Migration (runs once, before the first rollup write in a project)
 // ---------------------------------------------------------------------------
 
-/** Append to `_foreign.md`, creating it if absent. Fail-open. */
+/**
+ * Append to `_foreign.md`, creating it if absent.
+ *
+ * Returns TRUE when the content is safely on disk, and that includes the
+ * nothing-to-preserve case (an absent or whitespace-only body succeeds
+ * vacuously). Callers use this return to decide whether it is safe to overwrite
+ * `context.md`, so "there was nothing to save" and "I failed to save it" must
+ * NOT collapse into the same answer.
+ */
 function preserveForeign(cwd, body) {
-  if (typeof body !== 'string' || !body.trim()) return false;
+  if (typeof body !== 'string' || !body.trim()) return true; // nothing to do = success
   const p = foreignPath(cwd);
   const prior = readIfPresent(p);
   const sep = prior && prior.trim() ? prior.replace(/\s+$/, '') + '\n\n---\n\n' : '';
@@ -536,23 +574,39 @@ function preserveForeign(cwd, body) {
  * This procedure GOVERNS wherever it and the steady-state composer rules both
  * reach a shape.
  *
+ * EVERY WRITE HERE IS CHECKED, and a failure returns `failed: true` so the
+ * caller ABORTS before overwriting `context.md`. This is the one path in this
+ * module where fail-open would ANTI-heal rather than self-heal. The reason is
+ * the `DERIVED_MARKER` guard above: once a rollup carrying the marker lands,
+ * migration never runs again. So if the seed write fails while the rollup write
+ * succeeds, the curated region exists NOWHERE on disk and no later turn can
+ * recover it - permanent, silent, one-way loss on the exact file class this
+ * module exists to protect. Discarding these return values (the original form
+ * of this function) made an ENOSPC/EACCES/EROFS/quota failure on one write
+ * destructive rather than merely lossy for a turn.
+ *
  * @param {string} cwd
- * @returns {boolean} true when a migration was performed
+ * @returns {{migrated: boolean, failed: boolean}} `migrated` - a migration was
+ *   performed and every write landed. `failed` - a migration was needed but a
+ *   write did NOT land; the caller must not overwrite `context.md`, because the
+ *   on-disk copy is now the only surviving record of the pre-migration content.
  */
 function migrateIfNeeded(cwd) {
+  const NOOP = { migrated: false, failed: false };
+  const FAILED = { migrated: false, failed: true };
   try {
     const cp = curatedPath(cwd);
-    if (fs.existsSync(cp)) return false; // already migrated
+    if (fs.existsSync(cp)) return NOOP; // already migrated
 
     const existing = readIfPresent(rollupPath(cwd));
     // Absent, empty, or whitespace-only: nothing to migrate. The rollup will be
     // header + activity region.
-    if (existing === null || !existing.trim()) return false;
+    if (existing === null || !existing.trim()) return NOOP;
     // Already OUR OWN derived output. This project has no curated file (a
     // project that never ran /ds-wrap, or one whose `_wrap.md` was deleted) -
     // there is nothing curated to rescue, and treating a derived rollup as
     // pre-migration content would append it to `_foreign.md` on EVERY turn.
-    if (existing.indexOf(DERIVED_MARKER) !== -1) return false;
+    if (existing.indexOf(DERIVED_MARKER) !== -1) return NOOP;
 
     const i = findActivityRegionIndex(existing);
     const prefix = i >= 0 ? existing.slice(0, i) : existing;
@@ -560,19 +614,21 @@ function migrateIfNeeded(cwd) {
 
     if (isWrapAuthored(prefix)) {
       // Curated -> seed `_wrap.md`, VERBATIM apart from stripDerivedBlocks.
-      atomicWrite(cp, stripDerivedBlocks(prefix) + '\n');
+      if (!atomicWrite(cp, stripDerivedBlocks(prefix) + '\n')) return FAILED;
     } else {
       // Stop-hook / adapter authored. NOT curated - preserve, never seed.
-      preserveForeign(cwd, prefix);
+      if (!preserveForeign(cwd, prefix)) return FAILED;
     }
 
     // An unmarked trailing region is an unported writer's block; preserve it.
     if (suffix && suffix.indexOf(DERIVED_MARKER) === -1) {
-      preserveForeign(cwd, suffix);
+      if (!preserveForeign(cwd, suffix)) return FAILED;
     }
-    return true;
+    return { migrated: true, failed: false };
   } catch (_) {
-    return false;
+    // An exception here means we cannot prove the pre-migration content was
+    // saved, so it must be treated exactly like a failed write.
+    return FAILED;
   }
 }
 
@@ -705,17 +761,35 @@ function regenerateRollup(cwd, opts) {
     const o = opts || {};
     if (typeof cwd !== 'string' || !cwd) return result;
 
-    result.migrated = migrateIfNeeded(cwd);
+    // ABORT-BEFORE-OVERWRITE. `context.md` is about to be overwritten wholesale.
+    // If migration needed to run but could not save the pre-migration content,
+    // the on-disk `context.md` is the ONLY surviving copy of it - overwriting
+    // anyway would destroy it permanently, because migration is guarded by the
+    // derived marker and never retries once a marked rollup lands. Returning
+    // early instead leaves the old file in place, so the NEXT turn retries the
+    // whole migration. Lose a turn, self-heal - never anti-heal.
+    const migration = migrateIfNeeded(cwd);
+    result.migrated = migration.migrated;
+    if (migration.failed) return result;
 
     const target = rollupPath(cwd);
     const existing = readIfPresent(target);
 
-    // Compose the zero-shard head once, purely to recognise our own E8 output.
-    const curatedHead = composeRollup(cwd, [], {});
-    const foreign = foreignContentToPreserve(cwd, existing, curatedHead);
-    if (foreign !== null) {
-      preserveForeign(cwd, foreign);
-      result.foreign = true;
+    // Foreign-preservation is skipped when a migration just ran: migration
+    // already classified and saved EVERY byte of the pre-existing file (prefix
+    // -> `_wrap.md` or `_foreign.md`, unmarked suffix -> `_foreign.md`), so
+    // re-running the steady-state check here appended the same unmarked suffix
+    // to `_foreign.md` a second time.
+    if (!migration.migrated) {
+      // Compose the zero-shard head once, purely to recognise our own E8 output.
+      const curatedHead = composeRollup(cwd, [], {});
+      const foreign = foreignContentToPreserve(cwd, existing, curatedHead);
+      if (foreign !== null) {
+        // Same abort-before-overwrite rule: an unported adapter's block lives
+        // only in `context.md` until this write lands.
+        if (!preserveForeign(cwd, foreign)) return result;
+        result.foreign = true;
+      }
     }
 
     const banner = Object.prototype.hasOwnProperty.call(o, 'banner')
