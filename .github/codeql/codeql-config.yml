@@ -1,0 +1,17 @@
+# CodeQL analysis config for DinoStack.
+#
+# paths-ignore: docs/slides/*.html only - these are marp-cli/marp-core
+# minified bundle output (byte-identical to `bash scripts/build-slides.sh`,
+# zero hand edits), regenerated on every content/ change per AGENTS.md. The
+# repo cannot fix findings in this generated third-party code (e.g. the
+# js/unvalidated-dynamic-method-call alerts from marp-core's `this[t]`
+# minification pattern, all dated 2026-06-18 - five weeks before any PR that
+# merely regenerated the file). Flagging it as "new" on every regeneration
+# trains reviewers to wave through a red security check on an unrelated
+# PR, which is the opposite of what CodeQL is for.
+#
+# The docs/slides/*.md sources are hand-authored and stay scanned - this
+# excludes only the generated .html bundles, not the slides directory as a
+# whole. DS-111.
+paths-ignore:
+  - 'docs/slides/*.html'
