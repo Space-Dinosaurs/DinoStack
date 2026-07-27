@@ -79,7 +79,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
-**No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
+**No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once - **Decision stability** below is the general form of this rule.
 
 **Pre-spawn checklist - ticket-offer gate:** Before spawning the FIRST implementer (architect, engineer, or orchestration-planner) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
 
@@ -124,6 +124,16 @@ Anything else - "should I create the missing endpoint that #271 depends on?", "w
 5. The most conservative interpretation of the ticket text (choose the option that minimizes blast radius and commits to the fewest future decisions)
 
 Consult the sources in order. Stop at the first source that yields a default. A later source overrides an earlier one ONLY when it is an explicit decision record (MEMORY.md entry, AGENTS.md convention, prior ADR) that supersedes the pattern. Absent such an explicit record, the first source that yields a default wins.
+
+**Decision stability.** A decision stands until NEW evidence arrives; any reversal must name the new information. Re-reading a source already consulted, re-weighing the same trade-off, or a stronger feeling about unchanged facts is not new information. Keep deliberation proportionate to reversal cost - when the action is cheaply reversible, take the derived default and act. **Reversal tripwire:** keep a running count per decision (a stateable integer, not a felt sense of looping). Once you have reversed the same decision twice on unchanged inputs, stop reasoning and take the terminal action: if the deadlock is two instructions contradicting each other, apply the equal-precedence tiebreak below; otherwise take the five-source derived default and note the choice. Either way the next step is an action, never another round.
+
+**Equal-precedence tiebreak.** When two instructions at the SAME tier contradict (e.g. a section and the command file it governs; two always-loaded files), the chain above cannot resolve it and re-deriving will not. In order:
+1. An explicit decision record wins - per the default-and-proceed protocol's explicit-decision-record rule above: a MEMORY.md entry, AGENTS.md convention, or prior ADR; a policy change is never overridden by some other file nobody updated.
+2. Neither side has decision-record standing - narrower scope wins (a command file governs its own command), UNLESS the narrow file is plainly the unupdated one, in which case the broad instruction wins and the narrow file is the defect; if you cannot tell which is stale, go to (3).
+3. Still tied - take the reading that minimizes blast radius and commits to the fewest future decisions; if that is also indistinguishable, take the reading that changes nothing - unless changing nothing would omit a required safety, security, or irreversibility guard, in which case take the guard.
+4. Act, state the resolution in one line, and record the conflict as an intent-layer defect (capture trigger 6 - `content/references/conductor-operating-rules.md` §learnings-agent; recording satisfies the trigger, any doc fix is a follow-up).
+
+An instruction-layer contradiction is a defect to record, never a decision to re-litigate in-session.
 
 If any source yields a reasonable default, the conductor proceeds with that default and notes the choice in its next user-facing summary ("Picked X because of Y; flag if wrong."). It does NOT pause.
 
@@ -497,8 +507,8 @@ Read `content/references/activation-detail.md` §Step 5: First-Activation Notice
 **Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
 See `content/sections/03-planning-artifacts.md` for the blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
 
-**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules:
-Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, and §Digest-Return Discipline.
+**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules, or a detected instruction-layer contradiction:
+Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, and §Decision Stability and Contradiction Resolution.
 
 **Risk config and tiers** - when consulting config toggles, the graph-derived risk signal, or tier declaration detail:
 Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, and §Tier Declaration Detail.
@@ -717,7 +727,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 **Knowledge-file routing (three distinct stores):**
 - `<cwd>/MEMORY.md` - canonical durable facts; committed; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`); written by `/ds-wrap`, wrap-ticket, `/ds-memory-update`.
 - `.agentic/memory.md` - `/ds-wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
-- `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (discretionary).
+- `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (mandatory triggers, conductor-spawned).
 
 **Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - per-developer session rollup written by the Stop hook. Committed to git via the `.agentic/session-log/` carve-out in `.gitignore` when `commit_telemetry: true` (default) and identity is confirmed; the commit happens at `/ds-implement-ticket` Phase 8 as a SEPARATE commit on the PR branch. Teammates receive it on pull after squash merge. See `content/references/events-log.md` "Per-developer session log". Aggregated via `agentic-cost team`.
 
@@ -926,7 +936,7 @@ Performance: Standard (single file write + optional binary shell-out).
 | `engineer` | Implements the change. Reads conventions, writes code, runs quality gates, reports clearly. | Yes |
 | `qa-engineer` | Post-Skeptic browser verification. Spawns after Skeptic sign-off when the diff matches QA trigger patterns in `.agentic/qa.md` (resolved via resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). Verifies changes in a real browser, returns structured pass/fail report. Appends learned quirks to the resolved qa.md's Knowledge section. | No (appends to qa.md only) |
 | `learning-extractor` | Per-ticket learning extraction. Mechanically wired to `/ds-implement-ticket` Phase 6 clean exit - fires automatically after every ticketed Skeptic loop completion. Reads the resolved `findings_log`, extracts durable fix-pattern learnings, appends to `.agentic/learnings.md`. The conductor does NOT spawn this manually. | Yes (learnings.md) |
-| `learnings-agent` | Session-scoped background learnings capture. Conductor-discretionary - spawned ad-hoc on the first learning-worthy event in a session; no automatic phase trigger. Receives events in real-time, writes structured entries to .agentic/learnings.md and project MEMORY.md. | Yes (learnings.md, MEMORY.md) |
+| `learnings-agent` | Session-scoped background learnings capture. Spawned by the conductor the first time a mandatory capture trigger fires in a session; trigger evaluation is mandatory, the spawn is conductor-initiated rather than phase-wired. Receives events in real-time, writes structured entries to .agentic/learnings.md and project MEMORY.md. | Yes (learnings.md, MEMORY.md) |
 | `wrap-ticket` | Per-ticket learnings capture at `/ds-implement-ticket` Phase 11b. Constrained automated subset of `/ds-wrap` that fires on every PR opened. Reads the ticket's findings_log, diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only). Soft-fails on any error - never blocks PR completion. | Yes (MEMORY.md, decisions.md, .agentic/_wrap.md Recent Focus only - never .agentic/context.md, which is a derived rollup) |
 | `goal-condition-evaluator` | Cheap per-turn stop-condition check for open-goal loops. Mechanically fired strictly after a clean Skeptic sign-off on an Elevated iteration to evaluate the operator-declared `goal_condition` and return continue-vs-stop; never substitutes for the Skeptic. Tier 1 (haiku) leaf agent. Wired at `content/commands/ds-implement-ticket.md` Phase 6 "Open-goal condition check" for `goal_mode=open_goal` invocations, scoped to elevated-risk iterations with a clean Skeptic sign-off (see `content/references/trigger-catalog.md` §Risk and review discipline (e)). Newly wired as of DS-75 - low field mileage. | No |
 | `skeptic` | Adversarial reviewer. Reviews Worker output for Critical/Major/Minor findings. | No |
@@ -1653,13 +1663,13 @@ The distinction in this carve-out between root `MEMORY.md` (wrap-ticket + learni
 
 > **Two feeders, distinct triggers.** `learning-extractor` is mechanically wired to
 > `/ds-implement-ticket` Phase 6 clean exit and fires automatically - the conductor does
-> NOT spawn it manually. `learnings-agent` (described here) is triggered by the 6
+> NOT spawn it manually. `learnings-agent` (described here) is triggered by the 7
 > mandatory events below; the conductor spawns it the first time a trigger fires in
 > a session.
 
 ### Mandatory triggers
 
-The conductor MUST evaluate capture at each of these 6 events and emit a
+The conductor MUST evaluate capture at each of these 7 events and emit a
 `Capture:` declaration (format below) before proceeding:
 
 1. **Investigator or debugger returns a root cause.** Any investigator/debugger
@@ -1692,8 +1702,19 @@ The conductor MUST evaluate capture at each of these 6 events and emit a
    style preference), evaluate capture. KNW is the typical type; MEMORY.md is
    the alternative home if it is project-wide and permanent.
 
-6. **End-of-task or end-of-session capture sweep.** Before declaring a task
-   complete or closing a session, sweep for any trigger 1-5 events that occurred
+6. **An instruction-layer contradiction is detected and resolved by tiebreak.** Two
+   same-tier instructions conflicted (see METHODOLOGY.md §Delegation, Equal-precedence
+   tiebreak). Write KNW (`event_type: architectural-decision` when the resolution
+   constrains future work, `cross-component-gotcha` otherwise) naming both loci by
+   `file:line`, which tiebreak step applied, and the resolution. **Recording satisfies
+   this trigger.** Guardrail-first still applies - a doc correction or a grep-able CI
+   check is the durable fix and is the better capture - but it MAY be deferred to a
+   follow-up unit or ticket: do NOT open a shippable edit mid-decision to satisfy this
+   trigger. Never SKIP on the grounds that the tiebreak already resolved it; an
+   unrecorded contradiction is re-litigated by every later session at full cost.
+
+7. **End-of-task or end-of-session capture sweep.** Before declaring a task
+   complete or closing a session, sweep for any trigger 1-6 events that occurred
    but were not yet evaluated. Declare `Capture: SKIP` or `Capture: MUST` for
    each outstanding event. This is the last-resort catch before the Stop-hook
    backstop fires.
@@ -1743,7 +1764,7 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 
 ### Routing hop for `learnings_candidate[]` (new input source)
 
-When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-5 sweep:
+When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-6 sweep:
 
 1. Run guardrail-first classification (steps a, b, c from capture-classification.md).
 2. If `Capture: MUST`:
@@ -1758,7 +1779,7 @@ When a Worker digest (engineer, investigator, or debugger return) contains a non
    b. Forward to `learnings-agent` with: `event_type` per the kind map (`workaround` -> `tool-failure-workaround`; `dead-end` -> `cross-component-gotcha`; `gotcha` -> `cross-component-gotcha`; `decision` -> `architectural-decision`), `description` = entry `fact`, `resolution` = entry `why`, `domain_tag` = entry `domain_tag`, and omit `severity` (all mapped types are KNW).
 3. If `Capture: SKIP`: declare `Capture: SKIP - [reason]` inline and proceed.
 
-**Relation to triggers 1-5.** `learnings_candidate[]` is a new INPUT SOURCE for the existing trigger machinery, not a 7th trigger. `kind: workaround` is a new input path for trigger 3; `kind: dead-end`/`gotcha` map to `cross-component-gotcha`; `kind: decision` is a new input path for trigger 5. Trigger 1 (investigator/debugger root cause) is NOT replaced - the conductor still evaluates the root cause under trigger 1 independently, and the `learnings_candidate[]` section on those agents' returns carries incidental discoveries only, never the root cause itself.
+**Relation to the mandatory triggers.** `learnings_candidate[]` is a new INPUT SOURCE for the existing trigger machinery, not an additional trigger. `kind: workaround` is a new input path for trigger 3; `kind: dead-end`/`gotcha` map to `cross-component-gotcha`; `kind: decision` is a new input path for trigger 5. Trigger 1 (investigator/debugger root cause) is NOT replaced - the conductor still evaluates the root cause under trigger 1 independently, and the `learnings_candidate[]` section on those agents' returns carries incidental discoveries only, never the root cause itself.
 
 **Trivial-path engineers.** A Trivial engineer skips Skeptic and wrap-ticket, but the conductor still reads its return. `learnings_candidate[]` entries that pass `Capture: MUST` are still routed to `learnings-agent`. The lightweight Trivial posture (no Skeptic, no brief) is otherwise preserved.
 
@@ -1818,7 +1839,7 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
 - `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
 - `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`). Written by `/ds-wrap`, wrap-ticket, and `/ds-memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/ds-wrap`-internal rolling scratch, gitignored).
-- `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/ds-implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (conductor-discretionary).
+- `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/ds-implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (spawned on the mandatory capture triggers).
 - `decisions.md` - the project's decision log, where used.
 - `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.
 - `.agentic/qa-regressions.md` - curated QA regression patterns; committed. Written by `qa-regressions-curator` at Phase 6b QA FAIL.
@@ -2365,10 +2386,12 @@ Purpose: Detailed delegation-model reference blocks extracted from
          content/sections/02-delegation.md. Contains: Open Questions /
          Deferred Defaults bucketing rules + table + worked example; Worker
          autonomy contract + agent-spec exception; Stop-frequency planning
-         signal + table; Common rationalizations to reject; Investigator-
-         before-Architect rules (incl shared-utility-MANDATORY + Parallel
-         Investigators); Learnings pipeline; Worker preamble + execution
-         contract template; Digest-return discipline.
+         signal + table; Common rationalizations to reject; Decision
+         Stability and Contradiction Resolution (reversal counting, soft
+         round cap, tripwire routing, anti-inversion test, worked example);
+         Investigator-before-Architect rules (incl shared-utility-MANDATORY
+         and Parallel Investigators); Learnings pipeline; Worker preamble +
+         execution contract template; Digest-return discipline.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -2451,6 +2474,27 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 - "I can figure out the task structure / parallelization myself" or "this is obviously a single-unit task" - conductor does not self-assess task structure, unit count, or parallelization; delegate that reasoning to the orchestration-planner; the only valid skip is when a preceding agent has already returned a single atomic unit
 - "The change is obviously fine and a Skeptic would just rubber-stamp it" - that gut feel is itself a **cognitive-surrender flag**, not a green light. The instinct that review is unnecessary is precisely when independent review is most valuable. Reclassify as Elevated and spawn the Skeptic anyway.
 - "I have subagent output in hand, so writing from it is just synthesizing results" - synthesis means aggregating what agents returned into a conductor update, not authoring a new document, specification, plan, or recommendation. The moment the output is a new artifact, it is "Document synthesis" (Elevated) regardless of whether the inputs came from subagents.
+- "The inputs have not changed but I am still not confident - let me re-read it once more" - re-reading a source already consulted produces no new evidence. If two same-tier instructions genuinely conflict, apply the equal-precedence tiebreak, act, and record it; confidence is not a terminating condition.
+
+## Decision Stability and Contradiction Resolution
+
+**Reversal counting.** A reversal is adopting position X then not-X on one decision with no new tool result, no new user message, and no new file content in between. Maintain the integer; "am I looping?" is not self-observable, "have I flipped this twice?" is.
+
+**Soft round cap.** Two full re-derivation passes of one decision with no new input is tripwire-adjacent: take the terminal action rather than starting a third.
+
+**Routing on tripwire** (mirrors R1's branch). Contradiction between instructions goes to the tiebreak. Everything else - a library choice, a naming call, a design-taste fork with no instruction conflict - takes the five-source derived default (falling to source 5's most-conservative reading if nothing earlier yields), acts, and notes the choice. "Record the conflict" does not apply where there is no conflict; inventing one to satisfy the rule is a defect.
+
+**What is NOT an equal-precedence contradiction.** A general rule plus a named exception; a specific procedure refining a general convention; two statements resolvable by the five-source ordering or by reading one more file. Read first.
+
+**The anti-inversion test, required before applying step 2.** Does the broad instruction read as a deliberate, recent, or policy-shaped statement the narrow file has not caught up to? Signals the broad file is authoritative and the narrow one stale: the broad text is a decision record or reads as one; it is more specific about intent while the narrow file is merely older; the narrow file's claim is an omission (a missing step) rather than a contrary assertion. When those signals are present, step 2 flips - the broad instruction wins and the narrow file is the defect. **When the staleness question cannot be answered from what is in hand, do not guess: fall to step 3.** A rule that always prefers the narrow file discards deliberate policy changes, which is worse than the loop this section ends.
+
+**Declaration line format**, emitted at resolution: `Contradiction: <fileA:line> vs <fileB:line> - applied step <1|2|3>; proceeding with <resolution>. Recorded as intent-layer defect.`
+
+**Worked example, both directions.** *Direction A (narrow file correct):* `content/rules/conventions.md:46` says root `MEMORY.md` is "written by `/ds-wrap`"; `content/commands/ds-wrap.md` has no promotion step and `content/references/conductor-operating-rules.md:87` states root `MEMORY.md` is not a `/ds-wrap` target. No decision record covers it and the broad line reads as an unmaintained summary, so step 2 resolves: the command file governs its own command. Act, declare, record - and do not decide in-session whether `/ds-wrap` *should* promote, which is a feature decision and is ticket-shaped. *Direction B (broad file correct):* had `conventions.md:46` been edited last week as a deliberate policy change with `ds-wrap.md` merely not yet updated, the anti-inversion test flips step 2, the broad instruction governs, and the command file is the defect. Same rule, opposite outcome, decided by staleness and decision-record standing rather than scope alone.
+
+**Why recording is the load-bearing half.** Every session re-encountering an unrecorded contradiction pays the tiebreak again. A recorded KNW entry promotes into root `MEMORY.md`, which is source 2 of the five-source chain, so the next session resolves by first-match-wins with zero deliberation. Recording is cheap and in-session; a doc fix is a shippable edit and is not.
+
+**Scope note.** The worked example's contradiction is real and still live on `main`; a separate ticket owns the fix. This section documents the resolution procedure, not the fix.
 
 ## Investigator-Before-Architect Rules
 
@@ -2465,7 +2509,7 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 **Learnings pipeline (two feeders, distinct triggers).** The learnings pipeline has two separate feeders with different trigger mechanisms:
 
 - **`learning-extractor`** - mechanically wired to `/ds-implement-ticket` Phase 6 clean exit. Fires automatically on every ticketed Skeptic loop completion. The conductor does NOT spawn this manually; it is part of the Phase 6 sequence.
-- **`learnings-agent`** - conductor-discretionary background capture. The conductor spawns it ad-hoc the first time a learning-worthy event occurs in a session (Skeptic finding resolved, error->fix cycle, tool failure workaround, architectural decision, cross-component gotcha, user-called-out reusable pattern). No automatic phase trigger.
+- **`learnings-agent`** - background capture spawned by the conductor the first time one of the mandatory capture triggers fires in a session. Trigger evaluation is MANDATORY and each trigger requires a `Capture:` declaration; the spawn itself is conductor-initiated rather than phase-wired. See `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory triggers and the declaration format.
 
 For `learnings-agent` session-tracking semantics, see `content/references/conductor-operating-rules.md` §learnings-agent background capture.
 
@@ -3867,7 +3911,7 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | adr-generator | 2 | sonnet | ADR authoring; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | adr-drift-detector | 2 | sonnet | Compliance audit |
 | learning-extractor | 2 | sonnet | Pattern extraction |
-| learnings-agent | 2 | sonnet | Discretionary capture |
+| learnings-agent | 2 | sonnet | Mandatory-trigger capture |
 | wrap-ticket | 2 | sonnet | Session wrap |
 | goal-condition-evaluator | 1 | haiku | Cheap per-turn stop-condition check for open-goal loops; gates continuation only, never correctness/safety (see trigger-catalog.md yolo-guard) |
 

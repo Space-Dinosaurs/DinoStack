@@ -135,7 +135,7 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | adr-generator | 2 | sonnet | ADR authoring; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | adr-drift-detector | 2 | sonnet | Compliance audit |
 | learning-extractor | 2 | sonnet | Pattern extraction |
-| learnings-agent | 2 | sonnet | Discretionary capture |
+| learnings-agent | 2 | sonnet | Mandatory-trigger capture |
 | wrap-ticket | 2 | sonnet | Session wrap |
 | goal-condition-evaluator | 1 | haiku | Cheap per-turn stop-condition check for open-goal loops; gates continuation only, never correctness/safety (see trigger-catalog.md yolo-guard) |
 

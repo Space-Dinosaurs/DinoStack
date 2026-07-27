@@ -204,7 +204,7 @@ Emits both <strong>LRN</strong> and <strong>KNW</strong> entries. Trigger: manda
 </div>
 
 <div class="callout">
-Distinct triggers on purpose: <code>learning-extractor</code> guarantees coverage across every ticketed loop; <code>learnings-agent</code> captures ad-hoc session events no phase gate would catch.
+Distinct triggers on purpose: <code>learning-extractor</code> guarantees coverage across every ticketed loop; <code>learnings-agent</code> captures the mandatory-trigger events no phase gate would catch.
 </div>
 
 ---
