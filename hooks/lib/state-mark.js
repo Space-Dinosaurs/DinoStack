@@ -80,10 +80,19 @@
  *                independently. Each candidate file is processed inside its
  *                OWN try/catch so a failure (parse error, fs error) on one
  *                file never skips the other (fail-open PER PATH, not just
- *                per call). Every write is atomic (tmp + rename) with a
- *                catch-block fs.unlinkSync(tmp) cleanup so a crash mid-write
- *                or an early parse-error catch never leaves an orphan .tmp
- *                file. markInterrupted deliberately never writes loop-state's
+ *                per call). Every write is atomic-for-a-single-writer (pid-
+ *                suffixed tmp + rename, `<file>.tmp.<pid>`) with a catch-block
+ *                fs.unlinkSync(tmp) cleanup scoped to ONLY the pid-suffixed
+ *                name this call itself created, so a crash mid-write or an
+ *                early parse-error catch never leaves an orphan .tmp file AND
+ *                never deletes a concurrent process's in-flight staging file.
+ *                "Atomic" here is true single-writer (rename is atomic on the
+ *                same filesystem); with two concurrent sessions writing the
+ *                same candidate file, the two renames still race for last-
+ *                write-wins on the destination, but neither process can ever
+ *                observe or clobber the other's tmp - only the fixed-name
+ *                variant (pre-fix) had that defect. markInterrupted
+ *                deliberately never writes loop-state's
  *                `last_updated` - Contract A's resume-staleness gate reads
  *                only `last_updated` with no `status` exemption, so writing
  *                it on the terminal mark would make a freshly-interrupted
@@ -263,13 +272,17 @@ function _refreshCandidateLiveness(cwd, sessionId, candidate, onOutcome) {
     if (state.status !== 'active') return;
 
     state[candidate.tsField] = new Date().toISOString();
-    tmpPath = filePath + '.tmp';
+    tmpPath = filePath + '.tmp.' + process.pid;
     fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2));
     fs.renameSync(tmpPath, filePath);
     if (onOutcome) onOutcome(candidate.healthTarget, true, null);
   } catch (err) {
     if (onOutcome) onOutcome(candidate.healthTarget, false, err && err.message);
-    try { fs.unlinkSync(filePath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
+    // Only unlink OUR OWN pid-suffixed tmp - never a shared/fixed name another
+    // concurrent process could own (see module manifest Failure modes).
+    if (tmpPath) {
+      try { fs.unlinkSync(tmpPath); } catch (_e) { /* tmp absent or never created */ }
+    }
   }
 }
 
@@ -325,13 +338,17 @@ function _markCandidateInterrupted(cwd, sessionId, candidate, onOutcome) {
     }
     // else: tsField is deliberately NOT written here - see module manifest.
 
-    tmpPath = filePath + '.tmp';
+    tmpPath = filePath + '.tmp.' + process.pid;
     fs.writeFileSync(tmpPath, JSON.stringify(state, null, 2));
     fs.renameSync(tmpPath, filePath);
     if (onOutcome) onOutcome(candidate.healthTarget, true, null);
   } catch (err) {
     if (onOutcome) onOutcome(candidate.healthTarget, false, err && err.message);
-    try { fs.unlinkSync(filePath + '.tmp'); } catch (_e) { /* tmp absent or never created */ }
+    // Only unlink OUR OWN pid-suffixed tmp - never a shared/fixed name another
+    // concurrent process could own (see module manifest Failure modes).
+    if (tmpPath) {
+      try { fs.unlinkSync(tmpPath); } catch (_e) { /* tmp absent or never created */ }
+    }
   }
 }
 

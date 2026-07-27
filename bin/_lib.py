@@ -18,10 +18,11 @@ Public API:
     Caller is responsible for ensuring lock_path and its parent exist before entry.
 
   atomic_write(path, content, mode=0o600)
-    Writes str content to path.with_suffix('<ext>.tmp') then renames into place.
-    When mode is not None, applies os.chmod to the tmp file before rename.
-    On any exception, unlinks the tmp file (missing_ok) and re-raises.
-    path must be a pathlib.Path.
+    Writes str content to a pid-suffixed <path>.tmp.<pid> sibling then renames
+    into place. When mode is not None, applies os.chmod to the tmp file before
+    rename. On any exception, unlinks OUR OWN pid-suffixed tmp file
+    (missing_ok) and re-raises - never a shared/fixed name another concurrent
+    caller could own. path must be a pathlib.Path.
 
 Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, time, pathlib).
 
@@ -33,11 +34,15 @@ Failure modes:
     with no lock held; the underlying fd is always closed before raising.
     OS errors opening the lock file propagate to the caller unchanged (the file
     must exist before calling; existence is the caller's responsibility).
-  atomic_write: on any write/chmod/rename failure, removes the .tmp file
-    (missing_ok semantics) and re-raises the original exception. The destination
-    file is never partially written. The .tmp suffix is appended to the full
-    filename (e.g. identity.yml -> identity.yml.tmp) to stay in the same
-    directory and on the same filesystem as the destination.
+  atomic_write: on any write/chmod/rename failure, removes OUR OWN pid-suffixed
+    .tmp.<pid> file (missing_ok semantics) and re-raises the original exception.
+    The destination file is never partially written. The .tmp.<pid> suffix is
+    appended to the full filename (e.g. identity.yml -> identity.yml.tmp.12345)
+    to stay in the same directory and on the same filesystem as the
+    destination, AND to guarantee two concurrent callers never share one
+    staging path (single-writer atomicity only - see rename semantics; the
+    pid suffix prevents cross-process tmp collision/cleanup, not a
+    last-write-wins race on the final destination itself).
 
 Performance: Standard. acquire_exclusive_lock sleeps 0.1s per retry (~300 retries
   over 30s); atomic_write is a single write + fsync-less rename (same filesystem).
@@ -115,12 +120,18 @@ def atomic_write(path: Path, content: str, mode: int | None = 0o600) -> None:
       2. If mode is not None, chmod <path>.tmp to mode.
       3. Rename <path>.tmp -> path.
 
-    On any failure, unlinks <path>.tmp (missing_ok) and re-raises. The
-    destination file is never partially overwritten.
+    On any failure, unlinks OUR OWN pid-suffixed <path>.tmp.<pid> (missing_ok)
+    and re-raises. The destination file is never partially overwritten.
+
+    The tmp filename is suffixed with the current pid so two concurrent
+    callers (e.g. two agentic-identity invocations) never share one staging
+    path - a fixed tmp name would let one process's crash-cleanup unlink
+    another process's still-in-flight write, or let two writers collide on
+    the same tmp file.
 
     path.parent must already exist (no mkdir here - callers handle that).
     """
-    tmp = path.parent / (path.name + ".tmp")
+    tmp = path.parent / (path.name + f".tmp.{os.getpid()}")
     try:
         tmp.write_text(content, encoding="utf-8")
         if mode is not None:

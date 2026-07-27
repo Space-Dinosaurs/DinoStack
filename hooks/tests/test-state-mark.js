@@ -20,7 +20,12 @@
  *       loop-state would make it immortal and unrecoverable).
  *   (e) markInterrupted PROCEEDS on that same absent-session_id file
  *       (opposite polarity, deliberately asymmetric - see module manifest).
- *   (f) no orphan .tmp file on success or on corrupt-JSON input.
+ *   (f) no orphan .tmp.<pid> file on success or on corrupt-JSON input, AND
+ *       the catch-path cleanup unlinks ONLY our own pid-suffixed tmp - a
+ *       foreign/stale tmp (no pid suffix, or a different pid) at the same
+ *       base name survives untouched (DS-109 regression: a fixed tmp name's
+ *       catch-path cleanup used to delete ANY file at that fixed path,
+ *       including a concurrent peer's still-in-flight staging file).
  *   (g) health label on the real code path: corrupt-JSON hits
  *       onOutcome('writeLoopState', false, ...) - literal target string.
  *
@@ -183,17 +188,23 @@ console.log('\n[e] markInterrupted PROCEEDS on absent/null/empty session_id (del
 }
 
 // ---------------------------------------------------------------------------
-// (f) no orphan .tmp on success or corrupt-JSON input
+// (f) no orphan .tmp.<pid> on success or corrupt-JSON input, and catch-path
+//     cleanup is scoped to our own pid-suffixed tmp only (DS-109)
 // ---------------------------------------------------------------------------
-console.log('\n[f] no orphan .tmp files on success or corrupt-JSON input');
+console.log('\n[f] no orphan tmp files on success or corrupt-JSON input; cleanup is own-name-only');
 {
+  // A tmp file left behind by this module is always named
+  // `<file>.tmp.<pid>` - match that shape, not a bare `.tmp` suffix, so this
+  // filter still catches a real leak after the DS-109 rename.
+  const isOwnStyleTmp = (f) => /\.tmp\.\d+$/.test(f);
+
   // Success path (refreshLiveness).
   {
     const { tmpDir, agenticDir } = makeTmp('ae-state-mark-f1-');
     writeLoopState(agenticDir, { status: 'active', session_id: 'sess-a' });
     stateMark.refreshLiveness(tmpDir, 'sess-a');
-    const tmpFiles = fs.readdirSync(agenticDir).filter((f) => f.endsWith('.tmp'));
-    assert(tmpFiles.length === 0, `(refreshLiveness success) no .tmp remains (found: ${tmpFiles.join(', ') || 'none'})`);
+    const tmpFiles = fs.readdirSync(agenticDir).filter(isOwnStyleTmp);
+    assert(tmpFiles.length === 0, `(refreshLiveness success) no .tmp.<pid> remains (found: ${tmpFiles.join(', ') || 'none'})`);
     cleanup(tmpDir);
   }
 
@@ -202,26 +213,74 @@ console.log('\n[f] no orphan .tmp files on success or corrupt-JSON input');
     const { tmpDir, agenticDir } = makeTmp('ae-state-mark-f2-');
     writeLoopState(agenticDir, { status: 'active', session_id: 'sess-a' });
     stateMark.markInterrupted(tmpDir, 'sess-a');
-    const tmpFiles = fs.readdirSync(agenticDir).filter((f) => f.endsWith('.tmp'));
-    assert(tmpFiles.length === 0, `(markInterrupted success) no .tmp remains (found: ${tmpFiles.join(', ') || 'none'})`);
+    const tmpFiles = fs.readdirSync(agenticDir).filter(isOwnStyleTmp);
+    assert(tmpFiles.length === 0, `(markInterrupted success) no .tmp.<pid> remains (found: ${tmpFiles.join(', ') || 'none'})`);
     cleanup(tmpDir);
   }
 
-  // Corrupt-JSON path: pre-plant a stale .tmp, feed corrupt loop-state.json,
-  // confirm the catch-block cleanup removes it (mirrors #262's regression
-  // pattern in test-stop-context-session-log.js sub-test 5).
+  // Own-tmp cleanup on a THIS-CALL failure: tmpPath is only ever assigned
+  // after JSON.parse succeeds (i.e. once this call has actually created its
+  // own tmp.<pid> file), so to exercise "we created a tmp and then failed"
+  // the failure has to happen at/after the rename step, not at parse time.
+  // Monkeypatch fs.renameSync to throw once, after the real writeFileSync
+  // has landed our own tmp.<pid> file on disk, then confirm the catch block
+  // removes exactly that file (own-name-only cleanup, still working for the
+  // case it's meant to cover: a crash between our write and our rename).
   {
     const { tmpDir, agenticDir } = makeTmp('ae-state-mark-f3-');
+    writeLoopState(agenticDir, { status: 'active', session_id: 'sess-a' });
+    const loopStatePath = path.join(agenticDir, 'loop-state.json');
+    const expectedOwnTmp = loopStatePath + '.tmp.' + process.pid;
+
+    const realRenameSync = fs.renameSync;
+    let observedOwnTmpExistedMidWrite = false;
+    fs.renameSync = function patchedRenameSync(src, dest) {
+      if (src === expectedOwnTmp) {
+        observedOwnTmpExistedMidWrite = fs.existsSync(expectedOwnTmp);
+        throw new Error('simulated crash between write and rename');
+      }
+      return realRenameSync.apply(fs, arguments);
+    };
+    try {
+      stateMark.refreshLiveness(tmpDir, 'sess-a');
+    } finally {
+      fs.renameSync = realRenameSync;
+    }
+
+    assert(observedOwnTmpExistedMidWrite,
+      '(simulated crash) our own tmp.<pid> did exist on disk at the moment rename failed');
+    assert(!fs.existsSync(expectedOwnTmp),
+      '(simulated crash) our own tmp.<pid> is cleaned up by the catch block after a failed rename');
+    cleanup(tmpDir);
+  }
+
+  // DS-109 regression: corrupt-JSON path must NEVER delete a PEER's
+  // in-flight staging file. Pre-plant two foreign tmp files - one in the
+  // legacy fixed-name shape (`.tmp`, pre-fix) and one pid-suffixed with a
+  // pid that is provably not ours - then trigger our own catch-path via
+  // corrupt JSON. Both must survive: the catch block only ever unlinks the
+  // exact tmpPath variable IT assigned in the try block, and here that
+  // variable is never assigned at all (JSON.parse throws before tmpPath is
+  // set), so nothing at any other name is ever touched.
+  {
+    const { tmpDir, agenticDir } = makeTmp('ae-state-mark-f4-');
     const loopStatePath = path.join(agenticDir, 'loop-state.json');
     fs.writeFileSync(loopStatePath, '{ bad json !!');
-    const staleTmp = loopStatePath + '.tmp';
-    fs.writeFileSync(staleTmp, 'stale content from a previous crashed session');
+
+    const legacyFixedNamePeerTmp = loopStatePath + '.tmp';
+    // Guaranteed not to equal our own pid: append a digit to our own pid so
+    // it differs by construction, no matter what our actual pid is.
+    const foreignPid = String(process.pid) + '9';
+    const peerTmp = loopStatePath + '.tmp.' + foreignPid;
+    fs.writeFileSync(legacyFixedNamePeerTmp, 'PEER_INFLIGHT_DATA_LEGACY_NAME');
+    fs.writeFileSync(peerTmp, 'PEER_INFLIGHT_DATA_PID_SUFFIXED');
 
     stateMark.refreshLiveness(tmpDir, 'sess-a');
 
-    const tmpFiles = fs.readdirSync(agenticDir).filter((f) => f.endsWith('.tmp'));
-    assert(tmpFiles.length === 0,
-      `(corrupt-JSON) stale .tmp cleaned up by catch block (found: ${tmpFiles.join(', ') || 'none'})`);
+    assert(fs.existsSync(legacyFixedNamePeerTmp) && fs.readFileSync(legacyFixedNamePeerTmp, 'utf8') === 'PEER_INFLIGHT_DATA_LEGACY_NAME',
+      'DS-109: a peer\'s legacy fixed-name .tmp file survives our unrelated catch-path cleanup, untouched');
+    assert(fs.existsSync(peerTmp) && fs.readFileSync(peerTmp, 'utf8') === 'PEER_INFLIGHT_DATA_PID_SUFFIXED',
+      'DS-109: a peer\'s pid-suffixed .tmp.<otherpid> file survives our unrelated catch-path cleanup, untouched');
     cleanup(tmpDir);
   }
 }

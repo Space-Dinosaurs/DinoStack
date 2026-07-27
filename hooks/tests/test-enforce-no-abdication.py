@@ -23,6 +23,8 @@ Test coverage:
   - Counter increments and CAP halts blocking
   - Counter resets on new user turn (via user_msg_count advance)
   - Corrupt counter file -> treated as 0
+  - DS-109: counter tmp is pid-suffixed; a peer's in-flight tmp (legacy fixed
+    name or a different pid's suffixed name) survives our write untouched
   - Malformed stdin -> ALLOW (fail-open)
   - Smoke: abdicating payload -> exactly one valid JSON block object
   - Smoke: clean payload -> empty stdout
@@ -711,6 +713,78 @@ def test_corrupt_counter_file(tmp_dir: str) -> int:
     return failed
 
 
+def test_write_counter_pid_suffixed_tmp(tmp_dir: str) -> int:
+    """DS-109 regression: _write_counter's staging file must be pid-suffixed.
+
+    Pre-fix, _write_counter always wrote to the SAME fixed `<counter>.tmp`
+    name regardless of which process called it. Confirmed by execution
+    against the pre-fix hook: pre-planting a peer's in-flight content at that
+    exact path and then running the hook silently truncates and consumes it
+    (open(tmp, "w") overwrites it, then os.replace renames it away) - the
+    peer's staging data is destroyed with no error, no trace. Post-fix, the
+    tmp name is `<counter>.tmp.<our-own-pid>`, so this process can never
+    write through, or rename away, a name any other process owns.
+
+    This test asserts the observable contract from the outside: after a
+    normal successful hook invocation that writes the counter, a peer's
+    pre-planted in-flight tmp files - both the legacy fixed `.tmp` name and a
+    different pid's `.tmp.<otherpid>` name - survive the run untouched,
+    byte-for-byte.
+    """
+    print("\n  [DS-109: counter tmp naming + peer-tmp survival]")
+    failed = 0
+    pid_dir = os.path.join(tmp_dir, "pid_tmp_cwd")
+    os.makedirs(pid_dir, exist_ok=True)
+    make_config_file(pid_dir, enabled=True)
+    agentic_dir = os.path.join(pid_dir, ".agentic")
+    os.makedirs(agentic_dir, exist_ok=True)
+    counter_path = os.path.join(agentic_dir, ".abdication-guard-fire-count")
+
+    # Pre-plant two "peer" staging files: the legacy fixed name (what every
+    # writer shared pre-fix) and a pid-suffixed name for a pid that is
+    # provably not this test process's own.
+    legacy_fixed_peer_tmp = counter_path + ".tmp"
+    foreign_pid = f"{os.getpid()}9"
+    peer_tmp = counter_path + f".tmp.{foreign_pid}"
+    with open(legacy_fixed_peer_tmp, "w") as f:
+        f.write("PEER_INFLIGHT_DATA_LEGACY_NAME")
+    with open(peer_tmp, "w") as f:
+        f.write("PEER_INFLIGHT_DATA_PID_SUFFIXED")
+
+    payload = make_payload(pid_dir, last_assistant_message=ABDICATING_MSG)
+    rc, stdout, _ = run_hook(payload)
+    ok_block = is_block(rc, stdout)
+    print(f"    [{'PASS' if ok_block else 'FAIL'}] hook still blocks/writes the counter normally")
+    if not ok_block:
+        failed += 1
+
+    with open(legacy_fixed_peer_tmp) as f:
+        legacy_survived = f.read() == "PEER_INFLIGHT_DATA_LEGACY_NAME"
+    print(f"    [{'PASS' if legacy_survived else 'FAIL'}] peer's legacy fixed-name .tmp survives untouched")
+    if not legacy_survived:
+        failed += 1
+
+    with open(peer_tmp) as f:
+        pid_survived = f.read() == "PEER_INFLIGHT_DATA_PID_SUFFIXED"
+    print(f"    [{'PASS' if pid_survived else 'FAIL'}] peer's pid-suffixed .tmp.<otherpid> survives untouched")
+    if not pid_survived:
+        failed += 1
+
+    # Our own real write should have landed cleanly with no leftover tmp of
+    # ANY shape (own-pid-suffixed or otherwise) once the subprocess exits.
+    leftover = [
+        f for f in os.listdir(agentic_dir)
+        if f.startswith(".abdication-guard-fire-count.tmp")
+        and f not in (os.path.basename(legacy_fixed_peer_tmp), os.path.basename(peer_tmp))
+    ]
+    ok_no_leftover = leftover == []
+    print(f"    [{'PASS' if ok_no_leftover else 'FAIL'}] no orphaned own-tmp remains (found: {leftover or 'none'})")
+    if not ok_no_leftover:
+        failed += 1
+
+    return failed
+
+
 def test_transcript_fallback(tmp_dir: str) -> int:
     """Test transcript_path fallback when last_assistant_message is absent."""
     print("\n  [Transcript fallback tests]")
@@ -847,6 +921,7 @@ def main() -> None:
         total_failed += test_counter_reset_on_new_user_turn(tmp_dir)
         total_failed += test_corrupt_counter_file(tmp_dir)
         total_failed += test_unwritable_counter_allows_stop(tmp_dir)
+        total_failed += test_write_counter_pid_suffixed_tmp(tmp_dir)
 
         # Transcript fallback.
         total_failed += test_transcript_fallback(tmp_dir)

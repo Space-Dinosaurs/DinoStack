@@ -247,19 +247,24 @@ console.log('\n[4] Write failure: session-log dir is an existing file (unwriteab
 }
 
 // ---------------------------------------------------------------------------
-// Sub-test 5: No orphan .tmp files after a normal hook run (#262 regression)
+// Sub-test 5: No orphan .tmp files after a normal hook run (#262 regression),
+// and (DS-109) the catch-path cleanup is scoped to our own pid-suffixed tmp
+// only - a peer's in-flight staging file at the same base name must survive.
 // ---------------------------------------------------------------------------
-console.log('\n[5] No orphan .tmp files: loop-state atomic write leaves no .tmp on success or failure');
+console.log('\n[5] No orphan tmp files: loop-state atomic write leaves no tmp.<pid> on success or failure; peer tmp survives');
 {
-  // Two scenarios in one sub-test:
-  // (a) normal success path: active loop-state -> atomic write -> rename -> no .tmp
-  // (b) failure path: loop-state.json is corrupt JSON -> catch fires early, no
-  //     .tmp ever written -> catch cleanup is a no-op (unlink of absent file must
-  //     not throw).
-  //
-  // Both scenarios assert that no .tmp files remain after the hook exits, which
-  // is the invariant #262 introduces. If the catch cleanup is removed, a .tmp
-  // planted before scenario (b) would survive and the test would catch it.
+  // A tmp file this write path can leave behind is always named
+  // `<file>.tmp.<pid>` post-DS-109 - match that shape, not a bare `.tmp`
+  // suffix.
+  const isOwnStyleTmp = (f) => /\.tmp\.\d+$/.test(f);
+
+  // Three scenarios in one sub-test:
+  // (a) normal success path: active loop-state -> atomic write -> rename -> no tmp
+  // (b) failure path, own tmp: loop-state.json is corrupt JSON -> catch fires
+  //     early, no tmp ever written by US -> catch cleanup is a no-op.
+  // (c) DS-109 regression: a PEER's in-flight staging file - at the legacy
+  //     fixed name, or at a different pid's suffixed name - must survive our
+  //     unrelated catch-path cleanup untouched.
   //
   // Both invocations pass --cadence=turn (this hook's install.sh-wired
   // default) so the atomic write path exercised here is refreshLiveness, not
@@ -278,31 +283,49 @@ console.log('\n[5] No orphan .tmp files: loop-state atomic write leaves no .tmp 
     JSON.stringify({ status: 'active', session_id: 'test-session-uuid' }),
   );
   try { runHook(projectDir, fakeHome, 'test-session-uuid', 'turn'); } catch (_) {}
-  const tmpFilesA = fs.readdirSync(agenticDir).filter((f) => f.endsWith('.tmp'));
+  const tmpFilesA = fs.readdirSync(agenticDir).filter(isOwnStyleTmp);
   assert(tmpFilesA.length === 0,
-    `(a) no .tmp in .agentic/ after successful atomic write (found: ${tmpFilesA.join(', ') || 'none'})`);
+    `(a) no tmp.<pid> in .agentic/ after successful atomic write (found: ${tmpFilesA.join(', ') || 'none'})`);
   cleanup(tmpDir);
 
-  // --- (b) failure path: pre-plant a .tmp, feed corrupt loop-state -> catch
-  //         fires, catch cleanup must remove the pre-planted .tmp ---
-  // This simulates a stale .tmp left by a previous crashed session being cleaned
-  // up when the next session's catch block runs. We pre-plant the .tmp at exactly
-  // the path the hook would use, feed corrupt JSON (parse fails -> outer catch),
-  // then assert the .tmp is gone.
+  // --- (b) failure path, no tmp ever created by us: corrupt loop-state ->
+  //     JSON.parse throws before tmpPath is assigned -> catch cleanup is a
+  //     no-op (nothing of ours to remove).
   const { tmpDir: tmpDir2, fakeHome: fakeHome2, projectDir: proj2,
     agenticDir: ag2, identityDir: id2 } = makeTmp('ae-stop-t5b-');
   fs.writeFileSync(path.join(id2, 'identity.yml'), STUB_IDENTITY, { mode: 0o600 });
   // Corrupt loop-state.json -> JSON.parse throws -> catch block fires.
   const loopStatePath2 = path.join(ag2, 'loop-state.json');
   fs.writeFileSync(loopStatePath2, '{ bad json !!');
-  // Pre-plant a stale .tmp at the exact path writeLoopState would use.
-  const staleTmp = loopStatePath2 + '.tmp';
-  fs.writeFileSync(staleTmp, 'stale content from a previous crashed session');
   try { runHook(proj2, fakeHome2, 'test-session-uuid', 'turn'); } catch (_) {}
-  const tmpFilesB = fs.readdirSync(ag2).filter((f) => f.endsWith('.tmp'));
+  const tmpFilesB = fs.readdirSync(ag2).filter(isOwnStyleTmp);
   assert(tmpFilesB.length === 0,
-    `(b) stale .tmp cleaned up by catch block (found: ${tmpFilesB.join(', ') || 'none'})`);
+    `(b) no own-style tmp.<pid> remains after a no-write failure (found: ${tmpFilesB.join(', ') || 'none'})`);
   cleanup(tmpDir2);
+
+  // --- (c) DS-109: a peer's in-flight staging file must survive our
+  //     unrelated catch-path failure, whether it uses the legacy fixed name
+  //     or a different pid's suffixed name.
+  const { tmpDir: tmpDir3, fakeHome: fakeHome3, projectDir: proj3,
+    agenticDir: ag3, identityDir: id3 } = makeTmp('ae-stop-t5c-');
+  fs.writeFileSync(path.join(id3, 'identity.yml'), STUB_IDENTITY, { mode: 0o600 });
+  const loopStatePath3 = path.join(ag3, 'loop-state.json');
+  fs.writeFileSync(loopStatePath3, '{ bad json !!');
+  const legacyFixedNamePeerTmp = loopStatePath3 + '.tmp';
+  const foreignPid = String(process.pid) + '9'; // guaranteed not our own pid
+  const peerTmp = loopStatePath3 + '.tmp.' + foreignPid;
+  fs.writeFileSync(legacyFixedNamePeerTmp, 'PEER_INFLIGHT_DATA_LEGACY_NAME');
+  fs.writeFileSync(peerTmp, 'PEER_INFLIGHT_DATA_PID_SUFFIXED');
+  try { runHook(proj3, fakeHome3, 'test-session-uuid', 'turn'); } catch (_) {}
+  assert(
+    fs.existsSync(legacyFixedNamePeerTmp) && fs.readFileSync(legacyFixedNamePeerTmp, 'utf8') === 'PEER_INFLIGHT_DATA_LEGACY_NAME',
+    'DS-109: a peer\'s legacy fixed-name .tmp file survives our unrelated catch-path cleanup, untouched'
+  );
+  assert(
+    fs.existsSync(peerTmp) && fs.readFileSync(peerTmp, 'utf8') === 'PEER_INFLIGHT_DATA_PID_SUFFIXED',
+    'DS-109: a peer\'s pid-suffixed .tmp.<otherpid> file survives our unrelated catch-path cleanup, untouched'
+  );
+  cleanup(tmpDir3);
 }
 
 // ---------------------------------------------------------------------------
