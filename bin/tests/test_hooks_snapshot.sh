@@ -124,16 +124,45 @@ else
   _pass "hooks/AGENTS.md is excluded from the snapshot"
 fi
 
-CONTENT_BEFORE="$(find "$SNAP_DIR" -type f | sort | xargs -I{} sh -c 'echo {}; cat {}' 2>/dev/null)"
+# .snapshot-meta.json is excluded from this byte-comparison on purpose: its
+# `snapshotted_at` field is stamped at second resolution by sync_hooks_snapshot
+# on EVERY call (scripts/lib/hooks-snapshot.sh), by design - a fresh
+# re-sync a second later is expected to change that field. Asserting raw
+# byte-equality on this file is a race against the wall-clock second
+# boundary (measured ~7% flake rate in CI). The field that genuinely must
+# stay stable across an idempotent re-sync is `source_hash`, which is
+# checked separately below. Do not remove this exclusion to "fix" a
+# perceived coverage gap - it would reintroduce the flake.
+_snapshot_files() {
+  find "$1" -type f -not -name '.snapshot-meta.json' | sort
+}
+
+_snapshot_content() {
+  local dir="$1" f
+  while IFS= read -r f; do
+    printf '%s\n' "$f"
+    cat "$f"
+  done < <(_snapshot_files "$dir")
+}
+
+SOURCE_HASH_BEFORE="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['source_hash'])" "$SNAP_DIR/.snapshot-meta.json")"
+CONTENT_BEFORE="$(_snapshot_content "$SNAP_DIR")"
 
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 
-CONTENT_AFTER="$(find "$SNAP_DIR" -type f | sort | xargs -I{} sh -c 'echo {}; cat {}' 2>/dev/null)"
+SOURCE_HASH_AFTER="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['source_hash'])" "$SNAP_DIR/.snapshot-meta.json")"
+CONTENT_AFTER="$(_snapshot_content "$SNAP_DIR")"
 
 if [[ "$CONTENT_BEFORE" == "$CONTENT_AFTER" ]]; then
-  _pass "re-sync with unchanged source is idempotent (identical file set + content)"
+  _pass "re-sync with unchanged source is idempotent (identical file set + content, excluding .snapshot-meta.json's timestamp)"
 else
   _fail "re-sync with unchanged source produced a different tree"
+fi
+
+if [[ -n "$SOURCE_HASH_BEFORE" && "$SOURCE_HASH_BEFORE" == "$SOURCE_HASH_AFTER" ]]; then
+  _pass ".snapshot-meta.json source_hash is stable across an idempotent re-sync"
+else
+  _fail ".snapshot-meta.json source_hash changed across an idempotent re-sync ('$SOURCE_HASH_BEFORE' vs '$SOURCE_HASH_AFTER')"
 fi
 
 # Delete propagation: remove extra.sh from source, resync, must vanish from snapshot.
