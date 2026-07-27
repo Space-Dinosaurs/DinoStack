@@ -2,7 +2,7 @@
 """
 Spec tests for the "learnings-agent capture model" documentation axis
 (DS-97, 5th attempt): learnings-agent capture is MANDATORY-TRIGGER (gated by
-the MANDATORY PROTOCOL GATE at content/references/conductor-operating-rules.md:91),
+content/references/conductor-operating-rules.md §MANDATORY PROTOCOL GATE),
 not discretionary / ad-hoc conductor judgment.
 
 Prior attempts each declared this axis closed and each verification method
@@ -11,11 +11,17 @@ was narrower than the claim it certified:
   - a token-scoped check missed semantic variants (e.g. "conductor judgment")
   - a case-sensitive check missed a capitalized "Discretionary capture"
 
+A Skeptic mutation-test pass on this suite itself then found three more
+narrowness defects (a line-scoped allowlist that swallowed co-located
+violations, a semantic-variant scope that excluded README.md/CONTRIBUTING.md,
+and a stale line-number citation) - fixed here without losing any of the
+five original catches; see the allowlist and scope-file docstrings below for
+the details of each fix.
+
 This suite closes the gap with a case-insensitive literal search PLUS a
 semantic-variant search, over content/, docs/slides/*.md, docs/index.html,
-README.md, and CONTRIBUTING.md (discretionary-literal scope also covers
-README.md/CONTRIBUTING.md; semantic-variant scope is content/, docs/slides/*.md,
-and docs/index.html per the spec).
+README.md, and CONTRIBUTING.md (discretionary-literal scope and
+semantic-variant scope now both cover README.md/CONTRIBUTING.md).
 
 Covers:
   - (a) case-insensitive "discretionary" returns exactly the 2 sanctioned
@@ -47,7 +53,9 @@ DOCS_INDEX = REPO_ROOT / "docs" / "index.html"
 README = REPO_ROOT / "README.md"
 CONTRIBUTING = REPO_ROOT / "CONTRIBUTING.md"
 
-MANDATORY_GATE_CITATION = "content/references/conductor-operating-rules.md:91"
+MANDATORY_GATE_CITATION = (
+    "content/references/conductor-operating-rules.md §MANDATORY PROTOCOL GATE"
+)
 
 DISCRETIONARY_RE = re.compile(r"discretionary", re.IGNORECASE)
 
@@ -98,15 +106,15 @@ def _discretionary_literal_scope_files():
 
 
 def _semantic_variant_scope_files():
-    """content/ (recursive) + docs/slides/*.md (non-recursive) + docs/index.html.
-    README.md/CONTRIBUTING.md are intentionally excluded from this scope per
-    the spec (the semantic-variant check targets the methodology/doc surface
-    the discretionary phrasing was actually found on)."""
-    files = [p for p in sorted(CONTENT_DIR.rglob("*")) if p.is_file()]
-    files += sorted(SLIDES_DIR.glob("*.md"))
-    if DOCS_INDEX.exists():
-        files.append(DOCS_INDEX)
-    return files
+    """Same scope as _discretionary_literal_scope_files() - content/ (recursive)
+    + docs/slides/*.md (non-recursive) + docs/index.html + README.md +
+    CONTRIBUTING.md. A prior revision excluded README.md/CONTRIBUTING.md from
+    this scope on the theory that the literal-'discretionary' check already
+    covered them - but that only catches the literal word, not the semantic
+    variants this function's caller checks for, and README.md/CONTRIBUTING.md
+    are the most public surfaces in the set. Reuses
+    _discretionary_literal_scope_files() rather than duplicating the file list."""
+    return _discretionary_literal_scope_files()
 
 
 def _rel(path: Path) -> str:
@@ -176,10 +184,18 @@ def test_semantic_variants_asserting_superseded_model_are_absent():
     files = _semantic_variant_scope_files()
     violations = []
     for p, ln, line in _iter_lines(files):
+        # Pattern-scoped allowlist: strip only the allowlisted substring(s) for
+        # this path from the line before matching, so a second, non-allowlisted
+        # variant co-located on the same line is still caught. A prior
+        # revision excluded the entire line once any allowlisted substring was
+        # present anywhere on it, which masked any of the three other
+        # semantic-variant patterns landing on the same line as an allowed hit.
+        remainder = line
+        for allowed_path, sub in ALLOWED_SEMANTIC_VARIANT_HITS:
+            if p == allowed_path:
+                remainder = remainder.replace(sub, "")
         for pattern in SEMANTIC_VARIANT_PATTERNS:
-            if not pattern.search(line):
-                continue
-            if any(p == ap and sub in line for ap, sub in ALLOWED_SEMANTIC_VARIANT_HITS):
+            if not pattern.search(remainder):
                 continue
             violations.append((p, ln, line, pattern.pattern))
 
