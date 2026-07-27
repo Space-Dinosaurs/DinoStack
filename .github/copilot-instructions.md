@@ -63,7 +63,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
-**No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once.
+**No re-deliberation on spawn decisions.** Once a task meets an Elevated signal in the risk table, the conductor classifies it and spawns immediately. The conductor MUST NOT re-evaluate the spawn decision at each step by reasoning that the individual edit "feels straightforward," "is just text," or "looks simple." Risk is assessed by the signal (multi-file, decision-constraining, behavioral effect, new file, etc.), not by the conductor's subjective estimate of difficulty. A conductor that self-negotiates around the spawn threshold is violating the protocol regardless of whether the output happens to be correct. Classify once, act once - **Decision stability** below is the general form of this rule.
 
 **Pre-spawn checklist - ticket-offer gate:** Before spawning the FIRST implementer (architect, engineer, or orchestration-planner) on net-new work: if a tracker is connected and `ticket_driven` is active and the work did not arrive as an existing ticket, run the ticket-offer gate first (see full rule below, §Ticket-offer gate).
 
@@ -108,6 +108,16 @@ Anything else - "should I create the missing endpoint that #271 depends on?", "w
 5. The most conservative interpretation of the ticket text (choose the option that minimizes blast radius and commits to the fewest future decisions)
 
 Consult the sources in order. Stop at the first source that yields a default. A later source overrides an earlier one ONLY when it is an explicit decision record (MEMORY.md entry, AGENTS.md convention, prior ADR) that supersedes the pattern. Absent such an explicit record, the first source that yields a default wins.
+
+**Decision stability.** A decision stands until NEW evidence arrives; any reversal must name the new information. Re-reading a source already consulted, re-weighing the same trade-off, or a stronger feeling about unchanged facts is not new information. Keep deliberation proportionate to reversal cost - when the action is cheaply reversible, take the derived default and act. **Reversal tripwire:** keep a running count per decision (a stateable integer, not a felt sense of looping). Once you have reversed the same decision twice on unchanged inputs, stop reasoning and take the terminal action: if the deadlock is two instructions contradicting each other, apply the equal-precedence tiebreak below; otherwise take the five-source derived default and note the choice. Either way the next step is an action, never another round.
+
+**Equal-precedence tiebreak.** When two instructions at the SAME tier contradict (e.g. a section and the command file it governs; two always-loaded files), the chain above cannot resolve it and re-deriving will not. In order:
+1. An explicit decision record wins - per the default-and-proceed protocol's explicit-decision-record rule above: a MEMORY.md entry, AGENTS.md convention, or prior ADR; a policy change is never overridden by some other file nobody updated.
+2. Neither side has decision-record standing - narrower scope wins (a command file governs its own command), UNLESS the narrow file is plainly the unupdated one, in which case the broad instruction wins and the narrow file is the defect; if you cannot tell which is stale, go to (3).
+3. Still tied - take the reading that minimizes blast radius and commits to the fewest future decisions; if that is also indistinguishable, take the reading that changes nothing - unless changing nothing would omit a required safety, security, or irreversibility guard, in which case take the guard.
+4. Act, state the resolution in one line, and record the conflict as an intent-layer defect (capture trigger 6 - `content/references/conductor-operating-rules.md` §learnings-agent; recording satisfies the trigger, any doc fix is a follow-up).
+
+An instruction-layer contradiction is a defect to record, never a decision to re-litigate in-session.
 
 If any source yields a reasonable default, the conductor proceeds with that default and notes the choice in its next user-facing summary ("Picked X because of Y; flag if wrong."). It does NOT pause.
 
@@ -481,8 +491,8 @@ Read `content/references/activation-detail.md` §Step 5: First-Activation Notice
 **Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
 See `content/sections/03-planning-artifacts.md` for the blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
 
-**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules:
-Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, and §Digest-Return Discipline.
+**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules, or a detected instruction-layer contradiction:
+Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, and §Decision Stability and Contradiction Resolution.
 
 **Risk config and tiers** - when consulting config toggles, the graph-derived risk signal, or tier declaration detail:
 Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, and §Tier Declaration Detail.
@@ -695,7 +705,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 **Knowledge-file routing (three distinct stores):**
 - `<cwd>/MEMORY.md` - canonical durable facts; committed; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`); written by `/ds-wrap`, wrap-ticket, `/ds-memory-update`.
 - `.agentic/memory.md` - `/ds-wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
-- `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (discretionary).
+- `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (mandatory triggers, conductor-spawned).
 
 **Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - per-developer session rollup written by the Stop hook. Committed to git via the `.agentic/session-log/` carve-out in `.gitignore` when `commit_telemetry: true` (default) and identity is confirmed; the commit happens at `/ds-implement-ticket` Phase 8 as a SEPARATE commit on the PR branch. Teammates receive it on pull after squash merge. See `content/references/events-log.md` "Per-developer session log". Aggregated via `agentic-cost team`.
 

@@ -279,7 +279,7 @@ Any one of these signals is sufficient. There is no majority vote - a single mat
 </div>
 
 <div class="callout">
-<strong>No re-deliberation on spawn decisions.</strong> Once a task matches an Elevated signal, classify it and spawn. The conductor must not re-evaluate at each step - risk is assessed once, at classification time.
+<strong>No re-deliberation.</strong> Once a task matches an Elevated signal, classify it and spawn. Generalized: a decision stands until NEW evidence arrives, and a reversal must name the new information - re-reading the same source is not new information.
 </div>
 
 ---

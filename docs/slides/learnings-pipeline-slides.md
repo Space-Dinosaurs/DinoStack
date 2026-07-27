@@ -172,7 +172,7 @@ How DinoStack gets smarter every session
 - Without capture, the next agent starting cold re-derives the same lessons from scratch
 - The learnings pipeline converts ephemeral session knowledge into durable entries in `.agentic/learnings.md`
 - That file is **committed** - teammates and future sessions inherit the knowledge automatically
-- Two distinct feeders exist: `learning-extractor` (mechanical, per-ticket) and `learnings-agent` (discretionary, per-session)
+- Two distinct feeders exist: `learning-extractor` (mechanical, per-ticket) and `learnings-agent` (mandatory triggers, per-session)
 
 <div class="callout">
 The pipeline is not a logging system. It is a self-improving loop: each closed ticket leaves the project measurably smarter than it found it.
@@ -198,13 +198,13 @@ Emits <strong>LRN</strong> entries only (bug-fix residuals). Trigger: phase gate
 </div>
 <div class="card">
 <strong>learnings-agent</strong><br/>
-Conductor-discretionary background capture. Spawned ad-hoc the FIRST time a learning-worthy event occurs in a session: Skeptic finding resolved, error-fix cycle, tool failure workaround, architectural decision, cross-component gotcha, user-called-out reusable pattern.<br/><br/>
-Emits both <strong>LRN</strong> and <strong>KNW</strong> entries. Trigger: conductor judgment.
+Background capture on the mandatory triggers. Spawned by the conductor the FIRST time a trigger fires in a session; see the mandatory trigger list in `content/references/conductor-operating-rules.md` §learnings-agent background capture.<br/><br/>
+Emits both <strong>LRN</strong> and <strong>KNW</strong> entries. Trigger: mandatory evaluation, conductor-initiated spawn.
 </div>
 </div>
 
 <div class="callout">
-Distinct triggers on purpose: <code>learning-extractor</code> guarantees coverage across every ticketed loop; <code>learnings-agent</code> captures ad-hoc session events no phase gate would catch.
+Distinct triggers on purpose: <code>learning-extractor</code> guarantees coverage across every ticketed loop; <code>learnings-agent</code> captures the mandatory-trigger events no phase gate would catch.
 </div>
 
 ---
