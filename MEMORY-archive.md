@@ -14,6 +14,8 @@ This is the historical tier for DinoStack: entries moved verbatim from `MEMORY.m
 
 - **2026-04-28:** This project uses `main` as the sole integration branch. Do not use `develop`/`development` branching model for this repository - all feature/fix/chore work branches from `main` and merges back to `main`.
 
+- **2026-07-09 (SUPERSEDED 2026-07-26 - its guard attribution is false; see the next entry. Pending move to `MEMORY-archive.md`):** The DS Jira project's workflow is 3-state only (To Do / In Progress / Done) - status writebacks to `In Review`/`QA`/`Blocked` silently no-op via the tracker's forward-only guard. Cached in `.agentic/tracker-states.json` (gitignored, machine-local). (ticket: DS-74)
+
 ## Decisions
 
 - **2026-05-18: Adapter-drift CI gate is advisory-only (descoped from hard block).** `adapter-sync.yml` makes content/adapter drift CI-visible (red X) on every PR but is NOT a required status check. Drift is CI-visible but not hard-blocked at merge. To upgrade to a hard merge block: add the `check-adapter-sync` job as a required status check on `main` in repo settings. Accepted by operator 2026-05-18.
