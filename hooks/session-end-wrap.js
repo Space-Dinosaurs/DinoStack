@@ -30,9 +30,15 @@
  *                hooks/stop-context.js's --cadence=session dispatch). Reads
  *                stdin (fd 0) via the bounded reader and
  *                [cwd]/.agentic/config.json (deferred_wrap_daemon toggle).
- *                Writes [cwd]/.agentic/loop-state.json and
+ *                Writes [cwd]/.agentic/loop-state.json (legacy), every
+ *                per-ticket keyed sibling
+ *                [cwd]/.agentic/loop-state-<LOOP_KEY>.json, and
  *                [cwd]/.agentic/batch-state.json (via state-mark.js, on a
- *                terminal reason only). Spawns
+ *                terminal reason only - this hook derives no key and
+ *                enumerates no path itself; state-mark.js's candidatePaths(cwd)
+ *                resolves the set, always including the legacy path, and
+ *                markInterrupted's per-file ownership predicate decides which
+ *                are marked). Spawns
  *                `node <repo>/hooks/wrap-daemon.js <cwd>` detached when the
  *                toggle is true (the daemon file is built in U3 and may not
  *                exist yet - the detached spawn fails silently until it lands).

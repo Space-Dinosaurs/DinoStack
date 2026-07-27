@@ -79,7 +79,8 @@ Example: `"zero open Critical findings in content/references/"`.
 - A hard blocker: permission denial, missing credential, irreversible action
   without authorization, or a fundamental scope conflict.
 
-The open-goal loop reuses `loop-state.json`, cross-session resume, and
+The open-goal loop reuses the per-ticket `loop-state-<LOOP_KEY>.json` (legacy:
+`.agentic/loop-state.json`), cross-session resume, and
 clean-exit exactly as documented in
 `content/sections/07-cross-session-loop-resume.md`. No new loop engine is
 introduced.
@@ -100,8 +101,11 @@ independent Skeptic - not the same Skeptic instance that reviewed the previous
 iteration. `goal_mode=open_goal` relaxes no existing review obligation.
 
 **Auditability.** Each iteration records a `risk_declared` field in
-`loop-state.json` as evidence that risk classification was performed. An
-iteration with no `risk_declared` is a protocol violation.
+`batch-state.json.open_goal` - the durable outer-loop cursor - as evidence that
+risk classification was performed. It is deliberately NOT held in a
+`loop-state-<LOOP_KEY>.json`, which Phase 12 clears every iteration and which
+therefore cannot hold cross-iteration audit state. An iteration with no
+`risk_declared` is a protocol violation.
 
 **What this buys.** The trigger removes the human from the START of each
 iteration, never from the REVIEW. Every unit that goes through an automated

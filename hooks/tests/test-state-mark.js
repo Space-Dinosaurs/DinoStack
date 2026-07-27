@@ -250,14 +250,82 @@ console.log('\n[g] onOutcome health label: corrupt-JSON reports target "writeLoo
 }
 
 // ---------------------------------------------------------------------------
-// Bonus: candidate set is exactly the two legacy paths (Unit 1 scope pin).
+// Bonus: candidatePaths(cwd) resolves legacy + per-ticket keyed siblings.
+//
+// This block REPLACES Unit 1's `_candidatePaths.length === 2` tripwire, which
+// was installed specifically so a per-ticket keying extension would be
+// visible. Deleting it rather than strengthening it is the cheapest green and
+// is forbidden; assertion 5 is what makes the removal deliberate, since simply
+// dropping the old block does not satisfy it.
 // ---------------------------------------------------------------------------
-console.log('\n[bonus] _candidatePaths is exactly the two legacy paths');
+console.log('\n[bonus] candidatePaths(cwd) resolves legacy + keyed loop-state candidates');
 {
-  assert(Array.isArray(stateMark._candidatePaths), '_candidatePaths is exported as an array');
-  assert(stateMark._candidatePaths.length === 2, `_candidatePaths has exactly 2 entries (got: ${stateMark._candidatePaths.length})`);
-  assert(stateMark._candidatePaths.includes('.agentic/loop-state.json'), '_candidatePaths includes .agentic/loop-state.json');
-  assert(stateMark._candidatePaths.includes('.agentic/batch-state.json'), '_candidatePaths includes .agentic/batch-state.json');
+  const { tmpDir, agenticDir } = makeTmp('state-mark-candidates-');
+  fs.writeFileSync(path.join(agenticDir, 'loop-state.json'), '{}');
+  fs.writeFileSync(path.join(agenticDir, 'batch-state.json'), '{}');
+  fs.writeFileSync(path.join(agenticDir, 'loop-state-DS-90.json'), '{}');
+  fs.writeFileSync(path.join(agenticDir, 'loop-state-session-abc.json'), '{}');
+  // Decoy: matches the prefix but is not .json - expansion rule 4 excludes it.
+  fs.writeFileSync(path.join(agenticDir, 'loop-state-notjson.txt'), 'decoy');
+
+  // 1. the public API is a function, not a static array.
+  assert(typeof stateMark.candidatePaths === 'function', 'candidatePaths is exported as a function');
+
+  // 2. returns exactly the four real paths, as a set, with the decoy absent.
+  const got = stateMark.candidatePaths(tmpDir).slice().sort();
+  const want = [
+    '.agentic/batch-state.json',
+    '.agentic/loop-state-DS-90.json',
+    '.agentic/loop-state-session-abc.json',
+    '.agentic/loop-state.json',
+  ].sort();
+  assert(
+    JSON.stringify(got) === JSON.stringify(want),
+    `candidatePaths returns exactly the four real paths, decoy excluded (got: ${JSON.stringify(got)})`
+  );
+
+  // 3. the two legacy rows are UNCONDITIONAL - a cwd with no .agentic/ at all
+  //    still yields them (expansion rule 1: legacy detection can never be lost
+  //    to a directory-read failure).
+  const bareDir = fs.mkdtempSync(path.join(os.tmpdir(), 'state-mark-bare-'));
+  const bare = stateMark.candidatePaths(bareDir).slice().sort();
+  assert(
+    JSON.stringify(bare) === JSON.stringify(['.agentic/batch-state.json', '.agentic/loop-state.json']),
+    `candidatePaths on a cwd with no .agentic/ still returns exactly the two legacy paths (got: ${JSON.stringify(bare)})`
+  );
+  cleanup(bareDir);
+
+  // 4. every keyed row's metadata deep-equals the legacy loop-state row's
+  //    (expansion rule 2: keyed files inherit, they never author metadata).
+  //    Observed through behavior the module exports: a keyed file at
+  //    status:"active" with no session_id must be treated EXACTLY as the
+  //    legacy file is - markInterrupted proceeds, and last_updated is NOT
+  //    touched (touchTimestampOnTerminal:false inherited from the parent row).
+  const activeNoSid = { status: 'active', last_updated: '2020-01-01T00:00:00.000Z' };
+  fs.writeFileSync(path.join(agenticDir, 'loop-state.json'), JSON.stringify(activeNoSid));
+  fs.writeFileSync(path.join(agenticDir, 'loop-state-DS-90.json'), JSON.stringify(activeNoSid));
+  const keyedTargets = [];
+  stateMark.markInterrupted(tmpDir, 'sess-meta', (target) => keyedTargets.push(target));
+  const legacyAfter = JSON.parse(fs.readFileSync(path.join(agenticDir, 'loop-state.json'), 'utf8'));
+  const keyedAfter = JSON.parse(fs.readFileSync(path.join(agenticDir, 'loop-state-DS-90.json'), 'utf8'));
+  assert(
+    keyedAfter.status === legacyAfter.status
+      && keyedAfter.interrupt_reason === legacyAfter.interrupt_reason
+      && keyedAfter.last_updated === activeNoSid.last_updated
+      && legacyAfter.last_updated === activeNoSid.last_updated
+      && keyedTargets.filter((t) => t === 'writeLoopState').length >= 2,
+    'keyed row metadata (tsField / healthTarget / touchTimestampOnTerminal) is inherited verbatim from the legacy loop-state row'
+  );
+
+  // 5. the static export is GONE. Retaining it alongside the function would
+  //    make the manifest's load-bearing "cannot drift from what the module
+  //    reads" claim false on a correctness path.
+  assert(
+    stateMark._candidatePaths === undefined,
+    `module.exports._candidatePaths is undefined - the static export is removed, not shadowed (got: ${JSON.stringify(stateMark._candidatePaths)})`
+  );
+
+  cleanup(tmpDir);
 }
 
 // ---------------------------------------------------------------------------

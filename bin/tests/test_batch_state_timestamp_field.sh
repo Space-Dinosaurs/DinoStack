@@ -11,15 +11,15 @@
 #          `session_id` on disk, and step 2 had no `status` precondition. The
 #          canonical timestamp field for `.agentic/batch-state.json` is
 #          `updated_at` (matching the schema block and the merged writer
-#          `hooks/lib/state-mark.js`'s `tsField: 'updated_at'`); the
-#          `.agentic/loop-state.json` file's equivalent field is `last_updated`
+#          `hooks/lib/state-mark.js`'s `tsField: 'updated_at'`); the loop-state
+#          file's equivalent field is `last_updated`
 #          and must NOT be touched. This suite pins that every batch-state
 #          staleness reader in content/commands/ds-implement-ticket.md keys on
 #          `updated_at`, that dual-file sentences (Contract A step 2) state
 #          the per-file mapping explicitly rather than naming one field for
 #          both files, that Contract A step 2's `status=active` precondition
 #          (which fixes the resume-abort Critical) is scoped to
-#          `batch-state.json` ONLY - loop-state.json's unconditional abort
+#          `batch-state.json` ONLY - the loop-state file's unconditional abort
 #          stays intact because its Phase 7 stall path can leave a live
 #          session holding a non-active file - that Contract
 #          C's refusal message offers a file-removal remedy, that the
@@ -32,6 +32,19 @@
 #          to extract here (the gates are prose contracts the conductor
 #          applies, not code), the same rationale as
 #          test_ticket_rework_triage_badge.sh's sibling spec.
+#
+#          PER-TICKET LOOP-STATE KEYING (filename repoint only). Loop state
+#          moved from the single `.agentic/loop-state.json` to a per-ticket
+#          `.agentic/loop-state-$LOOP_KEY.json`. TWO assertions here embedded
+#          the old path inside their regex (the Contract A step 2 dual-file
+#          mapping clause, and the "does NOT carry the precondition" clause)
+#          and were updated to the keyed spelling. NEITHER was weakened: both
+#          still require both field names / the full asymmetry, and both were
+#          re-verified as non-vacuous by mutation. NO FIELD WAS RENAMED - the
+#          "loop-state's own last_updated field is untouched" assertions below
+#          are the check for that and still pass unchanged. If a future change
+#          trips THOSE, it has renamed a field rather than a filename, and the
+#          right response is to stop and re-read scope, not to edit them.
 #
 # Public API: ./bin/tests/test_batch_state_timestamp_field.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -97,8 +110,16 @@ _present "$SPEC" "Contract C condition text checks updated_at within 10 minutes"
 
 echo ""
 echo "--- Contract A step 2 states the per-file mapping (dual-file sentence) ---"
+# FILENAME UPDATED for per-ticket loop-state keying: loop state now lives at
+# .agentic/loop-state-$LOOP_KEY.json. The PROPERTY this assertion pins is
+# unchanged and is deliberately not weakened - both field names and their
+# per-file mapping are still required in the same clause. Only the spelling of
+# the file the clause names has moved, which is the same path repoint applied
+# at every other loop-state site. No FIELD was renamed: `last_updated` is still
+# loop-state's, `updated_at` is still batch-state's, as the two assertions
+# further down ("loop-state's own last_updated field is untouched") re-confirm.
 _present "$SPEC" "Contract A step 2 names both field names in the same clause" \
-         'liveness-timestamp field \(.last_updated. for .loop-state\.json., .updated_at. for .batch-state\.json.'
+         'liveness-timestamp field \(.last_updated. for .loop-state-\$LOOP_KEY\.json., .updated_at. for .batch-state\.json.'
 _absent "$SPEC" "Contract A step 2 no longer keys the shared abort condition on last_updated alone" \
          'does not match the current session, AND its .last_updated. is within the last 10 minutes'
 
@@ -119,8 +140,11 @@ _present "$SPEC" "Contract A step 2 states batch-state's rationale (touchTimesta
          'touchTimestampOnTerminal: true.*hooks/lib/state-mark\.js'
 _present "$SPEC" "Contract A step 2 cites the pause path's clean exit" \
          'Exit cleanly\. Do NOT advance to the next ticket'
+# FILENAME UPDATED for per-ticket keying (see the note above). The asymmetry
+# being pinned - batch-state carries the status=active precondition, loop-state
+# does not - is unchanged.
 _present "$SPEC" "Contract A step 2 states loop-state does NOT carry the precondition" \
-         'loop-state\.json. does NOT carry the precondition'
+         'loop-state-\$LOOP_KEY\.json. does NOT carry the precondition'
 _present "$SPEC" "Contract A step 2 cites loop-state's touchTimestampOnTerminal:false shield" \
          'touchTimestampOnTerminal: false'
 _present "$SPEC" "Contract A step 2 cites the stall path leaving a live session holding a non-active loop-state" \

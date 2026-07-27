@@ -440,7 +440,7 @@ For the full YAML schema, `required_when` predicate grammar, `auto_install` safe
 
 ## Cross-session loop resume
 
-Long-running `/ds-implement-ticket` loops survive via `.agentic/loop-state.json` written at every phase transition; read `content/references/cross-session-loop-resume.md` §Cross-session loop resume at session start when loop-state.json exists.
+Long-running `/ds-implement-ticket` loops survive via a per-ticket `.agentic/loop-state-<LOOP_KEY>.json` written at every phase transition (superseding the single legacy `.agentic/loop-state.json`, which is still read and adopted when present); read `content/references/cross-session-loop-resume.md` §Cross-session loop resume at session start when any loop-state file exists.
 
 ## Task-state file
 
@@ -450,7 +450,7 @@ For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` (sole writer
 
 `.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /ds-wrap completion, finding fix). The file is gitignored.
 
-**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a `session_total` event on every TURN (not just at session exit); this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, loop-state.json by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
+**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a `session_total` event on every TURN (not just at session exit); this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
 
 **Schema** (one JSON object per line):
 - `ts`: ISO8601 UTC timestamp (required)
@@ -1618,7 +1618,7 @@ When investigation spans multiple independent surfaces (e.g., backend data layer
 
 ## wrap-ticket writer carve-out
 
-wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / `.agentic/loop-state.json` / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/context.md` (append-merge under `## Recent Focus` only). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
 
 **`.agentic/context.md` lock-aware auto-writers (deferred-wrap feature).** Under the deferred / background `/ds-wrap` feature there are **two** lock-aware `context.md` auto-writers, not one: the Node Stop hook (`hooks/stop-context.js`) on Claude Code and the OpenCode plugin (`.opencode/plugins/session-context.ts`). Both check `.agentic/wrap/lock` before writing `context.md`; while the lock is held they **skip** their `context.md` write and append a spillover record to `.agentic/wrap/deferred-activity.jsonl`, which the per-project deferred-wrap daemon drains into the activity block when it runs `/ds-wrap-deferred` and performs its own `context.md` write. Neither hook is "the one/only unlocked `context.md` writer" any longer - both serialize against the daemon's `/ds-wrap-deferred` (and a manual `/ds-wrap`) via `wrap/lock`. The daemon's headless `/ds-wrap-deferred` likewise serializes its own `context.md` write via `.agentic/wrap/lock`, holding the lock only around the narrow Part-A read-merge-write window (not the whole flow); correctness otherwise rests on idempotency (the Part A merge dedups). The daemon is launched by the SessionStart hook (see the daemon `hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/ds-wrap-deferred`, which is the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/ds-wrap-deferred.md`.
 
@@ -2262,7 +2262,8 @@ boundary is transparent to the Skeptic/QA layer.
 <!--
 Purpose: Full reference for cross-session loop resume mechanics extracted
          from content/sections/07-cross-session-loop-resume.md. Contains:
-         loop-state.json disk-write discipline (atomic tmp+rename at every
+         per-ticket loop-state-<LOOP_KEY>.json disk-write discipline (atomic
+         tmp+rename at every
          phase transition); resume check on session start; the Stop hook's
          per-turn liveness refresh vs the SessionEnd hook's terminal
          interrupted-status write; resumable phases (automatic and with
@@ -2277,8 +2278,9 @@ Public API: Read-only reference document. Cross-referenced from:
             loop resume Protocol Details entry).
 
 Upstream deps: content/sections/07-cross-session-loop-resume.md (parent
-               section); /ds-implement-ticket Phase 6 loop initialization
-               (writes loop-state.json); hooks/stop-context.js (the Stop
+               section); /ds-implement-ticket Resume check (derives LOOP_KEY)
+               and Phase 6 loop initialization
+               (writes loop-state-<LOOP_KEY>.json); hooks/stop-context.js (the Stop
                hook - per-turn liveness refresh only via
                hooks/lib/state-mark.js's refreshLiveness) and
                hooks/session-end-wrap.js (the SessionEnd hook - once-per-
@@ -2291,7 +2293,13 @@ Downstream consumers: conductor (/ds-implement-ticket resume check at session
                       write); any session that may resume a prior
                       implement-ticket run.
 
-Failure modes: loop-state.json is gitignored and must not be committed.
+Failure modes: every loop-state file is gitignored and must not be committed -
+               BOTH the keyed .agentic/loop-state-<LOOP_KEY>.json and the
+               legacy .agentic/loop-state.json. A consumer .gitignore with a
+               targeted (non-umbrella) list needs BOTH patterns; the keyed
+               form does not match a bare loop-state.json entry, and a repo
+               missing the glob would commit its findings_log,
+               last_engineer_summary, and session_id.
                Silent Stop hook / SessionEnd hook failure is acceptable -
                the 10-minute implicit-interrupt heuristic handles missed
                writes. Batch-state per-write session_id gate prevents
@@ -2305,13 +2313,15 @@ Performance: Standard (local filesystem reads/writes; no network).
 
 ## Cross-session loop resume
 
-Long-running `/ds-implement-ticket` loops can survive rate limits and session exits via `.agentic/loop-state.json`: <!-- gate-reviewed: still true - the interrupted-mark now lives on the SessionEnd hook rather than the Stop hook, but the survival property this sentence asserts is unchanged -->
+Long-running `/ds-implement-ticket` loops can survive rate limits and session exits via a **per-ticket** `.agentic/loop-state-<LOOP_KEY>.json`: <!-- gate-reviewed: still true - the interrupted-mark now lives on the SessionEnd hook rather than the Stop hook, but the survival property this sentence asserts is unchanged -->
 
-- **Disk writes at every phase transition.** The conductor writes `.agentic/loop-state.json` (atomic: tmp+rename) at initialization and at every phase transition (Skeptic spawn, Skeptic return, Engineer spawn, Engineer return, QA spawn, QA return, quality gate steps). The `last_phase` and `last_phase_action` fields are the authoritative resume keys.
+- **One file per ticket, keyed.** `LOOP_KEY` is derived exactly once per ticket at the Resume check (from the ticket id, else the session id, else a random terminal floor), recorded in the file's own `loop_key` field, and never re-derived - notably never from the branch name, which the workflow deletes after merge. Two sessions working two different tickets in one checkout therefore write different files and never contend. Two sessions on the SAME ticket derive the same key and still meet the per-write `session_id` gate, which is the case that gate exists for. The single unkeyed `.agentic/loop-state.json` is the LEGACY path: still read, adopted onto a keyed file on resume, then removed - never written fresh.
 
-- **Resume check on session start.** When `/ds-implement-ticket` is invoked, it checks for `.agentic/loop-state.json` before reading AGENTS.md. If `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start. See `/ds-implement-ticket` Resume check section for the full protocol.
+- **Disk writes at every phase transition.** The conductor writes `.agentic/loop-state-<LOOP_KEY>.json` (atomic: tmp+rename via `.agentic/loop-state-<LOOP_KEY>.json.tmp`, a flat sibling rather than a subdirectory) at initialization and at every phase transition (Skeptic spawn, Skeptic return, Engineer spawn, Engineer return, QA spawn, QA return, quality gate steps, CI fix-loop steps). The `last_phase` and `last_phase_action` fields are the authoritative resume keys.
 
-- **Stop hook refreshes liveness; SessionEnd hook writes interrupted status.** The Stop hook (`hooks/stop-context.js`, wired with `--cadence=turn`) fires once per TURN and only refreshes `.agentic/loop-state.json`'s `last_updated` liveness timestamp (via `hooks/lib/state-mark.js`'s `refreshLiveness`) when the file is `status=active` and positively owned by the current session - it never sets `status: "interrupted"`. The SessionEnd hook (`hooks/session-end-wrap.js`, once per session) writes `status: "interrupted"` on a terminal session-end reason via the same lib's `markInterrupted`, if the file exists and `status == "active"`. Silent failure on either hook is acceptable - the 10-minute implicit-interrupt heuristic handles missed writes.
+- **Resume check on session start.** When `/ds-implement-ticket` is invoked, it derives `LOOP_KEY` and checks for `.agentic/loop-state-<LOOP_KEY>.json` before reading AGENTS.md. If `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start. **The recommendation is the keyed file only - key match is the primary guard, never freshness.** There is no cross-ticket freshness fallback: offering the most recently written file would hand a resuming session another ticket's live state whenever that state was over 10 minutes old, which is routine during a CI wait. Other resumable candidates are named in a single informational line (capped at 3 keys plus `(+M more)`) with no prompt. See `/ds-implement-ticket` Resume check section for the full protocol, including legacy adoption and the null-ticket key families.
+
+- **Stop hook refreshes liveness; SessionEnd hook writes interrupted status.** Neither hook derives a key or hardcodes a path: `hooks/lib/state-mark.js`'s `candidatePaths(cwd)` resolves the candidate set (every `.agentic/loop-state-*.json` newest-mtime-first capped at 100, plus the always-present legacy `.agentic/loop-state.json` and `.agentic/batch-state.json`) and selection is by `session_id` alone. The Stop hook (`hooks/stop-context.js`, wired with `--cadence=turn`) fires once per TURN and only refreshes a candidate's `last_updated` liveness timestamp (via `refreshLiveness`) when that file is `status=active` and positively owned by the current session - it never sets `status: "interrupted"`. The SessionEnd hook (`hooks/session-end-wrap.js`, once per session) writes `status: "interrupted"` on a terminal session-end reason via the same lib's `markInterrupted`, per candidate that exists and is `status == "active"`. Silent failure on either hook is acceptable - the 10-minute implicit-interrupt heuristic handles missed writes.
 
 - **Resumable phases (automatic):** Phase 6/6b Skeptic/QA loop at iteration boundaries (committed Engineer output, clean branch); Phase 7 quality gate when engineer committed (`engineer_returned` / `rerun_pending`).
 
@@ -2321,11 +2331,11 @@ Long-running `/ds-implement-ticket` loops can survive rate limits and session ex
 
 - **Full Skeptic re-run on interruption.** If a Skeptic is interrupted mid-output, resume re-runs the Skeptic from scratch (last_phase=skeptic, last_phase_action=spawned). Skeptic is read-only and idempotent.
 
-- **Brief/Plan paths recorded.** When a Brief or Plan governs the task, `brief_path`, `plan_path`, and `promotion_tier` (enum: `none`, `brief`, `plan`) are written to `.agentic/loop-state.json` at authoring time. On resume, the conductor re-reads the Brief/Plan before spawning the next worker. Mid-flight escalation from Trivial or single-unit Elevated to Brief or Plan tier authors a retroactive Brief before the next engineer spawn (the in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed). Brief-tier tasks auto-promote to Plan tier on the 3rd resume.
+- **Brief/Plan paths recorded.** When a Brief or Plan governs the task, `brief_path`, `plan_path`, and `promotion_tier` (enum: `none`, `brief`, `plan`) are written to `.agentic/loop-state-<LOOP_KEY>.json` at authoring time. On resume, the conductor re-reads the Brief/Plan before spawning the next worker. Mid-flight escalation from Trivial or single-unit Elevated to Brief or Plan tier authors a retroactive Brief before the next engineer spawn (the in-flight engineer is allowed to return; already-completed units are not retroactively re-reviewed). Brief-tier tasks auto-promote to Plan tier on the 3rd resume.
 
-- **File hygiene:** `.agentic/loop-state.json` must not be committed to git (gitignored). It is set to `status: "complete"` or deleted after the PR is opened.
+- **File hygiene:** no loop-state file may be committed to git (gitignored) - the keyed `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike. A consumer `.gitignore` with a targeted (non-umbrella) list needs BOTH patterns, because a keyed file does not match a bare `loop-state.json` entry. The keyed file is set to `status: "complete"` or deleted after the PR is opened. **Interim accumulation note:** because a keyed file is reclaimed only by the next run of *that same ticket*, completed-ticket files accumulate, bounded by the number of distinct ticket ids worked in the checkout. This is disk cost, not a correctness loss - a `complete` file is never a resume candidate, and both cadence functions skip it since they require `status === 'active'`.
 
-- **Batch-state coexistence.** When `/ds-implement-ticket` is invoked with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor (which tickets are pending, in-progress, complete, blocked) alongside `loop-state.json`'s per-ticket phase cursor. Both files carry a `session_id` field written on every conductor write; every write applies a per-write gate that aborts (with an operator-visible warning) in either of two cases: (a) its existing `session_id` belongs to a different session AND that session's liveness-timestamp field (`last_updated` for `loop-state.json`, `updated_at` for `batch-state.json` - the two files intentionally use different field names for the same concept) is within 10 min - AND, on `batch-state.json` ONLY, `status` is also `active`; or (b) the existing `session_id` is null/absent, regardless of `status` (legacy state from a prior version is force-takeover-eligible - see the self-ownership carve-out in `/ds-implement-ticket` Contract A step 3 for the one exception, when the CURRENT session's own id is also null). Case (a)'s `status=active` precondition is scoped to `batch-state.json` alone: its `touchTimestampOnTerminal: true` (`hooks/lib/state-mark.js`) makes a dead session's file look fresh for 10 minutes, so without the precondition the gate would abort the first write of an approved resume of an interrupted or paused batch. `loop-state.json` does not carry it - it is already shielded by `touchTimestampOnTerminal: false`, and a live session can legitimately hold a non-`active` `loop-state.json` (the Phase 7 stall path sets `status=stalled` and continues to the next ticket), so adding the precondition there would let a foreign session clobber a live session's file. An absent liveness-timestamp field is treated as stale (the gate does not fire), not as fresh. This prevents orphan-session corruption uniformly across both files. The SessionEnd hook mirrors its `loop-state.json` terminal interrupted-mark write to `batch-state.json` via the same best-effort silent-fail discipline (the Stop hook's separate per-turn liveness refresh mirrors similarly, updating `updated_at` instead of setting `status`). Single-ticket Trivial invocations never create `batch-state.json` and remain bit-for-bit unchanged. Only one batch per project root is supported; a second concurrent N≥2 invocation is refused at Phase 0a-pre. N=1 invocations against an active foreign batch warn but do not refuse.
+- **Batch-state coexistence.** When `/ds-implement-ticket` is invoked with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor (which tickets are pending, in-progress, complete, blocked) alongside each ticket's own `loop-state-<LOOP_KEY>.json` phase cursor. Both files carry a `session_id` field written on every conductor write; every write applies a per-write gate that aborts (with an operator-visible warning) in either of two cases: (a) its existing `session_id` belongs to a different session AND that session's liveness-timestamp field (`last_updated` for a keyed loop-state file, `updated_at` for `batch-state.json` - the two files intentionally use different field names for the same concept) is within 10 min - AND, on `batch-state.json` ONLY, `status` is also `active`; or (b) the existing `session_id` is null/absent, regardless of `status` (legacy state from a prior version is force-takeover-eligible - see the self-ownership carve-out in `/ds-implement-ticket` Contract A step 3 for the one exception, when the CURRENT session's own id is also null). Case (a)'s `status=active` precondition is scoped to `batch-state.json` alone: its `touchTimestampOnTerminal: true` (`hooks/lib/state-mark.js`) makes a dead session's file look fresh for 10 minutes, so without the precondition the gate would abort the first write of an approved resume of an interrupted or paused batch. A keyed loop-state file does not carry it - it is already shielded by `touchTimestampOnTerminal: false`, and a live session can legitimately hold a non-`active` keyed file (the Phase 7 stall path sets `status=stalled` and continues to the next ticket), so adding the precondition there would let a foreign session clobber a live session's file. An absent liveness-timestamp field is treated as stale (the gate does not fire), not as fresh. This prevents orphan-session corruption uniformly across both files. Per-ticket keying removes DIFFERENT-ticket contention from this gate entirely (those sessions write different files) but leaves same-ticket contention, which is the case the gate is for. The SessionEnd hook mirrors its loop-state terminal interrupted-mark write to `batch-state.json` via the same best-effort silent-fail discipline (the Stop hook's separate per-turn liveness refresh mirrors similarly, updating `updated_at` instead of setting `status`). Single-ticket Trivial invocations never create `batch-state.json` and remain bit-for-bit unchanged. Only one batch per project root is supported; a second concurrent N≥2 invocation is refused at Phase 0a-pre. N=1 invocations against an active foreign batch warn but do not refuse.
 
 ---
 
@@ -3254,7 +3264,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 | Risk = Elevated AND orchestration-planner returns 2-5 Elevated-or-above units | Brief + architect plan |
 | Risk = Elevated AND orchestration-planner returns 6+ Elevated-or-above units | Plan (Brief + architect + orchestration JSONL + risk register + rollback + verification gate) |
 | Any unit's `output_paths` spans 2+ tracks (see "Track" definition below) | Plan |
-| Work spans 2+ sessions (declared at planning time, OR auto-promoted when `.agentic/loop-state.json` resumes a Brief-tier task into a third session) | Plan |
+| Work spans 2+ sessions (declared at planning time, OR auto-promoted when the ticket's `.agentic/loop-state-<LOOP_KEY>.json` - legacy: `.agentic/loop-state.json` - resumes a Brief-tier task into a third session) | Plan |
 | Cross-track OR triggers an "Architecture decision constraining future choices" risk signal | Plan + ADR |
 
 **Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
@@ -3400,9 +3410,9 @@ The verification gate is non-skippable. **If verification cannot be specified at
 - Already-completed units are not retroactively re-reviewed.
 - The retroactive Brief (or Plan) is authored before the next engineer spawn and governs all subsequent units.
 - The Skeptic pass on the retroactive artifact runs to completion before the next worker spawns.
-- `.agentic/loop-state.json` `promotion_tier` is updated to reflect the new tier (see METHODOLOGY.md §Cross-session loop resume).
+- the ticket's `.agentic/loop-state-<LOOP_KEY>.json` has its `promotion_tier` updated to reflect the new tier (see METHODOLOGY.md §Cross-session loop resume).
 
-**Auto-promotion at 3rd resume.** When `.agentic/loop-state.json` records a third resume of a Brief-tier task, the conductor authors the missing Plan-tier artifacts (risk register, rollback, verification gate) before the next worker spawn. The trigger is mechanical - resume-count tracked in the loop-state file - and fires regardless of whether the operator notices the session span.
+**Auto-promotion at 3rd resume.** When the ticket's `.agentic/loop-state-<LOOP_KEY>.json` (legacy: `.agentic/loop-state.json`) records a third resume of a Brief-tier task, the conductor authors the missing Plan-tier artifacts (risk register, rollback, verification gate) before the next worker spawn. The trigger is mechanical - the `resume_count` field, incremented once per accepted resume including a legacy adoption (see `/ds-implement-ticket` Phase 6 Field notes) - and fires regardless of whether the operator notices the session span. Because the file is keyed per ticket, the count is now per ticket rather than shared, which is what makes it meaningful across a batch. A file adopted from the legacy unkeyed path starts at `0`, so a Brief-tier task mid-flight when keying landed auto-promotes later than it otherwise would - bounded and one-time.
 
 **Promotion is upward only.** A task cannot be demoted. Once a Brief or Plan exists, subsequent workers continue to read it.
 
@@ -4305,7 +4315,7 @@ No review content follows the BLOCKED line. The Skeptic does NOT produce finding
 
 **BLOCKED return semantics for the conductor:**
 
-- `loop-state.json` `last_phase_action` is set to `skeptic_blocked_input`.
+- the ticket's own `loop-state-<LOOP_KEY>.json` (legacy: `loop-state.json`) has its `last_phase_action` set to `skeptic_blocked_input`.
 - Resume re-spawns the Skeptic with corrected inputs; iteration counter does NOT advance.
 - Step-0 BLOCKED is conductor-fault, not engineer-fault. Does NOT count toward the 3-fix-pass re-route cap (Section 5). Consumes a separate counter capped at 3, tracked in a per-unit-slug counter file.
 - The CONDUCTOR fixes the spawn brief, NOT the Engineer.
@@ -5075,7 +5085,7 @@ Example status update: "Skeptic spawned for round 1 review. [phase: skeptic-revi
 - `[loop: skeptic | iteration 1/3 | open findings: 2 Critical, 1 Major]`
 - `[loop: qa | iteration 2/3 | open failures: 1]`
 
-**Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to `.agentic/loop-state.json` (tmp+rename). The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/ds-implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.
+**Disk write accompaniment.** Emitting a `[loop: ...]` breadcrumb is paired with an atomic write to the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (tmp+rename) - loop state is keyed per ticket, so two sessions on two tickets in one checkout write different files; the unkeyed `.agentic/loop-state.json` is the legacy path, still read on resume but no longer written. The breadcrumb is the in-transcript crash-recovery signal; the disk write is the cross-session persistence mechanism. Both happen at the same phase transition event. The `last_phase` and `last_phase_action` fields in the disk file are the authoritative resume keys (not `loop_state.phase`, which is used only to reconstruct in-context state on resume). See `/ds-implement-ticket` Resume check and Phase 6 for the full schema and write-trigger list.
 
 **Loop transition rules (BLOCKED / NEEDS_CONTEXT / DONE_WITH_CONCERNS inside a Skeptic or QA loop):**
 
@@ -5740,7 +5750,7 @@ An open-goal loop is an iterative conductor flow where the operator declares a m
 - The existing re-route cap is reached: 3 fix passes per Skeptic loop, or an immediate convergence failure (same finding re-raised unchanged after the engineer claimed to have fixed it). See `content/references/skeptic-protocol.md` for the exact rules.
 - A hard blocker is encountered: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict.
 
-The open-goal loop REUSES `loop-state.json`, resume, and clean-exit exactly as documented in `content/sections/07-cross-session-loop-resume.md`. No new loop engine is introduced. Cross-session resume, interruption recovery, and batch-state coexistence all apply unchanged.
+The open-goal loop REUSES the per-ticket `loop-state-<LOOP_KEY>.json` (legacy: `.agentic/loop-state.json`), resume, and clean-exit exactly as documented in `content/sections/07-cross-session-loop-resume.md`. No new loop engine is introduced. Cross-session resume, interruption recovery, and batch-state coexistence all apply unchanged.
 
 ## Hard-stop rules
 
@@ -5750,9 +5760,9 @@ Exits are non-negotiable. The loop MUST stop when any of these fire:
 2. Re-route cap reached: conductor has made 3 fix passes on a single Skeptic finding and it is still open. Escalate to human per `content/references/skeptic-protocol.md` §Re-route limits.
 3. Convergence failure: a Skeptic raises the same finding unchanged after the engineer claimed to have fixed it. Escalate immediately; bypass remaining iteration budget per `content/references/skeptic-protocol.md` §Convergence failure.
 4. Hard blocker: permission denial, missing credential, irreversible destructive action without authorization, or fundamental scope conflict. Return BLOCKED.
-5. **Cap exhaustion (mandatory, no default).** The operator MUST declare `max_iterations` (positive integer) and `max_wallclock_min` (positive integer) at `goal_mode=open_goal` invocation time; an optional `dry_run` boolean (default `false`) may also be declared. Neither cap field has a default - an invocation missing either is refused before Phase 1 with the verbatim message: `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` The loop exits with `termination_reason: cap_reached_iterations` or `cap_reached_wallclock` when EITHER (a) `batch-state.json.open_goal.iteration` reaches `max_iterations`, or (b) wallclock elapsed since `batch-state.json.wallclock_started_at` reaches `max_wallclock_min`. **The outer-loop cursor lives in `batch-state.json`, not `loop-state.json` - `loop-state.json` is cleared every iteration by Phase 12 and cannot hold cross-iteration state.** This cap sits above rules 2-3 (which bound Skeptic/QA fix-passes INSIDE a single iteration).
+5. **Cap exhaustion (mandatory, no default).** The operator MUST declare `max_iterations` (positive integer) and `max_wallclock_min` (positive integer) at `goal_mode=open_goal` invocation time; an optional `dry_run` boolean (default `false`) may also be declared. Neither cap field has a default - an invocation missing either is refused before Phase 1 with the verbatim message: `"goal_mode=open_goal requires max_iterations and max_wallclock_min to be declared - no unbounded default is permitted. Re-invoke with both fields set."` The loop exits with `termination_reason: cap_reached_iterations` or `cap_reached_wallclock` when EITHER (a) `batch-state.json.open_goal.iteration` reaches `max_iterations`, or (b) wallclock elapsed since `batch-state.json.wallclock_started_at` reaches `max_wallclock_min`. **The outer-loop cursor lives in `batch-state.json`, not in any loop-state file - each iteration's `loop-state-<LOOP_KEY>.json` is cleared by that iteration's own Phase 12 and cannot hold cross-iteration state.** This cap sits above rules 2-3 (which bound Skeptic/QA fix-passes INSIDE a single iteration).
 
-State is written to `loop-state.json` at every phase transition. On a genuine session-terminal exit, the SessionEnd hook (`hooks/session-end-wrap.js`, once per session) writes `status: "interrupted"`; the Stop hook (once per TURN) only refreshes a liveness timestamp and never sets this value. The loop can resume per `content/sections/07-cross-session-loop-resume.md`.
+State is written to the iteration's own `loop-state-<LOOP_KEY>.json` at every phase transition. On a genuine session-terminal exit, the SessionEnd hook (`hooks/session-end-wrap.js`, once per session) writes `status: "interrupted"`; the Stop hook (once per TURN) only refreshes a liveness timestamp and never sets this value. The loop can resume per `content/sections/07-cross-session-loop-resume.md`.
 
 ## Risk and review discipline
 
@@ -5762,7 +5772,7 @@ This section is the yolo-guard. It is structural, not advisory.
 
 **(b) Each iteration of an open-goal loop is treated as a new Elevated-eligible task.** It gets a fresh risk declaration, and for any Elevated unit, a fresh independent Skeptic. `goal_mode=open_goal` relaxes or suspends no existing review obligation. The Skeptic that validates this iteration is independent - it is not the same Skeptic instance that reviewed the previous iteration.
 
-**(c) Auditability.** An open-goal iteration records a `risk_declared` field in `batch-state.json.open_goal` - the durable outer-loop cursor, not `loop-state.json`, which Phase 12 clears every iteration and therefore cannot hold cross-iteration audit state (evidence that risk classification was performed that iteration). An iteration with no `risk_declared` is a protocol violation. The field may be set to `"low"`, `"elevated"`, or `"trivial"` to match the classification outcome.
+**(c) Auditability.** An open-goal iteration records a `risk_declared` field in `batch-state.json.open_goal` - the durable outer-loop cursor, not a `loop-state-<LOOP_KEY>.json`, which Phase 12 clears every iteration and therefore cannot hold cross-iteration audit state (evidence that risk classification was performed that iteration). An iteration with no `risk_declared` is a protocol violation. The field may be set to `"low"`, `"elevated"`, or `"trivial"` to match the classification outcome.
 
 **(d) This is what separates an action-triggered / open-goal loop from the rejected "yolo-mode"**: the trigger removes the human from the START, never from the REVIEW. Every unit that goes through an automated loop is subject to the same adversarial Skeptic review as a manually-triggered unit. Automated start does not imply automated approval.
 
@@ -5798,7 +5808,7 @@ jobs:
 
 `auto_merge_on_ci_green` (boolean, default `false`) in `.agentic/config.json` is the companion toggle that enables unsupervised merge when an action-triggered flow completes CI-green. When `true`, `/ds-implement-ticket` Phase 12 squash-merges the PR after all CI checks pass, the PR is marked ready, and no reviewer has requested changes. Documented in `content/sections/04-risk-classification.md` §Project config.
 
-`content/sections/07-cross-session-loop-resume.md` documents the loop-state persistence and resume semantics that the open-goal loop inherits: `loop-state.json` writes at every phase transition, resumable phases, and the interruption recovery protocol. As of DS-75 - newly wired, low field mileage - `goal_mode=open_goal` is a live invocation parameter. The outer-loop cursor (`active`, `goal_condition`, `iteration`, `max_iterations`, `risk_declared`, `termination_reason`, `dry_run`) lives in the DURABLE `batch-state.json.open_goal` object, not `loop-state.json` (which Phase 12 clears every iteration), alongside a `mode` discriminator (`"batch" | "open_goal" | "single_ticket_capped"`). See `content/commands/ds-implement-ticket.md` "Phase 0a-open-goal", Phase 6 "Open-goal condition check", and Phase 12a for the wiring. The manual/scheduled/action-triggered TRIGGER plumbing (cron, CI, webhook infrastructure) remains outside AE scope, unchanged.
+`content/sections/07-cross-session-loop-resume.md` documents the loop-state persistence and resume semantics that the open-goal loop inherits: per-ticket `loop-state-<LOOP_KEY>.json` writes at every phase transition, resumable phases, and the interruption recovery protocol. As of DS-75 - newly wired, low field mileage - `goal_mode=open_goal` is a live invocation parameter. The outer-loop cursor (`active`, `goal_condition`, `iteration`, `max_iterations`, `risk_declared`, `termination_reason`, `dry_run`) lives in the DURABLE `batch-state.json.open_goal` object, not a `loop-state-<LOOP_KEY>.json` (which Phase 12 clears every iteration), alongside a `mode` discriminator (`"batch" | "open_goal" | "single_ticket_capped"`). See `content/commands/ds-implement-ticket.md` "Phase 0a-open-goal", Phase 6 "Open-goal condition check", and Phase 12a for the wiring. The manual/scheduled/action-triggered TRIGGER plumbing (cron, CI, webhook infrastructure) remains outside AE scope, unchanged.
 
 ---
 
@@ -7713,7 +7723,7 @@ You run exactly once per ticket, at Phase 6 clean exit (after Skeptic sign-off, 
 Your spawn prompt provides the following inputs (all required):
 
 1. **`ticket_id`** - the ticket identifier (e.g. `ABC-123`). Used for attribution.
-2. **`findings_log`** - the final `findings_log` from `.agentic/loop-state.json`. Contains all findings from the Skeptic loop with their resolution status.
+2. **`findings_log`** - the final `findings_log` from the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (legacy checkouts: `.agentic/loop-state.json`). Contains all findings from the Skeptic loop with their resolution status.
 3. **`merged_diff`** - the full merged diff of the ticket's changes (`git diff origin/$BASE_BRANCH..HEAD`). Used to identify file/line references for learnings.
 
 ## Workflow
@@ -7822,7 +7832,7 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `MEMORY.md` (owned by wrap-ticket and /ds-wrap)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
@@ -7849,7 +7859,7 @@ The only file you may write is:
 ---
 name: learnings-agent
 model: sonnet
-description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, loop-state.json, batch-state.json, context.md, or any source/config files.
+description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, or any source/config files.
 tools: Read, Edit, Write
 ---
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory trigger list, session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
@@ -8074,7 +8084,7 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
 - `.agentic/context.md` (owned by Stop hook, /ds-wrap, and wrap-ticket)
@@ -10225,7 +10235,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 ---
 name: wrap-ticket
 model: haiku
-description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
+description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 tools: Read, Edit, Write
 ---
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -10273,7 +10283,8 @@ Failure modes:
   is running concurrently), return immediately with skipped_reason set to
   "wrap-lock-contention" and writer_actions: [].
 - Forbidden write attempt: must NEVER touch findings.md, qa.md, tasks.jsonl,
-  loop-state.json, batch-state.json, AGENTS.md, or any source/config file. A
+  any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy
+  loop-state.json), batch-state.json, AGENTS.md, or any source/config file. A
   forbidden write attempt is a Major Skeptic finding on the agent's behavior.
 
 Performance: ~60s budget. The conductor enforces a 60s timeout on the spawn;
@@ -10312,7 +10323,7 @@ Your spawn prompt provides the following inputs (all required unless noted):
 3. **`ticket_description`** - the full ticket description text.
 4. **`architect_plan_path`** - absolute path to the architect's plan output (or "n/a" for Trivial path - but Trivial path skips Phase 11b entirely, so this should never be "n/a" in practice).
 5. **`brief_path`** - absolute path to the Brief governing this ticket, or "n/a" if no Brief.
-6. **`findings_log`** - the final-iteration `findings_log` from `.agentic/loop-state.json`, read by the conductor BEFORE Phase 12 cleanup. May be empty.
+6. **`findings_log`** - the final-iteration `findings_log` from the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (legacy checkouts: `.agentic/loop-state.json`), read by the conductor BEFORE Phase 12 cleanup. May be empty.
 7. **`qa_md_diff`** - the diff of `.agentic/qa.md` between the snapshot taken at Phase 0b (`.agentic/qa.md.snapshot-<ticket_id>`) and the current working-tree contents. May be empty if qa.md was unchanged or the project has no qa.md.
 8. **`merged_diff`** - the full merged diff of the ticket's changes (`git diff origin/$BASE_BRANCH..HEAD`).
 9. **`pr_url`** - the PR URL.
@@ -10503,7 +10514,7 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file
@@ -12178,7 +12189,7 @@ The conductor delegates implementation work aggressively to specialist subagents
 - **Risk classification.** Must precede any spawn (per METHODOLOGY.md §Risk Classification).
 - **Promotion-gate check + Brief/Plan authoring.** Comprehension artifacts that the conductor must produce itself (per METHODOLOGY.md §Planning Artifacts).
 - **Stop-and-ask decisions.** The user-facing surface; subagents do not interact with the user.
-- **All `.agentic/*.json[l]` writes.** Sole-writer rule for `loop-state.json`, `tasks.jsonl`, and any other state file under `.agentic/`.
+- **All `.agentic/*.json[l]` writes.** Sole-writer rule for the per-ticket keyed `loop-state-$LOOP_KEY.json` (and the legacy unkeyed `loop-state.json` it supersedes), `tasks.jsonl`, and any other state file under `.agentic/`.
 - **Re-route limit + convergence-failure tracking.** Conductor must hold the full loop history across iterations.
 - **Status updates and breadcrumbs to user.** All `[phase: ...]` and `[loop: ...]` emissions originate from the conductor.
 - **Dispatch logic.** Which agent, when, with what brief.
@@ -12194,16 +12205,16 @@ This list is not exhaustive — any operation listed elsewhere as conductor-dire
 
 ## Batch state contracts (binding)
 
-These contracts govern every conductor write to `.agentic/batch-state.json` and `.agentic/loop-state.json`. Phases that write to either file (Phase 0a, Phase 0a-pre, Phase 6/6b, Phase 7, Phase 12, Phase 12a) MUST apply the contracts below.
+These contracts govern every conductor write to `.agentic/batch-state.json` and `.agentic/loop-state-$LOOP_KEY.json`. Phases that write to either file (Phase 0a, Phase 0a-pre, Phase 6/6b, Phase 7, Phase 10, Phase 10a, Phase 12, Phase 12a) MUST apply the contracts below.
 
-**Contract A — Per-write `session_id` gate (applies to BOTH `batch-state.json` and `loop-state.json`).**
+**Contract A — Per-write `session_id` gate (applies to BOTH `batch-state.json` and the keyed `loop-state-$LOOP_KEY.json`).**
 
 Before every conductor write to either file:
 
 1. Read the current on-disk file (if present).
-2. If the file exists, its `session_id` field is a non-empty string AND does not match the current session, AND its liveness-timestamp field (`last_updated` for `loop-state.json`, `updated_at` for `batch-state.json` - same per-file mapping as step 4 below) is within the last 10 minutes: ABORT the write - EXCEPT that on `batch-state.json` ONLY, this condition additionally requires `status` to be `active`; a non-`active` `batch-state.json` (`interrupted`, `paused`, `complete`, or `stalled`) never aborts a write under this step. This per-file asymmetry is deliberate, not an oversight:
+2. If the file exists, its `session_id` field is a non-empty string AND does not match the current session, AND its liveness-timestamp field (`last_updated` for `loop-state-$LOOP_KEY.json`, `updated_at` for `batch-state.json` - same per-file mapping as step 4 below) is within the last 10 minutes: ABORT the write - EXCEPT that on `batch-state.json` ONLY, this condition additionally requires `status` to be `active`; a non-`active` `batch-state.json` (`interrupted`, `paused`, `complete`, or `stalled`) never aborts a write under this step. This per-file asymmetry is deliberate, not an oversight:
    - **`batch-state.json` carries the `status=active` precondition** because `markInterrupted` stamps `updated_at=now` on it at session exit (`touchTimestampOnTerminal: true` in `hooks/lib/state-mark.js`), so a dead session's file looks fresh for a full 10 minutes; and every one of its non-`active` states follows a path that exits the session - e.g. the pause path says `Exit cleanly. Do NOT advance to the next ticket.` Without this precondition, the first write of an approved resume of an interrupted or paused batch would abort against the dead session's still-fresh terminal-mark timestamp, with no live session left to kill.
-   - **`loop-state.json` does NOT carry the precondition**, for two reasons: (a) it is already shielded from the stale-freshness hazard by `touchTimestampOnTerminal: false` (see "Why `loop-state.json`'s `last_updated` is never touched by the terminal mark" below - the two facts are linked); and (b) a live session CAN hold a non-`active` `loop-state.json` - the Phase 7 stall path sets `status=stalled` and then routes through "Batch-mode escalation routing (mark-blocked-and-continue)", so the conductor stays alive and continues to the next ticket rather than exiting. Adding the precondition here would let a foreign session's write clobber a live session's `loop-state.json` in that window.
+   - **`loop-state-$LOOP_KEY.json` does NOT carry the precondition**, for two reasons: (a) it is already shielded from the stale-freshness hazard by `touchTimestampOnTerminal: false` (see "Why the keyed loop-state file's `last_updated` is never touched by the terminal mark" below - the two facts are linked); and (b) a live session CAN hold a non-`active` keyed loop-state file - the Phase 7 stall path sets `status=stalled` and then routes through "Batch-mode escalation routing (mark-blocked-and-continue)", so the conductor stays alive and continues to the next ticket rather than exiting. Adding the precondition here would let a foreign session's write clobber a live session's `loop-state-$LOOP_KEY.json` in that window. **Per-ticket keying does not make this gate redundant:** it removes DIFFERENT-ticket contention (those sessions now write different files), but two sessions on the SAME ticket derive the same `LOOP_KEY` and therefore still meet here, which is exactly the case the gate must keep catching.
 
    Print the verbatim warning, substituting `<field>` with the file's own liveness-timestamp field name:
    ```
@@ -12212,7 +12223,7 @@ Before every conductor write to either file:
 3. If the file exists and its `session_id` is null/missing/empty (legacy state from a prior version): treat as mismatch — force-takeover-eligible. Operator may resolve via the Phase 0a-pre force-takeover prompt or by manually removing the file. The same WARNING above is printed.
 
    **Self-ownership carve-out.** Step 3 applies only when the CURRENT session has a non-empty `session_id` of its own. When the current session's `session_id` is itself null - a harness that has declared it cannot produce an id in the same namespace as its session-exit hook payload - a null/missing/empty `session_id` on disk is **self-owned**: proceed with the write, print nothing, and leave the field null. Rationale: two nulls on such a harness are indistinguishable by construction, so treating them as a mismatch produces a guaranteed false warning on every transition rather than catching a real collision.
-4. Otherwise (no file, matching `session_id`, or stale > 10 min): proceed with the write. Set `session_id` to the current session's id and update the file's liveness-timestamp field in the new payload - the two files use different field names for this same timestamp: `last_updated` for `loop-state.json`, `updated_at` for `batch-state.json`.
+4. Otherwise (no file, matching `session_id`, or stale > 10 min): proceed with the write. Set `session_id` to the current session's id and update the file's liveness-timestamp field in the new payload - the two files use different field names for this same timestamp: `last_updated` for `loop-state-$LOOP_KEY.json`, `updated_at` for `batch-state.json`.
 
 Both readers and writers tolerate absence of `session_id` for back-compat with state files written by prior versions; absence is treated as mismatch for write-gating - unless the current session's own `session_id` is also null, per the self-ownership carve-out above - but not for read-only resume prompts (those follow the Phase 0a-pre decision table). This is now 5-way logic once the self-ownership carve-out is counted alongside steps 1-4 (see the two prose sites below that still say "4-way" - corrected in this pass).
 
@@ -12241,20 +12252,22 @@ Concurrent batches per project root are not supported. Operators wanting paralle
 **N=1 foreign-batch warning.** If Phase 0 produced exactly 1 entry (single-ticket) AND `.agentic/batch-state.json` exists with `status=active` + different `session_id` + `updated_at` within the last 10 minutes: print the verbatim warning:
 
 ```
-NOTE: a batch session is active for this project root (session_id=<X>, updated_at=<Y>). Single-ticket invocations are not refused, but loop-state.json writes will collide if the same ticket is touched. Identify the live session via .agentic/loop-state.json last_updated. Continue? (yes/no)
+NOTE: a batch session is active for this project root (session_id=<X>, updated_at=<Y>). Single-ticket invocations are not refused; per-ticket loop state is keyed separately so bookkeeping will not collide. Identify the live session via .agentic/batch-state.json updated_at. Continue? (yes/no)
 ```
 
 On `no`: abort. On `yes`: proceed with the single-ticket flow. This is the only single-entry interaction with `batch-state.json`.
 
 **Contract D — Stop hook / SessionEnd hook mirror.**
 
-The Claude Code Stop hook (`hooks/stop-context.js`) fires once per TURN, not once per session. It no longer marks `loop-state.json`/`batch-state.json` interrupted on every turn. Instead it is wired with `--cadence=turn`, which dispatches to `hooks/lib/state-mark.js`'s `refreshLiveness(cwd, sessionId)`: a per-turn liveness-only touch that updates `last_updated` (`loop-state.json`) or `updated_at` (`batch-state.json`) ONLY when the file is `status=active` AND its on-disk `session_id` is a non-empty string EQUAL to the current session's id (POSITIVE match required - absent/null/empty/differing all skip). It never sets `status=interrupted`.
+The Claude Code Stop hook (`hooks/stop-context.js`) fires once per TURN, not once per session. It no longer marks the loop-state / `batch-state.json` files interrupted on every turn. Instead it is wired with `--cadence=turn`, which dispatches to `hooks/lib/state-mark.js`'s `refreshLiveness(cwd, sessionId)`: a per-turn liveness-only touch that updates `last_updated` (every loop-state candidate) or `updated_at` (`batch-state.json`) ONLY when the file is `status=active` AND its on-disk `session_id` is a non-empty string EQUAL to the current session's id (POSITIVE match required - absent/null/empty/differing all skip). It never sets `status=interrupted`.
 
-The terminal interrupted-mark now lives on `hooks/session-end-wrap.js` (the SessionEnd hook, which fires once per session). On a terminal reason (`clear`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled`, `other` - `resume` is excluded), it calls `hooks/lib/state-mark.js`'s `markInterrupted(cwd, sessionId)`, which mirrors the ownership check across both files: if the file's `session_id` is a non-empty string and does not match the current session's uuid, the write is aborted silently (the hook does not steal another session's state); absent/null/empty `session_id` on disk PROCEEDS (opposite polarity from `refreshLiveness` - see `hooks/lib/state-mark.js`'s module manifest for why). Best-effort silent-fail throughout, gated per file. The mirror sets `status=interrupted`, `interrupted_at=now`, `interrupt_reason="unknown"` on both files, plus `updated_at=now` on `batch-state.json` only (`loop-state.json`'s `last_updated` is deliberately NOT touched by the terminal mark - see below); all other fields including `last_updated_phase`, `tickets[]`, and `replan_log[]` are preserved.
+The terminal interrupted-mark now lives on `hooks/session-end-wrap.js` (the SessionEnd hook, which fires once per session). On a terminal reason (`clear`, `logout`, `prompt_input_exit`, `bypass_permissions_disabled`, `other` - `resume` is excluded), it calls `hooks/lib/state-mark.js`'s `markInterrupted(cwd, sessionId)`, which mirrors the ownership check across every candidate file: if the file's `session_id` is a non-empty string and does not match the current session's uuid, the write is aborted silently (the hook does not steal another session's state); absent/null/empty `session_id` on disk PROCEEDS (opposite polarity from `refreshLiveness` - see `hooks/lib/state-mark.js`'s module manifest for why). Best-effort silent-fail throughout, gated per file. The mirror sets `status=interrupted`, `interrupted_at=now`, `interrupt_reason="unknown"` on every candidate, plus `updated_at=now` on `batch-state.json` only (`.agentic/loop-state-$LOOP_KEY.json`'s `last_updated` is deliberately NOT touched by the terminal mark - see below); all other fields including `last_updated_phase`, `tickets[]`, and `replan_log[]` are preserved.
+
+**Candidate set (hook side).** The hooks derive no `LOOP_KEY` and hardcode no path. `hooks/lib/state-mark.js`'s `candidatePaths(cwd)` resolves the set at call time: every per-ticket keyed `.agentic/loop-state-<LOOP_KEY>.json` present on disk (newest-mtime-first, capped at 100), plus `.agentic/batch-state.json` and the legacy `.agentic/loop-state.json`, which are **always** included even when `.agentic/` is unreadable. Selection among them is by the per-file `session_id` predicates above, never by key derivation. The keyed rows inherit `tsField`, `healthTarget` and `touchTimestampOnTerminal` verbatim from the legacy loop-state row, so a keyed file has no semantics of its own and cannot drift from the legacy file's.
 
 `--cadence=session` (or an absent/unrecognized flag) is `hooks/stop-context.js`'s fallback dispatch, preserved so callers that invoke the script directly without the flag (e.g. Pi's `session_shutdown`) keep their pre-existing once-per-invocation interrupted-mark behavior.
 
-**Why `loop-state.json`'s `last_updated` is never touched by the terminal mark:** the Resume check above branches on `last_updated` staleness with no `status` exemption. Writing `last_updated` on the terminal interrupted-mark would make a freshly-interrupted loop look "recently live" to a resuming session for the full 10-minute staleness window, offering a resume it cannot actually execute. `interrupted_at` already timestamps the terminal event, which is sufficient.
+**Why `.agentic/loop-state-$LOOP_KEY.json`'s `last_updated` is never touched by the terminal mark:** the Resume check above branches on `last_updated` staleness with no `status` exemption. Writing `last_updated` on the terminal interrupted-mark would make a freshly-interrupted loop look "recently live" to a resuming session for the full 10-minute staleness window, offering a resume it cannot actually execute. `interrupted_at` already timestamps the terminal event, which is sufficient.
 
 ---
 
@@ -12307,7 +12320,7 @@ The terminal interrupted-mark now lives on `hooks/session-end-wrap.js` (the Sess
 
 - `schema_version`: integer; current is `1`.
 - `session_id`: uuid of the conductor session that last wrote the file; null only on legacy files written by a prior version.
-- `updated_at`: the file's liveness-timestamp field - `loop-state.json`'s equivalent field is named `last_updated` (see that schema's Field notes below and `content/references/cross-session-loop-resume.md`); the two files intentionally use different field names for the same concept. Written on every conductor write per Contract A step 4, and refreshed per-turn by the Claude Code Stop hook's `hooks/lib/state-mark.js` `refreshLiveness` per Contract D - off Claude Code, `updated_at` advances only at conductor ticket-transition writes, which are routinely more than 10 minutes apart mid-ticket; this makes every staleness gate below fail-open (weaker, never a false-abort) rather than misfire, but it does mean the field is a coarser liveness signal off Claude Code than the per-turn refresh implies. Every staleness gate that reads this field (Contract A step 2, Contract C, the N=1 foreign-batch warning, the Phase 0a-pre decision table, and the Phase 0a-open-goal resume classification) treats an ABSENT `updated_at` as **stale** - i.e. the gate does NOT fire, matching the pre-fix effective behavior - rather than as fresh. This is deliberate back-compat tolerance for files written before this field existed; it is not a migration, and no on-read rewrite occurs.
+- `updated_at`: the file's liveness-timestamp field - `loop-state-$LOOP_KEY.json`'s equivalent field is named `last_updated` (see that schema's Field notes below and `content/references/cross-session-loop-resume.md`); the two files intentionally use different field names for the same concept. Written on every conductor write per Contract A step 4, and refreshed per-turn by the Claude Code Stop hook's `hooks/lib/state-mark.js` `refreshLiveness` per Contract D - off Claude Code, `updated_at` advances only at conductor ticket-transition writes, which are routinely more than 10 minutes apart mid-ticket; this makes every staleness gate below fail-open (weaker, never a false-abort) rather than misfire, but it does mean the field is a coarser liveness signal off Claude Code than the per-turn refresh implies. Every staleness gate that reads this field (Contract A step 2, Contract C, the N=1 foreign-batch warning, the Phase 0a-pre decision table, and the Phase 0a-open-goal resume classification) treats an ABSENT `updated_at` as **stale** - i.e. the gate does NOT fire, matching the pre-fix effective behavior - rather than as fresh. This is deliberate back-compat tolerance for files written before this field existed; it is not a migration, and no on-read rewrite occurs.
 - `batch_id`: stable identifier for the batch. Format `<prefix>-batch-<ISO8601>-<4hex>` where `<prefix>` is the first ticket's `TICKET_PREFIX` (used when tickets span multiple prefixes; the first ticket wins).
 - `status`: enum `active | paused | interrupted | complete | stalled`.
 - `mode`: enum `"batch" | "open_goal" | "single_ticket_capped"`. Absent = `"batch"` (100% back-compat). `"open_goal"` is set by Phase 0a-open-goal's Fresh init; `"single_ticket_capped"` is set by the Phase 0a-pre single-ticket wallclock carve-out - the ONLY N=1 path that creates `batch-state.json`.
@@ -12323,23 +12336,148 @@ The terminal interrupted-mark now lives on `hooks/session-end-wrap.js` (the Sess
 
 ## Resume check (before setup)
 
-Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state.json`:
+### Loop-key derivation (runs first, exactly once per ticket)
 
-**If the file exists and `status == "interrupted"`:**
+Loop state is stored **per ticket**, at `.agentic/loop-state-<LOOP_KEY>.json`, so two sessions working two different tickets in one checkout never contend for one file. Derive `LOOP_KEY` **once** - here at the Resume check, or at Phase 6 loop init if that comes first - record it in the file's own `loop_key` field, and carry it in-context for the rest of that ticket. **Never re-derive it**, and **never derive it from `$BRANCH_NAME`** (the workflow deletes the branch after merge, so a later rework derives the same slug and two attempts look like one).
+
+Inputs are the invoked `TICKET_ID` (may be absent on a batch or open-goal invocation) and the current session's `SESSION_ID` (may be absent, or the 4-char string `null` on a harness whose `session_id` is a JSON null read through `jq -r`).
+
+```bash
+# Resume check: loop-key derivation
+ae_sanitize() {
+  # 1. every char outside [A-Za-z0-9._-] -> '-'   2. collapse '-' runs
+  # 3. strip leading/trailing '-' and '.'          4. truncate to 64
+  # 5. re-strip trailing '-' and '.' exposed by the truncation
+  #
+  # STEP 1 USES `tr -c`, NOT `sed`. This is not a style choice. `sed` and `cut`
+  # are LINE-ORIENTED: a newline is sed's record separator, so `s/[^...]/-/g`
+  # does NOT replace it, and `cut -c1-64` truncates PER LINE. Measured:
+  #   printf 'x\ny' | sed -e 's/[^A-Za-z0-9._-]/-/g'   ->  x\ny   (newline SURVIVES)
+  #   printf 'x\ny' | tr -c 'A-Za-z0-9._-' '-'          ->  x-y   (correct)
+  # With sed, a newline-bearing ticket id yields a filename containing a raw
+  # newline, which fails the `^loop-state-.+\.json$` invariant the candidate
+  # enumeration below relies on, and a multi-line 200-char id defeats the
+  # 64-char cap entirely (measured: key length 129). `tr` is byte-oriented and
+  # has no record concept, so it closes both.
+  #
+  # `tr -c` complements the SET, so the set must not be a regex bracket
+  # expression - `A-Za-z0-9._-` with the `-` last is correct for tr.
+  printf '%s' "${1-}" \
+    | LC_ALL=C tr -c 'A-Za-z0-9._-' '-' \
+    | LC_ALL=C sed -e 's/--*/-/g' \
+    | LC_ALL=C sed -e 's/^[-.]*//' -e 's/[-.]*$//' \
+    | cut -c1-64 \
+    | LC_ALL=C sed -e 's/[-.]*$//'
+}
+
+ae_derive_loop_key() {
+  # $1 = TICKET_ID (may be empty)   $2 = SESSION_ID (may be empty, or "null")
+  #
+  # This function's ONLY output is the key on stdout. Do NOT add a diagnostic
+  # print here - callers capture stdout as the key, and so does
+  # bin/tests/test_loop_key_derivation.sh. The sanitize-to-empty operator
+  # notice is emitted by the CALLER (see below), not from inside here.
+  local raw_ticket="${1-}" raw_sid="${2-}" core key=""
+
+  # B1 - ticket branch.
+  core="$(ae_sanitize "$raw_ticket")"
+  [ -n "$core" ] && key="$core"
+
+  # B2 - session branch. SESSION_ID is sanitized BEFORE the prefix is applied,
+  # never after: sanitizing "session-<garbage>" would yield the shared key
+  # "session", colliding across every session that reached this branch.
+  # The 4-char string "null" is treated as absent - Contract A mandates
+  # session_id: null on harnesses with no id namespace, and a JSON null read
+  # through `jq -r` surfaces as that literal string.
+  if [ -z "$key" ] && [ -n "$raw_sid" ] && [ "$raw_sid" != "null" ]; then
+    core="$(ae_sanitize "$raw_sid")"
+    [ -n "$core" ] && key="session-$core"
+  fi
+
+  # Truncate + re-strip, applied uniformly to whatever B1/B2 produced.
+  if [ -n "$key" ]; then
+    key="$(printf '%s' "$key" | cut -c1-64 | LC_ALL=C sed -e 's/[-.]*$//')"
+  fi
+
+  # B3 - TERMINAL FLOOR. The emptiness test is on the FINAL ASSEMBLED KEY,
+  # not on the raw inputs. This is what makes `.agentic/loop-state-.json`
+  # unreachable: no branch above can emit an empty key past this point.
+  if [ -z "$key" ]; then
+    key="session-nosid-$(od -An -tx1 -N4 /dev/urandom | tr -d ' \n')"
+  fi
+
+  printf '%s' "$key"
+}
+```
+
+`LOOP_STATE_FILE` is `.agentic/loop-state-$LOOP_KEY.json` and its staging path is `.agentic/loop-state-$LOOP_KEY.json.tmp` - a **flat sibling**, not a subdirectory, so `.tmp` files stay direct children of `.agentic/`. Before every write, assert the assembled path's dirname resolves to `.agentic/`.
+
+**Traversal impossibility has three independent guards. Do not remove one thinking it redundant:** (a) `ae_sanitize` maps `/` to `-`, so no key contains a path separator; (b) the key is always wrapped in the fixed affixes `loop-state-` and `.json`, so it can never *be* a path component like `..` - note that `..` **does** survive sanitization, because `.` is in the safe set (`feature/../../etc/passwd` yields `feature-..-..-etc-passwd`), and traversal safety never depended on stripping it; (c) the dirname assertion above.
+
+**Sanitize-to-empty notice (emitted HERE, by the caller - never from inside `ae_derive_loop_key`).** When `TICKET_ID` was non-empty but `ae_sanitize "$TICKET_ID"` returned empty (e.g. `###`, or `..`), so the key fell through to the session or nosid branch, print exactly one line:
+
+```
+Ticket id '<raw>' sanitizes to empty; loop state keyed on session instead (<LOOP_KEY>).
+```
+
+Emit it after the key is derived and only under that condition. It must not live inside `ae_derive_loop_key`: that function's only output is the key via `printf`, so a diagnostic there corrupts every caller and every assertion in `bin/tests/test_loop_key_derivation.sh`.
+
+`LOOP_KEY` also governs telemetry attribution: export `AGENTIC_LOOP_KEY="$LOOP_KEY"` at every `bin/agentic-emit` call site (see Phase 6).
+
+### Candidate check
+
+Before reading AGENTS.md or doing any setup, check for `.agentic/loop-state-$LOOP_KEY.json`. Also enumerate the other candidates - `.agentic/loop-state-*.json` and the legacy `.agentic/loop-state.json` - because they affect the informational line and the legacy-adoption path below, but **the recommendation is `.agentic/loop-state-$LOOP_KEY.json` only.**
+
+**Key match is the primary guard, never freshness.** If the keyed file is absent or not resumable, print the informational line below and **proceed to Setup with no resume prompt.** There is deliberately **no cross-ticket freshness fallback**: a fallback on "most recent `last_updated`" would offer a resuming session another ticket's *live* file whenever that file's timestamp was over 10 minutes old - routine during a CI wait, and guaranteed on the ten harnesses with no per-turn liveness refresh - and accepting it would then destroy that ticket's `findings_log`.
+
+**If `.agentic/loop-state-$LOOP_KEY.json` exists and `status == "interrupted"`:**
 - Print: "Interrupted loop detected on branch [branch] for ticket [ticket_id]."
 - Print: "Last phase: [last_phase] / [last_phase_action], iteration [loop_state.iteration]/[loop_state.max_iterations]."
 - Print: "Open findings: [count of findings_log entries with status=open or status=addressed]"
 - Ask: "Resume this loop or start fresh? (resume / fresh)"
-- If "fresh": delete the file. Proceed normally from Setup below.
-- If "resume": apply wait strategy (see below), then jump to the resume entry point determined by `last_phase` / `last_phase_action` per the table below.
+- If "fresh": delete **only** `.agentic/loop-state-$LOOP_KEY.json` - the recommended candidate. Every other candidate listed in the informational line stays byte-identical and remains resumable later. Proceed normally from Setup below.
+- If "resume": apply wait strategy (see below), then jump to the resume entry point determined by `last_phase` / `last_phase_action` per the table below. Increment `resume_count` on the accepted file.
 
-**If the file exists and `status == "active"` with `last_updated` more than 10 minutes ago:** treat as implicitly interrupted (the SessionEnd hook's terminal `markInterrupted` write may not have fired - e.g. a hard kill with no clean session end - and the Stop hook's own `--cadence=turn` write only refreshes `last_updated` liveness, never `status`). Print: "Found an active loop state last written [elapsed] ago — treating as interrupted." Then follow the "interrupted" path above.
+**If `.agentic/loop-state-$LOOP_KEY.json` exists and `status == "active"` with `last_updated` more than 10 minutes ago:** treat as implicitly interrupted (the SessionEnd hook's terminal `markInterrupted` write may not have fired - e.g. a hard kill with no clean session end - and the Stop hook's own `--cadence=turn` write only refreshes `last_updated` liveness, never `status`). Print: "Found an active loop state last written [elapsed] ago — treating as interrupted." Then follow the "interrupted" path above.
 
-**If the file exists and `status == "complete"` or `"stalled"`:**
+**If `.agentic/loop-state-$LOOP_KEY.json` exists and `status == "active"` with `last_updated` within the last 10 minutes:** a live session owns it. Not resumable. No prompt.
+
+**If `.agentic/loop-state-$LOOP_KEY.json` exists and `status == "complete"` or `"stalled"`:**
 - Print: "A completed/stalled loop state file exists for ticket [ticket_id]. Clearing it."
-- Delete the file. Proceed normally.
+- Delete **that keyed file only**. Proceed normally.
 
-**If no file exists:** proceed normally.
+**If `.agentic/loop-state-$LOOP_KEY.json` does not exist but other resumable `.agentic/loop-state-*.json` candidates do:** print **no resume prompt**. Print one informational line, capped, then proceed to Setup:
+
+```
+N other resumable loops exist: <up to 3 keys, most-recent last_updated first>[, +M more]. Re-invoke with that ticket id to resume one.
+```
+
+One line, recommendation-plus-confirmation, never a co-equal ballot (required by the AskUserQuestion precondition in `content/sections/02-delegation.md`). If those other candidates exist but none is resumable, proceed silently.
+
+**If `.agentic/loop-state-$LOOP_KEY.json` does not exist and the legacy `.agentic/loop-state.json` does - legacy adoption.** A legacy file is never silently ignored. When it is resumable (`status == "interrupted"`, or `status == "active"` and stale > 10 min via the implicit-interrupt path above):
+1. Derive the **adoption key** from the legacy file's own `ticket_id`; else `session-<its own session_id>`; else the literal `legacy`.
+2. Atomically write the legacy payload to `.agentic/loop-state-<that adoption key>.json`, setting `loop_key` to the adoption key and incrementing `resume_count`.
+3. `rm -f .agentic/loop-state.json` (loop-key: legacy - this is the legacy-adoption path's own cleanup of the unkeyed file, deliberately not a keyed path).
+4. Adopt that `loop_key` as this session's key for the rest of the ticket, then follow the "interrupted" path above.
+
+When the legacy file is `active` and fresh, it is not resumable: no prompt, and leave it untouched. When it is `complete`/`stalled`, print the clearing line above and delete the legacy file. **When BOTH the keyed file and a legacy file are resumable, the keyed file wins** - the legacy file is listed in the informational line, not adopted, because adopting older state over newer would overwrite it.
+
+**Null-ticket resume (`session-*` and `session-nosid-*` key families).** These families are resumable; a synthetic key regenerated per session would otherwise match nothing and every interrupted null-ticket run would orphan a file. When `TICKET_ID` is absent, resolve against the resumable `.agentic/loop-state-session-*.json` candidates:
+
+| Current `SESSION_ID` | Resumable `session-*` candidates | Behavior |
+|---|---|---|
+| non-empty | exactly one whose `loop_key == "session-" + sanitize(SESSION_ID)` | recommend it (exact match, highest precedence) |
+| non-empty | no exact match, exactly one `session-*` | recommend it, and **adopt its `loop_key`** as this session's key for the rest of the ticket |
+| non-empty | no exact match, 2+ | recommend none; print the informational line; proceed to Setup |
+| `null`/empty | exactly one | recommend it; adopt its `loop_key`. **This row preserves today's behavior on harnesses with no session-id namespace** - today there is exactly one file, hence exactly one candidate |
+| `null`/empty | 2+ | recommend none; print the informational line. Not a regression: two such loops would have collided into one file before keying, so no working behavior is lost |
+| any | zero | no prompt |
+
+Adopting the candidate's own `loop_key` rather than re-deriving is what makes the `session-nosid-*` family resumable at all.
+
+**If a candidate's `loop_key` field is present but differs from its own filename's key** (a manual operator edit, or a partial write): the **filename wins for selection**, and the `loop_key` field wins for this session's in-context key after an accepted resume. Print one warning line. Do not auto-repair.
+
+**If no candidate of any kind exists:** proceed normally, no prompt, no output.
 
 **Wait strategy (applied before resuming when `interrupt_reason == "rate_limit"`):**
 ```
@@ -12377,9 +12515,9 @@ else:
 
 **After resuming:** always run `git -C $REPO diff origin/$BASE_BRANCH..HEAD` to confirm branch state before re-spawning agents. If the diff is empty and open findings exist, the Engineer's prior work was lost (uncommitted at interruption); flag this to the human before resuming.
 
-**Parse failure:** if `.agentic/loop-state.json` exists but cannot be parsed as JSON, print a warning, offer to delete the file and start fresh. Do not silently ignore it.
+**Parse failure:** if a candidate (`.agentic/loop-state-$LOOP_KEY.json`, another `.agentic/loop-state-*.json`, or the legacy `.agentic/loop-state.json`) exists but cannot be parsed as JSON, print a warning and offer to delete **that one candidate** and start fresh. A parse failure demotes only the candidate that failed; every other candidate is unaffected and stays resumable. Do not silently ignore it.
 
-**Concurrent session guard.** **REPLACED in this version by Contract A's per-write `session_id`-mismatch abort gate, applied to every conductor write of `loop-state.json` and `batch-state.json`.** See Phase 0a-pre and the "Batch state contracts" section above for the full contract. Every conductor write to `loop-state.json` includes a top-level `session_id: <current session>` field; readers tolerate absence for back-compat with state files written by prior versions.
+**Concurrent session guard.** **REPLACED in this version by Contract A's per-write `session_id`-mismatch abort gate, applied to every conductor write of the keyed `loop-state-<LOOP_KEY>.json` and of `batch-state.json`.** See Phase 0a-pre and the "Batch state contracts" section above for the full contract. Every conductor write to the keyed loop-state file includes a top-level `session_id: <current session>` field; readers tolerate absence for back-compat with state files written by prior versions. Note that per-ticket keying means **different-ticket contention no longer reaches this gate at all** - the two sessions write different files. The gate still fires, as designed, when two sessions work the **same** ticket, because they derive the same `LOOP_KEY` and therefore the same file.
 
 **N=1 foreign-batch warning.** Before proceeding to Phase 0a-pre on an invocation where Phase 0 produced exactly 1 entry, apply the N=1 foreign-batch check from "Batch state contracts" above. If `.agentic/batch-state.json` exists with `status=active` + different `session_id` + recent (≤10 min): print the verbatim NOTE, prompt yes/no, and abort on `no`.
 
@@ -12695,7 +12833,7 @@ Read `.agentic/batch-state.json` if present.
     - `session_id` non-empty, differs, AND `updated_at` older than 10 min → RESUMABLE, treated as implicitly interrupted (mirrors Phase 0a-pre "status=active AND updated_at>10min → implicit interrupt"). Covers crash-mid-advance surviving into a later session.
     - `session_id` non-empty, differs, AND `updated_at` within last 10 min → REFUSE, verbatim Contract C message: `"Another batch session is active for this project root (session_id=<X>, updated_at=<Y>). Wait for it to finish, kill it and re-invoke, or remove .agentic/batch-state.json and re-invoke."` Exit. (live-foreign-session; closes the null+active Contract-C bypass.)
     - `session_id` null/absent AND the CURRENT session's own id is ALSO null (self-ownership carve-out - see Contract A step 3) → RESUMABLE (self-owned, same as the matching-session row above; no force-takeover prompt - on a harness that cannot produce a matching session id, two nulls are indistinguishable by construction).
-    - `session_id` null/absent AND the CURRENT session HAS its own non-null id (i.e. the self-ownership carve-out row above does NOT apply) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, updated_at=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` `yes` → RESUMABLE; `no` → exit/wait. (This is a READ-time classification of the ON-DISK file's null/absent id, distinct from but complementary to Contract A's WRITE-time self-ownership carve-out.)
+    - `session_id` null/absent AND the CURRENT session HAS its own non-null id (i.e. the self-ownership carve-out row above does NOT apply) → force-takeover prompt verbatim (Phase 0a-pre): `"WARNING: another session (session_id=<X>, updated_at=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/batch-state.json updated_at."` `yes` → RESUMABLE; `no` → exit/wait. (This is a READ-time classification of the ON-DISK file's null/absent id, distinct from but complementary to Contract A's WRITE-time self-ownership carve-out.)
   - `status == "complete"` → TERMINAL, fresh ONLY (safe default; unexpected/legacy combo).
   - `status == "stalled"` → TERMINAL, fresh ONLY (same rationale).
   - any other/unrecognized `status` → TERMINAL, fresh ONLY (safe default).
@@ -12726,7 +12864,7 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 
 **On successful validation (Contract A fresh write):**
 1. Initialize `.agentic/batch-state.json`: `mode:"open_goal"`, `batch_id:"open-goal-<ISO8601>-<4hex>"`, `wallclock_cap_min:<max_wallclock_min>`, `wallclock_started_at:now`, `tickets:[]`, `open_goal:{active:true, goal_condition:<string>, iteration:1, max_iterations:<int>, risk_declared:null, termination_reason:null, dry_run:<bool>}`.
-2. `loop-state.json` NOT touched here - initialized normally at Phase 6 loop init exactly as any ordinary iteration (no open-goal fields).
+2. `loop-state-$LOOP_KEY.json` NOT touched here - initialized normally at Phase 6 loop init exactly as any ordinary iteration (no open-goal fields).
 3. Breadcrumb: `[phase: open-goal-init | goal_condition="<condition>" | max_iterations=<N> | max_wallclock_min=<M> | dry_run=<bool>]`.
 4. Fall through to Phase 1 for iteration 1.
 
@@ -12734,13 +12872,13 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 
 **Per-iteration ticket lifecycle.** Each iteration's synthetic `tickets[]` entry (`ticket_id:"<goal-slug>-iter-N"`, `cluster_id:"open-goal"`) follows the SAME transition-write pattern ordinary batch tickets use: `pending → in_progress` at Phase 1 start, `in_progress → complete` at Phase 12, or `→ blocked` via "Batch-mode escalation routing" (Phase 6). Every transition applies Contract A + Contract B.
 
-**Interaction with top-level "Resume check (before setup)".** That check reads `loop-state.json` before Phase 0, independent of this phase. A mid-iteration interrupted resume jumps to that iteration's resume entry point; Phase 0a-open-goal is never re-entered that session. Step 0 fires only on a normal Phase 0 pass reaching `goal_mode=open_goal`.
+**Interaction with top-level "Resume check (before setup)".** That check derives `LOOP_KEY` and reads `loop-state-$LOOP_KEY.json` before Phase 0, independent of this phase. A mid-iteration interrupted resume jumps to that iteration's resume entry point; Phase 0a-open-goal is never re-entered that session. Step 0 fires only on a normal Phase 0 pass reaching `goal_mode=open_goal`.
 
 ---
 
 ## Phase 0a-pre: Batch resume check
 
-> Run this phase BEFORE the per-ticket Resume check below. This is the composition anchor: batch-level resume picks the ticket cursor first; the per-ticket Resume check then runs unmodified scoped to that ticket's branch and `loop-state.json`.
+> Run this phase BEFORE the per-ticket Resume check below. This is the composition anchor: batch-level resume picks the ticket cursor first; the per-ticket Resume check then runs unmodified scoped to that ticket's branch and its own `loop-state-$LOOP_KEY.json` (`LOOP_KEY` derived from the picked ticket id).
 
 **Trigger:** Phase 0 normalization produced ≥ 2 entries (same trigger as Phase 0a). Skip otherwise.
 
@@ -12758,9 +12896,9 @@ Either way, fall through to Phase 1 for the iteration corresponding to the last 
 | `status=active` AND `updated_at > 10 min` ago | Treat as implicit interrupt. Same prompt as `interrupted` row. |
 | `status=active` AND `updated_at ≤ 10 min` AND `session_id` matches current | Silent re-entry resume (rare; e.g. `/ds-implement-ticket` re-invoked within the same session). Pick next pending ticket from `tickets[]`. |
 | `status=active` AND `updated_at ≤ 10 min` AND `session_id` is null/absent AND the CURRENT session's own id is ALSO null (self-ownership carve-out - see Contract A step 3) | Treat as self-owned: same as the row above (silent re-entry resume). Do NOT force-takeover-prompt or refuse - on a harness that cannot produce a matching session id, two nulls are indistinguishable by construction, so this is the only branch that lets such a harness resume its own batch at all. |
-| `status=active` AND `updated_at ≤ 10 min` AND (`session_id` differs OR (`session_id` is null/absent AND the CURRENT session HAS its own non-null id, i.e. the self-ownership carve-out row above does NOT apply)) | If Phase 0 produced ≥ 2 entries: refuse with the verbatim Contract C message. If Phase 0 produced exactly 1 entry: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre runs only when Phase 0 produced ≥ 2 entries). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, updated_at=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/loop-state.json last_updated."` and require explicit operator confirmation. |
+| `status=active` AND `updated_at ≤ 10 min` AND (`session_id` differs OR (`session_id` is null/absent AND the CURRENT session HAS its own non-null id, i.e. the self-ownership carve-out row above does NOT apply)) | If Phase 0 produced ≥ 2 entries: refuse with the verbatim Contract C message. If Phase 0 produced exactly 1 entry: see "N=1 foreign-batch warning" below; this row does not apply (Phase 0a-pre runs only when Phase 0 produced ≥ 2 entries). For N≥2 force-takeover prompts: print `"WARNING: another session (session_id=<X>, updated_at=<Y>) may still be active. Force takeover? (yes/no). Identify the live session via .agentic/batch-state.json updated_at."` and require explicit operator confirmation. |
 | Parse failure | Print warning. Prompt: `delete-and-fresh / abort`. On `abort`: exit. On `delete-and-fresh`: delete file and fall through. |
-| Inconsistent pair (`batch-state.json` says `active`, `loop-state.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. |
+| Inconsistent pair (`batch-state.json` says `active`, the PICKED ticket's own `loop-state-$LOOP_KEY.json` says `interrupted`) | Trust the non-active file. If both are stale-active (>10 min), treat as implicit interrupt for both. Scope this row to the picked ticket's keyed file only - another ticket's keyed file is not part of this pair and must not be consulted. |
 
 **Move ordering hazard (resume case).** On resume, `batch-state.json.tickets[]` is the authoritative ticket cursor and supersedes any Phase 0 output produced in the resuming session. If the operator re-supplied input, compare Phase 0 entries[] against on-disk tickets[]:
 
@@ -12775,7 +12913,7 @@ The on-disk batch state takes precedence on resume. Continue resuming the prior 
 
 On `continue-resume`: discard Phase 0 output, use `batch-state.json.tickets[]`. On `abandon-resume-and-use-new-input`: delete `batch-state.json` and re-run Phase 0a from the new entries.
 
-**Resume composition rule (binding).** If Phase 0a-pre confirms resume of an active batch, it sets the in-memory ticket cursor to the next pending ticket from `tickets[]` BEFORE falling through to the existing per-ticket Resume check. The per-ticket Resume check then runs UNMODIFIED but scoped to the picked ticket's branch and `loop-state.json`. The two state mechanisms compose: batch resume picks the ticket; per-ticket resume picks the phase within that ticket. They have non-overlapping scopes.
+**Resume composition rule (binding).** If Phase 0a-pre confirms resume of an active batch, it sets the in-memory ticket cursor to the next pending ticket from `tickets[]` BEFORE falling through to the existing per-ticket Resume check. The per-ticket Resume check then runs UNMODIFIED but scoped to the picked ticket's branch and its own `loop-state-$LOOP_KEY.json`, with `LOOP_KEY` derived from the picked ticket id. The two state mechanisms compose: batch resume picks the ticket; per-ticket resume picks the phase within that ticket. They have non-overlapping scopes.
 
 **Re-plan migration on resume.** When the operator confirms resume of any non-active batch state (`stalled`, `paused`, `interrupted`, or stale-`active` treated as interrupted):
 
@@ -13588,7 +13726,7 @@ Known cost: a genuinely multi-wave ticket (big, always needed three passes, neve
 
 **Findings handling - loop contract:**
 
-Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (create `.agentic/` directory if absent). **Use atomic write: write to `.agentic/loop-state.json.tmp` first, then rename to `.agentic/loop-state.json`.**
+Before the loop starts, initialize loop state and write it to `.agentic/loop-state-$LOOP_KEY.json` (create `.agentic/` directory if absent). **Use atomic write: write to `.agentic/loop-state-$LOOP_KEY.json.tmp` first, then rename to `.agentic/loop-state-$LOOP_KEY.json`.**
 
 **Full P2 schema (extends the P0 in-context schema with cross-session resume fields):**
 
@@ -13597,6 +13735,9 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
   "schema_version": 1,
   "session_id": "<current session uuid or null>",
   "ticket_id": "<string | null>",
+  "loop_key": "<the resolved key this file is stored under>",
+  "resume_count": 0,
+  "last_phase_iteration": null,
   "branch": "<string>",
   "repo": "<string>",
   "base_branch": "<string>",
@@ -13620,8 +13761,11 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 ```
 
 **Field notes:**
-- `session_id` is the conductor session uuid - specifically **`$CLAUDE_CODE_SESSION_ID`** (the same value `content/references/events-log.md` binds MUST-equal to the Stop hook's `payload.session_id`), and explicitly **NOT** the `<ISO-date>-<4hex>` id form used for `tasks.jsonl` entries. Every conductor write to `loop-state.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. A harness that cannot produce an id matching this namespace MUST write `session_id: null` rather than synthesizing a value in the wrong namespace (see Contract A's self-ownership carve-out for how writers and readers treat a null value on such a harness). Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
-- `last_updated` is the per-turn liveness timestamp written ONLY by `hooks/lib/state-mark.js`'s `refreshLiveness` (via the Stop hook's `--cadence=turn` dispatch) or by the conductor's own Contract A writes; it is never written by the terminal interrupted-mark (`markInterrupted`, on the SessionEnd hook `hooks/session-end-wrap.js`). `batch-state.json`'s equivalent field is named `updated_at`, not `last_updated` - readers falling back to the wrong file's field name will silently see a stale/absent value. `updated_at` is the CANONICAL field on `batch-state.json` (every staleness gate keys on it, per the batch-state schema's Field semantics above), not a fallback; `last_updated` remains canonical on `loop-state.json` only.
+- `loop_key` is the resolved `LOOP_KEY` this file is stored under - i.e. the file is at `.agentic/loop-state-<loop_key>.json`. **Required on every file this version writes.** It is recorded so that no reader ever re-derives the key: readers use this field, which permanently removes the branch-name temptation (the workflow deletes the branch after merge, so a later rework would derive the same slug and two attempts would look like one). Readers tolerate absence - a file with no `loop_key` is a legacy file and takes the Resume check's legacy-adoption path. If the field is present but disagrees with the filename's key, the filename wins for selection and the field wins for the session's in-context key after an accepted resume; print one warning and do not auto-repair.
+- `resume_count` is an integer, default `0`, incremented once per accepted resume - including a legacy adoption. `content/references/planning-artifacts.md` already depends on it ("resume-count tracked in the loop-state file" - loop-key: prose, a verbatim quotation of that document's wording, not a path assertion). Adopted legacy files start at `0` regardless of how many times they were resumed before this version, which is a bounded one-time undercount.
+- `last_phase_iteration` is an integer or null, written by the Phase 10a CI fix loop to record which cycle of that loop the file was written at. It was already written by that loop before it was declared here.
+- `session_id` is the conductor session uuid - specifically **`$CLAUDE_CODE_SESSION_ID`** (the same value `content/references/events-log.md` binds MUST-equal to the Stop hook's `payload.session_id`), and explicitly **NOT** the `<ISO-date>-<4hex>` id form used for `tasks.jsonl` entries. Every conductor write to `loop-state-$LOOP_KEY.json` includes this field; every write applies Contract A's per-write `session_id`-mismatch abort gate. A harness that cannot produce an id matching this namespace MUST write `session_id: null` rather than synthesizing a value in the wrong namespace (see Contract A's self-ownership carve-out for how writers and readers treat a null value on such a harness). Readers tolerate absence for back-compat with state files written by prior versions. See "Batch state contracts" above.
+- `last_updated` is the per-turn liveness timestamp written ONLY by `hooks/lib/state-mark.js`'s `refreshLiveness` (via the Stop hook's `--cadence=turn` dispatch) or by the conductor's own Contract A writes; it is never written by the terminal interrupted-mark (`markInterrupted`, on the SessionEnd hook `hooks/session-end-wrap.js`). `batch-state.json`'s equivalent field is named `updated_at`, not `last_updated` - readers falling back to the wrong file's field name will silently see a stale/absent value. `updated_at` is the CANONICAL field on `batch-state.json` (every staleness gate keys on it, per the batch-state schema's Field semantics above), not a fallback; `last_updated` remains canonical on `loop-state-$LOOP_KEY.json` only.
 - `loop_state.tier` is written at loop initialization from the conductor's declared tier for the Skeptic spawn (default 2, per the existing tier-declaration prose). Readers treat an ABSENT `tier` key (pre-DS-87 state files) as `"2 (default, undeclared)"` - the same back-compat pattern used for `session_id` above.
 - `last_phase` is the **authoritative resume key** - used exclusively for resume entry selection. Do NOT use `loop_state.phase` for this.
 - `loop_state.phase` reflects which loop is active (skeptic or qa) and is used only to reconstruct in-context LOOP_STATE on resume.
@@ -13637,9 +13781,9 @@ Before the loop starts, initialize loop state and write it to `.agentic/loop-sta
 - On clean termination: set `status=complete`, `loop_state.termination_reason=clean`
 - On stalled termination (cap_reached, convergence_failure, blocked): set `status=stalled`
 
-**Stability contract:** `.agentic/loop-state.json` is a stable contract from P0 onward. Any schema change must consider resume readers.
+**Stability contract:** `.agentic/loop-state-$LOOP_KEY.json` is a stable contract from P0 onward. Any schema change must consider resume readers.
 
-The file is overwritten (not appended) on each iteration state update and at loop exit with `termination_reason` set. It is not deleted on clean termination - the final state is the post-mortem record until the next loop invocation overwrites it. Whether `.agentic/` is gitignored is deferred to project convention.
+The file is overwritten (not appended) on each iteration state update and at loop exit with `termination_reason` set. It is not deleted on clean termination - the final state is the post-mortem record until **the next loop invocation on the SAME ticket** (i.e. the next invocation that derives the same `LOOP_KEY`) overwrites it. Under per-ticket keying an invocation on a *different* ticket writes a different file and does not overwrite this one; a completed keyed file is therefore reclaimed only by that same ticket's next run, or by Phase 12. Whether `.agentic/` is gitignored is deferred to project convention.
 
 Emit the inline breadcrumb:
 
@@ -13653,13 +13797,19 @@ Emit the inline breadcrumb:
 
 **Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
+# Every agentic-emit call site exports the resolved key so the event's `phase`
+# resolves from THIS ticket's own .agentic/loop-state-$LOOP_KEY.json. Without it, agentic-emit
+# falls back to its unset-env rows: with 2+ keyed files present (the whole
+# point of this design) it must answer "unknown", so every event in a
+# multi-ticket checkout would lose its phase.
+export AGENTIC_LOOP_KEY="$LOOP_KEY"
 agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'"}'
 # ... Agent tool call ...
 # After return, parse subagent transcript for tokens/wall_seconds:
 USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
 agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
 ```
-See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
+`export AGENTIC_LOOP_KEY="$LOOP_KEY"` applies at **every** `agentic-emit` call site in this document, not just this one - Phase 6, Phase 6b, the calibration/meta-review emits, and the Phase 7/10a fix-engineer brackets. See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
 
 ```
 ## Prior iteration findings
@@ -13676,7 +13826,7 @@ The following findings were raised in earlier iterations. For each:
 - Each finding gets a short slug `id` (e.g. `"null-deref-user-service"`), `severity`, `first_raised: <iteration>`, `status: open`.
 - If a finding carries `[PREV: <id>]`, set `re_raised: true` on the matching `findings_log` entry.
 - Minor findings: the conductor may mark them `deferred` if the finding scope exceeds the ticket. Deferred Minors do not re-enter the loop and are documented in the PR description. Major findings may NOT be deferred without explicit human approval - escalate rather than accepting a self-declared deferral. **Loop-context override:** the base `skeptic-protocol.md` permits deferral of Majors with "a compelling documented reason"; inside the loop, this is tightened to require explicit human approval. The conductor escalates rather than accepting an Engineer's self-declared deferral.
-- Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
+- Overwrite `.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.
 
 **Meta-divergence surfacing (in-session scan).** Before each turn boundary entering Phase 6 (loop initialization) and after returning from a Worker (after Step 5), the conductor scans `.agentic/events.jsonl` for `meta_review_complete` events whose `original_task_id` is not present in `.agentic/.meta-divergence-surfaced`. For any event with non-empty `data.divergence.critical_missed` or `data.divergence.major_missed`, emit a META-DIVERGENCE line at the next user-facing turn boundary and append `original_task_id` to the tracker file:
 
@@ -13688,11 +13838,11 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, gitignored under the `.agentic/` umbrella). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
-- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
+- If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
 
 **`SKEPTIC_ROUNDS` must be captured here, at Phase 6 clean exit - not read back later.** Phase 6b initializes its own loop state **overwriting the Phase 6 state** with `phase: qa, iteration: 1`, and Phase 6b fires for every Elevated unit with `qa_skip == null` - the common case. By the time Phase 9 runs, `loop_state.iteration` on disk is the QA iteration count, not the Skeptic round count: a ticket with 3 Skeptic rounds and a first-pass QA reads back as `1`. Capturing at clean exit is the same pattern Phase 6b already uses for `QA_RAN_AND_PASSED`. The Trivial path never reaches Phase 6, so it never sets `SKEPTIC_ROUNDS`, which is exactly why the ledger's `skeptic_rounds` is legitimately null there.
-- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human (see Escalation section below). Phase 6b does NOT run.
-- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
+- If `iteration == max_iterations` AND Critical or Major findings remain: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human (see Escalation section below). Phase 6b does NOT run.
+- If any Critical finding carries `re_raised: true` (same finding re-raised after a claimed fix): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. Escalate to human. (This overrides the 2-re-route rule in `skeptic-protocol.md` Section 5 - see that section for the override note. One re-raise after a claimed fix is sufficient within the loop.)
 
 **Learning extraction (clean exit only).** When Step 3 takes the clean-exit branch (sign-off granted), the conductor spawns `learning-extractor` BEFORE calibration emit and meta-Skeptic sampling. This captures durable fix-pattern learnings from the resolved `findings_log` before the loop state is cleaned up.
 
@@ -13700,7 +13850,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 **Spawn brief inputs:**
 - `ticket_id`: the resolved ticket id.
-- `findings_log`: the final resolved `findings_log` from `.agentic/loop-state.json` (all entries with `status: closed` or `status: addressed`).
+- `findings_log`: the final resolved `findings_log` from `.agentic/loop-state-$LOOP_KEY.json` (all entries with `status: closed` or `status: addressed`).
 - `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
 
 **Failure semantics:**
@@ -13755,10 +13905,10 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 **Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
-- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
+- If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply the missing context (from codebase, session context, or by asking the human) and re-spawn the Engineer with the same findings brief and the added context. Do NOT increment `iteration`. If the conductor cannot supply the context, escalate to the human with the Engineer's stated gap.
-- If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
-- Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
+- If `Status: DONE_WITH_CONCERNS`: proceed normally. The Engineer's stated concerns become additional context for the next Skeptic spawn (include them alongside the adversarial brief). Update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Update inline breadcrumb. Go to Step 1.
+- Otherwise (`Status: DONE`): update `last_engineer_summary`. Update `findings_log` entries the Engineer claims to have fixed to `status: addressed`. Increment `iteration`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Update inline breadcrumb. Go to Step 1.
 
 **Escalation format (cap_reached, convergence_failure, or blocked):**
 
@@ -13802,7 +13952,7 @@ At Phase 6 loop exit (both clean termination and stalled termination paths), spa
 
 **Brief:**
 - Input: the full final-iteration Skeptic output (verbatim), the `ticket_id`, and the curated index path (`.agentic/findings.md`).
-- The curator reads from the Skeptic's final return text - NOT from the `findings_log` field in `loop-state.json`.
+- The curator reads from the Skeptic's final return text - NOT from the `findings_log` field in `loop-state-$LOOP_KEY.json`.
 - The curator computes `pattern_hash` per the canonicalization spec: lowercase the finding text, collapse whitespace runs (including newlines) to a single space, strip code-block fence markers (` ``` ` and `~~~`), strip leading/trailing whitespace, SHA-256 the result, take the first 16 hex chars.
 - De-dup key: `(pattern_hash, ticket_id)`. Skip writing if a matching key already exists in `.agentic/findings.md`.
 - The curator is the sole writer of `.agentic/findings.md` (append-only by discipline; the curator is fire-and-forget so the conductor never writes the file).
@@ -13864,7 +14014,7 @@ For full QA gate rules, see `METHODOLOGY.md §QA Gate`.
 
 **QA loop contract:**
 
-Before the loop starts, initialize loop state and write it to `.agentic/loop-state.json` (overwriting the Phase 6 state). **Use atomic write (tmp+rename).** Reset `last_phase=qa`, `last_phase_action=spawned`. Same write-trigger pattern as Phase 6 applies here: write at every phase transition (QA spawn, QA return, Engineer spawn, Engineer return). On clean exit set `status=complete`; on stalled exit set `status=stalled`.
+Before the loop starts, initialize loop state and write it to `.agentic/loop-state-$LOOP_KEY.json` (overwriting the Phase 6 state). **Use atomic write (tmp+rename).** Reset `last_phase=qa`, `last_phase_action=spawned`. Same write-trigger pattern as Phase 6 applies here: write at every phase transition (QA spawn, QA return, Engineer spawn, Engineer return). On clean exit set `status=complete`; on stalled exit set `status=stalled`.
 
 ```
 LOOP_STATE initialized:
@@ -13876,7 +14026,7 @@ LOOP_STATE initialized:
   termination_reason: null
 ```
 
-Write as JSON to `.agentic/loop-state.json` (same stability contract as Phase 6 - see above).
+Write as JSON to `.agentic/loop-state-$LOOP_KEY.json` (same stability contract as Phase 6 - see above).
 
 Emit the inline breadcrumb:
 
@@ -13908,14 +14058,14 @@ The following failures were identified and fix attempts were made in earlier ite
 **Step 2.** Receive QA output. Update `qa_failures_log`:
 - Each failure gets a short slug `id`, `description`, `first_raised: <iteration>`, `status: open`.
 - If a failure carries `[PREV: <id>]`, set `re_raised: true` on the matching `qa_failures_log` entry.
-- Overwrite `.agentic/loop-state.json` with the updated LOOP_STATE.
+- Overwrite `.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.
 
 **Step 3. Termination check:**
-- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section) and `QA_STATUS="PASS"` (in-context variable used by the Phase 9 ticket-rework ledger write). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
+- If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section) and `QA_STATUS="PASS"` (in-context variable used by the Phase 9 ticket-rework ledger write). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
 
 **`QA_STATUS` on every other terminal QA outcome.** Whenever Phase 6b reaches a terminal verdict for this ticket by any route, set `QA_STATUS` to that verdict - one of `PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`. In particular, when the operator accepts INCONCLUSIVE with `qa_unverified=true` on the `qa_blocked` path and the ticket continues to Phase 9, set `QA_STATUS="INCONCLUSIVE"`. A known verdict must never be discarded to null: the ledger's contract reserves null for the case where *neither* a result *nor* a rationale can be resolved, and "the operator looked at this and accepted that QA could not verify it" is a result. Recording it as `n/a` would tell a later rework attempt that QA status was simply unavailable, hiding an accepted-unverified ticket - the exact class of silent downgrade this field exists to surface.
-- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
-- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
+- If `iteration == max_iterations` AND still failing: set `termination_reason: cap_reached`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with the `qa_failures_log`. Phase 7 does NOT run.
+- If same failure recurs unchanged after a claimed fix (`re_raised: true`): set `termination_reason: convergence_failure`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to human with convergence note.
 
 **QA screenshot evidence capture (PASS exit only).** On clean PASS exit, parse the `qa-screenshots-json` fenced block from the qa-engineer return text:
 
@@ -13934,13 +14084,13 @@ the fence character is backticks (```) or tildes (~~~). Either of the following 
 Match by the info string `qa-screenshots-json`; do not require a specific fence character.
 ```
 
-Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state.json` or any other state file.
+Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state-$LOOP_KEY.json` or any other state file.
 
 **Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
-**Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state.json`. Update inline breadcrumb. Go to Step 1.
+**Step 5.** Receive Engineer output. If neither BLOCKED nor NEEDS_CONTEXT (whether `Status: DONE` or `Status: DONE_WITH_CONCERNS`): update `qa_failures_log` entries the Engineer claims to have fixed to `status: addressed`. Update `last_engineer_summary`. Increment `iteration`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Update inline breadcrumb. Go to Step 1.
 
 ### QA regressions curator (Phase 6b clean exit)
 
@@ -13988,12 +14138,12 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 
 **When `DEBUGGER_ON_FAILURE` is `false` OR the path is Trivial** - preserve existing behavior exactly:
 
-1. Before spawning the Phase 7 engineer: write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
+1. Before spawning the Phase 7 engineer: write `.agentic/loop-state-$LOOP_KEY.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
 2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: "worktree"` on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble).
-3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
-4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
+3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).
+4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
 5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).
-6. If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
+6. If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.
 7. If it still fails: set `status=stalled`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.
 
 **No unbounded loop (default path):** Phase 7 failure only ever triggers one Engineer fix pass followed by one re-run. There is no retry loop at this phase.
@@ -14004,17 +14154,17 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 
 For each debug-fix cycle (cycle count tracked in-context; escalate to human after 3 exhausted cycles with open gate failures):
 
-1. Write `.agentic/loop-state.json` with `last_phase=quality_gate`, `last_phase_action=debugger_spawned` (atomic write).
+1. Write `.agentic/loop-state-$LOOP_KEY.json` with `last_phase=quality_gate`, `last_phase_action=debugger_spawned` (atomic write).
 2. Spawn `debugger` (read-only; no worktree isolation needed - Debugger never writes files) with:
    - The captured gate failure output (`raw_output` from the failing run)
    - The failing context (branch diff, relevant files, prior cycle summaries if any)
-3. After Debugger returns: write `last_phase=quality_gate`, `last_phase_action=debugger_returned` (atomic write).
-4. Write `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
+3. After Debugger returns: write `last_phase=quality_gate`, `last_phase_action=debugger_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).
+4. Write `last_phase=quality_gate`, `last_phase_action=engineer_spawned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).
 5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: "worktree"` (mandatory on Elevated path per METHODOLOGY.md §Delegation > Worker preamble).
-6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` (atomic write).
-7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.
+6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).
+7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.
 8. Verify the fix engineer's `quality_gate_results`.
-   - If it passes: set `status=complete` in loop-state.json. Proceed to Phase 8.
+   - If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.
    - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.
    - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.
 
@@ -14482,19 +14632,24 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
     TRL_ROUNDS="${SKEPTIC_ROUNDS:-}"
 
     # Disk fallback for a resumed session that lost the in-context variable. TWO guards, both
-    # required and for different reasons:
-    #   ticket_id  - loop-state.json persists across tickets in a batch (Phase 12 may leave it
-    #                at status:complete rather than deleting). Without this guard, Trivial
-    #                ticket 2 inherits Elevated ticket 1's round count - telling the operator
-    #                a Trivial attempt got three rounds of review when it got none.
+    # KEPT, for different reasons:
+    #   ticket_id  - now redundant BY CONSTRUCTION, because the file is keyed per ticket and
+    #                a wrong-ticket file is not at this path at all. Kept deliberately: it is
+    #                one jq clause, and a MIS-DERIVED $LOOP_KEY presents as exactly the
+    #                cross-ticket round-count leak this clause prevents (Trivial ticket 2
+    #                inheriting Elevated ticket 1's round count, telling the operator a
+    #                Trivial attempt got three rounds of review when it got none). Removing a
+    #                defence in the same change that introduces a new key-derivation
+    #                mechanism is the wrong direction.
     #   phase      - Phase 6b overwrites the file with phase:qa, iteration:1. Without this
     #                guard, an Elevated ticket that passed QA on the first try records 1
-    #                Skeptic round regardless of how many it actually took.
-    if [ -z "$TRL_ROUNDS" ] && [ -f .agentic/loop-state.json ]; then
+    #                Skeptic round regardless of how many it actually took. Keying does NOT
+    #                fix this: same ticket, same key, same file.
+    if [ -z "$TRL_ROUNDS" ] && [ -f .agentic/loop-state-$LOOP_KEY.json ]; then
       TRL_ROUNDS=$(jq -r --arg t "$TICKET_ID" '
         select(.ticket_id == $t and .loop_state.phase == "skeptic")
         | .loop_state.iteration // empty
-      ' .agentic/loop-state.json 2>/dev/null) || TRL_ROUNDS=""
+      ' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null) || TRL_ROUNDS=""
     fi
     case "$TRL_ROUNDS" in ''|*[!0-9]*) TRL_ROUNDS="" ;; esac
 
@@ -14609,7 +14764,7 @@ FAILED=$(gh pr checks "$PR_NUMBER" --repo "$GH_REPO" --json conclusion 2>/dev/nu
 - `STATUS empty` (no checks configured): emit `[phase: ci-wait | result: passed-by-default | no-checks]`. Proceed to Phase 10b.
 - `FAILED == 0` after all complete: emit `[phase: ci-wait | result: passed]`. Proceed to Phase 10b.
 - `FAILED > 0`: emit `[phase: ci-wait | result: failed | failing-checks: <names>]`. Enter Phase 10a.
-- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`. Write `last_phase: ci_wait, last_phase_action: timeout` to `.agentic/loop-state.json`. Surface to human and STOP (do NOT auto-fix, do NOT proceed). Human decides whether to extend the wait or escalate.
+- Loop hit `TIMEOUT_POLLS` without all-complete: emit `[phase: ci-wait | result: timeout]`. Write `last_phase: ci_wait, last_phase_action: timeout` to `.agentic/loop-state-$LOOP_KEY.json`. Surface to human and STOP (do NOT auto-fix, do NOT proceed). Human decides whether to extend the wait or escalate.
 
 ---
 
@@ -14629,19 +14784,19 @@ Mirrors Phase 7's quality-gate retry loop, but targets CI failures detected post
 
    The `tail -300` truncation targets the relevant failure output. CI failure output is almost always in the last 300 lines; earlier lines are setup/install noise. If the truncated log misses the failure (extremely rare), the next cycle will retry with the next failure run's log.
 
-2. **Write loop-state:** `last_phase: ci_loop, last_phase_action: fix_engineer_spawned, last_phase_iteration: N`.
+2. **Write `.agentic/loop-state-$LOOP_KEY.json`:** `last_phase: ci_loop, last_phase_action: fix_engineer_spawned, last_phase_iteration: N`.
 
 3. **Spawn engineer** (worktree-isolated, Elevated path). Brief includes:
    - The failure log (`$FAILURE_LOG`, last-300 truncated)
    - Prior cycle summaries (iter N >= 2 surgical-edit directive: paste iter N-1 verbatim, instruction "APPLY SURGICAL EDITS, do not regenerate")
    - Instruction to commit and push to the same branch
 
-4. **After engineer returns:** Write `last_phase: ci_loop, last_phase_action: fix_engineer_returned, last_phase_iteration: N` to loop-state. Re-enter Phase 10 poll. Write `last_phase: ci_loop, last_phase_action: ci_poll_pending, last_phase_iteration: N` while polling.
+4. **After engineer returns:** Write `last_phase: ci_loop, last_phase_action: fix_engineer_returned, last_phase_iteration: N` to `.agentic/loop-state-$LOOP_KEY.json`. Re-enter Phase 10 poll. Write `last_phase: ci_loop, last_phase_action: ci_poll_pending, last_phase_iteration: N` to `.agentic/loop-state-$LOOP_KEY.json` while polling.
 
 5. **Convergence short-circuit:** If failing check-name set in cycle N equals cycle N-1 (engineer made no progress), escalate immediately without consuming remaining cycles.
 
 6. **Cap exceeded (3 cycles without all-pass):**
-   - Write `last_phase: ci_loop, last_phase_action: cap_exceeded` to loop-state.
+   - Write `last_phase: ci_loop, last_phase_action: cap_exceeded` to `.agentic/loop-state-$LOOP_KEY.json`.
    - Print summary of failing checks + each cycle's outcome.
    - **Tracker writeback (W6b):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6b | target: $TRACKER_STATE_BLOCKED | escalation: ci-fix-loop-cap]`
    - STOP. Human investigates.
@@ -14775,7 +14930,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 ## Phase 11b: Wrap learnings (per-ticket capture)
 
-**Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `.agentic/loop-state.json` BEFORE Phase 12 clears it - explicit ordering. The findings-curator at Phase 6 exit reads `findings_log` but does NOT clear it; Phase 12 is the only clearer.
+**Trigger:** every PR opened, subject to skip conditions below. Fires AFTER Phase 11 completes and BEFORE Phase 12 cleanup. Phase 11b reads `findings_log` from `.agentic/loop-state-$LOOP_KEY.json` BEFORE Phase 12 clears it - explicit ordering. The findings-curator at Phase 6 exit reads `findings_log` but does NOT clear it; Phase 12 is the only clearer.
 
 **Skip conditions:**
 - Phase 9 was skipped (no PR was opened): skip Phase 11b entirely. Lock acquisition below is never attempted - there is nothing to release.
@@ -14795,7 +14950,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - `ticket_description`: the full ticket description.
 - `architect_plan_path`: absolute path to the architect's plan output (or in-context if no path).
 - `brief_path`: absolute path to the Brief (or "n/a" if no Brief).
-- `findings_log`: read from `.agentic/loop-state.json` `loop_state.findings_log` BEFORE Phase 12 clears the file.
+- `findings_log`: read from `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` BEFORE Phase 12 clears the file.
 - `qa_md_diff`: the diff between `.agentic/qa.md.snapshot-<ticket_id>` (created at Phase 0b for Elevated tickets) and the current working-tree `.agentic/qa.md`. Empty if no snapshot exists or qa.md is unchanged.
 - `merged_diff`: `git -C $REPO diff origin/$BASE_BRANCH..HEAD` (the full ticket diff).
 - `pr_url`: the PR URL captured at Phase 9.
@@ -14956,7 +15111,7 @@ fi
 
 Note on `worktree prune`: prune clears stale git administration entries (dead symlinks) for worktrees whose directories no longer exist. It does NOT remove PID-suffixed directories left behind by interrupted runs - those must be manually removed or will be reused/overwritten by a subsequent `worktree add` with the same path. The `$$`-suffixed path ensures unique naming per run, limiting orphan accumulation.
 
-**Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state.json`.
+**Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state-$LOOP_KEY.json`.
 
 ### Review-rigor PR-body evidence (soft-fail)
 
@@ -14964,9 +15119,11 @@ Note on `worktree prune`: prune clears stale git administration entries (dead sy
 
 **Trigger:** runs after the knowledge-file-commit step above (same Phase 11c). Skip entirely when Phase 9 was skipped (no PR was opened) - same top-level Phase 11c trigger.
 
-**Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state.json` or the session transcript.
+**Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state-$LOOP_KEY.json` or the session transcript.
 
-**Ordering dependency:** this step reads `.agentic/loop-state.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+
+**Ticket scoping (closes a pre-existing latent bug).** The five `jq` reads below had **no ticket scoping at all** before per-ticket keying: they read one shared `.agentic/loop-state.json`, so in a batch they reported whichever ticket last wrote it. Every PR's `## Review rigor` section could therefore attribute another ticket's round count, tier, and findings tally to this ticket, with no gate able to fail on it. Reading `.agentic/loop-state-$LOOP_KEY.json` scopes them to this ticket by construction. Every read stays soft-fail (`2>/dev/null` plus a literal default) - an absent keyed file yields the same `n/a` / `0` defaults as before, never an error.
 
 ```bash
 # Phase 11c: Review-rigor PR-body evidence (soft-fail, independent of knowledge-commit)
@@ -14989,13 +15146,13 @@ if [ -n "$RR_PR_NUMBER" ]; then
       RR_BRIEF_OR_PLAN="$ARCHITECT_PLAN_PATH"
     fi
 
-    TIER_DISPLAY=$(jq -r 'if (.loop_state | has("tier")) then (.loop_state.tier|tostring) else "2 (default, undeclared)" end' .agentic/loop-state.json 2>/dev/null || echo "2 (default, undeclared)")
-    ROUNDS=$(jq -r '.loop_state.iteration // "n/a"' .agentic/loop-state.json 2>/dev/null || echo "n/a")
+    TIER_DISPLAY=$(jq -r 'if (.loop_state | has("tier")) then (.loop_state.tier|tostring) else "2 (default, undeclared)" end' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo "2 (default, undeclared)")
+    ROUNDS=$(jq -r '.loop_state.iteration // "n/a"' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo "n/a")
 
     # Findings tally: count final findings_log entries by severity (all should be status:closed here).
-    RR_CRITICAL=$(jq '[.loop_state.findings_log[]? | select(.severity=="Critical")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
-    RR_MAJOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Major")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
-    RR_MINOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Minor")] | length' .agentic/loop-state.json 2>/dev/null || echo 0)
+    RR_CRITICAL=$(jq '[.loop_state.findings_log[]? | select(.severity=="Critical")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
+    RR_MAJOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Major")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
+    RR_MINOR=$(jq '[.loop_state.findings_log[]? | select(.severity=="Minor")] | length' .agentic/loop-state-$LOOP_KEY.json 2>/dev/null || echo 0)
     if [ "${RR_CRITICAL:-0}" = "0" ] && [ "${RR_MAJOR:-0}" = "0" ] && [ "${RR_MINOR:-0}" = "0" ]; then
       RR_FINDINGS_SUMMARY="No findings"
     else
@@ -15017,17 +15174,17 @@ if [ -n "$RR_PR_NUMBER" ]; then
 fi
 ```
 
-**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state.json` never blocks Phase 12. Does NOT write `loop-state.json`.
+**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
 
 ---
 
 ## Phase 12: Loop state cleanup
 
-After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped), set `.agentic/loop-state.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/ds-implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
+After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped), set `.agentic/loop-state-$LOOP_KEY.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/ds-implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
 
 If the file does not exist (it was never written, e.g. loop never started), skip silently.
 
-**`findings_log` clearing.** Phase 12 is the ONLY clearer of `findings_log`. The findings-curator at Phase 6 exit reads `findings_log` from `.agentic/loop-state.json` but does NOT clear it. Phase 11b's `wrap-ticket` reads `findings_log` BEFORE this Phase 12 cleanup. Setting `status: "complete"` (or deleting the file) is the moment `findings_log` is dropped.
+**`findings_log` clearing.** Phase 12 is the ONLY clearer of `findings_log`. The findings-curator at Phase 6 exit reads `findings_log` from `.agentic/loop-state-$LOOP_KEY.json` but does NOT clear it. Phase 11b's `wrap-ticket` reads `findings_log` BEFORE this Phase 12 cleanup. Setting `status: "complete"` (or deleting the file) is the moment `findings_log` is dropped.
 
 **qa.md snapshot cleanup.** Remove `.agentic/qa.md.snapshot-<ticket_id>` if it exists (it was created at Phase 0b for Elevated tickets). Best-effort silent-fail; if the file is absent or removal fails, do not block Phase 12 completion.
 
@@ -15069,7 +15226,7 @@ fi
 
 Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ds-ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
 
-**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). loop-state.json cleanup and qa.md snapshot cleanup run unmodified (both local-only).
+**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 
 ---
 
@@ -15079,7 +15236,7 @@ Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true
 
 After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit below, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket.
 
-**Goal-met short-circuit (open-goal mode, evaluated before triggers 1-4).** If `batch-state.json.mode == "open_goal"` AND `batch-state.json.open_goal.termination_reason == "goal_met"` (set this iteration by Phase 6 "Open-goal condition check"): take the clean COMPLETE exit immediately - set `status: "complete"` on both `batch-state.json` and `loop-state.json` (Contract A), print `OPEN-GOAL LOOP COMPLETE - goal_condition met after N iterations`, and exit the outer loop. Do NOT evaluate triggers 1-4. This guarantees a goal met on the final budgeted iteration (or coincident with a wallclock/iteration cap) records `goal_met`, not `cap_reached_*`, and the operator is not falsely told the goal was unmet. Rationale: `goal_met` is a success terminal state and always takes precedence over any cap/pause trigger that would otherwise fire on the same iteration.
+**Goal-met short-circuit (open-goal mode, evaluated before triggers 1-4).** If `batch-state.json.mode == "open_goal"` AND `batch-state.json.open_goal.termination_reason == "goal_met"` (set this iteration by Phase 6 "Open-goal condition check"): take the clean COMPLETE exit immediately - set `status: "complete"` on both `batch-state.json` and `.agentic/loop-state-$LOOP_KEY.json` (Contract A), print `OPEN-GOAL LOOP COMPLETE - goal_condition met after N iterations`, and exit the outer loop. Do NOT evaluate triggers 1-4. This guarantees a goal met on the final budgeted iteration (or coincident with a wallclock/iteration cap) records `goal_met`, not `cap_reached_*`, and the operator is not falsely told the goal was unmet. Rationale: `goal_met` is a success terminal state and always takes precedence over any cap/pause trigger that would otherwise fire on the same iteration.
 
 **Triggers (exactly FOUR; any one fires; not evaluated when the goal-met short-circuit above already fired):**
 
@@ -15180,7 +15337,7 @@ Next:  /ds-ticket-triage   # no outstanding work detected; re-triage to pick nex
 
 Collect any blockers surfaced during this session:
 
-- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `content/references/qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log). **Known gap:** neither `qa_blocked` nor `qa_unverified=true` is written to any durable state file (`.agentic/loop-state.json`'s `qa_failures_log` tracks Skeptic-visible QA fail/retry cycles, not the blocked/INCONCLUSIVE terminal outcome, and it is ticket-scoped - overwritten by the next ticket and cleared at that ticket's own Phase 12, both before this phase runs). This item is therefore best-effort within the current session only and does not survive a resumed session: a batch that hits `qa_blocked` in session A and is resumed and finished in session B will not re-surface that blocker here.
+- QA-blocked units: any ticket in this session whose Phase 6b QA gate resulted in `qa_blocked` or INCONCLUSIVE (`qa_unverified=true`), per `content/references/qa-gate.md` §"Per-ticket, in-flow" and §"INCONCLUSIVE classification". Track these in-context as they occur during this session's Phase 6b runs - do not re-read them from `findings_log` (which holds Skeptic findings only, status `open`/`addressed`, and is never written a `qa_blocked` entry) or from `.agentic/qa.md` (supplemental QA project-knowledge - dev server config and project quirks - not a per-ticket status log). **Known gap:** neither `qa_blocked` nor `qa_unverified=true` is written to any durable state file (`.agentic/loop-state-$LOOP_KEY.json`'s `qa_failures_log` tracks Skeptic-visible QA fail/retry cycles, not the blocked/INCONCLUSIVE terminal outcome, and it is ticket-scoped - cleared at that ticket's own Phase 12, before this phase runs. Under per-ticket keying it is **no longer overwritten by the next ticket** - the next ticket writes its own keyed file - but that changes nothing about this gap, whose cause is that the outcome is never written at all). This item is therefore best-effort within the current session only and does not survive a resumed session: a batch that hits `qa_blocked` in session A and is resumed and finished in session B will not re-surface that blocker here.
 - Batch-escalated tickets: any ticket in `.agentic/batch-state.json.tickets[]` with `status: "blocked"` (written by the "Batch-mode escalation routing (mark-blocked-and-continue)" path on Skeptic/QA `cap_reached`) - print the ticket ID and its `last_summary`. This is the one blocker class that IS durable (written directly to `tickets[]`), so include it even on a resumed session.
 
 Print:
@@ -16220,6 +16377,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 # AND tool-agnostic config files (qa.md, deploy.md, tracking.md)
 # that ARE checked in. The entries below ignore only the runtime artifacts.
 .agentic/loop-state.json
+.agentic/loop-state-*.json
 .agentic/hud/
 .agentic/tasks.jsonl
 .agentic/events.jsonl
@@ -16242,7 +16400,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 !.agentic/learnings.md
 ```
 
-The targeted list covers runtime artifacts only: `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook), `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
+The targeted list covers runtime artifacts only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
 
 ### 10. Create `docs/` structure
 
@@ -18558,7 +18716,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 **Non-goals (this command intentionally does NOT):**
 - Invoke `/ds-implement-ticket` or spawn any implementation agent.
 - Create branches, PRs, worktrees, or commits.
-- Write to `.agentic/batch-state.json`, `.agentic/loop-state.json`, `.agentic/tasks.jsonl`, or any other `.agentic/` state file.
+- Write to `.agentic/batch-state.json`, any loop-state file (the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` as well as the legacy `.agentic/loop-state.json` - the keyed form is a new filename class and this prohibition covers it too), `.agentic/tasks.jsonl`, or any other `.agentic/` state file.
 - Mutate tracker tickets (no status transitions, no comment posts).
 - Produce Briefs, Plans, or ADRs.
 - Perform file-level conflict analysis (directory-level only via the Phase 2b investigator).
@@ -19233,7 +19391,7 @@ Using the batch results:
 - **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
 - **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
 - **Note task-state summary** - if `.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
-- **Note loop-state summary** — if `.agentic/loop-state.json` exists: if `status=active`, note in the wrap summary that an incomplete loop was active when `/ds-wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `/ds-implement-ticket` invocation will offer to resume). The wrap command does NOT delete or modify `loop-state.json` - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or context.md beyond the one-line status note.
+- **Note loop-state summary** — loop state is keyed per ticket, so enumerate every `.agentic/loop-state-*.json` **plus** the legacy `.agentic/loop-state.json`, and consider only those whose `session_id == $CLAUDE_CODE_SESSION_ID`. **The `session_id` filter is required, not optional:** it needed no gate in a one-file world, but a keyed checkout routinely holds another session's healthy in-flight loop, and reporting that as this session's incomplete loop is a false alarm on every wrap. For each surviving candidate: if `status=active`, note in the wrap summary that an incomplete loop was active when `/ds-wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `/ds-implement-ticket` invocation on that ticket will offer to resume). Name the candidate by its `loop_key` (falling back to `ticket_id`, then to the filename) so the note identifies which ticket. The wrap command does NOT delete or modify any loop-state file, keyed or legacy - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or context.md beyond the one-line status note.
 - **Enumerate open PRs targeting the conductor's current branch** — from the batch's `gh pr list` output above (do not re-run the query). /ds-wrap writes AGENTS.md and memory.md additions onto the conductor's current branch (typically `main`). If those additions cite file paths or feature keys that live on branches with open PRs not yet merged, the doc additions will land on the target branch describing files/keys that do not yet exist there.
 
   Record the resulting `{pr_number, head_branch, modified_files[]}` set as the **open-PR overlap set**. If the batch logged `GH_UNAVAILABLE` or `GH_PR_LIST_FAILED`, log "open-PR overlap check skipped (gh unavailable)" to the wrap run output and pass an empty set forward — the deferral logic becomes a no-op rather than blocking the run. The set is supplied to the draft Worker as a dedicated field (see Step 1) so it can flag deferral candidates; the conductor enforces deferral at write time in Step 4.
@@ -19543,7 +19701,7 @@ Skip Part D.5 on the **zero-substance path** (already skipped Steps 1-3; no sess
 **Deterministic evidence gathering.** Each of the four signals below is individually guarded: a missing file, a missing or broken `agentic-feedback` binary, or a read error on any ONE signal must never break or stall the wrap, and must never prevent the remaining signals from being checked. Gather candidates from whichever signals are available; skip any that error or are absent.
 
 1. **Tool-friction signal.** If `.agentic/events.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file). Filter to lines where `event == "tool_failure_workaround"` AND `data.session_uuid == $CLAUDE_CODE_SESSION_ID`. Each match is a candidate: `category = tool-friction`, evidence `"tool_failure_workaround: <tool> (<domain_tag>) - <note>"`.
-2. **Skeptic-loop-stall signal.** If `.agentic/loop-state.json` exists AND its `session_id == $CLAUDE_CODE_SESSION_ID` AND `status == "stalled"`: one candidate, `category = process-escalation`, `scope` defaults to `methodology`, evidence citing `loop_state.termination_reason` (`cap_reached` | `convergence_failure` | `blocked`) plus the `last_phase` and `ticket_id` at time of stall.
+2. **Skeptic-loop-stall signal.** If any `.agentic/loop-state-*.json` (or the legacy `.agentic/loop-state.json`) exists AND its `session_id == $CLAUDE_CODE_SESSION_ID` AND `status == "stalled"`: one candidate per such file, `category = process-escalation`, `scope` defaults to `methodology`, evidence citing `loop_state.termination_reason` (`cap_reached` | `convergence_failure` | `blocked`) plus the `last_phase` and `ticket_id` at time of stall.
 3. **Guardrail-fire signal.** If `.agentic/.abdication-guard-fire-count` exists and its `count >= 1` at wrap time: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`. **Honesty note:** this counter resets to 0 on every genuine new user turn (see `hooks/enforce-no-abdication.py`), so a nonzero count at wrap time reflects only "an abdication-guard loop was present in the session's final turn" — it is NOT a whole-session tally of guardrail fires. State this narrowly in the evidence text; do not describe it as a session-wide count.
 4. **Operator-correction signal.** Using the same session reflection Part D already surveys (no new mechanism — inline LLM reasoning over the transcript), identify up to 5 turns where the operator explicitly corrected, rejected, or expressed frustration with a conductor action this session. Each is a candidate: `category = operator-correction`, evidence = the operator's verbatim correction, trimmed to the relevant sentence(s).
 

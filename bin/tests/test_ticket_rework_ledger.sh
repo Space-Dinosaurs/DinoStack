@@ -17,11 +17,18 @@
 #              null renders "n/a" in the operator notice, which says QA was
 #              unavailable when the truth is it was deliberately skipped.
 #            - skeptic_rounds must be the SKEPTIC round count, not the QA
-#              loop's. Phase 6b overwrites loop-state.json with
-#              phase:qa, iteration:1 before Phase 9 runs.
-#            - skeptic_rounds must not be inherited from another ticket via
-#              loop-state.json, which persists across a batch, so an unscoped
-#              read gives Trivial ticket 2 Elevated ticket 1's round count.
+#              loop's. Phase 6b overwrites the keyed loop-state file with
+#              phase:qa, iteration:1 before Phase 9 runs. Per-ticket keying
+#              does NOT fix this: same ticket, same key, same file.
+#            - skeptic_rounds must not be inherited from another ticket. This
+#              is now enforced by TWO independent mechanisms, and the three
+#              cases below cover both: the file is KEYED PER TICKET, so a
+#              foreign ticket's state is not at this path at all and the
+#              `[ -f ]` test short-circuits; and the surviving ticket_id jq
+#              guard still rejects a foreign record if $LOOP_KEY is
+#              mis-derived. Before keying there was one shared
+#              .agentic/loop-state.json that persisted across a batch, and an
+#              unscoped read gave Trivial ticket 2 Elevated ticket 1's count.
 #            - detection must skip ONE malformed line, not abort the whole
 #              parse. The ledger is appended locklessly; a torn line is an
 #              expected input, and slurp would disable detection for every
@@ -173,12 +180,12 @@ _field() { _last | jq -r "$1"; }
 echo ""
 echo "--- Elevated happy path: full record ---"
 : > .agentic/ticket-ledger.jsonl
-printf '{"ticket_id":"DS-87","loop_state":{"phase":"skeptic","iteration":3}}' > .agentic/loop-state.json
+printf '{"ticket_id":"DS-87","loop_state":{"phase":"skeptic","iteration":3}}' > .agentic/loop-state-DS-87.json
 printf '%s\n' \
   '{"task_id":"DS-87-a","ticket_id":"DS-87"}' \
   '{"task_id":"DS-87-b","ticket_id":"DS-87"}' \
   '{"task_id":"DS-99-a","ticket_id":"DS-99"}' > .agentic/tasks.jsonl
-_write REWORK_DETECTION=true TICKET_ID=DS-87 BRANCH_NAME=feature/ds-87 GH_REPO=o/r \
+_write REWORK_DETECTION=true TICKET_ID=DS-87 LOOP_KEY=DS-87 BRANCH_NAME=feature/ds-87 GH_REPO=o/r \
        RISK_CLASS=Elevated SKEPTIC_ROUNDS=3 QA_STATUS=PASS FAKE_GH_PR=458
 _eq "elevated pr_number"      "$(_field .pr_number)"      "458"
 _eq "elevated skeptic_rounds" "$(_field .skeptic_rounds)" "3"
@@ -191,9 +198,9 @@ _eq "opened_ts is ISO8601 Z"  "$(_field .opened_ts | grep -cE '^[0-9]{4}-[0-9]{2
 echo ""
 echo "--- Major 1: qa_status carries the rationale on BOTH non-QA paths ---"
 : > .agentic/ticket-ledger.jsonl
-rm -f .agentic/loop-state.json .agentic/tasks.jsonl
+rm -f .agentic/loop-state-*.json .agentic/tasks.jsonl
 # Trivial: no Skeptic loop, no QA. Rationale, not null.
-_write REWORK_DETECTION=true TICKET_ID=DS-91 BRANCH_NAME=fix/ds-91 GH_REPO=o/r \
+_write REWORK_DETECTION=true TICKET_ID=DS-91 LOOP_KEY=DS-91 BRANCH_NAME=fix/ds-91 GH_REPO=o/r \
        RISK_CLASS=Trivial QA_STATUS="skipped:Trivial path" FAKE_GH_PR=462
 _eq "trivial risk_class"     "$(_field .risk_class)"          "Trivial"
 _eq "trivial qa_status"      "$(_field .qa_status)"           "skipped:Trivial path"
@@ -202,8 +209,8 @@ _eq "trivial skeptic null"   "$(_field '.skeptic_rounds|type')" "null"
 _eq "trivial unit_count"     "$(_field .unit_count)"          "1"
 
 # Elevated with qa_skip: Skeptic ran, QA did not. Rationale, not null.
-printf '{"ticket_id":"DS-92","loop_state":{"phase":"skeptic","iteration":2}}' > .agentic/loop-state.json
-_write REWORK_DETECTION=true TICKET_ID=DS-92 BRANCH_NAME=feature/ds-92 GH_REPO=o/r \
+printf '{"ticket_id":"DS-92","loop_state":{"phase":"skeptic","iteration":2}}' > .agentic/loop-state-DS-92.json
+_write REWORK_DETECTION=true TICKET_ID=DS-92 LOOP_KEY=DS-92 BRANCH_NAME=feature/ds-92 GH_REPO=o/r \
        RISK_CLASS=Elevated SKEPTIC_ROUNDS=2 QA_STATUS="skipped:docs-only" FAKE_GH_PR=463
 _eq "qa_skip qa_status"      "$(_field .qa_status)"           "skipped:docs-only"
 _eq "qa_skip qa NOT null"    "$(_field '.qa_status|type')"    "string"
@@ -212,37 +219,70 @@ _eq "qa_skip rounds kept"    "$(_field .skeptic_rounds)"      "2"
 # ===========================================================================
 echo ""
 echo "--- Major 2: skeptic_rounds is the Skeptic count, not the QA count ---"
-# Phase 6b has overwritten loop-state with phase:qa, iteration:1 by Phase 9.
+# CASE 2 of the three keying cases - THE PHASE GUARD.
+# Phase 6b has overwritten THIS ticket's own keyed file with phase:qa,
+# iteration:1 by Phase 9. Keying does not help here (same ticket, same key,
+# same file), so the phase guard is the only thing standing between the
+# operator and "1 Skeptic round" on a ticket that took three.
 # The in-context SKEPTIC_ROUNDS captured at Phase 6 clean exit must win.
 : > .agentic/ticket-ledger.jsonl
-printf '{"ticket_id":"DS-93","loop_state":{"phase":"qa","iteration":1}}' > .agentic/loop-state.json
-_write REWORK_DETECTION=true TICKET_ID=DS-93 BRANCH_NAME=feature/ds-93 GH_REPO=o/r \
+rm -f .agentic/loop-state-*.json
+printf '{"ticket_id":"DS-93","loop_state":{"phase":"qa","iteration":1}}' > .agentic/loop-state-DS-93.json
+_write REWORK_DETECTION=true TICKET_ID=DS-93 LOOP_KEY=DS-93 BRANCH_NAME=feature/ds-93 GH_REPO=o/r \
        RISK_CLASS=Elevated SKEPTIC_ROUNDS=3 QA_STATUS=PASS FAKE_GH_PR=464
 _eq "3 skeptic rounds not 1 QA iteration" "$(_field .skeptic_rounds)" "3"
 
-# Resume fallback: in-context value lost, disk says phase:qa -> must NOT be used.
+# Resume fallback: in-context value lost, THIS ticket's own keyed file is found
+# and its phase is qa -> the phase clause rejects it. PINS THE PHASE GUARD:
+# the file exists at the invoked key, so [ -f ] does NOT short-circuit and jq
+# genuinely runs. Deleting the phase clause makes this assertion return 1.
 : > .agentic/ticket-ledger.jsonl
-_write REWORK_DETECTION=true TICKET_ID=DS-93 BRANCH_NAME=feature/ds-93 GH_REPO=o/r \
+_write REWORK_DETECTION=true TICKET_ID=DS-93 LOOP_KEY=DS-93 BRANCH_NAME=feature/ds-93 GH_REPO=o/r \
        RISK_CLASS=Elevated QA_STATUS=PASS FAKE_GH_PR=464
 _eq "phase:qa disk read rejected" "$(_field '.skeptic_rounds|type')" "null"
 
-# Resume fallback: disk says phase:skeptic for THIS ticket -> may be used.
+# Resume fallback: this ticket's own keyed file says phase:skeptic -> accepted.
+# Positive control: without it, "returns null" would be satisfied by a read
+# that never happened.
 : > .agentic/ticket-ledger.jsonl
-printf '{"ticket_id":"DS-93","loop_state":{"phase":"skeptic","iteration":4}}' > .agentic/loop-state.json
-_write REWORK_DETECTION=true TICKET_ID=DS-93 BRANCH_NAME=feature/ds-93 GH_REPO=o/r \
+printf '{"ticket_id":"DS-93","loop_state":{"phase":"skeptic","iteration":4}}' > .agentic/loop-state-DS-93.json
+_write REWORK_DETECTION=true TICKET_ID=DS-93 LOOP_KEY=DS-93 BRANCH_NAME=feature/ds-93 GH_REPO=o/r \
        RISK_CLASS=Elevated QA_STATUS=PASS FAKE_GH_PR=464
 _eq "phase:skeptic disk read accepted" "$(_field .skeptic_rounds)" "4"
 
 # ===========================================================================
 echo ""
-echo "--- Major 3: batch - ticket 2 must not inherit ticket 1's rounds ---"
-# Elevated ticket 1 finished and left loop-state.json behind at iteration 3.
+echo "--- Major 3 / CASE 1: batch - ticket 2 must not inherit ticket 1's rounds ---"
+# CASE 1 of the three keying cases - THE ABSENT-FILE CASE. PINS THE KEYING
+# MECHANISM ITSELF. Elevated ticket DS-87 finished and left its own keyed file
+# behind at iteration 3. Ticket DS-88 now opens its PR under LOOP_KEY=DS-88.
+# .agentic/loop-state-DS-88.json does not exist, so the [ -f ] test
+# short-circuits, jq NEVER RUNS, and skeptic_rounds is null. Reverting the
+# Phase 9 read to the shared unkeyed path makes this find DS-87's file and
+# report 3 rounds for a Trivial ticket that ran no Skeptic loop.
 : > .agentic/ticket-ledger.jsonl
-printf '{"ticket_id":"DS-87","loop_state":{"phase":"skeptic","iteration":3}}' > .agentic/loop-state.json
-# Trivial ticket 2 now opens its PR. It never ran a Skeptic loop.
-_write REWORK_DETECTION=true TICKET_ID=DS-91 BRANCH_NAME=fix/ds-91 GH_REPO=o/r \
+rm -f .agentic/loop-state-*.json
+printf '{"ticket_id":"DS-87","loop_state":{"phase":"skeptic","iteration":3}}' > .agentic/loop-state-DS-87.json
+_write REWORK_DETECTION=true TICKET_ID=DS-88 LOOP_KEY=DS-88 BRANCH_NAME=fix/ds-88 GH_REPO=o/r \
        RISK_CLASS=Trivial QA_STATUS="skipped:Trivial path" FAKE_GH_PR=465
-_eq "foreign ticket rounds not inherited" "$(_field '.skeptic_rounds|type')" "null"
+_eq "CASE 1 absent-file: foreign ticket rounds not inherited" "$(_field '.skeptic_rounds|type')" "null"
+
+# ===========================================================================
+echo ""
+echo "--- CASE 3: mis-derived LOOP_KEY - the ONLY case that exercises the ticket_id guard ---"
+# The keep-both-guards ruling needs a test, or it is supported by nothing.
+# Here TICKET_ID=DS-88 but LOOP_KEY=DS-87 - a MIS-DERIVED key, the failure mode
+# the ticket_id guard is retained as defence-in-depth against. The file IS
+# found (so [ -f ] does not short-circuit) and its phase IS "skeptic" (so the
+# phase clause passes), which means the ticket_id clause is the ONLY thing
+# producing null. Delete that clause and this assertion returns 3.
+: > .agentic/ticket-ledger.jsonl
+rm -f .agentic/loop-state-*.json
+printf '{"ticket_id":"DS-87","loop_state":{"phase":"skeptic","iteration":3}}' > .agentic/loop-state-DS-87.json
+_write REWORK_DETECTION=true TICKET_ID=DS-88 LOOP_KEY=DS-87 BRANCH_NAME=fix/ds-88 GH_REPO=o/r \
+       RISK_CLASS=Elevated QA_STATUS=PASS FAKE_GH_PR=466
+_eq "CASE 3 mis-derived key: the ticket_id guard rejects the foreign record" \
+    "$(_field '.skeptic_rounds|type')" "null"
 
 # ===========================================================================
 echo ""
@@ -253,20 +293,23 @@ echo "--- Major B: batch carry-over in ONE shell scope (the real conductor shape
 # them, exactly as the conductor does, and applies the spec's own reset block at
 # the top of ticket 2 - the mechanism under test.
 : > .agentic/ticket-ledger.jsonl
-printf '{"ticket_id":"DS-87","loop_state":{"phase":"skeptic","iteration":3}}' > .agentic/loop-state.json
+rm -f .agentic/loop-state-*.json
+printf '{"ticket_id":"DS-87","loop_state":{"phase":"skeptic","iteration":3}}' > .agentic/loop-state-DS-87.json
 
 BATCH_OUT=$(env GH_REPO=o/r REWORK_DETECTION=true bash -c '
   # ---- ticket 1: Elevated. Sets all three variables on its own path. ----
   RISK_CLASS="Elevated"; SKEPTIC_ROUNDS=3; QA_STATUS="PASS"
-  TICKET_ID="DS-87"; BRANCH_NAME="feature/ds-87"; FAKE_GH_PR=458
+  TICKET_ID="DS-87"; LOOP_KEY="DS-87"; BRANCH_NAME="feature/ds-87"; FAKE_GH_PR=458
   export FAKE_GH_PR
   source "'"$WRITE_BLOCK"'"
 
   # ---- ticket 2: Trivial. Reaches neither Phase 6 nor Phase 6b. ----
   # The spec reset runs first, then only what a Trivial ticket actually sets.
+  # LOOP_KEY is re-derived per ticket at the Resume check, so ticket 2 carries
+  # its OWN key - which is exactly why its keyed file is absent below.
   source "'"$RESET_BLOCK"'"
   RISK_CLASS="Trivial"; QA_STATUS="skipped:Trivial path"   # Phase 2 declaration
-  TICKET_ID="DS-91"; BRANCH_NAME="fix/ds-91"; FAKE_GH_PR=462
+  TICKET_ID="DS-91"; LOOP_KEY="DS-91"; BRANCH_NAME="fix/ds-91"; FAKE_GH_PR=462
   export FAKE_GH_PR
   source "'"$WRITE_BLOCK"'"
 ')
@@ -282,9 +325,18 @@ _eq "batch t2 is its own ticket"            "$(echo "$t2" | jq -r .ticket_id)"  
 
 # The reset is what makes the Phase 9 disk fallback REACHABLE. Without it,
 # SKEPTIC_ROUNDS is still 3 from ticket 1, the `[ -z "$TRL_ROUNDS" ]` gate is
-# false, and the ticket_id/phase guards never execute. Prove the guards run:
-# loop-state.json still says DS-87/skeptic/3, and ticket 2 must still get null.
-_eq "disk fallback ran and its ticket_id guard rejected the foreign record" \
+# false, and the fallback never executes at all. Prove the fallback runs and
+# still yields null: .agentic/loop-state-DS-87.json still says DS-87/skeptic/3,
+# and ticket 2 (LOOP_KEY=DS-91) must still get null.
+#
+# LABEL CORRECTED for per-ticket keying. This scenario now returns null via the
+# `[ -f ]` KEYING SHORT-CIRCUIT - ticket 2's own keyed file does not exist, so
+# jq never runs and the ticket_id guard is never reached. The old label claimed
+# "its ticket_id guard rejected the foreign record", which became FALSE here
+# while the suite stayed green - exactly the defect class this suite guards
+# against. The ticket_id-guard claim now lives on CASE 3 above, where the file
+# IS found and the guard genuinely is the only thing producing null.
+_eq "disk fallback returned null for the foreign record (via keying short-circuit)" \
     "$(echo "$t2" | jq -r '.skeptic_rounds|type')" "null"
 
 # Isolate the RESET itself. Above, ticket 2 sets QA_STATUS explicitly (modelling

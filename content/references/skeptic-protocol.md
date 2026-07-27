@@ -298,7 +298,7 @@ No review content follows the BLOCKED line. The Skeptic does NOT produce finding
 
 **BLOCKED return semantics for the conductor:**
 
-- `loop-state.json` `last_phase_action` is set to `skeptic_blocked_input`.
+- the ticket's own `loop-state-<LOOP_KEY>.json` (legacy: `loop-state.json`) has its `last_phase_action` set to `skeptic_blocked_input`.
 - Resume re-spawns the Skeptic with corrected inputs; iteration counter does NOT advance.
 - Step-0 BLOCKED is conductor-fault, not engineer-fault. Does NOT count toward the 3-fix-pass re-route cap (Section 5). Consumes a separate counter capped at 3, tracked in a per-unit-slug counter file.
 - The CONDUCTOR fixes the spawn brief, NOT the Engineer.

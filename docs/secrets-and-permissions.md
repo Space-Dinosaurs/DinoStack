@@ -33,7 +33,7 @@ never write a credential into one.
 | `.agentic/session-log/<id>.jsonl` | **committed** (when `commit_telemetry: true` and identity confirmed) | Per-developer session telemetry, made team-visible after merge. |
 | `.agentic/events.jsonl` | **gitignored** | Local structured event log. |
 | `.agentic/learnings.md`, `.agentic/findings.md`, `.agentic/qa-regressions.md` | **committed** | Curated patterns - part of the intent layer. |
-| `.agentic/loop-state.json`, `.agentic/tasks.jsonl`, `.agentic/worktrees/` | **gitignored** | Ephemeral runtime state. |
+| `.agentic/loop-state-*.json`, `.agentic/loop-state.json`, `.agentic/tasks.jsonl`, `.agentic/worktrees/` | **gitignored** | Ephemeral runtime state. Loop state is keyed per ticket, so BOTH the `loop-state-*.json` glob and the bare legacy `loop-state.json` entry are needed in a targeted (non-umbrella) `.gitignore` - a keyed file does not match the bare entry, and these files carry `findings_log`, `last_engineer_summary`, and `session_id`. |
 
 The committed files - `config.json`, `qa.md`, `deploy.md` - are the easy place
 to accidentally paste a secret (a database URL, an API endpoint with an embedded

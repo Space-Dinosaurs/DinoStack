@@ -177,17 +177,17 @@ Without a resume mechanism, every interruption means:
 - Risking a re-run that overwrites already-committed work
 - Losing the Brief or Plan path that governs remaining units
 
-The solution is `.agentic/loop-state.json` - a file the conductor writes at every phase transition so any session can pick up exactly where the last one stopped.
+The solution is `.agentic/loop-state-<LOOP_KEY>.json` - one file **per ticket**, written by the conductor at every phase transition so any session can pick up exactly where the last one stopped. The unkeyed `.agentic/loop-state.json` is the legacy form: still read and adopted on resume, no longer written.
 
 <div class="callout">
-Loop state is written atomically (tmp + rename) at every phase boundary. The file is gitignored - it is local ephemeral state, never committed.
+Loop state is written atomically (tmp + rename) at every phase boundary. Every loop-state file is gitignored - local ephemeral state, never committed.
 </div>
 
 ---
 
 <!-- _class: highlight -->
 
-## loop-state.json - the phase cursor
+## loop-state-&lt;LOOP_KEY&gt;.json - the per-ticket phase cursor
 
 <style scoped>
   pre { font-size: 0.7em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.3em 0 0.6em 0; }
@@ -196,18 +196,18 @@ Loop state is written atomically (tmp + rename) at every phase boundary. The fil
   li { margin: 0.1em 0; }
 </style>
 
-The conductor writes `.agentic/loop-state.json` at initialization and at every phase transition:
+`LOOP_KEY` is derived once per ticket at the Resume check - from the ticket id, else the session id, else a random floor - recorded in the file's own `loop_key` field, and never re-derived. The conductor writes `.agentic/loop-state-$LOOP_KEY.json` at initialization and at every phase transition:
 
 ```
-Skeptic spawn  ->  write loop-state.json (last_phase=skeptic, action=spawned)
-Skeptic return ->  write loop-state.json (last_phase=skeptic, action=returned)
-Engineer spawn ->  write loop-state.json (last_phase=engineer, action=spawned)
-Engineer return -> write loop-state.json (last_phase=engineer, action=returned)
-QA spawn       ->  write loop-state.json (last_phase=qa, action=spawned)
-QA return      ->  write loop-state.json (last_phase=qa, action=returned)
+Skeptic spawn  ->  write loop-state-$LOOP_KEY.json (last_phase=skeptic, action=spawned)
+Skeptic return ->  write loop-state-$LOOP_KEY.json (last_phase=skeptic, action=returned)
+Engineer spawn ->  write loop-state-$LOOP_KEY.json (last_phase=engineer, action=spawned)
+Engineer return -> write loop-state-$LOOP_KEY.json (last_phase=engineer, action=returned)
+QA spawn       ->  write loop-state-$LOOP_KEY.json (last_phase=qa, action=spawned)
+QA return      ->  write loop-state-$LOOP_KEY.json (last_phase=qa, action=returned)
 ```
 
-`last_phase` and `last_phase_action` are the authoritative resume keys. The Stop hook fires once per **turn** and only refreshes a `last_updated` liveness timestamp; on a genuine terminal session end, the **SessionEnd hook** writes `status: "interrupted"` if the file exists and `status == "active"`.
+`last_phase` and `last_phase_action` are the authoritative resume keys. The hooks derive no key: they enumerate every `loop-state-*.json` plus the legacy path and select by `session_id`. The Stop hook fires once per **turn** and only refreshes a `last_updated` liveness timestamp; on a genuine terminal session end, the **SessionEnd hook** writes `status: "interrupted"` on each owned file that is `status == "active"`.
 
 - Silent Stop hook / SessionEnd hook failure is acceptable - the **10-minute implicit-interrupt heuristic** handles missed writes: any `status == "active"` file with `last_updated` more than 10 minutes old is treated as interrupted
 
@@ -222,7 +222,7 @@ QA return      ->  write loop-state.json (last_phase=qa, action=returned)
   .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-When `/ds-implement-ticket` is invoked, it checks for `.agentic/loop-state.json` **before reading AGENTS.md**. If the file exists with `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start.
+When `/ds-implement-ticket` is invoked, it derives `LOOP_KEY` and checks for `.agentic/loop-state-$LOOP_KEY.json` **before reading AGENTS.md**. If the file exists with `status == "interrupted"` (or `status == "active"` with `last_updated` more than 10 minutes old), the conductor offers resume or fresh start. **Key match is the primary guard, never freshness** - other tickets' resumable loops get one informational line and no prompt, because offering the most recently written file would hand you another ticket's live state during any CI wait. A legacy `.agentic/loop-state.json` is adopted onto a keyed file, then removed.
 
 **Resumable phases (automatic):**
 - Phase 6/6b Skeptic/QA loop at iteration boundaries - committed engineer output, clean branch
@@ -249,7 +249,7 @@ If a Skeptic is interrupted mid-output, resume re-runs the Skeptic from scratch 
   .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-When a Brief or Plan governs the task, three fields are written to `.agentic/loop-state.json` at authoring time:
+When a Brief or Plan governs the task, three fields are written to `.agentic/loop-state-$LOOP_KEY.json` at authoring time:
 
 - `brief_path` - absolute path to the Brief file
 - `plan_path` - absolute path to the Plan directory (when applicable)
@@ -274,15 +274,15 @@ On resume, the conductor re-reads the Brief or Plan **before spawning the next w
   .callout { font-size: 0.8em; padding: 0.4em 1em; margin-top: 0.4em; }
 </style>
 
-When `/ds-implement-ticket` runs with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor alongside `loop-state.json`'s per-ticket phase cursor.
+When `/ds-implement-ticket` runs with 2 or more ticket IDs, a sibling file `.agentic/batch-state.json` tracks batch-level cursor alongside each ticket's own `loop-state-$LOOP_KEY.json` phase cursor.
 
 **Session ownership gate:** both files carry a `session_id` field. Every write applies a per-write gate that aborts (with an operator-visible warning) if:
-- The existing `session_id` belongs to a different session whose liveness timestamp (`last_updated` for `loop-state.json`, `updated_at` for `batch-state.json`) is within 10 minutes - and on `batch-state.json` ONLY, `status` is also `active`
+- The existing `session_id` belongs to a different session whose liveness timestamp (`last_updated` for a keyed loop-state file, `updated_at` for `batch-state.json`) is within 10 minutes - and on `batch-state.json` ONLY, `status` is also `active`
 - The existing `session_id` is null or absent, regardless of `status` (legacy state - force-takeover eligible)
 
-`batch-state.json` alone carries the `status=active` precondition: its terminal mark stamps a fresh timestamp on exit, so without it the gate would abort the first write of an approved resume. `loop-state.json` skips it - a live session can hold a non-`active` `loop-state.json` (the Phase 7 stall path continues to the next ticket), so adding the precondition there would let a foreign session clobber a live file.
+`batch-state.json` alone carries the `status=active` precondition: its terminal mark stamps a fresh timestamp on exit, so without it the gate would abort the first write of an approved resume. A keyed loop-state file skips it - a live session can hold a non-`active` one (the Phase 7 stall path continues to the next ticket), so adding the precondition there would let a foreign session clobber a live file.
 
-This prevents orphan-session corruption uniformly across both files.
+This prevents orphan-session corruption uniformly across both files. Note that per-ticket keying removes **different-ticket** contention from this gate entirely - those sessions write different files - and leaves **same-ticket** contention, which is exactly what the gate is for.
 
 **Concurrency limits:**
 - Only one batch per project root is supported
@@ -291,7 +291,7 @@ This prevents orphan-session corruption uniformly across both files.
 - Single-ticket Trivial invocations never create `batch-state.json`
 
 <div class="callout">
-The SessionEnd hook mirrors its <code>loop-state.json</code> terminal interrupted-mark write to <code>batch-state.json</code> via the same best-effort silent-fail discipline. The Stop hook's separate per-turn liveness refresh mirrors similarly.
+The SessionEnd hook mirrors its loop-state terminal interrupted-mark write to <code>batch-state.json</code> via the same best-effort silent-fail discipline. The Stop hook's separate per-turn liveness refresh mirrors similarly.
 </div>
 
 ---
@@ -307,19 +307,19 @@ The SessionEnd hook mirrors its <code>loop-state.json</code> terminal interrupte
 
 <div class="columns">
 <div class="card">
-<strong>loop-state.json</strong>
-Written atomically (tmp + rename) at every phase transition. Gitignored - never committed. Set to <code>status: "complete"</code> or deleted after the PR is opened.
+<strong>loop-state-&lt;LOOP_KEY&gt;.json</strong>
+One per ticket. Written atomically (tmp + rename) at every phase transition. Gitignored - never committed. Set to <code>status: "complete"</code> or deleted after the PR is opened. Legacy unkeyed <code>loop-state.json</code> is read and adopted, never written.
 </div>
 <div class="card">
 <strong>batch-state.json</strong>
-Sibling to loop-state.json for multi-ticket runs. Same atomic write discipline. Same gitignore. Never created for single-ticket invocations.
+Sibling to the keyed loop-state files for multi-ticket runs. Same atomic write discipline. Same gitignore. Never created for single-ticket invocations.
 </div>
 </div>
 
 **Phase breadcrumbs** accompany every phase transition - the conductor emits `[phase: label]` inline at each boundary. Phase breadcrumbs are emitted separately at each phase boundary and appear in the session context.
 
 <div class="callout">
-loop-state.json must not be committed to git. Its presence in the repo would mislead the next developer about what phase the loop is in. Gitignore is the contract; the file is ephemeral state, not project history.
+No loop-state file may be committed to git - keyed or legacy. Its presence in the repo would mislead the next developer about what phase the loop is in, and it carries <code>findings_log</code>, <code>last_engineer_summary</code>, and <code>session_id</code>. A targeted (non-umbrella) <code>.gitignore</code> needs BOTH the <code>.agentic/loop-state-*.json</code> glob and the bare <code>.agentic/loop-state.json</code> entry - a keyed file does not match the bare one. Gitignore is the contract; these are ephemeral state, not project history.
 </div>
 
 ---
