@@ -32,6 +32,8 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-06-27: A deterministic hook cannot reliably detect an LLM-semantic event.** `events.jsonl` sat empty in ad-hoc sessions because signals like `conductor_direct`/`tool_failure_workaround` depended on the LLM self-reporting inline, which it reliably didn't. Fix pattern: derive that signal at a natural LLM-reflection point (e.g. `/wrap`'s own reflection), not hook instrumentation.
 
+- **2026-07-27: The deferred G2 concurrent-wrap-queueing design's stated premise (`context.md` races) is stale post-#499** - `context.md` is now a lock-free derived rollup (session-keyed shards + compare-and-retry) with no remaining hazard. If G2 is resumed, re-scope it to the three files that actually still contend: `.agentic/_wrap.md`, root `MEMORY.md`, and `decisions.md`. See `.agentic/learnings.md` KNW-20260727-002 for full detail.
+
 ## Methodology Enforcement
 
 - **2026-07-01: The Elevated-signal table and the "when in doubt, classify Elevated" tie-break are duplicated across more files than a grep suggests** (`02-delegation.md`, `subagent-protocol.md`, `skeptic-protocol.md`, plus restatements in `orchestration-planner.md`/`agentic-status.md`). Match copies by semantics, not by grepping one phrase.
