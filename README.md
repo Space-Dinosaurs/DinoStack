@@ -341,7 +341,7 @@ DinoStack/
 - `~/DinoStack/docs/slides/context-management-slides.html` - why context hygiene is the real bottleneck
 - `~/DinoStack/docs/slides/agent-team-slides.html` - the agent team and how they compose
 - `~/DinoStack/docs/slides/quality-assurance-slides.html` - how the qa-engineer uses `.agentic/qa.md` (legacy `.claude/qa.md` fallback) as project QA memory
-- `~/DinoStack/docs/slides/work-tracking-slides.html` - how the orchestration-planner tracks work in `.agentic/tasks.jsonl` / `.agentic/loop-state.json`
+- `~/DinoStack/docs/slides/work-tracking-slides.html` - how the orchestration-planner tracks work in `.agentic/tasks.jsonl` / the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` (legacy: `.agentic/loop-state.json`)
 - `~/DinoStack/docs/slides/skeptic-protocol-slides.html` - adversarial review methodology and the Skeptic loop
 - `~/DinoStack/docs/slides/agents-md-hierarchy-slides.html` - the three-tier AGENTS.md context hierarchy
 - `~/DinoStack/docs/slides/contributing-slides.html` - how to contribute to the repo

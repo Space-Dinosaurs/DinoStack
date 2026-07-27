@@ -560,7 +560,7 @@ When escalation fires (e.g., a 3-unit Brief-tier task is re-planned into 8 units
 - The retroactive Brief (or Plan) is authored **before** the next engineer spawn.
 - The retroactive artifact governs all subsequent units.
 - The Skeptic pass on the retroactive artifact runs to completion before the next worker spawns.
-- `.agentic/loop-state.json` `promotion_tier` is updated to reflect the new tier.
+- The ticket's `.agentic/loop-state-<LOOP_KEY>.json` (legacy: `.agentic/loop-state.json`) has `promotion_tier` updated to reflect the new tier.
 
 <div class="callout">
 "Retroactive" means the Brief was not written at the start because the shape wasn't yet known. Not a failure mode - it is the correct protocol for tasks whose scope expands during execution.
@@ -577,7 +577,7 @@ When escalation fires (e.g., a 3-unit Brief-tier task is re-planned into 8 units
   ul li { margin: 0.15em 0; }
 </style>
 
-Trigger: `.agentic/loop-state.json` records a third resume of a Brief-tier task.
+Trigger: the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` records a third resume of a Brief-tier task.
 
 When it fires, the conductor authors the missing Plan-tier artifacts before the next worker spawn:
 
@@ -585,7 +585,7 @@ When it fires, the conductor authors the missing Plan-tier artifacts before the 
 - `rollback.md`
 - `verification-gate.md`
 
-The trigger is **mechanical** - tracked by resume-count in the loop-state file. It fires regardless of whether the operator notices the session span.
+The trigger is **mechanical** - the `resume_count` field in that ticket's keyed loop-state file, incremented once per accepted resume. It fires regardless of whether the operator notices the session span.
 
 Rationale: anything that has survived three resume cycles is demonstrably multi-session work. The risk register and rollback procedure exist precisely because multi-session tasks have higher blast radius when they go wrong.
 

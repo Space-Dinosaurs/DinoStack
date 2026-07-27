@@ -319,9 +319,9 @@ hr {
 <li>Risking a re-run that overwrites already-committed work</li>
 <li>Losing the Brief or Plan path that governs remaining units</li>
 </ul>
-<p>The solution is <code>.agentic/loop-state.json</code> - a file the conductor writes at every phase transition so any session can pick up exactly where the last one stopped.</p>
+<p>The solution is <code>.agentic/loop-state-&lt;LOOP_KEY&gt;.json</code> - one file <strong>per ticket</strong>, written by the conductor at every phase transition so any session can pick up exactly where the last one stopped. The unkeyed <code>.agentic/loop-state.json</code> is the legacy form: still read and adopted on resume, no longer written.</p>
 <div class="callout">
-Loop state is written atomically (tmp + rename) at every phase boundary. The file is gitignored - it is local ephemeral state, never committed.
+Loop state is written atomically (tmp + rename) at every phase boundary. Every loop-state file is gitignored - local ephemeral state, never committed.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="3" data-marpit-scope-s002="" data-paginate="true" data-class="highlight" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -473,17 +473,17 @@ hr {
 }
 " lang="C" class="highlight" data-marpit-pagination="3" style="--paginate:true;--class:highlight;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="8">
-<h2 id="loop-statejson---the-phase-cursor">loop-state.json - the phase cursor</h2>
+<h2 id="loop-state-loop_keyjson---the-per-ticket-phase-cursor">loop-state-&lt;LOOP_KEY&gt;.json - the per-ticket phase cursor</h2>
 
-<p>The conductor writes <code>.agentic/loop-state.json</code> at initialization and at every phase transition:</p>
-<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Skeptic spawn  -&gt;  write loop-state.json (last_phase=skeptic, action=spawned)
-Skeptic return -&gt;  write loop-state.json (last_phase=skeptic, action=returned)
-Engineer spawn -&gt;  write loop-state.json (last_phase=engineer, action=spawned)
-Engineer return -&gt; write loop-state.json (last_phase=engineer, action=returned)
-QA spawn       -&gt;  write loop-state.json (last_phase=qa, action=spawned)
-QA return      -&gt;  write loop-state.json (last_phase=qa, action=returned)
+<p><code>LOOP_KEY</code> is derived once per ticket at the Resume check - from the ticket id, else the session id, else a random floor - recorded in the file's own <code>loop_key</code> field, and never re-derived. The conductor writes <code>.agentic/loop-state-$LOOP_KEY.json</code> at initialization and at every phase transition:</p>
+<pre is="marp-pre" data-auto-scaling="downscale-only"><code>Skeptic spawn  -&gt;  write loop-state-$LOOP_KEY.json (last_phase=skeptic, action=spawned)
+Skeptic return -&gt;  write loop-state-$LOOP_KEY.json (last_phase=skeptic, action=returned)
+Engineer spawn -&gt;  write loop-state-$LOOP_KEY.json (last_phase=engineer, action=spawned)
+Engineer return -&gt; write loop-state-$LOOP_KEY.json (last_phase=engineer, action=returned)
+QA spawn       -&gt;  write loop-state-$LOOP_KEY.json (last_phase=qa, action=spawned)
+QA return      -&gt;  write loop-state-$LOOP_KEY.json (last_phase=qa, action=returned)
 </code></pre>
-<p><code>last_phase</code> and <code>last_phase_action</code> are the authoritative resume keys. The Stop hook fires once per <strong>turn</strong> and only refreshes a <code>last_updated</code> liveness timestamp; on a genuine terminal session end, the <strong>SessionEnd hook</strong> writes <code>status: &quot;interrupted&quot;</code> if the file exists and <code>status == &quot;active&quot;</code>.</p>
+<p><code>last_phase</code> and <code>last_phase_action</code> are the authoritative resume keys. The hooks derive no key: they enumerate every <code>loop-state-*.json</code> plus the legacy path and select by <code>session_id</code>. The Stop hook fires once per <strong>turn</strong> and only refreshes a <code>last_updated</code> liveness timestamp; on a genuine terminal session end, the <strong>SessionEnd hook</strong> writes <code>status: &quot;interrupted&quot;</code> on each owned file that is <code>status == &quot;active&quot;</code>.</p>
 <ul>
 <li>Silent Stop hook / SessionEnd hook failure is acceptable - the <strong>10-minute implicit-interrupt heuristic</strong> handles missed writes: any <code>status == &quot;active&quot;</code> file with <code>last_updated</code> more than 10 minutes old is treated as interrupted</li>
 </ul>
@@ -639,7 +639,7 @@ hr {
 ;" data-marpit-pagination-total="8">
 <h2 id="resume-check-on-session-start">Resume check on session start</h2>
 
-<p>When <code>/ds-implement-ticket</code> is invoked, it checks for <code>.agentic/loop-state.json</code> <strong>before reading AGENTS.md</strong>. If the file exists with <code>status == &quot;interrupted&quot;</code> (or <code>status == &quot;active&quot;</code> with <code>last_updated</code> more than 10 minutes old), the conductor offers resume or fresh start.</p>
+<p>When <code>/ds-implement-ticket</code> is invoked, it derives <code>LOOP_KEY</code> and checks for <code>.agentic/loop-state-$LOOP_KEY.json</code> <strong>before reading AGENTS.md</strong>. If the file exists with <code>status == &quot;interrupted&quot;</code> (or <code>status == &quot;active&quot;</code> with <code>last_updated</code> more than 10 minutes old), the conductor offers resume or fresh start. <strong>Key match is the primary guard, never freshness</strong> - other tickets' resumable loops get one informational line and no prompt, because offering the most recently written file would hand you another ticket's live state during any CI wait. A legacy <code>.agentic/loop-state.json</code> is adopted onto a keyed file, then removed.</p>
 <p><strong>Resumable phases (automatic):</strong></p>
 <ul>
 <li>Phase 6/6b Skeptic/QA loop at iteration boundaries - committed engineer output, clean branch</li>
@@ -808,7 +808,7 @@ hr {
 ;" data-marpit-pagination-total="8">
 <h2 id="brief-and-plan-path-recording">Brief and Plan path recording</h2>
 
-<p>When a Brief or Plan governs the task, three fields are written to <code>.agentic/loop-state.json</code> at authoring time:</p>
+<p>When a Brief or Plan governs the task, three fields are written to <code>.agentic/loop-state-$LOOP_KEY.json</code> at authoring time:</p>
 <ul>
 <li><code>brief_path</code> - absolute path to the Brief file</li>
 <li><code>plan_path</code> - absolute path to the Plan directory (when applicable)</li>
@@ -971,14 +971,14 @@ hr {
 ;" data-marpit-pagination-total="8">
 <h2 id="batch-state-coexistence">Batch-state coexistence</h2>
 
-<p>When <code>/ds-implement-ticket</code> runs with 2 or more ticket IDs, a sibling file <code>.agentic/batch-state.json</code> tracks batch-level cursor alongside <code>loop-state.json</code>'s per-ticket phase cursor.</p>
+<p>When <code>/ds-implement-ticket</code> runs with 2 or more ticket IDs, a sibling file <code>.agentic/batch-state.json</code> tracks batch-level cursor alongside each ticket's own <code>loop-state-$LOOP_KEY.json</code> phase cursor.</p>
 <p><strong>Session ownership gate:</strong> both files carry a <code>session_id</code> field. Every write applies a per-write gate that aborts (with an operator-visible warning) if:</p>
 <ul>
-<li>The existing <code>session_id</code> belongs to a different session whose liveness timestamp (<code>last_updated</code> for <code>loop-state.json</code>, <code>updated_at</code> for <code>batch-state.json</code>) is within 10 minutes - and on <code>batch-state.json</code> ONLY, <code>status</code> is also <code>active</code></li>
+<li>The existing <code>session_id</code> belongs to a different session whose liveness timestamp (<code>last_updated</code> for a keyed loop-state file, <code>updated_at</code> for <code>batch-state.json</code>) is within 10 minutes - and on <code>batch-state.json</code> ONLY, <code>status</code> is also <code>active</code></li>
 <li>The existing <code>session_id</code> is null or absent, regardless of <code>status</code> (legacy state - force-takeover eligible)</li>
 </ul>
-<p><code>batch-state.json</code> alone carries the <code>status=active</code> precondition: its terminal mark stamps a fresh timestamp on exit, so without it the gate would abort the first write of an approved resume. <code>loop-state.json</code> skips it - a live session can hold a non-<code>active</code> <code>loop-state.json</code> (the Phase 7 stall path continues to the next ticket), so adding the precondition there would let a foreign session clobber a live file.</p>
-<p>This prevents orphan-session corruption uniformly across both files.</p>
+<p><code>batch-state.json</code> alone carries the <code>status=active</code> precondition: its terminal mark stamps a fresh timestamp on exit, so without it the gate would abort the first write of an approved resume. A keyed loop-state file skips it - a live session can hold a non-<code>active</code> one (the Phase 7 stall path continues to the next ticket), so adding the precondition there would let a foreign session clobber a live file.</p>
+<p>This prevents orphan-session corruption uniformly across both files. Note that per-ticket keying removes <strong>different-ticket</strong> contention from this gate entirely - those sessions write different files - and leaves <strong>same-ticket</strong> contention, which is exactly what the gate is for.</p>
 <p><strong>Concurrency limits:</strong></p>
 <ul>
 <li>Only one batch per project root is supported</li>
@@ -987,7 +987,7 @@ hr {
 <li>Single-ticket Trivial invocations never create <code>batch-state.json</code></li>
 </ul>
 <div class="callout">
-The SessionEnd hook mirrors its <code>loop-state.json</code> terminal interrupted-mark write to <code>batch-state.json</code> via the same best-effort silent-fail discipline. The Stop hook's separate per-turn liveness refresh mirrors similarly.
+The SessionEnd hook mirrors its loop-state terminal interrupted-mark write to <code>batch-state.json</code> via the same best-effort silent-fail discipline. The Stop hook's separate per-turn liveness refresh mirrors similarly.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="7" data-marpit-scope-s006="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -1142,17 +1142,17 @@ hr {
 <h2 id="file-hygiene">File hygiene</h2>
 <div class="columns">
 <div class="card">
-<strong>loop-state.json</strong>
-Written atomically (tmp + rename) at every phase transition. Gitignored - never committed. Set to <code>status: "complete"</code> or deleted after the PR is opened.
+<strong>loop-state-&lt;LOOP_KEY&gt;.json</strong>
+One per ticket. Written atomically (tmp + rename) at every phase transition. Gitignored - never committed. Set to <code>status: "complete"</code> or deleted after the PR is opened. Legacy unkeyed <code>loop-state.json</code> is read and adopted, never written.
 </div>
 <div class="card">
 <strong>batch-state.json</strong>
-Sibling to loop-state.json for multi-ticket runs. Same atomic write discipline. Same gitignore. Never created for single-ticket invocations.
+Sibling to the keyed loop-state files for multi-ticket runs. Same atomic write discipline. Same gitignore. Never created for single-ticket invocations.
 </div>
 </div>
 <p><strong>Phase breadcrumbs</strong> accompany every phase transition - the conductor emits <code>[phase: label]</code> inline at each boundary. Phase breadcrumbs are emitted separately at each phase boundary and appear in the session context.</p>
 <div class="callout">
-loop-state.json must not be committed to git. Its presence in the repo would mislead the next developer about what phase the loop is in. Gitignore is the contract; the file is ephemeral state, not project history.
+No loop-state file may be committed to git - keyed or legacy. Its presence in the repo would mislead the next developer about what phase the loop is in, and it carries <code>findings_log</code>, <code>last_engineer_summary</code>, and <code>session_id</code>. A targeted (non-umbrella) <code>.gitignore</code> needs BOTH the <code>.agentic/loop-state-*.json</code> glob and the bare <code>.agentic/loop-state.json</code> entry - a keyed file does not match the bare one. Gitignore is the contract; these are ephemeral state, not project history.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="8" data-paginate="true" data-class="lead" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

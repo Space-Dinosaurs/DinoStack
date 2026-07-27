@@ -1526,7 +1526,7 @@ Skeptic reviews ──&gt; sign-off? ──&gt; Phase 6b ──&gt;  QA verifies
 The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration emits a breadcrumb: <code>[loop: skeptic | iteration 2/3 | open findings: 1 Critical]</code>
 </div>
 <div class="callout">
-<strong>Loop durability:</strong> state is written to <code>.agentic/loop-state.json</code> at each phase transition (atomic write). Loops survive rate limits and session exits — the next session resumes from the last phase boundary via <code>/ds-implement-ticket</code>'s built-in resume check.
+<strong>Loop durability:</strong> state is written per ticket to <code>.agentic/loop-state-&lt;LOOP_KEY&gt;.json</code> at each phase transition (atomic write), superseding the single legacy <code>.agentic/loop-state.json</code>. Two tickets in one checkout never contend. Loops survive rate limits and session exits — the next session resumes that ticket's own state from the last phase boundary via <code>/ds-implement-ticket</code>'s built-in resume check.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="10" data-marpit-scope-s007="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

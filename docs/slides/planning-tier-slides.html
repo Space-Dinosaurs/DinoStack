@@ -2527,7 +2527,7 @@ hr {
 <li>The retroactive Brief (or Plan) is authored <strong>before</strong> the next engineer spawn.</li>
 <li>The retroactive artifact governs all subsequent units.</li>
 <li>The Skeptic pass on the retroactive artifact runs to completion before the next worker spawns.</li>
-<li><code>.agentic/loop-state.json</code> <code>promotion_tier</code> is updated to reflect the new tier.</li>
+<li>The ticket's <code>.agentic/loop-state-&lt;LOOP_KEY&gt;.json</code> (legacy: <code>.agentic/loop-state.json</code>) has <code>promotion_tier</code> updated to reflect the new tier.</li>
 </ul>
 <div class="callout">
 "Retroactive" means the Brief was not written at the start because the shape wasn't yet known. Not a failure mode - it is the correct protocol for tasks whose scope expands during execution.
@@ -2696,14 +2696,14 @@ hr {
 ;" data-marpit-pagination-total="16">
 <h2 id="3rd-resume-auto-promotion">3rd-resume auto-promotion</h2>
 
-<p>Trigger: <code>.agentic/loop-state.json</code> records a third resume of a Brief-tier task.</p>
+<p>Trigger: the ticket's own <code>.agentic/loop-state-&lt;LOOP_KEY&gt;.json</code> records a third resume of a Brief-tier task.</p>
 <p>When it fires, the conductor authors the missing Plan-tier artifacts before the next worker spawn:</p>
 <ul>
 <li><code>risk-register.md</code></li>
 <li><code>rollback.md</code></li>
 <li><code>verification-gate.md</code></li>
 </ul>
-<p>The trigger is <strong>mechanical</strong> - tracked by resume-count in the loop-state file. It fires regardless of whether the operator notices the session span.</p>
+<p>The trigger is <strong>mechanical</strong> - the <code>resume_count</code> field in that ticket's keyed loop-state file, incremented once per accepted resume. It fires regardless of whether the operator notices the session span.</p>
 <p>Rationale: anything that has survived three resume cycles is demonstrably multi-session work. The risk register and rollback procedure exist precisely because multi-session tasks have higher blast radius when they go wrong.</p>
 <div class="callout">
 Auto-promotion is not a penalty. It is an acknowledgment that the task's actual scope exceeded the initial estimate, and the artifact set should match the real scope.

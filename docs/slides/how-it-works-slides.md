@@ -392,7 +392,7 @@ The loop is a named protocol primitive - not ad-hoc re-routing. Every iteration 
 </div>
 
 <div class="callout">
-<strong>Loop durability:</strong> state is written to <code>.agentic/loop-state.json</code> at each phase transition (atomic write). Loops survive rate limits and session exits — the next session resumes from the last phase boundary via <code>/ds-implement-ticket</code>'s built-in resume check.
+<strong>Loop durability:</strong> state is written per ticket to <code>.agentic/loop-state-&lt;LOOP_KEY&gt;.json</code> at each phase transition (atomic write), superseding the single legacy <code>.agentic/loop-state.json</code>. Two tickets in one checkout never contend. Loops survive rate limits and session exits — the next session resumes that ticket's own state from the last phase boundary via <code>/ds-implement-ticket</code>'s built-in resume check.
 </div>
 
 ---
