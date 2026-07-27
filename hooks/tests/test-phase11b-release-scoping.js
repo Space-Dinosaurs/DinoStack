@@ -42,24 +42,42 @@
  *       minus one adverb ("releases the lock on every exit path") passed
  *       9/9 with exit 0.
  *
- * v3 (this version) replaces open-ended pattern-matching as the PRIMARY
- * defense with an exact golden-text pin on the sanctioned paragraph itself:
- * any edit to that paragraph - reword, insertion, deletion, widening - fails
- * the test outright, because the correct posture for a safety-critical
- * invariant guarding a cross-session data-destruction bug is "changes here
- * must be deliberate", not "try to enumerate every bad edit". The semantic
- * scan from v2 is retained as defense-in-depth for a NEW contradicting
- * directive added elsewhere in Phase 11b (which wouldn't touch the golden
- * paragraph), with both v2 defects fixed: proximity is now bound to the
- * SAME SENTENCE as the match (not a raw character radius), and a second
- * pattern independently catches "release ... whether or not ... acquired"
- * phrasing that quantifies over acquisition status rather than exit paths.
+ * v3 (round 2 fix) replaces open-ended pattern-matching as the PRIMARY
+ * defense with an exact golden-text pin on the sanctioned "Lock release:"
+ * paragraph itself: any edit to that paragraph - reword, insertion,
+ * deletion, widening - fails the test outright, because the correct posture
+ * for a safety-critical invariant guarding a cross-session data-destruction
+ * bug is "changes here must be deliberate", not "try to enumerate every bad
+ * edit". The semantic scan from v2 is retained as defense-in-depth for a NEW
+ * contradicting directive added elsewhere in Phase 11b (which wouldn't touch
+ * the golden paragraph), with both v2 defects fixed: proximity is now bound
+ * to the SAME SENTENCE as the match (not a raw character radius), and a
+ * second pattern independently catches "release ... whether or not ...
+ * acquired" phrasing that quantifies over acquisition status rather than
+ * exit paths.
+ *
+ * v4 (round 3 fix) closes a gap v3 left open: v3's golden pin covers only
+ * the "Lock release:" paragraph, and v3's semantic net exempts a whole UNIT
+ * (bullet) from Pattern A once any qualifier phrase appears anywhere in that
+ * unit - including the "**If the lock is acquired:**" bullet's own leading
+ * text. That meant a sentence appended INSIDE that bullet extending release
+ * to the non-acquiring paths (e.g. "...including the two skip-conditions
+ * paths and the lock-held-by-another-session path") passed cleanly: the
+ * golden pin never saw it (wrong paragraph) and the net excused it (unit-wide
+ * qualifier). v4 adds two independent defenses: (1) a second golden-text pin
+ * on the "**If the lock is acquired:**" bullet itself, so any edit to it -
+ * including an appended sentence - fails outright; (2) Pattern C in the
+ * semantic net, which fires when a release word co-occurs with a phrase
+ * NAMING a non-acquiring path, and which (unlike Pattern A) is NEVER excused
+ * by the unit-wide scope qualifier - only by an in-sentence negation
+ * ("do NOT release", "never release") that marks the sentence as prohibitive
+ * rather than directive.
  *
  * IMPORTANT SCOPE NOTE: this is a prose pin. It verifies THAT THE SCOPING
- * PARAGRAPH IS UNCHANGED (golden pin) and THAT NO CONTRADICTING DIRECTIVE
- * HAS BEEN ADDED ELSEWHERE (semantic net). It cannot catch a conductor that
- * reads the correct prose and still misapplies it - only that the doc
- * itself has not regressed.
+ * PARAGRAPH AND BULLET ARE UNCHANGED (golden pins) and THAT NO CONTRADICTING
+ * DIRECTIVE HAS BEEN ADDED ELSEWHERE (semantic net, Patterns A/B/C). It
+ * cannot catch a conductor that reads the correct prose and still misapplies
+ * it - only that the doc itself has not regressed.
  *
  * Run with: node hooks/tests/test-phase11b-release-scoping.js
  */
@@ -125,6 +143,41 @@ const GOLDEN_LOCK_RELEASE_TEXT = normalize(
 );
 
 // ---------------------------------------------------------------------------
+// The canonical, exact text of the "**If the lock is acquired:**" bullet
+// (immediately above the "Lock release:" paragraph). Round-3 adversarial
+// review found this bullet is a live gap: a sentence can be appended INSIDE
+// this bullet that extends release to the non-acquiring paths, and it slips
+// past every existing assertion -
+//   - the golden pin above only covers the "Lock release:" paragraph, so an
+//     edit confined to THIS bullet leaves it untouched;
+//   - the semantic net's scope-qualifier exemption (see step (3) below) is
+//     evaluated UNIT-WIDE (bullet-wide), and this bullet's own leading
+//     "**If the lock is acquired:**" text satisfies the "if the lock is
+//     acquired" qualifier for the ENTIRE bullet - so a Pattern-A-shaped
+//     sentence added later in the same bullet is excused regardless of what
+//     it actually claims;
+//   - a wording variant that quantifies over acquisition status instead of
+//     exit paths (Pattern B's shape) does not require the "exit path"/"case"
+//     noun at all, so it can dodge Pattern A's noun restriction too.
+// Golden-pinning this bullet closes the gap the same way the paragraph pin
+// closes it for "Lock release:": any edit to this bullet - reword,
+// insertion, deletion, widening - fails here, by design.
+//
+// If you are here because this assertion just failed on a LEGITIMATE reword:
+// before updating the constant below, confirm your reword still (1) confines
+// this bullet's release action to the "If the lock is acquired" branch only,
+// and (2) does not add any sentence extending release to the two
+// skip-conditions paths or the lock-held-by-another-session path. If both
+// hold, update GOLDEN_ACQUIRED_BULLET_TEXT to match the new wording in the
+// SAME commit as the doc change.
+// ---------------------------------------------------------------------------
+const GOLDEN_ACQUIRED_BULLET_TEXT = normalize(
+  '- **If the lock is acquired:** spawn `wrap-ticket` with the inputs ' +
+  'below. The conductor releases the lock on every exit path (success, ' +
+  'timeout, soft-fail) before proceeding to Phase 12.'
+);
+
+// ---------------------------------------------------------------------------
 // Pre-flight: required file exists
 // ---------------------------------------------------------------------------
 console.log('\n[pre] required file exists');
@@ -182,7 +235,12 @@ console.log('\n[1] golden-text pin: "Lock release:" paragraph is byte-for-byte (
 
   if (goldenParagraphRaw === undefined) {
     console.error(
-      '  The "Lock release:" directive paragraph is missing entirely from Phase 11b.\n' +
+      '  No paragraph in Phase 11b starts with the exact prefix "Lock release:".\n' +
+      '  This detector matches on a literal leading prefix, so it CANNOT distinguish\n' +
+      '  three different causes: the paragraph is (a) missing entirely, (b) present\n' +
+      '  but re-prefixed (e.g. bolded as "**Lock release:**", bulleted as "- Lock\n' +
+      '  release:", or reworded as "Wrap-lock release:"), or (c) merged into another\n' +
+      '  paragraph. Check the Phase 11b section by hand to determine which.\n' +
       `  This paragraph is pinned because a prior version of it caused a real cross-\n` +
       `  session lock-deletion bug (${PR_496}: pre-fix prose released the wrap lock\n` +
       '  "unconditionally on every exit path" while a lock genuinely held by another\n' +
@@ -219,6 +277,72 @@ console.log('\n[1] golden-text pin: "Lock release:" paragraph is byte-for-byte (
         `  ${GOLDEN_LOCK_RELEASE_TEXT}\n` +
         '  --- actual (normalized) ---\n' +
         `  ${actualNormalized}\n`
+      );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// (1b) PRIMARY - golden-text pin on the "**If the lock is acquired:**"
+// bullet.
+//
+// Located by pattern (a line starting with "- **If the lock is acquired:**")
+// within the extracted RAW section, not by hardcoded line number - the file
+// grows and a fixed offset would silently drift. This doc's bullets never
+// wrap onto a continuation line (see the doc comment on step (3) below), so
+// the bullet is exactly one physical line; matched with the `m` flag against
+// the raw section text.
+// ---------------------------------------------------------------------------
+console.log('\n[1b] golden-text pin: "**If the lock is acquired:**" bullet is byte-for-byte (whitespace-normalized) unchanged');
+{
+  const acquiredBulletRe = /^- \*\*If the lock is acquired:\*\*.*$/m;
+  const acquiredBulletMatch = acquiredBulletRe.exec(sectionRaw);
+
+  assert(acquiredBulletMatch !== null, 'the "**If the lock is acquired:**" bullet exists in Phase 11b');
+
+  if (acquiredBulletMatch === null) {
+    console.error(
+      '  The "**If the lock is acquired:**" bullet is missing, renamed, or re-prefixed\n' +
+      '  in Phase 11b.\n' +
+      `  This bullet is pinned because round-3 adversarial review (${PR_496} follow-up)\n` +
+      '  found that a sentence appended INSIDE this bullet can silently extend release\n' +
+      '  to the non-acquiring paths (the two skip-conditions paths and the\n' +
+      '  lock-held-by-another-session path) without tripping the "Lock release:"\n' +
+      '  paragraph pin or the semantic net, because this bullet\'s own leading text\n' +
+      '  satisfies the net\'s scope-qualifier exemption for the WHOLE bullet.\n' +
+      '  If this removal is intentional and the section still (1) confines this\n' +
+      '  bullet\'s release action to the "If the lock is acquired" branch only and\n' +
+      '  (2) adds no sentence extending release to the non-acquiring paths, update\n' +
+      '  GOLDEN_ACQUIRED_BULLET_TEXT in this test file to match the new wording in\n' +
+      '  the same commit.'
+    );
+  } else {
+    const actualAcquiredNormalized = normalize(acquiredBulletMatch[0]);
+    const acquiredMatches = actualAcquiredNormalized === GOLDEN_ACQUIRED_BULLET_TEXT;
+    assert(
+      acquiredMatches,
+      acquiredMatches
+        ? 'the "**If the lock is acquired:**" bullet text matches the pinned canonical wording exactly'
+        : 'the "**If the lock is acquired:**" bullet text has changed from the pinned canonical wording'
+    );
+    if (!acquiredMatches) {
+      console.error(
+        '  The Phase 11b "**If the lock is acquired:**" bullet changed.\n' +
+        `  This bullet is pinned because round-3 adversarial review (${PR_496} follow-up)\n` +
+        '  found that a sentence appended INSIDE this bullet can silently extend release\n' +
+        '  to the non-acquiring paths (the two skip-conditions paths and the\n' +
+        '  lock-held-by-another-session path) without tripping the "Lock release:"\n' +
+        '  paragraph pin or the semantic net, because this bullet\'s own leading text\n' +
+        '  satisfies the net\'s scope-qualifier exemption for the WHOLE bullet.\n' +
+        '  If this change is intentional AND the reworded bullet still (1) confines\n' +
+        '  release to ONLY the "If the lock is acquired" branch and (2) adds no\n' +
+        '  sentence extending release to the two skip-conditions paths or the\n' +
+        '  lock-held-by-another-session path, then the fix is to update\n' +
+        '  GOLDEN_ACQUIRED_BULLET_TEXT in this test file to match, in the same commit.\n' +
+        '  --- expected (normalized) ---\n' +
+        `  ${GOLDEN_ACQUIRED_BULLET_TEXT}\n` +
+        '  --- actual (normalized) ---\n' +
+        `  ${actualAcquiredNormalized}\n`
       );
     }
   }
@@ -357,6 +481,36 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
   const forwardB = new RegExp(`\\b${RELEASE}\\b${WINDOW}\\b${QUANT2}\\b${WINDOW}\\b${ACQUIRE}\\b`, 'i');
   const backwardB = new RegExp(`\\b${ACQUIRE}\\b${WINDOW}\\b${QUANT2}\\b${WINDOW}\\b${RELEASE}\\b`, 'i');
 
+  // Pattern C: a release word co-occurring, IN THE SAME SENTENCE, with a
+  // phrase that NAMES one of the non-acquiring paths (the two
+  // skip-conditions paths, the lock-held-by-another-session path). This
+  // catches a sentence that extends a release directive to those paths by
+  // naming them directly, rather than by a universal quantifier (Pattern A)
+  // or an acquisition-status phrase (Pattern B) - the exact shape of the
+  // round-3 exploit sentence appended inside the "**If the lock is
+  // acquired:**" bullet ("...including the two skip-conditions paths and the
+  // lock-held-by-another-session path"). Pattern C is NEVER excused by
+  // SCOPE_QUALIFIER - naming a non-acquiring path in a release directive is
+  // wrong regardless of surrounding scope words ("if the lock is acquired"
+  // does not un-name a path the same sentence also names as released).
+  //
+  // The one legitimate exception is NEGATED/PROHIBITIVE phrasing - a
+  // sentence that says release must NOT happen for a named non-acquiring
+  // path (e.g. "Do NOT release the lock (this session never acquired it)."
+  // - the lock-held-by-another-session bullet's own correct directive, or
+  // "...must NOT call the release helper." in the golden "Lock release:"
+  // paragraph, already excluded from `units` by getUnits()). NEGATED_RELEASE
+  // requires a negation word ("not"/"never") to appear BEFORE the release
+  // word within a short bounded window, so it only exempts the "do NOT
+  // release"/"never release"-shaped sentence, not a sentence that merely
+  // contains "never acquired" elsewhere while still asserting release
+  // happens (the round-3 exploit sentences contain no such negation
+  // immediately preceding the release word, so they are not exempted).
+  const PATH_NAME = '(?:skip-?conditions?|held\\s+by\\s+another\\s+session|never\\s+acquir\\w*|did\\s+not\\s+acquir\\w*|did\\s+not\\s+create)';
+  const forwardC = new RegExp(`\\b${RELEASE}\\b${WINDOW}\\b${PATH_NAME}\\b`, 'i');
+  const backwardC = new RegExp(`\\b${PATH_NAME}\\b${WINDOW}\\b${RELEASE}\\b`, 'i');
+  const NEGATED_RELEASE = new RegExp(`\\b(?:do|does|did|must|shall|will|should)\\s+not\\b[^]{0,30}?\\b${RELEASE}\\b|\\bnever\\b[^]{0,30}?\\b${RELEASE}\\b`, 'i');
+
   const units = getUnits(sectionRaw);
   const hits = [];
   for (const unitRaw of units) {
@@ -371,6 +525,11 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
       const bHit = forwardB.test(sentence) || backwardB.test(sentence);
       if (bHit) {
         hits.push(sentence);
+        continue;
+      }
+      const cHit = forwardC.test(sentence) || backwardC.test(sentence);
+      if (cHit && !NEGATED_RELEASE.test(sentence)) {
+        hits.push(sentence);
       }
     }
   }
@@ -378,8 +537,8 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
   assert(
     hits.length === 0,
     hits.length === 0
-      ? 'no release directive outside the golden paragraph co-occurs (in one sentence) with an unscoped universal quantifier over exit paths/cases, or with an acquisition-status-independent release claim'
-      : `found ${hits.length} unscoped/wording-variant release directive(s) elsewhere in Phase 11b (e.g. "${hits[0].slice(0, 200)}") - a release/lock directive must not claim universality over exit paths or cases (without a same-bullet/paragraph "in that branch"/"within that branch"/"if the lock is acquired" qualifier), nor claim release happens regardless of acquisition status`
+      ? 'no release directive outside the golden paragraph co-occurs (in one sentence) with an unscoped universal quantifier over exit paths/cases, an acquisition-status-independent release claim, or a non-negated reference to a non-acquiring path'
+      : `found ${hits.length} unscoped/wording-variant release directive(s) elsewhere in Phase 11b (e.g. "${hits[0].slice(0, 200)}") - a release/lock directive must not claim universality over exit paths or cases (without a same-bullet/paragraph "in that branch"/"within that branch"/"if the lock is acquired" qualifier), must not claim release happens regardless of acquisition status, and must not (in non-negated phrasing) extend release to a named non-acquiring path (skip-conditions paths, lock-held-by-another-session path)`
   );
 }
 
