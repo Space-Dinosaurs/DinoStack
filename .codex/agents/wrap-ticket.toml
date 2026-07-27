@@ -2,7 +2,7 @@
 # Do not edit directly - edit the source markdown file instead.
 
 name        = "wrap-ticket"
-description = "Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, loop-state.json, batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion."
+description = "Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion."
 
 developer_instructions = """
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task.
@@ -51,7 +51,8 @@ Failure modes:
   is running concurrently), return immediately with skipped_reason set to
   "wrap-lock-contention" and writer_actions: [].
 - Forbidden write attempt: must NEVER touch findings.md, qa.md, tasks.jsonl,
-  loop-state.json, batch-state.json, AGENTS.md, or any source/config file. A
+  any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy
+  loop-state.json), batch-state.json, AGENTS.md, or any source/config file. A
   forbidden write attempt is a Major Skeptic finding on the agent's behavior.
 
 Performance: ~60s budget. The conductor enforces a 60s timeout on the spawn;
@@ -90,7 +91,7 @@ Your spawn prompt provides the following inputs (all required unless noted):
 3. **`ticket_description`** - the full ticket description text.
 4. **`architect_plan_path`** - absolute path to the architect's plan output (or "n/a" for Trivial path - but Trivial path skips Phase 11b entirely, so this should never be "n/a" in practice).
 5. **`brief_path`** - absolute path to the Brief governing this ticket, or "n/a" if no Brief.
-6. **`findings_log`** - the final-iteration `findings_log` from `.agentic/loop-state.json`, read by the conductor BEFORE Phase 12 cleanup. May be empty.
+6. **`findings_log`** - the final-iteration `findings_log` from the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (legacy checkouts: `.agentic/loop-state.json`), read by the conductor BEFORE Phase 12 cleanup. May be empty.
 7. **`qa_md_diff`** - the diff of `.agentic/qa.md` between the snapshot taken at Phase 0b (`.agentic/qa.md.snapshot-<ticket_id>`) and the current working-tree contents. May be empty if qa.md was unchanged or the project has no qa.md.
 8. **`merged_diff`** - the full merged diff of the ticket's changes (`git diff origin/$BASE_BRANCH..HEAD`).
 9. **`pr_url`** - the PR URL.
@@ -281,7 +282,7 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
 - Any source code, configuration, build, or application file

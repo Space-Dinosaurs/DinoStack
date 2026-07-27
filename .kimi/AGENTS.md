@@ -420,7 +420,7 @@ For the full YAML schema, `required_when` predicate grammar, `auto_install` safe
 
 ## Cross-session loop resume
 
-Long-running `/ds-implement-ticket` loops survive via `.agentic/loop-state.json` written at every phase transition; read `content/references/cross-session-loop-resume.md` §Cross-session loop resume at session start when loop-state.json exists.
+Long-running `/ds-implement-ticket` loops survive via a per-ticket `.agentic/loop-state-<LOOP_KEY>.json` written at every phase transition (superseding the single legacy `.agentic/loop-state.json`, which is still read and adopted when present); read `content/references/cross-session-loop-resume.md` §Cross-session loop resume at session start when any loop-state file exists.
 
 ## Task-state file
 
@@ -430,7 +430,7 @@ For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` (sole writer
 
 `.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /ds-wrap completion, finding fix). The file is gitignored.
 
-**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a `session_total` event on every TURN (not just at session exit); this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, loop-state.json by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
+**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a `session_total` event on every TURN (not just at session exit); this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
 
 **Schema** (one JSON object per line):
 - `ts`: ISO8601 UTC timestamp (required)

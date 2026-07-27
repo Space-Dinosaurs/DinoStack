@@ -69,7 +69,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 | Risk = Elevated AND orchestration-planner returns 2-5 Elevated-or-above units | Brief + architect plan |
 | Risk = Elevated AND orchestration-planner returns 6+ Elevated-or-above units | Plan (Brief + architect + orchestration JSONL + risk register + rollback + verification gate) |
 | Any unit's `output_paths` spans 2+ tracks (see "Track" definition below) | Plan |
-| Work spans 2+ sessions (declared at planning time, OR auto-promoted when `.agentic/loop-state.json` resumes a Brief-tier task into a third session) | Plan |
+| Work spans 2+ sessions (declared at planning time, OR auto-promoted when the ticket's `.agentic/loop-state-<LOOP_KEY>.json` - legacy: `.agentic/loop-state.json` - resumes a Brief-tier task into a third session) | Plan |
 | Cross-track OR triggers an "Architecture decision constraining future choices" risk signal | Plan + ADR |
 
 **Unit counting rule.** Only units whose own risk classification is Elevated or above count toward the 2-5 / 6+ thresholds. Trivial units in a mixed-risk plan do not count - they are routed per the standard Trivial conductor rule and contribute zero to promotion.
@@ -215,9 +215,9 @@ The verification gate is non-skippable. **If verification cannot be specified at
 - Already-completed units are not retroactively re-reviewed.
 - The retroactive Brief (or Plan) is authored before the next engineer spawn and governs all subsequent units.
 - The Skeptic pass on the retroactive artifact runs to completion before the next worker spawns.
-- `.agentic/loop-state.json` `promotion_tier` is updated to reflect the new tier (see METHODOLOGY.md §Cross-session loop resume).
+- the ticket's `.agentic/loop-state-<LOOP_KEY>.json` has its `promotion_tier` updated to reflect the new tier (see METHODOLOGY.md §Cross-session loop resume).
 
-**Auto-promotion at 3rd resume.** When `.agentic/loop-state.json` records a third resume of a Brief-tier task, the conductor authors the missing Plan-tier artifacts (risk register, rollback, verification gate) before the next worker spawn. The trigger is mechanical - resume-count tracked in the loop-state file - and fires regardless of whether the operator notices the session span.
+**Auto-promotion at 3rd resume.** When the ticket's `.agentic/loop-state-<LOOP_KEY>.json` (legacy: `.agentic/loop-state.json`) records a third resume of a Brief-tier task, the conductor authors the missing Plan-tier artifacts (risk register, rollback, verification gate) before the next worker spawn. The trigger is mechanical - the `resume_count` field, incremented once per accepted resume including a legacy adoption (see `/ds-implement-ticket` Phase 6 Field notes) - and fires regardless of whether the operator notices the session span. Because the file is keyed per ticket, the count is now per ticket rather than shared, which is what makes it meaningful across a batch. A file adopted from the legacy unkeyed path starts at `0`, so a Brief-tier task mid-flight when keying landed auto-promotes later than it otherwise would - bounded and one-time.
 
 **Promotion is upward only.** A task cannot be demoted. Once a Brief or Plan exists, subsequent workers continue to read it.
 

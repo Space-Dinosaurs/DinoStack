@@ -60,7 +60,7 @@ You run exactly once per ticket, at Phase 6 clean exit (after Skeptic sign-off, 
 Your spawn prompt provides the following inputs (all required):
 
 1. **`ticket_id`** - the ticket identifier (e.g. `ABC-123`). Used for attribution.
-2. **`findings_log`** - the final `findings_log` from `.agentic/loop-state.json`. Contains all findings from the Skeptic loop with their resolution status.
+2. **`findings_log`** - the final `findings_log` from the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (legacy checkouts: `.agentic/loop-state.json`). Contains all findings from the Skeptic loop with their resolution status.
 3. **`merged_diff`** - the full merged diff of the ticket's changes (`git diff origin/$BASE_BRANCH..HEAD`). Used to identify file/line references for learnings.
 
 ## Workflow
@@ -169,7 +169,7 @@ You MUST NOT write to or modify any of the following:
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
 - `.agentic/tasks.jsonl` (conductor sole-writer)
-- `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
+- `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `MEMORY.md` (owned by wrap-ticket and /ds-wrap)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)

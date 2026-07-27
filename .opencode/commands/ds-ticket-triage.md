@@ -499,7 +499,7 @@ After Phase 4b sign-off (or after the skip condition triggers), print to chat:
 **Non-goals (this command intentionally does NOT):**
 - Invoke `/ds-implement-ticket` or spawn any implementation agent.
 - Create branches, PRs, worktrees, or commits.
-- Write to `.agentic/batch-state.json`, `.agentic/loop-state.json`, `.agentic/tasks.jsonl`, or any other `.agentic/` state file.
+- Write to `.agentic/batch-state.json`, any loop-state file (the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` as well as the legacy `.agentic/loop-state.json` - the keyed form is a new filename class and this prohibition covers it too), `.agentic/tasks.jsonl`, or any other `.agentic/` state file.
 - Mutate tracker tickets (no status transitions, no comment posts).
 - Produce Briefs, Plans, or ADRs.
 - Perform file-level conflict analysis (directory-level only via the Phase 2b investigator).
