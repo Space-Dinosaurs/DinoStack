@@ -5,7 +5,7 @@
  * to an UNSCOPED "releases the lock unconditionally on every exit path"
  * claim - whether via the exact original phrasing or a wording-variant
  * rewrite (e.g. "always release", "release ... regardless", "on all ...
- * paths", "in every case").
+ * paths", "in every case", "whether or not it was acquired").
  *
  * WHY THIS TEST EXISTS
  * --------------------
@@ -20,20 +20,46 @@
  * scoping, so a future edit could restore the unscoped phrasing and reopen
  * the bug with fully green CI. This test is that pin.
  *
- * A first version of this pin (added alongside this comment block) only
- * inspected text INSIDE each "unconditionally on every ... ." span and never
- * asserted the scoped sentence was the ONLY release directive in Phase 11b -
- * an additive contradicting sentence appended after it (a two-location
- * disagreement, exactly the pre-#496 defect's shape) passed cleanly. This
- * version scans the whole Phase 11b section for release+universal-quantifier
- * co-occurrences instead of relying on a single fixed phrase or sentence
- * boundaries.
+ * MECHANISM HISTORY (why this is a golden-text pin, not a pattern-match pin)
+ * ---------------------------------------------------------------------
+ * v1 (regex-only, added alongside #496): scanned for the literal phrase
+ * "unconditionally on every ... ." and never asserted the scoped sentence
+ * was the ONLY release directive in Phase 11b - an additive contradicting
+ * sentence appended after it passed cleanly.
  *
- * IMPORTANT SCOPE NOTE: this is a grep-based prose pin. It verifies THAT THE
- * SCOPING SENTENCE EXISTS in the doc, not that any conductor session actually
- * honors it at runtime. It cannot catch a conductor that reads the correct
- * prose and still misapplies it - only that the doc itself has not regressed
- * to the unscoped claim.
+ * v2 (whole-section regex, round 1): scanned the whole Phase 11b section for
+ * release+universal-quantifier co-occurrence with a raw character-count
+ * proximity window (`CONTEXT_PAD = 80`) to decide whether a nearby "in that
+ * branch" qualifier excused the match. Round 2 adversarial review defeated
+ * this twice:
+ *   (a) Proximity blind zone - the sanctioned sentence's own qualifier sits
+ *       ~103 chars from the release/quantifier tokens, so anything inserted
+ *       within that ±80-char radius (e.g. right after "outcome in that
+ *       branch") was silently excused as "close enough to the qualifier"
+ *       even though it was a NEW, unscoped claim.
+ *   (b) Synonym gap - the QUANT token list omitted "every"/"any"/bare
+ *       "all"/"without exception"/"whether or not", so the pre-#496 phrase
+ *       minus one adverb ("releases the lock on every exit path") passed
+ *       9/9 with exit 0.
+ *
+ * v3 (this version) replaces open-ended pattern-matching as the PRIMARY
+ * defense with an exact golden-text pin on the sanctioned paragraph itself:
+ * any edit to that paragraph - reword, insertion, deletion, widening - fails
+ * the test outright, because the correct posture for a safety-critical
+ * invariant guarding a cross-session data-destruction bug is "changes here
+ * must be deliberate", not "try to enumerate every bad edit". The semantic
+ * scan from v2 is retained as defense-in-depth for a NEW contradicting
+ * directive added elsewhere in Phase 11b (which wouldn't touch the golden
+ * paragraph), with both v2 defects fixed: proximity is now bound to the
+ * SAME SENTENCE as the match (not a raw character radius), and a second
+ * pattern independently catches "release ... whether or not ... acquired"
+ * phrasing that quantifies over acquisition status rather than exit paths.
+ *
+ * IMPORTANT SCOPE NOTE: this is a prose pin. It verifies THAT THE SCOPING
+ * PARAGRAPH IS UNCHANGED (golden pin) and THAT NO CONTRADICTING DIRECTIVE
+ * HAS BEEN ADDED ELSEWHERE (semantic net). It cannot catch a conductor that
+ * reads the correct prose and still misapplies it - only that the doc
+ * itself has not regressed.
  *
  * Run with: node hooks/tests/test-phase11b-release-scoping.js
  */
@@ -45,6 +71,7 @@ const path = require('path');
 
 const REPO_ROOT = path.resolve(__dirname, '..', '..');
 const TARGET = path.join(REPO_ROOT, 'content', 'commands', 'ds-implement-ticket.md');
+const PR_496 = 'PR #496';
 
 let passed = 0;
 let failed = 0;
@@ -64,12 +91,38 @@ function readFile(p) {
 }
 
 // Normalize whitespace (collapse runs of whitespace, including newlines, to a
-// single space) so unrelated line-wrap/reflow edits do not break these
-// assertions. Assertions below match against this normalized text, not raw
-// line-anchored text.
+// single space, then trim) so unrelated line-wrap/reflow edits do not break
+// these assertions. Assertions below match against this normalized text, not
+// raw line-anchored text.
 function normalize(text) {
-  return text.replace(/\s+/g, ' ');
+  return text.replace(/\s+/g, ' ').trim();
 }
+
+// ---------------------------------------------------------------------------
+// The canonical, exact text of the Phase 11b lock-release directive, as
+// landed by PR #496 and re-confirmed by this fix pass. Normalized (single-
+// spaced) form - compare against the normalized extracted paragraph, not the
+// raw file bytes, so that pure line-wrap reflow does not trip this pin.
+//
+// If you are here because this assertion just failed on a LEGITIMATE reword:
+// this paragraph is pinned because a prior version of it caused a real
+// cross-session lock-deletion bug (see PR #496 above and the WHY THIS TEST
+// EXISTS section). Before updating the constant below, confirm your reword
+// still (1) explicitly scopes the release action to ONLY the "If the lock is
+// acquired" branch, and (2) explicitly states that the two skip-conditions
+// paths and the lock-held-by-another-session path must NOT call the release
+// helper. If both hold, update GOLDEN_LOCK_RELEASE_TEXT below to match the
+// new wording in the SAME commit as the doc change.
+// ---------------------------------------------------------------------------
+const GOLDEN_LOCK_RELEASE_TEXT = normalize(
+  'Lock release: this applies ONLY within the "If the lock is acquired" ' +
+  'branch above - the conductor runs `agentic-wrap-release-lock` ' +
+  '(PATH-wired helper) unconditionally on every `wrap-ticket` outcome in ' +
+  'that branch (success, non-JSON return, timeout, soft-fail) before ' +
+  'advancing to Phase 12. The two skip-conditions paths and the ' +
+  'lock-held-by-another-session path never acquired the lock in this ' +
+  'session and must NOT call the release helper.'
+);
 
 // ---------------------------------------------------------------------------
 // Pre-flight: required file exists
@@ -108,26 +161,73 @@ assert(sectionRaw.length > 0, 'Phase 11b section body is non-empty');
 const section = normalize(sectionRaw);
 
 // ---------------------------------------------------------------------------
-// (1) POSITIVE - the release sentence exists and is explicitly scoped to the
-// "If the lock is acquired" branch, and explicitly excludes the non-acquiring
-// paths from calling the release helper.
+// (1) PRIMARY - golden-text pin on the "Lock release:" paragraph.
+//
+// Locate the paragraph (a blank-line-delimited block in the RAW, unnormalized
+// section text) that begins with "Lock release:", normalize it the same way
+// as the golden constant, and require EXACT equality. Any edit to this
+// paragraph - reword, insertion, deletion, widening, an in-sentence
+// qualifier tweak - fails here, by design: this is the correct posture for a
+// safety-critical invariant guarding a cross-session data-destruction bug.
 // ---------------------------------------------------------------------------
-console.log('\n[1] release sentence is scoped to the acquired branch');
+console.log('\n[1] golden-text pin: "Lock release:" paragraph is byte-for-byte (whitespace-normalized) unchanged');
 {
-  assert(
-    /Lock release:\s*this applies ONLY within the\s*"If the lock is acquired"\s*branch above/i.test(section),
-    'release sentence explicitly limits itself to the "If the lock is acquired" branch'
-  );
+  const paragraphs = sectionRaw
+    .split(/\n\s*\n+/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const goldenParagraphRaw = paragraphs.find((p) => /^Lock release:/i.test(p));
 
-  assert(
-    /never acquired the lock in this session and must NOT call the release helper/i.test(section),
-    'release sentence explicitly states non-acquiring paths must NOT call the release helper'
-  );
+  assert(goldenParagraphRaw !== undefined, 'a paragraph starting with "Lock release:" exists in Phase 11b');
+
+  if (goldenParagraphRaw === undefined) {
+    console.error(
+      '  The "Lock release:" directive paragraph is missing entirely from Phase 11b.\n' +
+      `  This paragraph is pinned because a prior version of it caused a real cross-\n` +
+      `  session lock-deletion bug (${PR_496}: pre-fix prose released the wrap lock\n` +
+      '  "unconditionally on every exit path" while a lock genuinely held by another\n' +
+      '  session was never acquired in this one - the release succeeded anyway and\n' +
+      '  deleted the other session\'s lock).\n' +
+      '  If this removal is intentional and the section still (1) scopes release to\n' +
+      '  ONLY the "If the lock is acquired" branch and (2) states the non-acquiring\n' +
+      '  paths must NOT call the release helper, update GOLDEN_LOCK_RELEASE_TEXT in\n' +
+      '  this test file to match the new wording in the same commit.'
+    );
+  } else {
+    const actualNormalized = normalize(goldenParagraphRaw);
+    const matches = actualNormalized === GOLDEN_LOCK_RELEASE_TEXT;
+    assert(
+      matches,
+      matches
+        ? 'the "Lock release:" paragraph text matches the pinned canonical wording exactly'
+        : 'the "Lock release:" paragraph text has changed from the pinned canonical wording'
+    );
+    if (!matches) {
+      console.error(
+        '  The Phase 11b "Lock release:" directive changed.\n' +
+        `  This paragraph is pinned because a prior version of it caused a real cross-\n` +
+        `  session lock-deletion bug (${PR_496}: pre-fix prose released the wrap lock\n` +
+        '  "unconditionally on every exit path" while a lock genuinely held by another\n' +
+        '  session was never acquired in this one - the release succeeded anyway and\n' +
+        '  deleted the other session\'s lock).\n' +
+        '  If this change is intentional AND the reworded paragraph still (1) scopes\n' +
+        '  release to ONLY the "If the lock is acquired" branch and (2) explicitly\n' +
+        '  states that the two skip-conditions paths and the lock-held-by-another-\n' +
+        '  session path must NOT call the release helper, then the fix is to update\n' +
+        '  GOLDEN_LOCK_RELEASE_TEXT in this test file to match, in the same commit.\n' +
+        '  --- expected (normalized) ---\n' +
+        `  ${GOLDEN_LOCK_RELEASE_TEXT}\n` +
+        '  --- actual (normalized) ---\n' +
+        `  ${actualNormalized}\n`
+      );
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
-// (2) POSITIVE - the lock-held-by-another-session path still carries its own
-// no-release directive.
+// (2) POSITIVE (sanity, section-scoped) - the lock-held-by-another-session
+// path still carries its own no-release directive. Not covered by the golden
+// pin above (that pin covers only the "Lock release:" paragraph).
 // ---------------------------------------------------------------------------
 console.log('\n[2] lock-held-by-another-session path carries its own no-release directive');
 {
@@ -138,66 +238,148 @@ console.log('\n[2] lock-held-by-another-session path carries its own no-release 
 }
 
 // ---------------------------------------------------------------------------
-// (3) NEGATIVE - no UNSCOPED unconditional-release claim, and no
-// wording-variant re-regression ("always release", "release ... regardless",
-// "on all ... paths", "in every case", etc.) that reopens the same bug
-// without ever matching the literal phrase "unconditionally on every".
+// (3) NEGATIVE (defense-in-depth, semantic net) - no NEW release directive
+// ELSEWHERE in Phase 11b (outside the golden paragraph) claims universality
+// over exit paths/cases, or claims release happens regardless of whether the
+// lock was ever acquired. The golden pin above catches an edit TO the
+// sanctioned paragraph; this net catches an ADDITIVE contradicting directive
+// placed anywhere else in the section (the exact shape of the pre-#496 and
+// round-1 defects: two disagreeing locations).
 //
-// Detection strategy: scan the Phase 11b section for any co-occurrence of a
-// release word ("release"/"releases"/"released"/"releasing") with a
-// universal-quantifier word ("unconditionally"/"always"/"regardless"/"on
-// all"/"in every case") AND a path/case/exit noun ("path(s)"/"case(s)"/"exit
-// path(s)"). The sanctioned sentence deliberately quantifies over
-// `wrap-ticket` OUTCOMEs within the acquired branch, not over exit paths or
-// cases - so it does not trip this pattern. A match is excluded only when an
-// explicit branch-scoping qualifier ("in that branch" / "within that
-// branch") appears in the surrounding context, so a legitimate reword that
-// still scopes correctly does not false-positive (see finding #2's over-
-// tightening warning: the sanctioned sentence itself legitimately contains
-// "unconditionally on every `wrap-ticket` outcome ... in that branch").
+// Detection strategy: group the section into UNITS - a unit is one bullet
+// list item (one physical line, since this doc's bullets never wrap onto a
+// continuation line) or one single-line paragraph/heading. A blank-line-
+// delimited block that itself spans multiple physical lines (a bullet list,
+// or a heading immediately followed by its bullets on the next lines with no
+// blank line between) is split one-unit-per-line; a block that is already a
+// single physical line (the common case - most paragraphs and bullets in
+// this section) is one unit as-is. Each unit is then split into SENTENCE-
+// level spans for match LOCALIZATION (a Pattern A/B co-occurrence must fall
+// within one sentence - a raw character-count radius is exactly what round 2
+// defeated), while the scope-qualifier EXEMPTION check below is evaluated
+// across the WHOLE UNIT, not just the matched sentence - because this doc's
+// legitimate scoping language sometimes precedes the matched sentence within
+// the same bullet (e.g. "- **If the lock is acquired:** ... below. The
+// conductor releases the lock on every exit path ... Phase 12." is ONE
+// bullet/unit where the scoping lead-in and the release claim are two
+// different sentences of the same list item).
 //
-// This uses character-count windows (`[^]{0,N}`), NOT period-bounded spans -
-// a period-bounded span (`[^.]*\.`) truncates early on an intra-sentence
-// period such as "(success, timeout, etc.)" and produces false FAILs on
-// correctly-scoped prose that merely reflows around a parenthetical (finding
-// #2 in the review that added this section).
+//   Pattern A: a release word ("release"/"releases"/"released"/"releasing")
+//   co-occurring, IN THE SAME SENTENCE, with a universal-quantifier word
+//   ("unconditionally"/"always"/"regardless"/"on all"/"in every case"/
+//   "every"/"any"/bare "all"/"without exception"/"no matter") AND an
+//   exit-path/case noun ("exit path(s)"/"case(s)"). NOUN is deliberately
+//   restricted to "exit path(s)" (not bare "path(s)") and "case(s)" - a bare
+//   "path(s)" noun also matches unrelated prose like "the PATH for all
+//   invocation paths" (a round-2 Minor false-FAIL), which has nothing to do
+//   with lock-release semantics.
+//
+//   Pattern B: a release word co-occurring, IN THE SAME SENTENCE, with a
+//   phrase indicating release happens regardless of acquisition status
+//   ("whether (or not)"/"regardless of whether"/"no matter whether") near
+//   "acquir*". This catches a wording variant that ignores exit-path/case
+//   nouns entirely (e.g. "release the lock whether or not it was
+//   acquired"), which Pattern A alone would miss.
+//
+// A Pattern-A match is excluded only when an explicit scoping qualifier -
+// "in that branch" / "within that branch" (the golden paragraph's own
+// wording) or "if the lock is acquired" (this doc's other legitimate
+// scoping lead-in, used by the summary bullet at "If the lock is acquired:")
+// - appears anywhere in the SAME UNIT as the match (bullet-wide or
+// paragraph-wide, not a raw character window; see the doc-comment above).
+// Pattern B is never excused by either qualifier - neither fixes a directive
+// that ignores acquisition status.
+//
+// The golden paragraph itself is excluded from this scan (see step 3a) so
+// it does not self-trip Pattern A on its own legitimate "in that branch"
+// scoping - that paragraph's correctness is the golden pin's job, not this
+// net's.
 // ---------------------------------------------------------------------------
-console.log('\n[3] no unscoped or wording-variant unconditional-release claim');
+console.log('\n[3] no unscoped or wording-variant unconditional-release claim elsewhere in Phase 11b');
 {
-  const RELEASE = '(?:releas\\w*)';
-  const QUANT = '(?:unconditionally|always|regardless(?:\\s+of)?|on\\s+all|in\\s+every\\s+case)';
-  const NOUN = '(?:exit\\s+paths?|paths?|cases?)';
-  const WINDOW = '[^]{0,150}?';
-  const SCOPE_QUALIFIER = /\b(?:in|within)\s+that\s+branch\b/i;
-  const CONTEXT_PAD = 80; // extra chars around each raw match checked for a nearby scope qualifier
-
-  const forwardRe = new RegExp(`\\b${RELEASE}\\b${WINDOW}\\b${QUANT}\\b${WINDOW}\\b${NOUN}\\b`, 'gi');
-  const backwardRe = new RegExp(`\\b${QUANT}\\b${WINDOW}\\b${NOUN}\\b${WINDOW}\\b${RELEASE}\\b`, 'gi');
-
-  function findUnscoped(re) {
-    const hits = [];
-    let m;
-    while ((m = re.exec(section)) !== null) {
-      const start = Math.max(0, m.index - CONTEXT_PAD);
-      const end = Math.min(section.length, m.index + m[0].length + CONTEXT_PAD);
-      const context = section.slice(start, end);
-      if (!SCOPE_QUALIFIER.test(context)) {
-        hits.push(m[0]);
+  // (3a) Group the raw (unnormalized) section into units, excluding the
+  // golden "Lock release:" paragraph.
+  function getUnits(raw) {
+    const blocks = raw.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
+    const units = [];
+    for (const block of blocks) {
+      if (/^Lock release:/i.test(block)) continue; // golden paragraph: excluded
+      const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
+      if (lines.length <= 1) {
+        units.push(block);
+      } else {
+        for (const line of lines) units.push(line);
       }
-      // Avoid re-matching from inside the same hit on the next iteration of a
-      // global regex when zero-width progress could otherwise loop.
-      if (re.lastIndex === m.index) re.lastIndex++;
     }
-    return hits;
+    return units;
   }
 
-  const unscopedHits = [...findUnscoped(forwardRe), ...findUnscoped(backwardRe)];
+  // Split a unit into sentence-level spans. A period is treated as a
+  // sentence boundary only when followed by whitespace and then an
+  // uppercase letter, a quote, a backtick, an opening paren, or a list-item
+  // dash - this avoids splitting mid-abbreviation (e.g. "etc.)" is NOT
+  // followed by whitespace, so it is correctly NOT treated as a boundary)
+  // while still splitting normal multi-sentence prose.
+  function splitSentences(text) {
+    const spans = [];
+    let last = 0;
+    const re = /\.(\s+)(?=[A-Z"'`(-])/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+      spans.push(text.slice(last, m.index + 1));
+      last = m.index + 1 + m[1].length;
+      re.lastIndex = last;
+    }
+    spans.push(text.slice(last));
+    return spans.map((s) => s.trim()).filter(Boolean);
+  }
+
+  const RELEASE = '(?:releas\\w*)';
+  const QUANT = '(?:unconditionally|always|regardless(?:\\s+of)?|on\\s+all|in\\s+every\\s+case|every|any|all|without\\s+exception|no\\s+matter)';
+  const NOUN = '(?:exit\\s+paths?|cases?)';
+  const SCOPE_QUALIFIER = /\b(?:in|within)\s+that\s+branch\b|if\s+the\s+lock\s+is\s+acquired/i;
+
+  // WINDOW is a BOUNDED lazy span (not `[^]*?` unbounded), which keeps
+  // matching linear even on a pathological adversarial unit (e.g. a single
+  // multi-hundred-KB "sentence" with no periods to split on, repeating the
+  // word "release" thousands of times with no quantifier ever following -
+  // an unbounded lazy span there is O(n^2): every "release" occurrence
+  // re-scans to the end of the string before giving up). 300 chars is
+  // generous headroom over any real single sentence in this section that
+  // legitimately needs to co-occur across RELEASE/QUANT/NOUN.
+  const WINDOW = '[^]{0,300}?';
+
+  const forwardA = new RegExp(`\\b${RELEASE}\\b${WINDOW}\\b${QUANT}\\b${WINDOW}\\b${NOUN}\\b`, 'i');
+  const backwardA = new RegExp(`\\b${QUANT}\\b${WINDOW}\\b${NOUN}\\b${WINDOW}\\b${RELEASE}\\b`, 'i');
+
+  const QUANT2 = '(?:whether(?:\\s+or\\s+not)?|regardless\\s+of\\s+whether|no\\s+matter\\s+whether)';
+  const ACQUIRE = '(?:acquir\\w*)';
+  const forwardB = new RegExp(`\\b${RELEASE}\\b${WINDOW}\\b${QUANT2}\\b${WINDOW}\\b${ACQUIRE}\\b`, 'i');
+  const backwardB = new RegExp(`\\b${ACQUIRE}\\b${WINDOW}\\b${QUANT2}\\b${WINDOW}\\b${RELEASE}\\b`, 'i');
+
+  const units = getUnits(sectionRaw);
+  const hits = [];
+  for (const unitRaw of units) {
+    const unitNormalized = normalize(unitRaw);
+    const unitHasQualifier = SCOPE_QUALIFIER.test(unitNormalized);
+    for (const sentence of splitSentences(unitNormalized)) {
+      const aHit = forwardA.test(sentence) || backwardA.test(sentence);
+      if (aHit && !unitHasQualifier) {
+        hits.push(sentence);
+        continue;
+      }
+      const bHit = forwardB.test(sentence) || backwardB.test(sentence);
+      if (bHit) {
+        hits.push(sentence);
+      }
+    }
+  }
 
   assert(
-    unscopedHits.length === 0,
-    unscopedHits.length === 0
-      ? 'no release directive in Phase 11b co-occurs with an unscoped universal quantifier over exit paths/cases'
-      : `found ${unscopedHits.length} unscoped release directive(s) in Phase 11b (e.g. "${unscopedHits[0].slice(0, 160)}") - a release/lock directive must not claim universality over exit paths or cases without a nearby "in that branch"/"within that branch" qualifier`
+    hits.length === 0,
+    hits.length === 0
+      ? 'no release directive outside the golden paragraph co-occurs (in one sentence) with an unscoped universal quantifier over exit paths/cases, or with an acquisition-status-independent release claim'
+      : `found ${hits.length} unscoped/wording-variant release directive(s) elsewhere in Phase 11b (e.g. "${hits[0].slice(0, 200)}") - a release/lock directive must not claim universality over exit paths or cases (without a same-bullet/paragraph "in that branch"/"within that branch"/"if the lock is acquired" qualifier), nor claim release happens regardless of acquisition status`
   );
 }
 
@@ -223,7 +405,7 @@ console.log('\n[4] exactly one "Lock release:" directive in Phase 11b');
 // "that branch" (the acquired branch). This replaces a whole-file, literal-
 // phrase-only sanity check ("unconditionally on every" surviving ANYWHERE in
 // the ~2900-line file), which would fail on an equally-scoped reword such as
-// "on all outcomes within that branch" (finding #2).
+// "on all outcomes within that branch".
 // ---------------------------------------------------------------------------
 console.log('\n[5] a scoped release directive still exists in Phase 11b (synonym-tolerant)');
 {
