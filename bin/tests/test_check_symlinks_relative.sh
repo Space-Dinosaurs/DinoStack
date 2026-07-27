@@ -70,7 +70,7 @@ build_commit() {
   local msg="$1"
   shift
   (
-    cd "$FIXTURE_REPO"
+    cd "$FIXTURE_REPO" || exit 1
     while [[ $# -gt 0 ]]; do
       local name="$1" target="$2"
       shift 2
