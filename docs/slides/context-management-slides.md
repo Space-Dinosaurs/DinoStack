@@ -303,7 +303,7 @@ The whole system is designed around one bet: <strong>context hygiene beats raw m
 <div class="columns">
 <div class="card">
 <strong>Stop hook (automatic)</strong><br/>
-Fires after every turn. Writes <code>.agentic/context.md</code> with recent user messages, files touched, uncommitted changes, and tools used. Zero ceremony - it just runs.
+Fires after every turn. Writes this session's shard at <code>.agentic/context.d/&lt;session_id&gt;.md</code> - recent user messages, files touched, uncommitted changes, tools used - then recomposes <code>.agentic/context.md</code> from it. Zero ceremony - it just runs.
 </div>
 <div class="card">
 <strong>/ds-wrap (on demand)</strong><br/>
@@ -311,7 +311,7 @@ Replaces the stop hook's raw snapshot with a structured, enriched version. Captu
 </div>
 </div>
 
-<p style="margin-top: 0.8em;">If <code>/ds-wrap</code> has already written <code>.agentic/context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/ds-wrap</code> content is never lost.</p>
+<p style="margin-top: 0.8em;"><code>/ds-wrap</code> content is never lost, and now neither is anyone else's: the two live in <strong>separate files</strong>. <code>/ds-wrap</code> owns the curated <code>.agentic/_wrap.md</code>; the stop hook owns per-session shards. <code>.agentic/context.md</code> is <strong>derived</strong> from both on every turn, so a lost update self-heals instead of destroying a session's work.</p>
 
 <div class="callout">
 The stop hook is the safety net - you always get <em>something</em>. <code>/ds-wrap</code> is the upgrade - you get structured, compounding context.
@@ -334,7 +334,7 @@ Close the session cleanly so the Stop hook can finish writing <code>.agentic/con
 
 You can run **multiple sessions in parallel** - open separate terminals, each with `claude` in the same project directory. They share the same persistent memory and AGENTS.md.
 
-When you `/ds-wrap` each session, they merge into a shared `.agentic/context.md` using a **rolling window of ten slots** (Session A through J):
+When you `/ds-wrap` each session, they merge into a shared `.agentic/_wrap.md` using a **rolling window of ten slots** (Session A through J), and that curated region is carried into the derived `.agentic/context.md`:
 
 - First wrap writes Session A. Second wrap labels the existing as A, adds B.
 - At ten sessions, the oldest (A) drops off and everything shifts down.
@@ -343,7 +343,7 @@ When you `/ds-wrap` each session, they merge into a shared `.agentic/context.md`
 This means you can work on ten parallel streams in a project and `/ds-wrap` each one. The next session that starts sees a merged view of all recent work.
 
 <div class="callout">
-The rolling window keeps <code>.agentic/context.md</code> bounded. Ten slots capture even heavily parallel workflows while keeping the file bounded.
+The rolling window keeps <code>.agentic/_wrap.md</code> bounded. Ten slots capture even heavily parallel workflows while keeping the file bounded; the derived <code>.agentic/context.md</code> is bounded the same way, at ten session shards.
 </div>
 
 ---

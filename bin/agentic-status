@@ -57,6 +57,7 @@ Performance: O(small). Two file reads (config + AGENTS.md). Constant
 
 from __future__ import annotations
 
+import datetime
 import json
 import os
 import re
@@ -585,6 +586,86 @@ def _how_to_adjust_block(resolved: dict) -> list[str]:
     ]
 
 
+# Wrap-lock advisory thresholds. These MIRROR ABANDON_MS / LEGACY_ABANDON_MS in
+# hooks/lib/wrap-marker.js and must be changed together.
+_WRAP_ABANDON_S = 30 * 60
+_WRAP_LEGACY_ABANDON_S = 4 * 60 * 60
+
+
+def _wrap_lock_line() -> str:
+    """One ADVISORY line describing `.agentic/wrap/lock` state.
+
+    Exists because there was previously NO operator-invocable command that could
+    reveal a wedged lock: the 10.3-hour orphan that silently discarded 49
+    `context.md` writes across 6 sessions had to be diagnosed by hand, file by
+    file. `/ds-status` surfaced only the `deferred_wrap_daemon` toggle.
+
+    DELIBERATELY ADVISORY, not authoritative. It reports the OBSERVABLE facts
+    (present/absent, role, session, hold age) and flags an age past the
+    abandonment thresholds; it does NOT re-derive the two-arm abandonment
+    predicate. That predicate lives once, in `wrapLockAbandoned`
+    (hooks/lib/wrap-marker.js), and `agentic-wrap-acquire-lock` is the only thing
+    that acts on it. A third copy of a safety predicate here would be a
+    correctness liability for no gain - the operator needs visibility, not a
+    second opinion. Read-only and fail-open: any error yields `unknown`.
+    """
+    lock_dir = Path.cwd() / ".agentic" / "wrap" / "lock"
+    try:
+        if not lock_dir.is_dir():
+            return "wrap lock: free"
+    except OSError:
+        return "wrap lock: unknown (unreadable)"
+
+    role = "unknown"
+    session = "(none)"
+    started = None
+    try:
+        owner_json = lock_dir / "owner.json"
+        if owner_json.is_file():
+            d = json.loads(owner_json.read_text(encoding="utf-8"))
+            if isinstance(d, dict):
+                role = str(d.get("role") or "unknown")
+                session = str(d.get("session_id") or "(none)")
+                started = d.get("acquired_at")
+        else:
+            owner = lock_dir / "owner"
+            if owner.is_file():
+                role = "legacy"
+                lines = owner.read_text(encoding="utf-8").split("\n")
+                if len(lines) > 1 and lines[1].strip():
+                    started = lines[1].strip()
+    except (OSError, ValueError):
+        return "wrap lock: held role=unknown (owner unreadable)"
+
+    age_s = None
+    if isinstance(started, str) and started:
+        try:
+            ts = started.replace("Z", "+00:00")
+            age_s = max(
+                0.0,
+                (
+                    datetime.datetime.now(datetime.timezone.utc)
+                    - datetime.datetime.fromisoformat(ts)
+                ).total_seconds(),
+            )
+        except ValueError:
+            age_s = None
+
+    if age_s is None:
+        age_label = "unknown"
+    elif age_s < 3600:
+        age_label = f"{int(age_s // 60)}m"
+    else:
+        age_label = f"{int(age_s // 3600)}h{int((age_s % 3600) // 60)}m"
+
+    line = f"wrap lock: held role={role} session={session} age={age_label}"
+    threshold = _WRAP_ABANDON_S if session != "(none)" else _WRAP_LEGACY_ABANDON_S
+    if age_s is not None and age_s > threshold:
+        line += " - past the abandonment threshold; the next"
+        line += " `agentic-wrap-acquire-lock` clears it if the holder is gone"
+    return line
+
+
 def main(_argv: list[str]) -> int:
     config, config_status = _load_config()
     agents_path = _resolve_agents_md()
@@ -610,6 +691,7 @@ def main(_argv: list[str]) -> int:
     out.append(f"  marker: {res['marker']}")
     out.append(f"  active: {active_display} ({res['active_reason']})")
     out.append(f"  sentinel: {SENTINEL_PATH} ({sentinel_status})")
+    out.append(f"  {_wrap_lock_line()}")
     out.append(f"  {_telemetry_health_line()}")
     out.extend(_role_models_status_block())
     out.extend(_telemetry_health_block())

@@ -1,5 +1,5 @@
 ---
-description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
+description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
 mode: subagent
 permission:
   edit: allow
@@ -11,7 +11,7 @@ permission:
 <!--
 Purpose: Per-ticket learnings-capture agent. Spawned by /ds-implement-ticket Phase 11b
          on every PR opened (Trivial path skipped). Appends durable learnings to
-         MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only) using
+         MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only) using
          append-discipline writes with dedup. Constrained automated subset of /ds-wrap.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
@@ -63,7 +63,7 @@ Performance: ~60s budget. The conductor enforces a 60s timeout on the spawn;
 
 ## Role
 
-You are wrap-ticket - a constrained per-ticket learnings-capture agent. Your job is to extract durable learnings from a just-completed ticket and append them to the project's MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus section only). You run automatically at /ds-implement-ticket Phase 11b, on every PR opened.
+You are wrap-ticket - a constrained per-ticket learnings-capture agent. Your job is to extract durable learnings from a just-completed ticket and append them to the project's MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus section only). You run automatically at /ds-implement-ticket Phase 11b, on every PR opened.
 
 You are a **constrained automated subset of `/ds-wrap`**. The differences are intentional:
 
@@ -77,7 +77,7 @@ You are a **constrained automated subset of `/ds-wrap`**. The differences are in
 | Lock | `.agentic/wrap/lock` (shared with /ds-wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
-You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/context.md (Recent Focus only).
+You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only).
 
 External comments follow §External Comment Discipline in `content/rules/conventions.md`.
 
@@ -208,9 +208,10 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - **Dedup before each append:** same case-insensitive whitespace-collapsed substring check against the existing file content.
 - **Cap at 2 appends per run.**
 
-#### .agentic/context.md (## Recent Focus only)
+#### .agentic/_wrap.md (## Recent Focus only)
 
-- Path: `.agentic/context.md`. If absent, do NOT create - the Stop hook owns initial creation. Skip with `writer_actions[]: ["skipped (no .agentic/context.md): Recent Focus addition"]`.
+- Path: `.agentic/_wrap.md` - the CURATED context file. **Never `.agentic/context.md`:** that file is a derived rollup, recomposed from `_wrap.md` plus the per-session shards in `.agentic/context.d/` on every Stop turn, so a paragraph written there is silently discarded within one turn.
+- If absent, do NOT create. **This is no longer "the Stop hook owns initial creation"** - the Stop hook does not write `_wrap.md` at all and never creates `## Recent Focus`; `_wrap.md` is created by `/ds-wrap` Part A, by `/ds-wrap-deferred`, or by the one-time migration that seeds it from a pre-existing `/ds-wrap`-authored `context.md`. Until one of those has run there is no curated file to append to. Skip with `writer_actions[]: ["skipped (no .agentic/_wrap.md): Recent Focus addition"]`.
 - Locate the `## Recent Focus` section. If absent, do NOT create - skip with the same writer_actions note.
 - Append a single new paragraph under `## Recent Focus`, labeled `[Ticket TICKET_ID]`:
   ```
@@ -290,7 +291,7 @@ The only files you may write are:
 
 - The project-root `MEMORY.md`
 - The resolved `decisions.md` path (per Step 4)
-- The project-root `.agentic/context.md` (only the `## Recent Focus` section, append-only)
+- The project-root `.agentic/_wrap.md` (only the `## Recent Focus` section, append-only)
 
 A forbidden write is a critical failure of this agent's contract. If a candidate fact would require touching a forbidden file, drop it and proceed.
 
@@ -298,7 +299,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 
 - **Append-only.** Never delete, never reorder, never edit existing entries. Each write extends the file at its tail.
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
-- **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to context.md - per run, never exceeded.
+- **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to `_wrap.md` - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
 - **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.

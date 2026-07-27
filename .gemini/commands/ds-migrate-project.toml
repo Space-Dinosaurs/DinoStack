@@ -51,7 +51,7 @@ Applies additive scaffolding rules from the manifest:
 - Appends missing `.gitignore` patterns (exact-line match after `rstrip()`; never duplicates).
 - Seeds missing `.agentic/` files from `content/templates/` (never overwrites existing files).
 - Updates `scaffolding_version` in `.agentic/config.json` when all rules are satisfied.
-- Appends one-line audit entry to `.agentic/context.md` if anything was written.
+- Appends a one-line audit entry to the `.agentic/context.d/scaffolding-notices.md` shard if anything was written. **Not to `.agentic/context.md`:** that file is a derived rollup recomposed from `.agentic/_wrap.md` plus the shards on every Stop turn, so an entry appended there was destroyed by the very next turn. The shard is picked up by the next recomposition and survives. It deliberately does NOT share a name with any session shard, because the Stop hook overwrites its own session shard wholesale each turn.
 - Acquires `~/.agentic/.scaffolding-apply.lock` before writing (EWOULDBLOCK = another session active, skip silently).
 
 The `markers:` key in the manifest is IGNORED by this path. Operator-owned scaffolding (AGENTS.md markers, destructive file changes) requires `--include-destructive`.

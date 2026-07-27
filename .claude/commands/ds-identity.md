@@ -290,7 +290,7 @@ migration and continue to work without change.
 |---|---|
 | Confirmed | Per-project `.agentic/session-log/<dev>.jsonl` + global `~/.agentic/session-log/<dev>.jsonl` |
 | Provisional | `~/.agentic/session-log/.pending/<uuid>.json` (buffered; flushed on confirm/init) |
-| None | Same as provisional; Stop hook also appends an identity nudge to `.agentic/context.md` |
+| None | Same as provisional; Stop hook also appends an identity nudge to this session's `.agentic/context.d/` shard, which the derived `.agentic/context.md` rollup then carries |
 
 - `agentic-cost team` reads `.agentic/session-log/` (project-local) - aggregates
   all confirmed developer files for the current repo.

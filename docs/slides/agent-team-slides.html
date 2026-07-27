@@ -639,7 +639,7 @@ hr {
 <div class="card"><strong>release-orchestrator</strong><br />End-to-end release sequencing. Pre-flight gates, version bump, tag, deploy, post-deploy verification.<div class="tier">Default Tier: 2</div></div>
 <div class="card"><strong>dependency-auditor</strong><br />Supply-chain review. CVE scanning, license compliance, lockfile analysis across all ecosystems.<div class="tier">Default Tier: 1</div></div>
 <div class="card"><strong>learning-extractor</strong><br />Per-ticket learning extraction at Phase 6 clean exit. Reads resolved findings_log and writes fix-pattern entries to .agentic/learnings.md.<div class="tier">Default Tier: 1</div></div>
-<div class="card"><strong>wrap-ticket</strong><br />Per-ticket learnings capture at Phase 11b (PR open). Appends durable learnings to MEMORY.md, decisions.md, and .agentic/context.md.<div class="tier">Default Tier: 1</div></div>
+<div class="card"><strong>wrap-ticket</strong><br />Per-ticket learnings capture at Phase 11b (PR open). Appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md.<div class="tier">Default Tier: 1</div></div>
 <div class="card"><strong>learnings-agent</strong><br />Session-scoped background learnings capture. Receives learning events in real-time and writes structured entries to .agentic/learnings.md immediately.<div class="tier">Default Tier: 1</div></div>
 <div class="card"><strong>goal-condition-evaluator</strong><br />Cheap per-turn stop-condition check for open-goal loops. Gates continuation only, never correctness/safety.<div class="tier">Default Tier: 1</div></div>
 </div>

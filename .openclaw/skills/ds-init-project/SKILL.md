@@ -1011,6 +1011,9 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/tasks.jsonl
 .agentic/events.jsonl
 .agentic/context.md
+.agentic/context.d/
+.agentic/_wrap.md
+.agentic/_foreign.md
 .agentic/memory/
 .agentic/memory.md
 .agentic/wrap/

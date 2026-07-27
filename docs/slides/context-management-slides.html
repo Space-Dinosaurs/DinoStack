@@ -1292,14 +1292,14 @@ hr {
 <div class="columns">
 <div class="card">
 <strong>Stop hook (automatic)</strong><br />
-Fires after every turn. Writes <code>.agentic/context.md</code> with recent user messages, files touched, uncommitted changes, and tools used. Zero ceremony - it just runs.
+Fires after every turn. Writes this session's shard at <code>.agentic/context.d/&lt;session_id&gt;.md</code> - recent user messages, files touched, uncommitted changes, tools used - then recomposes <code>.agentic/context.md</code> from it. Zero ceremony - it just runs.
 </div>
 <div class="card">
 <strong>/ds-wrap (on demand)</strong><br />
 Replaces the stop hook's raw snapshot with a structured, enriched version. Captures decisions, conventions, and gotchas into AGENTS.md and memory. Merges across sessions.
 </div>
 </div>
-<p>If <code>/ds-wrap</code> has already written <code>.agentic/context.md</code>, the stop hook <strong>appends</strong> a Session Activity block instead of overwriting - so <code>/ds-wrap</code> content is never lost.</p>
+<p><code>/ds-wrap</code> content is never lost, and now neither is anyone else's: the two live in <strong>separate files</strong>. <code>/ds-wrap</code> owns the curated <code>.agentic/_wrap.md</code>; the stop hook owns per-session shards. <code>.agentic/context.md</code> is <strong>derived</strong> from both on every turn, so a lost update self-heals instead of destroying a session's work.</p>
 <div class="callout">
 The stop hook is the safety net - you always get <em>something</em>. <code>/ds-wrap</code> is the upgrade - you get structured, compounding context.
 </div>
@@ -1459,7 +1459,7 @@ hr {
 <h2 id="multiple-sessions-and-the-rolling-window">Multiple sessions and the rolling window</h2>
 
 <p>You can run <strong>multiple sessions in parallel</strong> - open separate terminals, each with <code>claude</code> in the same project directory. They share the same persistent memory and AGENTS.md.</p>
-<p>When you <code>/ds-wrap</code> each session, they merge into a shared <code>.agentic/context.md</code> using a <strong>rolling window of ten slots</strong> (Session A through J):</p>
+<p>When you <code>/ds-wrap</code> each session, they merge into a shared <code>.agentic/_wrap.md</code> using a <strong>rolling window of ten slots</strong> (Session A through J), and that curated region is carried into the derived <code>.agentic/context.md</code>:</p>
 <ul>
 <li>First wrap writes Session A. Second wrap labels the existing as A, adds B.</li>
 <li>At ten sessions, the oldest (A) drops off and everything shifts down.</li>
@@ -1467,7 +1467,7 @@ hr {
 </ul>
 <p>This means you can work on ten parallel streams in a project and <code>/ds-wrap</code> each one. The next session that starts sees a merged view of all recent work.</p>
 <div class="callout">
-The rolling window keeps <code>.agentic/context.md</code> bounded. Ten slots capture even heavily parallel workflows while keeping the file bounded.
+The rolling window keeps <code>.agentic/_wrap.md</code> bounded. Ten slots capture even heavily parallel workflows while keeping the file bounded; the derived <code>.agentic/context.md</code> is bounded the same way, at ten session shards.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="10" data-paginate="true" data-class="lead" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
