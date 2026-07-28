@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
-# Module: .codex/install.sh
-# Role: Install the Codex CLI adapter into ~/.codex/ and ~/.agents/skills/
-# Inputs: .codex/ build artifacts (AGENTS.md, agents/, skill/), .codex/config/hooks.json
-# Outputs: symlinks at ~/.agents/skills/agentic-engineering, ~/.codex/AGENTS.md,
-#          ~/.codex/agents/; ~/.codex/hooks.json symlinked to the session-stable
-#          hooks snapshot (DS-54, scripts/lib/hooks-snapshot.sh) when sync
-#          succeeds, else the checkout's .codex/config/hooks.json; codex_hooks
-#          feature flag ensured in ~/.codex/config.toml
-# Side-effects: backs up existing non-symlink targets with .backup-<timestamp>
-#               suffix; syncs the hooks snapshot dir; may append to config.toml
-# Consumers: user runs manually; re-run after repo move (or to refresh the
-#            hooks snapshot) to update absolute hook paths
+# Purpose: Install the generated Codex adapter, exactly four native DinoStack
+#          skills, named agents, hooks, activation/profile state, and PATH tools.
+# Public API: bash .codex/install.sh [--mode=opt-in|opt-out]
+#             [--profile=relaxed|default|strict] [--identity=<handle>]
+#             [--no-identity] [--config-dir=<dir>]. AGENTIC_CONFIG_DIR provides
+#             the first config-dir fallback; CODEX_HOME provides the second.
+# Upstream deps: .codex/build.sh and its generated AGENTS.md, agents/, skills/,
+#                and config/hooks.json outputs; scripts/lib/identity.sh and
+#                scripts/lib/hooks-snapshot.sh when present; Bash and Python 3.
+# Downstream consumers: manual installs and update workflows that populate
+#                       ~/.agents/skills/, the selected Codex config directory,
+#                       ~/.local/bin/, and shared activation/identity state.
+# Failure modes: staged source build/drift and unsafe user destinations fail
+#                before any user-state mutation; existing safe non-owned targets
+#                are backed up before replacement; optional identity and snapshot
+#                helpers degrade with explicit warnings.
+# Performance: one isolated source copy/build plus local filesystem installation,
+#              linear in repository and generated adapter size; no network access.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,6 +36,7 @@ AE_MODE_FLAG=""
 AE_PROFILE_FLAG=""
 AE_IDENTITY_FLAG=""
 AE_NO_IDENTITY=false
+AE_CONFIG_DIR_FLAG=""
 for arg in "$@"; do
   case "$arg" in
     --mode=opt-in|--mode=opt-out) AE_MODE_FLAG="${arg#--mode=}" ;;
@@ -49,19 +56,356 @@ for arg in "$@"; do
 done
 
 # Codex harness config directory (redirectable for per-profile installs).
-# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > default ~/.codex.
-# Shared user state (~/.claude activation config, ~/.local/bin) stays in $HOME.
-CODEX_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.codex}}"
-# Public API note: --config-dir=<dir> / AGENTIC_CONFIG_DIR redirects this
-# harness config dir for per-profile installs; shared state stays in $HOME.
+# Precedence: --config-dir flag > AGENTIC_CONFIG_DIR env > CODEX_HOME env >
+# default ~/.codex.
+# PATH tools stay in $HOME; activation follows an explicit redirected config.
+CODEX_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${CODEX_HOME:-$HOME/.codex}}}"
+# Public API note: --config-dir=<dir>, AGENTIC_CONFIG_DIR, or CODEX_HOME
+# redirects this harness config dir for per-profile installs.
 
 # Activation config path defaults to the shared $HOME location but is also
 # redirectable via --config-dir so multi-tenant installs (one profile per
 # harness-tenant pair) do not clobber each other or the shared default.
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
-if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
+if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${CODEX_HOME:-}}}" ]]; then
   AE_CONFIG_PATH="$CODEX_CONFIG_DIR/agentic-engineering.json"
 fi
+
+SKILLS_SRC="$REPO_DIR/.codex/skills"
+SKILLS_DST="$HOME/.agents/skills"
+LEGACY_SKILL_SRC="$REPO_DIR/.codex/skill"
+SKILL_NAMES=(agentic-engineering brief wrap implement-ticket)
+
+AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
+AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
+
+NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
+NAMED_AGENTS_DST="$CODEX_CONFIG_DIR/agents"
+
+CONFIG_FILE="$CODEX_CONFIG_DIR/config.toml"
+HOOKS_FLAG_MARKER="$CODEX_CONFIG_DIR/.agentic-eng-added-codex-hooks-flag"
+HOOKS_DST="$CODEX_CONFIG_DIR/hooks.json"
+HOOKS_SNAPSHOT_EXPECTED_DIR="$(python3 - "$REPO_DIR" "$HOME" <<'PYEOF'
+import hashlib
+import os
+import sys
+
+repo = os.path.realpath(sys.argv[1])
+home = os.path.abspath(os.path.expanduser(sys.argv[2]))
+base = os.path.basename(repo.rstrip("/")) or "repo"
+key = f"{base}-{hashlib.sha256(repo.encode('utf-8')).hexdigest()[:12]}"
+print(os.path.join(home, ".agentic", "hooks-snapshot", key))
+PYEOF
+)"
+
+# Validate every user-controlled install root and its user-owned ancestry before
+# the first mkdir, cleanup, config write, build, or link operation. This is a
+# lexical lstat walk from the nearest shared user root: no destination path
+# component may already be a symlink or non-directory. Redirected profile roots
+# may be siblings of HOME when they share a non-root user-controlled ancestor.
+ae_validate_install_roots() {
+  python3 - "$HOME" "$@" <<'PYEOF'
+import os
+import stat
+import sys
+from pathlib import Path
+
+home = Path(os.path.abspath(os.path.expanduser(sys.argv[1])))
+try:
+    home_info = os.lstat(home)
+except OSError as exc:
+    sys.stderr.write(f"unsafe install path: cannot inspect HOME {home}: {exc}\n")
+    raise SystemExit(1)
+if stat.S_ISLNK(home_info.st_mode) or not stat.S_ISDIR(home_info.st_mode):
+    sys.stderr.write(f"unsafe install path: HOME must be a real directory: {home}\n")
+    raise SystemExit(1)
+
+for raw in sys.argv[2:]:
+    target = Path(os.path.abspath(os.path.expanduser(raw)))
+    base = Path(os.path.commonpath((str(home), str(target))))
+    if base == Path(base.anchor):
+        sys.stderr.write(
+            f"unsafe install path: destination has no shared user root with HOME: {target}\n"
+        )
+        raise SystemExit(1)
+    try:
+        base_info = os.lstat(base)
+    except OSError as exc:
+        sys.stderr.write(f"unsafe install path: cannot inspect shared root {base}: {exc}\n")
+        raise SystemExit(1)
+    if stat.S_ISLNK(base_info.st_mode) or not stat.S_ISDIR(base_info.st_mode):
+        sys.stderr.write(f"unsafe install path: shared root must be a real directory: {base}\n")
+        raise SystemExit(1)
+    relative = target.relative_to(base)
+    current = base
+    for component in relative.parts:
+        current /= component
+        try:
+            info = os.lstat(current)
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            sys.stderr.write(f"unsafe install path: cannot inspect {current}: {exc}\n")
+            raise SystemExit(1)
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            sys.stderr.write(
+                f"unsafe install path: symlink or non-directory ancestor: {current}\n"
+            )
+            raise SystemExit(1)
+        if info.st_uid != os.geteuid() or info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+            sys.stderr.write(
+                f"unsafe install path: unowned or group/world-writable ancestor: {current}\n"
+            )
+            raise SystemExit(1)
+PYEOF
+}
+
+# Prove the complete source checkout builds in an isolated, mode-0700 staging
+# directory before touching HOME or any redirected Codex profile. The staged
+# outputs must match the persistent symlink sources exactly; a stale checkout
+# fails closed with instructions to rebuild it outside the installer.
+CODEX_INSTALL_STAGE="$(python3 - <<'PYEOF'
+import tempfile
+print(tempfile.mkdtemp(prefix="dinostack-codex-install-"))
+PYEOF
+)"
+
+ae_cleanup_install_stage() {
+  python3 - "$CODEX_INSTALL_STAGE" <<'PYEOF'
+import os
+import shutil
+import stat
+import sys
+
+path = os.path.abspath(sys.argv[1])
+info = os.lstat(path)
+if (
+    not os.path.basename(path).startswith("dinostack-codex-install-")
+    or stat.S_ISLNK(info.st_mode)
+    or not stat.S_ISDIR(info.st_mode)
+    or info.st_uid != os.geteuid()
+    or stat.S_IMODE(info.st_mode) != 0o700
+):
+    raise SystemExit(f"refusing unsafe Codex install staging cleanup: {path}")
+shutil.rmtree(path)
+PYEOF
+}
+trap 'ae_cleanup_install_stage >/dev/null 2>&1 || true' EXIT
+
+python3 - "$CODEX_INSTALL_STAGE" <<'PYEOF'
+import os
+import stat
+import sys
+
+path = os.path.abspath(sys.argv[1])
+info = os.lstat(path)
+if (
+    stat.S_ISLNK(info.st_mode)
+    or not stat.S_ISDIR(info.st_mode)
+    or info.st_uid != os.geteuid()
+    or stat.S_IMODE(info.st_mode) != 0o700
+):
+    raise SystemExit(f"unsafe Codex install staging directory: {path}")
+PYEOF
+
+python3 - "$REPO_DIR" "$CODEX_INSTALL_STAGE/repo" <<'PYEOF'
+import shutil
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+destination = Path(sys.argv[2])
+
+def ignored(directory, names):
+    ignored_names = {
+        name for name in names if name == "__pycache__" or name.endswith(".pyc")
+    }
+    if Path(directory).resolve() == source.resolve():
+        ignored_names.update(name for name in names if name in {".git", ".agentic"})
+    return ignored_names
+
+shutil.copytree(source, destination, symlinks=True, ignore=ignored)
+PYEOF
+
+set +e
+bash "$CODEX_INSTALL_STAGE/repo/.codex/build.sh" \
+  >"$CODEX_INSTALL_STAGE/build.stdout" \
+  2>"$CODEX_INSTALL_STAGE/build.stderr"
+CODEX_STAGE_BUILD_RC=$?
+set -e
+if [[ $CODEX_STAGE_BUILD_RC -ne 0 ]]; then
+  cat "$CODEX_INSTALL_STAGE/build.stdout"
+  cat "$CODEX_INSTALL_STAGE/build.stderr" >&2
+  ae_cleanup_install_stage
+  trap - EXIT
+  exit "$CODEX_STAGE_BUILD_RC"
+fi
+
+python3 - "$REPO_DIR" "$CODEX_INSTALL_STAGE/repo" <<'PYEOF'
+import hashlib
+import os
+import stat
+import sys
+from pathlib import Path
+
+source = Path(sys.argv[1])
+staged = Path(sys.argv[2])
+roots = (
+    Path(".codex/AGENTS.md"),
+    Path(".codex/agents"),
+    Path(".codex/skills"),
+)
+
+def snapshot(base, relative):
+    root = base / relative
+    paths = [root]
+    if root.is_dir() and not root.is_symlink():
+        paths.extend(sorted(root.rglob("*")))
+    records = {}
+    for path in paths:
+        key = path.relative_to(base).as_posix()
+        info = os.lstat(path)
+        if stat.S_ISLNK(info.st_mode):
+            records[key] = ("link", os.readlink(path))
+        elif stat.S_ISREG(info.st_mode):
+            records[key] = (
+                "file",
+                stat.S_IMODE(info.st_mode),
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+            )
+        elif stat.S_ISDIR(info.st_mode):
+            records[key] = ("directory", stat.S_IMODE(info.st_mode))
+        else:
+            records[key] = ("special", stat.S_IFMT(info.st_mode))
+    return records
+
+for relative in roots:
+    if snapshot(source, relative) != snapshot(staged, relative):
+        raise SystemExit(
+            f"Codex install source is stale at {relative}; run bash .codex/build.sh "
+            "and retry the installer"
+        )
+PYEOF
+
+ae_cleanup_install_stage
+trap - EXIT
+
+ae_validate_install_roots \
+  "$CODEX_CONFIG_DIR" \
+  "$(dirname "$AE_CONFIG_PATH")" \
+  "$HOME/.agents" \
+  "$HOME/.agents/skills" \
+  "$HOME/.agentic" \
+  "$HOME/.agentic/hooks-snapshot" \
+  "$HOME/.local" \
+  "$HOME/.local/bin" \
+  "$CODEX_CONFIG_DIR/skills"
+
+# Validate every final mutable destination before the first write. Existing
+# symlinks are accepted only when they already point at an installer-owned
+# source. Existing regular files must be owned, single-link, and not writable
+# by group or other. This makes a late malicious destination fail before an
+# earlier activation/config/snapshot destination can be changed.
+AE_FINAL_DESTINATIONS=(
+  $'file\t'"$AE_CONFIG_PATH"
+  $'file\t'"$CONFIG_FILE"
+  $'file\t'"$HOOKS_FLAG_MARKER"
+  $'file\t'"$HOME/.agentic/identity.yml"
+  $'directory\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR"
+  $'file\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.snapshot-meta.json"
+  $'link\t'"$AGENTS_DST"$'\t'"$AGENTS_SRC"
+  $'link\t'"$NAMED_AGENTS_DST"$'\t'"$NAMED_AGENTS_SRC"
+  $'link\t'"$HOOKS_DST"$'\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/hooks.json"
+)
+for skill_name in "${SKILL_NAMES[@]}"; do
+  if [[ "$skill_name" == "agentic-engineering" ]]; then
+    AE_FINAL_DESTINATIONS+=(
+      $'link\t'"$SKILLS_DST/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$LEGACY_SKILL_SRC"
+      $'link\t'"$CODEX_CONFIG_DIR/skills/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$LEGACY_SKILL_SRC"
+    )
+  else
+    AE_FINAL_DESTINATIONS+=(
+      $'link\t'"$SKILLS_DST/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"
+      $'link\t'"$CODEX_CONFIG_DIR/skills/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"
+    )
+  fi
+done
+for src_file in "$REPO_DIR"/bin/agentic-*; do
+  [[ -f "$src_file" ]] || continue
+  AE_FINAL_DESTINATIONS+=(
+    $'link\t'"$HOME/.local/bin/$(basename "$src_file")"$'\t'"$src_file"
+  )
+done
+
+ae_validate_install_destinations() {
+  python3 - "$@" <<'PYEOF'
+import os
+import stat
+import sys
+from pathlib import Path
+
+euid = os.geteuid()
+
+def fail(path, reason):
+    sys.stderr.write(f"unsafe install destination: {reason}: {path}\n")
+    raise SystemExit(1)
+
+def validate_owned(path, info, *, require_regular=False):
+    if info.st_uid != euid:
+        fail(path, "not owned by the current user")
+    if info.st_mode & (stat.S_IWGRP | stat.S_IWOTH):
+        fail(path, "group- or world-writable")
+    if require_regular:
+        if not stat.S_ISREG(info.st_mode):
+            fail(path, "expected a regular file")
+        if info.st_nlink != 1:
+            fail(path, "regular file has multiple hard links")
+
+for encoded in sys.argv[1:]:
+    parts = encoded.split("\t")
+    kind, path = parts[0], Path(os.path.abspath(os.path.expanduser(parts[1])))
+    try:
+        info = os.lstat(path)
+    except FileNotFoundError:
+        continue
+    except OSError as exc:
+        fail(path, f"cannot inspect ({exc})")
+
+    if kind == "file":
+        if stat.S_ISLNK(info.st_mode):
+            fail(path, "file is a symlink")
+        validate_owned(path, info, require_regular=True)
+        continue
+
+    if kind == "directory":
+        if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
+            fail(path, "expected a real directory")
+        validate_owned(path, info)
+        continue
+
+    if kind != "link":
+        fail(path, f"unknown preflight kind {kind!r}")
+
+    if stat.S_ISLNK(info.st_mode):
+        raw_target = os.readlink(path)
+        resolved_target = os.path.realpath(path.parent / raw_target)
+        allowed = parts[2:]
+        if not any(
+            raw_target == expected
+            or resolved_target == os.path.realpath(os.path.expanduser(expected))
+            for expected in allowed
+        ):
+            fail(path, f"symlink points outside installer-owned sources ({raw_target})")
+    elif stat.S_ISREG(info.st_mode):
+        validate_owned(path, info, require_regular=True)
+    elif stat.S_ISDIR(info.st_mode):
+        validate_owned(path, info)
+    else:
+        fail(path, "special file type")
+PYEOF
+}
+
+ae_validate_install_destinations "${AE_FINAL_DESTINATIONS[@]}"
 
 # Ensure the config dir exists before the first ae_write_* call. Without this,
 # a redirected --config-dir pointing at a not-yet-existing directory makes
@@ -87,13 +431,6 @@ except Exception:
     print(default)
 PYEOF
 }
-# Symlink guard: refuse if ~/.claude is a symlinked dir (CWE-59).
-[[ -L "$HOME/.claude" ]] && {
-  echo "  ! refusing to install through symlinked config dir: $HOME/.claude" >&2
-  exit 1
-}
-mkdir -p "$HOME/.claude"
-
 AE_EXISTING_MODE=""
 if [[ -f "$AE_CONFIG_PATH" ]]; then
   AE_EXISTING_MODE="$(ae_read_json_key "$AE_CONFIG_PATH" mode "")"
@@ -214,62 +551,61 @@ else
   echo "    Override with: bash .codex/install.sh --profile=relaxed|default|strict"
 fi
 
-SKILL_SRC="$REPO_DIR/.codex/skill"
-SKILL_DST="$HOME/.agents/skills/agentic-engineering"
-OLD_SKILL_DST="$CODEX_CONFIG_DIR/skills/agentic-engineering"
-
-AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
-AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
-
-NAMED_AGENTS_SRC="$REPO_DIR/.codex/agents"
-NAMED_AGENTS_DST="$CODEX_CONFIG_DIR/agents"
-
 # ---------------------------------------------------------------------------
-# Run build to ensure artifacts are up to date
+# Clean up old (incorrect) skill symlinks under the Codex config directory.
+# The correct path per Codex docs is ~/.agents/skills/<name>/.
 # ---------------------------------------------------------------------------
 
-echo "Running build..."
-bash "$REPO_DIR/.codex/build.sh"
-
-# ---------------------------------------------------------------------------
-# Clean up old (incorrect) skill symlink at ~/.codex/skills/agentic-engineering/
-# The correct path per Codex docs is ~/.agents/skills/<name>/, not ~/.codex/skills/.
-# ---------------------------------------------------------------------------
-
-if [[ -L "$OLD_SKILL_DST" ]]; then
-  old_target="$(readlink "$OLD_SKILL_DST")"
-  if [[ "$old_target" == "$SKILL_SRC" ]]; then
-    rm "$OLD_SKILL_DST"
-    echo "  - Removed stale symlink at $OLD_SKILL_DST (was pointing to $SKILL_SRC)"
-  else
-    echo "  ! $OLD_SKILL_DST points to $old_target (not ours - leaving it)"
+for skill_name in "${SKILL_NAMES[@]}"; do
+  old_skill_dst="$CODEX_CONFIG_DIR/skills/$skill_name"
+  skill_src="$SKILLS_SRC/$skill_name"
+  if [[ -L "$old_skill_dst" ]]; then
+    old_target="$(readlink "$old_skill_dst")"
+    if [[ "$old_target" == "$skill_src" || \
+          ( "$skill_name" == "agentic-engineering" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
+      rm "$old_skill_dst"
+      echo "  - Removed stale symlink at $old_skill_dst"
+    else
+      echo "  ! $old_skill_dst points to $old_target (not ours - leaving it)"
+    fi
+  elif [[ -e "$old_skill_dst" ]]; then
+    echo "  ! Real file/directory at $old_skill_dst - not removing (manual cleanup may be needed)"
   fi
-elif [[ -e "$OLD_SKILL_DST" ]]; then
-  echo "  ! Real file/directory at $OLD_SKILL_DST - not removing (manual cleanup may be needed)"
-fi
+done
 
 # ---------------------------------------------------------------------------
-# Symlink the agentic-engineering skill into ~/.agents/skills/
+# Symlink all four native skills into ~/.agents/skills/
 # Per Codex docs: user-scope skills load from $HOME/.agents/skills/<name>/SKILL.md
 # ---------------------------------------------------------------------------
 
-echo "Linking skill: agentic-engineering..."
+echo "Linking native skills..."
 
-mkdir -p "$(dirname "$SKILL_DST")"
+mkdir -p "$SKILLS_DST"
 
-if [[ -L "$SKILL_DST" ]]; then
-  current_target="$(readlink "$SKILL_DST")"
-  if [[ "$current_target" == "$SKILL_SRC" ]]; then
-    echo "  = agentic-engineering (already linked)"
-  else
-    echo "  ! agentic-engineering (symlink points elsewhere: $current_target - skipping)"
+for skill_name in "${SKILL_NAMES[@]}"; do
+  skill_src="$SKILLS_SRC/$skill_name"
+  skill_dst="$SKILLS_DST/$skill_name"
+  if [[ ! -d "$skill_src" || ! -f "$skill_src/SKILL.md" ]]; then
+    echo "  ! generated skill is missing or incomplete: $skill_src" >&2
+    exit 1
   fi
-elif [[ -e "$SKILL_DST" ]]; then
-  echo "  ! agentic-engineering (real file/directory exists at destination - skipping)"
-else
-  ln -s "$SKILL_SRC" "$SKILL_DST"
-  echo "  + agentic-engineering skill linked to $SKILL_DST"
-fi
+  if [[ -L "$skill_dst" ]]; then
+    current_target="$(readlink "$skill_dst")"
+    if [[ "$current_target" == "$skill_src" ]]; then
+      echo "  = $skill_name (already linked)"
+    elif [[ "$skill_name" == "agentic-engineering" && "$current_target" == "$LEGACY_SKILL_SRC" ]]; then
+      ln -sfn "$skill_src" "$skill_dst"
+      echo "  ~ $skill_name (migrated from deleted singular skill source)"
+    else
+      echo "  ! $skill_name (symlink points elsewhere: $current_target - skipping)"
+    fi
+  elif [[ -e "$skill_dst" ]]; then
+    echo "  ! $skill_name (real file/directory exists at destination - skipping)"
+  else
+    ln -s "$skill_src" "$skill_dst"
+    echo "  + $skill_name skill linked to $skill_dst"
+  fi
+done
 
 # ---------------------------------------------------------------------------
 # Symlink ~/.codex/AGENTS.md to .codex/AGENTS.md
@@ -386,10 +722,6 @@ HOOKS_SRC="$AE_HOOKS_ROOT/.codex/config/hooks.json"
 # moved to the snapshot.
 LEGACY_HOOKS_SRC="$REPO_DIR/.codex/hooks.json"
 LEGACY_HOOKS_SRC2="$REPO_DIR/.codex/config/hooks.json"
-HOOKS_DST="$CODEX_CONFIG_DIR/hooks.json"
-
-CONFIG_FILE="$CODEX_CONFIG_DIR/config.toml"
-
 canonicalize_path() {
   python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$1"
 }
@@ -496,7 +828,6 @@ else
 fi
 
 # Write a marker file so uninstall.sh knows to remove the flag
-HOOKS_FLAG_MARKER="$CODEX_CONFIG_DIR/.agentic-eng-added-codex-hooks-flag"
 if [[ $ADDED_CODEX_HOOKS_FLAG -eq 1 ]]; then
   touch "$HOOKS_FLAG_MARKER"
 fi
@@ -570,9 +901,10 @@ echo ""
 echo "Install complete."
 echo ""
 echo "What was installed:"
-echo "  ~/.agents/skills/agentic-engineering  -> $SKILL_SRC"
-echo "    Contains: SKILL.md (trigger + methodology summary)"
-echo "              references/ (skeptic-protocol, subagent-protocol, agent-team, design-goals)"
+for skill_name in "${SKILL_NAMES[@]}"; do
+  echo "  ~/.agents/skills/$skill_name  -> $SKILLS_SRC/$skill_name"
+done
+echo "    Four native Codex skills: core methodology plus brief, wrap, and implement-ticket workflows"
 echo ""
 echo "  ~/.codex/AGENTS.md  -> $AGENTS_SRC"
 echo "    Contains: Full agentic engineering methodology (loaded globally by Codex)"
@@ -591,8 +923,8 @@ echo "  .codex/AGENTS.md       - Source for the global ~/.codex/AGENTS.md symlin
 echo "  .codex/agents/         - Generated named agent TOML files (source: content/agents/*.md)"
 echo "  .codex/config/hooks.json - Source hooks configuration for ~/.codex/hooks.json"
 echo "  .codex/hooks/          - Hook scripts (risk-reminder.sh, stop-context-codex.js)"
-echo "  .codex/commands/       - Source command templates (hardlinks from content/commands/)"
-echo "  .codex/references/     - Local copies of reference docs"
+echo "  .codex/commands/       - Source command templates (tracked relative symlinks to ../../content/commands/*.md)"
+echo "  .codex/references/     - Reference docs (tracked relative symlinks to ../../content/references/*.md)"
 echo ""
 echo "IMPORTANT - coexistence note:"
 echo "  This install writes to ~/.agents/skills/, ~/.codex/AGENTS.md,"

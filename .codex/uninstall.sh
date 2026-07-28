@@ -22,9 +22,10 @@ set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-SKILL_SRC="$REPO_DIR/.codex/skill"
-SKILL_DST="$HOME/.agents/skills/agentic-engineering"
-OLD_SKILL_DST="$HOME/.codex/skills/agentic-engineering"
+SKILLS_SRC="$REPO_DIR/.codex/skills"
+SKILLS_DST="$HOME/.agents/skills"
+LEGACY_SKILL_SRC="$REPO_DIR/.codex/skill"
+SKILL_NAMES=(agentic-engineering brief wrap implement-ticket)
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
 AGENTS_DST="$HOME/.codex/AGENTS.md"
@@ -58,33 +59,43 @@ if [[ -f "$REPO_DIR/scripts/lib/hooks-snapshot.sh" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Remove the agentic-engineering skill symlink from ~/.agents/skills/
+# Remove the four native skill symlinks from ~/.agents/skills/
 # ---------------------------------------------------------------------------
 
-echo "Removing skill: agentic-engineering..."
+echo "Removing native skills..."
 
-if [[ -L "$SKILL_DST" ]]; then
-  current_target="$(readlink "$SKILL_DST")"
-  if [[ "$current_target" == "$SKILL_SRC" ]]; then
-    rm "$SKILL_DST"
-    echo "  - agentic-engineering skill symlink removed from $SKILL_DST"
+for skill_name in "${SKILL_NAMES[@]}"; do
+  skill_src="$SKILLS_SRC/$skill_name"
+  skill_dst="$SKILLS_DST/$skill_name"
+  if [[ -L "$skill_dst" ]]; then
+    current_target="$(readlink "$skill_dst")"
+    if [[ "$current_target" == "$skill_src" || \
+          ( "$skill_name" == "agentic-engineering" && "$current_target" == "$LEGACY_SKILL_SRC" ) ]]; then
+      rm "$skill_dst"
+      echo "  - $skill_name skill symlink removed from $skill_dst"
+    else
+      echo "  = $skill_dst (points to $current_target - not ours, skipping)"
+    fi
+  elif [[ -e "$skill_dst" ]]; then
+    echo "  = $skill_dst (real file/directory - not removing)"
   else
-    echo "  = $SKILL_DST (points to $current_target - not ours, skipping)"
+    echo "  = $skill_dst (not found - nothing to do)"
   fi
-elif [[ -e "$SKILL_DST" ]]; then
-  echo "  = $SKILL_DST (real file/directory - not removing)"
-else
-  echo "  = $SKILL_DST (not found - nothing to do)"
-fi
+done
 
-# Also clean up old (incorrect) symlink at ~/.codex/skills/ if present
-if [[ -L "$OLD_SKILL_DST" ]]; then
-  old_target="$(readlink "$OLD_SKILL_DST")"
-  if [[ "$old_target" == "$SKILL_SRC" ]]; then
-    rm "$OLD_SKILL_DST"
-    echo "  - Removed stale legacy symlink at $OLD_SKILL_DST"
+# Also clean up old (incorrect) symlinks at ~/.codex/skills/ if present
+for skill_name in "${SKILL_NAMES[@]}"; do
+  old_skill_dst="$HOME/.codex/skills/$skill_name"
+  skill_src="$SKILLS_SRC/$skill_name"
+  if [[ -L "$old_skill_dst" ]]; then
+    old_target="$(readlink "$old_skill_dst")"
+    if [[ "$old_target" == "$skill_src" || \
+          ( "$skill_name" == "agentic-engineering" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
+      rm "$old_skill_dst"
+      echo "  - Removed stale legacy symlink at $old_skill_dst"
+    fi
   fi
-fi
+done
 
 # ---------------------------------------------------------------------------
 # Remove ~/.codex/AGENTS.md symlink and restore backup if one exists
@@ -337,6 +348,7 @@ echo ""
 echo "Uninstall complete."
 echo ""
 echo "Note: The following files were NOT removed (they are part of the repo, not installed):"
+echo "  .codex/skills/         - stays in the repo (four generated native skills)"
 echo "  .codex/AGENTS.md       - stays in the repo"
 echo "  .codex/agents/         - stays in the repo (generated TOML files)"
 echo "  .codex/config/hooks.json - stays in the repo"

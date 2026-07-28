@@ -168,7 +168,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Permission-blocked fallback (non-methodology files only).** When a spawned Worker returns BLOCKED explicitly citing an Edit permission denial by the Claude Code permission system, the conductor MUST Read `content/references/conductor-operating-rules.md` §Permission-blocked fallback before applying any edit directly. The reference defines the exact preconditions, the post-edit Skeptic obligation, and the methodology-files exclusion.
 
-**Editing methodology files under `~/DinoStack/`.** Before editing any file under `content/**`, `.codex/skill/**`, build scripts, or hooks, the conductor MUST Read `content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `/ds-update-agentic-engineering` instead of direct Edit/Write.
+**Editing methodology files under `~/DinoStack/`.** Before editing any file under `content/**`, Codex native-skill generation inputs or outputs (`.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `scripts/codex-skills.py`, `.codex/skills/**`), build scripts, or hooks, the conductor MUST Read `content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking `/ds-update-agentic-engineering` instead of direct Edit/Write.
 
 **Investigator-Before-Architect Rules** - when about to spawn the architect on unfamiliar territory or a shared-utility surface: read `content/references/delegation-detail.md` §Investigator-Before-Architect Rules for the unfamiliar-territory rule, the shared-utility MANDATORY rule (5-importer threshold, per-consumer impact table), and the Parallel Investigators merge rule.
 

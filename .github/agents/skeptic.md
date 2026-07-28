@@ -61,7 +61,7 @@ Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line
 3.6. **Vision-alignment check (methodology-shaping changes only).** Applicability gate: this step applies only when the diff under review (Global-context field 6) touches one of the following canonical methodology-shaping paths - this is the single source of truth for the trigger set; the PR template comment and the vision-alignment-check CI workflow both reference this list - keep them in sync with it:
 
    - `content/**`
-   - `hooks/**`, `.codex/hooks/**`, `.codex/skill/**`, `.codex/config/hooks.json`, `.gemini/hooks/**`, `.kimi/hooks/**`
+   - `hooks/**`, `.codex/hooks/**`, `.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `.codex/skills/**`, `scripts/codex-skills.py`, `.codex/config/hooks.json`, `.gemini/hooks/**`, `.kimi/hooks/**`
    - `.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh`
    - `bin/**`
    - `*/install.sh` (any adapter's install script), `scripts/install*.sh`

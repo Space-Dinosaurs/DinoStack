@@ -2557,17 +2557,18 @@
       <tbody>
         <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively, no shim needed</td></tr>
         <tr><td><strong>Global instructions</strong></td><td><code>~/.codex/AGENTS.md</code></td></tr>
-        <tr><td><strong>Skill location</strong></td><td><code>~/.agents/skills/agentic-engineering/SKILL.md</code></td></tr>
-        <tr><td><strong>Slash commands</strong></td><td>Not first-class. Command files live in <code>.codex/commands/*.md</code> but must be pasted or referenced manually - no auto-invocation via <code>/ds-wrap</code> etc.</td></tr>
+        <tr><td><strong>Native skills</strong></td><td>Codex installs exactly four native Codex skills: <code>agentic-engineering</code>, <code>brief</code>, <code>wrap</code>, and <code>implement-ticket</code>. They install under <code>~/.agents/skills/</code>.</td></tr>
+        <tr><td><strong>Workflow invocation</strong></td><td>Invoke the native workflows with <code>$brief</code>, <code>$wrap</code>, and <code>$implement-ticket</code>. Bare <code>/ds-brief</code>, <code>/ds-wrap</code>, and <code>/ds-implement-ticket</code> are not Codex invocation syntax.</td></tr>
+        <tr><td><strong>Generation</strong></td><td>The canonical workflow sources are <code>content/commands/ds-brief.md</code>, <code>content/commands/ds-wrap.md</code>, and <code>content/commands/ds-implement-ticket.md</code>. <code>.codex/build.sh</code> runs <code>scripts/codex-skills.py</code> to generate each <code>SKILL.md</code> and <code>RESOURCE-MAP.json</code>, validate relative symlink/resource-map closure, and synchronize the exact allowlist. The read-only check rejects drift.</td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.codex/agents/*.toml</code> - TOML format (different from Claude Code's prompt-based spawn)</td></tr>
         <tr><td><strong>Hooks</strong></td><td><code>~/.codex/hooks.json</code> - requires <code>codex_hooks = true</code> in user config to enable the installer-managed hooks</td></tr>
-        <tr><td><strong>Stop hook / context save</strong></td><td><code>stop-context-codex.js</code> writes to <code>~/.codex/projects/[hash]/context.md</code></td></tr>
-        <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
+        <tr><td><strong>Stop hook / context save</strong></td><td><code>stop-context-codex.js</code> writes continuity to <code>~/.codex/projects/[hash]/context.md</code>. Project-local <code>&lt;cwd&gt;/.agentic/context.md</code> adoption belongs to the separate context-writer-migration unit and is not part of this generator unit.</td></tr>
+        <tr><td><strong>Activation config</strong></td><td>Default: <code>$HOME/.claude/agentic-engineering.json</code>. For a redirected Codex config directory, precedence is <code>AGENTIC_CONFIG_DIR</code> &gt; <code>CODEX_HOME</code> &gt; default, without validating, creating, or mutating <code>$HOME/.claude</code>.</td></tr>
         <tr><td><strong>Tier resolution</strong></td><td><code>~/.agentic/tier-map.yml</code> - no built-in Haiku/Sonnet/Opus enum; models resolved from the map</td></tr>
       </tbody>
     </table>
     <div class="note" style="margin-top: 12px; border-left-color: var(--cyan);">
-      <strong>What's different:</strong> Slash commands (<code>/ds-wrap</code>, <code>/ds-init-project</code>, etc.) do not auto-trigger. Reference the command files manually or paste their contents. The hook system is off by default - set <code>codex_hooks = true</code> in user config before expecting installer-managed Stop-hook context saves.
+      <strong>What's different:</strong> Only <code>$brief</code>, <code>$wrap</code>, and <code>$implement-ticket</code> are registered native workflow skills. Other DinoStack command documents can be loaded by the repository dispatcher when the methodology requires them, but they are not bare slash commands. The hook system is off by default - set <code>codex_hooks = true</code> in user config before expecting installer-managed Stop-hook context saves.
     </div>
   </div>
 

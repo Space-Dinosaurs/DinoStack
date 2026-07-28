@@ -1,34 +1,80 @@
 #!/usr/bin/env bash
+# Purpose: Deterministically rebuild every tracked Codex adapter artifact.
+#
+# Public API: bash .codex/build.sh
+#
+# Upstream deps: content methodology/rules/agents/commands/references, Codex
+#                frontmatter and compatibility inventory, and shared hook sources.
+#
+# Downstream consumers: .codex/install.sh, pre-commit, CI sync checks, and developers.
+#
+# Failure modes: exits non-zero before mutation when a mirror root is unsafe,
+#                or on methodology assembly, mirror replacement, native-skill
+#                validation, or named-agent generation failure.
+#
+# Performance: linear in canonical content and generated Codex artifact size.
+
 set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
 CODEX_DIR="$REPO_DIR/.codex"
 REFS_DST="$CODEX_DIR/references"
 COMMANDS_DST="$CODEX_DIR/commands"
-SKILL_DST="$CODEX_DIR/skill"
+HOOKS_DST="$CODEX_DIR/hooks"
+SKILLS_DST="$CODEX_DIR/skills"
 
-# ---------------------------------------------------------------------------
-# Portable inode helper (macOS uses -f, Linux uses -c)
-# ---------------------------------------------------------------------------
+validate_mirror_root() {
+  local label="$1"
+  local destination_dir="$2"
+  local ancestor
 
-get_inode() {
-  if stat -c %i /dev/null >/dev/null 2>&1; then
-    stat -c %i "$1"
-  else
-    stat -f %i "$1"
+  case "$destination_dir" in
+    "$CODEX_DIR"/*) ;;
+    *)
+      echo "ERROR: unsafe Codex mirror root ($label): path escapes $CODEX_DIR: $destination_dir" >&2
+      return 1
+      ;;
+  esac
+
+  if [[ -L "$destination_dir" || ( -e "$destination_dir" && ! -d "$destination_dir" ) ]]; then
+    echo "ERROR: unsafe Codex mirror root ($label): expected a real directory: $destination_dir" >&2
+    return 1
   fi
+
+  ancestor="$(dirname "$destination_dir")"
+  while [[ "$ancestor" != "$REPO_DIR" ]]; do
+    if [[ -L "$ancestor" || ! -d "$ancestor" ]]; then
+      echo "ERROR: unsafe Codex mirror root ($label): unsafe parent directory: $ancestor" >&2
+      return 1
+    fi
+    ancestor="$(dirname "$ancestor")"
+  done
 }
+
+# Validate every destination root as one read-only preflight. This must run
+# before AGENTS.md or any mirror is changed so one hostile root cannot expose
+# an external tree to a later rm, ln, or mkdir.
+validate_mirror_root "references" "$REFS_DST"
+validate_mirror_root "commands" "$COMMANDS_DST"
+validate_mirror_root "hooks" "$HOOKS_DST"
 
 # ---------------------------------------------------------------------------
 # Build AGENTS.md
 #
 # Assembles the methodology body via scripts/build-methodology.sh (which
-# reads content/sections/) then appends the remaining rules files, all into
-# a single AGENTS.md that Codex loads automatically from the project root.
-# A header and protocol reference footer are prepended/appended.
+# reads content/sections/), appends the remaining rules files, then translates
+# workflow references through scripts/codex-skills.py so the result advertises
+# native dollar skills and dispatcher-backed manual resources. A header and
+# protocol reference footer are prepended/appended.
 # ---------------------------------------------------------------------------
 
 AGENTS_DST="$CODEX_DIR/AGENTS.md"
+AGENTS_RAW="$(mktemp "$CODEX_DIR/.AGENTS.raw.XXXXXX")"
+AGENTS_RENDERED="$(mktemp "$CODEX_DIR/.AGENTS.rendered.XXXXXX")"
+cleanup_agents_temps() {
+  rm -f "$AGENTS_RAW" "$AGENTS_RENDERED"
+}
+trap cleanup_agents_temps EXIT
 
 {
   cat <<'HEADER'
@@ -36,9 +82,41 @@ AGENTS_DST="$CODEX_DIR/AGENTS.md"
 
 This file loads the agentic engineering methodology into every Codex session in this repository.
 
+## Codex runtime binding preamble
+
+Before following any operational instruction below, establish these bindings in order:
+
+1. Preserve the absolute invocation directory, then bind `AE_PROJECT_DIR` to its repository root
+   (`git rev-parse --show-toplevel`) when it is inside a Git repository, otherwise to that verified
+   absolute invocation directory. Do this before changing directories.
+2. Select the active Codex config directory from the first non-empty runtime source in this order:
+   `AGENTIC_CONFIG_DIR`, then `CODEX_HOME`, then the standard Codex config directory beneath a
+   validated absolute `HOME`. Require the selected path to resolve to a real current-user-owned
+   directory that is not group/world writable, then bind `AE_CODEX_CONFIG_DIR` to it.
+3. Inspect `AGENTS.md` beneath that selected config directory without following an unchecked final
+   path. Require the installed entry to be a symlink whose physical target is the regular
+   `.codex/AGENTS.md` file beneath a repository candidate whose `content/SKILL.md`, `.codex/`
+   directory, and executable `bin/agentic-codex-dispatch` form the DinoStack repository signature.
+   After those checks, bind `AE_REPO_DIR` to that physical repository root. Never infer it from the
+   process working directory.
+4. When an explicit config source selected the Codex directory, bind `AE_ACTIVATION_CONFIG` to
+   `agentic-engineering.json` beneath that directory. On the standard default install, bind
+   `AE_ACTIVATION_CONFIG` to `agentic-engineering.json` beneath the standard shared Claude config
+   directory under the validated `HOME`. Require the activation file to be a real, current-user-owned
+   regular file that is not group/world writable.
+5. Then bind `AE_SHARED_CONFIG_DIR` to the validated real parent directory of that activation file.
+   It must be current-user-owned and not group/world writable.
+
+If any binding cannot be established exactly, fail closed before executing the methodology. These
+rules mirror the native-skill resource-resolution contract and prevent project paths, repository
+resources, and shared user configuration from being conflated. After locating the validated
+dispatcher, evaluate the same contract with
+`$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings "<absolute-invocation-directory>"` and
+accept its JSON bindings only when they match the paths established above.
+
 **Note:** This file is auto-generated by `.codex/build.sh`. Do not edit it directly - edit the source files in `content/sections/` (methodology) or `content/rules/` (other rules) instead.
 
-For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see the reference docs in `~/.agents/skills/agentic-engineering/references/` (installed globally) or `.codex/references/` (local copies).
+For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see the reference docs in `~/.agents/skills/agentic-engineering/references/` (installed globally) or `.codex/references/` (tracked relative symlinks to `../../content/references/*.md`).
 
 ---
 
@@ -68,42 +146,29 @@ For detailed protocol specs, see the reference docs:
 - `agent-team.md` - Named agent roles, composed flows, decision rules
 - `design-goals.md` - System design principles and goals
 
-These live in `~/.agents/skills/agentic-engineering/references/` (global install) or `.codex/references/` (local copies).
+These live in `~/.agents/skills/agentic-engineering/references/` (global install) or `.codex/references/` (tracked relative symlinks to `../../content/references/*.md`).
 
 For command templates (ds-skeptic, ds-implement-ticket, ds-wrap, etc.), see `.codex/commands/`.
 FOOTER
 
-} > "$AGENTS_DST"
+} > "$AGENTS_RAW"
+
+python3 "$REPO_DIR/scripts/codex-skills.py" runtime-guidance --repo "$REPO_DIR" \
+  < "$AGENTS_RAW" > "$AGENTS_RENDERED"
+chmod 0644 "$AGENTS_RENDERED"
+mv "$AGENTS_RENDERED" "$AGENTS_DST"
+rm "$AGENTS_RAW"
+trap - EXIT
 
 echo "Built AGENTS.md"
 
 # ---------------------------------------------------------------------------
-# Build skill directory
+# Build the four native skills
 #
-# The Codex skill lives at .codex/skill/ (staging) and gets symlinked to
-# ~/.agents/skills/agentic-engineering/ by install.sh. It contains:
-#   - SKILL.md          (trigger metadata + methodology summary)
-#   - references/       (hardlinks to content/references/)
+# scripts/codex-skills.py transforms canonical prose through the reviewed
+# compatibility inventory, renders privately, validates resource closure, and
+# atomically synchronizes the exact generated allowlist.
 # ---------------------------------------------------------------------------
-
-mkdir -p "$SKILL_DST/references"
-
-# References: hardlink from content/ so edits stay in sync
-hardlink_from_content() {
-  local src="$1"
-  local dst="$2"
-  if [[ -e "$dst" ]] && [[ "$(get_inode "$src")" == "$(get_inode "$dst")" ]]; then
-    return
-  fi
-  rm -f "$dst"
-  ln "$src" "$dst"
-}
-
-for src in "$CONTENT/references/"*.md; do
-  hardlink_from_content "$src" "$SKILL_DST/references/$(basename "$src")"
-done
-
-echo "Rebuilt skill/references/ hardlinks"
 
 # ---------------------------------------------------------------------------
 # Build .codex/hooks/skill-auto-load-check.sh
@@ -116,102 +181,62 @@ echo "Rebuilt skill/references/ hardlinks"
 # Codex hooks (risk-reminder.sh, stop-context-codex.js) are hand-authored
 # directly in .codex/hooks/ because they are Codex-specific. skill-auto-load
 # behavior is adapter-agnostic and its single source of truth is repo-root
-# hooks/skill-auto-load-check.sh - hardlink it into .codex/hooks/ so the
-# already-wired hooks.json command resolves to a real script.
+# hooks/skill-auto-load-check.sh. Create a tracked relative symlink at
+# .codex/hooks/skill-auto-load-check.sh targeting
+# ../../hooks/skill-auto-load-check.sh so the already-wired hooks.json
+# command resolves to a real script.
 # ---------------------------------------------------------------------------
 
-mkdir -p "$CODEX_DIR/hooks"
-hardlink_from_content "$REPO_DIR/hooks/skill-auto-load-check.sh" "$CODEX_DIR/hooks/skill-auto-load-check.sh"
-
-echo "Rebuilt hooks/skill-auto-load-check.sh hardlink"
-
-# SKILL.md is a static file maintained in .codex/skill/SKILL.md
-# (not generated - its frontmatter and body are hand-authored for Codex's skill format)
-if [[ ! -f "$SKILL_DST/SKILL.md" ]]; then
-  echo "WARNING: $SKILL_DST/SKILL.md is missing - run install.sh to initialize it"
-fi
+mkdir -p "$HOOKS_DST"
 
 # ---------------------------------------------------------------------------
-# Build .codex/references/ (local project copies)
+# Build tracked relative symlink mirrors
 #
-# .codex/references/ contains hardlinks to content/references/ for users
-# browsing the repo without installing. .codex/skill/references/ is a
-# symlink to .codex/references/ so there is one source of truth.
+# .codex/references and .codex/commands expose canonical sources for browsing
+# and manual workflows. Correctness never depends on inode identity.
 # ---------------------------------------------------------------------------
 
-mkdir -p "$REFS_DST"
-
-for src in "$CONTENT/references/"*.md; do
-  hardlink_from_content "$src" "$REFS_DST/$(basename "$src")"
-done
-
-# Make skill/references/ a symlink to ../references (single source of truth)
-# Use a RELATIVE target so the symlink stays valid regardless of repo location.
-if [[ -L "$SKILL_DST/references" ]]; then
-  current_target="$(readlink "$SKILL_DST/references")"
-  if [[ "$current_target" != "../references" ]]; then
-    rm "$SKILL_DST/references"
-    ln -s "../references" "$SKILL_DST/references"
-  fi
-elif [[ -d "$SKILL_DST/references" ]]; then
-  # Was a real directory (old hardlink set) - replace with symlink
-  rm -rf "$SKILL_DST/references"
-  ln -s "../references" "$SKILL_DST/references"
-else
-  ln -s "../references" "$SKILL_DST/references"
-fi
-
-echo "Rebuilt references/ hardlinks"
-
-# project-scaffolding.yml and templates/: hardlink into .codex/skill/ so agentic-migrate can find them
-hardlink_from_content "$CONTENT/project-scaffolding.yml" "$SKILL_DST/project-scaffolding.yml"
-mkdir -p "$SKILL_DST/templates/.agentic"
-for tmpl_src in "$CONTENT"/templates/.agentic/*; do
-  [[ -f "$tmpl_src" ]] || continue
-  hardlink_from_content "$tmpl_src" "$SKILL_DST/templates/.agentic/$(basename "$tmpl_src")"
-done
-echo "Rebuilt skill/project-scaffolding.yml and templates/"
-
-# ---------------------------------------------------------------------------
-# Build .codex/commands/ (hardlinks from content/commands/, no transforms)
-#
-# Commands are hardlinked from content/commands/ as-is. The
-# /agentic-engineering prerequisite blockquote is NOT present in content/
-# (it is Claude Code-specific and prepended only by .claude/build.sh),
-# so no transform is needed here.
-#
-# Side-effects: also removes any stale .codex/commands/*.md file whose
-# basename no longer matches a content/commands/*.md source (e.g. after a
-# command rename or deletion upstream).
-# ---------------------------------------------------------------------------
-
-mkdir -p "$COMMANDS_DST"
-
-declare -a generated_commands=()
-for src in "$CONTENT/commands/"*.md; do
-  name="$(basename "$src")"
-  generated_commands+=("$name")
-  hardlink_from_content "$src" "$COMMANDS_DST/$name"
-done
-
-# Remove stale command files (source was renamed or deleted upstream)
-for existing in "$COMMANDS_DST"/*.md; do
-  [ -f "$existing" ] || continue
-  bname="$(basename "$existing")"
-  found=0
-  for gen in "${generated_commands[@]}"; do
-    if [[ "$gen" == "$bname" ]]; then
-      found=1
-      break
+sync_link_directory() {
+  local source_dir="$1"
+  local destination_dir="$2"
+  local relative_prefix="$3"
+  local src name existing
+  mkdir -p "$destination_dir"
+  for src in "$source_dir"/*.md; do
+    name="$(basename "$src")"
+    if [[ -e "$destination_dir/$name" && ! -L "$destination_dir/$name" ]]; then
+      rm "$destination_dir/$name"
+    fi
+    if [[ -L "$destination_dir/$name" && "$(readlink "$destination_dir/$name")" != "$relative_prefix/$name" ]]; then
+      rm "$destination_dir/$name"
+    fi
+    if [[ ! -L "$destination_dir/$name" ]]; then
+      ln -s "$relative_prefix/$name" "$destination_dir/$name"
     fi
   done
-  if [[ $found -eq 0 ]]; then
-    rm "$existing"
-    echo "Removed stale command: $bname"
-  fi
-done
+  for existing in "$destination_dir"/*.md; do
+    [[ -e "$existing" || -L "$existing" ]] || continue
+    [[ -e "$source_dir/$(basename "$existing")" ]] || rm "$existing"
+  done
+}
 
-echo "Rebuilt commands/ hardlinks"
+sync_link_directory "$CONTENT/references" "$REFS_DST" "../../content/references"
+sync_link_directory "$CONTENT/commands" "$COMMANDS_DST" "../../content/commands"
+
+if [[ -e "$HOOKS_DST/skill-auto-load-check.sh" && ! -L "$HOOKS_DST/skill-auto-load-check.sh" ]]; then
+  rm "$HOOKS_DST/skill-auto-load-check.sh"
+fi
+if [[ -L "$HOOKS_DST/skill-auto-load-check.sh" && \
+      "$(readlink "$HOOKS_DST/skill-auto-load-check.sh")" != "../../hooks/skill-auto-load-check.sh" ]]; then
+  rm "$HOOKS_DST/skill-auto-load-check.sh"
+fi
+if [[ ! -L "$HOOKS_DST/skill-auto-load-check.sh" ]]; then
+  ln -s "../../hooks/skill-auto-load-check.sh" "$HOOKS_DST/skill-auto-load-check.sh"
+fi
+
+echo "Rebuilt command, reference, and shared-hook symlinks"
+
+python3 "$REPO_DIR/scripts/codex-skills.py" build --repo "$REPO_DIR" --output "$SKILLS_DST"
 
 # ---------------------------------------------------------------------------
 # Build .codex/agents/ (generated TOML files from content/agents/*.md)
@@ -246,7 +271,6 @@ for src in "$CONTENT/agents/"*.md; do
   # Extract the YAML block between the first pair of --- delimiters.
   fm_name=""
   fm_description=""
-  fm_model=""
   in_fm=0
   past_fm=0
   body_lines=()
@@ -273,7 +297,6 @@ for src in "$CONTENT/agents/"*.md; do
       case "$key" in
         name)        fm_name="$val" ;;
         description) fm_description="$val" ;;
-        model)       fm_model="$val" ;;
       esac
       continue
     fi

@@ -1,0 +1,4 @@
+---
+name: wrap
+description: Close a DinoStack work session by safely consolidating context, memory, learnings, deferred work, and handoff state.
+---

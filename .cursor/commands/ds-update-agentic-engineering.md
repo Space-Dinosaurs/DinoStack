@@ -9,7 +9,7 @@ Handles the full edit-sync-build-commit-push cycle for methodology and tooling f
 **When to use - use whenever ANY of these hold:**
 - (a) The user asks to edit, add, or remove a rule, convention, agent definition, command, reference, or protocol doc under your agentic-engineering install.
 - (b) The user says "update the methodology", "change the protocol", "edit the wrap skill", "add an agent", "rename a command", or anything similar that implies changing a file in the agentic-engineering repo.
-- (c) You are about to use Edit or Write on any file whose absolute path is within one of the in-scope directories listed in Scope below (e.g. `<AE_REPO_DIR>/content/**`, `<AE_REPO_DIR>/.codex/skill/**`, the build scripts, `<AE_REPO_DIR>/hooks/**`, or `<AE_REPO_DIR>/.codex/hooks/**`). Files outside those directories (docs, README, build artifacts, top-level config) may be edited directly.
+- (c) You are about to use Edit or Write on any file whose absolute path is within one of the in-scope directories listed in Scope below (e.g. `<AE_REPO_DIR>/content/**`, the Codex native-skill generator inputs or outputs, the build scripts, `<AE_REPO_DIR>/hooks/**`, or `<AE_REPO_DIR>/.codex/hooks/**`). Files outside those directories (docs, README, unrelated build artifacts, top-level config) may be edited directly.
 
 **Why it matters:** Without this command's Step 0 git sync, concurrent edits from multiple machines produce push conflicts and messy rebases; without Step 4 commit+push, edits pile up uncommitted locally.
 
@@ -19,7 +19,7 @@ Handles the full edit-sync-build-commit-push cycle for methodology and tooling f
 
 In scope (must route through `/ds-update-agentic-engineering`):
 - `content/**` - the single source of truth for all rules, commands, references, and agent definitions
-- `.codex/skill/**` - the Codex adapter source
+- `.codex/skill-frontmatter/**`, `.codex/skill-compatibility.yml`, `scripts/codex-skills.py`, and `.codex/skills/**` - Codex native-skill generation inputs, reviewed compatibility inventory, generator, and generated outputs
 - `.claude/build.sh`, `.codex/build.sh`, `.cursor/build.sh` - build scripts that generate the adapter artifacts
 - `hooks/**` and `.codex/hooks/**` - git hooks (pre-commit, etc.) and Codex session hooks (risk-reminder, stop-context)
 

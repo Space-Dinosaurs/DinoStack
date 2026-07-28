@@ -1,4 +1,18 @@
 #!/usr/bin/env bash
+# Purpose: Enforce staged static-analysis, Codex native-skill drift, and adapter build gates.
+#
+# Public API: Git pre-commit hook invoked with no arguments from a DinoStack checkout.
+#
+# Upstream deps: the staged Git index, project lint/type tools when installed,
+#                scripts/check-codex-skill-sync.sh, and all adapter build scripts.
+#
+# Downstream consumers: local Git commits and worktree-isolated engineer commits.
+#
+# Failure modes: exits non-zero on lint, type, native-skill drift, or adapter build
+#                failures; skips unavailable optional linters and worktree builds.
+#
+# Performance: staged-path scoped until canonical content requires full adapter builds.
+
 set -euo pipefail
 
 REPO_DIR="$(git rev-parse --show-toplevel)"
@@ -11,14 +25,23 @@ REPO_DIR="$(git rev-parse --show-toplevel)"
 
 # Only run when bin/ or hooks/ Python/JS files are staged.
 # Extension-less Python CLIs in bin/ match ^bin/agentic-[a-z-]+$ (e.g. bin/agentic-cost).
-STAGED_PY=$(git diff --cached --name-only | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-[a-z-]+$' | grep -v '/tests/' | grep -v '/lib/' || true)
+STAGED_PY=()
+while IFS= read -r staged_python; do
+  [[ -n "$staged_python" ]] && STAGED_PY+=("$staged_python")
+done < <(
+  git diff --cached --name-only \
+    | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-[a-z-]+$' \
+    | grep -v '/tests/' \
+    | grep -v '/lib/' \
+    || true
+)
 STAGED_JS=$(git diff --cached --name-only | grep -E '^hooks/.*\.js$' | grep -v '/tests/' | grep -v '\.test\.js$' || true)
 
 # ruff lint (Python CLIs + hooks) - scoped to staged files only.
-if [ -n "$STAGED_PY" ]; then
+if [[ ${#STAGED_PY[@]} -gt 0 ]]; then
   if command -v ruff >/dev/null 2>&1; then
     echo "[pre-commit] Running ruff check on staged Python files..."
-    if ! ruff check $STAGED_PY 2>&1; then
+    if ! ruff check "${STAGED_PY[@]}" 2>&1; then
       echo "[pre-commit] ruff check failed - commit blocked."
       exit 1
     fi
@@ -29,14 +52,15 @@ if [ -n "$STAGED_PY" ]; then
 fi
 
 # mypy type-check (Python CLIs + hooks)
-if [ -n "$STAGED_PY" ]; then
+if [[ ${#STAGED_PY[@]} -gt 0 ]]; then
   if command -v mypy >/dev/null 2>&1; then
     echo "[pre-commit] Running mypy on staged Python files..."
     # PROMINENT: this list must be updated when adding a new extension-less
     # Python CLI to bin/. Only bin/agentic-* files with a python3 shebang are
     # eligible (e.g. bin/agentic-emit is bash and must NOT be added).
     MYPY_PY_ARGS=(
-      bin/agentic-calibrate bin/agentic-configure bin/agentic-cost bin/agentic-disable
+      bin/agentic-calibrate bin/agentic-codex-dispatch bin/agentic-codex-session-id
+      bin/agentic-configure bin/agentic-cost bin/agentic-disable
       bin/agentic-doctor bin/agentic-help bin/agentic-identity bin/agentic-memory
       bin/agentic-migrate bin/agentic-models bin/agentic-parse-subagent-usage
       bin/agentic-status bin/agentic-team bin/agentic-update
@@ -68,6 +92,53 @@ if [ -n "$STAGED_JS" ]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Codex native-skill drift gate
+#
+# This check runs before the worktree build skip so isolated engineer commits
+# receive the same read-only drift protection as the primary checkout. The
+# path set includes canonical prose/resources, generator configuration and CI
+# workflow inputs, tracked mirrors, and every generated native-skill output.
+# ---------------------------------------------------------------------------
+
+CODEX_SKILL_SYNC_REQUIRED=false
+while IFS= read -r staged_path; do
+  case "$staged_path" in
+    content/*|\
+    scripts/build-methodology.sh|\
+    scripts/codex-skills.py|\
+    scripts/check-codex-skill-sync.sh|\
+    scripts/test/test_codex_skills.py|\
+    .codex/build.sh|\
+    .codex/skill-frontmatter/*|\
+    .codex/skill-compatibility.yml|\
+    .codex/skills/*|\
+    .codex/commands/*|\
+    .codex/references/*|\
+    .codex/hooks/skill-auto-load-check.sh|\
+    hooks/skill-auto-load-check.sh|\
+    hooks/pre-commit|\
+    .github/workflows/codex-skill-sync.yml|\
+    .github/workflows/vision-alignment-check.yml)
+      CODEX_SKILL_SYNC_REQUIRED=true
+      break
+      ;;
+  esac
+done <<< "$(git diff --cached --name-only --diff-filter=ACMRD)"
+
+if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
+  echo "[pre-commit] Checking staged Codex native skill sync..."
+  CODEX_SKILL_INDEX_SNAPSHOT="$(mktemp -d)"
+  cleanup_codex_skill_snapshot() {
+    rm -rf "$CODEX_SKILL_INDEX_SNAPSHOT"
+  }
+  trap cleanup_codex_skill_snapshot EXIT
+  git checkout-index --all --prefix="$CODEX_SKILL_INDEX_SNAPSHOT/"
+  bash "$CODEX_SKILL_INDEX_SNAPSHOT/scripts/check-codex-skill-sync.sh"
+  cleanup_codex_skill_snapshot
+  trap - EXIT
+fi
+
+# ---------------------------------------------------------------------------
 # Adapter builds and staging (skipped in worktrees - build scripts assume
 # primary checkout; worktree engineers commit bin/hooks changes only)
 # ---------------------------------------------------------------------------
@@ -94,6 +165,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
   bash "$REPO_DIR/.opencode/build.sh"
   bash "$REPO_DIR/.pi/build.sh"
   bash "$REPO_DIR/.copilot/build.sh"
+  bash "$REPO_DIR/scripts/check-codex-skill-sync.sh"
 
   # Stage generated files
   git add \
@@ -101,6 +173,9 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.claude/skills/agentic-engineering/METHODOLOGY.md" \
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/agents/"*.toml \
+    "$REPO_DIR/.codex/skills" \
+    "$REPO_DIR/.codex/skill-compatibility.yml" \
+    "$REPO_DIR/.codex/hooks/skill-auto-load-check.sh" \
     "$REPO_DIR/.codex/references/"*.md \
     "$REPO_DIR/.codex/commands/"*.md \
     "$REPO_DIR/.cursor/rules/"*.mdc \
@@ -154,4 +229,3 @@ if git diff --cached --name-only | grep -q "^content/"; then
     echo ""
   fi
 fi
-

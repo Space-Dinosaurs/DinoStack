@@ -1,6 +1,22 @@
 #!/usr/bin/env node
 
 /**
+ * Purpose: Write lightweight Codex Stop-event session continuity to the
+ *          harness-owned hashed global context path.
+ *
+ * Public API: stdin JSON Stop payload; stdout `{}` with process exit 0.
+ *
+ * Upstream deps: Node.js standard library and hooks/lib/stdin-guard.js.
+ *
+ * Downstream consumers: .codex/config/hooks.json and later Codex sessions that
+ *                       read ~/.codex/projects/[hash]/context.md.
+ *
+ * Failure modes: malformed, missing, oversized, or stalled stdin and filesystem
+ *                errors fail silently with `{}`; project-local context is not
+ *                written by this hook. An interruption can leave context.md truncated or torn.
+ *
+ * Performance: one bounded stdin read and one bounded direct non-atomic local file write.
+ *
  * Codex Stop Hook - Session Context Writer
  *
  * Reads the Stop hook JSON payload from stdin and writes a minimal context.md
@@ -10,7 +26,7 @@
  * NOTE: This is a thinner version of the Claude Code stop-context.js.
  * The full Claude Code hook uses Claude Code's transcript format which differs
  * from Codex's. This stub captures: cwd, last assistant message, session_id,
- * and timestamp. For richer context, run /ds-wrap manually before ending a session.
+ * and timestamp. For richer context, run $wrap before ending a session.
  *
  * Codex Stop hook requirements:
  *  - Must output JSON on stdout when exiting 0
@@ -107,8 +123,8 @@ ${lastMsgSection}
 ## Notes
 
 This context file is a thin Codex port of the Claude Code stop-context hook.
-For richer context (paths referenced, tools used, uncommitted changes), run /ds-wrap
-manually before ending a session.
+For richer context (paths referenced, tools used, uncommitted changes), run $wrap
+before ending a session.
 `;
 
   // --- 6. Write file (silent failure) ---

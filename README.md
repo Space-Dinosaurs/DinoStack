@@ -107,6 +107,12 @@ For other tools (Cursor, Codex, Gemini, OpenCode, Pi coding agent, Pi oh-my-pi, 
 
 If you run several isolated tenant config dirs per tool (e.g. `~/.claude-projectA`, `~/.codex-projectB`), install into them without relocating shared state. Every harness `install.sh` accepts `--config-dir=<dir>` (or the `AGENTIC_CONFIG_DIR` env var); only the per-harness config directory moves, while shared user state (`~/.agentic`, `~/.local/bin`, `~/.claude.json`) always stays in the real `$HOME`.
 
+Codex has one activation-path exception for tenant isolation. Its default activation config is
+`$HOME/.claude/agentic-engineering.json`. For a redirected Codex config directory, activation
+moves into that selected directory as `agentic-engineering.json`; runtime precedence is
+`AGENTIC_CONFIG_DIR` > `CODEX_HOME` > default. A redirected Codex install does not validate,
+create, or mutate `$HOME/.claude`.
+
 ```bash
 # one profile, one harness
 bash .claude/install.sh --config-dir=$HOME/.claude-<tenant>
@@ -228,6 +234,8 @@ The same methodology is packaged for multiple tools. Each adapter lives in its o
 | OpenClaw        | `.openclaw/` | See [.openclaw/README.md](.openclaw/README.md) |
 | VS Code Copilot | `.copilot/`  | See [.copilot/README.md](.copilot/README.md)   |
 
+Codex installs exactly four native Codex skills: `agentic-engineering`, `brief`, `wrap`, and `implement-ticket`. Invoke its workflow skills with `$brief`, `$wrap`, and `$implement-ticket`; bare `/ds-brief`, `/ds-wrap`, and `/ds-implement-ticket` are canonical source names, not Codex invocation syntax. The workflow sources remain `content/commands/ds-brief.md`, `content/commands/ds-wrap.md`, and `content/commands/ds-implement-ticket.md`. `.codex/build.sh` runs `scripts/codex-skills.py` to transform the reviewed sources, generate each skill's `SKILL.md` and `RESOURCE-MAP.json`, validate relative symlink/resource-map closure, and synchronize the exact output allowlist. The read-only Codex skill check rejects drift.
+
 See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 
 ## What's included
@@ -316,7 +324,7 @@ agentic-identity show --scope effective
 ```
 DinoStack/
   .claude/              Claude Code adapter (skill, agents, commands, install/uninstall)
-  .codex/               Codex CLI adapter (AGENTS.md, skill, commands, install/uninstall)
+  .codex/               Codex CLI adapter (AGENTS.md, four native skills, commands, install/uninstall)
   .cursor/              Cursor adapter (rules, commands, hooks, install/uninstall)
   .gemini/              Gemini CLI adapter (GEMINI.md, agents, commands, install/uninstall)
   .kimi/                Kimi Code CLI adapter (AGENTS.md, skill, commands, install/uninstall)
