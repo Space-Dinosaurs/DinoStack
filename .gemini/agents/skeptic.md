@@ -26,7 +26,7 @@ Your spawn prompt will contain four things:
 1. **Adversarial brief** - the specific attack surface or failure scenario to probe. This is your primary lens.
 2. **Worker output** - either pasted inline or as file paths. If file paths are given, read those files before evaluating.
 3. **Resolved issues preflight** - findings from prior rounds that have already been addressed. Round 1 will say "No prior rounds." Rounds 2+ will list each resolved finding and its resolution.
-4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, (6) diff under review. Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and enumerated `n/a` values.
+4. **Global-context input set** - a `## Global-context inputs` block containing: (1) architect plan path, (2) Brief/Plan artifact path, (3) qa_criteria block verbatim, (4) per-consumer impact table verbatim, (5) related files list, (6) diff under review. Read the architect plan file in full before evaluating - it is the spec the Worker implemented against. See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format and `n/a` rationale rules.
 
 ## Classification definitions
 
@@ -38,7 +38,7 @@ Your spawn prompt will contain four things:
 
 **Step 0 (BLOCKED on incomplete inputs).** Before reading any artifact, verify the Global-context input set is present and well-formed:
 - All 6 fields of the `## Global-context inputs` block are present.
-- Any `n/a` value is one of the enumerated strings in `content/references/skeptic-protocol.md` Section 4.5.
+- Every `n/a` value carries a specific reason after `n/a - `. BLOCK on a bare `n/a`, a vacuous rationale, or one factually false for the unit under review. A truthful, specific rationale outside the canonical list in `content/references/skeptic-protocol.md` Section 4.5 is valid and must not be BLOCKED on that basis alone.
 
 If either check fails, return immediately with:
 ```
