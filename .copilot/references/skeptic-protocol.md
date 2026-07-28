@@ -261,9 +261,11 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 6. Diff under review: <git diff command OR file paths>
 ```
 
+On a pre-implementation review (e.g. Skeptic-on-plan, Skeptic-on-Brief), field 6 lists the paths the plan proposes to modify, since no diff exists yet.
+
 ### Enumerated `n/a` rationale set
 
-A bare `n/a` is invalid. Only the following strings are valid `n/a` values. Any other string triggers Skeptic Step 0 BLOCKED.
+A bare `n/a` is invalid - every `n/a` value MUST carry a specific reason in the shape `n/a - <reason>`. The strings below are the canonical, preferred wording for their recurring situations and MUST be used verbatim when one applies. This list is not exhaustive: a situation none of them covers may supply its own `n/a - <reason>` string, provided the reason is specific and truthful for the unit under review (see Step 0 check 2 below for how this is assessed).
 
 - `n/a - Trivial direct edit`
 - `n/a - permission-blocked carve-out`
@@ -271,7 +273,12 @@ A bare `n/a` is invalid. Only the following strings are valid `n/a` values. Any 
 - `n/a - non-shared-utility surface (importer count below 5 threshold)` (per-consumer table only)
 - `n/a - architect plan deferred to Plan-tier second pass` (Brief field only)
 - `n/a - Skeptic-on-Brief (Brief is the artifact under review)` (Brief field only)
+- `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` (Brief field only)
+- `n/a - single Elevated unit (no Brief required by the promotion gate)` (Brief field only)
+- `n/a - architect skipped (judgment-based skip for a well-understood, self-contained change, or mechanical skip per the simple/targeted-unit metric)` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit and `content/references/agent-team.md` for both skip paths)
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
+
+**Why this is open rather than closed:** the set above was previously treated as exhaustive. Four legitimate situations were discovered in two days, each while fixing the one before it (Skeptic-on-plan; single Elevated unit; mechanical architect skip; judgment-based architect skip). Completeness by enumeration does not hold for an evolving methodology with this many valid spawn shapes - a closed vocabulary guarantees a fifth instance. Do not re-close this list by reverting to string-membership checking; assess rationales on the merits instead (Step 0 check 2).
 
 ### Review-environment freshness precondition
 
@@ -286,7 +293,9 @@ A Skeptic comparing a PR against a base branch MUST work from a live, synchroniz
 Before reading any artifact or producing any findings, the Skeptic verifies the Global-context input set is complete and well-formed:
 
 1. All 6 fields are present.
-2. Any `n/a` value is one of the enumerated strings above.
+2. Every `n/a` value carries a specific reason after the `n/a - ` prefix. The Skeptic BLOCKS when a value is a bare `n/a`, has an empty or vacuous rationale (e.g. `n/a - not applicable`), or states a rationale that is factually false for the unit under review (e.g. citing "Trivial direct edit" on an Elevated unit, or citing a skip path that did not occur). A truthful, specific rationale that is NOT one of the enumerated strings above is valid and must NOT be BLOCKED on that basis alone - the enumerated set is canonical preferred wording for recurring situations, not an exhaustive whitelist.
+
+When the diff under review itself amends the enumerated `n/a` rationale set (i.e. a diff that adds, removes, or rewords one of the enumerated strings above), the Skeptic validates every field against the branch's own copy of this section, not the copy installed in its own environment - otherwise a PR that adds a value is spuriously BLOCKED against the pre-change enum it is itself updating.
 
 If either check fails, the Skeptic returns immediately with:
 
