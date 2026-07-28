@@ -89,11 +89,12 @@
  *       intervening adverbial aside: "Do NOT, under any circumstances
  *       whatsoever, release the lock...") or that uses a standalone
  *       circumstantial negator with no "not"/"never" at all ("...must
- *       under no circumstances invoke the release helper."). Fixed by (1)
- *       stripping short comma-delimited adverbial asides before matching,
- *       so the negation and the verb it governs read as the same clause,
- *       and (2) widening the negation-trigger lexicon to include
- *       standalone circumstantial negators.
+ *       under no circumstances invoke the release helper."). Fixed (in v5)
+ *       by stripping short comma-delimited adverbial asides ANYWHERE in the
+ *       sentence before matching, and by widening the negation-trigger
+ *       lexicon to include standalone circumstantial negators. v5's aside
+ *       strip was unanchored - see v6 below for the regression this caused
+ *       and its fix.
  *   (c) PATH_NAME was a verbatim transcription of five phrases and missed
  *       plausible spelling variants: the doc's own heading spells one path
  *       with a SPACE ("skip conditions") while the pattern required a
@@ -102,6 +103,41 @@
  *       literal spaces. Fixed by widening separators to `[-\s]+` throughout,
  *       plus adding "without having acquir*"/"hadn't acquir*"/"was not
  *       acquir*" as additional non-acquisition phrasings.
+ *
+ * v6 (round 5 fix) fixes a REGRESSION introduced by v5(b)'s aside-stripping
+ * and finishes v4's reflow tolerance:
+ *   (a) v5's `stripAsides()` removed a short comma-delimited aside from
+ *       ANYWHERE in the sentence, not just from immediately after the
+ *       negation trigger. That let an aside following an UNRELATED EARLIER
+ *       CLAUSE get stripped, shortening the trigger-to-release distance and
+ *       wrongly exempting a genuine unscoped release directive conjoined to
+ *       the negated clause by "and"/"so" (e.g. "The conductor must not
+ *       block Phase 12, however long wrap-ticket runs, and releases the
+ *       lock on the skip-conditions paths." - the "however long ..." aside
+ *       sits after "block Phase 12", not after "must not", but stripping it
+ *       pulled "releases" inside the 30-char post-strip gap of "must not",
+ *       which negates "block", not "releases"). Fixed by anchoring the
+ *       aside consumption directly to the negation trigger: the optional
+ *       aside is now matched as part of the SAME regex immediately after
+ *       the trigger token (`TRIGGER_ADJACENT_ASIDE`), so an aside anywhere
+ *       else in the sentence is left untouched and cannot bridge two
+ *       unrelated clauses. `stripAsides()` as a free-floating string
+ *       rewrite is removed entirely.
+ *   (b) Step (3)'s `getUnits()` still split any multi-physical-line block
+ *       one unit per line, even after v4 taught step (1b)'s golden pin to
+ *       tolerate a pure reflow of the "**If the lock is acquired:**" bullet
+ *       onto continuation lines. A harmless reflow (zero wording change)
+ *       therefore still passed (1b) but failed (3): the qualifier phrase
+ *       "If the lock is acquired" (on the bullet's first physical line) and
+ *       the release clause (pushed onto a continuation line by the wrap)
+ *       ended up in two different single-line "units", so the unit-wide
+ *       scope-qualifier exemption no longer covered the release clause.
+ *       Fixed by making `getUnits()` merge a bullet or heading start line
+ *       with any following continuation lines into one unit - mirroring
+ *       `extractBulletWithContinuation()` in step (1b) - so a reflow with no
+ *       wording change stays exempt, while a substantive edit (an appended
+ *       sentence, a contradicting continuation, a reorder, or a wording
+ *       change) is still caught by the golden pin and/or the semantic net.
  *
  * IMPORTANT SCOPE NOTE: this is a prose pin. It verifies THAT THE SCOPING
  * PARAGRAPH AND BULLET ARE UNCHANGED (golden pins) and THAT NO CONTRADICTING
@@ -426,13 +462,17 @@ console.log('\n[2] lock-held-by-another-session path carries its own no-release 
 // round-1 defects: two disagreeing locations).
 //
 // Detection strategy: group the section into UNITS - a unit is one bullet
-// list item (one physical line, since this doc's bullets never wrap onto a
-// continuation line) or one single-line paragraph/heading. A blank-line-
-// delimited block that itself spans multiple physical lines (a bullet list,
-// or a heading immediately followed by its bullets on the next lines with no
-// blank line between) is split one-unit-per-line; a block that is already a
-// single physical line (the common case - most paragraphs and bullets in
-// this section) is one unit as-is. Each unit is then split into SENTENCE-
+// list item or one paragraph/heading, INCLUDING any continuation lines that
+// wrap it (mirroring `extractBulletWithContinuation()` in step (1b), so a
+// pure reflow with no wording change is exempt here the same way it is
+// exempt there). A blank-line-delimited block that spans multiple physical
+// lines (a bullet list, or a heading immediately followed by its bullets on
+// the next lines with no blank line between) is split at each new bullet/
+// heading start line; any line that is neither a bullet nor a heading start
+// is treated as a CONTINUATION of the preceding unit and merged into it. A
+// block that is already a single physical line (the common case - most
+// paragraphs and bullets in this section) is one unit as-is. Each unit is
+// then split into SENTENCE-
 // level spans for match LOCALIZATION (a Pattern A/B co-occurrence must fall
 // within one sentence - a raw character-count radius is exactly what round 2
 // defeated), while the scope-qualifier EXEMPTION check below is evaluated
@@ -477,7 +517,12 @@ console.log('\n[2] lock-held-by-another-session path carries its own no-release 
 console.log('\n[3] no unscoped or wording-variant unconditional-release claim elsewhere in Phase 11b');
 {
   // (3a) Group the raw (unnormalized) section into units, excluding the
-  // golden "Lock release:" paragraph.
+  // golden "Lock release:" paragraph. A unit is one bullet/heading start
+  // line plus any continuation lines that follow it (lines that are
+  // themselves neither a new bullet nor a heading), so a pure line-wrap
+  // reflow of a bullet does not split its qualifier phrase and its release
+  // clause into two different units - matching
+  // `extractBulletWithContinuation()` in step (1b).
   function getUnits(raw) {
     const blocks = raw.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
     const units = [];
@@ -485,10 +530,21 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
       if (/^Lock release:/i.test(block)) continue; // golden paragraph: excluded
       const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
       if (lines.length <= 1) {
-        units.push(block);
-      } else {
-        for (const line of lines) units.push(line);
+        if (lines.length === 1) units.push(block);
+        continue;
       }
+      let current = null;
+      for (const line of lines) {
+        const isBullet = /^-\s/.test(line);
+        const isHeading = /^#{1,6}\s/.test(line);
+        if (isBullet || isHeading || current === null) {
+          if (current !== null) units.push(current);
+          current = line;
+        } else {
+          current += ' ' + line; // continuation line: merge into current unit
+        }
+      }
+      if (current !== null) units.push(current);
     }
     return units;
   }
@@ -591,38 +647,50 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
   //        adverbial aside ("Do NOT, under any circumstances whatsoever,
   //        release the lock") or via a standalone circumstantial negator
   //        with no "not"/"never" at all ("...must under no circumstances
-  //        invoke the release helper"). Fix: (a) strip short comma-delimited
-  //        adverbial asides before matching, so the negation and the verb it
-  //        governs are read as the same clause instead of radius-separated;
-  //        (b) widen the trigger set to include standalone circumstantial
-  //        negators ("under no circumstances", "in no case", "on no
-  //        account", "in no event") that do not require a co-occurring
-  //        "not"/"never".
-  // The residual gap window (30 chars, applied AFTER aside-stripping) still
-  // guards against a negation trigger and "release" that are unrelated
-  // clauses merely sharing a sentence - the window is now clause-scoped
-  // rather than raw-radius-scoped.
+  //        invoke the release helper"). Fix: (a) allow an adverbial aside to
+  //        be optionally consumed IMMEDIATELY AFTER the negation trigger
+  //        (see `TRIGGER_ADJACENT_ASIDE` below), so the negation and the
+  //        verb it governs read as the same clause instead of
+  //        radius-separated; (b) widen the trigger set to include standalone
+  //        circumstantial negators ("under no circumstances", "in no case",
+  //        "on no account", "in no event") that do not require a
+  //        co-occurring "not"/"never".
+  //
+  // v6 correction: an earlier version of fix (ii)(a) stripped a short
+  // comma-delimited aside from ANYWHERE in the sentence before matching, not
+  // just from immediately after the trigger. That was a regression: it let
+  // an aside following an UNRELATED EARLIER CLAUSE be removed, shortening
+  // the apparent trigger-to-release distance and wrongly exempting a
+  // genuine unscoped release directive conjoined to the negated clause by
+  // "and"/"so" (e.g. "The conductor must not block Phase 12, however long
+  // wrap-ticket runs, and releases the lock on the skip-conditions paths." -
+  // "not" negates "block", not "releases", but stripping the unrelated
+  // "however long..." aside pulled "releases" inside the post-strip 30-char
+  // gap of "must not"). Fixed by folding the optional aside into the SAME
+  // regex as the trigger, immediately after it (`TRIGGER_ADJACENT_ASIDE`),
+  // so only an aside directly adjacent to the trigger can be consumed - an
+  // aside anywhere else in the sentence is left untouched and cannot bridge
+  // two unrelated clauses. The residual 30-char gap after the (optional)
+  // aside still bounds the search to a single local clause; it is anchored
+  // to the trigger's own immediate continuation, not a free-floating radius
+  // that can be shortened by unrelated text elsewhere in the sentence.
   const INVERSION_WORD = /\b(?:skip|omit|withhold|forgo|forego|neglect)\b/i;
   const NEGATION_TRIGGER =
     '(?:(?:do|does|did|must|shall|will|should)\\s+not|never|' +
     'under\\s+no\\s+circumstances|in\\s+no\\s+case|on\\s+no\\s+account|in\\s+no\\s+event)';
-  const negatedReleaseRe = new RegExp(`\\b${NEGATION_TRIGGER}\\b([^]{0,30}?)\\b${RELEASE}\\b`, 'gi');
-
-  function stripAsides(text) {
-    // Remove short comma-delimited adverbial asides ("Do NOT, under any
-    // circumstances whatsoever, release the lock" -> "Do NOT release the
-    // lock") so a negation and the release word it governs are read as the
-    // same clause rather than separated by an interjected phrase. Bounded
-    // to a short span (60 chars) so this cannot be abused to bridge two
-    // genuinely unrelated clauses.
-    return text.replace(/,\s*[^,]{1,60}?,\s*/g, ' ');
-  }
+  // Optionally consumes a short comma-delimited adverbial aside, but ONLY
+  // when it starts immediately (after optional whitespace) at the negation
+  // trigger - never a free-floating strip elsewhere in the sentence.
+  const TRIGGER_ADJACENT_ASIDE = '(?:,\\s*[^,]{1,60}?,\\s*)?';
+  const negatedReleaseRe = new RegExp(
+    `\\b${NEGATION_TRIGGER}\\b${TRIGGER_ADJACENT_ASIDE}([^]{0,30}?)\\b${RELEASE}\\b`,
+    'gi'
+  );
 
   function isGenuinelyNegated(sentence) {
-    const stripped = stripAsides(sentence);
     negatedReleaseRe.lastIndex = 0;
     let m;
-    while ((m = negatedReleaseRe.exec(stripped)) !== null) {
+    while ((m = negatedReleaseRe.exec(sentence)) !== null) {
       const gap = m[1];
       if (!INVERSION_WORD.test(gap)) return true;
       if (negatedReleaseRe.lastIndex === m.index) negatedReleaseRe.lastIndex++;
