@@ -21,5 +21,6 @@
   "skill_candidate_detection": true,
   "skill_candidate_nudge": false,
   "ticket_driven": "offer",
-  "rework_detection": true
+  "rework_detection": true,
+  "pending_merge_sweep": true
 }
