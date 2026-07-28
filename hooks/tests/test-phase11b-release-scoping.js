@@ -139,6 +139,34 @@
  *       this is an accepted cost against a hypothetical future rewording,
  *       not a live regression.
  *
+ * v6 (fix pass 3, on top of v5's reversion) re-adds ONE narrow anti-exemption
+ * on top of the plain `NEGATED_RELEASE` check restored by v5(c): `INVERSION_WORD`.
+ * v5(c)'s revert also discarded the fix for a DIFFERENT, unrelated defect this
+ * branch was created to address - a double-negative construction where a verb
+ * BETWEEN the negation trigger and the release word inverts the meaning back
+ * to a directive to release, e.g. "Do not skip the release...", "Never
+ * withhold release...", "Do not omit the release...". Under the plain
+ * `NEGATED_RELEASE` check alone these all read as legitimate prohibitive
+ * prose (negation trigger within 30 chars of "release") and are wrongly
+ * exempted. `INVERSION_WORD` closes this specific gap: when the captured gap
+ * between the negation trigger and the release word contains one of
+ * skip/omit/withhold/forgo/forego/neglect, the sentence is no longer treated
+ * as negated. This check is SAFE where the three prior clause-governance
+ * attempts were not, because it is STRICTLY ONE-DIRECTIONAL BY CONSTRUCTION:
+ * it can only WITHDRAW an exemption the plain check already grants (turning
+ * an exempted sentence into a caught one), and can never GRANT a new
+ * exemption. It therefore cannot reproduce the false-PASS bypass class that
+ * defeated every previous attempt at refining this check - those attempts
+ * widened what got exempted; this one only narrows it. The word list is
+ * deliberately CLOSED and small: it is a proximity check plus a fixed-list
+ * veto, not a clause-boundary or governance detector, and it does not close
+ * the wider double-negative construction class - "fail to release", "refrain
+ * from releasing", "hesitate to release", and "avoid releasing" all remain
+ * uncaught. v5(c)'s two disclosed false-FAILs (a distant negation trigger
+ * more than 30 chars from "release") are UNCHANGED by this addition; they are
+ * a property of the raw-radius check v6 builds on top of, not something v6
+ * touches.
+ *
  * IMPORTANT SCOPE NOTE: this is a prose pin. It verifies THAT THE SCOPING
  * PARAGRAPH AND BULLET ARE UNCHANGED (golden pins) and THAT NO CONTRADICTING
  * DIRECTIVE HAS BEEN ADDED ELSEWHERE (semantic net, Patterns A/B/C). It
@@ -656,7 +684,40 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
   const PATH_NAME = '(?:skip[-\\s]?conditions?|held[-\\s]+by[-\\s]+another[-\\s]+session|never\\s+acquir\\w*|did\\s+not\\s+acquir\\w*|did\\s+not\\s+create|without\\s+having\\s+acquir\\w*|hadn\'?t\\s+acquir\\w*|was\\s+not\\s+acquir\\w*)';
   const forwardC = new RegExp(`\\b${RELEASE}\\b${WINDOW}\\b${PATH_NAME}\\b`, 'i');
   const backwardC = new RegExp(`\\b${PATH_NAME}\\b${WINDOW}\\b${RELEASE}\\b`, 'i');
-  const NEGATED_RELEASE = new RegExp(`\\b(?:do|does|did|must|shall|will|should)\\s+not\\b[^]{0,30}?\\b${RELEASE}\\b|\\bnever\\b[^]{0,30}?\\b${RELEASE}\\b`, 'i');
+
+  // INVERSION_WORD (fix pass 3, layered on top of the v5(c) reversion above):
+  // one narrow, ONE-DIRECTIONAL anti-exemption. It can only WITHDRAW an
+  // exemption the raw-radius negation check below would otherwise grant - it
+  // never grants a new one - so it cannot reproduce the false-PASS bypass
+  // class that defeated the three prior clause-governance attempts (see
+  // v5(c) above). Concretely: "do NOT/never <verb> release" is normally read
+  // as prohibitive prose exempting the sentence from Pattern C, but when the
+  // captured verb between the trigger and "release" is itself one of
+  // skip/omit/withhold/forgo/forego/neglect, the construction INVERTS back to
+  // a directive to release (e.g. "Do not skip the release...", "Never
+  // withhold release...", "Do not omit the release..."), and the exemption
+  // must not apply. This is a fixed, CLOSED word list, not a general
+  // double-negative detector - it does not attempt to detect a clause
+  // boundary, an aside, or grammatical governance, only proximity plus a
+  // veto. The construction class it targets remains open: "fail to
+  // release", "refrain from releasing", "hesitate to release", and "avoid
+  // releasing" are NOT covered and are known, accepted gaps.
+  const INVERSION_WORD = '(?:skip|omit|withhold|forgo|forego|neglect)\\w*';
+  const inversionRe = new RegExp(`\\b${INVERSION_WORD}\\b`, 'i');
+  const NOT_RELEASE_GAP = new RegExp(`\\b(?:do|does|did|must|shall|will|should)\\s+not\\b([^]{0,30}?)\\b${RELEASE}\\b`, 'i');
+  const NEVER_RELEASE_GAP = new RegExp(`\\bnever\\b([^]{0,30}?)\\b${RELEASE}\\b`, 'i');
+
+  // isNegatedRelease(): true only when a raw-radius negation match is found
+  // AND the captured gap does not contain an inversion word. Since this can
+  // only turn a previously-true result false (never the reverse), the
+  // one-directional property above holds by construction, not by inspection.
+  function isNegatedRelease(sentence) {
+    const notMatch = NOT_RELEASE_GAP.exec(sentence);
+    if (notMatch && !inversionRe.test(notMatch[1])) return true;
+    const neverMatch = NEVER_RELEASE_GAP.exec(sentence);
+    if (neverMatch && !inversionRe.test(neverMatch[1])) return true;
+    return false;
+  }
 
   const units = getUnits(sectionRaw);
   const hits = [];
@@ -675,7 +736,7 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
         continue;
       }
       const cHit = forwardC.test(sentence) || backwardC.test(sentence);
-      if (cHit && !NEGATED_RELEASE.test(sentence)) {
+      if (cHit && !isNegatedRelease(sentence)) {
         hits.push(sentence);
       }
     }
