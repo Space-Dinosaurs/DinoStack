@@ -21,7 +21,11 @@
 #                                 complete when a legitimate value is missing
 #                                 from it; no amount of widening the pattern or
 #                                 the file set answers a completeness question
-#                                 about a closed list.
+#                                 about a closed list. This axis is no longer
+#                                 method-less (DS-113): the clause now names
+#                                 the method (derive the population
+#                                 independently and diff against the list) and
+#                                 points at a worked example, both pinned below.
 #
 #          A second gate confirms the pre-existing freshness half of the same
 #          rule (the reason the rule exists in the first place - stale git
@@ -88,6 +92,31 @@ if grep -qF 'is not a substitute for verifying falsifiable claims before acting 
   _pass "freshness half present (closing sentence intact)"
 else
   _fail "FRESHNESS HALF MISSING: the closing sentence of the pre-existing freshness rule ('...is not a substitute for verifying falsifiable claims before acting on them.') was not found in $FILE. That half addresses stale git state producing a false absence claim and must survive any edit to the adjacent scope-axis clause."
+fi
+
+# Axis 3 method (DS-113 item 5): closed-list broadening now names a method,
+# not just the axis. A membership grep against the list's own current
+# members can only confirm what is already there - it can never surface the
+# one legitimate value that is missing from it.
+if grep -qF 'deriving its members independently and diffing against it' "$FILE"; then
+  _pass "closed-list method present (item 5)"
+else
+  _fail "METHOD MISSING: 'deriving its members independently and diffing against it' not found in $FILE - item 5 requires the closed-list axis to name a method, not just the axis. A membership grep against the list's own current members can only confirm them; it cannot answer a completeness question about the list, which is exactly the DS-98 failure mode this method exists to prevent."
+fi
+
+# Worked-example pointer (dangling-pointer guard): the clause's pointer and
+# the target heading it points at must both be live, or the pointer rots
+# silently the next time either file is edited.
+if grep -qF '§Absence-claim scope axes' "$FILE"; then
+  _pass "worked-example pointer present in $FILE"
+else
+  _fail "POINTER MISSING: '§Absence-claim scope axes' not found in $FILE - the closed-list method needs a worked example pointer, or the method reads as unmotivated prose."
+fi
+
+if grep -qF '## Absence-claim scope axes' content/references/delegation-detail.md; then
+  _pass "worked-example heading present in content/references/delegation-detail.md"
+else
+  _fail "HEADING MISSING: '## Absence-claim scope axes' not found in content/references/delegation-detail.md - the pointer in $FILE now dangles; restore the target section or update the pointer."
 fi
 
 echo

@@ -275,7 +275,8 @@ A bare `n/a` is invalid - every `n/a` value MUST carry a specific reason in the 
 - `n/a - Skeptic-on-Brief (Brief is the artifact under review)` (Brief field only)
 - `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` (Brief field only)
 - `n/a - single Elevated unit (no Brief required by the promotion gate)` (Brief field only)
-- `n/a - architect skipped (judgment-based skip for a well-understood, self-contained change, or mechanical skip per the simple/targeted-unit metric)` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit and `content/references/agent-team.md` for both skip paths)
+- `n/a - architect skipped (judgment-based: well-understood, self-contained change)` (architect plan field only; see `content/references/agent-team.md`)
+- `n/a - architect skipped (mechanical: simple/targeted-unit metric)` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric))
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
 
 **Why this is open rather than closed:** the set above was previously treated as exhaustive. Four legitimate situations were discovered in two days, each while fixing the one before it (Skeptic-on-plan; single Elevated unit; mechanical architect skip; judgment-based architect skip). Completeness by enumeration does not hold for an evolving methodology with this many valid spawn shapes - a closed vocabulary guarantees a fifth instance. Do not re-close this list by reverting to string-membership checking; assess rationales on the merits instead (Step 0 check 2).
@@ -295,7 +296,7 @@ Before reading any artifact or producing any findings, the Skeptic verifies the 
 1. All 6 fields are present.
 2. Every `n/a` value carries a specific reason after the `n/a - ` prefix. The Skeptic BLOCKS when a value is a bare `n/a`, has an empty or vacuous rationale (e.g. `n/a - not applicable`), or states a rationale that is factually false for the unit under review (e.g. citing "Trivial direct edit" on an Elevated unit, or citing a skip path that did not occur). A truthful, specific rationale that is NOT one of the enumerated strings above is valid and must NOT be BLOCKED on that basis alone - the enumerated set is canonical preferred wording for recurring situations, not an exhaustive whitelist.
 
-When the diff under review itself amends the enumerated `n/a` rationale set (i.e. a diff that adds, removes, or rewords one of the enumerated strings above), the Skeptic validates every field against the branch's own copy of this section, not the copy installed in its own environment - otherwise a PR that adds a value is spuriously BLOCKED against the pre-change enum it is itself updating.
+When the diff under review amends this section itself - the enumerated `n/a` rationale set, the Step 0 checks, or any other Section 4.5 validation rule - the Skeptic validates every field against the branch's own copy of this section, not the copy installed in its own environment. The trigger is "this diff changes how Section 4.5 validates", not the narrower "this diff edits an enumerated string": a PR that rewrites a Step 0 check without touching the enum is validated against the branch copy for the same reason.
 
 If either check fails, the Skeptic returns immediately with:
 
@@ -304,6 +305,8 @@ BLOCKED - Global-context input set incomplete: <missing or invalid fields listed
 ```
 
 No review content follows the BLOCKED line. The Skeptic does NOT produce findings, a "Reviewed:" line, or a sign-off.
+
+**Falsity discovered after Step 0.** Step 0's checks run at spawn-brief validation time, before any artifact is read. If a rationale passes Step 0 and the Skeptic later discovers, from the diff or the plan, that it was factually false for the unit under review, the disposition is a **finding, never a retroactive BLOCKED** - BLOCKED carries no findings and would discard review work already completed. Complete the review, then raise it: **Major** by default, and **Critical** when the false rationale caused a required artifact to go unread (e.g. field 1 carried `n/a` so the architect plan was never read, making the step-3 API/interface compliance check unperformable - that check is then not merely failed but unattempted). Withhold sign-off, and in the resolution list name the corrected field value the conductor must supply on re-spawn. State explicitly in the finding that the corrective action is a **conductor-side spawn-brief correction, not an engineer code change** - routing this finding to an engineer cannot resolve it, because the false value lives in the spawn prompt and not in the diff.
 
 **BLOCKED return semantics for the conductor:**
 
