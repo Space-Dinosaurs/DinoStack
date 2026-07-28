@@ -465,18 +465,18 @@ All work lives in `$REPO`.
 
 ## Tracker Writeback Helper
 
-Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and 2 awaiting callers (`/ds-ticket-status-sync` both single-ticket and `--all` modes, `/ds-wrap` Part F). Gated on `TRACKER != none`; no-op otherwise.
+Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
 
 **Invocation contract:**
 
 When the conductor reaches a writeback boundary:
 1. Skip entirely if `TRACKER == none`.
-2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers (`/ds-ticket-status-sync`, `/ds-wrap` Part F) are enumerated in the guard's step 4.d.iv below.
+2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - are enumerated in the guard's step 4.d.iv below.
 3. Pass to the subagent:
    - `tracker`: `linear` | `jira`
    - `ticket_id`: from current task context
    - `target_state`: one of the resolved `TRACKER_STATE_*` variables
-   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers `/ds-ticket-status-sync` (both single-ticket and `--all` modes) and `/ds-wrap` Part F
+   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F
    - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 5 values resolved once in Setup; required by the forward-only guard's same-category pipeline sub-rank
    - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
 
@@ -503,7 +503,7 @@ When the conductor reaches a writeback boundary:
       - iii. Else if the CURRENT state's name matches `BLOCKED`: **permit** unconditionally. Resuming or unblocking a ticket must always be able to move it forward into In Progress, In Review, or QA - Blocked never blocks a later forward transition.
       - iv. Else, look up current and target against the fixed pipeline sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2) from `tracker_state_values`. This order is fixed by which writeback site fires it (W1 < W2 < W3) - it is not read from any tracker API and does not depend on operator-configured board/column order.
         - If BOTH names resolve to a pipeline rank: **permit** iff `pipeline_rank(current) < pipeline_rank(target)`; otherwise **skip**.
-        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 5 known `tracker_state_values` at all, or because it matches one of the 5 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 5 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** (`/ds-ticket-status-sync`, `/ds-wrap` Part F) do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 5 known `tracker_state_values` at all, or because it matches one of the 5 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 5 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
 5. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase. A state pre-read failure (MCP/API error) is also a skip: log a one-line warning to stderr and do not proceed. Do not assume any rank when the pre-read fails.
 
 **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state (step 1) and the 5 `tracker_state_values` strings resolved once in Setup. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
@@ -1097,6 +1097,28 @@ The notice's third line asserts an escalation. That escalation is applied at the
 
 ---
 
+### Tracker writeback (W1)
+
+**Anchoring (binding).** This step sits at the per-entry level, AFTER the three mutually exclusive tracker sub-sections above have dispatched - so it runs exactly once per entry regardless of which sub-section executed. Do not move it into one sub-section.
+
+**Gate.** Fire only when ALL of the following hold: `TRACKER != none` AND `[TICKET_ID]` matches the bare-ticket-ID accept regex used at Phase 0's fast-path and classification tables (`^[A-Z][A-Z0-9_]+-\d+$`, the same pattern cited at both `TICKET_PREFIX` sites above - a future edit to one is visibly an edit to both) AND (`TICKET_PREFIX` is unset OR `[TICKET_ID]` starts with `<TICKET_PREFIX>-`).
+
+The sub-section above has, by this point, already successfully fetched the ticket. **A failed ticket fetch means no In Progress write** - this step never fires ahead of a confirmed fetch.
+
+If the gate holds, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding.
+
+```
+[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
+```
+
+**Why the real-key guard exists.** Open-goal loop iterations carry synthetic ids of the form `<goal-slug>-iter-N` (see "Per-iteration ticket lifecycle" above) that are not tracker keys - without this guard every open-goal iteration would attempt a doomed pre-read against a nonexistent ticket.
+
+**Why this does not depend on Phase 2c.** Firing here does not depend on Phase 2c having run, because the forward-only guard's ranking never reads `.agentic/tracker-states.json` (see "This ranking never reads `.agentic/tracker-states.json`" in the Tracker Writeback Helper above) - it pre-reads the ticket's live current state directly.
+
+**Accepted consequence.** A ticket abandoned after Phase 1 but before any branch exists stays showing In Progress - a compensating backward transition is exactly what the forward-only guard skips. This is a decision, not an oversight.
+
+---
+
 Proceed to Phase 2 regardless of which sub-section executed.
 
 ---
@@ -1405,11 +1427,9 @@ Read the orchestration-planner's output to make the routing determination below 
 
 **Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
+**Tracker writeback note.** In Progress (W1) is written at Phase 1, not here - Phase 5 deliberately has no W1 site. Do not re-add one.
+
 ### If work is a single logical unit (or units must be sequential):
-
-**Tracker writeback (W1):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the engineer spawn below.
-
-[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
@@ -1472,10 +1492,6 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 **Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
-
-**Tracker writeback (W1 — Trivial path):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the Trivial engineer spawn.
-
-[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS | path: trivial]
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -3108,7 +3124,7 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   fi
 else
   echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-  echo "Note: If auto-merge is off (default), run \`/ds-ticket-status-sync TICKET_ID\` after manual merge to push the Done transition to the tracker."
+  echo "Note: If auto-merge is off (default), the Done transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see content/rules/conventions.md §Session Context and Memory). When rework_detection is false there are no ledger candidates and no automatic Done - run \`/ds-ticket-status-sync TICKET_ID\` after merge in that configuration. \`/ds-ticket-status-sync TICKET_ID\` also remains available to force the transition immediately."
 fi
 ```
 
@@ -3116,7 +3132,7 @@ fi
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
 
-Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ds-ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the Done transition is pushed automatically by the session-start pending-merge sweep instead (see `content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic Done - run `/ds-ticket-status-sync <TICKET_ID>` after merge in that configuration. `/ds-ticket-status-sync <TICKET_ID>` also remains available to force the transition immediately.
 
 **Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 

@@ -322,8 +322,9 @@ def test_invocation_contract_pass_list_has_tracker_state_values_param(canonical_
 
 def test_invocation_contract_forward_only_guard_covers_every_writeback_caller(canonical_block):
     # M11: the broadened forward_only_guard line (covering ALL writeback
-    # callers - the 7 new sites, Phase 11, and the 2 awaiting callers - not
-    # just the original 7 new sites) had no regression test; reverting to the
+    # callers - the 7 new sites, Phase 11, and the awaiting callers, i.e. 3
+    # modes of /ds-ticket-status-sync plus /ds-wrap Part F - not just the
+    # original 7 new sites) had no regression test; reverting to the
     # narrower original phrasing passed the rest of the suite. Line-scoped on
     # the literal pass-list bullet.
     guard_lines = [
@@ -336,7 +337,7 @@ def test_invocation_contract_forward_only_guard_covers_every_writeback_caller(ca
         for line in guard_lines
     ), (
         "forward_only_guard pass-list line must cover every writeback caller "
-        "(including the 2 awaiting callers), not just the 7 new sites"
+        "(including the awaiting callers), not just the 7 new sites"
     )
 
 

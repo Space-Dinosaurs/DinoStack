@@ -374,7 +374,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve seventeen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve eighteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
@@ -723,6 +723,8 @@ SKILL-CANDIDATE: domain '<domain>' has accumulated <count> occurrences - conside
 Then append the domain (the `## <domain>` heading value, without the `## ` prefix) to `.agentic/.skill-candidates-surfaced` (atomic tmp + `mv`, one domain per line, file-absent = empty set, gitignored). File-absent for `.agentic/skill-candidates.md` = no-op. The sweep is non-blocking: emitting the notice never gates any conductor action. Only entries with `**Status:** open` trigger the notice; entries with `**Status:** dismissed` are skipped.
 
 **Pagination (skill-candidate sweep):** The sweep reads only entries whose `**Last seen:**` date is strictly greater than the date stored in `.agentic/.skill-candidates-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), all open un-surfaced entries are candidates. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to `.agentic/.skill-candidates-last-sweep` (atomic: tmp + `mv`). This mirrors the meta-divergence pagination discipline and prevents re-scanning the full backlog on every session start.
+
+**Pending-merge sweep at session start.** Runs at session start, after the skill-candidate sweep. Skip when any of: `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; fewer than 60 minutes have elapsed since the last sweep (the throttle); `.agentic/ticket-ledger.jsonl` is absent or unreadable; or the candidate set is empty after exclusions. Otherwise runs `/ds-ticket-status-sync --pending-merge`, tracked via `.agentic/.pending-merge-last-sweep` (throttle timestamp) and `.agentic/pending-merge-state.jsonl` (sweep state). See `content/commands/ds-ticket-status-sync.md` §Pending-merge sweep for the procedure. This sweep emits no first-user-turn notice and does not add to the stacked-notice count at `:80` - it prints only when a transition actually fires.
 
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
@@ -1868,7 +1870,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/ds-init-project`. Seventeen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/ds-init-project`. Eighteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -1887,6 +1889,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. `skill_candidate_nudge` alone (with `skill_candidate_detection: false`) has no effect. Default `false` (matches `deferred_wrap_daemon` opt-in precedent).
 - `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when the key is absent from `.agentic/config.json`, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - this makes "tracker connected => offer by default" true with zero migration. An explicit value always wins. `offer`: surface-and-proceed - conductor announces ticket creation and proceeds unless the operator replies STOP within one turn. `require`: hard gate - no implementer spawns before a ticket exists; creation failure surfaces and waits for operator resolution. `off`: gate disabled; no ticket creation attempt. Existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/ds-implement-ticket <ID>`) and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/ds-implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
+- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 
 **Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
 
@@ -3781,7 +3784,7 @@ A test that passes even without the fix does not count. The Worker should confir
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         seventeen-toggle project config catalog (behavioral toggles only);
+         eighteen-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
          tier table, model-param mapping, mandatory Tier-3 escalation (with
@@ -3817,7 +3820,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve seventeen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve eighteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -3836,6 +3839,7 @@ The conductor reads `.agentic/config.json` to resolve seventeen project-level or
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. Requires the master toggle to be enabled; `skill_candidate_nudge` alone has no effect. Default `false` (matches the `deferred_wrap_daemon` opt-in precedent).
 - `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when absent, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - explicit value always wins. `offer`: surface-and-proceed before first-implementer spawn; operator can reply STOP to skip. `require`: hard gate - no implementer spawns before a ticket exists; create failure surfaces and waits. `off`: gate disabled. Existing-ticket arrivals and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/ds-implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
+- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 
 #### Graph-derived risk signal
 
@@ -5586,7 +5590,11 @@ Public API: Read-only reference document. Consumers (shipped across units
             architect-brief callout, Phase 6 Skeptic-brief callout, Tier-3
             escalation at 2+ prior attempts);
             content/commands/ds-ticket-triage.md (per-entry ledger read,
-            [REWORK xN] badge, lane rule).
+            [REWORK xN] badge, lane rule);
+            content/commands/ds-ticket-status-sync.md --pending-merge mode
+            (read-only consumer of .agentic/ticket-ledger.jsonl as the sole
+            identity source for its candidate set - never writes to the
+            ledger).
 
 Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
                approved, 3 rounds, source of the design decisions this doc
@@ -5599,7 +5607,10 @@ Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
 
 Downstream consumers: Shipped (units U1-U4 of the ticket-rework Plan;
                       live on main): content/commands/ds-implement-ticket.md,
-                      content/commands/ds-ticket-triage.md. Read on trigger
+                      content/commands/ds-ticket-triage.md. Also, read-only:
+                      content/commands/ds-ticket-status-sync.md --pending-merge
+                      mode (reads .agentic/ticket-ledger.jsonl for its
+                      candidate set; never writes to it). Read on trigger
                       only - nothing in this file enters an always-loaded
                       path; it is never assembled into METHODOLOGY.md by
                       scripts/build-methodology.sh, which reads only
@@ -11213,7 +11224,7 @@ No subcommands or flags. Selection is done interactively.
      or AGENTS.md marker, depending on scope prompt.
    - Project toggles from `.agentic/config.json`: `auto_merge_on_ci_green`,
      `commit_telemetry`, `capability_preflight_mode`, `abdication_guard_enabled`,
-     `ticket_driven`, and any additional config-file toggles.
+     `ticket_driven`, `pending_merge_sweep`, and any additional config-file toggles.
 
 3. **Value selection prompt.** Lists valid values for the chosen setting, with the
    current default marked. For boolean toggles: `true / false`. For enumerated
@@ -11251,6 +11262,7 @@ No subcommands or flags. Selection is done interactively.
 | Capability preflight | `capability_preflight_mode` | `.agentic/config.json` |
 | Abdication guard | `abdication_guard_enabled` | `.agentic/config.json` |
 | Ticket-driven | `ticket_driven` | `.agentic/config.json` |
+| Pending-merge sweep | `pending_merge_sweep` | `.agentic/config.json` |
 
 **Env kill-switches (print-only, not applied to running session):**
 `AE_SINGULARITY_GUARD_DISABLE`, `AE_TIER_GUARD_DISABLE`, `AGENTIC_QUIET`.
@@ -12676,18 +12688,18 @@ All work lives in `$REPO`.
 
 ## Tracker Writeback Helper
 
-Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and 2 awaiting callers (`/ds-ticket-status-sync` both single-ticket and `--all` modes, `/ds-wrap` Part F). Gated on `TRACKER != none`; no-op otherwise.
+Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
 
 **Invocation contract:**
 
 When the conductor reaches a writeback boundary:
 1. Skip entirely if `TRACKER == none`.
-2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers (`/ds-ticket-status-sync`, `/ds-wrap` Part F) are enumerated in the guard's step 4.d.iv below.
+2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - are enumerated in the guard's step 4.d.iv below.
 3. Pass to the subagent:
    - `tracker`: `linear` | `jira`
    - `ticket_id`: from current task context
    - `target_state`: one of the resolved `TRACKER_STATE_*` variables
-   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers `/ds-ticket-status-sync` (both single-ticket and `--all` modes) and `/ds-wrap` Part F
+   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F
    - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 5 values resolved once in Setup; required by the forward-only guard's same-category pipeline sub-rank
    - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
 
@@ -12714,7 +12726,7 @@ When the conductor reaches a writeback boundary:
       - iii. Else if the CURRENT state's name matches `BLOCKED`: **permit** unconditionally. Resuming or unblocking a ticket must always be able to move it forward into In Progress, In Review, or QA - Blocked never blocks a later forward transition.
       - iv. Else, look up current and target against the fixed pipeline sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2) from `tracker_state_values`. This order is fixed by which writeback site fires it (W1 < W2 < W3) - it is not read from any tracker API and does not depend on operator-configured board/column order.
         - If BOTH names resolve to a pipeline rank: **permit** iff `pipeline_rank(current) < pipeline_rank(target)`; otherwise **skip**.
-        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 5 known `tracker_state_values` at all, or because it matches one of the 5 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 5 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** (`/ds-ticket-status-sync`, `/ds-wrap` Part F) do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 5 known `tracker_state_values` at all, or because it matches one of the 5 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 5 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
 5. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase. A state pre-read failure (MCP/API error) is also a skip: log a one-line warning to stderr and do not proceed. Do not assume any rank when the pre-read fails.
 
 **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state (step 1) and the 5 `tracker_state_values` strings resolved once in Setup. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
@@ -13308,6 +13320,28 @@ The notice's third line asserts an escalation. That escalation is applied at the
 
 ---
 
+### Tracker writeback (W1)
+
+**Anchoring (binding).** This step sits at the per-entry level, AFTER the three mutually exclusive tracker sub-sections above have dispatched - so it runs exactly once per entry regardless of which sub-section executed. Do not move it into one sub-section.
+
+**Gate.** Fire only when ALL of the following hold: `TRACKER != none` AND `[TICKET_ID]` matches the bare-ticket-ID accept regex used at Phase 0's fast-path and classification tables (`^[A-Z][A-Z0-9_]+-\d+$`, the same pattern cited at both `TICKET_PREFIX` sites above - a future edit to one is visibly an edit to both) AND (`TICKET_PREFIX` is unset OR `[TICKET_ID]` starts with `<TICKET_PREFIX>-`).
+
+The sub-section above has, by this point, already successfully fetched the ticket. **A failed ticket fetch means no In Progress write** - this step never fires ahead of a confirmed fetch.
+
+If the gate holds, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding.
+
+```
+[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
+```
+
+**Why the real-key guard exists.** Open-goal loop iterations carry synthetic ids of the form `<goal-slug>-iter-N` (see "Per-iteration ticket lifecycle" above) that are not tracker keys - without this guard every open-goal iteration would attempt a doomed pre-read against a nonexistent ticket.
+
+**Why this does not depend on Phase 2c.** Firing here does not depend on Phase 2c having run, because the forward-only guard's ranking never reads `.agentic/tracker-states.json` (see "This ranking never reads `.agentic/tracker-states.json`" in the Tracker Writeback Helper above) - it pre-reads the ticket's live current state directly.
+
+**Accepted consequence.** A ticket abandoned after Phase 1 but before any branch exists stays showing In Progress - a compensating backward transition is exactly what the forward-only guard skips. This is a decision, not an oversight.
+
+---
+
 Proceed to Phase 2 regardless of which sub-section executed.
 
 ---
@@ -13616,11 +13650,9 @@ Read the orchestration-planner's output to make the routing determination below 
 
 **Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
+**Tracker writeback note.** In Progress (W1) is written at Phase 1, not here - Phase 5 deliberately has no W1 site. Do not re-add one.
+
 ### If work is a single logical unit (or units must be sequential):
-
-**Tracker writeback (W1):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the engineer spawn below.
-
-[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
@@ -13683,10 +13715,6 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 **Phase 7 fail path note.** When `DEBUGGER_ON_FAILURE` is `true` (see Setup) and the path is Elevated, Phase 7's gate-failure path interposes a Debugger diagnosis step before the next engineer fix pass. See Phase 7 "If the gate fails" for the full flow.
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
-
-**Tracker writeback (W1 — Trivial path):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the Trivial engineer spawn.
-
-[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS | path: trivial]
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -15319,7 +15347,7 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   fi
 else
   echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-  echo "Note: If auto-merge is off (default), run \`/ds-ticket-status-sync TICKET_ID\` after manual merge to push the Done transition to the tracker."
+  echo "Note: If auto-merge is off (default), the Done transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see content/rules/conventions.md §Session Context and Memory). When rework_detection is false there are no ledger candidates and no automatic Done - run \`/ds-ticket-status-sync TICKET_ID\` after merge in that configuration. \`/ds-ticket-status-sync TICKET_ID\` also remains available to force the transition immediately."
 fi
 ```
 
@@ -15327,7 +15355,7 @@ fi
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
 
-Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ds-ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the Done transition is pushed automatically by the session-start pending-merge sweep instead (see `content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic Done - run `/ds-ticket-status-sync <TICKET_ID>` after merge in that configuration. `/ds-ticket-status-sync <TICKET_ID>` also remains available to force the transition immediately.
 
 **Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 
@@ -16371,7 +16399,8 @@ Seed with these documented defaults exactly:
   "skill_candidate_detection": true,
   "skill_candidate_nudge": false,
   "ticket_driven": "offer",
-  "rework_detection": true
+  "rework_detection": true,
+  "pending_merge_sweep": true
 }
 ```
 
@@ -16395,6 +16424,7 @@ Seed with these documented defaults exactly:
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
 - `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. See `content/references/ticket-rework.md` §Config toggle for full semantics.
+- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
@@ -18218,6 +18248,10 @@ Public API: /ds-ticket-status-sync <TICKET_ID>    — reconcile one ticket, prom
                                                     and report unmatched shipped-looking candidates (Tier 2,
                                                     report-only, never transitions)
             /ds-ticket-status-sync --all --force   — same as --all (--force is a no-op in v1, reserved for forward compat)
+            /ds-ticket-status-sync --pending-merge — reconcile only tickets whose recorded PR (from
+                                                    .agentic/ticket-ledger.jsonl) has since merged; transitions
+                                                    without prompting; identity is pr_number-only, never a
+                                                    title/branch text match
 
 Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
@@ -18227,19 +18261,40 @@ Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                tracker query tools for the non-terminal ticket set (Jira mcp__mcp-atlassian__jira_search JQL;
                Linear mcp__linear__list_issues);
                content/commands/ds-implement-ticket.md ## Tracker Writeback Helper (subagent invocation shape incl. tracker_state_values; forward-only guard incl. same-category pipeline sub-rank; no dependency on .agentic/tracker-states.json);
-               METHODOLOGY.md (activation preflight).
+               METHODOLOGY.md (activation preflight);
+               .agentic/ticket-ledger.jsonl (read-only; sole identity source for --pending-merge - see
+               content/references/ticket-rework.md § pr_number as the sole identity key);
+               .agentic/.pending-merge-last-sweep (60-minute throttle cursor for --pending-merge);
+               .agentic/pending-merge-state.jsonl (per-(ticket_id, pr_number) terminal/non-terminal
+               record for --pending-merge);
+               .agentic/config.json key pending_merge_sweep (boolean toggle gating --pending-merge).
 
-Downstream consumers: operator-invoked only; no programmatic consumers.
+Downstream consumers: single-ticket and --all modes remain operator-invoked only; no programmatic consumers.
+                      --pending-merge is additionally auto-invoked at session start by the conductor - see
+                      content/rules/conventions.md § Session Context and Memory - and remains
+                      operator-invokable on demand.
 
 Failure modes: soft-fail throughout — every tracker/gh/git call logs and continues on error; a single
                ticket's reconciliation failure never aborts an --all sweep. The command never errors
                out on an external API failure. Tier 2 (unmatched candidates) never writes anything -
-               a Tier 2 false positive is a wrong report line, never a wrong transition.
+               a Tier 2 false positive is a wrong report line, never a wrong transition. For
+               --pending-merge: a confirmation-call or reconcile-call error leaves the (ticket_id,
+               pr_number) pair non-terminal in .agentic/pending-merge-state.jsonl with `attempts`
+               incremented; 3 accumulated failures terminate the pair as `abandoned` (operator must
+               retry manually via single-ticket mode). The 60-minute cursor
+               (.agentic/.pending-merge-last-sweep) advances unconditionally at the end of every sweep
+               that ran, regardless of any per-candidate failure - no failure mode pins the sweep itself.
 
 Performance: one gh CLI call + one tracker-writeback subagent spawn per ticket that requires a transition.
              State-read calls are Tier-1 fast; --all sweeps are proportional to non-terminal ticket count.
              The tracker-wide sweep caps its non-terminal ticket query at 100 (most recently updated);
              a capped run prints how many tickets were skipped rather than truncating silently.
+             --pending-merge: at most one sweep per 60 minutes (cursor-throttled); at most 20 candidates
+             per sweep (older excess reported, never silently dropped); one `gh pr view` call per
+             candidate, plus one `gh pr list --search` open-PR check but only for candidates confirmed
+             merged; a tracker pre-read plus at most one writeback spawn only for candidates confirmed
+             merged and unblocked by an open PR. Zero cost when .agentic/ticket-ledger.jsonl is absent
+             or every recorded pair is already terminal.
 -->
 
 Reconcile a ticket's tracker status (column) with the actual state of its code. Use after `/ds-implement-ticket` exits before merge - the default human-merge flow leaves the final Done transition unfired until a human merges the PR, so the tracker can lag behind reality. This command computes the correct state and pushes the transition. `--all` mode also sweeps the whole tracker so tickets worked outside `/ds-implement-ticket` (conductor-led sessions with no `.agentic/tasks.jsonl` entry) don't silently drift.
@@ -18255,6 +18310,7 @@ Reconcile a ticket's tracker status (column) with the actual state of its code. 
 - `/ds-ticket-status-sync <TICKET_ID>` - reconcile one ticket. Prompts before transitioning.
 - `/ds-ticket-status-sync --all` - reconcile every non-terminal ticket in `.agentic/tasks.jsonl`, then sweep the tracker itself for non-terminal tickets outside that file (deterministic ID-match may transition; unmatched candidates are report-only). Transitions without prompting.
 - `--force` - reserved future-proofing alias for `--all` confirmation bypass. In v1, `--all` already transitions without prompt, so `--force` is currently a no-op modifier documented for forward compatibility.
+- `/ds-ticket-status-sync --pending-merge` - reconcile only tickets whose PR was recorded in `.agentic/ticket-ledger.jsonl` and has since merged. Transitions without prompting. Auto-invoked at session start by the conductor (see `content/rules/conventions.md` § Session Context and Memory); also operator-invokable at any time. See `## Pending-merge sweep (--pending-merge mode)` below.
 
 ## Preflight
 
@@ -18338,17 +18394,75 @@ Runs immediately after the Tier 1 sweep, over the non-terminal ticket set gather
 
 4. Tickets with no plausible match print nothing - Tier 2 output is opt-in signal, not an exhaustive audit list.
 
+## Pending-merge sweep (--pending-merge mode)
+
+Purpose: close the gap `/ds-implement-ticket` leaves on the default human-merge path. That command writes a ticket to Done only via its Phase 9 auto-merge branch; with `AUTO_MERGE_ON_CI_GREEN=false` (the default), a ticket parks at QA until something reconciles it. This mode reconciles it automatically at session start, on a strict identity rule.
+
+**Why the ledger is the identity source and a text/title match is not.** An earlier design discovered ticket keys by regex-matching merged PR titles and branch names. That was rejected on verified counterexamples: a docs PR can mention several ticket keys it does not implement (a survey/index PR listing DS-71/DS-69/DS-52 while implementing none of them); one ticket can span several merged PRs, so the first to merge would close it with the rest of its work unwritten; and a PR can self-declare partial completion in its own title. `$TRACKER_STATE_DONE` sits at the top of the forward-only guard's ranking (see step 5 below), so the guard *permits* every one of those wrong transitions, and it equally forbids an automatic move back once wrongly applied - each wrong Done becomes a manual operator repair in the tracker. **A Done transition for ticket `<KEY>` may be driven ONLY by a `pr_number` recorded against `<KEY>` in `.agentic/ticket-ledger.jsonl`.** A ticket key appearing in a PR title, branch name, or commit message is never sufficient on its own here, and no future edit to this section may add title or `headRefName` extraction as even a corroborating signal. This is sound because the ledger's Phase 9 write derives `pr_number` live from the in-flight branch and skips the write entirely when that derivation yields nothing (`content/commands/ds-implement-ticket.md` § Ticket-rework ledger write) - every ledger record therefore carries a real PR number for a real ticket, never an inferred one.
+
+**a. Skip conditions.** These conditions govern the automatic session-start invocation specifically (see `content/rules/conventions.md` § Session Context and Memory), where the sweep is expected to be silent unless it has a transition to report. Any one of the following skips the entire sweep silently (no output) on that path: `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; less than 60 minutes have elapsed since the timestamp recorded in `.agentic/.pending-merge-last-sweep` (file absent = never skipped on this ground); `.agentic/ticket-ledger.jsonl` is absent or unreadable; the candidate set is empty after the exclusions in (b). A direct operator invocation of `/ds-ticket-status-sync --pending-merge` still runs `## Preflight` above first, so `TRACKER == none` prints "No tracker configured; nothing to sync." and exits rather than skipping silently - the silent form of that specific condition applies only to the automatic path.
+
+**b. Candidate set.** Read `.agentic/ticket-ledger.jsonl` line by line, treating each line as `fromjson? // empty` so a malformed line is skipped rather than aborting the read (same discipline as the ledger read in `content/commands/ds-implement-ticket.md` § Ticket-rework ledger read). Take every record with a non-null `pr_number`. Dedupe to distinct `(ticket_id, pr_number)` pairs. Exclude any pair whose latest entry in `.agentic/pending-merge-state.jsonl` (see (g)) is terminal. Order the remainder by `opened_ts` descending and cap at 20.
+
+**Never truncate silently.** When the eligible set exceeds 20, print one line naming how many older pairs were cut off this sweep:
+
+    [ticket-status-sync] pending-merge sweep capped at 20 candidates; N older pair(s) skipped this run.
+
+Without this line, a project with more than 20 permanently non-terminal pairs would starve the oldest ones - never re-examined, never terminalized, and invisible, since `blocked_by_open_pr` in the breadcrumb (see (j)) only counts what was actually examined this sweep.
+
+**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt`. Three outcomes:
+
+   - `MERGED` - proceed to (d).
+   - `CLOSED` (not merged) - **terminal**. Record `closed_unmerged` per (g); no transition.
+   - `OPEN` - non-terminal this sweep. No state record is written; no further calls for this candidate this sweep.
+
+**d. Open-PR block.** Before mapping a merged candidate to Done, run `gh pr list --repo <GH_REPO> --state open --search "<TICKET_ID>"`. If **any** open PR matches, do **not** transition and do **not** record a terminal state - the ticket has a *concurrently open* sibling PR in flight (a merged first PR with at least one still-open, already-opened sibling). The candidate is deferred to a later sweep, untouched. This block only sees siblings that exist as open PRs at sweep time; it does not detect a multi-PR ticket whose later PRs have not been opened yet - see "Known limitations" below.
+
+This search is a **blocking** signal, so a spurious match costs a deferred transition (safe) and a missed match costs a premature Done (unsafe) - therefore treat an **error** on this call as "blocked" (do not transition), not as "clear."
+
+GitHub's `--search` matches title and body case-insensitively, so the uppercase ticket key matches regardless of branch-name casing. No regex is applied to `headRefName` anywhere in this mode - see the identity-source rule above.
+
+**e. Relationship to Tier 1 - not evidence-shape equivalent.** Tier 1 (`## Tracker-wide sweep`) gathers three calls (commits, merged-PR search, open-PR search) and conditions its Done mapping on the open-PR result. This mode uses a **different identity source** - a recorded `pr_number` rather than a text search - and **retains** Tier 1's open-PR precondition unchanged. It does not "mirror Tier 1 narrowed to one call"; the identity mechanism is different, only the open-PR precondition is shared.
+
+**f. Reconcile.** For a candidate confirmed merged and unblocked by (d), run steps 4-5 of "Resolution algorithm (single ticket)" above (landing on the PR-merged row -> `$TRACKER_STATE_DONE`, applying the forward-only guard by reference per step 5), then spawn per step 6.
+
+**No prompting.** `--pending-merge` transitions without prompting, exactly as `--all` does. The `[y/N]` confirmation in step 6 of "Resolution algorithm (single ticket)" is scoped to single-ticket mode and MUST NOT be inherited here - a session-start sweep that blocked on a prompt would block session boot.
+
+**g. Record the determination.** Append one line to `.agentic/pending-merge-state.jsonl` (single `O_APPEND` write per line; read with latest-wins dedupe on `(ticket_id, pr_number)` ordered by `ts` - same contract as `content/references/ticket-rework.md` § Concurrency rationale). Shape:
+
+```json
+{"ticket_id":"DS-87","pr_number":458,"state":"done","attempts":1,"ts":"<ISO8601>","detail":null}
+```
+
+`state` enum: `done` | `guard_skipped` | `closed_unmerged` | `abandoned` | `failing`. The first four are **terminal** - the pair is never reconsidered as a candidate again. `failing` is **non-terminal** and carries the running `attempts` counter.
+
+Record `done` on a successful transition; `guard_skipped` when the forward-only guard in step (f) skipped the transition; `closed_unmerged` from (c). On any error in (c), (d), (f), or the writeback spawn: append `failing` with `attempts` incremented from the prior latest entry for this pair (starting at 1) and `detail` set to the error string. When `attempts` reaches **3**, append `abandoned` instead and print:
+
+    [ticket-status-sync] <KEY> (PR #<n>) abandoned after 3 failed sweeps: <detail> - run /ds-ticket-status-sync <KEY> to retry manually.
+
+**h. Cursor.** Advance `.agentic/.pending-merge-last-sweep` to `now` at the end of **every** sweep that ran, unconditionally, via atomic tmp-file + `mv`. Per-candidate progress lives entirely in `.agentic/pending-merge-state.jsonl`, so no failure mode pins the sweep - a candidate stuck in `failing` still lets the cursor advance and the next sweep still runs on schedule. The cursor's sole reader is the 60-minute throttle in (a).
+
+**Cost.** Worst case per sweep: 20 `gh pr view` calls, plus up to 20 `gh pr list --search` open-PR checks, plus a tracker pre-read and writeback spawn only for candidates confirmed merged and unblocked - at most once per 60 minutes. Steady state on a repo with no newly-merged AE PRs since the last sweep is 20 cheap `gh pr view` calls and zero tracker traffic, shrinking toward zero as pairs terminalize.
+
+**i. Soft-fail.** Identical discipline to `## Soft-fail discipline` below: every call logs and continues; the sweep never blocks the session; it never retries with backoff; it never errors out.
+
+**j. Output.** One line per transition attempt in the existing `[ticket-status-sync] <KEY>: '<current>' -> '<expected>' ...` format (see step 8 above), one line per abandonment per (g), one line if the cap in (b) truncated, plus this breadcrumb:
+
+    [phase: ticket-status-sync | mode=pending-merge | candidates=<N> | confirmed_merged=<N> | blocked_by_open_pr=<N> | transitions=<N> | skipped=<N>]
+
+**Known limitations.** The sweep only sees PRs AE opened and recorded on this machine - `.agentic/ticket-ledger.jsonl` is gitignored and machine-local, so work shipped by hand, by a teammate, or outside `/ds-implement-ticket` is invisible to it; `--all` remains the catch-all for those. A ticket with any *concurrently open* PR mentioning its key is deferred indefinitely by (d) - correct for a multi-PR ticket whose later PRs are already open when the first merges, but it also means an unrelated open PR that happens to mention the key prevents auto-close until that PR closes or merges. (d) does **not** cover the sequential case: a multi-PR ticket whose later PRs have not been opened yet at the time the first PR merges. In that shape, zero open PRs match the search, the candidate is treated as unblocked, and the sweep fires Done on the first merge - the tracker then reads Done while implementation work remains, and the forward-only guard forbids the automatic backward correction, so it becomes a manual operator repair. This matches the existing risk on the `/ds-implement-ticket` auto-merge (W7) path for the same shape, and this sweep is strictly more conservative than W7 (it additionally defers on concurrently-open siblings, which W7 does not check) - but it does not eliminate the sequential gap.
+
 ## Soft-fail discipline
 
 Every tracker/gh/git call soft-fails: log and continue. A single ticket's reconciliation failure does not abort an `--all` sweep, and applies equally to the tasks.jsonl pass and the tracker-wide sweep (Tier 1 and Tier 2). The command never errors out on an external API failure.
 
 ## Output
 
-Emit one breadcrumb per pass: `[phase: ticket-status-sync | mode=<single|all> | transitions=<N> | skipped=<N>]` for the single-ticket / tasks.jsonl-pass counts, and, when the tracker-wide sweep ran, a second breadcrumb: `[phase: ticket-status-sync | mode=all | pass=tracker-sweep | transitions=<N> | skipped=<N> | capped=<N> | candidates=<N>]`.
+Emit one breadcrumb per pass: `[phase: ticket-status-sync | mode=<single|all> | transitions=<N> | skipped=<N>]` for the single-ticket / tasks.jsonl-pass counts, and, when the tracker-wide sweep ran, a second breadcrumb: `[phase: ticket-status-sync | mode=all | pass=tracker-sweep | transitions=<N> | skipped=<N> | capped=<N> | candidates=<N>]`. When `--pending-merge` ran, emit the breadcrumb defined in `## Pending-merge sweep (--pending-merge mode)` (j): `[phase: ticket-status-sync | mode=pending-merge | candidates=<N> | confirmed_merged=<N> | blocked_by_open_pr=<N> | transitions=<N> | skipped=<N>]`.
 
-In single-ticket mode, print the before/after state. In `--all` mode, print a one-line-per-ticket summary table for the tasks.jsonl pass, then the Tier 1 operator-visible transition lines, then the Tier 2 candidate lines (if any).
+In single-ticket mode, print the before/after state. In `--all` mode, print a one-line-per-ticket summary table for the tasks.jsonl pass, then the Tier 1 operator-visible transition lines, then the Tier 2 candidate lines (if any). In `--pending-merge` mode, print one transition/abandonment line per candidate as described in `## Pending-merge sweep (--pending-merge mode)` (j).
 
-When any ticket in a pass returned `unmatched_state_name`, print one additional aggregate line after that pass's breadcrumb: `[ticket-status-sync] N ticket(s) had a current state that did not match any configured TRACKER_STATE_* value (distinct states seen: <name1>, <name2>, ...) - same-category comparison skipped for these.`
+When any ticket in a pass - including a `--pending-merge` sweep - returned `unmatched_state_name`, print one additional aggregate line after that pass's breadcrumb: `[ticket-status-sync] N ticket(s) had a current state that did not match any configured TRACKER_STATE_* value (distinct states seen: <name1>, <name2>, ...) - same-category comparison skipped for these.`
 
 ---
 
