@@ -20,6 +20,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fire_log_test_helper import run_hook_with_raising_log_fire
+
 HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-shippable-edit.py"
 )
@@ -372,6 +375,30 @@ status = "PASS" if ok else "FAIL"
 if not ok:
     failed += 1
 print(f"  [{status}] deny writes a line, subagent allow writes nothing")
+
+# ---------------------------------------------------------------------------
+# Skeptic Critical regression: a raising log_fire() must NOT suppress the
+# deny decision. Confirmed failing pre-fix: against a8ded298 (the commit
+# under review), the copied-hook subprocess exits 0 with EMPTY stdout - the
+# deny is silently lost - because the pre-fix code called log_fire() BEFORE
+# print(). Uses snapshot_source_repo_dir so the copied hook's
+# _resolve_repo_root() still resolves to the REAL repo root (needed for the
+# deny branch to trigger at all). See hooks/tests/_fire_log_test_helper.py.
+# ---------------------------------------------------------------------------
+total += 1
+_rc_rf, _stdout_rf, _stderr_rf = run_hook_with_raising_log_fire(
+    "enforce-shippable-edit.py",
+    make_payload("Write", _fire_target, cwd=_fire_cwd),
+    snapshot_source_repo_dir=REPO_ROOT,
+)
+ok = _rc_rf == 0 and not is_allow(_rc_rf, _stdout_rf)
+status = "PASS" if ok else "FAIL"
+if not ok:
+    failed += 1
+print(f"  [{status}] raising log_fire cannot suppress the deny decision")
+if not ok:
+    print(f"         stdout: {_stdout_rf!r}")
+    print(f"         stderr: {_stderr_rf[-500:]!r}")
 
 print()
 if failed == 0:

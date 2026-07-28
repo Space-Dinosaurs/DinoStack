@@ -61,6 +61,10 @@ def _load_log_fire():
     Falls back to a no-op when the sibling module cannot be loaded (missing
     file, syntax error, snapshot copy drift) - fire-logging is additive
     telemetry, never a hard dependency of the advisory itself.
+
+    Called lazily from inside the advisory branch (never at module scope) so
+    the overwhelming majority of invocations - every silent allow - never
+    read, compile, or exec this file at all.
     """
     try:
         import importlib.util as _ilu
@@ -73,9 +77,6 @@ def _load_log_fire():
         return mod.log_fire
     except Exception:
         return lambda *a, **k: None
-
-
-_log_fire = _load_log_fire()
 
 
 def main():
@@ -144,7 +145,12 @@ def main():
             "already ran this session, ignore. "
             "Silence with AE_PLANNING_GUARD_DISABLE=1."
         )
-        _log_fire(data, "enforce-planning-artifact-spawn", "allow_advisory", advisory_msg)
+        # Decision print comes FIRST, unconditionally, matching the deny-path
+        # convention in the other five enforce-*.py hooks (see
+        # hooks/lib/enforcement_log.py manifest "Failure modes"). Telemetry
+        # is loaded and called only after the decision has reached stdout,
+        # wrapped in its own try/except so a raising log_fire can never
+        # suppress or follow the advisory.
         print(
             json.dumps(
                 {
@@ -156,6 +162,12 @@ def main():
                 }
             )
         )
+        try:
+            _load_log_fire()(
+                data, "enforce-planning-artifact-spawn", "allow_advisory", advisory_msg
+            )
+        except Exception:
+            pass
         sys.exit(0)
 
     except Exception:

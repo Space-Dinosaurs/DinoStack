@@ -26,7 +26,7 @@ Public API (module-level function, no class):
               new "ask" decision) never needs a lib change to be logged.
         reason: short human-readable reason string - callers already have
               one on hand (the same text fed back to the model via
-              permissionDecisionReason). Truncated to 400 chars here so a
+              permissionDecisionReason). Truncated to 800 chars here so a
               pathological reason string cannot grow the log unbounded.
 
 Upstream deps: Python 3 stdlib only (json, os, datetime). No external
@@ -61,23 +61,32 @@ Failure modes: Fully fail-open and silent, matching every enforce-*.py
     - data not a dict, or data["cwd"] absent/blank/non-string: falls back
       to os.getcwd() - never fails the call.
     - Concurrent hook invocations appending simultaneously: each append is
-      a single os.write() to an os.O_APPEND-opened file descriptor, which
-      is POSIX-atomic for a write under PIPE_BUF (guaranteed >= 512 bytes
-      on every POSIX platform) - the ~200-400 byte JSON lines this module
-      produces never interleave with a concurrent writer's line. This is
-      why a full read-existing + tmp-write + os.replace cycle (the pattern
-      used elsewhere in this codebase for whole-file replace writes) is
-      NOT used here: that pattern exists to make a REPLACE atomic, but a
-      pure single-line APPEND has a cheaper native atomicity guarantee and
-      paying the read-modify-tmp-rename cost on every enforcement action
-      would be wasteful.
+      a single os.write() to an os.O_APPEND-opened file descriptor. The
+      atomicity guarantee here is POSIX's O_APPEND semantics (the kernel
+      atomically seeks to end-of-file and performs the write as one
+      operation, so two concurrent appenders' bytes cannot interleave) -
+      NOT PIPE_BUF, which governs atomic writes to pipes and FIFOs and has
+      no bearing on a regular file. This guarantee holds on local POSIX
+      filesystems but is NOT guaranteed over NFS, where O_APPEND is well
+      documented to be non-atomic under concurrent writers from different
+      clients. This module's writes are always to a project-local
+      `.agentic/` directory, so the NFS caveat is noted but not currently a
+      practical concern. This is why a full read-existing + tmp-write +
+      os.replace cycle (the pattern used elsewhere in this codebase for
+      whole-file replace writes) is NOT used here: that pattern exists to
+      make a REPLACE atomic, but a pure single-line APPEND has a cheaper
+      native atomicity guarantee on local filesystems and paying the
+      read-modify-tmp-rename cost on every enforcement action would be
+      wasteful.
 
 Performance: < 1 ms per call (one os.makedirs check, one os.open with
              O_APPEND, one os.write, one os.close - no read-before-write).
-             Never called on a passthrough allow, so the overwhelming
-             majority of hook invocations (every silent allow) pay nothing
-             at all - this module is not even imported unless a caller's
-             action branch is reached.
+             Every caller loads this module lazily via a `_load_log_fire()`
+             call placed INSIDE its action branch (deny, or allow-with-
+             advisory), never at module scope - so the overwhelming
+             majority of hook invocations (every silent allow, and every
+             kill-switched invocation that exits before reaching the
+             action branch) never read, compile, or exec this file at all.
 """
 
 from __future__ import annotations
@@ -87,7 +96,12 @@ import json
 import os
 
 _LOG_BASENAME = ".enforcement-fires.jsonl"
-_REASON_MAX_LEN = 400
+# 800, not 400: enforce-planning-artifact-spawn's advisory reason embeds a
+# full repo-relative target path and was measured at 391 chars against the
+# prior 400-char cap - 9 chars from silent clipping on a slightly longer
+# path. Doubled for headroom rather than tuned to the single longest known
+# caller.
+_REASON_MAX_LEN = 800
 
 
 def _now_iso() -> str:

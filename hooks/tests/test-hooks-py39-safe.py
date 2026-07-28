@@ -13,12 +13,17 @@ before any hook's kill-switch or outer try/except can catch it - which
 crashes-to-block a PreToolUse hook (the exact failure mode DS-94 exists to
 prevent; see hooks/enforce-shippable-edit.py's manifest and MEMORY.md).
 
-This test statically scans every hooks/enforce-*.py file with `ast`: for
-each module, it finds `X | Y` (ast.BinOp with ast.BitOr) inside an
-annotation context (function argument annotations, function return
+This test statically scans every hooks/enforce-*.py file AND every
+hooks/lib/*.py file (the shared modules those hooks dynamically import,
+e.g. hooks/lib/enforcement_log.py - added when the fire-logging telemetry
+lib landed, see hooks/tests/test-hooks-pep604-guard.py's own docstring
+which used to warn this glob was scoped to hooks/lib/ by construction) with
+`ast`: for each module, it finds `X | Y` (ast.BinOp with ast.BitOr) inside
+an annotation context (function argument annotations, function return
 annotations, variable annotations) and FAILS if that module lacks
 `from __future__ import annotations`. This guards every current and future
-sibling hook against the same regression class, not just this one line.
+sibling hook (and lib module) against the same regression class, not just
+this one line.
 """
 
 from __future__ import annotations
@@ -29,7 +34,10 @@ import os
 import sys
 
 HOOKS_DIR = os.path.join(os.path.dirname(__file__), "..")
-TARGET_GLOB = os.path.join(HOOKS_DIR, "enforce-*.py")
+TARGET_GLOBS = (
+    os.path.join(HOOKS_DIR, "enforce-*.py"),
+    os.path.join(HOOKS_DIR, "lib", "*.py"),
+)
 
 
 def has_future_annotations(tree: ast.Module) -> bool:
@@ -118,9 +126,14 @@ def find_unguarded_unions(path: str) -> list[str]:
 
 
 def main() -> int:
-    targets = sorted(glob.glob(TARGET_GLOB))
+    targets = sorted(
+        {p for pattern in TARGET_GLOBS for p in glob.glob(pattern)}
+    )
     if not targets:
-        print("  [FAIL] no hooks/enforce-*.py files found - glob misconfigured?")
+        print(
+            "  [FAIL] no hooks/enforce-*.py or hooks/lib/*.py files found - "
+            "glob misconfigured?"
+        )
         return 1
 
     failed = 0
@@ -139,10 +152,16 @@ def main() -> int:
 
     print()
     if failed == 0:
-        print(f"All {total} hooks/enforce-*.py files are Python 3.8/3.9-safe.")
+        print(
+            f"All {total} hooks/enforce-*.py and hooks/lib/*.py files are "
+            "Python 3.8/3.9-safe."
+        )
         return 0
     else:
-        print(f"{failed}/{total} hooks/enforce-*.py files have unguarded PEP 604 unions.")
+        print(
+            f"{failed}/{total} hooks/enforce-*.py or hooks/lib/*.py files "
+            "have unguarded PEP 604 unions."
+        )
         return 1
 
 

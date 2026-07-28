@@ -14,6 +14,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fire_log_test_helper import run_hook_with_raising_log_fire
+
 HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-orchestrator-singularity.py"
 )
@@ -216,7 +219,26 @@ if not ok_fl:
     failed += 1
 print(f"  [{status_fl}] {label_fl}")
 
-total_tests = len(cases) + 1
+# Skeptic Critical regression: a raising log_fire() must NOT suppress the
+# deny decision. Confirmed failing pre-fix: against a8ded298 (the commit
+# under review), the copied-hook subprocess exits 0 with EMPTY stdout - the
+# deny is silently lost - because the pre-fix inline log_fire() call ran
+# BEFORE print(). See hooks/tests/_fire_log_test_helper.py.
+label_rf = "raising log_fire cannot suppress the deny decision"
+_rc_rf, _stdout_rf, _stderr_rf = run_hook_with_raising_log_fire(
+    "enforce-orchestrator-singularity.py",
+    json.dumps({"tool_name": "Agent", "agent_id": "wt-1"}),
+)
+ok_rf = _rc_rf == 0 and not is_allow(_rc_rf, _stdout_rf)
+status_rf = "PASS" if ok_rf else "FAIL"
+if not ok_rf:
+    failed += 1
+print(f"  [{status_rf}] {label_rf}")
+if not ok_rf:
+    print(f"         stdout: {_stdout_rf!r}")
+    print(f"         stderr: {_stderr_rf[-500:]!r}")
+
+total_tests = len(cases) + 2
 
 print()
 if failed == 0:

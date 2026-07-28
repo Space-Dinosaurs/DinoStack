@@ -159,6 +159,10 @@ def _load_log_fire():
     Falls back to a no-op when the sibling module cannot be loaded (missing
     file, syntax error, snapshot copy drift) - fire-logging is additive
     telemetry, never a hard dependency of the enforcement decision itself.
+
+    Called lazily from inside the deny branch (never at module scope) so the
+    overwhelming majority of invocations - every silent allow - never read,
+    compile, or exec this file at all.
     """
     try:
         import importlib.util as _ilu
@@ -171,9 +175,6 @@ def _load_log_fire():
         return mod.log_fire
     except Exception:
         return lambda *a, **k: None
-
-
-_log_fire = _load_log_fire()
 
 
 def _known_harnesses() -> frozenset:
@@ -325,7 +326,11 @@ def _sentinel_is_live(cwd: str) -> bool:
         return False
 
 def _deny(data: dict, reason: str) -> None:
-    _log_fire(data, "enforce-background-spawn", "deny", reason)
+    # Decision print comes FIRST, unconditionally. Telemetry is loaded and
+    # called only after the decision has reached stdout, and is wrapped in
+    # its own try/except so a raising log_fire (e.g. a signature mismatch
+    # from a half-applied lib snapshot) can never suppress or follow this
+    # deny - see hooks/lib/enforcement_log.py manifest "Failure modes".
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -333,6 +338,10 @@ def _deny(data: dict, reason: str) -> None:
             "permissionDecisionReason": reason,
         }
     }))
+    try:
+        _load_log_fire()(data, "enforce-background-spawn", "deny", reason)
+    except Exception:
+        pass
     sys.exit(0)
 
 def main() -> None:

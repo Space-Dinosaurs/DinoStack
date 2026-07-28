@@ -42,8 +42,14 @@ Failure modes:
       if a future version ignores permissionDecision: deny, switch to exit 2 with
       the reason on stderr as the fallback enforcement path.
     - Fire-log write failure (hooks/lib/enforcement_log.py unimportable, disk
-      full, unwritable .agentic/): swallowed inside log_fire() itself - never
-      affects the deny decision or this hook's own exit code.
+      full, unwritable .agentic/, OR a raising log_fire from a signature
+      mismatch on a half-applied lib snapshot): never affects the deny
+      decision or this hook's own exit code. Two layers of protection: (1)
+      the deny decision is printed to stdout BEFORE the lib is even loaded
+      or called, so the decision has already reached the model regardless of
+      what happens next; (2) the load-and-call is additionally wrapped in
+      its own try/except at the call site, so a raise there cannot even
+      reach the outer except handler or produce stderr noise.
 
 Performance: < 1 ms per call (pure in-memory JSON parse + bounded iteration over
              questions/options + single print, no I/O).
@@ -60,6 +66,10 @@ def _load_log_fire():
     Falls back to a no-op when the sibling module cannot be loaded (missing
     file, syntax error, snapshot copy drift) - fire-logging is additive
     telemetry, never a hard dependency of the enforcement decision itself.
+
+    Called lazily from inside the deny branch (never at module scope) so the
+    overwhelming majority of invocations - every silent allow - never read,
+    compile, or exec this file at all.
     """
     try:
         import importlib.util as _ilu
@@ -72,9 +82,6 @@ def _load_log_fire():
         return mod.log_fire
     except Exception:
         return lambda *a, **k: None
-
-
-_log_fire = _load_log_fire()
 
 
 def _has_recommended_label(options) -> bool:
@@ -143,7 +150,12 @@ def main() -> None:
             "irreversible AND unauthorized confirmations are exempt - mark "
             'the recommended option\'s label "(Recommended)" to pass.'
         )
-        _log_fire(data, "enforce-askuserquestion-default", "deny", deny_reason)
+        # Decision print comes FIRST, unconditionally. Telemetry is loaded
+        # and called only after the decision has reached stdout, and is
+        # wrapped in its own try/except so a raising log_fire (e.g. a
+        # signature mismatch from a half-applied lib snapshot) can never
+        # suppress or follow this deny - see hooks/lib/enforcement_log.py
+        # manifest "Failure modes".
         print(
             json.dumps(
                 {
@@ -155,6 +167,12 @@ def main() -> None:
                 }
             )
         )
+        try:
+            _load_log_fire()(
+                data, "enforce-askuserquestion-default", "deny", deny_reason
+            )
+        except Exception:
+            pass
         sys.exit(0)
 
     except Exception:

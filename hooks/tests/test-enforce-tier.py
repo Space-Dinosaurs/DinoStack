@@ -14,6 +14,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fire_log_test_helper import run_hook_with_raising_log_fire
+
 HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-tier.py"
 )
@@ -599,7 +602,29 @@ if not ok_36:
     failed += 1
 print(f"  [{status_36}] {label_36}")
 
-total_tests = len(cases) + 2
+# 37 (Skeptic Critical regression): a raising log_fire() must NOT suppress
+# the deny decision. Confirmed failing pre-fix: against a8ded298 (the
+# commit under review), the copied-hook subprocess exits 0 with EMPTY
+# stdout - the deny is silently lost - because the pre-fix _deny() called
+# log_fire() BEFORE print(). See hooks/tests/_fire_log_test_helper.py.
+label_37 = "37: raising log_fire cannot suppress the deny decision"
+_rc_37, _stdout_37, _stderr_37 = run_hook_with_raising_log_fire(
+    "enforce-tier.py",
+    json.dumps({
+        "tool_name": "Agent",
+        "tool_input": {"subagent_type": "security-auditor", "model": "sonnet"},
+    }),
+)
+ok_37 = _rc_37 == 0 and not is_allow(_rc_37, _stdout_37)
+status_37 = "PASS" if ok_37 else "FAIL"
+if not ok_37:
+    failed += 1
+print(f"  [{status_37}] {label_37}")
+if not ok_37:
+    print(f"         stdout: {_stdout_37!r}")
+    print(f"         stderr: {_stderr_37[-500:]!r}")
+
+total_tests = len(cases) + 3
 
 print()
 if failed == 0:

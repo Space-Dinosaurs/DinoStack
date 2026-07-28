@@ -13,15 +13,17 @@ and never crashes, so a purely dynamic "run the file and check exit code"
 test would pass silently on any 3.10+ CI runner (this project's
 hooks-python-tests CI job runs Python 3.11) and fail to protect 3.9 users.
 
-Scope: this guard covers BOTH top-level hooks/*.py (the hooks themselves,
-e.g. hooks/enforce-background-spawn.py) AND hooks/tests/*.py (the test
-helper files, e.g. hooks/tests/test-enforce-tier.py - these carry their own
+Scope: this guard covers top-level hooks/*.py (the hooks themselves, e.g.
+hooks/enforce-background-spawn.py), hooks/tests/*.py (the test helper
+files, e.g. hooks/tests/test-enforce-tier.py - these carry their own
 `run_hook(payload, extra_env: dict | None = None)`-style helper signatures
-and are just as import-time-fragile as the hooks they test). hooks/lib/ is
-excluded by construction (the two globs below never reach it) - it
-currently has no .py files at all (only .js/.sh), so there is nothing to
-scan there; if a .py file is ever added to hooks/lib/, it is NOT covered by
-this guard and would need its own inclusion.
+and are just as import-time-fragile as the hooks they test), AND
+hooks/lib/*.py (the shared modules those hooks dynamically import, e.g.
+hooks/lib/enforcement_log.py - added when the fire-logging telemetry lib
+landed; hooks/lib/ was EXCLUDED BY CONSTRUCTION before that, back when it
+had no .py files at all, only .js/.sh - this scope note is what closed
+that gap; if a new .py file is added to hooks/lib/, _lib_files() below
+already covers it).
 
 This test is therefore STATIC and version-independent: it parses every
 covered file with `ast`, and for any module that does NOT declare
@@ -49,6 +51,7 @@ import sys
 
 HOOKS_DIR = os.path.join(os.path.dirname(__file__), "..")
 TESTS_DIR = os.path.join(HOOKS_DIR, "tests")
+LIB_DIR = os.path.join(HOOKS_DIR, "lib")
 SELF_PATH = os.path.realpath(__file__)
 
 
@@ -70,15 +73,28 @@ def _test_files():
     )
 
 
+def _lib_files():
+    """hooks/lib/*.py files (shared modules dynamically imported by the
+    enforce-*.py hooks, e.g. hooks/lib/enforcement_log.py). Absent
+    directory returns [] rather than raising - this guard must never
+    itself crash if hooks/lib/ is ever removed."""
+    if not os.path.isdir(LIB_DIR):
+        return []
+    return sorted(
+        f for f in os.listdir(LIB_DIR)
+        if f.endswith(".py") and os.path.isfile(os.path.join(LIB_DIR, f))
+    )
+
+
 def _scanned_files():
     """Combined, deduped (label, absolute_path) pairs covering top-level
-    hooks/*.py and hooks/tests/*.py.
+    hooks/*.py, hooks/tests/*.py, and hooks/lib/*.py.
 
-    Dedup is by resolved absolute path: the two directories are disjoint
-    today, so no file can currently match both globs, but a future layout
-    change (e.g. a re-export or symlink) must not cause a file to be
-    double-counted by this guard. First-seen label wins (hooks/*.py is
-    scanned before hooks/tests/*.py)."""
+    Dedup is by resolved absolute path: the three directories are disjoint
+    today, so no file can currently match more than one glob, but a future
+    layout change (e.g. a re-export or symlink) must not cause a file to be
+    double-counted by this guard. First-seen label wins (hooks/*.py, then
+    hooks/tests/*.py, then hooks/lib/*.py)."""
     seen = {}
     for fname in _hook_files():
         abspath = os.path.realpath(os.path.join(HOOKS_DIR, fname))
@@ -86,6 +102,9 @@ def _scanned_files():
     for fname in _test_files():
         abspath = os.path.realpath(os.path.join(TESTS_DIR, fname))
         seen.setdefault(abspath, os.path.join("tests", fname))
+    for fname in _lib_files():
+        abspath = os.path.realpath(os.path.join(LIB_DIR, fname))
+        seen.setdefault(abspath, os.path.join("lib", fname))
     pairs = [(label, path) for path, label in seen.items()]
     pairs.sort(key=lambda pair: pair[0])
     return pairs

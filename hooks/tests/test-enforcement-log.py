@@ -97,7 +97,8 @@ enforcement_log.log_fire({"cwd": tmp3}, "enforce-background-spawn", "deny", long
 lines3 = read_lines(tmp3)
 check("one line written despite huge reason", len(lines3) == 1)
 if lines3:
-    check("reason truncated to <= 400 chars", len(lines3[0]["reason"]) <= 400)
+    check("reason truncated to <= 800 chars", len(lines3[0]["reason"]) <= 800)
+    check("reason truncated to exactly 800 chars", len(lines3[0]["reason"]) == 800)
 
 # ---------------------------------------------------------------------------
 # 4. Fail-open: unwritable .agentic/ path (a file, not a directory)
