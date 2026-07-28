@@ -93,7 +93,7 @@ If the user asks a question while tasks are running, the main agent answers dire
 
 **Phase breadcrumb convention** — At each natural orchestration boundary, include a `[phase: label]` marker in the status update to the user. These labels are emitted inline in conversation (not written to files), so they remain in the transcript on any termination - normal or abnormal. On normal session end they are also captured in context.md, which aids handoff. The transcript is the primary crash-recovery source; context.md is a bonus. This makes orchestration state crash-recoverable without any extra infrastructure.
 
-Emit a phase label at: after spawning any agent, after any agent returns, after escalation, at task completion.
+Emit a phase label at: after spawning any agent, after any agent returns, after escalation, at task completion. When the same turn also carries an `## Operator decisions` block (see `content/sections/02-delegation.md`), the breadcrumb is emitted before that heading - it is never satisfied by placement after it.
 
 Format: `[phase: label]` — one line, no surrounding prose required. Add parenthetical detail when it aids recovery (round number, pending finding count, Worker progress).
 
