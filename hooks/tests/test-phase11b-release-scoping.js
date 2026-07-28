@@ -73,6 +73,36 @@
  * ("do NOT release", "never release") that marks the sentence as prohibitive
  * rather than directive.
  *
+ * v5 (round 4 fix) hardens Pattern C's negation exemption and its PATH_NAME
+ * lexicon, both defeated by adversarial review:
+ *   (a) Pattern C's negation exemption was a raw "negation word within 30
+ *       chars before the release word" radius. A DOUBLE-NEGATIVE directive
+ *       ("Do not skip the release on the lock held by another session
+ *       path.", "Never withhold release on the skip-conditions paths.")
+ *       sits inside that radius while asserting the OPPOSITE of a
+ *       prohibition - it instructs release TO happen. Fixed by
+ *       `isGenuinelyNegated()`, which additionally requires that no
+ *       inversion word (skip/omit/withhold/forgo/forego/neglect) sits
+ *       between the negation trigger and the release word.
+ *   (b) The same raw radius false-FAILed on legitimate prohibitive prose
+ *       whose negation is genuinely more than 30 chars from "release" (an
+ *       intervening adverbial aside: "Do NOT, under any circumstances
+ *       whatsoever, release the lock...") or that uses a standalone
+ *       circumstantial negator with no "not"/"never" at all ("...must
+ *       under no circumstances invoke the release helper."). Fixed by (1)
+ *       stripping short comma-delimited adverbial asides before matching,
+ *       so the negation and the verb it governs read as the same clause,
+ *       and (2) widening the negation-trigger lexicon to include
+ *       standalone circumstantial negators.
+ *   (c) PATH_NAME was a verbatim transcription of five phrases and missed
+ *       plausible spelling variants: the doc's own heading spells one path
+ *       with a SPACE ("skip conditions") while the pattern required a
+ *       hyphen or nothing, and a hyphenated form of another path
+ *       ("lock-held-by-another-session") did not match a pattern requiring
+ *       literal spaces. Fixed by widening separators to `[-\s]+` throughout,
+ *       plus adding "without having acquir*"/"hadn't acquir*"/"was not
+ *       acquir*" as additional non-acquisition phrasings.
+ *
  * IMPORTANT SCOPE NOTE: this is a prose pin. It verifies THAT THE SCOPING
  * PARAGRAPH AND BULLET ARE UNCHANGED (golden pins) and THAT NO CONTRADICTING
  * DIRECTIVE HAS BEEN ADDED ELSEWHERE (semantic net, Patterns A/B/C). It
@@ -288,19 +318,44 @@ console.log('\n[1] golden-text pin: "Lock release:" paragraph is byte-for-byte (
 //
 // Located by pattern (a line starting with "- **If the lock is acquired:**")
 // within the extracted RAW section, not by hardcoded line number - the file
-// grows and a fixed offset would silently drift. This doc's bullets never
-// wrap onto a continuation line (see the doc comment on step (3) below), so
-// the bullet is exactly one physical line; matched with the `m` flag against
-// the raw section text.
+// grows and a fixed offset would silently drift. This doc's bullets do not
+// currently wrap onto a continuation line, but a pure REFLOW of this bullet
+// (line-wrapping the same text onto continuation lines with no wording
+// change) is harmless and should not trip this pin - only a substantive edit
+// should. `extractBulletWithContinuation` therefore consumes any
+// continuation lines that follow the bullet's start line, stopping at the
+// first blank line, the next `- ` list item, or a heading - since
+// `normalize()` collapses whitespace/newlines to single spaces anyway, this
+// widens what counts as "the bullet" without weakening the golden pin's
+// strictness against a substantive edit (any wording change still fails the
+// exact-equality check below).
 // ---------------------------------------------------------------------------
 console.log('\n[1b] golden-text pin: "**If the lock is acquired:**" bullet is byte-for-byte (whitespace-normalized) unchanged');
 {
-  const acquiredBulletRe = /^- \*\*If the lock is acquired:\*\*.*$/m;
-  const acquiredBulletMatch = acquiredBulletRe.exec(sectionRaw);
+  function extractBulletWithContinuation(raw, startLineRe) {
+    const lines = raw.split('\n');
+    let startIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (startLineRe.test(lines[i])) { startIdx = i; break; }
+    }
+    if (startIdx === -1) return null;
+    const collected = [lines[startIdx]];
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
+      if (trimmed === '') break; // blank line ends the bullet
+      if (/^-\s/.test(trimmed)) break; // next list item starts
+      if (/^#{1,6}\s/.test(trimmed)) break; // heading starts
+      collected.push(lines[i]);
+    }
+    return collected.join(' ');
+  }
 
-  assert(acquiredBulletMatch !== null, 'the "**If the lock is acquired:**" bullet exists in Phase 11b');
+  const acquiredBulletStartRe = /^- \*\*If the lock is acquired:\*\*/;
+  const acquiredBulletText = extractBulletWithContinuation(sectionRaw, acquiredBulletStartRe);
 
-  if (acquiredBulletMatch === null) {
+  assert(acquiredBulletText !== null, 'the "**If the lock is acquired:**" bullet exists in Phase 11b');
+
+  if (acquiredBulletText === null) {
     console.error(
       '  The "**If the lock is acquired:**" bullet is missing, renamed, or re-prefixed\n' +
       '  in Phase 11b.\n' +
@@ -317,7 +372,7 @@ console.log('\n[1b] golden-text pin: "**If the lock is acquired:**" bullet is by
       '  the same commit.'
     );
   } else {
-    const actualAcquiredNormalized = normalize(acquiredBulletMatch[0]);
+    const actualAcquiredNormalized = normalize(acquiredBulletText);
     const acquiredMatches = actualAcquiredNormalized === GOLDEN_ACQUIRED_BULLET_TEXT;
     assert(
       acquiredMatches,
@@ -499,17 +554,81 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
   // path (e.g. "Do NOT release the lock (this session never acquired it)."
   // - the lock-held-by-another-session bullet's own correct directive, or
   // "...must NOT call the release helper." in the golden "Lock release:"
-  // paragraph, already excluded from `units` by getUnits()). NEGATED_RELEASE
-  // requires a negation word ("not"/"never") to appear BEFORE the release
-  // word within a short bounded window, so it only exempts the "do NOT
-  // release"/"never release"-shaped sentence, not a sentence that merely
-  // contains "never acquired" elsewhere while still asserting release
-  // happens (the round-3 exploit sentences contain no such negation
-  // immediately preceding the release word, so they are not exempted).
-  const PATH_NAME = '(?:skip-?conditions?|held\\s+by\\s+another\\s+session|never\\s+acquir\\w*|did\\s+not\\s+acquir\\w*|did\\s+not\\s+create)';
+  // paragraph, already excluded from `units` by getUnits()). This exemption
+  // is implemented by `isGenuinelyNegated()` (round-4 hardening; see its
+  // doc comment below), NOT a raw negation-within-N-chars radius - round 4
+  // found the raw radius was defeated in both directions: a double-negative
+  // directive ("Do not skip the release...") sits inside any plausible
+  // radius while asserting the OPPOSITE of a prohibition, and legitimate
+  // prohibitive prose can legitimately separate the negation from "release"
+  // by more than any fixed radius (an intervening adverbial aside, or a
+  // standalone circumstantial negator with no "not"/"never" at all).
+  // PATH_NAME separators are widened to `[-\s]+` (one-or-more hyphen/space)
+  // rather than a fixed literal spelling, because the doc's own heading uses
+  // a SPACE ("skip conditions") while the exploit-sentence catalog uses a
+  // HYPHEN ("lock-held-by-another-session") - a pattern anchored to only one
+  // spelling missed the other. Two additional phrasings are added for
+  // "released even though this session never acquired the lock": "without
+  // having acquir*", "hadn't acquir*", "was not acquir*".
+  const PATH_NAME = '(?:skip[-\\s]?conditions?|held[-\\s]+by[-\\s]+another[-\\s]+session|never\\s+acquir\\w*|did\\s+not\\s+acquir\\w*|did\\s+not\\s+create|without\\s+having\\s+acquir\\w*|hadn\'?t\\s+acquir\\w*|was\\s+not\\s+acquir\\w*)';
   const forwardC = new RegExp(`\\b${RELEASE}\\b${WINDOW}\\b${PATH_NAME}\\b`, 'i');
   const backwardC = new RegExp(`\\b${PATH_NAME}\\b${WINDOW}\\b${RELEASE}\\b`, 'i');
-  const NEGATED_RELEASE = new RegExp(`\\b(?:do|does|did|must|shall|will|should)\\s+not\\b[^]{0,30}?\\b${RELEASE}\\b|\\bnever\\b[^]{0,30}?\\b${RELEASE}\\b`, 'i');
+
+  // NEGATED_RELEASE exemption, round-4 hardening.
+  //
+  // A raw "negation-trigger within N chars of the release word" radius (the
+  // pre-round-4 shape) is defeated in BOTH directions by real prose:
+  //   (i)  a DOUBLE NEGATIVE directive - "Do not skip the release", "Never
+  //        withhold release", "Do not omit the release" - sits well inside
+  //        any plausible radius while asserting the exact opposite of what
+  //        the exemption assumes: these sentences instruct release TO
+  //        happen, they do not prohibit it. INVERSION_WORD closes this: if
+  //        one of skip/omit/withhold/forgo/forego/neglect appears between
+  //        the negation trigger and the release word, that trigger does NOT
+  //        count as a genuine negation of release.
+  //   (ii) legitimate prohibitive prose can separate the negation trigger
+  //        from "release" by more than any fixed radius via an intervening
+  //        adverbial aside ("Do NOT, under any circumstances whatsoever,
+  //        release the lock") or via a standalone circumstantial negator
+  //        with no "not"/"never" at all ("...must under no circumstances
+  //        invoke the release helper"). Fix: (a) strip short comma-delimited
+  //        adverbial asides before matching, so the negation and the verb it
+  //        governs are read as the same clause instead of radius-separated;
+  //        (b) widen the trigger set to include standalone circumstantial
+  //        negators ("under no circumstances", "in no case", "on no
+  //        account", "in no event") that do not require a co-occurring
+  //        "not"/"never".
+  // The residual gap window (30 chars, applied AFTER aside-stripping) still
+  // guards against a negation trigger and "release" that are unrelated
+  // clauses merely sharing a sentence - the window is now clause-scoped
+  // rather than raw-radius-scoped.
+  const INVERSION_WORD = /\b(?:skip|omit|withhold|forgo|forego|neglect)\b/i;
+  const NEGATION_TRIGGER =
+    '(?:(?:do|does|did|must|shall|will|should)\\s+not|never|' +
+    'under\\s+no\\s+circumstances|in\\s+no\\s+case|on\\s+no\\s+account|in\\s+no\\s+event)';
+  const negatedReleaseRe = new RegExp(`\\b${NEGATION_TRIGGER}\\b([^]{0,30}?)\\b${RELEASE}\\b`, 'gi');
+
+  function stripAsides(text) {
+    // Remove short comma-delimited adverbial asides ("Do NOT, under any
+    // circumstances whatsoever, release the lock" -> "Do NOT release the
+    // lock") so a negation and the release word it governs are read as the
+    // same clause rather than separated by an interjected phrase. Bounded
+    // to a short span (60 chars) so this cannot be abused to bridge two
+    // genuinely unrelated clauses.
+    return text.replace(/,\s*[^,]{1,60}?,\s*/g, ' ');
+  }
+
+  function isGenuinelyNegated(sentence) {
+    const stripped = stripAsides(sentence);
+    negatedReleaseRe.lastIndex = 0;
+    let m;
+    while ((m = negatedReleaseRe.exec(stripped)) !== null) {
+      const gap = m[1];
+      if (!INVERSION_WORD.test(gap)) return true;
+      if (negatedReleaseRe.lastIndex === m.index) negatedReleaseRe.lastIndex++;
+    }
+    return false;
+  }
 
   const units = getUnits(sectionRaw);
   const hits = [];
@@ -528,7 +647,7 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
         continue;
       }
       const cHit = forwardC.test(sentence) || backwardC.test(sentence);
-      if (cHit && !NEGATED_RELEASE.test(sentence)) {
+      if (cHit && !isGenuinelyNegated(sentence)) {
         hits.push(sentence);
       }
     }
