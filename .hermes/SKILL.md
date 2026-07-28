@@ -4355,6 +4355,7 @@ A bare `n/a` is invalid. Only the following strings are valid `n/a` values. Any 
 - `n/a - Skeptic-on-Brief (Brief is the artifact under review)` (Brief field only)
 - `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` (Brief field only)
 - `n/a - single Elevated unit (no Brief required by the promotion gate)` (Brief field only)
+- `n/a - architect skipped per the simple/targeted-unit metric` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit)
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
 
 ### Review-environment freshness precondition
@@ -4371,6 +4372,8 @@ Before reading any artifact or producing any findings, the Skeptic verifies the 
 
 1. All 6 fields are present.
 2. Any `n/a` value is one of the enumerated strings above.
+
+When the diff under review itself amends the enumerated `n/a` rationale set (i.e. this file), the Skeptic validates every field against the branch's own copy of this section, not the copy installed in its own environment - otherwise a PR that adds a value is spuriously BLOCKED against the pre-change enum it is itself updating.
 
 If either check fails, the Skeptic returns immediately with:
 
