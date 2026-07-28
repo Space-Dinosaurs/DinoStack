@@ -4354,6 +4354,7 @@ A bare `n/a` is invalid. Only the following strings are valid `n/a` values. Any 
 - `n/a - architect plan deferred to Plan-tier second pass` (Brief field only)
 - `n/a - Skeptic-on-Brief (Brief is the artifact under review)` (Brief field only)
 - `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` (Brief field only)
+- `n/a - single Elevated unit (no Brief required by the promotion gate)` (Brief field only)
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
 
 ### Review-environment freshness precondition
