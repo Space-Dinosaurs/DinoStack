@@ -261,6 +261,8 @@ Every Skeptic spawn prompt MUST include the following block in this order, after
 6. Diff under review: <git diff command OR file paths>
 ```
 
+On a pre-implementation review (e.g. Skeptic-on-plan, Skeptic-on-Brief), field 6 lists the paths the plan proposes to modify, since no diff exists yet.
+
 ### Enumerated `n/a` rationale set
 
 A bare `n/a` is invalid. Only the following strings are valid `n/a` values. Any other string triggers Skeptic Step 0 BLOCKED.
@@ -271,6 +273,7 @@ A bare `n/a` is invalid. Only the following strings are valid `n/a` values. Any 
 - `n/a - non-shared-utility surface (importer count below 5 threshold)` (per-consumer table only)
 - `n/a - architect plan deferred to Plan-tier second pass` (Brief field only)
 - `n/a - Skeptic-on-Brief (Brief is the artifact under review)` (Brief field only)
+- `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` (Brief field only)
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
 
 ### Review-environment freshness precondition
