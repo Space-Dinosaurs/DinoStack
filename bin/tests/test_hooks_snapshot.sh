@@ -238,20 +238,34 @@ fi
 # Finding 3 regression: a file literally named .snapshot-meta.json nested
 # inside a copied hooks/ subtree (NOT at the snapshot root) must still be
 # compared - the root-scoped exclusion in _snapshot_files must not match it
-# at any depth.
+# at any depth. Two distinct properties are asserted separately, each with
+# its own message, so a failure names exactly which property broke:
+#   (a) the nested path is actually present in the compared file set at all
+#       (a direct membership check - not an inference from before/after
+#       inequality, which can pass for the wrong reason if an unrelated file
+#       changes elsewhere in the tree at the same time); and
+#   (b) a content change to that nested file is detected across a re-sync
+#       (the property this test exists to catch in the first place).
 mkdir -p "$REPO_C/hooks/nested"
 echo '{"decoy":"v1"}' > "$REPO_C/hooks/nested/.snapshot-meta.json"
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 NESTED_BEFORE="$(_snapshot_content "$SNAP_DIR")"
+NESTED_FILES_BEFORE="$(_snapshot_files "$SNAP_DIR")"
 
 echo '{"decoy":"v2"}' > "$REPO_C/hooks/nested/.snapshot-meta.json"
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 NESTED_AFTER="$(_snapshot_content "$SNAP_DIR")"
 
-if [[ "$NESTED_BEFORE" != "$NESTED_AFTER" ]]; then
-  _pass "a nested hooks/.../.snapshot-meta.json (not at the snapshot root) is still compared, not silently excluded at depth"
+if echo "$NESTED_FILES_BEFORE" | grep -q '/hooks/nested/\.snapshot-meta\.json'; then
+  _pass "a nested hooks/.../.snapshot-meta.json is present in the compared file set (not excluded at depth)"
 else
-  _fail "a nested hooks/.../.snapshot-meta.json was silently excluded from comparison at the wrong depth"
+  _fail "a nested hooks/.../.snapshot-meta.json is absent from the compared file set - the root-scoped exclusion in _snapshot_files matched it at the wrong depth"
+fi
+
+if [[ "$NESTED_BEFORE" != "$NESTED_AFTER" ]]; then
+  _pass "a content change to the nested hooks/.../.snapshot-meta.json is detected across a re-sync"
+else
+  _fail "a content change to the nested hooks/.../.snapshot-meta.json was not detected across a re-sync"
 fi
 
 rm -rf "$REPO_C/hooks/nested"
