@@ -256,8 +256,10 @@ echo '{"decoy":"v2"}' > "$REPO_C/hooks/nested/.snapshot-meta.json"
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 NESTED_AFTER="$(_snapshot_content "$SNAP_DIR")"
 
-if echo "$NESTED_FILES_BEFORE" | grep -q '/hooks/nested/\.snapshot-meta\.json'; then
+if echo "$NESTED_FILES_BEFORE" | grep -q '/hooks/nested/\.snapshot-meta\.json$'; then
   _pass "a nested hooks/.../.snapshot-meta.json is present in the compared file set (not excluded at depth)"
+elif [[ -z "$NESTED_FILES_BEFORE" ]]; then
+  _fail "the compared file set is empty or unreadable (snapshot dir missing or inaccessible) - not a membership comparison"
 else
   _fail "a nested hooks/.../.snapshot-meta.json is absent from the compared file set - the root-scoped exclusion in _snapshot_files matched it at the wrong depth"
 fi
