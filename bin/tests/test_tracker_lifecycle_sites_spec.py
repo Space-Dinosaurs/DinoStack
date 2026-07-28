@@ -324,8 +324,51 @@ def test_pending_merge_cursor_advance_and_attempts_cap(pending_merge_section):
     assert "unconditionally" in pending_merge_section, (
         "pending-merge section must state the cursor advances unconditionally"
     )
-    assert "attempts" in pending_merge_section, (
-        "pending-merge section must define an attempts cap"
+    # Pin the specific cap value and the terminal state it produces, not
+    # merely the presence of the word "attempts" - a change to the cap
+    # value or a dropped `abandoned` terminalization must fail this test.
+    assert "attempts` reaches **3**" in pending_merge_section, (
+        "pending-merge section must define the attempts cap as exactly 3"
+    )
+    assert "append `abandoned`" in pending_merge_section, (
+        "pending-merge section must terminalize an exhausted pair as "
+        "`abandoned` when the attempts cap is reached"
+    )
+
+
+def test_pending_merge_open_pr_check_present(pending_merge_section):
+    # Pins Skeptic finding MAJOR 1: the open-PR safety control that stops a
+    # multi-PR ticket being marked Done by its first merged PR (DS-56 shape
+    # for concurrently-open siblings). Both halves are asserted
+    # independently of the headRefName-prohibition count above, so neither
+    # assertion passes by coupling to the other.
+    assert '--state open --search "<TICKET_ID>"' in pending_merge_section, (
+        "pending-merge section must run the open-PR search "
+        "(`gh pr list --state open --search`) before mapping a merged "
+        "candidate to Done"
+    )
+    assert (
+        'therefore treat an **error** on this call as "blocked" '
+        '(do not transition), not as "clear."' in pending_merge_section
+    ), (
+        "pending-merge section must state the fail-closed rule: an error "
+        "on the open-PR search is treated as blocked, not clear"
+    )
+
+
+def test_pending_merge_never_truncate_silently_pinned(pending_merge_section):
+    # Pins Skeptic finding MINOR 3a: the cap-truncation announcement line
+    # (interface contract 7, "never truncate silently") was entirely
+    # unpinned - deleting the whole paragraph left the suite green.
+    assert "Never truncate silently." in pending_merge_section, (
+        "pending-merge section must state the never-truncate-silently rule "
+        "for the 20-candidate cap"
+    )
+    assert (
+        "pending-merge sweep capped at 20 candidates" in pending_merge_section
+    ), (
+        "pending-merge section must print the specific cap-truncation "
+        "breadcrumb naming how many older pairs were skipped"
     )
 
 
