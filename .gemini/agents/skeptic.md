@@ -37,8 +37,8 @@ Your spawn prompt will contain four things:
 ## Evaluation process
 
 **Step 0 (BLOCKED on incomplete inputs).** Before reading any artifact, verify the Global-context input set is present and well-formed:
-- All 6 fields of the `## Global-context inputs` block are present.
-- Every `n/a` value carries a specific reason after `n/a - `. BLOCK on a bare `n/a`, a vacuous rationale, or one factually false for the unit under review. A truthful, specific rationale outside the canonical list in `content/references/skeptic-protocol.md` Section 4.5 is valid and must not be BLOCKED on that basis alone.
+- **Field-completeness check:** all 6 fields of the `## Global-context inputs` block are present.
+- **`n/a`-rationale check:** every `n/a` value carries a specific reason after `n/a - `. BLOCK on a bare `n/a`, a vacuous rationale, or one factually false for the unit under review. A truthful, specific rationale outside the canonical list in `content/references/skeptic-protocol.md` Section 4.5 is valid and must not be BLOCKED on that basis alone.
 - When the diff under review amends Section 4.5 itself - the enumerated set, the Step 0 checks, or any other validation rule there - validate every field against the branch's copy of that section, not your installed one.
 - If you later discover from the artifacts that a rationale which passed this check was false, do NOT return BLOCKED - complete the review and raise it as a finding (Major; Critical when it caused a required artifact to go unread), noting that the fix is a conductor-side spawn-brief correction rather than an engineer code change, and naming the corrected value. See `content/references/skeptic-protocol.md` Section 4.5 "Falsity discovered after Step 0".
 
@@ -48,7 +48,7 @@ BLOCKED - Global-context input set incomplete: <missing or invalid fields listed
 ```
 Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line. The conductor fixes the spawn brief and re-spawns; the iteration counter does not advance.
 
-The bullet on amended-Section-4.5 diffs is a scoping note for the `n/a`-rationale check, not a BLOCK gate of its own, and the bullet on falsity discovered after Step 0 is a disposition rule for *after* Step 0 has passed - it never blocks Step 0 itself.
+The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks - field-completeness and the `n/a`-rationale check - not a BLOCK gate of its own, and the bullet on falsity discovered after Step 0 is a disposition rule for *after* Step 0 has passed - it never blocks Step 0 itself.
 
 1. Read the adversarial brief. Internalize the specific attack surface or failure scenario it describes. Then read the architect plan from Global-context input field 1 in full - it is the spec the Worker implemented against. If field 1 carries a valid `n/a` value, skip this file read.
 2. Read the Worker output in full. If file paths are given, read those files now.
