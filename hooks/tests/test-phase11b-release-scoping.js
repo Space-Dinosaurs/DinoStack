@@ -73,6 +73,100 @@
  * ("do NOT release", "never release") that marks the sentence as prohibitive
  * rather than directive.
  *
+ * v5 (round 4-6 fix; this fix pass) widens PATH_NAME, finishes v4's reflow
+ * tolerance, and - after three separate attempts across two review rounds
+ * each introduced a NEW bypass - deliberately REVERTS Pattern C's negation
+ * exemption to the exact raw-radius `NEGATED_RELEASE` check this test had
+ * before this fix pass began (the same shape still on `origin/main`):
+ *   (a) PATH_NAME was a verbatim transcription of five phrases and missed
+ *       plausible spelling variants: the doc's own heading spells one path
+ *       with a SPACE ("skip conditions") while the pattern required a
+ *       hyphen or nothing, and a hyphenated form of another path
+ *       ("lock-held-by-another-session") did not match a pattern requiring
+ *       literal spaces. Fixed by widening separators to `[-\s]+` throughout,
+ *       plus adding "without having acquir*"/"hadn't acquir*"/"was not
+ *       acquir*" as additional non-acquisition phrasings. This fix is KEPT.
+ *   (b) Step (3)'s `getUnits()` split any multi-physical-line block one unit
+ *       per line, even after v4 taught step (1b)'s golden pin to tolerate a
+ *       pure reflow of the "**If the lock is acquired:**" bullet onto
+ *       continuation lines. A harmless reflow (zero wording change)
+ *       therefore still passed (1b) but failed (3): the qualifier phrase
+ *       "If the lock is acquired" (on the bullet's first physical line) and
+ *       the release clause (pushed onto a continuation line by the wrap)
+ *       ended up in two different single-line "units", so the unit-wide
+ *       scope-qualifier exemption no longer covered the release clause.
+ *       Fixed by making `getUnits()` merge a bullet or heading start line
+ *       with any following continuation lines into one unit - mirroring
+ *       `extractBulletWithContinuation()` in step (1b) - so a reflow with no
+ *       wording change stays exempt, while a substantive edit (an appended
+ *       sentence, a contradicting continuation, a reorder, or a wording
+ *       change) is still caught by the golden pin and/or the semantic net.
+ *       This fix is KEPT (see the disclosed scoping tradeoff in the (3a)
+ *       comment below).
+ *   (c) `NEGATED_RELEASE`'s pre-existing raw "negation word within 30 chars
+ *       before the release word" radius has one known false-FAIL: it
+ *       rejects legitimate prohibitive prose whose negation trigger is
+ *       genuinely more than 30 chars from "release" - an intervening
+ *       adverbial aside ("Do NOT, under any circumstances whatsoever,
+ *       release the lock...") or a standalone circumstantial negator with
+ *       no "not"/"never" at all ("...must under no circumstances invoke the
+ *       release helper."). Three separate attempts to remove this
+ *       false-FAIL - (i) an `isGenuinelyNegated()` inversion-word check plus
+ *       an ANYWHERE-in-sentence aside strip, (ii) anchoring that aside
+ *       strip to the trigger via `TRIGGER_ADJACENT_ASIDE`, and (iii) adding
+ *       a `CLAUSE_BREAK` test on the captured gap - each closed the
+ *       previously-demonstrated bypasses, and each was defeated by the NEXT
+ *       round of adversarial review using a different English
+ *       clause-bridging construct (a coordinating conjunction, a
+ *       comma-delimited aside masking a clause boundary, a comma splice, a
+ *       relative pronoun, a subordinating conjunction like "before"/
+ *       "since"/"because"). Whether a negation trigger GOVERNS a verb
+ *       elsewhere in a sentence is an open-ended natural-language question
+ *       that a bounded pattern cannot fully enumerate - the same class of
+ *       problem v1/v2 already failed at for the broader release-scoping
+ *       claim (see above). Given the stated asymmetry for this guard - a
+ *       false-FAIL here is a fail-safe annoyance, while a false-PASS
+ *       reopens the exact cross-session lock-deletion bug this test exists
+ *       to catch, with fully green CI - the negation-exemption refinement
+ *       is REVERTED to `origin/main`'s exact `NEGATED_RELEASE` behavior
+ *       rather than continuing to chase bypasses. This deliberately
+ *       reinstates two known false-FAILs:
+ *         "Do NOT, under any circumstances whatsoever, release the lock on
+ *         the skip-conditions paths."
+ *         "The conductor must under no circumstances invoke the release
+ *         helper on the skip-conditions paths."
+ *       Neither of these sentences appears in the actual Phase 11b prose;
+ *       this is an accepted cost against a hypothetical future rewording,
+ *       not a live regression.
+ *
+ * v6 (fix pass 3, on top of v5's reversion) re-adds ONE narrow anti-exemption
+ * on top of the plain `NEGATED_RELEASE` check restored by v5(c): `INVERSION_WORD`.
+ * v5(c)'s revert also discarded the fix for a DIFFERENT, unrelated defect this
+ * branch was created to address - a double-negative construction where a verb
+ * BETWEEN the negation trigger and the release word inverts the meaning back
+ * to a directive to release, e.g. "Do not skip the release...", "Never
+ * withhold release...", "Do not omit the release...". Under the plain
+ * `NEGATED_RELEASE` check alone these all read as legitimate prohibitive
+ * prose (negation trigger within 30 chars of "release") and are wrongly
+ * exempted. `INVERSION_WORD` closes this specific gap: when the captured gap
+ * between the negation trigger and the release word contains one of
+ * skip/omit/withhold/forgo/forego/neglect, the sentence is no longer treated
+ * as negated. This check is SAFE where the three prior clause-governance
+ * attempts were not, because it is STRICTLY ONE-DIRECTIONAL BY CONSTRUCTION:
+ * it can only WITHDRAW an exemption the plain check already grants (turning
+ * an exempted sentence into a caught one), and can never GRANT a new
+ * exemption. It therefore cannot reproduce the false-PASS bypass class that
+ * defeated every previous attempt at refining this check - those attempts
+ * widened what got exempted; this one only narrows it. The word list is
+ * deliberately CLOSED and small: it is a proximity check plus a fixed-list
+ * veto, not a clause-boundary or governance detector, and it does not close
+ * the wider double-negative construction class - "fail to release", "refrain
+ * from releasing", "hesitate to release", and "avoid releasing" all remain
+ * uncaught. v5(c)'s two disclosed false-FAILs (a distant negation trigger
+ * more than 30 chars from "release") are UNCHANGED by this addition; they are
+ * a property of the raw-radius check v6 builds on top of, not something v6
+ * touches.
+ *
  * IMPORTANT SCOPE NOTE: this is a prose pin. It verifies THAT THE SCOPING
  * PARAGRAPH AND BULLET ARE UNCHANGED (golden pins) and THAT NO CONTRADICTING
  * DIRECTIVE HAS BEEN ADDED ELSEWHERE (semantic net, Patterns A/B/C). It
@@ -288,19 +382,44 @@ console.log('\n[1] golden-text pin: "Lock release:" paragraph is byte-for-byte (
 //
 // Located by pattern (a line starting with "- **If the lock is acquired:**")
 // within the extracted RAW section, not by hardcoded line number - the file
-// grows and a fixed offset would silently drift. This doc's bullets never
-// wrap onto a continuation line (see the doc comment on step (3) below), so
-// the bullet is exactly one physical line; matched with the `m` flag against
-// the raw section text.
+// grows and a fixed offset would silently drift. This doc's bullets do not
+// currently wrap onto a continuation line, but a pure REFLOW of this bullet
+// (line-wrapping the same text onto continuation lines with no wording
+// change) is harmless and should not trip this pin - only a substantive edit
+// should. `extractBulletWithContinuation` therefore consumes any
+// continuation lines that follow the bullet's start line, stopping at the
+// first blank line, the next `- ` list item, or a heading - since
+// `normalize()` collapses whitespace/newlines to single spaces anyway, this
+// widens what counts as "the bullet" without weakening the golden pin's
+// strictness against a substantive edit (any wording change still fails the
+// exact-equality check below).
 // ---------------------------------------------------------------------------
 console.log('\n[1b] golden-text pin: "**If the lock is acquired:**" bullet is byte-for-byte (whitespace-normalized) unchanged');
 {
-  const acquiredBulletRe = /^- \*\*If the lock is acquired:\*\*.*$/m;
-  const acquiredBulletMatch = acquiredBulletRe.exec(sectionRaw);
+  function extractBulletWithContinuation(raw, startLineRe) {
+    const lines = raw.split('\n');
+    let startIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (startLineRe.test(lines[i])) { startIdx = i; break; }
+    }
+    if (startIdx === -1) return null;
+    const collected = [lines[startIdx]];
+    for (let i = startIdx + 1; i < lines.length; i++) {
+      const trimmed = lines[i].trim();
+      if (trimmed === '') break; // blank line ends the bullet
+      if (/^-\s/.test(trimmed)) break; // next list item starts
+      if (/^#{1,6}\s/.test(trimmed)) break; // heading starts
+      collected.push(lines[i]);
+    }
+    return collected.join(' ');
+  }
 
-  assert(acquiredBulletMatch !== null, 'the "**If the lock is acquired:**" bullet exists in Phase 11b');
+  const acquiredBulletStartRe = /^- \*\*If the lock is acquired:\*\*/;
+  const acquiredBulletText = extractBulletWithContinuation(sectionRaw, acquiredBulletStartRe);
 
-  if (acquiredBulletMatch === null) {
+  assert(acquiredBulletText !== null, 'the "**If the lock is acquired:**" bullet exists in Phase 11b');
+
+  if (acquiredBulletText === null) {
     console.error(
       '  The "**If the lock is acquired:**" bullet is missing, renamed, or re-prefixed\n' +
       '  in Phase 11b.\n' +
@@ -317,7 +436,7 @@ console.log('\n[1b] golden-text pin: "**If the lock is acquired:**" bullet is by
       '  the same commit.'
     );
   } else {
-    const actualAcquiredNormalized = normalize(acquiredBulletMatch[0]);
+    const actualAcquiredNormalized = normalize(acquiredBulletText);
     const acquiredMatches = actualAcquiredNormalized === GOLDEN_ACQUIRED_BULLET_TEXT;
     assert(
       acquiredMatches,
@@ -371,13 +490,17 @@ console.log('\n[2] lock-held-by-another-session path carries its own no-release 
 // round-1 defects: two disagreeing locations).
 //
 // Detection strategy: group the section into UNITS - a unit is one bullet
-// list item (one physical line, since this doc's bullets never wrap onto a
-// continuation line) or one single-line paragraph/heading. A blank-line-
-// delimited block that itself spans multiple physical lines (a bullet list,
-// or a heading immediately followed by its bullets on the next lines with no
-// blank line between) is split one-unit-per-line; a block that is already a
-// single physical line (the common case - most paragraphs and bullets in
-// this section) is one unit as-is. Each unit is then split into SENTENCE-
+// list item or one paragraph/heading, INCLUDING any continuation lines that
+// wrap it (mirroring `extractBulletWithContinuation()` in step (1b), so a
+// pure reflow with no wording change is exempt here the same way it is
+// exempt there). A blank-line-delimited block that spans multiple physical
+// lines (a bullet list, or a heading immediately followed by its bullets on
+// the next lines with no blank line between) is split at each new bullet/
+// heading start line; any line that is neither a bullet nor a heading start
+// is treated as a CONTINUATION of the preceding unit and merged into it. A
+// block that is already a single physical line (the common case - most
+// paragraphs and bullets in this section) is one unit as-is. Each unit is
+// then split into SENTENCE-
 // level spans for match LOCALIZATION (a Pattern A/B co-occurrence must fall
 // within one sentence - a raw character-count radius is exactly what round 2
 // defeated), while the scope-qualifier EXEMPTION check below is evaluated
@@ -422,7 +545,28 @@ console.log('\n[2] lock-held-by-another-session path carries its own no-release 
 console.log('\n[3] no unscoped or wording-variant unconditional-release claim elsewhere in Phase 11b');
 {
   // (3a) Group the raw (unnormalized) section into units, excluding the
-  // golden "Lock release:" paragraph.
+  // golden "Lock release:" paragraph. A unit is one bullet/heading start
+  // line plus any continuation lines that follow it (lines that are
+  // themselves neither a new bullet nor a heading), so a pure line-wrap
+  // reflow of a bullet does not split its qualifier phrase and its release
+  // clause into two different units - matching
+  // `extractBulletWithContinuation()` in step (1b).
+  //
+  // Disclosed tradeoff (round 6 review): merging continuation lines into one
+  // unit widens the SCOPE_QUALIFIER exemption to cover the whole merged
+  // unit, including a continuation line that a stricter line-per-unit
+  // scheme would have treated as its own, unqualified unit. Demonstrated
+  // regression vs `origin/main`:
+  //   "- **Cleanup:** in that branch the conductor tidies residual state.
+  //      The conductor releases the lock on every exit path in all cases."
+  // treats both sentences as one unit, so "in that branch" (from the first
+  // sentence) exempts the second sentence's Pattern-A-shaped claim even
+  // though it is a separate sentence. This is accepted, not fixed here:
+  // treating a wrapped bullet as one scope is the correct semantics for the
+  // reflow-tolerance goal this merge exists for, and the two real,
+  // security-relevant bullets ("Lock release:" and "**If the lock is
+  // acquired:**") remain independently backstopped by the golden-text pins
+  // in steps (1) and (1b) regardless of how (3) groups units.
   function getUnits(raw) {
     const blocks = raw.split(/\n\s*\n+/).map((b) => b.trim()).filter(Boolean);
     const units = [];
@@ -430,10 +574,21 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
       if (/^Lock release:/i.test(block)) continue; // golden paragraph: excluded
       const lines = block.split('\n').map((l) => l.trim()).filter(Boolean);
       if (lines.length <= 1) {
-        units.push(block);
-      } else {
-        for (const line of lines) units.push(line);
+        if (lines.length === 1) units.push(block);
+        continue;
       }
+      let current = null;
+      for (const line of lines) {
+        const isBullet = /^-\s/.test(line);
+        const isHeading = /^#{1,6}\s/.test(line);
+        if (isBullet || isHeading || current === null) {
+          if (current !== null) units.push(current);
+          current = line;
+        } else {
+          current += ' ' + line; // continuation line: merge into current unit
+        }
+      }
+      if (current !== null) units.push(current);
     }
     return units;
   }
@@ -504,12 +659,65 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
   // word within a short bounded window, so it only exempts the "do NOT
   // release"/"never release"-shaped sentence, not a sentence that merely
   // contains "never acquired" elsewhere while still asserting release
-  // happens (the round-3 exploit sentences contain no such negation
-  // immediately preceding the release word, so they are not exempted).
-  const PATH_NAME = '(?:skip-?conditions?|held\\s+by\\s+another\\s+session|never\\s+acquir\\w*|did\\s+not\\s+acquir\\w*|did\\s+not\\s+create)';
+  // happens.
+  //
+  // This raw-radius shape is a DELIBERATE REVERSION (see the v5(c) file-
+  // header doc comment): three successive attempts to close its one known
+  // false-FAIL (legitimate prohibitive prose whose negation trigger sits
+  // more than 30 chars from "release") each introduced a NEW false-PASS
+  // bypass that the next round of adversarial review found, using a
+  // different English clause-bridging construct each time. Given that a
+  // false-PASS here reopens a cross-session lock-deletion bug with green
+  // CI while a false-FAIL is merely a fail-safe annoyance, this exemption
+  // is intentionally kept simple and conservative rather than continuing to
+  // chase bypasses.
+  //
+  // PATH_NAME separators are widened to `[-\s]+` (one-or-more hyphen/space)
+  // rather than a fixed literal spelling, because the doc's own heading uses
+  // a SPACE ("skip conditions") while the exploit-sentence catalog uses a
+  // HYPHEN ("lock-held-by-another-session") - a pattern anchored to only one
+  // spelling missed the other. Three additional phrasings are added for
+  // "released even though this session never acquired the lock": "without
+  // having acquir*", "hadn't acquir*", "was not acquir*". This widening is
+  // KEPT (see v5(a) in the file header) - it is independent of the
+  // negation-exemption reversion above.
+  const PATH_NAME = '(?:skip[-\\s]?conditions?|held[-\\s]+by[-\\s]+another[-\\s]+session|never\\s+acquir\\w*|did\\s+not\\s+acquir\\w*|did\\s+not\\s+create|without\\s+having\\s+acquir\\w*|hadn\'?t\\s+acquir\\w*|was\\s+not\\s+acquir\\w*)';
   const forwardC = new RegExp(`\\b${RELEASE}\\b${WINDOW}\\b${PATH_NAME}\\b`, 'i');
   const backwardC = new RegExp(`\\b${PATH_NAME}\\b${WINDOW}\\b${RELEASE}\\b`, 'i');
-  const NEGATED_RELEASE = new RegExp(`\\b(?:do|does|did|must|shall|will|should)\\s+not\\b[^]{0,30}?\\b${RELEASE}\\b|\\bnever\\b[^]{0,30}?\\b${RELEASE}\\b`, 'i');
+
+  // INVERSION_WORD (fix pass 3, layered on top of the v5(c) reversion above):
+  // one narrow, ONE-DIRECTIONAL anti-exemption. It can only WITHDRAW an
+  // exemption the raw-radius negation check below would otherwise grant - it
+  // never grants a new one - so it cannot reproduce the false-PASS bypass
+  // class that defeated the three prior clause-governance attempts (see
+  // v5(c) above). Concretely: "do NOT/never <verb> release" is normally read
+  // as prohibitive prose exempting the sentence from Pattern C, but when the
+  // captured verb between the trigger and "release" is itself one of
+  // skip/omit/withhold/forgo/forego/neglect, the construction INVERTS back to
+  // a directive to release (e.g. "Do not skip the release...", "Never
+  // withhold release...", "Do not omit the release..."), and the exemption
+  // must not apply. This is a fixed, CLOSED word list, not a general
+  // double-negative detector - it does not attempt to detect a clause
+  // boundary, an aside, or grammatical governance, only proximity plus a
+  // veto. The construction class it targets remains open: "fail to
+  // release", "refrain from releasing", "hesitate to release", and "avoid
+  // releasing" are NOT covered and are known, accepted gaps.
+  const INVERSION_WORD = '(?:skip|omit|withhold|forgo|forego|neglect)\\w*';
+  const inversionRe = new RegExp(`\\b${INVERSION_WORD}\\b`, 'i');
+  const NOT_RELEASE_GAP = new RegExp(`\\b(?:do|does|did|must|shall|will|should)\\s+not\\b([^]{0,30}?)\\b${RELEASE}\\b`, 'i');
+  const NEVER_RELEASE_GAP = new RegExp(`\\bnever\\b([^]{0,30}?)\\b${RELEASE}\\b`, 'i');
+
+  // isNegatedRelease(): true only when a raw-radius negation match is found
+  // AND the captured gap does not contain an inversion word. Since this can
+  // only turn a previously-true result false (never the reverse), the
+  // one-directional property above holds by construction, not by inspection.
+  function isNegatedRelease(sentence) {
+    const notMatch = NOT_RELEASE_GAP.exec(sentence);
+    if (notMatch && !inversionRe.test(notMatch[1])) return true;
+    const neverMatch = NEVER_RELEASE_GAP.exec(sentence);
+    if (neverMatch && !inversionRe.test(neverMatch[1])) return true;
+    return false;
+  }
 
   const units = getUnits(sectionRaw);
   const hits = [];
@@ -528,7 +736,7 @@ console.log('\n[3] no unscoped or wording-variant unconditional-release claim el
         continue;
       }
       const cHit = forwardC.test(sentence) || backwardC.test(sentence);
-      if (cHit && !NEGATED_RELEASE.test(sentence)) {
+      if (cHit && !isNegatedRelease(sentence)) {
         hits.push(sentence);
       }
     }
