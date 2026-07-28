@@ -35,6 +35,8 @@ Your spawn prompt will contain four things:
 **Step 0 (BLOCKED on incomplete inputs).** Before reading any artifact, verify the Global-context input set is present and well-formed:
 - All 6 fields of the `## Global-context inputs` block are present.
 - Every `n/a` value carries a specific reason after `n/a - `. BLOCK on a bare `n/a`, a vacuous rationale, or one factually false for the unit under review. A truthful, specific rationale outside the canonical list in `content/references/skeptic-protocol.md` Section 4.5 is valid and must not be BLOCKED on that basis alone.
+- When the diff under review amends Section 4.5 itself - the enumerated set, the Step 0 checks, or any other validation rule there - validate every field against the branch's copy of that section, not your installed one.
+- If you later discover from the artifacts that a rationale which passed this check was false, do NOT return BLOCKED - complete the review and raise it as a finding (Major; Critical when it caused a required artifact to go unread), noting that the fix is a conductor-side spawn-brief correction rather than an engineer code change, and naming the corrected value. See `content/references/skeptic-protocol.md` Section 4.5 "Falsity discovered after Step 0".
 
 If either check fails, return immediately with:
 ```
