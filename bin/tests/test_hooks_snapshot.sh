@@ -129,12 +129,17 @@ fi
 # on EVERY call (scripts/lib/hooks-snapshot.sh), by design - a fresh
 # re-sync a second later is expected to change that field. Asserting raw
 # byte-equality on this file is a race against the wall-clock second
-# boundary (measured ~7% flake rate in CI). The field that genuinely must
-# stay stable across an idempotent re-sync is `source_hash`, which is
-# checked separately below. Do not remove this exclusion to "fix" a
-# perceived coverage gap - it would reintroduce the flake.
+# boundary (measured ~7% flake rate in CI). The fields that genuinely must
+# stay stable across an idempotent re-sync - `source_hash`, `source_repo_dir`,
+# and the JSON key set - are checked separately below via targeted field
+# comparisons that skip `snapshotted_at` on purpose. Do not remove this
+# exclusion to "fix" a perceived coverage gap - it would reintroduce the flake;
+# extend the targeted comparisons below instead.
 _snapshot_files() {
-  find "$1" -type f -not -name '.snapshot-meta.json' | sort
+  # Exclude .snapshot-meta.json only at the snapshot root, not at any depth -
+  # a same-named file inside a copied hooks/ subtree must still be compared.
+  local dir="$1"
+  find "$dir" -type f -not -path "$dir/.snapshot-meta.json" | sort
 }
 
 _snapshot_content() {
@@ -145,12 +150,36 @@ _snapshot_content() {
   done < <(_snapshot_files "$dir")
 }
 
-SOURCE_HASH_BEFORE="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['source_hash'])" "$SNAP_DIR/.snapshot-meta.json")"
+# Read a single top-level field from a .snapshot-meta.json file. A missing
+# file, malformed JSON, or a missing key all surface as a python traceback on
+# stderr (intentionally not suppressed - a prior version of this file swallowed
+# stderr on its comparator and produced a 100% vacuous pass on macOS; see
+# PR #506) and an empty string on stdout. Callers must not conflate "empty"
+# with "changed" - see the accurate-message requirement below.
+_meta_field() {
+  local meta_file="$1" field="$2"
+  python3 -c "import json,sys; print(json.load(open(sys.argv[1]))[sys.argv[2]])" \
+    "$meta_file" "$field"
+}
+
+# Read the sorted set of top-level keys from a .snapshot-meta.json file, one
+# per line. Same error-surfacing contract as _meta_field above.
+_meta_keys() {
+  local meta_file="$1"
+  python3 -c "import json,sys; [print(k) for k in sorted(json.load(open(sys.argv[1])).keys())]" \
+    "$meta_file"
+}
+
+SOURCE_HASH_BEFORE="$(_meta_field "$SNAP_DIR/.snapshot-meta.json" source_hash)"
+REPO_DIR_BEFORE="$(_meta_field "$SNAP_DIR/.snapshot-meta.json" source_repo_dir)"
+KEYS_BEFORE="$(_meta_keys "$SNAP_DIR/.snapshot-meta.json")"
 CONTENT_BEFORE="$(_snapshot_content "$SNAP_DIR")"
 
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 
-SOURCE_HASH_AFTER="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['source_hash'])" "$SNAP_DIR/.snapshot-meta.json")"
+SOURCE_HASH_AFTER="$(_meta_field "$SNAP_DIR/.snapshot-meta.json" source_hash)"
+REPO_DIR_AFTER="$(_meta_field "$SNAP_DIR/.snapshot-meta.json" source_repo_dir)"
+KEYS_AFTER="$(_meta_keys "$SNAP_DIR/.snapshot-meta.json")"
 CONTENT_AFTER="$(_snapshot_content "$SNAP_DIR")"
 
 if [[ "$CONTENT_BEFORE" == "$CONTENT_AFTER" ]]; then
@@ -159,10 +188,41 @@ else
   _fail "re-sync with unchanged source produced a different tree"
 fi
 
-if [[ -n "$SOURCE_HASH_BEFORE" && "$SOURCE_HASH_BEFORE" == "$SOURCE_HASH_AFTER" ]]; then
+# Each stability check below distinguishes "both sides empty" (not a real
+# comparison - missing/malformed file or key, reported as such) from
+# "changed" (a real regression, reported with the differing values). A
+# message that says "changed" when both sides were simply empty misdescribes
+# the failure and misleads whoever debugs it next (Finding 2, PR #506
+# follow-up).
+if [[ -z "$SOURCE_HASH_BEFORE" && -z "$SOURCE_HASH_AFTER" ]]; then
+  _fail ".snapshot-meta.json source_hash: both sides empty (missing/malformed .snapshot-meta.json or missing 'source_hash' key - not a stability comparison)"
+elif [[ "$SOURCE_HASH_BEFORE" == "$SOURCE_HASH_AFTER" ]]; then
   _pass ".snapshot-meta.json source_hash is stable across an idempotent re-sync"
 else
   _fail ".snapshot-meta.json source_hash changed across an idempotent re-sync ('$SOURCE_HASH_BEFORE' vs '$SOURCE_HASH_AFTER')"
+fi
+
+# source_repo_dir stability: catches a corrupted/rewired source path across
+# an idempotent re-sync (e.g. a bug that repoints the snapshot at a different
+# repo_dir). Both syncs above pass the identical $REPO_C argument, so this is
+# a stability assertion, not an absolute-value validation of source_repo_dir
+# itself - see the reviewer's Minor rationale in PR #506 follow-up.
+if [[ -z "$REPO_DIR_BEFORE" && -z "$REPO_DIR_AFTER" ]]; then
+  _fail ".snapshot-meta.json source_repo_dir: both sides empty (missing/malformed .snapshot-meta.json or missing 'source_repo_dir' key - not a stability comparison)"
+elif [[ "$REPO_DIR_BEFORE" == "$REPO_DIR_AFTER" ]]; then
+  _pass ".snapshot-meta.json source_repo_dir is stable and non-empty across an idempotent re-sync"
+else
+  _fail ".snapshot-meta.json source_repo_dir changed across an idempotent re-sync ('$REPO_DIR_BEFORE' vs '$REPO_DIR_AFTER')"
+fi
+
+# Key-set stability: catches schema drift (a junk key silently added, or a
+# key going missing) that a source_hash-only comparison can't see.
+if [[ -z "$KEYS_BEFORE" && -z "$KEYS_AFTER" ]]; then
+  _fail ".snapshot-meta.json key set: both sides empty (missing/malformed .snapshot-meta.json) - not a stability comparison"
+elif [[ "$KEYS_BEFORE" == "$KEYS_AFTER" ]]; then
+  _pass ".snapshot-meta.json key set is stable across an idempotent re-sync"
+else
+  _fail ".snapshot-meta.json key set changed across an idempotent re-sync (before: [$(echo "$KEYS_BEFORE" | tr '\n' ' ')], after: [$(echo "$KEYS_AFTER" | tr '\n' ' ')])"
 fi
 
 # Delete propagation: remove extra.sh from source, resync, must vanish from snapshot.
@@ -174,6 +234,28 @@ if [[ ! -f "$SNAP_DIR/hooks/extra.sh" ]]; then
 else
   _fail "deleted source file hooks/extra.sh still present in the snapshot after re-sync"
 fi
+
+# Finding 3 regression: a file literally named .snapshot-meta.json nested
+# inside a copied hooks/ subtree (NOT at the snapshot root) must still be
+# compared - the root-scoped exclusion in _snapshot_files must not match it
+# at any depth.
+mkdir -p "$REPO_C/hooks/nested"
+echo '{"decoy":"v1"}' > "$REPO_C/hooks/nested/.snapshot-meta.json"
+HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
+NESTED_BEFORE="$(_snapshot_content "$SNAP_DIR")"
+
+echo '{"decoy":"v2"}' > "$REPO_C/hooks/nested/.snapshot-meta.json"
+HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
+NESTED_AFTER="$(_snapshot_content "$SNAP_DIR")"
+
+if [[ "$NESTED_BEFORE" != "$NESTED_AFTER" ]]; then
+  _pass "a nested hooks/.../.snapshot-meta.json (not at the snapshot root) is still compared, not silently excluded at depth"
+else
+  _fail "a nested hooks/.../.snapshot-meta.json was silently excluded from comparison at the wrong depth"
+fi
+
+rm -rf "$REPO_C/hooks/nested"
+HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 
 # =============================================================
 # 3. Bounded-delete guard
