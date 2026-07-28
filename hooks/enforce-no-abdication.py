@@ -178,6 +178,24 @@ _PERMISSION_PHRASES = re.compile(
 #       prove the conductor acted: _is_stalled_surface_and_proceed() treats
 #       their presence as a POSITIVE stall signal when the transcript shows
 #       no tool call since the last human turn.
+#
+# Fix pass 2 (utility-over-inclusion finding): the (a-cont.) spend-money and
+# send-external-message tokens below were originally bare words ("spend",
+# "cost", "send", "post", "notify", ...). A hard-gate hit SUPPRESSES the
+# stall classifier entirely - so an over-broad gate does not merely produce
+# a benign false-negative, it silences the guard on a genuine stall (e.g.
+# "Sending the brief to the engineer now. Proceeding with unit 3 unless you
+# say otherwise." and "This will cost a few minutes. Proceeding with the
+# rebase unless you say otherwise." both hit the bare-word gate and went
+# unguarded). These two categories are therefore evaluated by
+# _hard_negative_gate_hit() below as a CO-OCCURRENCE requirement (action verb
+# AND a monetary/authorization or external-target signal in the same tail),
+# not by _HARD_NEGATIVE_GATE_PATTERNS alone. The remaining categories
+# (destructive, irreversible, force push, delete, schema migration,
+# production deploy, etc.) keep their original bare-word breadth - deliberate
+# over-inclusion remains an acceptable tradeoff there because those tokens
+# are already fairly action-specific in ordinary conductor vocabulary; see
+# the fix-pass return notes for a documented breadth caveat on "permanently".
 _HARD_NEGATIVE_GATE_PATTERNS = re.compile(
     r"(?:"
     # --- (a) destructive / irreversible ---
@@ -185,7 +203,7 @@ _HARD_NEGATIVE_GATE_PATTERNS = re.compile(
     r"|\birreversible\b"
     r"|\bforce push\b"
     r"|\bforce-push\b"
-    r"|\bdelete\b"
+    r"|\bdelet(?:e|es|ed|ing)\b"
     r"|\bdrop table\b"
     r"|\bschema migration\b"
     r"|\bproduction deploy\b"
@@ -197,22 +215,6 @@ _HARD_NEGATIVE_GATE_PATTERNS = re.compile(
     r"|\bdata loss\b"
     r"|\bwipe\b"
     r"|\boverwrite\b"
-    # --- (a cont.) sending external messages / spending money - the two
-    # hard-stop categories from content/sections/02-delegation.md's
-    # enumeration ("data loss, force push, production deploy, schema
-    # migration, sending external messages, spending money, etc.") that were
-    # missing from this gate. Deliberately broad - over-inclusion here is
-    # safe because a hard-gate hit only ever ALLOWS.
-    r"|\bspend(?:ing)?\b"
-    r"|\bspent\b"
-    r"|\bcost\b"
-    r"|\bcredits?\b"
-    r"|\bbilling\b"
-    r"|\bsend(?:ing)?\b"
-    r"|\bpost(?:ing)?\b"
-    r"|\bemail(?:ing)?\b"
-    r"|\bpublish(?:ing)?\b"
-    r"|\bnotify(?:ing)?\b"
     # --- (b) cannot-derive / credential / target-selection ---
     r"|\bcannot derive\b"
     r"|\bmissing credential\b"
@@ -231,6 +233,76 @@ _HARD_NEGATIVE_GATE_PATTERNS = re.compile(
     r")",
     re.IGNORECASE,
 )
+
+# --- (a cont.) spend-money hard-stop: co-occurrence, not a bare word ---
+# A spend/cost ACTION token alone ("cost a few minutes") is ordinary
+# conductor vocabulary, not a hard-stop signal - it must co-occur with a
+# monetary amount, a credit/budget/invoice/billing token, or explicit
+# authorization language before it suppresses the stall classifier.
+_SPEND_ACTION_PATTERN = re.compile(
+    r"\bspend(?:ing)?\b|\bspent\b|\bcost(?:s)?\b",
+    re.IGNORECASE,
+)
+_SPEND_SIGNAL_PATTERN = re.compile(
+    r"\$\s?\d"
+    r"|\b\d+(?:\.\d+)?\s*(?:dollars|usd)\b"
+    r"|\bcredits?\b"
+    r"|\bbudget\b"
+    r"|\binvoice\b"
+    r"|\bbilling\b"
+    r"|\bapprove(?:d|s)?\b"
+    r"|\bauthoriz(?:e|ed|es|ation)\b"
+    r"|\byour ok\b"
+    r"|\bsign[- ]?off\b",
+    re.IGNORECASE,
+)
+
+# --- (a cont.) external-message hard-stop: co-occurrence, not a bare word ---
+# A send/post/email/publish/notify ACTION token alone ("Sending the brief to
+# the engineer") is an ordinary internal-spawn narration, not a hard-stop
+# signal - it must co-occur with an external-facing target before it
+# suppresses the stall classifier.
+_EXTERNAL_MSG_ACTION_PATTERN = re.compile(
+    r"\bsend(?:ing)?\b|\bpost(?:ing)?\b|\bemail(?:ing)?\b|\bpublish(?:ing)?\b|\bnotify(?:ing)?\b",
+    re.IGNORECASE,
+)
+_EXTERNAL_MSG_TARGET_PATTERN = re.compile(
+    r"\bemail\b"
+    r"|\bslack\b"
+    r"|\bcustomer\b"
+    r"|\buser-facing\b"
+    r"|\btracker\b"
+    r"|\bcomment\b"
+    r"|\bwebhook\b"
+    r"|\bproduction\b"
+    r"|[\w.+-]+@[\w-]+\.[\w.-]+",
+    re.IGNORECASE,
+)
+
+
+def _hard_negative_gate_hit(tail: str) -> bool:
+    """Return True iff `tail` contains a genuine hard-stop signal.
+
+    Most categories (destructive/irreversible/force-push/delete/schema
+    migration/production deploy/cannot-derive/design-fork/etc.) are bare-word
+    matches via _HARD_NEGATIVE_GATE_PATTERNS - deliberately broad, see the
+    comment above that pattern.
+
+    The spend-money and external-message categories are NARROWER: they
+    require an action token (spend/cost, or send/post/email/publish/notify)
+    to CO-OCCUR with a monetary/authorization signal or an external-facing
+    target, respectively, in the same tail. A bare action word alone
+    ("cost a few minutes", "sending the brief to the engineer") does not
+    qualify - see _SPEND_ACTION_PATTERN / _EXTERNAL_MSG_ACTION_PATTERN.
+    """
+    if _HARD_NEGATIVE_GATE_PATTERNS.search(tail):
+        return True
+    if _SPEND_ACTION_PATTERN.search(tail) and _SPEND_SIGNAL_PATTERN.search(tail):
+        return True
+    if _EXTERNAL_MSG_ACTION_PATTERN.search(tail) and _EXTERNAL_MSG_TARGET_PATTERN.search(tail):
+        return True
+    return False
+
 
 # --- (c) surface-and-proceed markers (see comment block above) ---
 _SURFACE_AND_PROCEED_PATTERNS = re.compile(
@@ -254,18 +326,13 @@ _STALL_TRIGGER_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-# Legacy combined gate, kept ONLY as the union used by _is_abdication() so
-# its suppression behavior is byte-for-byte unchanged (hard gate OR
-# surface-and-proceed marker both still suppress the classic interrogative
-# check, exactly as before this fix).
-_NEGATIVE_GATE_PATTERNS = re.compile(
-    r"(?:"
-    + _HARD_NEGATIVE_GATE_PATTERNS.pattern
-    + r"|"
-    + _SURFACE_AND_PROCEED_PATTERNS.pattern
-    + r")",
-    re.IGNORECASE,
-)
+# Legacy combined gate, kept as a FUNCTION (not a pure regex - the spend/
+# external-message categories are co-occurrence checks, not single-pattern
+# matches - see _hard_negative_gate_hit) so its suppression behavior for
+# _is_abdication() is otherwise unchanged (hard gate OR surface-and-proceed
+# marker both still suppress the classic interrogative check).
+def _negative_gate_hit(tail: str) -> bool:
+    return _hard_negative_gate_hit(tail) or bool(_SURFACE_AND_PROCEED_PATTERNS.search(tail))
 
 
 # Sentence boundary: split right after a terminator (./?/!) that is followed
@@ -314,7 +381,7 @@ def _is_abdication(text: str) -> bool:
     tail = text[-TAIL_LENGTH:]
 
     # Negative gate first (cheaper than full regex scan).
-    if _NEGATIVE_GATE_PATTERNS.search(tail):
+    if _negative_gate_hit(tail):
         return False
 
     # Require a permission phrase somewhere in the tail (cheap pre-filter
@@ -380,7 +447,7 @@ def _is_stalled_surface_and_proceed(text: str, stall_provable: bool, had_tool_ca
     """
     tail = text[-TAIL_LENGTH:]
 
-    if _HARD_NEGATIVE_GATE_PATTERNS.search(tail):
+    if _hard_negative_gate_hit(tail):
         return False
 
     if not _STALL_TRIGGER_PATTERNS.search(tail):
@@ -793,7 +860,7 @@ def main() -> None:
             needs_transcript_scan = True
         else:
             tail_for_gate = msg_text[-TAIL_LENGTH:]
-            if _HARD_NEGATIVE_GATE_PATTERNS.search(tail_for_gate):
+            if _hard_negative_gate_hit(tail_for_gate):
                 # Neither classifier(2) nor the marker-based checks below can
                 # fire once a hard gate token is present - skip the scan.
                 needs_transcript_scan = False

@@ -41,6 +41,17 @@ Fix pass 2 (this file) closes three review findings on top of the above:
     an interleaved task-notification, and a compacted (no-user-turn) window.
     See test_multi_turn_boundary_cases().
 
+Fix pass 3 (this file, further narrowing): the spend-money and external-
+message hard-stop categories were bare-word matches ("spend", "cost", "send",
+"post", "notify", ...) - a hard-gate hit SUPPRESSES the stall classifier
+entirely, so the breadth was a utility bug, not merely a benign
+false-negative: ordinary conductor vocabulary ("cost a few minutes",
+"sending the brief to the engineer") silently disabled the guard on genuine
+stalls. These two categories are now co-occurrence checks (action token +
+monetary/authorization signal, or action token + external-facing target) -
+see _hard_negative_gate_hit() in enforce-no-abdication.py and
+test_hard_stop_cooccurrence_narrowing() below.
+
 This file mirrors hooks/tests/test-enforce-no-abdication.py's conventions
 (subprocess-based, run_hook/is_allow/is_block helpers, make_config_file /
 make_transcript builders) rather than importing the hook module directly.
@@ -81,7 +92,16 @@ Test coverage:
        -> "Unit N returned; proceeding with unit N+1 unless you say
        otherwise." (Finding 1 - the notification must not hide the earlier
        tool_use from the same turn)
-   23. (test-enforce-no-abdication.py itself, run separately, covers the
+   23-27. Fix pass 3 co-occurrence narrowing, MUST ALLOW (genuine hard-stops):
+       spend + dollar amount + credit + "your OK"; post + PR comment;
+       email + customer; force push (control, unaffected category);
+       production delete/migration (control, unaffected category).
+   28-31. Fix pass 3 co-occurrence narrowing, MUST BLOCK (ordinary vocabulary,
+       previously wrongly suppressed): "sending" with no external target;
+       "cost" with no monetary/authorization signal; a plain stall with no
+       hard-stop vocabulary at all (control); "notifying" with no external
+       target.
+   32. (test-enforce-no-abdication.py itself, run separately, covers the
        classic-interrogative-path invariants)
 """
 
@@ -631,6 +651,147 @@ def test_spend_money_hard_stop_must_allow(tmp_dir: str) -> int:
     return failed
 
 
+def test_hard_stop_cooccurrence_narrowing(tmp_dir: str) -> int:
+    """Fix pass 2: the spend-money and external-message hard-stop categories
+    were narrowed from bare-word matches to co-occurrence checks (action
+    token + monetary/authorization signal, or action token + external-facing
+    target). A hard-gate hit SUPPRESSES the stall classifier entirely, so an
+    over-broad gate silences the guard on a genuine stall - not merely a
+    benign false-negative. These cases pin both directions: genuine
+    hard-stops must still suppress (ALLOW), and ordinary conductor vocabulary
+    using the same action words must no longer suppress (BLOCK)."""
+    print("\n  [Fix pass 2: spend/external-message hard-stop co-occurrence narrowing]")
+    failed = 0
+
+    # 23. Genuine spend hard-stop (dollar amount + "credit" + "your OK") ->
+    #     ALLOW (suppressed). Same case as test_spend_money_hard_stop_must_
+    #     allow's msg, duplicated here under the narrowing-specific label set
+    #     for traceability with the fix-pass return notes.
+    d23 = new_case_dir(tmp_dir, "narrowing_spend_genuine")
+    msg23 = (
+        "This run will spend about $400 of API credit. Proceeding with the "
+        "smaller sample (recommended) needs your OK first."
+    )
+    t23 = transcript_no_tool_call(d23, msg23)
+    rc, out, err = run_hook(make_payload(d23, msg23, transcript_path=t23))
+    if not run_labeled(
+        "23. Genuine spend hard-stop ($400, credit, your OK) -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 24. Genuine external-message hard-stop: "post" + "comment" on the PR.
+    d24 = new_case_dir(tmp_dir, "narrowing_external_post_comment")
+    msg24 = (
+        "I can post a comment on the PR summarizing this. Proceeding with "
+        "the summary unless you say otherwise."
+    )
+    t24 = transcript_no_tool_call(d24, msg24)
+    rc, out, err = run_hook(make_payload(d24, msg24, transcript_path=t24))
+    if not run_labeled(
+        "24. Genuine external-message hard-stop (post a PR comment) -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 25. Genuine external-message hard-stop: "email" + "customer".
+    d25 = new_case_dir(tmp_dir, "narrowing_external_email_customer")
+    msg25 = (
+        "That would email the customer directly. Proceeding with the draft "
+        "unless you say otherwise."
+    )
+    t25 = transcript_no_tool_call(d25, msg25)
+    rc, out, err = run_hook(make_payload(d25, msg25, transcript_path=t25))
+    if not run_labeled(
+        "25. Genuine external-message hard-stop (email the customer) -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 26. Force-push hard-stop (unaffected category, control) -> ALLOW.
+    d26 = new_case_dir(tmp_dir, "narrowing_force_push_control")
+    msg26 = (
+        "This requires a force push to main. Proceeding with the rebase "
+        "unless you say otherwise."
+    )
+    t26 = transcript_no_tool_call(d26, msg26)
+    rc, out, err = run_hook(make_payload(d26, msg26, transcript_path=t26))
+    if not run_labeled(
+        "26. Force-push hard-stop (control, unaffected category) -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 27. Production-delete/schema-migration hard-stop (unaffected category,
+    #     control) -> ALLOW.
+    d27 = new_case_dir(tmp_dir, "narrowing_prod_delete_control")
+    msg27 = (
+        "This deletes the production table. Proceeding with the migration "
+        "unless you say otherwise."
+    )
+    t27 = transcript_no_tool_call(d27, msg27)
+    rc, out, err = run_hook(make_payload(d27, msg27, transcript_path=t27))
+    if not run_labeled(
+        "27. Production delete/migration hard-stop (control, unaffected category) -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 28. Ordinary internal-spawn narration using "sending" -> no external
+    #     target present -> BLOCK (genuine stall, previously wrongly
+    #     suppressed).
+    d28 = new_case_dir(tmp_dir, "narrowing_sending_internal_spawn")
+    msg28 = "Sending the brief to the engineer now. Proceeding with unit 3 unless you say otherwise."
+    t28 = transcript_no_tool_call(d28, msg28)
+    rc, out, err = run_hook(make_payload(d28, msg28, transcript_path=t28))
+    if not run_labeled(
+        "28. 'Sending the brief to the engineer' (no external target) -> BLOCK",
+        rc, out, err, "BLOCK",
+    ):
+        failed += 1
+
+    # 29. Ordinary "cost" vocabulary with no monetary/authorization signal ->
+    #     BLOCK (genuine stall, previously wrongly suppressed).
+    d29 = new_case_dir(tmp_dir, "narrowing_cost_minutes")
+    msg29 = "This will cost a few minutes. Proceeding with the rebase unless you say otherwise."
+    t29 = transcript_no_tool_call(d29, msg29)
+    rc, out, err = run_hook(make_payload(d29, msg29, transcript_path=t29))
+    if not run_labeled(
+        "29. 'This will cost a few minutes' (no monetary/authorization signal) -> BLOCK",
+        rc, out, err, "BLOCK",
+    ):
+        failed += 1
+
+    # 30. No spend/external vocabulary at all -> BLOCK (baseline stall,
+    #     control).
+    d30 = new_case_dir(tmp_dir, "narrowing_plain_stall_control")
+    msg30 = "Proceeding with the golden-text pin unless you say otherwise."
+    t30 = transcript_no_tool_call(d30, msg30)
+    rc, out, err = run_hook(make_payload(d30, msg30, transcript_path=t30))
+    if not run_labeled(
+        "30. Plain stall with no hard-stop vocabulary at all (control) -> BLOCK",
+        rc, out, err, "BLOCK",
+    ):
+        failed += 1
+
+    # 31. Ordinary "notifying" vocabulary with no external target -> BLOCK
+    #     (genuine stall, previously wrongly suppressed).
+    d31 = new_case_dir(tmp_dir, "narrowing_notifying_internal")
+    msg31 = (
+        "Notifying the sibling engineer of the base change. Proceeding with "
+        "the cherry-pick unless you say otherwise."
+    )
+    t31 = transcript_no_tool_call(d31, msg31)
+    rc, out, err = run_hook(make_payload(d31, msg31, transcript_path=t31))
+    if not run_labeled(
+        "31. 'Notifying the sibling engineer' (no external target) -> BLOCK",
+        rc, out, err, "BLOCK",
+    ):
+        failed += 1
+
+    return failed
+
+
 def test_dominant_compliant_shape(tmp_dir: str) -> int:
     """Finding 1: the dominant conductor turn shape - spawn a tool, receive a
     harness task-notification, then report a proceeding-with digest for the
@@ -663,6 +824,7 @@ def main() -> None:
         total_failed += test_must_allow(tmp_dir)
         total_failed += test_fail_closed_paths_must_allow(tmp_dir)
         total_failed += test_spend_money_hard_stop_must_allow(tmp_dir)
+        total_failed += test_hard_stop_cooccurrence_narrowing(tmp_dir)
         total_failed += test_dominant_compliant_shape(tmp_dir)
 
     print()
