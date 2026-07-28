@@ -802,6 +802,7 @@ The meta-Skeptic receives:
 - The original Skeptic's findings list verbatim
 - The original Skeptic's sign-off statement verbatim
 - The original adversarial brief
+- The original Skeptic's Global-context input set verbatim (the `## Global-context inputs` block per Section 4.5 that was assembled for the original Skeptic spawn) - the meta-Skeptic is judging whether the original Skeptic missed something, which requires seeing the same context the original had, not a bare diff. Field 6 duplicates the diff bullet above; that redundancy is intentional so the block stays intact as a single verbatim unit.
 
 The meta-Skeptic produces a divergence report as **TEXT** in its return summary. The expected shape is:
 

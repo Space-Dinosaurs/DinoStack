@@ -2662,6 +2662,16 @@
       "source_token": "/ds-brief"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "7015267b1d020fe8cef14c1ba0f38073ad4b6e84e2bf4c9ea3121cc8651096df",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-brief.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -3392,6 +3402,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "0a3f3822588fdc9dbae3a74df29443ecbb64fcd62b77cbbeada4cf22acde1384",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "bin/agentic-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
@@ -3540,16 +3560,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
-    },
-    {
-      "expected_target": "METHODOLOGY.md",
-      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
-      "kind": "operational",
-      "occurrence_hash": "0cc2f7feed896b9ff4baecf90f4515439be46a68ccf33e812695f3bc1c2f7573",
-      "resolution_mode": "mapped-resource",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -6852,6 +6862,16 @@
       "source_token": "if"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "4cd9fc0cbae9c7ae6f49baf1d294a7f821696c0afc18df23c8bd74239f4d80aa",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": ".agentic/batch-state.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/batch-state.json",
       "kind": "operational",
@@ -7030,6 +7050,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "true"
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "50e1339663d386f645c6cb80ffd4f7a08955d6183bd02c6d1019262968d9cfcb",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "bin/agentic-codex-session-id",
@@ -8530,6 +8560,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "-c"
+    },
+    {
+      "expected_target": "METHODOLOGY.md",
+      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
+      "kind": "operational",
+      "occurrence_hash": "71b6670f424bfae3601cf0b1513250c56659f5a3b609a6b55f56cab69e5ed913",
+      "resolution_mode": "mapped-resource",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "METHODOLOGY.md"
     },
     {
       "expected_target": ".gitignore",
@@ -11982,6 +12022,16 @@
       "source_token": ".agentic/"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "bbf826a3a78abab36cb139eac50c273a4954695d35f4568b0c12e0061c71a1d8",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "then",
       "generated_token": "then",
       "kind": "operational",
@@ -12250,6 +12300,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/qa.md.snapshot-<ticket_id>"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "c28e5461d5661251ef0de15998e936163ccc2eb42efe5ab504367a9b1d072ad1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -12570,16 +12630,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "c852724c25cf0e2011d22e4871599e26640882ef087d50facc05d08b0ecd4377",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": ".agentic/batch-state.json",
@@ -16212,6 +16262,16 @@
       "source_token": "content/references/wrap-context-format.md"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "45ee4d74d2d4cb427d89f0c904ced936635aa0de326f83a62263cb7c8a3803c1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -18400,6 +18460,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "`/ds-init-project`"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "e6b2dec80e9366f0e951b3f408b91a992d752e901562b4e5256b3ac057bfcb7e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/wrap/",

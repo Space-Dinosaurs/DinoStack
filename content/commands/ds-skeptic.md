@@ -39,9 +39,20 @@ When the Worker returns, spawn a **background general-purpose subagent via the `
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
 
-**What to review:** [Worker's complete output - paste inline or give file paths]
-
 **Adversarial brief:** [Paste verbatim from the selection table]
+
+## Global-context inputs
+
+1. Architect plan: [absolute path to plan.md, OR "n/a - <enumerated reason>"]
+2. Brief / Plan tier artifact: [absolute path, OR "n/a - <enumerated reason>"]
+3. qa_criteria block: [verbatim YAML, OR "n/a - <enumerated reason>"]
+4. Per-consumer impact table: [verbatim, OR "n/a - <enumerated reason>"]
+5. Related files: [list of absolute paths the diff touches OR is logically coupled to]
+6. Diff under review: [git diff command OR file paths]
+
+See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format, the enumerated `n/a` rationale set, and Step-0 BLOCKED return semantics. A bare `n/a` is invalid - every `n/a` needs `n/a - <reason>`.
+
+**What to review:** [Worker's complete output - paste inline or give file paths]
 
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."
