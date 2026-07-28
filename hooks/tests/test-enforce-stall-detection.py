@@ -101,7 +101,13 @@ Test coverage:
        "cost" with no monetary/authorization signal; a plain stall with no
        hard-stop vocabulary at all (control); "notifying" with no external
        target.
-   32. (test-enforce-no-abdication.py itself, run separately, covers the
+   33-37. Fix pass 3 (directive text): the injected _STALL_REASON directive
+       must offer two compliant exits (proceed with the stated default this
+       same turn, OR explicitly wait for operator authorization) rather than
+       commanding action unconditionally, since a missed hard-stop gate is
+       dangerous precisely because the old wording gave no compliant path to
+       stop. See test_stall_reason_two_exit_wording().
+   38. (test-enforce-no-abdication.py itself, run separately, covers the
        classic-interrogative-path invariants)
 """
 
@@ -792,6 +798,72 @@ def test_hard_stop_cooccurrence_narrowing(tmp_dir: str) -> int:
     return failed
 
 
+def test_stall_reason_two_exit_wording(tmp_dir: str) -> int:
+    """Fix pass 3 (directive text): a missed hard-stop gate is dangerous only
+    because the injected _STALL_REASON directive used to command action
+    unconditionally. It must now offer two compliant exits - (A) proceed with
+    the stated default this turn, or (B) explicitly wait for operator
+    authorization - rather than always pushing the conductor to act. Pins the
+    wording so a future edit that silently drops exit B (reverting to an
+    unconditional "proceed") fails this test."""
+    print("\n  [MUST BLOCK + WORDING: stall reason offers two compliant exits, not one command]")
+    failed = 0
+
+    d = new_case_dir(tmp_dir, "stall_reason_two_exit_wording")
+    msg = "Proceeding with approach A unless you say otherwise."
+    t = transcript_no_tool_call(d, msg)
+    rc, out, err = run_hook(make_payload(d, msg, transcript_path=t))
+
+    if not run_labeled(
+        "33. Stall block -> reason JSON is well-formed and present",
+        rc, out, err, "BLOCK",
+    ):
+        failed += 1
+        return failed
+
+    obj = json.loads(out.strip())
+    reason = obj.get("reason", "")
+
+    # Exit A: proceed with the stated default, in this same turn.
+    exit_a_present = (
+        "proceed with the stated default" in reason.lower()
+        and "this same turn" in reason.lower()
+    )
+    print(f"  [{'PASS' if exit_a_present else 'FAIL'}] 34. Reason states exit A (proceed with stated default, same turn)")
+    if not exit_a_present:
+        failed += 1
+
+    # Exit B: explicit wait-for-authorization is offered as compliant, not a
+    # loophole, covering irreversible/spend/external-message authorization.
+    exit_b_present = (
+        "do not" in reason.lower()
+        and "authorization" in reason.lower()
+        and "not a loophole" in reason.lower()
+    )
+    print(f"  [{'PASS' if exit_b_present else 'FAIL'}] 35. Reason states exit B (wait for authorization, not a loophole)")
+    if not exit_b_present:
+        failed += 1
+
+    # The reason must not command action unconditionally anymore - the
+    # old single-command phrase "Proceed with the default you already
+    # stated now - spawn the agent, run" must not appear verbatim, since
+    # that phrasing gave no compliant path to stop.
+    old_unconditional_phrase = "proceed with the default you already stated now - spawn the agent, run"
+    old_phrase_absent = old_unconditional_phrase not in reason.lower()
+    print(f"  [{'PASS' if old_phrase_absent else 'FAIL'}] 36. Old unconditional-command phrasing no longer present verbatim")
+    if not old_phrase_absent:
+        failed += 1
+
+    # The reason must be explicit that the gate itself cannot distinguish
+    # the two cases, placing the classification burden on the conductor.
+    honesty_clause_present = "cannot tell whether" in reason.lower()
+    print(f"  [{'PASS' if honesty_clause_present else 'FAIL'}] 37. Reason states the gate cannot distinguish the two cases")
+    if not honesty_clause_present:
+        failed += 1
+
+    return failed
+
+
 def test_dominant_compliant_shape(tmp_dir: str) -> int:
     """Finding 1: the dominant conductor turn shape - spawn a tool, receive a
     harness task-notification, then report a proceeding-with digest for the
@@ -826,6 +898,7 @@ def main() -> None:
         total_failed += test_spend_money_hard_stop_must_allow(tmp_dir)
         total_failed += test_hard_stop_cooccurrence_narrowing(tmp_dir)
         total_failed += test_dominant_compliant_shape(tmp_dir)
+        total_failed += test_stall_reason_two_exit_wording(tmp_dir)
 
     print()
     if total_failed == 0:

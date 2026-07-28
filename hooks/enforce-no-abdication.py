@@ -5,8 +5,14 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          non-destructive next step, OR by announcing a surface-and-proceed
          default ("Proceeding with X unless you say otherwise") and then
          stopping without actually proceeding. Detects both shapes in the
-         final assistant message and blocks the stop, injecting a "proceed"
-         directive. Mechanizes the prose in content/sections/02-delegation.md
+         final assistant message and blocks the stop, injecting a directive:
+         an unconditional "proceed" for the classic abdication shape, and a
+         two-exit directive (proceed with the stated default now, OR state
+         explicitly that authorization is required and wait) for the stall
+         shape - because this gate cannot itself tell a genuine
+         surface-and-proceed item from a hard-stop item wearing the same
+         language; see _STALL_REASON. Mechanizes the prose in
+         content/sections/02-delegation.md
          (Proactive autonomy / default-and-proceed - which requires the
          conductor to act "in the same turn", not merely announce intent),
          exactly as enforce-background-spawn.py mechanized its rule.
@@ -770,12 +776,19 @@ _ABDICATION_REASON = (
 _STALL_REASON = (
     "ABDICATION GUARD: You announced a surface-and-proceed default "
     "(\"proceeding with\" / \"unless you say otherwise\") "
-    "and then stopped without taking any action this turn. The METHODOLOGY "
-    "§Delegation (surface-and-proceed branch) requires you to proceed with "
-    "the stated default IN THE SAME TURN, not merely announce it and wait. "
-    "Proceed with the default you already stated now - spawn the agent, run "
-    "the command, or make the edit you said you would. Only stop first if "
-    "the action is genuinely irreversible/destructive and not pre-authorized."
+    "and then stopped without taking any action this turn. This block cannot "
+    "tell whether that was a genuine surface-and-proceed item or a hard-stop "
+    "item wearing surface-and-proceed language - you must classify it "
+    "honestly. Two compliant exits: (A) If this is genuinely non-destructive "
+    "and a default was derivable (METHODOLOGY §Delegation, surface-and-proceed "
+    "branch), proceed with the stated default NOW, in this same turn - spawn "
+    "the agent, run the command, or make the edit you said you would. (B) If "
+    "this actually requires authorization you do not have - it is "
+    "irreversible, spends real money, or sends an external message - do NOT "
+    "proceed. Say so explicitly, state that you are waiting for operator "
+    "authorization, and end the turn; that is an equally compliant response "
+    "to this block, not a loophole. Choosing exit (B) for an item that is "
+    "genuinely exit (A) is itself the abdication this guard exists to catch."
 )
 
 
