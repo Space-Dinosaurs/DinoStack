@@ -426,9 +426,22 @@ echo "--- Minor 1 regression: the zero-lane honesty line requires ALL exclusions
 # table-structure definition that reuses the skip condition's own "IN_FLIGHT-sourced
 # exclusion" term instead of inventing a second gloss.
 _present "Minor-1 regression: condition is stated as a single unambiguous, table-structure definition" \
-         'equivalently: .## Deferred tickets. is empty AND every entry in .## In-progress tickets. carries .entry\.IN_FLIGHT: true.'
+         'equivalently: .## Deferred tickets. is empty AND every entry in .## In-progress tickets. carries .entry\.IN_PROGRESS_TRACKER: false. AND .entry\.IN_FLIGHT: true.'
 _present "Minor-1 regression: fallback correctly routes the terminal-plus-open-PR edge case away from the false claim" \
          'a terminal-plus-open-PR ticket lands in .## Deferred tickets., so its presence alone routes here, not to the special print'
+
+echo ""
+echo "--- DS-105 fix pass 2 (Major): item 7's gloss matches the skip condition's actual definition ---"
+# Skeptic Major: the item-7 parenthetical gloss omitted the IN_PROGRESS_TRACKER conjunct that
+# the :469 skip condition (and its own DS-105-(4) structural predicate) actually requires -
+# a reachable both-sources ticket (IN_PROGRESS_TRACKER: true AND IN_FLIGHT: true) would have
+# been routed to "Phase 4b skipped" by :469 but "item 7 fires" by the stale gloss. Pin both the
+# corrected gloss AND the corrected fallback-routing sentence that negates it, so the two
+# clauses cannot silently drift apart again.
+_present "DS-105 fix pass 2: item-7 gloss requires IN_PROGRESS_TRACKER: false (not just IN_FLIGHT: true)" \
+         'every entry in .## In-progress tickets. carries .entry\.IN_PROGRESS_TRACKER: false. AND .entry\.IN_FLIGHT: true.'
+_present "DS-105 fix pass 2: fallback routes a ticket with IN_PROGRESS_TRACKER: true away from the special print" \
+         'any In-progress ticket carries .entry\.IN_PROGRESS_TRACKER: true. or lacks .entry\.IN_FLIGHT: true.'
 
 echo ""
 echo "--- Minor 2 regression: Disclaimer enumerates all three false-positive paths, not just one ---"
