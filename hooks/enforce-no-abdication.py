@@ -230,15 +230,46 @@ _OPERATOR_DECISIONS_HEADING_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 
-# A top-level markdown list item start: "- ", "* ", or a numbered marker
-# ("1. " / "1) "). Anchored to line start so mid-line dashes (em-dash-free
-# per repo convention, but hyphenated words regardless) never split an item.
-_ITEM_START_RE = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])\s+", re.MULTILINE)
+# A top-level list item start, anchored to line start (so mid-line dashes or
+# hyphenated words never split an item). Three accepted shapes, matched by
+# real conductor output rather than an idealized single format:
+#   - markdown bullet: "- ", "* ", "+ "
+#   - plain numbered:  "1. " / "1) "
+#   - bold-numbered:   "**1." / "**1)" (no space required after "**" or
+#     before the digit - this is the shape conductors actually emit, e.g.
+#     "**1. Run one command to unblock PR #516.**")
+_ITEM_START_RE = re.compile(
+    r"^[ \t]*(?:"
+    r"[-*+]\s+"
+    r"|\d+[.)]\s+"
+    r"|\*\*\s*\d+[.)]"
+    r")",
+    re.MULTILINE,
+)
+
+# Fenced code blocks (```...```). Masked out before item-start scanning so
+# that (a) diff-style '+'/'-' prefixed lines inside a fence are never
+# mistaken for markdown bullet item starts, and (b) blank lines inside a
+# fence never fragment the paragraph-mode fallback into spurious extra
+# items. Non-greedy + DOTALL so multiple fences in one block are each
+# matched individually rather than spanning from the first opening fence to
+# the last closing one.
+_FENCE_RE = re.compile(r"```.*?```", re.DOTALL)
 
 # Marks that an item already carries a derived recommendation, per the
 # methodology's own convention: the literal "(Recommended)" suffix used on
 # the tool path, or a "Recommendation:" lead-in for the prose path.
 _RECOMMENDATION_RE = re.compile(r"\(recommended\)|recommendation\s*:", re.IGNORECASE)
+
+
+def _mask_fenced_code_blocks(text: str) -> str:
+    """Replace each fenced code block with a single-line placeholder.
+
+    See _FENCE_RE for why: prevents diff/list-like syntax inside a fence
+    from being misread as a new item, and prevents the fence's internal
+    blank lines from splitting the paragraph-mode fallback.
+    """
+    return _FENCE_RE.sub("<code-block>", text)
 
 
 def _extract_operator_decisions_block(text: str) -> str:
@@ -256,21 +287,45 @@ def _extract_operator_decisions_block(text: str) -> str:
 
 
 def _split_decision_items(block: str) -> list:
-    """Split an Operator decisions block into individual list items.
+    """Split an Operator decisions block into individual decision items.
 
-    Each item runs from its bullet/number marker to the character before the
-    next marker (or end of block), so continuation lines belonging to the
-    same item are included in that item's text (needed so a
-    "Recommendation:" line on its own continuation line is still detected).
+    Two-stage strategy, general on purpose so this is not tied to one
+    specific list syntax:
+
+    1. Structured mode: scan for _ITEM_START_RE markers (bullet, numbered,
+       or bold-numbered). If ANY are found, trust them - each item runs
+       from its marker to the character before the next marker (or end of
+       block), so continuation lines belonging to the same item (including
+       a "Recommendation:" line that isn't on the marker's own line) stay
+       part of that item's text. This is the common case: real conductor
+       ballots use bold-numbered paragraphs ("**1. Title.** body...") far
+       more often than plain markdown bullets, and this mode catches both
+       without relying on blank-line spacing between items.
+
+    2. Paragraph fallback: if NO structured marker is found anywhere in the
+       block, split on blank lines instead - each non-empty blank-line-
+       separated chunk is one item. This is the general case that makes the
+       guard format-independent rather than tied to a specific list syntax:
+       any paragraph-per-decision write-up is still caught even when the
+       conductor invents a format this hook's authors did not anticipate.
+
+    Fenced code blocks are masked to a single-line placeholder before either
+    stage runs (see _mask_fenced_code_blocks) so a fence's internal content
+    can never be misread as an item marker or a paragraph boundary.
     """
-    starts = [m.start() for m in _ITEM_START_RE.finditer(block)]
-    if not starts:
-        return []
-    items = []
-    for i, start in enumerate(starts):
-        end = starts[i + 1] if i + 1 < len(starts) else len(block)
-        items.append(block[start:end])
-    return items
+    masked = _mask_fenced_code_blocks(block)
+
+    starts = [m.start() for m in _ITEM_START_RE.finditer(masked)]
+    if starts:
+        items = []
+        for i, start in enumerate(starts):
+            end = starts[i + 1] if i + 1 < len(starts) else len(masked)
+            items.append(masked[start:end])
+        return items
+
+    # No list/numbered/bold-numbered syntax anywhere in the block - fall
+    # back to blank-line-separated paragraphs as the general item unit.
+    return [p.strip() for p in re.split(r"\n\s*\n", masked) if p.strip()]
 
 
 def _is_prose_ballot(text: str) -> bool:

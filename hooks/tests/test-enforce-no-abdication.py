@@ -596,6 +596,151 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
         None,
     ))
 
+    # =========================================================================
+    # REGRESSION (coordinator-verified escape): real conductor ballots use
+    # bold-numbered paragraph items ("**1. Title.** body"), not markdown list
+    # syntax. The original _ITEM_START_RE matched only "-", "*", and plain
+    # numbered lines, so it detected ZERO items in a real 5-item ballot and
+    # never fired. This is the VERBATIM real-world sample (structure and
+    # wording matched to the actual conductor output that escaped detection):
+    # items 2, 3, 4 carry "Recommendation:", items 1 and 5 do not - 2
+    # unrecommended items should fire the guard. Item 1 also contains a
+    # fenced code block, which must not itself be miscounted as a second item
+    # or have its diff-like/list-like content misread as a new item marker.
+    # =========================================================================
+    REAL_BALLOT_SAMPLE = (
+        "Wrapping up. Several things need your input before I continue.\n\n"
+        "## Operator decisions\n\n"
+        "**1. Run one command to unblock PR #516.** Force-push was denied "
+        "to both the engineer and me. I traced it to a branch-protection "
+        "rule that blocks force-push on any branch matching `feature/*` "
+        "regardless of author. This is a repo-owner-only setting; I cannot "
+        "change it myself. Run:\n\n"
+        "```\n"
+        "gh api repos/Space-Dinosaurs/DinoStack/branches/feature/tier-filter/protection -X DELETE\n"
+        "```\n\n"
+        "then re-run the rebase. There is no derivable default here - only "
+        "you hold the permission to change branch protection.\n\n"
+        "**2. PR #422 - rebase, extract, or close?** PR #422 has drifted "
+        "far enough from main that a straight rebase would touch 40+ "
+        "files. Recommendation: **extract the tier-filter mechanism** into "
+        "its own PR and close #422 - the rest of its diff is already "
+        "superseded by #480. Reversible: reopen #422 from its current "
+        "branch tip if the extraction turns out wrong.\n\n"
+        "**3. Approve removing rate-limit retries?** The retry loop added "
+        "in #390 masks a genuine upstream 429 rather than backing off "
+        "correctly, and every retry burns another API call against our "
+        "quota. Recommendation: **approve**; one commit to revert.\n\n"
+        "**4. Re-track evals/runner/ and evals/scoring/ in git?** These "
+        "were gitignored during the early eval-harness spike and never "
+        "re-added. Recommendation: **re-track the code** (not the "
+        "generated output) - matches how the rest of evals/ is tracked.\n\n"
+        "**5. Probe the SubagentStop payload with me present?** The only "
+        "route to real cost and duration telemetry for subagent spawns is "
+        "capturing a live SubagentStop payload, which requires you to "
+        "trigger a subagent spawn while I watch stdin. This can't be "
+        "scripted or deferred - it needs a live session with both of us "
+        "present.\n"
+    )
+    cases.append((
+        "REGRESSION (real ballot sample, coordinator-verified escape): "
+        "5-item bold-numbered ballot, items 1+5 unrecommended -> BLOCK",
+        make_payload(
+            fresh_dir("real_ballot_sample"),
+            last_assistant_message=REAL_BALLOT_SAMPLE,
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Bold-numbered items, 2+ without a recommendation -> BLOCK ---
+    cases.append((
+        "Bold-numbered ballot: 2 items, no recommendations -> BLOCK",
+        make_payload(
+            fresh_dir("bold_numbered_bare"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Delete the orphaned branch?** This is irreversible "
+                "once merged and cannot be undone.\n\n"
+                "**2. Rotate the leaked token?** This is a design decision "
+                "with long-term impact on the auth flow.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Bold-numbered items, every item carries Recommendation: -> ALLOW ---
+    cases.append((
+        "Bold-numbered ballot: every item carries Recommendation: -> ALLOW",
+        make_payload(
+            fresh_dir("bold_numbered_all_recommended"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Cache eviction policy.** Recommendation: **LRU** - "
+                "matches the existing cache module.\n\n"
+                "**2. Retry backoff.** Recommendation: **exponential** - "
+                "matches src/http/client.ts.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Single bold-numbered item with no recommendation -> ALLOW ---
+    cases.append((
+        "Single bold-numbered item, no recommendation -> ALLOW",
+        make_payload(
+            fresh_dir("bold_numbered_single"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Delete the stale branch?** This is irreversible and "
+                "cannot be undone. Proceeding requires your confirmation.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- One item plus a fenced code block -> ALLOW (fence != second item) ---
+    cases.append((
+        "Bold-numbered single item with a fenced code block body -> ALLOW",
+        make_payload(
+            fresh_dir("bold_numbered_single_with_fence"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Run this command to unblock the branch.** This is "
+                "irreversible and cannot be undone. Run:\n\n"
+                "```\n"
+                "- this diff-style line must not be read as a bullet item\n"
+                "+ neither must this one\n"
+                "```\n\n"
+                "There is no derivable default here.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Mixed formatting: one markdown list item + one bold-numbered item,
+    # both unrecommended -> BLOCK ---
+    cases.append((
+        "Mixed formatting: 1 markdown-list item + 1 bold-numbered item, "
+        "both unrecommended -> BLOCK",
+        make_payload(
+            fresh_dir("mixed_formatting_ballot"),
+            last_assistant_message=(
+                "## Operator decisions\n"
+                "- Rotate the signing key: this is a design decision with "
+                "long-term impact and cannot be undone once rotated.\n\n"
+                "**2. Approve the schema migration?** This changes the "
+                "schema in a way that is hard to reverse.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
     return cases
 
 
