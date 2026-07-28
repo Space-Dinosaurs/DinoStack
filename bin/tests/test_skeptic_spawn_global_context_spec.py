@@ -13,15 +13,20 @@ Global-context input set entirely - fired as an unconditional Step-0
 BLOCKED in a live session before this fix.
 
 This is a defect class that recurs when closed one site at a time (DS-98
-precedent). Enumeration of every site checked, with include/exclude
-reasoning:
+precedent; two prior DS-112 passes already missed sites before this one).
+The corrected standard, applied on this third pass: a site needs the block
+if a conductor following it would assemble a Skeptic prompt. Prescriptive
+input enumerations count - "include:", "includes:", "receives:", "spawn ...
+with:", numbered or bulleted input lists near a Skeptic spawn - regardless
+of directory. Generic prose about "the Skeptic reviews X" does not.
+Enumeration of every site checked, with include/exclude reasoning:
 
 INCLUDED (constructs an actual spawn prompt a conductor would copy,
 verified to lack the block prior to this fix):
   - content/commands/ds-skeptic.md               (Step 2 Skeptic template)
   - content/commands/ds-implement-ticket.md       (Phase 3b architect-plan
     review, Phase 5 per-unit spawning, Phase 5 integration Skeptic, Phase 6
-    main spawn template)
+    main spawn template, Section 14 meta-Skeptic spawn brief)
   - content/commands/ds-init-project.md           (CLAUDE.md split Skeptic)
   - content/commands/ds-ticket-triage.md          (Phase 4b artifact Skeptic)
   - content/commands/ds-wrap.md                   (Step 2 context-file
@@ -35,6 +40,22 @@ verified to lack the block prior to this fix):
     reasoning did not survive scrutiny: these are "when spawning `skeptic`
     for X review, include:" lists, i.e. exactly the defect class this test
     guards against. DS-112 follow-up.)
+  - content/references/planning-artifacts.md     (":98" Skeptic-on-Brief
+    spawn in the Brief-tier authoring sequence step 8, ":103" Plan-tier
+    second-pass Skeptic reviewing the assembled Plan - both are prescriptive
+    "spawn Skeptic on X" steps in the canonical authoring sequence a
+    conductor executes verbatim. Missed in both prior DS-112 passes because
+    the file was excluded wholesale as "narrative/rule prose" without
+    checking whether its authoring-sequence numbered steps are themselves
+    spawn-input enumerations - they are. Third-pass fix.)
+  - content/commands/ds-brief.md                  (":221" "After architect
+    returns: spawn Skeptic using the operator-confirmed variant" - a
+    prescriptive spawn step in the Brief hand-off flow, not the generic
+    Section 6 variant-selection prose that was the basis for the prior
+    exclusion. The prior exclusion reasoning conflated "selects which brief
+    text to use" (Section 6, still correctly excluded on its own) with "the
+    site that actually spawns the Skeptic" (this step) - they are different
+    parts of the same file. Third-pass fix.)
 
 EXCLUDED (mentions Skeptic review generically, or delegates to another
 command's own spawn template, or is a Tier-1 leaf agent that never spawns a
@@ -48,28 +69,53 @@ Skeptic at all - none of these construct a fill-in prompt of their own):
     /ds-update-agentic-engineering's own review, no template)
   - content/commands/ds-memory-update.md     (queries past spawns, does not
     spawn one)
-  - content/commands/ds-brief.md             (Section 6 selects which
-    adversarial-brief variant text to use based on `brief_source`; it does
-    not enumerate the Global-context inputs itself, and delegates to the
-    standard architect-plan-review flow - no fill-in template of its own)
+  - content/commands/ds-brief.md Section 6   (selects which adversarial-brief
+    variant text to use based on `brief_source`; does not itself enumerate
+    spawn inputs - the actual spawn step at ":221" is now covered above)
+  - content/commands/ds-cost.md, ds-feedback-triage.md, ds-help.md,
+    ds-status.md, ds-test-suite-comprehension.md
+    (mention Skeptic only in narrative/reporting prose; none construct a
+    spawn-input list)
   - content/agents/architect.md, content/agents/engineer.md,
     content/agents/learning-extractor.md, content/agents/goal-condition-evaluator.md,
-    content/agents/learnings-agent.md
+    content/agents/learnings-agent.md, content/agents/qa-engineer.md,
+    content/agents/security-auditor.md, content/agents/orchestration-planner.md,
+    content/agents/product-discovery.md, content/agents/wrap-ticket.md
     (mention "Skeptic" only in constraint/description prose; none spawn one)
   - content/references/conductor-operating-rules.md, conventions-detail.md,
     cross-session-loop-resume.md, delegation-detail.md, design-goals.md,
-    digest-return-pattern.md, events-log.md, planning-artifacts.md,
-    qa-gate.md, risk-config-and-tiers.md, role-models.md, spawn-presets.md,
-    subagent-protocol.md, task-state-file.md, trigger-catalog.md
+    digest-return-pattern.md, events-log.md,
+    qa-gate.md, qa-regression-obligation.md, regression-test-obligation.md,
+    risk-config-and-tiers.md, role-models.md, spawn-presets.md,
+    subagent-protocol.md, task-state-file.md, trigger-catalog.md,
+    frontend-discipline.md, ticket-rework.md
     (all mention Skeptic spawning in narrative/rule prose - tier resolution,
-    loop mechanics, model selection, digest fields - none contain a
-    prescriptive "include:" list of spawn-prompt inputs; re-swept for DS-112
-    follow-up per the corrected standard: a site needs the block only if a
-    conductor following it would assemble a Skeptic prompt)
+    loop mechanics, model selection, digest fields, prior-attempt callouts -
+    none contain a prescriptive "include:"/"receives:"/"spawn ... with:" list
+    of spawn-prompt inputs; re-swept for the DS-112 third-pass per the
+    corrected standard above)
+  - content/sections/**.md                  (kernel restatements of the
+    rules above; same reasoning - narrative, not spawn-input enumerations)
+
+The Section 4.5 "Global-Context Input Set" definition itself, and its
+Section 14 "Supplemental-context block" carve-out for `security-auditor`/
+`perf-analyst`, live in content/references/skeptic-protocol.md and are the
+canonical block this test's other sites point at - they are not themselves
+"spawn template sites" in the enumeration sense EXCEPT for the Section 14
+"Meta-Skeptic spawn brief" subsection, which is its own prescriptive
+"The meta-Skeptic receives:" list and is now included above alongside its
+content/commands/ds-implement-ticket.md counterpart.
 
 content/agents/skeptic.md already delegates to Section 4.5 by reference
 (confirmed live below) and is excluded from the per-site block check for
 that reason - it is the agent definition, not a spawn-prompt template.
+
+Total sites carrying the block after this pass: 8 (6 from the first two
+DS-112 passes, plus planning-artifacts.md and ds-brief.md from this pass) -
+9 distinct spawn shapes counting skeptic-protocol.md's own meta-Skeptic
+list, which the file `content/references/skeptic-protocol.md` earns
+inclusion for as a spawn-template site alongside its role as the Section
+4.5 canonical definition.
 
 Run with: python3 -m pytest bin/tests/test_skeptic_spawn_global_context_spec.py -q
 """
@@ -98,7 +144,10 @@ SPAWN_TEMPLATE_SITES = [
     COMMANDS_DIR / "ds-init-project.md",
     COMMANDS_DIR / "ds-ticket-triage.md",
     COMMANDS_DIR / "ds-wrap.md",
+    COMMANDS_DIR / "ds-brief.md",
     REFERENCES_DIR / "agent-team.md",
+    REFERENCES_DIR / "planning-artifacts.md",
+    SKEPTIC_PROTOCOL,
 ]
 
 # Minimum number of "Global-context inputs" occurrences expected per file -
@@ -106,11 +155,14 @@ SPAWN_TEMPLATE_SITES = [
 # pointer naming it) at each site, not just once anywhere in the file.
 MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-skeptic.md": 1,
-    COMMANDS_DIR / "ds-implement-ticket.md": 4,  # Phase 3b, per-unit, integration, Phase 6
+    COMMANDS_DIR / "ds-implement-ticket.md": 5,  # Phase 3b, per-unit, integration, Phase 6, meta-Skeptic
     COMMANDS_DIR / "ds-init-project.md": 1,
     COMMANDS_DIR / "ds-ticket-triage.md": 1,
     COMMANDS_DIR / "ds-wrap.md": 2,  # Step 2 context-file review, Part E compression
+    COMMANDS_DIR / "ds-brief.md": 1,  # Turn N+k step 7 Skeptic-on-Brief spawn
     REFERENCES_DIR / "agent-team.md": 2,  # architect-plan review, engineer-output review
+    REFERENCES_DIR / "planning-artifacts.md": 2,  # Skeptic-on-Brief step 8, Plan-tier second-pass
+    SKEPTIC_PROTOCOL: 3,  # Section 4.5 heading, heading-distinction cross-ref, Section 14 meta-Skeptic list
 }
 
 
