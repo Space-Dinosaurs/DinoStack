@@ -36,10 +36,13 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or "Agent").
             Reads JSON from stdin, writes hookSpecificOutput JSON to stdout when
             denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, os, re, sys). No external deps.
-               `from __future__ import annotations` keeps the file importable on
-               Python 3.8/3.9 (PEP 604 `X | None` hints would crash there; the
-               other enforce-*.py hooks avoid union syntax for the same reason).
+Upstream deps: Python 3 stdlib only (json, os, re, sys, importlib.util). No
+               external deps. `from __future__ import annotations` keeps the
+               file importable on Python 3.8/3.9 (PEP 604 `X | None` hints
+               would crash there; the other enforce-*.py hooks avoid union
+               syntax for the same reason). Also a soft-dependency on the
+               sibling hooks/lib/enforcement_log.py fire-logging helper
+               (dynamic import, fails open to a no-op logger).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for the Task /
                       Agent tool). Wired via ~/.claude/settings.json by
@@ -176,7 +179,31 @@ def _author_brief_matches(brief):
     return None
 
 
-def _deny(reason):
+def _load_log_fire():
+    """Best-effort dynamic import of the shared fire-logging helper.
+
+    Falls back to a no-op when the sibling module cannot be loaded (missing
+    file, syntax error, snapshot copy drift) - fire-logging is additive
+    telemetry, never a hard dependency of the enforcement decision itself.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "enforcement_log.py")
+        spec = _ilu.spec_from_file_location("enforcement_log", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.log_fire
+    except Exception:
+        return lambda *a, **k: None
+
+
+_log_fire = _load_log_fire()
+
+
+def _deny(data, reason):
+    _log_fire(data, "enforce-tier", "deny", reason)
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -229,6 +256,7 @@ def main():
         # Explicit non-Opus downgrade on a mandated-Tier-3 agent.
         if agent == "security-auditor":
             _deny(
+                data,
                 f"{tool_name} spawn blocked: security-auditor was spawned with "
                 f"model={model!r}, an explicit downgrade below Opus. The "
                 "security-auditor spec mandates Tier 3 (Opus) unconditionally "
@@ -249,6 +277,7 @@ def main():
             marker = _author_brief_matches(brief)
             if marker is not None:
                 _deny(
+                    data,
                     f"{tool_name} spawn blocked: {agent} was spawned with "
                     f"model={model!r}, an explicit downgrade below Opus, but "
                     "the brief matches an authoring Tier-3 escalation signal "
@@ -267,6 +296,7 @@ def main():
         marker = _brief_matches_tier3(brief)
         if marker is not None:
             _deny(
+                data,
                 f"{tool_name} spawn blocked: skeptic was spawned with "
                 f"model={model!r}, an explicit downgrade below Opus, but the "
                 f"brief matches a Tier-3 escalation signal (pattern {marker!r}). "

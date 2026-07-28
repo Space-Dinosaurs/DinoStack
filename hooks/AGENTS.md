@@ -37,10 +37,13 @@ module-group map.
 | `lib/stdin-guard.js` | Shared bounded-stdin reader (`readStdinGuarded`) with a first-byte timeout, a re-armed inactivity timeout, a one-shot absolute deadline, a max-bytes cap, and early-completion-by-parse (gated behind a cheap tail precheck), so a stdin-blocking hook cannot hang a harness's shutdown path when the spawning process never closes stdin; wired into all 9 consumers: `stop-context.js`, `post-tool-use-capture-nudge.js`, `session-end-wrap.js`, `pre-tool-use-spawn-emit.js`, the `.codex/hooks/stop-context-codex.js`, `.gemini/hooks/stop-context-gemini.js`, and `.copilot/hooks/stop-context-copilot.js` ports, the `.cursor/hooks/stop-context-cursor.js` port, plus the generated `.github/hooks/stop-context-copilot.js` mirror. |
 | `lib/hooks-staleness-core.sh` | DS-54: classifies the methodology checkout's hooks-snapshot state (`never_migrated` / `half_applied` / `stale_but_stable` / `current`, evaluation order in that order - mutually exclusive by construction) and prints at most one nudge line; used by `session-start-wrap.sh`. Fail-open, always exits 0. |
 | `../../scripts/lib/hooks-snapshot.sh` | DS-54: lives outside `hooks/` (shared with the adapter `install.sh`/`uninstall.sh` scripts, not just hook code) but is the load-bearing dependency both `hooks-staleness-core.sh` and every in-scope adapter installer source. Owns hooks-snapshot key/dir resolution, the source-hash function, `sync_hooks_snapshot`/`remove_hooks_snapshot` (bounded-delete guarded), and `hooks_config_points_at_snapshot`. |
+| `lib/enforcement_log.py` | Shared fire-logging helper: appends one line to `.agentic/.enforcement-fires.jsonl` whenever an enforce-*.py hook takes a non-passthrough action (deny, or allow-with-advisory-reason); a silent allow never calls it. Dynamically imported (best-effort, fails open to a no-op) by all six enforce-*.py hooks EXCEPT `enforce-no-abdication.py`, which keeps its own pre-existing `.abdication-guard-fire-count` counter file unchanged. |
 
 ## Upstream dependencies
 
-- Python hooks: Python 3 stdlib only (`json`, `sys`, `os`).
+- Python hooks: Python 3 stdlib only (`json`, `sys`, `os`, `importlib.util`
+  for the six enforce-*.py hooks' best-effort dynamic import of
+  `lib/enforcement_log.py`).
 - Node hooks: Node built-ins only (`fs`, `path`, `child_process`) plus `lib/wrap-marker.js`, `lib/capture-gap.js`, and `lib/stdin-guard.js` (no npm packages).
 - Bash hooks: `bash`, `python3` (for JSON escaping), `jq` (with grep/sed fallback), `node`.
 - All hooks read `[cwd]/.agentic/` state files; none read outside the project root except identity files at `~/.agentic/`.
@@ -72,7 +75,11 @@ exit 0 without denying the triggering action. Enforcement gaps are preferable
 to blanket blocks. Hooks never raise to the Claude Code harness; non-fatal
 errors are swallowed or written to stderr. The only intentional side effects
 are append-only writes to `.agentic/` files and deny decisions on clearly
-violating tool calls.
+violating tool calls. Six of the seven enforce-*.py hooks additionally
+append a fire-log line to `.agentic/.enforcement-fires.jsonl` on every
+non-passthrough action (via `lib/enforcement_log.py`); `enforce-no-abdication.py`
+is the exception and keeps its own separate `.agentic/.abdication-guard-fire-count`
+counter unchanged - see the `lib/` table above.
 
 ## Fail-open on absent tool_input fields
 

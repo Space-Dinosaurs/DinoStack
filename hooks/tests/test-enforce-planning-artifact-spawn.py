@@ -256,6 +256,39 @@ run_case(
     expected="ALLOW+QUIET",
 )
 
+# 11. fire-log integration: the advisory (allow_advisory) action must append
+#     a well-formed line to <cwd>/.agentic/.enforcement-fires.jsonl; the
+#     quiet-allow path (case 9, recent sentinel) must write nothing.
+_fire_log_path = os.path.join(AGENTIC_DIR, ".enforcement-fires.jsonl")
+try:
+    os.remove(_fire_log_path)
+except OSError:
+    pass
+
+total += 1
+remove_sentinel()
+run_hook(make_payload("Edit", PLANNING_FILE, TMPDIR), env={})
+ok = os.path.exists(_fire_log_path)
+if ok:
+    with open(_fire_log_path, "r", encoding="utf-8") as f:
+        _fire_lines = [json.loads(ln) for ln in f if ln.strip()]
+    ok = (
+        len(_fire_lines) == 1
+        and _fire_lines[0].get("hook") == "enforce-planning-artifact-spawn"
+        and _fire_lines[0].get("decision") == "allow_advisory"
+    )
+
+write_fresh_sentinel()
+run_hook(make_payload("Edit", PLANNING_FILE, TMPDIR), env={})
+with open(_fire_log_path, "r", encoding="utf-8") as f:
+    _fire_lines_after = [json.loads(ln) for ln in f if ln.strip()]
+ok = ok and len(_fire_lines_after) == 1  # unchanged - quiet allow logged nothing
+
+status = "PASS" if ok else "FAIL"
+if not ok:
+    failed += 1
+print(f"  [{status}] fire-log integration - advisory writes a line, quiet allow writes nothing")
+
 # ---------------------------------------------------------------------------
 print()
 if failed == 0:
