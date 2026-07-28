@@ -18,7 +18,11 @@ Public API: Read-only reference document. Consumers (shipped across units
             architect-brief callout, Phase 6 Skeptic-brief callout, Tier-3
             escalation at 2+ prior attempts);
             content/commands/ds-ticket-triage.md (per-entry ledger read,
-            [REWORK xN] badge, lane rule).
+            [REWORK xN] badge, lane rule);
+            content/commands/ds-ticket-status-sync.md --pending-merge mode
+            (read-only consumer of .agentic/ticket-ledger.jsonl as the sole
+            identity source for its candidate set - never writes to the
+            ledger).
 
 Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
                approved, 3 rounds, source of the design decisions this doc
@@ -31,7 +35,10 @@ Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
 
 Downstream consumers: Shipped (units U1-U4 of the ticket-rework Plan;
                       live on main): content/commands/ds-implement-ticket.md,
-                      content/commands/ds-ticket-triage.md. Read on trigger
+                      content/commands/ds-ticket-triage.md. Also, read-only:
+                      content/commands/ds-ticket-status-sync.md --pending-merge
+                      mode (reads .agentic/ticket-ledger.jsonl for its
+                      candidate set; never writes to it). Read on trigger
                       only - nothing in this file enters an always-loaded
                       path; it is never assembled into METHODOLOGY.md by
                       scripts/build-methodology.sh, which reads only

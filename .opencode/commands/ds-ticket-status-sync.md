@@ -17,6 +17,10 @@ Public API: /ds-ticket-status-sync <TICKET_ID>    — reconcile one ticket, prom
                                                     and report unmatched shipped-looking candidates (Tier 2,
                                                     report-only, never transitions)
             /ds-ticket-status-sync --all --force   — same as --all (--force is a no-op in v1, reserved for forward compat)
+            /ds-ticket-status-sync --pending-merge — reconcile only tickets whose recorded PR (from
+                                                    .agentic/ticket-ledger.jsonl) has since merged; transitions
+                                                    without prompting; identity is pr_number-only, never a
+                                                    title/branch text match
 
 Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
@@ -26,19 +30,40 @@ Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                tracker query tools for the non-terminal ticket set (Jira mcp__mcp-atlassian__jira_search JQL;
                Linear mcp__linear__list_issues);
                content/commands/ds-implement-ticket.md ## Tracker Writeback Helper (subagent invocation shape incl. tracker_state_values; forward-only guard incl. same-category pipeline sub-rank; no dependency on .agentic/tracker-states.json);
-               METHODOLOGY.md (activation preflight).
+               METHODOLOGY.md (activation preflight);
+               .agentic/ticket-ledger.jsonl (read-only; sole identity source for --pending-merge - see
+               content/references/ticket-rework.md § pr_number as the sole identity key);
+               .agentic/.pending-merge-last-sweep (60-minute throttle cursor for --pending-merge);
+               .agentic/pending-merge-state.jsonl (per-(ticket_id, pr_number) terminal/non-terminal
+               record for --pending-merge);
+               .agentic/config.json key pending_merge_sweep (boolean toggle gating --pending-merge).
 
-Downstream consumers: operator-invoked only; no programmatic consumers.
+Downstream consumers: single-ticket and --all modes remain operator-invoked only; no programmatic consumers.
+                      --pending-merge is additionally auto-invoked at session start by the conductor - see
+                      content/rules/conventions.md § Session Context and Memory - and remains
+                      operator-invokable on demand.
 
 Failure modes: soft-fail throughout — every tracker/gh/git call logs and continues on error; a single
                ticket's reconciliation failure never aborts an --all sweep. The command never errors
                out on an external API failure. Tier 2 (unmatched candidates) never writes anything -
-               a Tier 2 false positive is a wrong report line, never a wrong transition.
+               a Tier 2 false positive is a wrong report line, never a wrong transition. For
+               --pending-merge: a confirmation-call or reconcile-call error leaves the (ticket_id,
+               pr_number) pair non-terminal in .agentic/pending-merge-state.jsonl with `attempts`
+               incremented; 3 accumulated failures terminate the pair as `abandoned` (operator must
+               retry manually via single-ticket mode). The 60-minute cursor
+               (.agentic/.pending-merge-last-sweep) advances unconditionally at the end of every sweep
+               that ran, regardless of any per-candidate failure - no failure mode pins the sweep itself.
 
 Performance: one gh CLI call + one tracker-writeback subagent spawn per ticket that requires a transition.
              State-read calls are Tier-1 fast; --all sweeps are proportional to non-terminal ticket count.
              The tracker-wide sweep caps its non-terminal ticket query at 100 (most recently updated);
              a capped run prints how many tickets were skipped rather than truncating silently.
+             --pending-merge: at most one sweep per 60 minutes (cursor-throttled); at most 20 candidates
+             per sweep (older excess reported, never silently dropped); one `gh pr view` call per
+             candidate, plus one `gh pr list --search` open-PR check but only for candidates confirmed
+             merged; a tracker pre-read plus at most one writeback spawn only for candidates confirmed
+             merged and unblocked by an open PR. Zero cost when .agentic/ticket-ledger.jsonl is absent
+             or every recorded pair is already terminal.
 -->
 
 Reconcile a ticket's tracker status (column) with the actual state of its code. Use after `/ds-implement-ticket` exits before merge - the default human-merge flow leaves the final Done transition unfired until a human merges the PR, so the tracker can lag behind reality. This command computes the correct state and pushes the transition. `--all` mode also sweeps the whole tracker so tickets worked outside `/ds-implement-ticket` (conductor-led sessions with no `.agentic/tasks.jsonl` entry) don't silently drift.
@@ -54,6 +79,7 @@ Reconcile a ticket's tracker status (column) with the actual state of its code. 
 - `/ds-ticket-status-sync <TICKET_ID>` - reconcile one ticket. Prompts before transitioning.
 - `/ds-ticket-status-sync --all` - reconcile every non-terminal ticket in `.agentic/tasks.jsonl`, then sweep the tracker itself for non-terminal tickets outside that file (deterministic ID-match may transition; unmatched candidates are report-only). Transitions without prompting.
 - `--force` - reserved future-proofing alias for `--all` confirmation bypass. In v1, `--all` already transitions without prompt, so `--force` is currently a no-op modifier documented for forward compatibility.
+- `/ds-ticket-status-sync --pending-merge` - reconcile only tickets whose PR was recorded in `.agentic/ticket-ledger.jsonl` and has since merged. Transitions without prompting. Auto-invoked at session start by the conductor (see `content/rules/conventions.md` § Session Context and Memory); also operator-invokable at any time. See `## Pending-merge sweep (--pending-merge mode)` below.
 
 ## Preflight
 
@@ -137,14 +163,72 @@ Runs immediately after the Tier 1 sweep, over the non-terminal ticket set gather
 
 4. Tickets with no plausible match print nothing - Tier 2 output is opt-in signal, not an exhaustive audit list.
 
+## Pending-merge sweep (--pending-merge mode)
+
+Purpose: close the gap `/ds-implement-ticket` leaves on the default human-merge path. That command writes a ticket to Done only via its Phase 9 auto-merge branch; with `AUTO_MERGE_ON_CI_GREEN=false` (the default), a ticket parks at QA until something reconciles it. This mode reconciles it automatically at session start, on a strict identity rule.
+
+**Why the ledger is the identity source and a text/title match is not.** An earlier design discovered ticket keys by regex-matching merged PR titles and branch names. That was rejected on verified counterexamples: a docs PR can mention several ticket keys it does not implement (a survey/index PR listing DS-71/DS-69/DS-52 while implementing none of them); one ticket can span several merged PRs, so the first to merge would close it with the rest of its work unwritten; and a PR can self-declare partial completion in its own title. `$TRACKER_STATE_DONE` sits at the top of the forward-only guard's ranking (see step 5 below), so the guard *permits* every one of those wrong transitions, and it equally forbids an automatic move back once wrongly applied - each wrong Done becomes a manual operator repair in the tracker. **A Done transition for ticket `<KEY>` may be driven ONLY by a `pr_number` recorded against `<KEY>` in `.agentic/ticket-ledger.jsonl`.** A ticket key appearing in a PR title, branch name, or commit message is never sufficient on its own here, and no future edit to this section may add title or `headRefName` extraction as even a corroborating signal. This is sound because the ledger's Phase 9 write derives `pr_number` live from the in-flight branch and skips the write entirely when that derivation yields nothing (`content/commands/ds-implement-ticket.md` § Ticket-rework ledger write) - every ledger record therefore carries a real PR number for a real ticket, never an inferred one.
+
+**a. Skip conditions.** Any one of the following skips the entire sweep silently (no output): `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; less than 60 minutes have elapsed since the timestamp recorded in `.agentic/.pending-merge-last-sweep` (file absent = never skipped on this ground); `.agentic/ticket-ledger.jsonl` is absent or unreadable; the candidate set is empty after the exclusions in (b).
+
+**b. Candidate set.** Read `.agentic/ticket-ledger.jsonl` line by line, treating each line as `fromjson? // empty` so a malformed line is skipped rather than aborting the read (same discipline as the ledger read in `content/commands/ds-implement-ticket.md` § Ticket-rework ledger read). Take every record with a non-null `pr_number`. Dedupe to distinct `(ticket_id, pr_number)` pairs. Exclude any pair whose latest entry in `.agentic/pending-merge-state.jsonl` (see (g)) is terminal. Order the remainder by `opened_ts` descending and cap at 20.
+
+**Never truncate silently.** When the eligible set exceeds 20, print one line naming how many older pairs were cut off this sweep:
+
+    [ticket-status-sync] pending-merge sweep capped at 20 candidates; N older pair(s) skipped this run.
+
+Without this line, a project with more than 20 permanently non-terminal pairs would starve the oldest ones - never re-examined, never terminalized, and invisible, since `blocked_by_open_pr` in the breadcrumb (see (j)) only counts what was actually examined this sweep.
+
+**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt`. Three outcomes:
+
+   - `MERGED` - proceed to (d).
+   - `CLOSED` (not merged) - **terminal**. Record `closed_unmerged` per (g); no transition.
+   - `OPEN` - non-terminal this sweep. No state record is written; no further calls for this candidate this sweep.
+
+**d. Open-PR block.** Before mapping a merged candidate to Done, run `gh pr list --repo <GH_REPO> --state open --search "<TICKET_ID>"`. If **any** open PR matches, do **not** transition and do **not** record a terminal state - the ticket has follow-up work in flight (a merged first PR with several still-unmerged siblings). The candidate is deferred to a later sweep, untouched.
+
+This search is a **blocking** signal, so a spurious match costs a deferred transition (safe) and a missed match costs a premature Done (unsafe) - therefore treat an **error** on this call as "blocked" (do not transition), not as "clear."
+
+GitHub's `--search` matches title and body case-insensitively, so the uppercase ticket key matches regardless of branch-name casing. No regex is applied to `headRefName` anywhere in this mode - see the identity-source rule above.
+
+**e. Relationship to Tier 1 - not evidence-shape equivalent.** Tier 1 (`## Tracker-wide sweep`) gathers three calls (commits, merged-PR search, open-PR search) and conditions its Done mapping on the open-PR result. This mode uses a **different identity source** - a recorded `pr_number` rather than a text search - and **retains** Tier 1's open-PR precondition unchanged. It does not "mirror Tier 1 narrowed to one call"; the identity mechanism is different, only the open-PR precondition is shared.
+
+**f. Reconcile.** For a candidate confirmed merged and unblocked by (d), run steps 4-5 of "Resolution algorithm (single ticket)" above (landing on the PR-merged row -> `$TRACKER_STATE_DONE`, applying the forward-only guard by reference per step 5), then spawn per step 6.
+
+**No prompting.** `--pending-merge` transitions without prompting, exactly as `--all` does. The `[y/N]` confirmation in step 6 of "Resolution algorithm (single ticket)" is scoped to single-ticket mode and MUST NOT be inherited here - a session-start sweep that blocked on a prompt would block session boot.
+
+**g. Record the determination.** Append one line to `.agentic/pending-merge-state.jsonl` (single `O_APPEND` write per line; read with latest-wins dedupe on `(ticket_id, pr_number)` ordered by `ts` - same contract as `content/references/ticket-rework.md` § Concurrency rationale). Shape:
+
+```json
+{"ticket_id":"DS-87","pr_number":458,"state":"done","attempts":1,"ts":"<ISO8601>","detail":null}
+```
+
+`state` enum: `done` | `guard_skipped` | `closed_unmerged` | `abandoned` | `failing`. The first four are **terminal** - the pair is never reconsidered as a candidate again. `failing` is **non-terminal** and carries the running `attempts` counter.
+
+Record `done` on a successful transition; `guard_skipped` when the forward-only guard in step (f) skipped the transition; `closed_unmerged` from (c). On any error in (c), (d), (f), or the writeback spawn: append `failing` with `attempts` incremented from the prior latest entry for this pair (starting at 1) and `detail` set to the error string. When `attempts` reaches **3**, append `abandoned` instead and print:
+
+    [ticket-status-sync] <KEY> (PR #<n>) abandoned after 3 failed sweeps: <detail> - run /ds-ticket-status-sync <KEY> to retry manually.
+
+**h. Cursor.** Advance `.agentic/.pending-merge-last-sweep` to `now` at the end of **every** sweep that ran, unconditionally, via atomic tmp-file + `mv`. Per-candidate progress lives entirely in `.agentic/pending-merge-state.jsonl`, so no failure mode pins the sweep - a candidate stuck in `failing` still lets the cursor advance and the next sweep still runs on schedule. The cursor's sole reader is the 60-minute throttle in (a).
+
+**Cost.** Worst case per sweep: 20 `gh pr view` calls, plus up to 20 `gh pr list --search` open-PR checks, plus a tracker pre-read and writeback spawn only for candidates confirmed merged and unblocked - at most once per 60 minutes. Steady state on a repo with no newly-merged AE PRs since the last sweep is 20 cheap `gh pr view` calls and zero tracker traffic, shrinking toward zero as pairs terminalize.
+
+**i. Soft-fail.** Identical discipline to `## Soft-fail discipline` below: every call logs and continues; the sweep never blocks the session; it never retries with backoff; it never errors out.
+
+**j. Output.** One line per transition attempt in the existing `[ticket-status-sync] <KEY>: '<current>' -> '<expected>' ...` format (see step 8 above), one line per abandonment per (g), one line if the cap in (b) truncated, plus this breadcrumb:
+
+    [phase: ticket-status-sync | mode=pending-merge | candidates=<N> | confirmed_merged=<N> | blocked_by_open_pr=<N> | transitions=<N> | skipped=<N>]
+
+**Known limitations.** The sweep only sees PRs AE opened and recorded on this machine - `.agentic/ticket-ledger.jsonl` is gitignored and machine-local, so work shipped by hand, by a teammate, or outside `/ds-implement-ticket` is invisible to it; `--all` remains the catch-all for those. A ticket with any open PR mentioning its key is deferred indefinitely by (d) - correct for a genuinely multi-PR ticket, but it also means an unrelated open PR that happens to mention the key prevents auto-close until that PR closes or merges.
+
 ## Soft-fail discipline
 
 Every tracker/gh/git call soft-fails: log and continue. A single ticket's reconciliation failure does not abort an `--all` sweep, and applies equally to the tasks.jsonl pass and the tracker-wide sweep (Tier 1 and Tier 2). The command never errors out on an external API failure.
 
 ## Output
 
-Emit one breadcrumb per pass: `[phase: ticket-status-sync | mode=<single|all> | transitions=<N> | skipped=<N>]` for the single-ticket / tasks.jsonl-pass counts, and, when the tracker-wide sweep ran, a second breadcrumb: `[phase: ticket-status-sync | mode=all | pass=tracker-sweep | transitions=<N> | skipped=<N> | capped=<N> | candidates=<N>]`.
+Emit one breadcrumb per pass: `[phase: ticket-status-sync | mode=<single|all> | transitions=<N> | skipped=<N>]` for the single-ticket / tasks.jsonl-pass counts, and, when the tracker-wide sweep ran, a second breadcrumb: `[phase: ticket-status-sync | mode=all | pass=tracker-sweep | transitions=<N> | skipped=<N> | capped=<N> | candidates=<N>]`. When `--pending-merge` ran, emit the breadcrumb defined in `## Pending-merge sweep (--pending-merge mode)` (j): `[phase: ticket-status-sync | mode=pending-merge | candidates=<N> | confirmed_merged=<N> | blocked_by_open_pr=<N> | transitions=<N> | skipped=<N>]`.
 
-In single-ticket mode, print the before/after state. In `--all` mode, print a one-line-per-ticket summary table for the tasks.jsonl pass, then the Tier 1 operator-visible transition lines, then the Tier 2 candidate lines (if any).
+In single-ticket mode, print the before/after state. In `--all` mode, print a one-line-per-ticket summary table for the tasks.jsonl pass, then the Tier 1 operator-visible transition lines, then the Tier 2 candidate lines (if any). In `--pending-merge` mode, print one transition/abandonment line per candidate as described in `## Pending-merge sweep (--pending-merge mode)` (j).
 
-When any ticket in a pass returned `unmatched_state_name`, print one additional aggregate line after that pass's breadcrumb: `[ticket-status-sync] N ticket(s) had a current state that did not match any configured TRACKER_STATE_* value (distinct states seen: <name1>, <name2>, ...) - same-category comparison skipped for these.`
+When any ticket in a pass - including a `--pending-merge` sweep - returned `unmatched_state_name`, print one additional aggregate line after that pass's breadcrumb: `[ticket-status-sync] N ticket(s) had a current state that did not match any configured TRACKER_STATE_* value (distinct states seen: <name1>, <name2>, ...) - same-category comparison skipped for these.`
