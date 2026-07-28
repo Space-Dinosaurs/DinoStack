@@ -1742,6 +1742,16 @@
       "source_token": "model-param mapping"
     },
     {
+      "expected_target": "one bounded direct question after default derivation",
+      "generated_token": "AskUserQuestion",
+      "kind": "semantic-reference",
+      "occurrence_hash": "b7b62b69ef4573fe0f832333dfb11d300f6cef2ad7ad0ac8bef1c49008f91220",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "AskUserQuestion"
+    },
+    {
       "expected_target": "content/references/cross-session-loop-resume.md",
       "generated_token": "$AE_REPO_DIR/content/references/cross-session-loop-resume.md",
       "kind": "operational",

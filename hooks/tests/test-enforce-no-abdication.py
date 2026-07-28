@@ -36,6 +36,14 @@ Test coverage:
   - Prose-ballot: mixed block (1 recommended + 1 unrecommended item) -> ALLOW
   - Negative gate regression: a genuine single irreversible-action
     confirmation (no Operator decisions heading) still passes -> ALLOW
+  - REGRESSION: verbatim real-world 5-item bold-numbered ballot fires
+  - Prose-ballot: bold-numbered bare/all-recommended/single-item/fenced-body/
+    mixed-formatting variants
+  - REGRESSION (Skeptic MAJOR 2): indented sub-bullets not counted as items
+  - REGRESSION (Skeptic MAJOR 3): heading quoted inside a fence -> ALLOW
+  - REGRESSION (Skeptic MAJOR 4): narrative paragraphs, no list syntax,
+    under the heading -> ALLOW (no paragraph-mode fallback)
+  - Heading tightening: 3-hash heading and trailing-colon heading -> BLOCK
 """
 
 from __future__ import annotations
@@ -735,6 +743,127 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
                 "long-term impact and cannot be undone once rotated.\n\n"
                 "**2. Approve the schema migration?** This changes the "
                 "schema in a way that is hard to reverse.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # =========================================================================
+    # MAJOR 2 REGRESSION (Skeptic-verified): indented sub-bullets under a
+    # single fully-recommended item were counted as separate top-level items.
+    # An indented "- the DCO check passed" is a supporting detail of its
+    # parent item, not a new decision, and must not be counted.
+    # =========================================================================
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 2): single recommended item with 2 "
+        "indented sub-bullets -> ALLOW (sub-bullets not counted as items)",
+        make_payload(
+            fresh_dir("indented_sub_bullets_single_item"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Merge PR #516.** Recommendation: merge now; CI is "
+                "green.\n"
+                "   - the DCO check passed\n"
+                "   - the adapter-sync check passed\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 2): 2 recommended items, each with an "
+        "indented sub-bullet -> ALLOW",
+        make_payload(
+            fresh_dir("indented_sub_bullets_two_items"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Merge PR #516.** Recommendation: merge now.\n"
+                "   - CI is green\n\n"
+                "**2. Close DS-114.** Recommendation: close as done.\n"
+                "   - all acceptance criteria met\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # =========================================================================
+    # MAJOR 3 REGRESSION (Skeptic-verified): the heading was searched for in
+    # UNMASKED text, so a fenced example quoting this rule's own heading
+    # text (a PR body explaining this change, a /ds-wrap note, a Skeptic
+    # digest) would match and swallow everything after the fence as a fake
+    # "block". Fences must be masked before the heading search runs.
+    # =========================================================================
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 3): heading text quoted inside a fenced "
+        "example -> ALLOW (fence masked before heading search)",
+        make_payload(
+            fresh_dir("heading_inside_fence"),
+            last_assistant_message=(
+                "This PR adds detection for a specific block shape:\n\n"
+                "```\n"
+                "## Operator decisions\n"
+                "- Option A: no recommendation given\n"
+                "- Option B: no recommendation given\n"
+                "```\n\n"
+                "That's the shape the hook now catches. Implementation "
+                "complete, quality gates pass.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # =========================================================================
+    # MAJOR 4 REGRESSION (Skeptic-verified): the removed paragraph-mode
+    # fallback over-fired on ordinary non-ballot narrative under the
+    # heading. With the fallback removed, a "nothing to decide" narrative
+    # with no list/number syntax must never fire (returns 0 items, below
+    # the 2-item threshold), even though it is 2 blank-line-separated
+    # paragraphs.
+    # =========================================================================
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 4): narrative paragraphs, no list "
+        "syntax, under the heading -> ALLOW (no paragraph-mode fallback)",
+        make_payload(
+            fresh_dir("narrative_no_list_syntax"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "None this turn. Everything was derivable from the five "
+                "default sources.\n\n"
+                "I proceeded with the worktree-isolated engineer per "
+                "AGENTS.md.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Heading tightening: 3-hash heading must still be caught ---
+    cases.append((
+        "Heading tightening: '### Operator decisions' (3-hash) -> BLOCK",
+        make_payload(
+            fresh_dir("heading_three_hash"),
+            last_assistant_message=(
+                "### Operator decisions\n\n"
+                "- Option A: no recommendation given, design decision.\n"
+                "- Option B: no recommendation given, load-bearing.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Heading tightening: trailing colon must still be caught ---
+    cases.append((
+        "Heading tightening: '## Operator decisions:' (trailing colon) -> BLOCK",
+        make_payload(
+            fresh_dir("heading_trailing_colon"),
+            last_assistant_message=(
+                "## Operator decisions:\n\n"
+                "- Option A: no recommendation given, design decision.\n"
+                "- Option B: no recommendation given, load-bearing.\n"
             ),
         ),
         "BLOCK",
