@@ -343,6 +343,44 @@ _present "Major-2 regression: that Edge-cases row states it is NOT an IN_FLIGHT-
          'Does NOT count as an IN_FLIGHT-sourced kickoff exclusion'
 
 echo ""
+echo "--- DS-105 (1): Interaction-with-Rule-1-deferral note - load-bearing sentence, not just the title ---"
+# Presence-only pinning (Major-2 regression above) only anchors the BOLD TITLE. Gutting the
+# entire note body to "Handled elsewhere." left the 72-assertion suite green (measured). Pin
+# the sentence that actually establishes Rule 1's precedence over the In-progress-removal step.
+_present "DS-105 (1): note states Rule 1's deferral takes precedence over In-progress removal" \
+         "Rule 1's deferral takes precedence: such a ticket is removed by Rule 1 before the In-progress-removal step ever runs"
+
+echo ""
+echo "--- DS-105 (2): Deferred tickets Reason-cell extension - instruction body, not just title + example row ---"
+# Presence-only pinning (Major-2 regression above) only anchors the HTML comment's title and the
+# worked \`| V |\` row. Gutting the instruction body between them left the suite green (measured).
+# The comment spans multiple lines, so flatten it the same way the manifest header block is
+# flattened above (AC-9) before asserting.
+DEFERRED_COMMENT="$(awk '/<!-- Reason cell IN_FLIGHT extension/{f=1} f{print} /-->/{if(f)exit}' "$SPEC" | tr '\n' ' ' | tr -s ' ')"
+if [ -z "$DEFERRED_COMMENT" ]; then
+  _fail "DS-105 (2): Deferred tickets Reason-cell comment block extracted empty - heading mismatch or comment removed"
+else
+  if printf '%s' "$DEFERRED_COMMENT" | grep -qE 'append "; in flight: open PR #<n>" \(with the "\(\+N more\)" cap, same rendering as the in-flight clause in the Notes-cell composition rule\) to the Reason cell'; then
+    _pass "DS-105 (2): comment body specifies the exact Reason-cell append format and cap re-use"
+  else
+    _fail "DS-105 (2): comment body no longer specifies the Reason-cell append format and cap re-use"
+  fi
+  if printf '%s' "$DEFERRED_COMMENT" | grep -qE 'This does NOT count as an IN_FLIGHT-sourced kickoff exclusion \(Phase 4b skip condition / Output item 7 below\) - the ticket was already deferred for its own Rule 1 reason'; then
+    _pass "DS-105 (2): comment body links the non-exclusion rule to Phase 4b skip condition / Output item 7"
+  else
+    _fail "DS-105 (2): comment body no longer links the non-exclusion rule to Phase 4b skip condition / Output item 7"
+  fi
+fi
+
+echo ""
+echo "--- DS-105 (3): Notes-cell composition clause 2 - (+N more) cap linkage, previously unpinned ---"
+# No prior assertion anywhere in this suite pinned the sentence tying \`(+N more)\` to
+# \`entry.IN_FLIGHT_EVIDENCE[]\` exceeding the Evidence cap (measured: deleting the phrase left
+# the suite green). Scoped to the In-flight section since this is where clause 2 is defined.
+_present_section "DS-105 (3): in-flight clause ties (+N more) to entry.IN_FLIGHT_EVIDENCE[] exceeding the Evidence cap" \
+         'followed by . \(\+N more\). when .entry\.IN_FLIGHT_EVIDENCE\[\]. exceeds the Evidence cap below'
+
+echo ""
 echo "--- AC-14: Soft-fail discipline names the gh call as neither tracker nor MCP ---"
 _present "AC-14: Soft-fail discipline carries the gh-call extension" \
          'gh pr list. call \(neither a tracker call nor an MCP call\)'
@@ -360,6 +398,20 @@ _present "Major-2 regression: skip condition explicitly excludes Rule-1-deferred
          'a Rule-1-deferred ticket that also carries .entry\.IN_FLIGHT. does NOT count here'
 
 echo ""
+echo "--- DS-105 (4): skip condition uses a structural predicate, matching Output item 7's phrasing style ---"
+# The pre-fix wording ("no ticket reaches the In-progress tickets table because of
+# entry.IN_FLIGHT") was loose for the both-sources case: a ticket with IN_PROGRESS_TRACKER
+# also true would reach the table via the tracker column regardless of IN_FLIGHT. Output item
+# 7 (below) already answers the analogous question with a structural predicate over table
+# state rather than causal ("because of") language; this brings the skip condition into the
+# same style. Positive: new structural predicate present. Negative: the old loose causal
+# phrasing is gone.
+_present "DS-105 (4): skip condition states the structural predicate (IN_PROGRESS_TRACKER true OR IN_FLIGHT false)" \
+         'every entry in .## In-progress tickets. carries .entry\.IN_PROGRESS_TRACKER: true. or .entry\.IN_FLIGHT: false.'
+_absent "DS-105 (4): skip condition no longer uses the loose causal 'because of entry.IN_FLIGHT' phrasing" \
+         'reaches the In-progress tickets table because of .entry\.IN_FLIGHT.'
+
+echo ""
 echo "--- AC-19: Output carries the zero-lane honesty line verbatim ---"
 _present "AC-19: zero-lane-with-in-flight-exclusions output line present" \
          'All candidate tickets are already in flight \(open PRs: <keys>\)\. No lanes to recommend\. Recommended next action: review those PRs before starting new work - or re-invoke with an explicit ticket id to override\.'
@@ -374,9 +426,22 @@ echo "--- Minor 1 regression: the zero-lane honesty line requires ALL exclusions
 # table-structure definition that reuses the skip condition's own "IN_FLIGHT-sourced
 # exclusion" term instead of inventing a second gloss.
 _present "Minor-1 regression: condition is stated as a single unambiguous, table-structure definition" \
-         'equivalently: .## Deferred tickets. is empty AND every entry in .## In-progress tickets. carries .entry\.IN_FLIGHT: true.'
+         'equivalently: .## Deferred tickets. is empty AND every entry in .## In-progress tickets. carries .entry\.IN_PROGRESS_TRACKER: false. AND .entry\.IN_FLIGHT: true.'
 _present "Minor-1 regression: fallback correctly routes the terminal-plus-open-PR edge case away from the false claim" \
          'a terminal-plus-open-PR ticket lands in .## Deferred tickets., so its presence alone routes here, not to the special print'
+
+echo ""
+echo "--- DS-105 fix pass 2 (Major): item 7's gloss matches the skip condition's actual definition ---"
+# Skeptic Major: the item-7 parenthetical gloss omitted the IN_PROGRESS_TRACKER conjunct that
+# the :469 skip condition (and its own DS-105-(4) structural predicate) actually requires -
+# a reachable both-sources ticket (IN_PROGRESS_TRACKER: true AND IN_FLIGHT: true) would have
+# been routed to "Phase 4b skipped" by :469 but "item 7 fires" by the stale gloss. Pin both the
+# corrected gloss AND the corrected fallback-routing sentence that negates it, so the two
+# clauses cannot silently drift apart again.
+_present "DS-105 fix pass 2: item-7 gloss requires IN_PROGRESS_TRACKER: false (not just IN_FLIGHT: true)" \
+         'every entry in .## In-progress tickets. carries .entry\.IN_PROGRESS_TRACKER: false. AND .entry\.IN_FLIGHT: true.'
+_present "DS-105 fix pass 2: fallback routes a ticket with IN_PROGRESS_TRACKER: true away from the special print" \
+         'any In-progress ticket carries .entry\.IN_PROGRESS_TRACKER: true. or lacks .entry\.IN_FLIGHT: true.'
 
 echo ""
 echo "--- Minor 2 regression: Disclaimer enumerates all three false-positive paths, not just one ---"
