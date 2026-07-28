@@ -28,6 +28,14 @@ Test coverage:
   - Malformed stdin -> ALLOW (fail-open)
   - Smoke: abdicating payload -> exactly one valid JSON block object
   - Smoke: clean payload -> empty stdout
+  - Prose-ballot: 2-item 'Operator decisions' block, no recommendations -> BLOCK
+  - Prose-ballot: same block, every item recommended -> ALLOW
+  - Prose-ballot: single-item block -> ALLOW
+  - Prose-ballot: ballot saturated with negative-gate vocabulary still BLOCKs
+    (the escape this check exists to close)
+  - Prose-ballot: mixed block (1 recommended + 1 unrecommended item) -> ALLOW
+  - Negative gate regression: a genuine single irreversible-action
+    confirmation (no Operator decisions heading) still passes -> ALLOW
 """
 
 from __future__ import annotations
@@ -450,6 +458,138 @@ def build_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | None]]:
             last_assistant_message=(
                 "Should I proceed was my first instinct, but I went ahead and "
                 "shipped it myself. Did the CI run finish yet?"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    return cases
+
+
+# ---------------------------------------------------------------------------
+# Prose-ballot cases (content/sections/02-delegation.md "Operator decisions
+# go last in the turn" + "AskUserQuestion precondition" - the ban on
+# co-equal ballots applies identically to prose, not just the tool call.)
+# ---------------------------------------------------------------------------
+
+def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | None]]:
+    cases: list[tuple[str, str, str, dict | None]] = []
+
+    def fresh_dir(name: str) -> str:
+        d = os.path.join(tmp_dir, name)
+        os.makedirs(d, exist_ok=True)
+        make_config_file(d, enabled=True)
+        return d
+
+    # --- 2-item ballot, no recommendations -> BLOCK ---
+    cases.append((
+        "Prose ballot: 2-item Operator decisions, no recommendations -> BLOCK",
+        make_payload(
+            fresh_dir("ballot_bare"),
+            last_assistant_message=(
+                "Found two viable migration strategies.\n\n"
+                "## Operator decisions\n"
+                "- Use a blue-green cutover: this reverses decision #203 and "
+                "cannot be undone once the old cluster is decommissioned.\n"
+                "- Use a rolling upgrade: this is a load-bearing decision "
+                "that changes the schema in a way that is hard to reverse.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Same shape, every item recommended -> ALLOW ---
+    cases.append((
+        "Prose ballot: every item carries a recommendation -> ALLOW",
+        make_payload(
+            fresh_dir("ballot_all_recommended"),
+            last_assistant_message=(
+                "Found two decisions this turn.\n\n"
+                "## Operator decisions\n"
+                "- Cache eviction policy: Recommendation: LRU, matches the "
+                "existing cache module. Reversible with a one-line config flip.\n"
+                "- Retry backoff: use exponential backoff (Recommended) - "
+                "matches src/http/client.ts. Reversible with a one-line revert.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Single item -> ALLOW ("A single item never fires") ---
+    cases.append((
+        "Prose ballot: single-item Operator decisions block -> ALLOW",
+        make_payload(
+            fresh_dir("ballot_single"),
+            last_assistant_message=(
+                "One decision this turn.\n\n"
+                "## Operator decisions\n"
+                "- Delete the stale branch: this is irreversible and cannot "
+                "be undone. Proceeding requires your confirmation.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Ballot saturated with negative-gate vocabulary still fires ---
+    # REGRESSION: this is the exact escape observed in the incident that
+    # motivated this check - a ballot phrased with irreversibility/design-
+    # fork tokens that would suppress _is_abdication's permission-phrase
+    # check must NOT suppress the ballot check.
+    cases.append((
+        "REGRESSION: ballot saturated with negative-gate vocabulary still BLOCKs",
+        make_payload(
+            fresh_dir("ballot_negative_gate_saturated"),
+            last_assistant_message=(
+                "Two design forks surfaced during the migration.\n\n"
+                "## Operator decisions\n"
+                "- Option A: this is destructive, irreversible, and cannot "
+                "be undone once merged - it permanently deletes the legacy "
+                "table and reverses decision #203, a load-bearing design "
+                "decision with schema migration implications.\n"
+                "- Option B: this is a design fork requiring a force push "
+                "to rewrite history; data loss is possible and unrecoverable "
+                "if the wrong branch is targeted.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Mixed block: 1 recommended + 1 unrecommended -> ALLOW ---
+    # "An item carrying a recommendation does not count toward the
+    # violation" - only 1 of 2 items lacks a recommendation here, below the
+    # 2-unrecommended threshold.
+    cases.append((
+        "Prose ballot: mixed block (1 recommended, 1 not) -> ALLOW",
+        make_payload(
+            fresh_dir("ballot_mixed"),
+            last_assistant_message=(
+                "One flagged item, one already resolved.\n\n"
+                "## Operator decisions\n"
+                "- Logging library: Recommendation: keep pino, matches "
+                "existing usage across the service.\n"
+                "- Retention window: needs your call, no default derivable "
+                "from existing config.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- No Operator decisions heading + genuine single irreversible
+    # confirmation still passes the ORIGINAL negative gate (no regression
+    # introduced by adding the ballot check). ---
+    cases.append((
+        "Negative-gate regression: single irreversible confirmation, no heading -> ALLOW",
+        make_payload(
+            fresh_dir("no_heading_single_confirm"),
+            last_assistant_message=(
+                "This permanently deletes the legacy table and cannot be "
+                "undone. Should I proceed?"
             ),
         ),
         "ALLOW",
@@ -915,6 +1055,11 @@ def main() -> None:
         print(f"\nRunning {len(cases)} parametric cases...")
         total_failed += run_cases(cases)
 
+        # Prose-ballot cases.
+        ballot_cases = build_prose_ballot_cases(tmp_dir)
+        print(f"\nRunning {len(ballot_cases)} prose-ballot cases...")
+        total_failed += run_cases(ballot_cases)
+
         # Counter tests.
         total_failed += test_counter_cap(tmp_dir)
         total_failed += test_54360_loop_terminates(tmp_dir)
@@ -932,6 +1077,7 @@ def main() -> None:
     print()
     total_cases = (
         len(cases)
+        + len(ballot_cases)
         + 3   # counter cap: 3 assertions
         + 1   # #54360 loop-termination regression
         + 1   # counter reset

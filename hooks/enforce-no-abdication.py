@@ -9,6 +9,16 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          default-and-proceed), exactly as enforce-background-spawn.py
          mechanized its rule.
 
+         Also detects a PROSE co-equal ballot: an `## Operator decisions`
+         section (content/sections/02-delegation.md) presenting 2+ decision
+         items where 2+ carry no derived recommendation marker. This closes
+         a gap the tool-path hook (enforce-askuserquestion-default.py) cannot
+         see - that hook only inspects AskUserQuestion tool_input, and a
+         conductor can write the same forbidden ballot as plain prose instead
+         of calling the tool. See content/sections/02-delegation.md
+         "AskUserQuestion precondition" and "Operator decisions go last in
+         the turn" - both state the ban applies identically to prose.
+
          Scoped to the MAIN session Stop event only (not SubagentStop), so
          it governs the conductor, not Workers.
 
@@ -17,13 +27,17 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          reminders - and this repo has such a hook). Layer 1: check stop_hook_active
          flag (primary). Layer 2: counter-based cap (backstop) that counts
          consecutive blocks since the last new user message and halts at CAP.
+         Both the permission-phrase check and the prose-ballot check share this
+         same counter and cap.
 
          Detection is precision-biased (false-negative-biased): a missed
          abdication leaves the conductor as-is (status quo); a false positive
          forces continuation on a turn the conductor genuinely intended to stop,
          which is recoverable but annoying. Negative gate token set chosen to
          match legitimate stop conditions: destructive operations, hard-stop
-         branch signals, and correct surface-and-proceed markers.
+         branch signals, and correct surface-and-proceed markers. The
+         prose-ballot check is DELIBERATELY NOT subject to that negative gate -
+         see _is_prose_ballot docstring for why.
 
 Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             stdin, writes {"decision":"block","reason":"<directive>"} to stdout
@@ -201,6 +215,102 @@ def _is_abdication(text: str) -> bool:
             return True
 
     return False
+
+
+# ---------------------------------------------------------------------------
+# Prose-ballot detection
+# ---------------------------------------------------------------------------
+
+# The literal heading from content/sections/02-delegation.md ("Operator
+# decisions go last in the turn"). Case-insensitive, tolerant of surrounding
+# whitespace on the heading line, anchored to a line start so it cannot match
+# mid-sentence prose that happens to contain the words.
+_OPERATOR_DECISIONS_HEADING_RE = re.compile(
+    r"^[ \t]*#{2}\s*operator decisions\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+# A top-level markdown list item start: "- ", "* ", or a numbered marker
+# ("1. " / "1) "). Anchored to line start so mid-line dashes (em-dash-free
+# per repo convention, but hyphenated words regardless) never split an item.
+_ITEM_START_RE = re.compile(r"^[ \t]*(?:[-*]|\d+[.)])\s+", re.MULTILINE)
+
+# Marks that an item already carries a derived recommendation, per the
+# methodology's own convention: the literal "(Recommended)" suffix used on
+# the tool path, or a "Recommendation:" lead-in for the prose path.
+_RECOMMENDATION_RE = re.compile(r"\(recommended\)|recommendation\s*:", re.IGNORECASE)
+
+
+def _extract_operator_decisions_block(text: str) -> str:
+    """Return the text following the '## Operator decisions' heading.
+
+    Returns '' if the heading is absent. Per content/sections/02-delegation.md
+    the block is always the last thing in the turn (nothing follows the
+    heading), so everything after the heading match is the block content -
+    there is no closing marker to look for.
+    """
+    match = _OPERATOR_DECISIONS_HEADING_RE.search(text)
+    if not match:
+        return ""
+    return text[match.end():]
+
+
+def _split_decision_items(block: str) -> list:
+    """Split an Operator decisions block into individual list items.
+
+    Each item runs from its bullet/number marker to the character before the
+    next marker (or end of block), so continuation lines belonging to the
+    same item are included in that item's text (needed so a
+    "Recommendation:" line on its own continuation line is still detected).
+    """
+    starts = [m.start() for m in _ITEM_START_RE.finditer(block)]
+    if not starts:
+        return []
+    items = []
+    for i, start in enumerate(starts):
+        end = starts[i + 1] if i + 1 < len(starts) else len(block)
+        items.append(block[start:end])
+    return items
+
+
+def _is_prose_ballot(text: str) -> bool:
+    """Return True if text contains a co-equal ballot in an Operator
+    decisions block.
+
+    Fires only when: (1) the '## Operator decisions' heading is present,
+    (2) the block contains 2 or more list items, AND (3) 2 or more of those
+    items carry no derived-recommendation marker. A single item never fires
+    (the rule bans co-equal *ballots*, not surfacing one genuine decision -
+    content/sections/02-delegation.md "Proactive autonomy" anti-pattern
+    list). An item that DOES carry a recommendation does not count toward
+    the violation, so a block with one flagged decision plus other already-
+    recommended items does not fire - this mirrors the tool-path hook
+    (enforce-askuserquestion-default.py), which only denies a 2+-option
+    AskUserQuestion call when NO option carries the "(Recommended)" label.
+
+    Deliberately scans the FULL message text, not the TAIL_LENGTH-truncated
+    tail _is_abdication uses: the Operator decisions block is, by the same
+    section's own convention, the last thing in the turn, and real items
+    with one-line reasoning routinely exceed the 600-char tail window.
+
+    Deliberately independent of _NEGATIVE_GATE_PATTERNS. That gate exists to
+    let a genuine SINGLE irreversible-action confirmation pass the
+    permission-phrase classifier without being mistaken for abdication. A
+    multi-item ballot saturated with irreversibility vocabulary
+    ("destructive", "cannot be undone", "design decision") is exactly the
+    failure mode that motivated this check - the incident this hook was
+    added to catch used that exact vocabulary to make the negative gate
+    silence the permission-phrase check. Routing this check through the same
+    gate would repeat the escape it exists to close.
+    """
+    block = _extract_operator_decisions_block(text)
+    if not block:
+        return False
+    items = _split_decision_items(block)
+    if len(items) < 2:
+        return False
+    unrecommended = sum(1 for item in items if not _RECOMMENDATION_RE.search(item))
+    return unrecommended >= 2
 
 
 # ---------------------------------------------------------------------------
@@ -462,33 +572,54 @@ def main() -> None:
             # No message text available - cannot classify.
             sys.exit(0)
 
-        # Run classifier.
-        if not _is_abdication(msg_text):
-            # Not abdication - reset counter (clean turn) and allow.
+        # Run classifiers. Prose-ballot scans the full message; abdication
+        # scans only the tail (see _is_abdication / _is_prose_ballot).
+        abdication_fired = _is_abdication(msg_text)
+        ballot_fired = _is_prose_ballot(msg_text)
+
+        if not (abdication_fired or ballot_fired):
+            # Clean turn - reset counter and allow.
             _reset_counter(cwd, current_user_msg_count)
             sys.exit(0)
 
-        # Abdication detected. Only block if we can persist the incremented count.
+        # Violation detected. Only block if we can persist the incremented count.
         # If persistence fails (unwritable .agentic/, full disk, etc.) the loop
         # bound is lost; the safe degradation is allow-stop to avoid an infinite
-        # block loop when stop_hook_active also fails (CC bug #54360).
+        # block loop when stop_hook_active also fails (CC bug #54360). Both
+        # classifiers share this same counter/cap.
         new_count = state["count"] + 1
         if not _write_counter(cwd, new_count, current_user_msg_count):
             sys.exit(0)
 
-        reason = (
-            "ABDICATION GUARD: You ended your turn by asking the user permission "
-            "to proceed with a non-destructive next step. The METHODOLOGY §Delegation "
-            "(Proactive autonomy) rule requires you to act, not ask. Proceed with the "
-            "next logical step now. Do not ask 'want me to', 'should I', 'shall I', "
-            "or similar permission-seeking phrases for non-destructive work. "
-            "Consult the five default sources (codebase patterns, MEMORY.md, "
-            "architect plan, AGENTS.md, conservative ticket interpretation) and act. "
-            "Surface a question ONLY for: (1) genuinely irreversible/destructive "
-            "actions not pre-authorized, (2) information you cannot derive "
-            "(credentials, product judgments), (3) ambiguous acceptance criteria "
-            "with no inferable default. Everything else: proceed."
-        )
+        if ballot_fired:
+            reason = (
+                "ABDICATION GUARD: Your 'Operator decisions' block presents a "
+                "co-equal ballot - 2 or more decision items with no derived "
+                "recommendation. The METHODOLOGY §Delegation AskUserQuestion "
+                "precondition bans co-equal ballots identically whether presented "
+                "via the tool or as prose (content/sections/02-delegation.md, "
+                "'Operator decisions go last in the turn'). Consult the five "
+                "default sources (codebase patterns, MEMORY.md, architect plan, "
+                "AGENTS.md, conservative ticket interpretation) for each item: "
+                "either pick the best option and proceed, noting the choice, or "
+                "surface exactly ONE recommended action per item, marked with a "
+                "'Recommendation:' lead-in or a '(Recommended)' suffix. Revise the "
+                "Operator decisions block now."
+            )
+        else:
+            reason = (
+                "ABDICATION GUARD: You ended your turn by asking the user permission "
+                "to proceed with a non-destructive next step. The METHODOLOGY §Delegation "
+                "(Proactive autonomy) rule requires you to act, not ask. Proceed with the "
+                "next logical step now. Do not ask 'want me to', 'should I', 'shall I', "
+                "or similar permission-seeking phrases for non-destructive work. "
+                "Consult the five default sources (codebase patterns, MEMORY.md, "
+                "architect plan, AGENTS.md, conservative ticket interpretation) and act. "
+                "Surface a question ONLY for: (1) genuinely irreversible/destructive "
+                "actions not pre-authorized, (2) information you cannot derive "
+                "(credentials, product judgments), (3) ambiguous acceptance criteria "
+                "with no inferable default. Everything else: proceed."
+            )
         print(json.dumps({"decision": "block", "reason": reason}))
         sys.exit(0)
 
