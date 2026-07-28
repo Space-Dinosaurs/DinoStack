@@ -470,7 +470,7 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
 
 ## Phase 4b: Skeptic review
 
-**Skip condition:** if the artifact contains zero lanes AND zero chains AND no IN_FLIGHT-sourced exclusions - meaning no ticket reaches the In-progress tickets table because of `entry.IN_FLIGHT` (a Rule-1-deferred ticket that also carries `entry.IN_FLIGHT` does NOT count here; it is annotated in the Deferred tickets table's Reason cell instead, per the Interaction-with-Rule-1-deferral note in In-flight code detection above) - skip Phase 4b entirely and proceed to output.
+**Skip condition:** if the artifact contains zero lanes AND zero chains AND no IN_FLIGHT-sourced exclusions - meaning every entry in `## In-progress tickets` carries `entry.IN_PROGRESS_TRACKER: true` or `entry.IN_FLIGHT: false` (a ticket with both true reached the table via the tracker column regardless, so it is not IN_FLIGHT-sourced; a Rule-1-deferred ticket that also carries `entry.IN_FLIGHT` does NOT count here either - it is annotated in the Deferred tickets table's Reason cell instead, per the Interaction-with-Rule-1-deferral note in In-flight code detection above) - skip Phase 4b entirely and proceed to output.
 
 Otherwise: spawn a fresh background Skeptic on the artifact with this adversarial brief:
 
