@@ -952,16 +952,6 @@
       "source_token": "content/references/spawn-presets.md"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "67fff3816b120aff24edece4c709c203ed6e6bfa3b5a764538f0bdf9c2933a45",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "bin/agentic-migrate",
       "generated_token": "$AE_REPO_DIR/bin/agentic-migrate",
       "kind": "operational",
@@ -1310,6 +1300,16 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/config.json"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "8a46a5f60a6832b2a1a92f08b42b50dd14335467a3d150ad632e2b61b7c8bc63",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "METHODOLOGY.md",
