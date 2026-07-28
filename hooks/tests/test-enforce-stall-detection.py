@@ -4,37 +4,85 @@ Regression tests for the surface-and-proceed STALL fix in
 hooks/enforce-no-abdication.py.
 
 Bug: the conductor ends a turn with "Proceeding with X unless you say
-otherwise." (or "(recommended)") and then stops WITHOUT actually proceeding.
-Pre-fix, any surface-and-proceed marker unconditionally suppressed the
-abdication guard - the marker text was treated as proof of compliant
-behavior regardless of whether any action followed it. This let the single
-most common stall shape through: announce a default, then park the session.
+otherwise." and then stops WITHOUT actually proceeding. Pre-fix, any
+surface-and-proceed marker unconditionally suppressed the abdication guard -
+the marker text was treated as proof of compliant behavior regardless of
+whether any action followed it. This let the single most common stall shape
+through: announce a default, then park the session.
 
 Fix: _is_stalled_surface_and_proceed() in enforce-no-abdication.py fires
-when a surface-and-proceed marker is present in the tail AND the transcript
-shows zero tool-use calls since the last genuine human turn. It never fires
-without transcript evidence (fail-open) or when a hard negative-gate token
-(destructive/irreversible/design-fork) is present.
+when a stall-COMMITMENT marker ("proceeding with" / "unless you say
+otherwise" - deliberately NOT a bare "(recommended)", which routinely labels
+an already-derived choice with no pending action attached) is present in the
+tail AND the transcript furnishes POSITIVE proof of zero tool-use calls
+since the last genuine human turn (a successfully-read window, a located
+human-turn boundary, and recognized assistant-entry shapes throughout). It
+never fires on absence of evidence - unreadable/unparseable transcripts, a
+window with no located boundary, or an unrecognized content shape all leave
+the stall unproven - or when a hard negative-gate token
+(destructive/irreversible/design-fork/spend-money/external-message) is
+present.
+
+Fix pass 2 (this file) closes three review findings on top of the above:
+  - Finding 1: harness-injected `type:"user"` lines (background task-
+    completion notifications, in particular) must not be mistaken for a
+    genuine human-turn boundary. See test_dominant_compliant_shape().
+  - Finding 2: the burden of proof for "zero tool calls this turn" is
+    inverted - a stall is only asserted on POSITIVE evidence (successfully
+    parsed window + located human-turn boundary + recognized assistant
+    content shapes), never inferred from a read/parse failure or an
+    unrecognized shape. See test_fail_closed_paths_must_allow().
+  - Finding 3: a bare "(recommended)" is no longer a sufficient trigger for
+    this classifier - only "proceeding with" / "unless you say otherwise"
+    commit to a pending action. See test_bare_recommended_must_allow() and
+    test_answer_from_context_must_allow().
+  - Finding 6: the human-turn boundary mechanism itself (not just the
+    presence of a marker/scan) is now exercised with multi-turn fixtures,
+    an interleaved task-notification, and a compacted (no-user-turn) window.
+    See test_multi_turn_boundary_cases().
 
 This file mirrors hooks/tests/test-enforce-no-abdication.py's conventions
 (subprocess-based, run_hook/is_allow/is_block helpers, make_config_file /
 make_transcript builders) rather than importing the hook module directly.
 
-Test coverage (mirrors the task's required matrix):
-  MUST BLOCK:
-    1. "Proceeding with X unless you say otherwise." + zero tool calls this turn
-    2. "(Recommended)" + zero tool calls this turn
-    3. "proceeding with" in different casing + zero tool calls this turn
+Test coverage:
+  MUST BLOCK (genuine stalls - positive proof of a marker + zero tool calls
+  this turn, scoped by a correctly-located human-turn boundary):
+    1. "Proceeding with X unless you say otherwise." + zero tool calls
+    2. "PROCEEDING WITH" different casing + zero tool calls
+    3. Multi-turn: an EARLIER turn had a tool call, the CURRENT turn (marker,
+       zero tool calls) must not inherit that earlier turn's evidence
+    4. Malformed JSON line skipped; well-formed lines around it still prove
+       a genuine stall
   MUST ALLOW:
-    4. Marker present + >=1 tool call this turn (compliant surface-and-proceed)
-    5. stop_hook_active: true
-    6. Consecutive-block cap already reached
-    7. AE_ABDICATION_GUARD_DISABLE=1
-    8. abdication_guard_enabled: false in config
-    9. Malformed/absent transcript path -> fail open, not block
-   10. Malformed JSON lines inside an otherwise valid transcript -> fail open
-   11. A normal completion turn with no marker and no interrogative
-   12. (covered by test-enforce-no-abdication.py itself, run separately)
+    5. Marker present + >=1 tool call this turn (compliant)
+    6. stop_hook_active: true
+    7. Consecutive-block cap already reached
+    8. AE_ABDICATION_GUARD_DISABLE=1
+    9. abdication_guard_enabled: false in config
+   10. Nonexistent transcript_path -> fail open (unproven)
+   11. No transcript_path field at all -> fail open (unproven)
+   12. A normal completion turn with no marker and no interrogative
+   13. Hard negative gate ('irreversible') + marker + 0 tool calls
+   14. Bare "(Recommended)" alone + zero tool calls (Finding 3 - no longer a
+       sufficient trigger)
+   15. Answer-from-context with no tool call and no pending action (Finding
+       3's literal example)
+   16. Zero-byte transcript + marker (Finding 2, fail-closed path 1)
+   17. Garbage non-JSON lines only + marker (Finding 2, fail-closed path 2)
+   18. Valid JSON, unexpected schema (no recognizable role) + marker
+       (Finding 2, fail-closed path 3)
+   19. Transcript with NO user turn at all / compacted window + marker
+       (Finding 2, fail-closed path 4)
+   20. tool_use in a non-list assistant content shape + marker (Finding 2,
+       fail-closed path 5)
+   21. Spend-money hard-stop + marker + zero tool calls (Finding 4)
+   22. Dominant compliant shape: spawn tool_use -> harness task-notification
+       -> "Unit N returned; proceeding with unit N+1 unless you say
+       otherwise." (Finding 1 - the notification must not hide the earlier
+       tool_use from the same turn)
+   23. (test-enforce-no-abdication.py itself, run separately, covers the
+       classic-interrogative-path invariants)
 """
 
 from __future__ import annotations
@@ -184,6 +232,78 @@ def transcript_with_tool_call(cwd: str, assistant_text: str, filename: str = "tr
     )
 
 
+# Transcript: TWO genuine human turns. The FIRST turn has an assistant
+# tool_use call; the CURRENT (second) turn has an assistant message with NO
+# tool_use - i.e. any tool-call evidence in the transcript belongs to a PRIOR
+# turn and must not count as evidence for the current one.
+def transcript_prior_turn_tool_call_current_turn_none(
+    cwd: str, assistant_text: str, filename: str = "transcript.jsonl"
+) -> str:
+    return make_transcript(
+        cwd,
+        [
+            {"type": "user", "message": {"content": [{"type": "text", "text": "First request"}]}},
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "id": "t0", "name": "Bash", "input": {"command": "echo old"}}
+                    ]
+                },
+            },
+            {
+                "type": "user",
+                "message": {"content": [{"type": "tool_result", "tool_use_id": "t0", "content": "old"}]},
+            },
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": "Did the first thing."}]}},
+            {"type": "user", "message": {"content": [{"type": "text", "text": "Second request"}]}},
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": assistant_text}]}},
+        ],
+        filename=filename,
+    )
+
+
+# Transcript: the dominant compliant conductor shape (Finding 1). A genuine
+# human turn, then a spawn tool_use, its tool_result, a harness-injected
+# background task-notification (type:"user", isMeta ABSENT, plain-string
+# content - the real shape observed in ~/.claude/projects/ transcripts), and
+# finally the assistant's proceeding-with digest. The task-notification must
+# NOT be treated as a new human-turn boundary - the earlier tool_use is still
+# "this turn"'s evidence.
+def transcript_dominant_compliant_shape(cwd: str, assistant_text: str, filename: str = "transcript.jsonl") -> str:
+    return make_transcript(
+        cwd,
+        [
+            {"type": "user", "message": {"content": [{"type": "text", "text": "Go implement units 1-3"}]}},
+            {
+                "type": "assistant",
+                "message": {
+                    "content": [
+                        {"type": "tool_use", "id": "t1", "name": "Agent", "input": {"description": "Unit 2"}}
+                    ]
+                },
+            },
+            {
+                "type": "user",
+                "message": {"content": [{"type": "tool_result", "tool_use_id": "t1", "content": "queued"}]},
+            },
+            {
+                "type": "user",
+                "message": {
+                    "content": (
+                        "<task-notification>\n<task-id>abc123</task-id>\n"
+                        "<tool-use-id>toolu_01abc</tool-use-id>\n<status>completed</status>\n"
+                        "<summary>Agent \"Unit 2\" completed</summary>\n<result>Status: DONE</result>\n"
+                        "</task-notification>"
+                    )
+                },
+            },
+            {"type": "assistant", "message": {"content": [{"type": "text", "text": assistant_text}]}},
+        ],
+        filename=filename,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Test bodies
 # ---------------------------------------------------------------------------
@@ -219,24 +339,46 @@ def test_must_block(tmp_dir: str) -> int:
     ):
         failed += 1
 
-    # 2. "(Recommended)" + zero tool calls.
-    d2 = new_case_dir(tmp_dir, "stall_recommended")
-    msg2 = "Picking approach B (Recommended) based on existing patterns."
+    # 2. "proceeding with" different casing + zero tool calls.
+    d2 = new_case_dir(tmp_dir, "stall_casing")
+    msg2 = "PROCEEDING WITH the migration script now."
     t2 = transcript_no_tool_call(d2, msg2)
     rc, out, err = run_hook(make_payload(d2, msg2, transcript_path=t2))
     if not run_labeled(
-        "2. '(Recommended)' + 0 tool calls -> BLOCK",
+        "2. 'PROCEEDING WITH' (different casing) + 0 tool calls -> BLOCK",
         rc, out, err, "BLOCK",
     ):
         failed += 1
 
-    # 3. "proceeding with" different casing + zero tool calls.
-    d3 = new_case_dir(tmp_dir, "stall_casing")
-    msg3 = "PROCEEDING WITH the migration script now."
-    t3 = transcript_no_tool_call(d3, msg3)
+    # 3. Finding 6: an EARLIER human turn had a tool call; the CURRENT turn
+    #    (marker present, zero tool calls) must be judged on its own window,
+    #    not inherit the earlier turn's evidence.
+    d3 = new_case_dir(tmp_dir, "multi_turn_prior_tool_call")
+    msg3 = "Proceeding with the second request unless you say otherwise."
+    t3 = transcript_prior_turn_tool_call_current_turn_none(d3, msg3)
     rc, out, err = run_hook(make_payload(d3, msg3, transcript_path=t3))
     if not run_labeled(
-        "3. 'PROCEEDING WITH' (different casing) + 0 tool calls -> BLOCK",
+        "3. Prior-turn tool call does NOT excuse a tool-call-free current turn -> BLOCK",
+        rc, out, err, "BLOCK",
+    ):
+        failed += 1
+
+    # 4. Malformed JSON lines inside an otherwise valid transcript. A
+    #    malformed line is simply skipped by the scan (not a hard read
+    #    failure); the surrounding well-formed lines still locate the
+    #    boundary and show zero tool_use -> a provable stall -> BLOCK.
+    #    Contrast with the fail-closed cases in test_fail_closed_paths_must_
+    #    allow() below, where the WHOLE window is unrecognizable.
+    d4 = new_case_dir(tmp_dir, "malformed_lines")
+    msg4 = "Proceeding with approach A unless you say otherwise."
+    t4_path = os.path.join(d4, "transcript.jsonl")
+    with open(t4_path, "w") as f:
+        f.write(json.dumps({"type": "user", "message": {"content": [{"type": "text", "text": "Go"}]}}) + "\n")
+        f.write("NOT VALID JSON {{{\n")
+        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": msg4}]}}) + "\n")
+    rc, out, err = run_hook(make_payload(d4, msg4, transcript_path=t4_path))
+    if not run_labeled(
+        "4. Malformed JSON line skipped; well-formed lines still classify -> BLOCK",
         rc, out, err, "BLOCK",
     ):
         failed += 1
@@ -248,128 +390,139 @@ def test_must_allow(tmp_dir: str) -> int:
     print("\n  [MUST ALLOW]")
     failed = 0
 
-    # 4. Marker present AND >=1 tool call this turn -> ALLOW.
-    d4 = new_case_dir(tmp_dir, "compliant_with_tool_call")
-    msg4 = "Proceeding with approach A unless you say otherwise."
-    t4 = transcript_with_tool_call(d4, msg4)
-    rc, out, err = run_hook(make_payload(d4, msg4, transcript_path=t4))
-    if not run_labeled(
-        "4. Marker present + >=1 tool call this turn -> ALLOW (compliant)",
-        rc, out, err, "ALLOW",
-    ):
-        failed += 1
-
-    # 5. stop_hook_active: true -> ALLOW regardless of stall shape.
-    d5 = new_case_dir(tmp_dir, "stop_hook_active_true")
+    # 5. Marker present AND >=1 tool call this turn -> ALLOW.
+    d5 = new_case_dir(tmp_dir, "compliant_with_tool_call")
     msg5 = "Proceeding with approach A unless you say otherwise."
-    t5 = transcript_no_tool_call(d5, msg5)
-    rc, out, err = run_hook(make_payload(d5, msg5, stop_hook_active=True, transcript_path=t5))
+    t5 = transcript_with_tool_call(d5, msg5)
+    rc, out, err = run_hook(make_payload(d5, msg5, transcript_path=t5))
     if not run_labeled(
-        "5. stop_hook_active=true -> ALLOW",
+        "5. Marker present + >=1 tool call this turn -> ALLOW (compliant)",
         rc, out, err, "ALLOW",
     ):
         failed += 1
 
-    # 6. Consecutive-block cap already reached -> ALLOW.
+    # 6. stop_hook_active: true -> ALLOW regardless of stall shape.
+    d6 = new_case_dir(tmp_dir, "stop_hook_active_true")
+    msg6 = "Proceeding with approach A unless you say otherwise."
+    t6 = transcript_no_tool_call(d6, msg6)
+    rc, out, err = run_hook(make_payload(d6, msg6, stop_hook_active=True, transcript_path=t6))
+    if not run_labeled(
+        "6. stop_hook_active=true -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 7. Consecutive-block cap already reached -> ALLOW.
     # NOTE: last_user_msg_count must match the transcript's genuine human
     # turn count (1, from transcript_no_tool_call's single "Go do the work"
     # turn) - otherwise the hook's own new-user-turn reset logic fires first
     # (current_user_msg_count=1 > last_user_msg_count=0) and the cap check
     # never gets exercised.
-    d6 = new_case_dir(tmp_dir, "cap_reached")
-    agentic_dir6 = os.path.join(d6, ".agentic")
-    counter_path6 = os.path.join(agentic_dir6, ".abdication-guard-fire-count")
-    with open(counter_path6, "w") as f:
+    d7 = new_case_dir(tmp_dir, "cap_reached")
+    agentic_dir7 = os.path.join(d7, ".agentic")
+    counter_path7 = os.path.join(agentic_dir7, ".abdication-guard-fire-count")
+    with open(counter_path7, "w") as f:
         json.dump({"count": CONSECUTIVE_BLOCK_CAP, "last_user_msg_count": 1}, f)
-    msg6 = "Proceeding with approach A unless you say otherwise."
-    t6 = transcript_no_tool_call(d6, msg6)
-    rc, out, err = run_hook(make_payload(d6, msg6, transcript_path=t6))
+    msg7 = "Proceeding with approach A unless you say otherwise."
+    t7 = transcript_no_tool_call(d7, msg7)
+    rc, out, err = run_hook(make_payload(d7, msg7, transcript_path=t7))
     if not run_labeled(
-        "6. Consecutive-block cap reached -> ALLOW",
+        "7. Consecutive-block cap reached -> ALLOW",
         rc, out, err, "ALLOW",
     ):
         failed += 1
 
-    # 7. AE_ABDICATION_GUARD_DISABLE=1 -> ALLOW.
-    d7 = new_case_dir(tmp_dir, "kill_switch")
-    msg7 = "Proceeding with approach A unless you say otherwise."
-    t7 = transcript_no_tool_call(d7, msg7)
+    # 8. AE_ABDICATION_GUARD_DISABLE=1 -> ALLOW.
+    d8 = new_case_dir(tmp_dir, "kill_switch")
+    msg8 = "Proceeding with approach A unless you say otherwise."
+    t8 = transcript_no_tool_call(d8, msg8)
     rc, out, err = run_hook(
-        make_payload(d7, msg7, transcript_path=t7),
+        make_payload(d8, msg8, transcript_path=t8),
         env={"AE_ABDICATION_GUARD_DISABLE": "1"},
     )
     if not run_labeled(
-        "7. AE_ABDICATION_GUARD_DISABLE=1 -> ALLOW",
+        "8. AE_ABDICATION_GUARD_DISABLE=1 -> ALLOW",
         rc, out, err, "ALLOW",
     ):
         failed += 1
 
-    # 8. abdication_guard_enabled: false -> ALLOW.
-    d8 = os.path.join(tmp_dir, "guard_disabled_cwd")
-    os.makedirs(d8, exist_ok=True)
-    make_config_file(d8, enabled=False)
-    msg8 = "Proceeding with approach A unless you say otherwise."
-    t8 = transcript_no_tool_call(d8, msg8)
-    rc, out, err = run_hook(make_payload(d8, msg8, transcript_path=t8))
-    if not run_labeled(
-        "8. abdication_guard_enabled=false -> ALLOW",
-        rc, out, err, "ALLOW",
-    ):
-        failed += 1
-
-    # 9. Malformed/absent transcript path -> fail open, ALLOW (no evidence
-    #    of a stall without a readable transcript).
-    d9 = new_case_dir(tmp_dir, "absent_transcript")
+    # 9. abdication_guard_enabled: false -> ALLOW.
+    d9 = os.path.join(tmp_dir, "guard_disabled_cwd")
+    os.makedirs(d9, exist_ok=True)
+    make_config_file(d9, enabled=False)
     msg9 = "Proceeding with approach A unless you say otherwise."
+    t9 = transcript_no_tool_call(d9, msg9)
+    rc, out, err = run_hook(make_payload(d9, msg9, transcript_path=t9))
+    if not run_labeled(
+        "9. abdication_guard_enabled=false -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 10. Nonexistent transcript_path -> fail open (no evidence of a stall
+    #     without a readable transcript).
+    d10 = new_case_dir(tmp_dir, "absent_transcript")
+    msg10 = "Proceeding with approach A unless you say otherwise."
     rc, out, err = run_hook(make_payload(
-        d9, msg9, transcript_path=os.path.join(d9, "does-not-exist.jsonl"),
+        d10, msg10, transcript_path=os.path.join(d10, "does-not-exist.jsonl"),
     ))
     if not run_labeled(
-        "9a. Nonexistent transcript_path -> ALLOW (fail open)",
+        "10. Nonexistent transcript_path -> ALLOW (fail open)",
         rc, out, err, "ALLOW",
     ):
         failed += 1
 
-    d9b = new_case_dir(tmp_dir, "no_transcript_field")
-    rc, out, err = run_hook(make_payload(d9b, msg9))  # no transcript_path at all
+    # 11. No transcript_path field at all -> fail open.
+    d11 = new_case_dir(tmp_dir, "no_transcript_field")
+    rc, out, err = run_hook(make_payload(d11, msg10))  # no transcript_path at all
     if not run_labeled(
-        "9b. No transcript_path field at all -> ALLOW (fail open)",
+        "11. No transcript_path field at all -> ALLOW (fail open)",
         rc, out, err, "ALLOW",
     ):
         failed += 1
 
-    # 10. Malformed JSON lines inside an otherwise valid transcript -> fail
-    #     open on those lines (skipped), but the well-formed lines still
-    #     resolve correctly. Here we corrupt the tool_use line itself so the
-    #     tool-call evidence is destroyed; the safe degradation must be
-    #     ALLOW (never claim a stall it can't prove).
-    d10 = new_case_dir(tmp_dir, "malformed_lines")
-    msg10 = "Proceeding with approach A unless you say otherwise."
-    t10_path = os.path.join(d10, "transcript.jsonl")
-    with open(t10_path, "w") as f:
-        f.write(json.dumps({"type": "user", "message": {"content": [{"type": "text", "text": "Go"}]}}) + "\n")
-        f.write("NOT VALID JSON {{{\n")
-        f.write(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": msg10}]}}) + "\n")
-    rc, out, err = run_hook(make_payload(d10, msg10, transcript_path=t10_path))
-    # A malformed line is simply skipped by the scan (not a hard read
-    # failure), so the well-formed lines still resolve: no tool_use found ->
-    # genuine stall -> BLOCK is the correct, provable outcome here. This
-    # confirms malformed *individual lines* don't crash the scan or corrupt
-    # its result - contrast with case 9 (a wholly unreadable transcript),
-    # which must ALLOW.
+    # 12. A normal completion turn with no marker and no interrogative -> ALLOW.
+    d12 = new_case_dir(tmp_dir, "normal_completion")
+    msg12 = "Fixed the bug in config.ts and added a regression test. All quality gates pass."
+    t12 = transcript_with_tool_call(d12, msg12)
+    rc, out, err = run_hook(make_payload(d12, msg12, transcript_path=t12))
     if not run_labeled(
-        "10. Malformed JSON line skipped; well-formed lines still classify -> BLOCK",
-        rc, out, err, "BLOCK",
+        "12. Normal completion, no marker, no interrogative -> ALLOW",
+        rc, out, err, "ALLOW",
     ):
         failed += 1
 
-    # 11. A normal completion turn with no marker and no interrogative -> ALLOW.
-    d11 = new_case_dir(tmp_dir, "normal_completion")
-    msg11 = "Fixed the bug in config.ts and added a regression test. All quality gates pass."
-    t11 = transcript_with_tool_call(d11, msg11)
-    rc, out, err = run_hook(make_payload(d11, msg11, transcript_path=t11))
+    # 13. Hard negative gate ('irreversible') + marker + 0 tool calls -> ALLOW.
+    d13 = new_case_dir(tmp_dir, "hard_gate_with_marker")
+    msg13 = "This is irreversible. Proceeding with the migration unless you say otherwise."
+    t13 = transcript_no_tool_call(d13, msg13)
+    rc, out, err = run_hook(make_payload(d13, msg13, transcript_path=t13))
     if not run_labeled(
-        "11. Normal completion, no marker, no interrogative -> ALLOW",
+        "13. Hard negative gate ('irreversible') + marker + 0 tool calls -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 14. Finding 3: a bare "(Recommended)" with no commitment phrase is no
+    #     longer a sufficient trigger, even with zero tool calls this turn.
+    d14 = new_case_dir(tmp_dir, "bare_recommended")
+    msg14 = "Picking approach B (Recommended) based on existing patterns."
+    t14 = transcript_no_tool_call(d14, msg14)
+    rc, out, err = run_hook(make_payload(d14, msg14, transcript_path=t14))
+    if not run_labeled(
+        "14. Bare '(Recommended)' + 0 tool calls -> ALLOW (not a commitment marker)",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 15. Finding 3's literal example: answering from context with no tool
+    #     call and no pending action stated must ALLOW (Low direct-action row).
+    d15 = new_case_dir(tmp_dir, "answer_from_context")
+    msg15 = "You asked which library. Option B (recommended) because it matches src/foo.ts."
+    t15 = transcript_no_tool_call(d15, msg15)
+    rc, out, err = run_hook(make_payload(d15, msg15, transcript_path=t15))
+    if not run_labeled(
+        "15. Answer-from-context, no tool call, no pending action -> ALLOW",
         rc, out, err, "ALLOW",
     ):
         failed += 1
@@ -377,18 +530,121 @@ def test_must_allow(tmp_dir: str) -> int:
     return failed
 
 
-def test_hard_negative_gate_still_suppresses_stall(tmp_dir: str) -> int:
-    """Extra coverage beyond the required matrix: a hard negative-gate token
-    (e.g. 'irreversible') co-occurring with a surface-and-proceed marker and
-    zero tool calls must still ALLOW - the hard gate is unconditional."""
-    print("\n  [Extra: hard negative gate suppresses stall classifier too]")
+def test_fail_closed_paths_must_allow(tmp_dir: str) -> int:
+    """Finding 2: five fail-closed transcript shapes, all with a stall
+    marker present and (superficially) zero recognized tool calls. Each must
+    ALLOW because the scan cannot furnish POSITIVE proof of a stall."""
+    print("\n  [MUST ALLOW: Finding 2 fail-closed paths - absence of evidence != evidence of a stall]")
     failed = 0
-    d = new_case_dir(tmp_dir, "hard_gate_with_marker")
-    msg = "This is irreversible. Proceeding with the migration unless you say otherwise."
+    marker_msg = "Proceeding with approach A unless you say otherwise."
+
+    # 16. Zero-byte transcript.
+    d16 = new_case_dir(tmp_dir, "fail_closed_zero_byte")
+    t16 = os.path.join(d16, "transcript.jsonl")
+    with open(t16, "w"):
+        pass
+    rc, out, err = run_hook(make_payload(d16, marker_msg, transcript_path=t16))
+    if not run_labeled(
+        "16. Zero-byte transcript + marker -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 17. Garbage non-JSON lines only.
+    d17 = new_case_dir(tmp_dir, "fail_closed_garbage")
+    t17 = os.path.join(d17, "transcript.jsonl")
+    with open(t17, "w") as f:
+        f.write("not json at all\n")
+        f.write("{{{ broken\n")
+        f.write("also not json\n")
+    rc, out, err = run_hook(make_payload(d17, marker_msg, transcript_path=t17))
+    if not run_labeled(
+        "17. Garbage non-JSON lines only + marker -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 18. Valid JSON, unexpected schema (no recognizable role/type field, no
+    #     "user"/"assistant" discriminator at all).
+    d18 = new_case_dir(tmp_dir, "fail_closed_unexpected_schema")
+    t18 = make_transcript(d18, [
+        {"foo": "bar", "baz": 1},
+        {"event": "something_else", "payload": [1, 2, 3]},
+    ])
+    rc, out, err = run_hook(make_payload(d18, marker_msg, transcript_path=t18))
+    if not run_labeled(
+        "18. Valid JSON, unexpected schema + marker -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 19. Transcript with NO user turn at all (a compacted window) - only an
+    #     assistant entry (and a non-user/non-assistant system-ish line).
+    d19 = new_case_dir(tmp_dir, "fail_closed_no_user_turn")
+    t19 = make_transcript(d19, [
+        {"type": "system", "content": "conversation summary: prior turns compacted"},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": marker_msg}]}},
+    ])
+    rc, out, err = run_hook(make_payload(d19, marker_msg, transcript_path=t19))
+    if not run_labeled(
+        "19. No user turn at all / compacted window + marker -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    # 20. tool_use in a non-list assistant content shape (a bare dict rather
+    #     than a list of blocks) - cannot be proven to lack a tool_use.
+    d20 = new_case_dir(tmp_dir, "fail_closed_nonlist_shape")
+    t20 = make_transcript(d20, [
+        {"type": "user", "message": {"content": [{"type": "text", "text": "Go do the work"}]}},
+        {"type": "assistant", "message": {"content": {"type": "tool_use", "id": "t1", "name": "Bash"}}},
+        {"type": "assistant", "message": {"content": [{"type": "text", "text": marker_msg}]}},
+    ])
+    rc, out, err = run_hook(make_payload(d20, marker_msg, transcript_path=t20))
+    if not run_labeled(
+        "20. tool_use in a non-list assistant content shape + marker -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+
+    return failed
+
+
+def test_spend_money_hard_stop_must_allow(tmp_dir: str) -> int:
+    """Finding 4: spending money is a hard-stop per content/sections/
+    02-delegation.md's enumeration. It must suppress the stall classifier
+    exactly like the destructive/irreversible tokens already do."""
+    print("\n  [MUST ALLOW: Finding 4 - spend-money hard-stop]")
+    failed = 0
+    d = new_case_dir(tmp_dir, "spend_money_hard_stop")
+    msg = (
+        "This run will spend about $400 of API credit. Proceeding with the "
+        "smaller sample (recommended) needs your OK first."
+    )
     t = transcript_no_tool_call(d, msg)
     rc, out, err = run_hook(make_payload(d, msg, transcript_path=t))
     if not run_labeled(
-        "Hard negative gate ('irreversible') + marker + 0 tool calls -> ALLOW",
+        "21. Spend-money hard-stop + marker + 0 tool calls -> ALLOW",
+        rc, out, err, "ALLOW",
+    ):
+        failed += 1
+    return failed
+
+
+def test_dominant_compliant_shape(tmp_dir: str) -> int:
+    """Finding 1: the dominant conductor turn shape - spawn a tool, receive a
+    harness task-notification, then report a proceeding-with digest for the
+    next unit - must ALLOW. The task-notification (type:"user", isMeta
+    ABSENT, plain-string content) must not be mistaken for a new human-turn
+    boundary that would hide the earlier tool_use from view."""
+    print("\n  [MUST ALLOW: Finding 1 - dominant compliant shape (spawn -> notification -> digest)]")
+    failed = 0
+    d = new_case_dir(tmp_dir, "dominant_compliant_shape")
+    msg = "Unit 2 returned with sign-off. Proceeding with unit 3 unless you say otherwise."
+    t = transcript_dominant_compliant_shape(d, msg)
+    rc, out, err = run_hook(make_payload(d, msg, transcript_path=t))
+    if not run_labeled(
+        "22. Spawn -> task-notification -> proceeding-with digest -> ALLOW",
         rc, out, err, "ALLOW",
     ):
         failed += 1
@@ -405,7 +661,9 @@ def main() -> None:
     with tempfile.TemporaryDirectory() as tmp_dir:
         total_failed += test_must_block(tmp_dir)
         total_failed += test_must_allow(tmp_dir)
-        total_failed += test_hard_negative_gate_still_suppresses_stall(tmp_dir)
+        total_failed += test_fail_closed_paths_must_allow(tmp_dir)
+        total_failed += test_spend_money_hard_stop_must_allow(tmp_dir)
+        total_failed += test_dominant_compliant_shape(tmp_dir)
 
     print()
     if total_failed == 0:
