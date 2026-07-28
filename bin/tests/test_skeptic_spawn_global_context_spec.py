@@ -26,6 +26,15 @@ verified to lack the block prior to this fix):
   - content/commands/ds-ticket-triage.md          (Phase 4b artifact Skeptic)
   - content/commands/ds-wrap.md                   (Step 2 context-file
     Skeptic, Part E memory-compression Skeptic)
+  - content/references/agent-team.md              (":195" architect-plan
+    review "include:" list, ":200" engineer-output review "include:" list -
+    both are prescriptive spawn-input enumerations in the same shape as the
+    command templates above; a conductor following either verbatim assembles
+    a prompt missing all 6 Global-context fields. Originally excluded in the
+    first pass of this fix as "mentions Skeptic review generically" - that
+    reasoning did not survive scrutiny: these are "when spawning `skeptic`
+    for X review, include:" lists, i.e. exactly the defect class this test
+    guards against. DS-112 follow-up.)
 
 EXCLUDED (mentions Skeptic review generically, or delegates to another
 command's own spawn template, or is a Tier-1 leaf agent that never spawns a
@@ -39,11 +48,24 @@ Skeptic at all - none of these construct a fill-in prompt of their own):
     /ds-update-agentic-engineering's own review, no template)
   - content/commands/ds-memory-update.md     (queries past spawns, does not
     spawn one)
-  - content/commands/ds-brief.md             (delegates to the standard
-    architect-plan-review flow, no template of its own)
-  - content/agents/architect.md, content/agents/learning-extractor.md,
-    content/agents/goal-condition-evaluator.md, content/agents/learnings-agent.md
+  - content/commands/ds-brief.md             (Section 6 selects which
+    adversarial-brief variant text to use based on `brief_source`; it does
+    not enumerate the Global-context inputs itself, and delegates to the
+    standard architect-plan-review flow - no fill-in template of its own)
+  - content/agents/architect.md, content/agents/engineer.md,
+    content/agents/learning-extractor.md, content/agents/goal-condition-evaluator.md,
+    content/agents/learnings-agent.md
     (mention "Skeptic" only in constraint/description prose; none spawn one)
+  - content/references/conductor-operating-rules.md, conventions-detail.md,
+    cross-session-loop-resume.md, delegation-detail.md, design-goals.md,
+    digest-return-pattern.md, events-log.md, planning-artifacts.md,
+    qa-gate.md, risk-config-and-tiers.md, role-models.md, spawn-presets.md,
+    subagent-protocol.md, task-state-file.md, trigger-catalog.md
+    (all mention Skeptic spawning in narrative/rule prose - tier resolution,
+    loop mechanics, model selection, digest fields - none contain a
+    prescriptive "include:" list of spawn-prompt inputs; re-swept for DS-112
+    follow-up per the corrected standard: a site needs the block only if a
+    conductor following it would assemble a Skeptic prompt)
 
 content/agents/skeptic.md already delegates to Section 4.5 by reference
 (confirmed live below) and is excluded from the per-site block check for
@@ -58,6 +80,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 COMMANDS_DIR = REPO_ROOT / "content" / "commands"
+REFERENCES_DIR = REPO_ROOT / "content" / "references"
 SKEPTIC_PROTOCOL = REPO_ROOT / "content" / "references" / "skeptic-protocol.md"
 SKEPTIC_AGENT = REPO_ROOT / "content" / "agents" / "skeptic.md"
 
@@ -75,6 +98,7 @@ SPAWN_TEMPLATE_SITES = [
     COMMANDS_DIR / "ds-init-project.md",
     COMMANDS_DIR / "ds-ticket-triage.md",
     COMMANDS_DIR / "ds-wrap.md",
+    REFERENCES_DIR / "agent-team.md",
 ]
 
 # Minimum number of "Global-context inputs" occurrences expected per file -
@@ -86,6 +110,7 @@ MIN_OCCURRENCES = {
     COMMANDS_DIR / "ds-init-project.md": 1,
     COMMANDS_DIR / "ds-ticket-triage.md": 1,
     COMMANDS_DIR / "ds-wrap.md": 2,  # Step 2 context-file review, Part E compression
+    REFERENCES_DIR / "agent-team.md": 2,  # architect-plan review, engineer-output review
 }
 
 
