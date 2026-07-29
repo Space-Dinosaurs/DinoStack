@@ -50,11 +50,12 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
             a genuine prior human-turn boundary was actually located (so the
             scan window is provably scoped to the CURRENT turn), every
             assistant entry inside that window had a recognized content shape
-            (a list of blocks or a plain string - anything else cannot be
-            proven to lack a tool_use), and zero tool_use blocks were found
-            inside that window. Any failure to establish ALL of the above
-            (unreadable/unparseable transcript, no boundary found, an
-            unrecognized entry shape, or the marker simply absent) means the
+            (a list of blocks, a plain string, or absent/None content -
+            anything else cannot be proven to lack a tool_use), and zero
+            tool_use blocks were found inside that window. Any failure to
+            establish ALL of the above (unreadable/unparseable transcript,
+            no boundary found, an unrecognized entry shape, or the marker
+            simply absent) means the
             stall is UNPROVEN and this classifier returns False - burden of
             proof is on detecting the stall, not on disproving it.
 
@@ -332,11 +333,27 @@ _STALL_TRIGGER_PATTERNS = re.compile(
     re.IGNORECASE,
 )
 
-# Legacy combined gate, kept as a FUNCTION (not a pure regex - the spend/
+# Combined gate, kept as a FUNCTION (not a pure regex - the spend/
 # external-message categories are co-occurrence checks, not single-pattern
-# matches - see _hard_negative_gate_hit) so its suppression behavior for
-# _is_abdication() is otherwise unchanged (hard gate OR surface-and-proceed
-# marker both still suppress the classic interrogative check).
+# matches - see _hard_negative_gate_hit): hard gate OR surface-and-proceed
+# marker either one suppresses the classic _is_abdication() interrogative
+# check. This is NOT "unchanged" from main - the classic path's suppression
+# surface is WIDER here. A corpus diff of 95 classic-abdication strings
+# (old function vs new) found 35 divergences, all old=BLOCK -> new=ALLOW,
+# across three added/broadened mechanisms: the `delete` ->
+# `delet(?:e|es|ed|ing)` inflection widening in _HARD_NEGATIVE_GATE_PATTERNS
+# (e.g. "I deleted the temp files.", "Deleting the stale worktree now. Want
+# me to run the tests?"), the new spend co-occurrence gate
+# (_SPEND_ACTION_PATTERN + _SPEND_SIGNAL_PATTERN, e.g. "The run will cost
+# about $200."), and the new external-message co-occurrence gate
+# (_EXTERNAL_MSG_ACTION_PATTERN + _EXTERNAL_MSG_TARGET_PATTERN, e.g.
+# "Sending the summary to the tracker."). The direction is deliberate: this
+# module is false-negative-biased throughout (a missed abdication is status
+# quo; a false positive forces an unwanted continuation - see the module
+# docstring), so trading classic-path coverage for fewer false positives on
+# genuine hard-stop language is consistent with that bias. Classifier (2)
+# still independently evaluates the same tail, so the net two-classifier
+# guard is not weakened by this classic-path widening.
 def _negative_gate_hit(tail: str) -> bool:
     return _hard_negative_gate_hit(tail) or bool(_SURFACE_AND_PROCEED_PATTERNS.search(tail))
 
@@ -352,18 +369,27 @@ _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.?!])\s+")
 # though they carry real text content and no isMeta flag. Confirmed against
 # live transcripts under ~/.claude/projects/: a completed background-task
 # notification arrives as {"type":"user","message":{"content":"<task-
-# notification>...</task-notification>"}} with isMeta ABSENT (not True) - in
-# one real session this shape occurred 67 times against a handful of genuine
-# human turns. Counting it as a human-turn boundary breaks the reverse scan
-# in _scan_transcript_tail: it stops at the notification and never reaches
-# the tool_use the conductor issued earlier in the SAME human turn, turning
-# the single most common compliant conductor shape (spawn -> notification ->
-# "Unit N returned; proceeding with unit N+1 unless you say otherwise") into
-# a false BLOCK. <system-reminder> and <command-name> blocks were also
-# checked directly against real transcripts; in every sample found they
-# already carry isMeta:true and are excluded by the existing isMeta check,
-# but they are listed here too as a defense-in-depth backstop in case a
-# harness version ever omits isMeta on one of these tags.
+# notification>...</task-notification>"}} with isMeta ABSENT (not True) - a
+# single busy session can carry dozens of these against a handful of genuine
+# human turns (re-measured over the 120 most recent local transcripts: the
+# highest per-session count of <task-notification> occurrences found was 37;
+# this figure is corpus-snapshot-dependent and will drift as new transcripts
+# accrue - re-measure before relying on an exact number). Counting it as a
+# human-turn boundary breaks the reverse scan in _scan_transcript_tail: it
+# stops at the notification and never reaches the tool_use the conductor
+# issued earlier in the SAME human turn, turning the single most common
+# compliant conductor shape (spawn -> notification -> "Unit N returned;
+# proceeding with unit N+1 unless you say otherwise") into a false BLOCK.
+# ALL FOUR markers below are load-bearing - none is a mere backstop.
+# <system-reminder> and <command-name> lines were also checked directly
+# against real transcripts and FREQUENTLY arrive WITHOUT isMeta:true - this
+# is common, not a rare edge case. Removing any entry from this tuple
+# reclassifies real harness-injected lines as genuine human turns and
+# reintroduces the original Critical this classifier exists to prevent
+# (harness notifications treated as human turns, blocking the dominant
+# conductor turn shape for any session containing a slash-command
+# invocation) - do not prune this tuple without re-verifying against a
+# fresh transcript sample first.
 _HARNESS_INJECTED_MARKERS = (
     "<task-notification>",
     "[SYSTEM NOTIFICATION",
@@ -644,10 +670,13 @@ def _scan_transcript_tail(transcript_path: str) -> dict:
       turn" - e.g. the file has no human turn at all (a compacted window),
       is empty, or every line failed to parse.
     - shape_unrecognized: True iff at least one assistant entry INSIDE the
-      scanned window had a content shape that is neither a list of blocks
-      nor a plain string (e.g. a bare dict) - such a shape cannot be proven
-      to lack a tool_use block, so had_tool_call's absence-of-evidence must
-      not be read as evidence-of-absence.
+      scanned window had a content shape that is neither a list of blocks, a
+      plain string, nor absent/None (e.g. a bare dict) - such a shape cannot
+      be proven to lack a tool_use block, so had_tool_call's absence-of-
+      evidence must not be read as evidence-of-absence. Absent content
+      (content is None) IS a recognized shape - an entry with no content at
+      all has nothing to hide a tool_use in, so it does not trigger
+      shape_unrecognized (see the `elif content is None` branch below).
 
     Burden-of-proof inversion (Finding 2): had_tool_call, boundary_found, and
     the negation of shape_unrecognized ALL default to their "unproven" value
