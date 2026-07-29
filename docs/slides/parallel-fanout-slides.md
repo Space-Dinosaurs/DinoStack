@@ -350,7 +350,7 @@ Any unit returned <code>Status: BLOCKED</code>.<br/>Treat as failed for that uni
 **Join timeout:** 30-minute deadline (configurable). Units still `in_progress` at deadline treated as failed.
 
 <div class="callout">
-<code>.agentic/tasks.jsonl</code> is the coordination surface. Conductor-only writes. Workers return summaries in their normal return path.
+<code>.agentic/tasks.jsonl</code> is the coordination surface. Conductor-only writes across agents (workers never write it directly) - never a rewrite, always a single-line append; a task-state fold reconciles records across concurrent conductor sessions. Workers return summaries in their normal return path.
 </div>
 
 ---

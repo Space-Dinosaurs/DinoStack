@@ -2043,7 +2043,7 @@ Any unit returned <code>Status: BLOCKED</code>. Treat as failed. Conductor canno
 </div>
 </div>
 <div class="callout">
-Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor writes all entries - workers return summaries only.
+Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor appends all entries across agents (never a rewrite) - workers return summaries only; a task-state fold makes concurrent-session reads safe.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="13" data-marpit-scope-s010="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
