@@ -6,9 +6,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          signal + table; Common rationalizations to reject; Decision
          Stability and Contradiction Resolution (reversal counting, soft
          round cap, tripwire routing, anti-inversion test, worked example);
-         Investigator-before-Architect rules (incl shared-utility-MANDATORY
-         and Parallel Investigators); Learnings pipeline; Worker preamble +
-         execution contract template; Digest-return discipline.
+         Absence-claim scope axes (calibration worked example, both
+         directions, for the four search-narrowness axes); Investigator-
+         before-Architect rules (incl shared-utility-MANDATORY and Parallel
+         Investigators); Learnings pipeline; Worker preamble + execution
+         contract template; Digest-return discipline.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -112,6 +114,14 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 **Why recording is the load-bearing half.** Every session re-encountering an unrecorded contradiction pays the tiebreak again. A recorded KNW entry promotes into root `MEMORY.md`, which is source 2 of the five-source chain, so the next session resolves by first-match-wins with zero deliberation. Recording is cheap and in-session; a doc fix is a shippable edit and is not.
 
 **Scope note.** The worked example's contradiction is real and still live on `main`; a separate ticket owns the fix. This section documents the resolution procedure, not the fix.
+
+## Absence-claim scope axes
+
+Parent clause: `content/sections/02-delegation.md` §Skeptic absence-or-critical findings. That clause names four axes on which a search can be too narrow - the pattern, the file set, any closed list, and (implicitly) the git state the search ran against. This is the calibration anchor, run in both directions.
+
+**Direction A (the search was too narrow - the claim is wrong).** DS-98's own history: the Global-context `n/a` rationale set was certified complete four separate times in two days, each certification made while fixing the previous one. Every check was a string-membership test against the list's current members, so every check passed and every check was wrong - a membership test can only ask "is this value in the list", never "is a legitimate value missing from it". Widening the grep pattern would not have helped; widening the file set would not have helped, because the list lived in one file. Only deriving the population independently - enumerating the actual spawn shapes the methodology supports, then diffing that against the enumerated set - surfaces the gap. That is why the closed-list axis needs its own method rather than "broaden the grep".
+
+**Direction B (the search was adequate - the absence claim stands).** A Skeptic asserts a renamed config key has no remaining references. It greps the new and old spellings case-insensitively (pattern), across the full tree including YAML/TOML/JSON fixtures and deploy manifests rather than just the diff (file set), against a freshly fetched `origin/<head>` rather than a stale local checkout (git state), and the identifier is not drawn from any enumerated vocabulary, so the closed-list axis does not apply. Three axes exercised, the fourth correctly ruled out by inspection - the claim is certifiable. Note the asymmetry: ruling an axis out is a positive statement about the artifact, not a skipped step. "The closed-list axis does not apply here because X is not drawn from an enumeration" is a valid certification; silence on the axis is not.
 
 ## Investigator-Before-Architect Rules
 

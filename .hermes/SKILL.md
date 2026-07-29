@@ -150,6 +150,8 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **AskUserQuestion precondition (no multiple-choice ballots).** Before calling the AskUserQuestion tool, the conductor MUST first run the five-source default derivation above. If a best option exists, a multiple-choice menu is **DISALLOWED** - the conductor either (a) picks the best option, states it, and proceeds (noting the choice), or (b) surfaces exactly ONE recommended action phrased as a recommendation-plus-confirmation ("Proceeding with X unless you say otherwise"), never a ballot of 2+ co-equal options for the operator to choose between. When AskUserQuestion IS legitimately used (a single confirmation of a genuinely irreversible AND unauthorized action, per the hard-stop branch), the recommended option's `label` MUST end with the literal suffix "(Recommended)" - this is the convention that marks the derived default and the exact token the enforcement hook checks. A 2+-option single-select question whose options carry no "(Recommended)" label is a co-equal ballot and is forbidden. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-askuserquestion-default.py`, wired by `.claude/install.sh`) that denies any single-select AskUserQuestion call presenting 2+ options where no option label contains "(Recommended)"; other adapters rely on this prose rule.
 
+**Operator decisions go last in the turn.** When a conductor turn surfaces anything requiring an operator choice, it appears at the very end, under the literal heading `## Operator decisions` - not `## Decisions`, which is a common heading in project instruction files and would collide with anything that later matches on that string. Nothing follows the heading: no status line, no next steps, no caveats, no phase breadcrumb, no "meanwhile", and the turn ends there: no further tool calls. A decision the operator has to scroll past other content to find is a defect. Only genuine choices belong in the block - each item must already have passed the five-source default derivation above and be either a hard-stop item or a surface-and-proceed item with no derivable default; the ban on co-equal ballots above applies identically to prose asks. Keep each item to the recommended action, one line of why, and the reversal offer. Order items most-blocking first; do not impose a numeric cap - a cap with no overflow rule mechanically forces the conductor to hide a decision, which is the exact harm this rule exists to prevent. Explanation of why something failed belongs above the heading, and only when it is evidence a decision in this same turn rests on - no analysis inside the block itself. When a turn has nothing to decide, omit the heading entirely; an empty `## Operator decisions` block is ceremony. Any per-turn declaration required elsewhere in this methodology (a phase breadcrumb, a first-user-turn notice, a `Capture:` line) is satisfied only by text preceding this heading - never by anything after it.
+
 **Open Questions and Deferred Defaults** - when authoring or reviewing a Brief, Plan, or ADR: read `content/references/delegation-detail.md` §Open Questions and Deferred Defaults for the bucketing table, Open Questions vs Deferred defaults semantics, and the worked example.
 
 **Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s `BASE_BRANCH` stop-and-ask, which fires when the project declares no base branch (no `BASE_BRANCH:` line in `AGENTS.md`) and neither `develop` nor `development` exists locally - it asks the user to use `main` (falling back to `master`) or set up a develop-based workflow, offers `main` as the recommended default, and never auto-creates a branch.
@@ -204,7 +206,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Investigator external-data claims require evidence.** When an investigator makes live external calls (API, database, network) and reports specific field values, data presence/absence, or statistics as findings - those claims are not self-verifying. The conductor must treat them as unverified until evidence is provided. Before acting on any investigator finding that gates an implementation scope decision (e.g. "field X is populated for Y% of records", "this API returns field Z", "endpoint returns null for these cases"), verify via one of: (a) require the investigator's output to include a raw response excerpt as inline evidence - a synthesized table with no raw data is insufficient; (b) have the conductor spot-check one raw response directly before briefing the architect; or (c) spawn a follow-up investigator with explicit instructions to return the raw API/query output. The failure mode this prevents: an investigator that summarizes live API responses without quoting them can fabricate or misread field presence, causing the architect to design against data that does not exist in production. "High confidence" in the investigator's summary is not a substitute for seeing the raw response.
 
-**Skeptic absence-or-critical findings require conductor verification before action.** When a Skeptic returns a finding that asserts absence, non-completion, reversion, or relocation of any work - those claims are not self-verifying regardless of authorship. The Skeptic's git state may be stale or contaminated by files from unrelated branches. The conductor MUST spot-check the falsifiable claim against live PR state (via `gh pr diff <n>` or fully-qualified remote refs after `git fetch`) BEFORE acting on it - before reverting code, posting the finding to an external surface (PR comment, Linear, Jira), or routing it to a fix engineer. Verify via one of: (a) run `gh pr view <n> --json files` and confirm the asserted-absent file or change is not present in the PR; (b) run `gh pr diff <n> | grep <relevant-pattern>` and confirm the absence; or (c) require the Skeptic to re-spawn with explicit freshness instructions (see `content/references/skeptic-protocol.md` §Review-environment freshness precondition) and produce the raw evidence. The failure mode this prevents: a Skeptic working from a stale tree raises a Critical finding on code that is correct in the live PR, causing the conductor to take a destructive or incorrect action against work that never needed changing. "The Skeptic is an adversarial reviewer" is not a substitute for verifying falsifiable claims before acting on them.
+**Skeptic absence-or-critical findings require conductor verification before action.** When a Skeptic returns a finding that asserts absence, non-completion, reversion, or relocation of any work - those claims are not self-verifying regardless of authorship. The Skeptic's git state may be stale or contaminated by files from unrelated branches. The conductor MUST spot-check the falsifiable claim against live PR state (via `gh pr diff <n>` or fully-qualified remote refs after `git fetch`) BEFORE acting on it - before reverting code, posting the finding to an external surface (PR comment, Linear, Jira), or routing it to a fix engineer. Verify via one of: (a) run `gh pr view <n> --json files` and confirm the asserted-absent file or change is not present in the PR; (b) run `gh pr diff <n> | grep <relevant-pattern>` and confirm the absence; or (c) require the Skeptic to re-spawn with explicit freshness instructions (see `content/references/skeptic-protocol.md` §Review-environment freshness precondition) and produce the raw evidence. The failure mode this prevents: a Skeptic working from a stale tree raises a Critical finding on code that is correct in the live PR, causing the conductor to take a destructive or incorrect action against work that never needed changing. "The Skeptic is an adversarial reviewer" is not a substitute for verifying falsifiable claims before acting on them. **Scope is the other failure mode - it binds the conductor's own claims too.** Freshness cannot fix a scope defect - a too-narrow search repeats the same wrong answer on a fresher tree. `grep -rn X` returning 0 proves X's literal absence, not "the axis is closed" - broaden the pattern, the file set, and any closed list before certifying. Broaden a closed list by deriving its members independently and diffing against it: grepping the members you already have can only confirm them, never surface the one that is missing. Worked example: `content/references/delegation-detail.md` §Absence-claim scope axes.
 
 **Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Or the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) and carries neither the Unfamiliar-codebase-area nor the Architecture-decision-constraining-future-choices signal - skip both architect and planner, go straight to Worker+Skeptic. Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). The hook also backstops the authoring-role escalation (architect / adr-generator / product-discovery on Plan+ADR-tier units, per risk-config-and-tiers.md): it denies an explicit sub-Opus `model` param on those spawns when the brief matches an authoring escalation signal, but the structural Plan+ADR trigger is conductor-computed and invisible to the hook, so the conductor's explicit `model: opus` remains the primary control. Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
 **wrap-ticket writer carve-out:** See `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out.
@@ -372,7 +374,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve seventeen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve eighteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
@@ -721,6 +723,8 @@ SKILL-CANDIDATE: domain '<domain>' has accumulated <count> occurrences - conside
 Then append the domain (the `## <domain>` heading value, without the `## ` prefix) to `.agentic/.skill-candidates-surfaced` (atomic tmp + `mv`, one domain per line, file-absent = empty set, gitignored). File-absent for `.agentic/skill-candidates.md` = no-op. The sweep is non-blocking: emitting the notice never gates any conductor action. Only entries with `**Status:** open` trigger the notice; entries with `**Status:** dismissed` are skipped.
 
 **Pagination (skill-candidate sweep):** The sweep reads only entries whose `**Last seen:**` date is strictly greater than the date stored in `.agentic/.skill-candidates-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), all open un-surfaced entries are candidates. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to `.agentic/.skill-candidates-last-sweep` (atomic: tmp + `mv`). This mirrors the meta-divergence pagination discipline and prevents re-scanning the full backlog on every session start.
+
+**Pending-merge sweep at session start.** Runs at session start, after the skill-candidate sweep. Skip when any of: `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; fewer than 60 minutes have elapsed since the last sweep (the throttle); `.agentic/ticket-ledger.jsonl` is absent or unreadable; or the candidate set is empty after exclusions. Otherwise runs `/ds-ticket-status-sync --pending-merge`, tracked via `.agentic/.pending-merge-last-sweep` (throttle timestamp) and `.agentic/pending-merge-state.jsonl` (sweep state). See `content/commands/ds-ticket-status-sync.md` §Pending-merge sweep for the procedure. This sweep emits no first-user-turn notice and does not add to the stacked-notice count at `:80` - it prints only when a transition actually fires.
 
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
@@ -1114,11 +1118,13 @@ When spawning `skeptic` for architect plan review, include:
 - The adversarial brief verbatim: "Check for internal consistency: does the document contradict itself, and are conclusions supported by the reasoning given? Surface assumptions: what is stated as fact but is actually assumed, and what would break if those assumptions are wrong? Check for prior decision conflicts: does this contradict established decisions or architectural constraints? Identify completeness gaps: what important questions does this document fail to answer, and what edge cases does it not address? Evaluate readability for the intended audience: would the engineer who needs to act on this have enough information to do so correctly and without guessing?"
 - The architect's complete plan output
 - Any established architectural constraints or prior decisions the Skeptic should check against
+- The Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - this is a pre-implementation review, so field 6 (diff under review) lists the file paths the plan proposes to modify rather than a git diff, field 1 (architect plan) is the plan itself under review, and field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` when no Brief exists yet
 
 When spawning `skeptic` for engineer output review, include:
 - The adversarial brief (run `/ds-skeptic` for templates)
 - The engineer's output (file paths or inline)
 - Resolved issues preflight from prior rounds
+- The Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - field 6 (diff under review) is the git diff command or file paths for the engineer's change; fields 1-5 map to the architect plan, Brief/Plan artifact, `qa_criteria` block, per-consumer impact table, and related files, using the enumerated `n/a - <reason>` rationale where one genuinely applies
 
 When spawning `security-auditor`, include:
 - The files changed or the scope of the feature
@@ -1864,7 +1870,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/ds-init-project`. Seventeen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/ds-init-project`. Eighteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -1883,6 +1889,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. `skill_candidate_nudge` alone (with `skill_candidate_detection: false`) has no effect. Default `false` (matches `deferred_wrap_daemon` opt-in precedent).
 - `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when the key is absent from `.agentic/config.json`, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - this makes "tracker connected => offer by default" true with zero migration. An explicit value always wins. `offer`: surface-and-proceed - conductor announces ticket creation and proceeds unless the operator replies STOP within one turn. `require`: hard gate - no implementer spawns before a ticket exists; creation failure surfaces and waits for operator resolution. `off`: gate disabled; no ticket creation attempt. Existing-ticket arrivals (ticket ID resolved in Phase 0, or invocation was `/ds-implement-ticket <ID>`) and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/ds-implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
+- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 
 **Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
 
@@ -2389,9 +2396,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          signal + table; Common rationalizations to reject; Decision
          Stability and Contradiction Resolution (reversal counting, soft
          round cap, tripwire routing, anti-inversion test, worked example);
-         Investigator-before-Architect rules (incl shared-utility-MANDATORY
-         and Parallel Investigators); Learnings pipeline; Worker preamble +
-         execution contract template; Digest-return discipline.
+         Absence-claim scope axes (calibration worked example, both
+         directions, for the four search-narrowness axes); Investigator-
+         before-Architect rules (incl shared-utility-MANDATORY and Parallel
+         Investigators); Learnings pipeline; Worker preamble + execution
+         contract template; Digest-return discipline.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -2495,6 +2504,14 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 **Why recording is the load-bearing half.** Every session re-encountering an unrecorded contradiction pays the tiebreak again. A recorded KNW entry promotes into root `MEMORY.md`, which is source 2 of the five-source chain, so the next session resolves by first-match-wins with zero deliberation. Recording is cheap and in-session; a doc fix is a shippable edit and is not.
 
 **Scope note.** The worked example's contradiction is real and still live on `main`; a separate ticket owns the fix. This section documents the resolution procedure, not the fix.
+
+## Absence-claim scope axes
+
+Parent clause: `content/sections/02-delegation.md` §Skeptic absence-or-critical findings. That clause names four axes on which a search can be too narrow - the pattern, the file set, any closed list, and (implicitly) the git state the search ran against. This is the calibration anchor, run in both directions.
+
+**Direction A (the search was too narrow - the claim is wrong).** DS-98's own history: the Global-context `n/a` rationale set was certified complete four separate times in two days, each certification made while fixing the previous one. Every check was a string-membership test against the list's current members, so every check passed and every check was wrong - a membership test can only ask "is this value in the list", never "is a legitimate value missing from it". Widening the grep pattern would not have helped; widening the file set would not have helped, because the list lived in one file. Only deriving the population independently - enumerating the actual spawn shapes the methodology supports, then diffing that against the enumerated set - surfaces the gap. That is why the closed-list axis needs its own method rather than "broaden the grep".
+
+**Direction B (the search was adequate - the absence claim stands).** A Skeptic asserts a renamed config key has no remaining references. It greps the new and old spellings case-insensitively (pattern), across the full tree including YAML/TOML/JSON fixtures and deploy manifests rather than just the diff (file set), against a freshly fetched `origin/<head>` rather than a stale local checkout (git state), and the identifier is not drawn from any enumerated vocabulary, so the closed-list axis does not apply. Three axes exercised, the fourth correctly ruled out by inspection - the claim is certifiable. Note the asymmetry: ruling an axis out is a positive statement about the artifact, not a skipped step. "The closed-list axis does not apply here because X is not drawn from an enumeration" is a valid certification; silence on the axis is not.
 
 ## Investigator-Before-Architect Rules
 
@@ -3353,12 +3370,12 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 5. Promotion check against the trigger table.
 6. If 2-5 Elevated-or-above units: check whether `.agentic/brief-session.json` exists with `status: complete` and `brief_source: operator` AND `brief_path` points to an existing file. If both conditions hold, the Brief is pre-existing and operator-confirmed - skip conductor authoring and go directly to step 8. If not, conductor authors Brief at `docs/planning/<slug>.md` using architect output, planner output, and the original ticket as inputs.
 7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/ds-implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements - does not replace - the adversarial Skeptic-on-Brief.
-8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/ds-brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding.
+8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/ds-brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding. This spawn also requires the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5): field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-Brief (Brief is the artifact under review)`; field 4 (per-consumer impact table) is `n/a - Brief tier (per-consumer lives in architect plan path above)`; field 6 (diff under review) lists the paths the Brief proposes to touch, since this is a pre-implementation review and no diff exists yet.
 9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
 
 **Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
 - Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
-- A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries).
+- A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries). This spawn also requires the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5): field 1 (architect plan) is `n/a - assembled Plan review (per-unit plans listed inline)`; field 6 (diff under review) lists the paths the assembled Plan proposes to touch. When the combined Global-context input set exceeds 60K tokens, apply the "Plan-tier second-pass overflow fallback" in Section 4.5 instead of assembling one oversized prompt: one Skeptic per unit (each with that unit's Global-context subset) plus a lightweight integration Skeptic receiving only the combined findings list.
 - Workers spawn only after assembled-Plan sign-off, with both `brief_path` and `plan_path` in their execution contract.
 
 **ADR tier:** ADR is authored alongside the Brief, not after, because the architectural decision shapes the Brief's constraints. ADR review follows the project's existing ADR process; if none exists, the ADR goes through the same "Document synthesis, architecture, and planning" Skeptic review as the Brief.
@@ -3777,7 +3794,7 @@ A test that passes even without the fix does not count. The Worker should confir
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         seventeen-toggle project config catalog (behavioral toggles only);
+         eighteen-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
          tier table, model-param mapping, mandatory Tier-3 escalation (with
@@ -3813,7 +3830,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve seventeen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve eighteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -3832,6 +3849,7 @@ The conductor reads `.agentic/config.json` to resolve seventeen project-level or
 - `skill_candidate_nudge` - boolean, default `false`. Layer-2 opt-in. When `true` AND `skill_candidate_detection` is `true`, a `PostToolUse(Task)` hook emits an in-session nudge the first time a domain crosses the candidate threshold during the current session. Requires the master toggle to be enabled; `skill_candidate_nudge` alone has no effect. Default `false` (matches the `deferred_wrap_daemon` opt-in precedent).
 - `ticket_driven` - enum (`off` | `offer` | `require`). Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. **Absent-key resolution:** when absent, effective value is `offer` when `TRACKER != none` and `off` when `TRACKER == none` - explicit value always wins. `offer`: surface-and-proceed before first-implementer spawn; operator can reply STOP to skip. `require`: hard gate - no implementer spawns before a ticket exists; create failure surfaces and waits. `off`: gate disabled. Existing-ticket arrivals and `TRACKER=none` projects are always exempt. Cross-ref: `content/commands/ds-implement-ticket.md` §Tracker Create Helper, `content/sections/02-delegation.md` §Ticket-offer gate.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
+- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 
 #### Graph-derived risk signal
 
@@ -4355,7 +4373,8 @@ A bare `n/a` is invalid - every `n/a` value MUST carry a specific reason in the 
 - `n/a - Skeptic-on-Brief (Brief is the artifact under review)` (Brief field only)
 - `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` (Brief field only)
 - `n/a - single Elevated unit (no Brief required by the promotion gate)` (Brief field only)
-- `n/a - architect skipped (judgment-based skip for a well-understood, self-contained change, or mechanical skip per the simple/targeted-unit metric)` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit and `content/references/agent-team.md` for both skip paths)
+- `n/a - architect skipped (judgment-based: well-understood, self-contained change)` (architect plan field only; see `content/references/agent-team.md`)
+- `n/a - architect skipped (mechanical: simple/targeted-unit metric)` (architect plan field only; see `content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric))
 - `n/a - assembled Plan review (per-unit plans listed inline)` (architect plan field only, on Plan-tier second-pass)
 
 **Why this is open rather than closed:** the set above was previously treated as exhaustive. Four legitimate situations were discovered in two days, each while fixing the one before it (Skeptic-on-plan; single Elevated unit; mechanical architect skip; judgment-based architect skip). Completeness by enumeration does not hold for an evolving methodology with this many valid spawn shapes - a closed vocabulary guarantees a fifth instance. Do not re-close this list by reverting to string-membership checking; assess rationales on the merits instead (Step 0 check 2).
@@ -4375,7 +4394,7 @@ Before reading any artifact or producing any findings, the Skeptic verifies the 
 1. All 6 fields are present.
 2. Every `n/a` value carries a specific reason after the `n/a - ` prefix. The Skeptic BLOCKS when a value is a bare `n/a`, has an empty or vacuous rationale (e.g. `n/a - not applicable`), or states a rationale that is factually false for the unit under review (e.g. citing "Trivial direct edit" on an Elevated unit, or citing a skip path that did not occur). A truthful, specific rationale that is NOT one of the enumerated strings above is valid and must NOT be BLOCKED on that basis alone - the enumerated set is canonical preferred wording for recurring situations, not an exhaustive whitelist.
 
-When the diff under review itself amends the enumerated `n/a` rationale set (i.e. a diff that adds, removes, or rewords one of the enumerated strings above), the Skeptic validates every field against the branch's own copy of this section, not the copy installed in its own environment - otherwise a PR that adds a value is spuriously BLOCKED against the pre-change enum it is itself updating.
+When the diff under review amends this section itself - the enumerated `n/a` rationale set, the Step 0 checks, or any other Section 4.5 validation rule - the Skeptic validates every field against the branch's own copy of this section, not the copy installed in its own environment. The trigger is "this diff changes how Section 4.5 validates", not the narrower "this diff edits an enumerated string": a PR that rewrites a Step 0 check without touching the enum is validated against the branch copy for the same reason.
 
 If either check fails, the Skeptic returns immediately with:
 
@@ -4384,6 +4403,8 @@ BLOCKED - Global-context input set incomplete: <missing or invalid fields listed
 ```
 
 No review content follows the BLOCKED line. The Skeptic does NOT produce findings, a "Reviewed:" line, or a sign-off.
+
+**Falsity discovered after Step 0.** Step 0's checks run at spawn-brief validation time, before any artifact is read. If a rationale passes Step 0 and the Skeptic later discovers, from the diff or the plan, that it was factually false for the unit under review, the disposition is a **finding, never a retroactive BLOCKED** - BLOCKED carries no findings and would discard review work already completed. Complete the review, then raise it: **Major** by default, and **Critical** when the false rationale caused a required artifact to go unread (e.g. field 1 carried `n/a` so the architect plan was never read, making the step-3 API/interface compliance check unperformable - that check is then not merely failed but unattempted). Withhold sign-off, and in the resolution list name the corrected field value the conductor must supply on re-spawn. State explicitly in the finding that the corrective action is a **conductor-side spawn-brief correction, not an engineer code change** - routing this finding to an engineer cannot resolve it, because the false value lives in the spawn prompt and not in the diff.
 
 **BLOCKED return semantics for the conductor:**
 
@@ -4882,6 +4903,7 @@ The meta-Skeptic receives:
 - The original Skeptic's findings list verbatim
 - The original Skeptic's sign-off statement verbatim
 - The original adversarial brief
+- The original Skeptic's Global-context input set verbatim (the `## Global-context inputs` block per Section 4.5 that was assembled for the original Skeptic spawn) - the meta-Skeptic is judging whether the original Skeptic missed something, which requires seeing the same context the original had, not a bare diff. Field 6 duplicates the diff bullet above; that redundancy is intentional so the block stays intact as a single verbatim unit.
 
 The meta-Skeptic produces a divergence report as **TEXT** in its return summary. The expected shape is:
 
@@ -5121,7 +5143,7 @@ If the user asks a question while tasks are running, the main agent answers dire
 
 **Phase breadcrumb convention** — At each natural orchestration boundary, include a `[phase: label]` marker in the status update to the user. These labels are emitted inline in conversation (not written to files), so they remain in the transcript on any termination - normal or abnormal. On normal session end they are also captured in context.md, which aids handoff. The transcript is the primary crash-recovery source; context.md is a bonus. This makes orchestration state crash-recoverable without any extra infrastructure.
 
-Emit a phase label at: after spawning any agent, after any agent returns, after escalation, at task completion.
+Emit a phase label at: after spawning any agent, after any agent returns, after escalation, at task completion. When the same turn also carries an `## Operator decisions` block (see `content/sections/02-delegation.md`), the breadcrumb is emitted before that heading - it is never satisfied by placement after it.
 
 Format: `[phase: label]` — one line, no surrounding prose required. Add parenthetical detail when it aids recovery (round number, pending finding count, Worker progress).
 
@@ -5581,7 +5603,11 @@ Public API: Read-only reference document. Consumers (shipped across units
             architect-brief callout, Phase 6 Skeptic-brief callout, Tier-3
             escalation at 2+ prior attempts);
             content/commands/ds-ticket-triage.md (per-entry ledger read,
-            [REWORK xN] badge, lane rule).
+            [REWORK xN] badge, lane rule);
+            content/commands/ds-ticket-status-sync.md --pending-merge mode
+            (read-only consumer of .agentic/ticket-ledger.jsonl as the sole
+            identity source for its candidate set - never writes to the
+            ledger).
 
 Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
                approved, 3 rounds, source of the design decisions this doc
@@ -5594,7 +5620,10 @@ Upstream deps: docs/planning/ticket-rework/architect-plan.md (Skeptic-
 
 Downstream consumers: Shipped (units U1-U4 of the ticket-rework Plan;
                       live on main): content/commands/ds-implement-ticket.md,
-                      content/commands/ds-ticket-triage.md. Read on trigger
+                      content/commands/ds-ticket-triage.md. Also, read-only:
+                      content/commands/ds-ticket-status-sync.md --pending-merge
+                      mode (reads .agentic/ticket-ledger.jsonl for its
+                      candidate set; never writes to it). Read on trigger
                       only - nothing in this file enters an always-loaded
                       path; it is never assembled into METHODOLOGY.md by
                       scripts/build-methodology.sh, which reads only
@@ -10204,14 +10233,18 @@ Your spawn prompt will contain four things:
 ## Evaluation process
 
 **Step 0 (BLOCKED on incomplete inputs).** Before reading any artifact, verify the Global-context input set is present and well-formed:
-- All 6 fields of the `## Global-context inputs` block are present.
-- Every `n/a` value carries a specific reason after `n/a - `. BLOCK on a bare `n/a`, a vacuous rationale, or one factually false for the unit under review. A truthful, specific rationale outside the canonical list in `content/references/skeptic-protocol.md` Section 4.5 is valid and must not be BLOCKED on that basis alone.
+- **Field-completeness check:** all 6 fields of the `## Global-context inputs` block are present.
+- **`n/a`-rationale check:** every `n/a` value carries a specific reason after `n/a - `. BLOCK on a bare `n/a`, a vacuous rationale, or one factually false for the unit under review. A truthful, specific rationale outside the canonical list in `content/references/skeptic-protocol.md` Section 4.5 is valid and must not be BLOCKED on that basis alone.
+- When the diff under review amends Section 4.5 itself - the enumerated set, the Step 0 checks, or any other validation rule there - validate every field against the branch's copy of that section, not your installed one.
+- If you later discover from the artifacts that a rationale which passed this check was false, do NOT return BLOCKED - complete the review and raise it as a finding (Major; Critical when it caused a required artifact to go unread), noting that the fix is a conductor-side spawn-brief correction rather than an engineer code change, and naming the corrected value. See `content/references/skeptic-protocol.md` Section 4.5 "Falsity discovered after Step 0".
 
-If either check fails, return immediately with:
+If the field-completeness check or the `n/a`-rationale check fails, return immediately with:
 ```
 BLOCKED - Global-context input set incomplete: <missing or invalid fields listed>
 ```
 Do NOT produce any "Reviewed:", "Findings:", or sign-off content after this line. The conductor fixes the spawn brief and re-spawns; the iteration counter does not advance.
+
+The bullet on amended-Section-4.5 diffs is a scoping note for both Step 0 checks - field-completeness and the `n/a`-rationale check - not a BLOCK gate of its own, and the bullet on falsity discovered after Step 0 is a disposition rule for *after* Step 0 has passed - it never blocks Step 0 itself.
 
 1. Read the adversarial brief. Internalize the specific attack surface or failure scenario it describes. Then read the architect plan from Global-context input field 1 in full - it is the spec the Worker implemented against. If field 1 carries a valid `n/a` value, skip this file read.
 2. Read the Worker output in full. If file paths are given, read those files now.
@@ -10862,7 +10895,7 @@ Write `status: iterating` during revision rounds.
    > "Brief written to docs/planning/<slug>.md and committed. Spawning architect with
    > brief_path - reply STOP to halt or refine the Brief first."
 6. If no STOP in one turn: spawn architect with `brief_path` in execution contract.
-7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6).
+7. After architect returns: spawn Skeptic using the operator-confirmed variant (Section 6), plus the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5): field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-Brief (Brief is the artifact under review)`; field 4 (per-consumer impact table) is `n/a - Brief tier (per-consumer lives in architect plan path above)`; field 6 (diff under review) lists the paths the Brief proposes to touch, since this is a pre-implementation review and no diff exists yet.
 8. PR opens at the end of the full engineer flow (after Skeptic sign-off on engineer
    output), NOT after Brief commit.
 
@@ -11208,7 +11241,7 @@ No subcommands or flags. Selection is done interactively.
      or AGENTS.md marker, depending on scope prompt.
    - Project toggles from `.agentic/config.json`: `auto_merge_on_ci_green`,
      `commit_telemetry`, `capability_preflight_mode`, `abdication_guard_enabled`,
-     `ticket_driven`, and any additional config-file toggles.
+     `ticket_driven`, `pending_merge_sweep`, and any additional config-file toggles.
 
 3. **Value selection prompt.** Lists valid values for the chosen setting, with the
    current default marked. For boolean toggles: `true / false`. For enumerated
@@ -11246,6 +11279,7 @@ No subcommands or flags. Selection is done interactively.
 | Capability preflight | `capability_preflight_mode` | `.agentic/config.json` |
 | Abdication guard | `abdication_guard_enabled` | `.agentic/config.json` |
 | Ticket-driven | `ticket_driven` | `.agentic/config.json` |
+| Pending-merge sweep | `pending_merge_sweep` | `.agentic/config.json` |
 
 **Env kill-switches (print-only, not applied to running session):**
 `AE_SINGULARITY_GUARD_DISABLE`, `AE_TIER_GUARD_DISABLE`, `AGENTIC_QUIET`.
@@ -12671,18 +12705,18 @@ All work lives in `$REPO`.
 
 ## Tracker Writeback Helper
 
-Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and 2 awaiting callers (`/ds-ticket-status-sync` both single-ticket and `--all` modes, `/ds-wrap` Part F). Gated on `TRACKER != none`; no-op otherwise.
+Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
 
 **Invocation contract:**
 
 When the conductor reaches a writeback boundary:
 1. Skip entirely if `TRACKER == none`.
-2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers (`/ds-ticket-status-sync`, `/ds-wrap` Part F) are enumerated in the guard's step 4.d.iv below.
+2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - are enumerated in the guard's step 4.d.iv below.
 3. Pass to the subagent:
    - `tracker`: `linear` | `jira`
    - `ticket_id`: from current task context
    - `target_state`: one of the resolved `TRACKER_STATE_*` variables
-   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers `/ds-ticket-status-sync` (both single-ticket and `--all` modes) and `/ds-wrap` Part F
+   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F
    - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 5 values resolved once in Setup; required by the forward-only guard's same-category pipeline sub-rank
    - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
 
@@ -12709,7 +12743,7 @@ When the conductor reaches a writeback boundary:
       - iii. Else if the CURRENT state's name matches `BLOCKED`: **permit** unconditionally. Resuming or unblocking a ticket must always be able to move it forward into In Progress, In Review, or QA - Blocked never blocks a later forward transition.
       - iv. Else, look up current and target against the fixed pipeline sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2) from `tracker_state_values`. This order is fixed by which writeback site fires it (W1 < W2 < W3) - it is not read from any tracker API and does not depend on operator-configured board/column order.
         - If BOTH names resolve to a pipeline rank: **permit** iff `pipeline_rank(current) < pipeline_rank(target)`; otherwise **skip**.
-        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 5 known `tracker_state_values` at all, or because it matches one of the 5 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 5 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** (`/ds-ticket-status-sync`, `/ds-wrap` Part F) do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 5 known `tracker_state_values` at all, or because it matches one of the 5 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 5 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
 5. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase. A state pre-read failure (MCP/API error) is also a skip: log a one-line warning to stderr and do not proceed. Do not assume any rank when the pre-read fails.
 
 **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state (step 1) and the 5 `tracker_state_values` strings resolved once in Setup. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
@@ -13303,6 +13337,28 @@ The notice's third line asserts an escalation. That escalation is applied at the
 
 ---
 
+### Tracker writeback (W1)
+
+**Anchoring (binding).** This step sits at the per-entry level, AFTER the three mutually exclusive tracker sub-sections above have dispatched - so it runs exactly once per entry regardless of which sub-section executed. Do not move it into one sub-section.
+
+**Gate.** Fire only when ALL of the following hold: `TRACKER != none` AND `[TICKET_ID]` matches the bare-ticket-ID accept regex used at Phase 0's fast-path and classification tables (`^[A-Z][A-Z0-9_]+-\d+$`, the same pattern cited at both `TICKET_PREFIX` sites above - a future edit to one is visibly an edit to both) AND (`TICKET_PREFIX` is unset OR `[TICKET_ID]` starts with `<TICKET_PREFIX>-`).
+
+The sub-section above has, by this point, already successfully fetched the ticket. **A failed ticket fetch means no In Progress write** - this step never fires ahead of a confirmed fetch.
+
+If the gate holds, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding.
+
+```
+[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
+```
+
+**Why the real-key guard exists.** Open-goal loop iterations carry synthetic ids of the form `<goal-slug>-iter-N` (see "Per-iteration ticket lifecycle" above) that are not tracker keys - without this guard every open-goal iteration would attempt a doomed pre-read against a nonexistent ticket.
+
+**Why this does not depend on Phase 2c.** Firing here does not depend on Phase 2c having run, because the forward-only guard's ranking never reads `.agentic/tracker-states.json` (see "This ranking never reads `.agentic/tracker-states.json`" in the Tracker Writeback Helper above) - it pre-reads the ticket's live current state directly.
+
+**Accepted consequence.** A ticket abandoned after Phase 1 but before any branch exists stays showing In Progress - a compensating backward transition is exactly what the forward-only guard skips. This is a decision, not an oversight.
+
+---
+
 Proceed to Phase 2 regardless of which sub-section executed.
 
 ---
@@ -13512,7 +13568,7 @@ Your plan MUST:
 
 Apply the null-render rule when filling this block: a null `skeptic_rounds` renders `n/a`; a null `qa_status` renders its `skipped:<rationale>` value when one exists, otherwise `n/a`. Never emit a bare `null` into a spawn brief.
 
-**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every genuine Open Question before proceeding - see `METHODOLOGY.md` for resolution paths. A plan with only a "Deferred defaults" section (empty or non-empty) and an empty "Open questions" section does not block. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief plus the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - this is a pre-implementation review, so field 6 (diff under review) lists the file paths the plan proposes to modify rather than a git diff, field 1 (architect plan) is the plan itself under review, and field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` when no Brief exists yet. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every genuine Open Question before proceeding - see `METHODOLOGY.md` for resolution paths. A plan with only a "Deferred defaults" section (empty or non-empty) and an empty "Open questions" section does not block. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -13611,11 +13667,9 @@ Read the orchestration-planner's output to make the routing determination below 
 
 **Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
+**Tracker writeback note.** In Progress (W1) is written at Phase 1, not here - Phase 5 deliberately has no W1 site. Do not re-add one.
+
 ### If work is a single logical unit (or units must be sequential):
-
-**Tracker writeback (W1):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the engineer spawn below.
-
-[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
@@ -13679,10 +13733,6 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
 
-**Tracker writeback (W1 — Trivial path):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the Trivial engineer spawn.
-
-[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS | path: trivial]
-
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
@@ -13741,9 +13791,9 @@ After all engineers return, update task-state output fields for each unit: write
 5. If the retry fails a second time, escalate to human with the full failure history.
 6. Maximum retry depth: 1 automatic retry per unit.
 
-**Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`). Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
+**Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`), including the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5, field 6 = the unit's worktree diff) alongside the adversarial brief. Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
 
-**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches onto a scratch integration branch (not `FEATURE_BRANCH` - the merge is provisional until the Skeptic signs off). Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to the scratch integration branch. The integration Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation (added when the planner classified units) becomes the adversarial brief hint: pass it to the integration Skeptic so it knows the expected interaction boundaries.
+**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches onto a scratch integration branch (not `FEATURE_BRANCH` - the merge is provisional until the Skeptic signs off). Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to the scratch integration branch, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff). The integration Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation (added when the planner classified units) becomes the adversarial brief hint: pass it to the integration Skeptic so it knows the expected interaction boundaries.
 
 **Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`:
 
@@ -13809,6 +13859,7 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 - **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Reviewing only whether the new diff is internally sound is insufficient - a diff can be clean on its own terms and still repeat or fail to fix what the prior attempt got wrong. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`.
+- **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary; field 6 = the full diff command already listed above.
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
@@ -13977,6 +14028,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
    - The original Skeptic's findings list verbatim
    - The original Skeptic's sign-off statement verbatim
    - The original adversarial brief
+   - The original Skeptic's Global-context input set verbatim (the `## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 that was assembled for the original Skeptic spawn) - the meta-Skeptic judges whether the original Skeptic missed something, which requires the same context the original had.
    - Instruction to produce a divergence report as TEXT in the return summary (Critical missed / Major missed / Minor missed / Agreement). Meta-Skeptic does NOT write to `.agentic/`.
 
 5. **On meta-Skeptic return (asynchronous).** When meta-Skeptic eventually returns its textual divergence report, the conductor parses the report, constructs the `meta_review_complete` payload, and emits:
@@ -15312,7 +15364,7 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   fi
 else
   echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-  echo "Note: If auto-merge is off (default), run \`/ds-ticket-status-sync TICKET_ID\` after manual merge to push the Done transition to the tracker."
+  echo "Note: If auto-merge is off (default), the Done transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see content/rules/conventions.md §Session Context and Memory). When rework_detection is false there are no ledger candidates and no automatic Done - run \`/ds-ticket-status-sync TICKET_ID\` after merge in that configuration. \`/ds-ticket-status-sync TICKET_ID\` also remains available to force the transition immediately."
 fi
 ```
 
@@ -15320,7 +15372,7 @@ fi
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
 
-Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ds-ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the Done transition is pushed automatically by the session-start pending-merge sweep instead (see `content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic Done - run `/ds-ticket-status-sync <TICKET_ID>` after merge in that configuration. `/ds-ticket-status-sync <TICKET_ID>` also remains available to force the transition immediately.
 
 **Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 
@@ -15812,7 +15864,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
      2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the `@AGENTS.md` and `@MEMORY.md` import pointers (root `MEMORY.md` is already ensured by this run's Step 8 seeding, so the import resolves).
      3. **`MEMORY.md` additions** — stable-facts bucket formatted as `- **YYYY-MM-DD:** [what and why, one-two sentences]` entries using today's date.
 
-   **Spawn Skeptic** (fresh, background) with the Worker's three artifacts and this adversarial brief verbatim:
+   **Spawn Skeptic** (fresh, background) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the original root `CLAUDE.md` path; field 6 is the three proposed artifacts' file paths or inline content), then the Worker's three artifacts to review:
 
    > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
 
@@ -16364,7 +16416,8 @@ Seed with these documented defaults exactly:
   "skill_candidate_detection": true,
   "skill_candidate_nudge": false,
   "ticket_driven": "offer",
-  "rework_detection": true
+  "rework_detection": true,
+  "pending_merge_sweep": true
 }
 ```
 
@@ -16388,6 +16441,7 @@ Seed with these documented defaults exactly:
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
 - `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. See `content/references/ticket-rework.md` §Config toggle for full semantics.
+- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
@@ -17728,9 +17782,20 @@ When the Worker returns, spawn a **background general-purpose subagent via the `
 ---
 You are a Skeptic agent. Read your evaluation framework from `~/.claude/agents/skeptic.md` first - it contains your classification rules, evaluation process, and required sign-off format.
 
-**What to review:** [Worker's complete output - paste inline or give file paths]
-
 **Adversarial brief:** [Paste verbatim from the selection table]
+
+## Global-context inputs
+
+1. Architect plan: [absolute path to plan.md, OR "n/a - <enumerated reason>"]
+2. Brief / Plan tier artifact: [absolute path, OR "n/a - <enumerated reason>"]
+3. qa_criteria block: [verbatim YAML, OR "n/a - <enumerated reason>"]
+4. Per-consumer impact table: [verbatim, OR "n/a - <enumerated reason>"]
+5. Related files: [list of absolute paths the diff touches OR is logically coupled to]
+6. Diff under review: [git diff command OR file paths]
+
+See `content/references/skeptic-protocol.md` Section 4.5 for the canonical block format, the enumerated `n/a` rationale set, and Step-0 BLOCKED return semantics. A bare `n/a` is invalid - every `n/a` needs `n/a - <reason>`.
+
+**What to review:** [Worker's complete output - paste inline or give file paths]
 
 **Resolved issues preflight:**
 - Round 1: "No prior rounds. This is round 1."
@@ -18200,6 +18265,10 @@ Public API: /ds-ticket-status-sync <TICKET_ID>    — reconcile one ticket, prom
                                                     and report unmatched shipped-looking candidates (Tier 2,
                                                     report-only, never transitions)
             /ds-ticket-status-sync --all --force   — same as --all (--force is a no-op in v1, reserved for forward compat)
+            /ds-ticket-status-sync --pending-merge — reconcile only tickets whose recorded PR (from
+                                                    .agentic/ticket-ledger.jsonl) has since merged; transitions
+                                                    without prompting; identity is pr_number-only, never a
+                                                    title/branch text match
 
 Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
@@ -18209,19 +18278,40 @@ Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                tracker query tools for the non-terminal ticket set (Jira mcp__mcp-atlassian__jira_search JQL;
                Linear mcp__linear__list_issues);
                content/commands/ds-implement-ticket.md ## Tracker Writeback Helper (subagent invocation shape incl. tracker_state_values; forward-only guard incl. same-category pipeline sub-rank; no dependency on .agentic/tracker-states.json);
-               METHODOLOGY.md (activation preflight).
+               METHODOLOGY.md (activation preflight);
+               .agentic/ticket-ledger.jsonl (read-only; sole identity source for --pending-merge - see
+               content/references/ticket-rework.md § pr_number as the sole identity key);
+               .agentic/.pending-merge-last-sweep (60-minute throttle cursor for --pending-merge);
+               .agentic/pending-merge-state.jsonl (per-(ticket_id, pr_number) terminal/non-terminal
+               record for --pending-merge);
+               .agentic/config.json key pending_merge_sweep (boolean toggle gating --pending-merge).
 
-Downstream consumers: operator-invoked only; no programmatic consumers.
+Downstream consumers: single-ticket and --all modes remain operator-invoked only; no programmatic consumers.
+                      --pending-merge is additionally auto-invoked at session start by the conductor - see
+                      content/rules/conventions.md § Session Context and Memory - and remains
+                      operator-invokable on demand.
 
 Failure modes: soft-fail throughout — every tracker/gh/git call logs and continues on error; a single
                ticket's reconciliation failure never aborts an --all sweep. The command never errors
                out on an external API failure. Tier 2 (unmatched candidates) never writes anything -
-               a Tier 2 false positive is a wrong report line, never a wrong transition.
+               a Tier 2 false positive is a wrong report line, never a wrong transition. For
+               --pending-merge: a confirmation-call or reconcile-call error leaves the (ticket_id,
+               pr_number) pair non-terminal in .agentic/pending-merge-state.jsonl with `attempts`
+               incremented; 3 accumulated failures terminate the pair as `abandoned` (operator must
+               retry manually via single-ticket mode). The 60-minute cursor
+               (.agentic/.pending-merge-last-sweep) advances unconditionally at the end of every sweep
+               that ran, regardless of any per-candidate failure - no failure mode pins the sweep itself.
 
 Performance: one gh CLI call + one tracker-writeback subagent spawn per ticket that requires a transition.
              State-read calls are Tier-1 fast; --all sweeps are proportional to non-terminal ticket count.
              The tracker-wide sweep caps its non-terminal ticket query at 100 (most recently updated);
              a capped run prints how many tickets were skipped rather than truncating silently.
+             --pending-merge: at most one sweep per 60 minutes (cursor-throttled); at most 20 candidates
+             per sweep (older excess reported, never silently dropped); one `gh pr view` call per
+             candidate, plus one `gh pr list --search` open-PR check but only for candidates confirmed
+             merged; a tracker pre-read plus at most one writeback spawn only for candidates confirmed
+             merged and unblocked by an open PR. Zero cost when .agentic/ticket-ledger.jsonl is absent
+             or every recorded pair is already terminal.
 -->
 
 Reconcile a ticket's tracker status (column) with the actual state of its code. Use after `/ds-implement-ticket` exits before merge - the default human-merge flow leaves the final Done transition unfired until a human merges the PR, so the tracker can lag behind reality. This command computes the correct state and pushes the transition. `--all` mode also sweeps the whole tracker so tickets worked outside `/ds-implement-ticket` (conductor-led sessions with no `.agentic/tasks.jsonl` entry) don't silently drift.
@@ -18237,6 +18327,7 @@ Reconcile a ticket's tracker status (column) with the actual state of its code. 
 - `/ds-ticket-status-sync <TICKET_ID>` - reconcile one ticket. Prompts before transitioning.
 - `/ds-ticket-status-sync --all` - reconcile every non-terminal ticket in `.agentic/tasks.jsonl`, then sweep the tracker itself for non-terminal tickets outside that file (deterministic ID-match may transition; unmatched candidates are report-only). Transitions without prompting.
 - `--force` - reserved future-proofing alias for `--all` confirmation bypass. In v1, `--all` already transitions without prompt, so `--force` is currently a no-op modifier documented for forward compatibility.
+- `/ds-ticket-status-sync --pending-merge` - reconcile only tickets whose PR was recorded in `.agentic/ticket-ledger.jsonl` and has since merged. Transitions without prompting. Auto-invoked at session start by the conductor (see `content/rules/conventions.md` § Session Context and Memory); also operator-invokable at any time. See `## Pending-merge sweep (--pending-merge mode)` below.
 
 ## Preflight
 
@@ -18320,17 +18411,75 @@ Runs immediately after the Tier 1 sweep, over the non-terminal ticket set gather
 
 4. Tickets with no plausible match print nothing - Tier 2 output is opt-in signal, not an exhaustive audit list.
 
+## Pending-merge sweep (--pending-merge mode)
+
+Purpose: close the gap `/ds-implement-ticket` leaves on the default human-merge path. That command writes a ticket to Done only via its Phase 9 auto-merge branch; with `AUTO_MERGE_ON_CI_GREEN=false` (the default), a ticket parks at QA until something reconciles it. This mode reconciles it automatically at session start, on a strict identity rule.
+
+**Why the ledger is the identity source and a text/title match is not.** An earlier design discovered ticket keys by regex-matching merged PR titles and branch names. That was rejected on verified counterexamples: a docs PR can mention several ticket keys it does not implement (a survey/index PR listing DS-71/DS-69/DS-52 while implementing none of them); one ticket can span several merged PRs, so the first to merge would close it with the rest of its work unwritten; and a PR can self-declare partial completion in its own title. `$TRACKER_STATE_DONE` sits at the top of the forward-only guard's ranking (see step 5 below), so the guard *permits* every one of those wrong transitions, and it equally forbids an automatic move back once wrongly applied - each wrong Done becomes a manual operator repair in the tracker. **A Done transition for ticket `<KEY>` may be driven ONLY by a `pr_number` recorded against `<KEY>` in `.agentic/ticket-ledger.jsonl`.** A ticket key appearing in a PR title, branch name, or commit message is never sufficient on its own here, and no future edit to this section may add title or `headRefName` extraction as even a corroborating signal. This is sound because the ledger's Phase 9 write derives `pr_number` live from the in-flight branch and skips the write entirely when that derivation yields nothing (`content/commands/ds-implement-ticket.md` § Ticket-rework ledger write) - every ledger record therefore carries a real PR number for a real ticket, never an inferred one.
+
+**a. Skip conditions.** These conditions govern the automatic session-start invocation specifically (see `content/rules/conventions.md` § Session Context and Memory), where the sweep is expected to be silent unless it has a transition to report. Any one of the following skips the entire sweep silently (no output) on that path: `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; less than 60 minutes have elapsed since the timestamp recorded in `.agentic/.pending-merge-last-sweep` (file absent = never skipped on this ground); `.agentic/ticket-ledger.jsonl` is absent or unreadable; the candidate set is empty after the exclusions in (b). A direct operator invocation of `/ds-ticket-status-sync --pending-merge` still runs `## Preflight` above first, so `TRACKER == none` prints "No tracker configured; nothing to sync." and exits rather than skipping silently - the silent form of that specific condition applies only to the automatic path.
+
+**b. Candidate set.** Read `.agentic/ticket-ledger.jsonl` line by line, treating each line as `fromjson? // empty` so a malformed line is skipped rather than aborting the read (same discipline as the ledger read in `content/commands/ds-implement-ticket.md` § Ticket-rework ledger read). Take every record with a non-null `pr_number`. Dedupe to distinct `(ticket_id, pr_number)` pairs. Exclude any pair whose latest entry in `.agentic/pending-merge-state.jsonl` (see (g)) is terminal. Order the remainder by `opened_ts` descending and cap at 20.
+
+**Never truncate silently.** When the eligible set exceeds 20, print one line naming how many older pairs were cut off this sweep:
+
+    [ticket-status-sync] pending-merge sweep capped at 20 candidates; N older pair(s) skipped this run.
+
+Without this line, a project with more than 20 permanently non-terminal pairs would starve the oldest ones - never re-examined, never terminalized, and invisible, since `blocked_by_open_pr` in the breadcrumb (see (j)) only counts what was actually examined this sweep.
+
+**c. Merge-state confirmation.** For each candidate `(ticket_id, pr_number)`: `gh pr view <pr_number> --repo <GH_REPO> --json number,state,mergedAt`. Three outcomes:
+
+   - `MERGED` - proceed to (d).
+   - `CLOSED` (not merged) - **terminal**. Record `closed_unmerged` per (g); no transition.
+   - `OPEN` - non-terminal this sweep. No state record is written; no further calls for this candidate this sweep.
+
+**d. Open-PR block.** Before mapping a merged candidate to Done, run `gh pr list --repo <GH_REPO> --state open --search "<TICKET_ID>"`. If **any** open PR matches, do **not** transition and do **not** record a terminal state - the ticket has a *concurrently open* sibling PR in flight (a merged first PR with at least one still-open, already-opened sibling). The candidate is deferred to a later sweep, untouched. This block only sees siblings that exist as open PRs at sweep time; it does not detect a multi-PR ticket whose later PRs have not been opened yet - see "Known limitations" below.
+
+This search is a **blocking** signal, so a spurious match costs a deferred transition (safe) and a missed match costs a premature Done (unsafe) - therefore treat an **error** on this call as "blocked" (do not transition), not as "clear."
+
+GitHub's `--search` matches title and body case-insensitively, so the uppercase ticket key matches regardless of branch-name casing. No regex is applied to `headRefName` anywhere in this mode - see the identity-source rule above.
+
+**e. Relationship to Tier 1 - not evidence-shape equivalent.** Tier 1 (`## Tracker-wide sweep`) gathers three calls (commits, merged-PR search, open-PR search) and conditions its Done mapping on the open-PR result. This mode uses a **different identity source** - a recorded `pr_number` rather than a text search - and **retains** Tier 1's open-PR precondition unchanged. It does not "mirror Tier 1 narrowed to one call"; the identity mechanism is different, only the open-PR precondition is shared.
+
+**f. Reconcile.** For a candidate confirmed merged and unblocked by (d), run steps 4-5 of "Resolution algorithm (single ticket)" above (landing on the PR-merged row -> `$TRACKER_STATE_DONE`, applying the forward-only guard by reference per step 5), then spawn per step 6.
+
+**No prompting.** `--pending-merge` transitions without prompting, exactly as `--all` does. The `[y/N]` confirmation in step 6 of "Resolution algorithm (single ticket)" is scoped to single-ticket mode and MUST NOT be inherited here - a session-start sweep that blocked on a prompt would block session boot.
+
+**g. Record the determination.** Append one line to `.agentic/pending-merge-state.jsonl` (single `O_APPEND` write per line; read with latest-wins dedupe on `(ticket_id, pr_number)` ordered by `ts` - same contract as `content/references/ticket-rework.md` § Concurrency rationale). Shape:
+
+```json
+{"ticket_id":"DS-87","pr_number":458,"state":"done","attempts":1,"ts":"<ISO8601>","detail":null}
+```
+
+`state` enum: `done` | `guard_skipped` | `closed_unmerged` | `abandoned` | `failing`. The first four are **terminal** - the pair is never reconsidered as a candidate again. `failing` is **non-terminal** and carries the running `attempts` counter.
+
+Record `done` on a successful transition; `guard_skipped` when the forward-only guard in step (f) skipped the transition; `closed_unmerged` from (c). On any error in (c), (d), (f), or the writeback spawn: append `failing` with `attempts` incremented from the prior latest entry for this pair (starting at 1) and `detail` set to the error string. When `attempts` reaches **3**, append `abandoned` instead and print:
+
+    [ticket-status-sync] <KEY> (PR #<n>) abandoned after 3 failed sweeps: <detail> - run /ds-ticket-status-sync <KEY> to retry manually.
+
+**h. Cursor.** Advance `.agentic/.pending-merge-last-sweep` to `now` at the end of **every** sweep that ran, unconditionally, via atomic tmp-file + `mv`. Per-candidate progress lives entirely in `.agentic/pending-merge-state.jsonl`, so no failure mode pins the sweep - a candidate stuck in `failing` still lets the cursor advance and the next sweep still runs on schedule. The cursor's sole reader is the 60-minute throttle in (a).
+
+**Cost.** Worst case per sweep: 20 `gh pr view` calls, plus up to 20 `gh pr list --search` open-PR checks, plus a tracker pre-read and writeback spawn only for candidates confirmed merged and unblocked - at most once per 60 minutes. Steady state on a repo with no newly-merged AE PRs since the last sweep is 20 cheap `gh pr view` calls and zero tracker traffic, shrinking toward zero as pairs terminalize.
+
+**i. Soft-fail.** Identical discipline to `## Soft-fail discipline` below: every call logs and continues; the sweep never blocks the session; it never retries with backoff; it never errors out.
+
+**j. Output.** One line per transition attempt in the existing `[ticket-status-sync] <KEY>: '<current>' -> '<expected>' ...` format (see step 8 above), one line per abandonment per (g), one line if the cap in (b) truncated, plus this breadcrumb:
+
+    [phase: ticket-status-sync | mode=pending-merge | candidates=<N> | confirmed_merged=<N> | blocked_by_open_pr=<N> | transitions=<N> | skipped=<N>]
+
+**Known limitations.** The sweep only sees PRs AE opened and recorded on this machine - `.agentic/ticket-ledger.jsonl` is gitignored and machine-local, so work shipped by hand, by a teammate, or outside `/ds-implement-ticket` is invisible to it; `--all` remains the catch-all for those. A ticket with any *concurrently open* PR mentioning its key is deferred indefinitely by (d) - correct for a multi-PR ticket whose later PRs are already open when the first merges, but it also means an unrelated open PR that happens to mention the key prevents auto-close until that PR closes or merges. (d) does **not** cover the sequential case: a multi-PR ticket whose later PRs have not been opened yet at the time the first PR merges. In that shape, zero open PRs match the search, the candidate is treated as unblocked, and the sweep fires Done on the first merge - the tracker then reads Done while implementation work remains, and the forward-only guard forbids the automatic backward correction, so it becomes a manual operator repair. This matches the existing risk on the `/ds-implement-ticket` auto-merge (W7) path for the same shape, and this sweep is strictly more conservative than W7 (it additionally defers on concurrently-open siblings, which W7 does not check) - but it does not eliminate the sequential gap.
+
 ## Soft-fail discipline
 
 Every tracker/gh/git call soft-fails: log and continue. A single ticket's reconciliation failure does not abort an `--all` sweep, and applies equally to the tasks.jsonl pass and the tracker-wide sweep (Tier 1 and Tier 2). The command never errors out on an external API failure.
 
 ## Output
 
-Emit one breadcrumb per pass: `[phase: ticket-status-sync | mode=<single|all> | transitions=<N> | skipped=<N>]` for the single-ticket / tasks.jsonl-pass counts, and, when the tracker-wide sweep ran, a second breadcrumb: `[phase: ticket-status-sync | mode=all | pass=tracker-sweep | transitions=<N> | skipped=<N> | capped=<N> | candidates=<N>]`.
+Emit one breadcrumb per pass: `[phase: ticket-status-sync | mode=<single|all> | transitions=<N> | skipped=<N>]` for the single-ticket / tasks.jsonl-pass counts, and, when the tracker-wide sweep ran, a second breadcrumb: `[phase: ticket-status-sync | mode=all | pass=tracker-sweep | transitions=<N> | skipped=<N> | capped=<N> | candidates=<N>]`. When `--pending-merge` ran, emit the breadcrumb defined in `## Pending-merge sweep (--pending-merge mode)` (j): `[phase: ticket-status-sync | mode=pending-merge | candidates=<N> | confirmed_merged=<N> | blocked_by_open_pr=<N> | transitions=<N> | skipped=<N>]`.
 
-In single-ticket mode, print the before/after state. In `--all` mode, print a one-line-per-ticket summary table for the tasks.jsonl pass, then the Tier 1 operator-visible transition lines, then the Tier 2 candidate lines (if any).
+In single-ticket mode, print the before/after state. In `--all` mode, print a one-line-per-ticket summary table for the tasks.jsonl pass, then the Tier 1 operator-visible transition lines, then the Tier 2 candidate lines (if any). In `--pending-merge` mode, print one transition/abandonment line per candidate as described in `## Pending-merge sweep (--pending-merge mode)` (j).
 
-When any ticket in a pass returned `unmatched_state_name`, print one additional aggregate line after that pass's breadcrumb: `[ticket-status-sync] N ticket(s) had a current state that did not match any configured TRACKER_STATE_* value (distinct states seen: <name1>, <name2>, ...) - same-category comparison skipped for these.`
+When any ticket in a pass - including a `--pending-merge` sweep - returned `unmatched_state_name`, print one additional aggregate line after that pass's breadcrumb: `[ticket-status-sync] N ticket(s) had a current state that did not match any configured TRACKER_STATE_* value (distinct states seen: <name1>, <name2>, ...) - same-category comparison skipped for these.`
 
 ---
 
@@ -18806,7 +18955,7 @@ running /ds-implement-ticket. Running both risks a merge conflict or duplicated 
 
 **Skip condition:** if the artifact contains zero lanes AND zero chains AND no IN_FLIGHT-sourced exclusions - meaning every entry in `## In-progress tickets` carries `entry.IN_PROGRESS_TRACKER: true` or `entry.IN_FLIGHT: false` (a ticket with both true reached the table via the tracker column regardless, so it is not IN_FLIGHT-sourced; a Rule-1-deferred ticket that also carries `entry.IN_FLIGHT` does NOT count here either - it is annotated in the Deferred tickets table's Reason cell instead, per the Interaction-with-Rule-1-deferral note in In-flight code detection above) - skip Phase 4b entirely and proceed to output.
 
-Otherwise: spawn a fresh background Skeptic on the artifact with this adversarial brief:
+Otherwise: spawn a fresh background Skeptic on the artifact with this adversarial brief, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the tracker query/source data the artifact was built from; field 6 is the triage artifact's file path):
 
 > "Review this triage artifact. Check: (1) Dependency ordering - are blockers placed before the tickets they block within each chain? (2) Parallel safety - are tickets in the same lane genuinely non-conflicting per the Phase 2b analysis? (3) Deferral justification - is each deferred ticket's reason accurate and not overcautious? (4) Kickoff prompt completeness - does every non-deferred, non-in-progress ticket appear in exactly one lane's kickoff prompt? (5) Cap reconciliation - if Rule 4 fired, was the merge post-pass applied correctly and documented? (6) Rework annotation - was every ticket with `IS_REWORK: true` given the `[REWORK xN]` badge and a Notes-cell annotation naming the prior PR? Is it placed in a chain, never `parallel` - either its own single-ticket rework-isolated chain, or the DAG-connected chain Rule 2 already assigned it, with the in-set blocker relationship preserved first in that case? (7) In-flight provenance - for every ticket reaching the In-progress tickets table (Notes-bearing) with `entry.IN_FLIGHT: true`, does its Notes cell render per the Notes-cell composition rule, correctly OMITTING the tracker-column qualifier whenever `entry.IN_PROGRESS_TRACKER` is also true? For every ticket Rule 1 deferred (no Notes cell in that table) that also carries `entry.IN_FLIGHT: true`, does its Reason cell in `## Deferred tickets` name the causing PR instead - see the Interaction-with-Rule-1-deferral note?"
 
@@ -19699,7 +19848,7 @@ Return all three outputs clearly labeled. Do not write to disk.
 
 Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites - never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
 
-Provide the draft, the existing AGENTS.md file contents from Step 0, and this adversarial brief. **Omit any section below whose corresponding Output is "None"** - always keep the Output 1 (`_wrap.md` accuracy) review as the baseline pass; drop the memory-review language if Output 2 is "None"; drop the AGENTS.md-review paragraph if Output 3 is "None". The full brief below is the "all outputs present" case:
+Provide this adversarial brief, the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the existing AGENTS.md file paths from Step 0; field 6 is the draft `_wrap.md`/AGENTS.md-update content), then the draft and the existing AGENTS.md file contents from Step 0. **Omit any section below whose corresponding Output is "None"** - always keep the Output 1 (`_wrap.md` accuracy) review as the baseline pass; drop the memory-review language if Output 2 is "None"; drop the AGENTS.md-review paragraph if Output 3 is "None". The full brief below is the "all outputs present" case:
 
 > "Is this context file accurate and actionable? Check each section: Does Recent Focus correctly describe what was actually happening — or is it vague, generic, or wrong? Are the Next Steps specific enough to act on without reading the chat history (file paths, commands, branch names)? Are Key File Paths complete — is anything relevant omitted? Does Watch Out For capture real gotchas, or is it empty when it shouldn't be? Is any section still template text rather than real content?"
 >
@@ -19909,7 +20058,7 @@ Otherwise skip that target silently.
    > File content:
    > [paste full file content]
 
-2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with the original file content, the compressed draft, and this adversarial brief verbatim:
+2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed draft), then the original file content and the compressed draft:
 
    > You are reviewing a memory-file compression for fact loss. The original file is the source of truth. The compressed file must preserve every technical fact, decision, path, command, date, version, URL, and rationale from the original. Stylistic compression of prose is allowed; semantic loss is not.
    >
