@@ -44,6 +44,9 @@ Test coverage:
   - REGRESSION (Skeptic MAJOR 4): narrative paragraphs, no list syntax,
     under the heading -> ALLOW (no paragraph-mode fallback)
   - Heading tightening: 3-hash heading and trailing-colon heading -> BLOCK
+  - REGRESSION (Skeptic round 2, MAJOR 1): verbatim reviewer input (general
+    surface-and-proceed phrasing, no marker, in-block) -> BLOCK; the same
+    content with the block-required marker added -> ALLOW
 """
 
 from __future__ import annotations
@@ -867,6 +870,59 @@ def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | N
             ),
         ),
         "BLOCK",
+        None,
+    ))
+
+    # =========================================================================
+    # MAJOR 1 REGRESSION (Skeptic round 2, spec-consistency): content/
+    # sections/02-delegation.md's ":76"/":78" general surface-and-proceed
+    # canonical form ("Proceeding with X unless you say otherwise") carries
+    # no marker, while ":80" mandates the marker on every Operator-decisions
+    # item. Resolved at the spec level (this file's docstring/section 80
+    # amendment): the marker requirement is ADDITIONAL to, not a
+    # replacement for, the general phrasing - it applies once 2+ items live
+    # under the heading, where the ballot check can fire. The general
+    # phrasing alone (no marker) therefore remains genuinely non-compliant
+    # for an in-block multi-item decision and correctly still fires; the
+    # SAME content, once each item additionally carries the marker per the
+    # block-specific rule, is fully compliant and must not fire. Both
+    # directions are pinned here so the two documents cannot drift apart
+    # again without a test catching it.
+    # =========================================================================
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 1, verbatim reviewer input): 2 items "
+        "using the general surface-and-proceed phrasing with no marker, "
+        "inside the Operator decisions block -> BLOCK (marker is "
+        "additionally required in-block; this is consistent post-fix, not "
+        "a contradiction)",
+        make_payload(
+            fresh_dir("major1_verbatim_no_marker"),
+            last_assistant_message=(
+                "## Operator decisions\n"
+                "- Proceeding with approach A (matches existing pattern in "
+                "src/foo.ts) unless you say otherwise.\n"
+                "- Proceeding with exponential backoff (matches "
+                "src/http/client.ts) unless you say otherwise.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 1, corrected canonical form): same 2 "
+        "decisions, each additionally carrying the block-required marker "
+        "-> ALLOW (proves the resolved contract is satisfiable)",
+        make_payload(
+            fresh_dir("major1_corrected_with_marker"),
+            last_assistant_message=(
+                "## Operator decisions\n"
+                "- Recommendation: approach A - matches existing pattern "
+                "in src/foo.ts. Proceeding unless you say otherwise.\n"
+                "- Recommendation: exponential backoff - matches "
+                "src/http/client.ts. Proceeding unless you say otherwise.\n"
+            ),
+        ),
+        "ALLOW",
         None,
     ))
 

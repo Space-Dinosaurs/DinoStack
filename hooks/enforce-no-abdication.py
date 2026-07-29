@@ -31,9 +31,29 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          out of the FULL message before the heading is even searched for,
          so a fenced example quoting this rule's own syntax cannot trigger
          it. Known, documented, unfixed evasions: a non-literal heading
-         wording, items formatted as a markdown table, and a negated
-         "No recommendation:" phrase suppressing the marker check - see the
-         KNOWN RESIDUAL EVASION comments at each pattern's definition.
+         wording, items formatted as a markdown table, a negated
+         "No recommendation:" phrase suppressing the marker check, and an
+         indented / blockquoted / nested-under-a-parent-bullet item (the
+         zero-leading-whitespace anchor that fixes the sub-bullet
+         miscount also means a genuine top-level item written in one of
+         these three shapes is not detected) - see the KNOWN RESIDUAL
+         EVASION comments at each pattern's definition.
+
+         COUPLING WITH _is_abdication: `(recommended)` is one of the Tier 2
+         negative-gate tokens (see _NEGATIVE_GATE_PATTERNS group (c) below).
+         Because the Operator decisions block is always the last thing in
+         the turn (content/sections/02-delegation.md), a spec-compliant
+         marker on any item lands inside the TAIL_LENGTH-truncated tail
+         _is_abdication inspects, so _is_abdication returns False (negative
+         gate suppresses it) for essentially every compliant Operator
+         decisions turn regardless of the ballot outcome. This is correct
+         by design - a spec-compliant decision block is not a permission-
+         seeking interrogative - but it means the two checks are no longer
+         incidentally independent on this class of turn: _is_prose_ballot
+         is the only classifier actually deciding the outcome once a
+         marker is present. Documented here because the spec change
+         mandating the marker made this coupling universal rather than
+         incidental.
 
          Scoped to the MAIN session Stop event only (not SubagentStop), so
          it governs the conductor, not Workers.
@@ -253,6 +273,17 @@ def _is_abdication(text: str) -> bool:
 # classification or a table parser, neither of which is safe to add as a
 # regex without materially raising the false-positive rate on legitimate
 # turns. This is a known gap, not an oversight.
+#
+# The zero-leading-whitespace item-start anchor (below, _ITEM_START_RE)
+# also misses three shapes, for the same "known gap, not an oversight"
+# reason: an INDENTED top-level bullet (real conductor output never
+# indents a genuine top-level item, so this miss is judged acceptable), a
+# BLOCKQUOTED bullet ("> - Option A?" - same judgment, real output does
+# not quote its own decisions), and a bullet NESTED UNDER A PARENT BULLET
+# (a decision item written as a sub-item of some other bullet rather than
+# at the block's own top level) - this last one is judged the most
+# plausible of the three to occur in real output and is the one most
+# worth a human reviewer's attention if this detector is ever revisited.
 _OPERATOR_DECISIONS_HEADING_RE = re.compile(
     r"^[ \t]*#{2,}\s*operator decisions\s*:?\s*$",
     re.IGNORECASE | re.MULTILINE,
