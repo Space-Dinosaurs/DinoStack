@@ -90,7 +90,7 @@ Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution c
 
 ## Resolution algorithm (single ticket)
 
-1. **Read task state.** Look up the ticket in `.agentic/tasks.jsonl` (most recent entry for that `ticket_id`). Capture `status` (pending | in_progress | complete | blocked | skipped_already_merged) and `pr_number` / `branch` if recorded. If `.agentic/tasks.jsonl` is absent or has no entry for this ticket, proceed with no task-state: derive PR/branch state directly from `gh` (by ticket-ID-derived branch name or an explicit PR number if the operator supplies one). Task-state is an optimization, not a requirement, for single-ticket mode.
+1. **Read task state.** Apply the **task-state fold** (`content/references/task-state-file.md`) to `.agentic/tasks.jsonl` and read the folded record for that `ticket_id` - never the most recent raw line, which can be a rejected or superseded transition under the fold. Capture `status` (pending | in_progress | done | failed | blocked | abandoned - the `tasks.jsonl` **writer** enum per `content/commands/ds-implement-ticket.md`, distinct from `batch-state.json`'s `tickets[]` enum) and `pr_number` / `branch` if recorded. If `.agentic/tasks.jsonl` is absent or the fold has no record for this ticket, proceed with no task-state: derive PR/branch state directly from `gh` (by ticket-ID-derived branch name or an explicit PR number if the operator supplies one). Task-state is an optimization, not a requirement, for single-ticket mode.
 2. **Read PR state.** If a PR number/branch is known: `gh pr view <N> --repo <GH_REPO> --json state,isDraft,mergeable,reviewDecision 2>/dev/null`. Determine: no PR / draft / open-ready / merged / closed.
 3. **Read branch state.** `git log origin/<branch> 2>/dev/null` to confirm the branch exists / was deleted (deleted often implies merged).
 4. **Compute expected tracker state** using this mapping (same target states as the `/ds-implement-ticket` writeback sites W1-W7):
@@ -102,7 +102,7 @@ Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution c
    | PR open + ready, not merged | `$TRACKER_STATE_QA` (in review/QA window) |
    | PR draft | `$TRACKER_STATE_IN_REVIEW` |
    | task `in_progress`, no PR yet | `$TRACKER_STATE_IN_PROGRESS` |
-   | task `complete` but no PR found | `$TRACKER_STATE_DONE` (work finished) |
+   | task `done` but no PR found | `$TRACKER_STATE_DONE` (work finished) |
    | task `pending` / unknown | no transition (leave as-is) |
 
 5. **Apply forward-only guard.** Read the ticket's current tracker state (name AND category - both are required). **Do not restate or approximate the ranking rule here.** Read `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper` -> "Subagent responsibilities" steps 1-5 in full and apply that algorithm exactly, including the same-category pipeline sub-rank and the Blocked always-permitted exception in both directions. This command already resolves all 5 `TRACKER_STATE_*` values in Preflight - pass them as `tracker_state_values` the same way the Tracker Writeback Helper does. State-read failure - skip silently.
@@ -112,7 +112,7 @@ Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution c
 
 If `.agentic/tasks.jsonl` is absent, print "No task state found; nothing to sync." and continue - do NOT exit the whole `--all` invocation on this condition. Only the tasks.jsonl pass itself is skipped; the tracker-wide sweep below still runs whenever `TRACKER != none`.
 
-Iterate every non-terminal ticket in `.agentic/tasks.jsonl` (skip entries whose `status` is a terminal value already reconciled). Run the single-ticket algorithm for each. Transition without prompting. Aggregate counts.
+Apply the **task-state fold** to `.agentic/tasks.jsonl` and iterate every non-terminal ticket over the **folded records** (skip entries whose folded `status` is already in the **sync-terminal** set - `{done, failed, blocked, abandoned}`, the full writer terminal set per `content/commands/ds-implement-ticket.md` - not just `{done}`; a `{done}`-only reading would re-reconcile every `abandoned` or `failed` task on every run, forever. This is a distinct set from the fold's own **fold-absorbing** set `{done}`, which governs whether a status can be regressed, not whether `--all` re-sweeps it). Run the single-ticket algorithm for each. Transition without prompting. Aggregate counts.
 
 After the tasks.jsonl pass completes, run the tracker-wide sweep below (Tier 1, then Tier 2) as part of the same `--all` invocation.
 
@@ -128,7 +128,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
    **Cap: 100 most recently updated tickets.** Never truncate silently. If the query returns more than 100 non-terminal tickets, take the 100 most recently updated and print: `[ticket-status-sync] tracker-wide sweep capped at 100 most-recently-updated tickets; N older tickets skipped this run.`
 
-2. **Exclude already-reconciled tickets.** Drop any ticket key that was already processed by the tasks.jsonl pass above (its `ticket_id` appears in `.agentic/tasks.jsonl`) - that pass already evaluated it (transitioned or correctly left alone); re-evaluating it here is redundant, not wrong, but is skipped to keep the sweep focused on what the tasks.jsonl pass structurally cannot see.
+2. **Exclude already-reconciled tickets.** Drop any ticket key that was already processed by the tasks.jsonl pass above (its `ticket_id` appears in the **folded** record set from that pass) - that pass already evaluated it (transitioned or correctly left alone); re-evaluating it here is redundant, not wrong, but is skipped to keep the sweep focused on what the tasks.jsonl pass structurally cannot see.
 
 3. **Gather deterministic evidence per remaining ticket key `<KEY>`:**
    - `git log --grep "<KEY>" --oneline` on `BASE_BRANCH`.
@@ -139,7 +139,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
 4. **Zero evidence found** (no commits, no merged PRs, no open PRs reference `<KEY>`): do NOT transition. This ticket flows into the Tier 2 unmatched-candidates pass below instead. Tier 1 only ever acts on positive ID-match evidence.
 
-5. **Evidence found - compute target state.** Do NOT invent a new state machine here. Feed the gathered evidence into the SAME "Resolution algorithm (single ticket)" mapping table above (step 4): a merged PR referencing `<KEY>` (and no open PR still referencing it) maps to the "PR merged" row -> `$TRACKER_STATE_DONE`; an open PR referencing `<KEY>` maps to "PR open + ready" or "PR draft" per its `isDraft`/`reviewDecision` -> `$TRACKER_STATE_QA` / `$TRACKER_STATE_IN_REVIEW`; commits referencing `<KEY>` on `BASE_BRANCH` with no PR record at all (a direct conductor commit) map to the "task complete but no PR found" row -> `$TRACKER_STATE_DONE`.
+5. **Evidence found - compute target state.** Do NOT invent a new state machine here. Feed the gathered evidence into the SAME "Resolution algorithm (single ticket)" mapping table above (step 4): a merged PR referencing `<KEY>` (and no open PR still referencing it) maps to the "PR merged" row -> `$TRACKER_STATE_DONE`; an open PR referencing `<KEY>` maps to "PR open + ready" or "PR draft" per its `isDraft`/`reviewDecision` -> `$TRACKER_STATE_QA` / `$TRACKER_STATE_IN_REVIEW`; commits referencing `<KEY>` on `BASE_BRANCH` with no PR record at all (a direct conductor commit) map to the "task done but no PR found" row -> `$TRACKER_STATE_DONE`.
 
 6. **Apply forward-only guard, then transition.** Identical to single-ticket steps 5-6: read the ticket's current tracker state and apply the SAME algorithm - do not restate it here, read `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper`. If a transition is warranted, spawn the tracker-writeback subagent using the `## Tracker Writeback Helper` invocation contract in `content/commands/ds-implement-ticket.md` verbatim - read that contract, do not re-enumerate its parameters here beyond the following call-site-specific values: `target_state: <expected>`, `forward_only_guard: true`, `tracker_state_values` (the 5 values resolved in Preflight). Soft-fail: a spawn or API failure logs and moves to the next ticket. Additionally, accumulate any `unmatched_state_name` returned by the guard across this sweep; if the tally is non-empty at the end of the `--all` pass, print ONE aggregate line (see Output section) instead of one line per ticket.
 

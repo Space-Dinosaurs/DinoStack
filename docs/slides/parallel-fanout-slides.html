@@ -1141,7 +1141,7 @@ Any unit returned <code>Status: BLOCKED</code>.<br />Treat as failed for that un
 </div>
 <p><strong>Join timeout:</strong> 30-minute deadline (configurable). Units still <code>in_progress</code> at deadline treated as failed.</p>
 <div class="callout">
-<code>.agentic/tasks.jsonl</code> is the coordination surface. Conductor-only writes. Workers return summaries in their normal return path.
+<code>.agentic/tasks.jsonl</code> is the coordination surface. Conductor-only writes across agents (workers never write it directly) - never a rewrite, always a single-line append; a task-state fold reconciles records across concurrent conductor sessions. Workers return summaries in their normal return path.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="7" data-marpit-scope-s006="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

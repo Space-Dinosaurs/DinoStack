@@ -491,7 +491,7 @@ Long-running `$implement-ticket` loops survive via a per-ticket `$AE_PROJECT_DIR
 
 ## Task-state file
 
-For multi-unit plans the conductor maintains `$AE_PROJECT_DIR/.agentic/tasks.jsonl` (sole writer); read `$AE_REPO_DIR/content/references/task-state-file.md` §Task-state file for schema and protocol (incl author_model).
+For multi-unit plans the conductor maintains `$AE_PROJECT_DIR/.agentic/tasks.jsonl` via single-line appends only (no writer ever rewrites the file); read `$AE_REPO_DIR/content/references/task-state-file.md` §Task-state file for schema, the task-state fold, and protocol (incl author_model).
 
 ## Events log
 
@@ -599,7 +599,7 @@ Read `$AE_REPO_DIR/content/references/worktree-lifecycle.md` for the full bash c
 Read `$AE_REPO_DIR/content/references/cross-session-loop-resume.md` §Cross-session loop resume for disk-write discipline, resumable phases, Brief/Plan path recording, and batch-state coexistence.
 
 **Task-state file** - when managing multi-unit plan orchestration state:
-Read `$AE_REPO_DIR/content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, field-level merge algorithm, and `author_model` field semantics.
+Read `$AE_REPO_DIR/content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, the task-state fold, and `author_model` field semantics.
 
 **Code standards detail** - when implementing or modifying code in a specific language:
 Read `$AE_REPO_DIR/content/references/code-standards-detail.md` §Per-Language Strict Defaults for TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs, and §Browser Verification for `agent-browser` usage patterns.

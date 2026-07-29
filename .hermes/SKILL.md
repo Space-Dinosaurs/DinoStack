@@ -456,7 +456,7 @@ Long-running `/ds-implement-ticket` loops survive via a per-ticket `.agentic/loo
 
 ## Task-state file
 
-For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` (sole writer); read `content/references/task-state-file.md` §Task-state file for schema and protocol (incl author_model).
+For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` via single-line appends only (no writer ever rewrites the file); read `content/references/task-state-file.md` §Task-state file for schema, the task-state fold, and protocol (incl author_model).
 
 ## Events log
 
@@ -564,7 +564,7 @@ Read `content/references/worktree-lifecycle.md` for the full bash command blocks
 Read `content/references/cross-session-loop-resume.md` §Cross-session loop resume for disk-write discipline, resumable phases, Brief/Plan path recording, and batch-state coexistence.
 
 **Task-state file** - when managing multi-unit plan orchestration state:
-Read `content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, field-level merge algorithm, and `author_model` field semantics.
+Read `content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, the task-state fold, and `author_model` field semantics.
 
 **Code standards detail** - when implementing or modifying code in a specific language:
 Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults for TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs, and §Browser Verification for `agent-browser` usage patterns.
@@ -1634,7 +1634,7 @@ When investigation spans multiple independent surfaces (e.g., backend data layer
 
 ## wrap-ticket writer carve-out
 
-wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/_wrap.md` (append-merge under `## Recent Focus` only - **not** `.agentic/context.md`, which is now a derived rollup that would discard the write on the next turn; see the writer contract below). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/_wrap.md` (append-merge under `## Recent Focus` only - **not** `.agentic/context.md`, which is now a derived rollup that would discard the write on the next turn; see the writer contract below). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (qa-engineer owns), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer across agents - not across sessions for `tasks.jsonl`; see `content/references/task-state-file.md`), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
 
 **`.agentic/context.md` writer contract: a DERIVED rollup, deliberately lock-free.**
 
@@ -5529,10 +5529,13 @@ The context budget applies to **implementation work** and **multi-turn planning*
 <!--
 Purpose: Full reference for the task-state file (.agentic/tasks.jsonl)
          extracted from content/sections/08-task-state-file.md. Contains:
-         multi-unit plan initialization and maintenance lifecycle; conductor-
-         sole-writer invariant; single-unit skip rule; protocol cross-
-         reference (/ds-implement-ticket Phase 3b and Phase 5); and the
-         author_model field (model id for reviewer-diversity routing).
+         multi-unit plan initialization and maintenance lifecycle; the
+         append-only write contract and the task-state fold (the single
+         normative definition of how per-task_id records combine into a
+         folded owner/status/fields triple); the read-time ownership gate;
+         single-unit skip rule; protocol cross-reference (/ds-implement-ticket
+         Phase 3b and Phase 5); and the author_model field (model id for
+         reviewer-diversity routing).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/08-task-state-file.md (parent section);
@@ -5540,25 +5543,32 @@ Public API: Read-only reference document. Cross-referenced from:
             Protocol Details entry).
 
 Upstream deps: content/sections/08-task-state-file.md (parent section);
-               /ds-implement-ticket Phase 3b (task-state initialization schema,
-               file-absent/present behavior, orphan detection, field-level
-               merge algorithm) and Phase 5 (task_id correlation, author_model
+               /ds-implement-ticket Phase 3b (task-state initialization
+               schema, file-absent/present behavior, orphan detection, the
+               task-state fold) and Phase 5 (task_id correlation, author_model
                recording); content/agents/skeptic.md and
                content/agents/security-auditor.md (reviewer-diversity prose
-               that consumes author_model).
+               that consumes author_model); bin/tests/fold_model.py (the
+               executable reference implementation of the fold - the prose
+               below is a reading aid, not a second specification; where the
+               two disagree, fold_model.py wins).
 
 Downstream consumers: conductor (/ds-implement-ticket multi-unit orchestration;
-                      reads and writes tasks.jsonl as sole writer); engineer
-                      agents (receive task_id in execution contract for
-                      identification only - never write to tasks.jsonl);
-                      skeptic / security-auditor (read author_model before
-                      selecting their own model).
+                      appends to and folds tasks.jsonl - never a writer that
+                      rewrites); engineer agents (receive task_id in
+                      execution contract for identification only - never
+                      write to tasks.jsonl); skeptic / security-auditor (read
+                      author_model before selecting their own model).
 
-Failure modes: tasks.jsonl is NOT gitignored (unlike loop-state.json) but
-               should not carry sensitive data. Single-unit plans skip this
-               file entirely. Workers must never write to tasks.jsonl - only
-               the conductor writes; no lock protocol is needed because of
-               this sole-writer invariant.
+Failure modes: tasks.jsonl IS gitignored, like other .agentic/ state files
+               (see ds-init-project.md's scaffolded .gitignore block and
+               docs/secrets-and-permissions.md) but should not carry
+               sensitive data. Single-unit plans skip this file entirely.
+               Workers must never write to tasks.jsonl - only the conductor
+               writes, and every conductor write is a single-line append.
+               No lock is needed because no writer ever rewrites the file;
+               concurrent-session safety comes from append-only writes plus
+               the task-state fold at read time, not from write exclusion.
 
 Performance: Standard (local JSONL append/read; no network).
 -->
@@ -5567,7 +5577,48 @@ Performance: Standard (local JSONL append/read; no network).
 
 ## Task-state file
 
-When `/ds-implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle - updating entries at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes - no lock protocol is needed because the conductor is the sole writer. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and field-level merge algorithm - see `/ds-implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+When `/ds-implement-ticket` operates on a multi-unit plan (2 or more tasks), the conductor initializes `.agentic/tasks.jsonl` with one entry per task before spawning any workers and maintains it throughout the orchestration lifecycle by **appending** transition records - at spawn time (`pending` -> `in_progress`), after each worker returns (output fields populated), and after Skeptic/QA resolution (terminal status set). Workers receive `task_id` in the execution contract for identification purposes only; the conductor handles all reads and writes. Every conductor write is a single-line append; every read applies the **task-state fold** (defined below). No lock is needed because no writer ever rewrites the file - concurrent-session safety comes from the append-only write contract plus the fold, not from write exclusion. Single-unit plans skip task-state entirely (in-context state only). For the full protocol - schema, file-absent/present behavior, orphan detection, and the task-state fold - see `/ds-implement-ticket` Phase 3b (Task-state initialization) and Phase 5.
+
+### The invariant set (normative)
+
+Every rule below exists to hold one of these five invariants. They are stated first because a fold specified only as field rules, with no statement of what the rules are *for*, is the failure mode this document exists to close - the next edit to any one rule has nothing to check itself against.
+
+- **I1 - Single merger.** At most one session ever merges a given unit.
+- **I2 - No fictitious record.** The folded record never pairs fields originating in different generations; in particular a folded `done` and the `branch_name` / `commit_sha` / `outputs.skeptic_status` beside it always originate in the same `session_id`.
+- **I3 - No post-terminal ownership change.** Once a group's folded status is `done`, no later record changes the folded `session_id`.
+- **I4 - No unowned status transition.** A folded non-claim status transition is always attributable to the session that was the folded owner immediately before that record landed. A claim (`status: in_progress`) is the sanctioned exception - it *transfers* ownership - and is admissible only while the folded status is not `done`.
+- **I5 - Owner-scoped freshness.** The folded `updated_at` is the one carried by the latest arrival-order record of the folded owner. No record from a non-owner can change it - this is what the 10-minute staleness test (below) reads.
+
+I3, I4 and I5 hold by construction of the fold's state machine. I1 and I2 follow from them (a session merges only when the fold reports `owner == self AND status == done`; because the folded pair is stable once `status == done` (I3, I4), and only owner-scoped fields survive a `done` fold (I2's field rule below), a fold can never describe a build that did not happen or let two sessions merge the same unit).
+
+### The task-state fold
+
+**One complete JSON record per line.** Every conductor write builds the full record in memory and appends it with **one** `write()` - `printf '%s\n' "$LINE" >> .agentic/tasks.jsonl` - never composed from multiple writes, and never a rewrite. The sole exception is the operator-confirmed restart path (Phase 3b), which renames the file to a `.bak` and starts fresh; nothing else in this design truncates. A transition record carries `task_id`, `session_id`, `updated_at`, and only the fields that changed - never the full `inputs` object on a partial append. `status` appears in a record **only when the status actually changes**: an output-only append carries no `status` field at all, because an ownership claim is defined as an `in_progress` append, and re-emitting `status` on an output append would let a dispossessed session silently reclaim ownership by returning its engineer's outputs.
+
+The fold consumes a `task_id` group's records **in arrival order** (the order they were appended to the file - never `updated_at`, which is not a reliable ordering key: a record can arrive late but carry an earlier timestamp, which is not prefix-monotonic and would let the past be rewritten) and carries the running state `(owner, status, fields)`:
+
+- The earliest record bootstraps `owner := record.session_id` (the fallback when no record has claimed the task yet). Any later honored claim overrides it.
+- A record with `status: in_progress` is a **claim**: it sets `owner := record.session_id` and `status := in_progress` - **unless** the folded status is already `done`, in which case the claim is **not honored** (I3).
+- A record carrying any other `status` value is a **transition**, admitted only if `record.session_id == owner` at that point (I4), and ignored if the folded status is already `done` (`done` is absorbing; `failed`/`blocked`/`abandoned` are not, so a partial-success retry can legitimately return a task to `in_progress`).
+- A record carrying no `status` field is never a claim and never a transition - it only contributes fields.
+- A record carrying **no `session_id`** is **legacy**, not unparseable - the documented schema above has never mandated the field. It folds under a sentinel owner that no session ever matches: no viewer reads a legacy group as its own, no viewer may merge it, and it is always treated as foreign-and-stale (`in_progress` never reads as fresh - an absent id cannot be shown live, and blocking on it would deadlock every pre-fix project).
+- **Fields** are field-level last-write-wins, bounded by a **cross-generation whitelist**: `task_id`, `ticket_id`, `unit_slug`, `depends_on`, `created_at`, and `inputs` may cross a `session_id` generation boundary (this is what keeps `inputs` alive across a retry's partial appends - a record-level scheme would lose it on the first partial write and silently break every retry brief). Every other field - including `assigned_agent`, `worktree_path`, `branch_name`, `author_model`, `loop_state`, and every `outputs.*` field - is **session-scoped**: folded only from records whose `session_id` equals the folded owner. This is a whitelist, not a blacklist, deliberately: a field added to the schema later is session-scoped by default rather than crossing generations silently.
+- The folded `updated_at` (I5) follows the same session-scoped rule: it is the value carried by the **owner's own latest arrival-order record**, any status, output-only appends included - never the latest record in the group regardless of who wrote it. A foreign stray record must never refresh the incumbent's freshness, or the 10-minute staleness test below would pin forever and block legitimate orphan recovery.
+
+The executable reference implementation is `bin/tests/fold_model.py`, exercised by `bin/tests/test_fold_invariants.py` over 2,400 generated interleavings at 2-5 concurrent sessions plus a dedicated legacy-writer sweep; it is the sole normative definition of the state machine above. Where this prose and `fold_model.py` disagree, `fold_model.py` wins and the prose is the defect.
+
+### Read-time ownership gate (ticketed projects only)
+
+In a null-ticket project (`TRACKER=none`, `task_id = <session_id>-<unit_slug>`) cross-session `task_id`s never collide, so ownership always reads `own` and this gate is structurally inert - append-only still guarantees no state loss, but it provides no duplicate-fan-out protection there.
+
+In a ticketed project, three gate points apply the fold before an ownership-sensitive decision, and nowhere else: **fold-before-spawn** (before every worker spawn - do not spawn on a foreign-and-fresh task, or on a task this session has been dispossessed of), **fold-before-terminal-append** (a dispossessed session must never append a terminal status - `done` is absorbing and would hijack the new owner's task), and **fold-before-merge** (immediately before merging a unit's branch, re-fold and merge **only if `owner == self AND status == done`**). On a foreign-and-fresh (< 10 minutes since the folded `updated_at`) task, emit verbatim:
+
+```
+WARNING: task <task_id> is in_progress under another session (session_id=<X>, updated_at=<Y>).
+Not spawning. Resolve manually (wait for that session, kill it, or restart task state) and retry.
+```
+
+Ownership is **monotonic**: it is claimed only by an `in_progress` append and is never regained once superseded. A session whose claim was superseded cannot silently take a task back by appending outputs or any other later record - it must append a fresh `in_progress` claim through the fold-before-spawn gate, and only when the fold currently permits a spawn for that task.
 
 **Field: `author_model`** (string, nullable). The model id the implementing
 engineer ran under for this task, or `null` when unknown (single-unit plans,
@@ -5575,9 +5626,9 @@ pre-P249 historical entries, or conductor-directed spawns where the model was
 not recorded). Consumed by reviewer spawns (Skeptic, security-auditor) to pick
 a different model when role-model routing is active -- reviewer-diversity
 prose lives in `content/agents/skeptic.md` and `content/agents/security-auditor.md`.
-The conductor records `author_model` at engineer spawn time (Phase 5) and
-reviewer spawns read it before selecting their own model; the conductor remains
-the sole writer of `.agentic/tasks.jsonl`.
+The conductor records `author_model` at engineer spawn time (Phase 5) as part
+of the ownership claim's append, and reviewer spawns read the folded value
+before selecting their own model.
 
 ---
 
@@ -5687,7 +5738,7 @@ A Trivial-path record legitimately carries two null fields:
 | `risk_class` | No | Declared before any spawn happens. |
 | `skeptic_rounds` | **Yes** | The Trivial path bypasses the Skeptic loop entirely; the only durable iteration-count source is written by the Skeptic loop itself, which a Trivial ticket never enters. |
 | `qa_status` | **Yes, on two paths** | Trivial tickets never run QA. Elevated tickets with a `qa_skip` value also never run QA - the write records the skip rationale instead of a status. |
-| `unit_count` | No | **Derived, not read** - there is no `unit_count` variable anywhere in the command. Derivation rule: count of `.agentic/tasks.jsonl` records matching this `ticket_id` on the Phase 5 fan-out path; `1` on a single-engineer path; `1` when `tasks.jsonl` is absent or unreadable. |
+| `unit_count` | No | **Derived, not read** - there is no `unit_count` variable anywhere in the command. Derivation rule: apply the **task-state fold** (`content/references/task-state-file.md`) to `.agentic/tasks.jsonl` and count of **distinct** `task_id`s among the folded records matching this `ticket_id` on the Phase 5 fan-out path; `1` on a single-engineer path; `1` when `tasks.jsonl` is absent or unreadable. |
 
 **Null-render rule.** Any null field renders `n/a` in the notice and the triage badge - the same rendering convention `/ds-implement-ticket` already uses elsewhere for an unresolved iteration count. `qa_status` is the one exception: it prefers its skip rationale (`"skipped:<rationale>"`) over `n/a`, because "QA never ran, here's why" is exactly what an operator doing manual verification needs to know - a bare `n/a` would hide that QA was intentionally skipped rather than simply unavailable. The skip-rationale string is collision-free against the QA result vocabulary (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`): none of those values, nor any of the `qa_skip` enum values, nor the literal `"Trivial path"`, contain a colon, so a first-colon parse of `qa_status` unambiguously separates the `skipped:` prefix from its rationale.
 
@@ -7951,7 +8002,7 @@ You MUST NOT write to or modify any of the following:
 
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
-- `.agentic/tasks.jsonl` (conductor sole-writer)
+- `.agentic/tasks.jsonl` (conductor sole-writer across agents - not across sessions; see `content/references/task-state-file.md` for the cross-session task-state fold)
 - `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `MEMORY.md` (owned by wrap-ticket and /ds-wrap)
@@ -8205,7 +8256,7 @@ You MUST NOT write to or modify any of the following:
 
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
-- `.agentic/tasks.jsonl` (conductor sole-writer)
+- `.agentic/tasks.jsonl` (conductor sole-writer across agents - not across sessions; see `content/references/task-state-file.md` for the cross-session task-state fold)
 - `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - `decisions.md` (owned by wrap-ticket and /ds-wrap)
@@ -10642,7 +10693,7 @@ You MUST NOT write to or modify any of the following:
 
 - `.agentic/findings.md` (owned by findings-curator)
 - `.agentic/qa.md` (owned by qa-engineer)
-- `.agentic/tasks.jsonl` (conductor sole-writer)
+- `.agentic/tasks.jsonl` (conductor sole-writer across agents - not across sessions; see `content/references/task-state-file.md` for the cross-session task-state fold)
 - `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` (conductor + Stop hook + SessionEnd hook)
 - `.agentic/batch-state.json` (conductor + Stop hook + SessionEnd hook)
 - Any `AGENTS.md` file (owned by operator + /ds-wrap)
@@ -12319,7 +12370,7 @@ The conductor delegates implementation work aggressively to specialist subagents
 - **Risk classification.** Must precede any spawn (per METHODOLOGY.md §Risk Classification).
 - **Promotion-gate check + Brief/Plan authoring.** Comprehension artifacts that the conductor must produce itself (per METHODOLOGY.md §Planning Artifacts).
 - **Stop-and-ask decisions.** The user-facing surface; subagents do not interact with the user.
-- **All `.agentic/*.json[l]` writes.** Sole-writer rule for the per-ticket keyed `loop-state-$LOOP_KEY.json` (and the legacy unkeyed `loop-state.json` it supersedes), `tasks.jsonl`, and any other state file under `.agentic/`.
+- **All `.agentic/*.json[l]` writes.** Sole-writer rule (across agents - not across sessions; `tasks.jsonl` is safe across concurrent conductor sessions via the append-only write contract and the task-state fold, see `content/references/task-state-file.md`) for the per-ticket keyed `loop-state-$LOOP_KEY.json` (and the legacy unkeyed `loop-state.json` it supersedes), `tasks.jsonl`, and any other state file under `.agentic/`.
 - **Re-route limit + convergence-failure tracking.** Conductor must hold the full loop history across iterations.
 - **Status updates and breadcrumbs to user.** All `[phase: ...]` and `[loop: ...]` emissions originate from the conductor.
 - **Dispatch logic.** Which agent, when, with what brief.
@@ -13600,13 +13651,15 @@ After receiving the orchestration-planner's output and before Phase 4, initializ
 mkdir -p .agentic && [ -f .agentic/tasks.jsonl ] || touch .agentic/tasks.jsonl
 ```
 
+An empty file (0 bytes) is not corrupt - it means `touch` ran but the conductor was interrupted before the first append. Do NOT re-`touch` it and do not treat it as corrupt; the task-state fold over zero records is simply an empty index, identical to file-absent.
+
 Also add `.agentic/` to the project's `.gitignore` if not already present.
 
 **Generate identifiers (once per conductor session):**
 - `session_id`: `<ISO-date>-<4hex>`, e.g. `20260415-a3f2`
 - `task_id` per task: `<ticket_id>-<unit_slug>` (e.g. `ENG-42-auth-middleware`), or `<session_id>-<unit_slug>` for null-ticket projects
 
-**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
+**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`, **unless the task-state fold** (`content/references/task-state-file.md`) already reports records for that `task_id` - a concurrent conductor may have already initialized it, and appending a second `pending` for an already-live `task_id` degrades log hygiene even though it cannot regress a live claim (the fold's ownership rule already prevents that). Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Build each record in full and append it with **one complete `write()`** (`printf '%s\n' "$LINE" >> .agentic/tasks.jsonl`) - never composed from multiple writes, and never a rewrite; this is the append-only write contract every task-state write in this phase and Phase 5 follows. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
 
 Emit breadcrumb: `[phase: task-state-init | N tasks written]`
 
@@ -13634,13 +13687,30 @@ The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVE
 
 See `content/references/planning-artifacts.md` §Gate semantics for where this step sits relative to the Skeptic-on-Brief.
 
-**ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
+**ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. Every conductor write is a single-line append; every read applies the task-state fold. No lock is needed because no writer ever rewrites the file.
 
 **File-absent vs file-present behavior:**
 
 - **File absent:** Fresh start. Create the file and append `pending` entries as described above.
-- **File present, same `session_id`:** Continuation within the same session (e.g., a prior worker returned BLOCKED and the human provided direction). Build the in-memory index using the field-level merge algorithm (see Worker behavior in the P1 design), determine which tasks are pending/in-progress/done, and proceed accordingly.
-- **File present, different `session_id`, with `in_progress` or `blocked` entries:** Orphaned tasks from a dead session. Log: "Found `.agentic/tasks.jsonl` with N orphaned tasks from a prior session." Surface the task list to the human with their last-known status and `updated_at` timestamp. Ask: "Do you want to resume from this state, or start fresh? (resume/restart)". On **restart**: rename the existing file to `.agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak`, create a new file, and proceed as fresh start. On **resume**: automatic resume is not yet implemented (P2). Display the last-known state of each task and say: "Automatic resume is not yet implemented. Here is the last-known state of each task: [table]. You can manually direct re-spawns for any in-progress tasks."
+- **File present, empty (0 bytes):** Identical to absent for the fold - `touch` ran but the conductor was interrupted before the first append. Do NOT re-`touch`; do NOT treat as corrupt.
+- **File present, non-empty:** Apply the **task-state fold** (`content/references/task-state-file.md` §Task-state fold) to build the in-memory per-`task_id` index before deciding anything - never read the latest raw line as the answer. Then classify each task by ownership × lifecycle per the fold's row grid (see `content/references/task-state-file.md` for the full 16-row matrix):
+  - **Own tasks** (this session is the folded owner): `pending` → spawn; `in_progress` with no intervening foreign claim → in-session continuation (e.g., a prior worker returned BLOCKED and the human provided direction) - do not re-spawn, await the return; `done` → do not spawn, dependency satisfied, **merge permitted** (the only case that permits a merge - re-fold immediately before merging per the fold-before-merge gate in Phase 5's Merge phase, condition `owner == self AND status == done`). **Invariant self-check:** folding to `own + done` while this session holds no build record for the task (no `branch_name`/`commit_sha` under this session's own `session_id`) violates I2 and means an implementation bug - **escalate, never merge**; `failed`/`blocked`/`abandoned` → partial-success retry may append a fresh `in_progress` claim (cap 1 automatic retry).
+  - **Foreign tasks, ticketed projects only** (a different session's `session_id` folds as owner; this ownership gate is structurally inert for null-ticket projects, where `task_id = <session_id>-<unit_slug>` and cross-session ids never collide - append-only still guarantees no state loss there, but there is no duplicate-fan-out protection): `pending` → spawn permitted, claim by appending `in_progress`; `in_progress` and fresh (< 10 min since the folded `updated_at`) → **do not spawn**, emit the row-7 warning below verbatim, do not merge, escalate; `in_progress` and stale (> 10 min) → orphan, spawn permitted, the fresh claim supersedes the prior one monotonically; `done` and this session holds no branch for the task → do not spawn, dependency satisfied; `done` and this session holds an outstanding branch for the task → do not spawn **and** do not merge that branch - the foreign owner's `done` is authoritative and this session's branch is a superseded generation whose commits may duplicate or conflict with the merged work; emit `WARNING: task <task_id> completed under session <X>; this session holds branch <B> for it. Not merging. Reconcile or discard manually.` and escalate; `failed`/`blocked`/`abandoned` → spawn permitted (retry), append `in_progress` with this session's own `session_id`.
+  - **Dispossessed** (this session's claim was superseded by a later foreign `in_progress` - reachable because the 10-minute staleness window is shorter than the 30-minute fan-out join deadline): **do not spawn** (including the Phase 5 partial-success retry spawn), **do not merge** this session's branch, and **do not append a terminal status** - `done` is absorbing under the fold and would hijack the new owner's task. Append outputs anyway (durable, and excluded from the folded record by the cross-generation whitelist, but recoverable from the raw log). Emit: `WARNING: task <task_id> was taken over by session <X> while this session's engineer was running. Not merging. Reconcile manually.` and escalate.
+  - **Legacy** (a record with no `session_id` - the schema has never mandated the field, so this includes both pre-fix records and any spec-compliant partial append that omits it): folds under a sentinel owner no session ever matches. Treated exactly as foreign-and-stale: `pending` → spawn permitted; `in_progress` → spawn permitted, **never** treated as fresh (an absent id cannot be shown live; blocking on it would deadlock every pre-fix project); `done` → do not spawn, and never mergeable by any viewer; `failed`/`blocked`/`abandoned` → spawn permitted.
+
+  **Monotonic ownership.** Ownership is claimed only by an `in_progress` append and is never regained once superseded - a session whose claim was superseded cannot silently take the task back by appending outputs or any other later record; it must append a fresh `in_progress` claim through this same gate, and only when the fold currently permits a spawn for that task.
+
+  On the foreign-and-fresh case, emit verbatim:
+
+  ```
+  WARNING: task <task_id> is in_progress under another session (session_id=<X>, updated_at=<Y>).
+  Not spawning. Resolve manually (wait for that session, kill it, or restart task state) and retry.
+  ```
+
+  `<Y>` is the folded `updated_at` - the owner's latest append - the same value the 10-minute staleness test consumes.
+
+  When the folded state, taken as a whole, shows orphaned tasks (`in_progress` or `blocked` entries stale under a different `session_id`, per the classification above): Log: "Found `.agentic/tasks.jsonl` with N orphaned tasks from a prior session." Surface the task list to the human with their last-known status and folded `updated_at` timestamp. Ask: "Do you want to resume from this state, or start fresh? (resume/restart)". On **restart**: rename the existing file to `.agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak`, create a new file, and proceed as fresh start - this is the one sanctioned truncation in the whole design, operator-confirmed, and never reachable from a malformed line. On **resume**: automatic resume is not yet implemented (P2). Display the last-known state of each task and say: "Automatic resume is not yet implemented. Here is the last-known state of each task: [table]. You can manually direct re-spawns for any in-progress tasks."
 - **File present, different `session_id`, all terminal (`done`, `failed`, `abandoned`):** Historical records from a prior implementation. Append new entries for the current session without disturbing existing ones.
 
 ---
@@ -13737,11 +13807,11 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
-Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
+Before spawning each worker: apply the **task-state fold** (`content/references/task-state-file.md`) and check the task's `depends_on` field against the folded index. All dependency `task_id`s must have folded `status: done` before this task can start (rows 3/9 of the fold's row grid). Append a partial transition moving status from `pending` -> `in_progress` immediately before spawning - this append is the ownership claim. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
 
-After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Write an update entry to `.agentic/tasks.jsonl` with these output fields. Status remains `in_progress` until Skeptic sign-off or final determination.
+After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Append an output-only entry to `.agentic/tasks.jsonl` with these output fields and **no `status` field** - an output append is never a claim and never a status transition (`content/references/task-state-file.md` §Task-state fold). "Status remains `in_progress`" is a statement about what the fold reports for this task until Skeptic sign-off or final determination, **not an instruction to re-emit the field**: re-emitting `status: in_progress` here would make this append a fresh ownership claim under the fold's state machine, letting a dispossessed session (rows 14/15) reclaim ownership merely by returning its engineer's outputs.
 
-After the Skeptic/QA loop resolves: update the task entry to its terminal status (`done`, `failed`, `blocked`, or `abandoned`) and populate the `loop_state` field from the P0 LOOP_STATE object. Include `outputs.skeptic_status` and `outputs.skeptic_findings_count` from the completed Skeptic review (or `skipped`/null if Skeptic was not required).
+After the Skeptic/QA loop resolves: append a partial transition setting the task's terminal status (`done`, `failed`, `blocked`, or `abandoned`) and populate the `loop_state` field from the P0 LOOP_STATE object. Include `outputs.skeptic_status` and `outputs.skeptic_findings_count` from the completed Skeptic review (or `skipped`/null if Skeptic was not required).
 
 ### If parallel independent units were identified:
 
@@ -13763,30 +13833,31 @@ git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_sl
   -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
 ```
 
-**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, verify all `depends_on` task_ids are `done` in the file and update each task entry from `pending` -> `in_progress`. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
+**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, apply the **task-state fold** and verify all `depends_on` task_ids are folded `done`, then append a partial transition per unit moving status from `pending` -> `in_progress` - one `in_progress` claim record per unit. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
 
 Spawn one `engineer` agent per worktree in a single message (parallel, background). Each engineer works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
 - The unit's `task_id`, acceptance criteria, `files_in_scope`, `quality_cmd`, and worktree path
 - The per-unit scope: extracted from the orchestration-planner's JSONL block for that unit
 
-**Join condition.** The conductor spawns all N engineers in a single message and waits for all N to return. After all N engineers return, evaluate the join:
+**Join condition.** The conductor spawns all N engineers in a single message and waits for all N to return. After all N engineers return, apply the **task-state fold** to each unit's `task_id` and evaluate the join against the folded status - never a raw last-line read:
 
-- **All-done join:** all N units reach `status: done` (Skeptic signed off per P0 loop where applicable). Proceed to merge phase.
-- **Partial success:** one or more units reach `status: failed` or `status: blocked`, and one or more reach `status: done`. Do NOT merge any branch. Apply partial success path (see below).
-- **Total failure:** all units failed or blocked. Clean up all worktrees, escalate to human with the orchestration-planner's original plan and all failure outputs. Recommend sequential implementation as fallback.
-- **Blocked:** any unit with `status: blocked` is treated as failed for join evaluation. A worker returns `Status: BLOCKED` when it encounters a scope conflict, design ambiguity, or permission issue requiring human input.
+- **All-done join:** all N units fold to `status: done` (Skeptic signed off per P0 loop where applicable). Proceed to merge phase.
+- **Partial success:** one or more units fold to `status: failed` or `status: blocked`, and one or more fold to `status: done`. Do NOT merge any branch. Apply partial success path (see below).
+- **Total failure:** all units fold to failed or blocked. Clean up all worktrees, escalate to human with the orchestration-planner's original plan and all failure outputs. Recommend sequential implementation as fallback.
+- **Blocked:** any unit folding to `status: blocked` is treated as failed for join evaluation. A worker returns `Status: BLOCKED` when it encounters a scope conflict, design ambiguity, or permission issue requiring human input.
+- **Dispossessed (rows 14-16):** if a unit's fold shows this session was superseded by a foreign `in_progress` claim mid-flight, treat that unit as neither done nor eligible for merge regardless of what this session's own engineer returned - **do not merge this session's branch for it**, and if the foreign owner's fold shows `done` with this session still holding an outstanding branch (row 16), do not merge that branch either. Escalate per §3.3's row-14/15/16 disposition; do not fold this unit into the all-done or partial-success counts above as if this session owned it.
 
 **Join timeout.** The join phase has a 30-minute total deadline. If the deadline elapses before all engineers have returned, units with no completion entry are treated as timed out (failed) and handled via the partial success path. Units that completed `status: done` before the deadline are still eligible for merge.
 
-**Fallback: no task-state file.** If `.agentic/tasks.jsonl` is not in use, derive status from each engineer's return value. Each engineer's return must include a structured status line as the first line: `Status: DONE`, `Status: DONE_WITH_CONCERNS`, or `Status: BLOCKED`. The engineer brief must explicitly require this structured first line.
+**Fallback: no task-state file.** If `.agentic/tasks.jsonl` is not in use, or is present but empty (0 bytes - the task-state fold over zero records is an empty index, identical to absent), derive status from each engineer's return value. Each engineer's return must include a structured status line as the first line: `Status: DONE`, `Status: DONE_WITH_CONCERNS`, or `Status: BLOCKED`. The engineer brief must explicitly require this structured first line.
 
-After all engineers return, update task-state output fields for each unit: write `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed` to each task's entry. Status remains `in_progress` until Skeptic sign-off or final determination.
+After all engineers return, append an output-only entry per unit: write `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed` to each task's entry, with **no `status` field** - same rule as the single-unit output append above (§3.1/§3.2 of the task-state fold): an output append is never a claim. "Status remains `in_progress`" describes the folded status until Skeptic sign-off or final determination; it is not an instruction to write the field.
 
 **Partial success path.** When one or more units fail and one or more succeed:
 1. Record which units are `done` vs `failed`/`blocked`.
 2. If done units are truly independent (no shared interface with failed units): merge done units into `FEATURE_BRANCH` sequentially in `merge_order`. Leave failed units' worktrees in place.
-3. Spawn a retry engineer for each failed unit, pointing it at the preserved worktree and the failure detail. The retry brief must include: (a) the original task brief from the task-state `inputs` field, (b) the failure detail from `outputs.worker_summary` and `outputs.quality_gate_passed`, (c) the preserved worktree path, (d) any partial commits in the worktree, and (e) explicit instruction that this is a re-run, not a fresh start.
+3. Spawn a retry engineer for each failed unit, pointing it at the preserved worktree and the failure detail. Apply the **task-state fold** first: `inputs` survives generation boundaries because it is on the fold's cross-generation whitelist, so the retry brief reads a coherent `inputs` even when the failed unit's fold spans more than one session. The retry brief must include: (a) the original task brief from the folded `inputs` field, (b) the failure detail from `outputs.worker_summary` and `outputs.quality_gate_passed`, (c) the preserved worktree path, (d) any partial commits in the worktree, and (e) explicit instruction that this is a re-run, not a fresh start.
 4. If the retry succeeds, merge and proceed to the Skeptic phase.
 5. If the retry fails a second time, escalate to human with the full failure history.
 6. Maximum retry depth: 1 automatic retry per unit.
@@ -13795,7 +13866,7 @@ After all engineers return, update task-state output fields for each unit: write
 
 **Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches onto a scratch integration branch (not `FEATURE_BRANCH` - the merge is provisional until the Skeptic signs off). Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to the scratch integration branch, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff). The integration Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation (added when the planner classified units) becomes the adversarial brief hint: pass it to the integration Skeptic so it knows the expected interaction boundaries.
 
-**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`:
+**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`. **Before merging each unit, apply the fold-before-merge gate** - see "Fold-before-merge and branch verification" below, which runs per unit immediately before that unit's merge command:
 
 ```bash
 git -C $REPO checkout $FEATURE_BRANCH
@@ -13816,7 +13887,7 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 5. The sequential re-implementation engineer inherits a single-Skeptic review obligation (one Skeptic over combined diff, since units are now interdependent by fact of their conflict).
 6. The conflict re-route counts as iteration 1 of the Phase 6 loop (do not double-count).
 
-**Branch verification before merge.** Before merging each unit's branch, verify the worktree is on the expected branch:
+**Fold-before-merge and branch verification (third gate point).** Immediately before merging each unit's branch, re-apply the **task-state fold** to that unit's `task_id` and merge only if the folded state shows `owner == self AND status == done`. This is the third and final read-time ownership gate point - fold-before-spawn (Phase 5's spawn steps above) and fold-before-terminal-append (Phase 6) are the other two - and it is what makes the freeze lemma load-bearing rather than decorative: without it, a session could pass fold-before-spawn, have its claim superseded mid-flight (rows 14-16), and still merge on a stale read from earlier in the join. Any other folded result means **do not merge that unit's branch**: dispossessed (rows 14/15) or a foreign `done` while this session still holds an outstanding branch (row 16) both route to that row's disposition - escalate, do not merge. Also verify the worktree is on the expected branch:
 
 ```bash
 # Confirm branch matches expected sub-branch before merging:
@@ -14750,7 +14821,7 @@ Field derivation:
 - `risk_class` - `$RISK_CLASS`, **set at the Phase 2 "Risk classification declaration (unconditional)" subsection** to the conductor's declared classification, post-floor: `Trivial` | `Low` | `Elevated`. All three of `risk_class`, `skeptic_rounds`, and `qa_status` normalize an empty value to `null` in the record builder. For `risk_class` this is defence-in-depth rather than a reachable path - the Phase 2 declaration is unconditional, so an empty value would mean the declaration was skipped - but the three fields are read from the same per-ticket-reset in-context variables and are handled identically, so that a bug upstream produces an explicit `null` (which the null-render rule renders `n/a`) rather than an empty string, which that rule has nothing sensible to render.
 - `skeptic_rounds` - `$SKEPTIC_ROUNDS`, **captured at Phase 6 clean exit**, before Phase 6b overwrites the loop state. Do **not** read `loop_state.iteration` at this point unguarded: Phase 6b reinitializes that file with `phase: qa, iteration: 1`, so a post-QA read returns the QA iteration count, not the Skeptic round count. **Null on the Trivial path**, which never reaches Phase 6 and therefore never sets the variable. The disk fallback below exists only for a resumed session that lost the in-context variable, and it is doubly guarded - on `ticket_id` *and* on `loop_state.phase == "skeptic"`.
 - `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA reached a terminal verdict; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value (set on Phase 6b's skip branch) or the literal `Trivial path` (set at the **Phase 2 declaration**, because Phase 6b is unreachable on the Trivial path). **Both non-QA paths - Trivial, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
-- `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path). `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
+- `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of **distinct** `task_id`s among `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path) - apply the **task-state fold** and dedupe, not a raw line count. `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
 
 **Variable definition sites.** `RISK_CLASS` and `QA_STATUS` carry the record's semantic content, so unlike `$BRANCH_NAME` / `$GH_REPO` they are stated explicitly rather than assumed:
 
@@ -14802,8 +14873,10 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
     case "$TRL_ROUNDS" in ''|*[!0-9]*) TRL_ROUNDS="" ;; esac
 
     # unit_count: derived from tasks.jsonl; 1 when absent, unreadable, or no matching records.
+    # sort -u dedupes by task_id before counting - a multi-record task (e.g. pending
+    # then in_progress then done) must count once, not once per append.
     TRL_UNITS=$(jq -r --arg t "$TICKET_ID" 'select(.ticket_id == $t) | .task_id' \
-      .agentic/tasks.jsonl 2>/dev/null | grep -c . || true)
+      .agentic/tasks.jsonl 2>/dev/null | sort -u | grep -c . || true)
     case "$TRL_UNITS" in ''|0|*[!0-9]*) TRL_UNITS=1 ;; esac
 
     # Build the whole record first, then append it with ONE write. Do not split this append.
@@ -18337,7 +18410,7 @@ Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution c
 
 ## Resolution algorithm (single ticket)
 
-1. **Read task state.** Look up the ticket in `.agentic/tasks.jsonl` (most recent entry for that `ticket_id`). Capture `status` (pending | in_progress | complete | blocked | skipped_already_merged) and `pr_number` / `branch` if recorded. If `.agentic/tasks.jsonl` is absent or has no entry for this ticket, proceed with no task-state: derive PR/branch state directly from `gh` (by ticket-ID-derived branch name or an explicit PR number if the operator supplies one). Task-state is an optimization, not a requirement, for single-ticket mode.
+1. **Read task state.** Apply the **task-state fold** (`content/references/task-state-file.md`) to `.agentic/tasks.jsonl` and read the folded record for that `ticket_id` - never the most recent raw line, which can be a rejected or superseded transition under the fold. Capture `status` (pending | in_progress | done | failed | blocked | abandoned - the `tasks.jsonl` **writer** enum per `content/commands/ds-implement-ticket.md`, distinct from `batch-state.json`'s `tickets[]` enum) and `pr_number` / `branch` if recorded. If `.agentic/tasks.jsonl` is absent or the fold has no record for this ticket, proceed with no task-state: derive PR/branch state directly from `gh` (by ticket-ID-derived branch name or an explicit PR number if the operator supplies one). Task-state is an optimization, not a requirement, for single-ticket mode.
 2. **Read PR state.** If a PR number/branch is known: `gh pr view <N> --repo <GH_REPO> --json state,isDraft,mergeable,reviewDecision 2>/dev/null`. Determine: no PR / draft / open-ready / merged / closed.
 3. **Read branch state.** `git log origin/<branch> 2>/dev/null` to confirm the branch exists / was deleted (deleted often implies merged).
 4. **Compute expected tracker state** using this mapping (same target states as the `/ds-implement-ticket` writeback sites W1-W7):
@@ -18349,7 +18422,7 @@ Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution c
    | PR open + ready, not merged | `$TRACKER_STATE_QA` (in review/QA window) |
    | PR draft | `$TRACKER_STATE_IN_REVIEW` |
    | task `in_progress`, no PR yet | `$TRACKER_STATE_IN_PROGRESS` |
-   | task `complete` but no PR found | `$TRACKER_STATE_DONE` (work finished) |
+   | task `done` but no PR found | `$TRACKER_STATE_DONE` (work finished) |
    | task `pending` / unknown | no transition (leave as-is) |
 
 5. **Apply forward-only guard.** Read the ticket's current tracker state (name AND category - both are required). **Do not restate or approximate the ranking rule here.** Read `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper` -> "Subagent responsibilities" steps 1-5 in full and apply that algorithm exactly, including the same-category pipeline sub-rank and the Blocked always-permitted exception in both directions. This command already resolves all 5 `TRACKER_STATE_*` values in Preflight - pass them as `tracker_state_values` the same way the Tracker Writeback Helper does. State-read failure - skip silently.
@@ -18359,7 +18432,7 @@ Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution c
 
 If `.agentic/tasks.jsonl` is absent, print "No task state found; nothing to sync." and continue - do NOT exit the whole `--all` invocation on this condition. Only the tasks.jsonl pass itself is skipped; the tracker-wide sweep below still runs whenever `TRACKER != none`.
 
-Iterate every non-terminal ticket in `.agentic/tasks.jsonl` (skip entries whose `status` is a terminal value already reconciled). Run the single-ticket algorithm for each. Transition without prompting. Aggregate counts.
+Apply the **task-state fold** to `.agentic/tasks.jsonl` and iterate every non-terminal ticket over the **folded records** (skip entries whose folded `status` is already in the **sync-terminal** set - `{done, failed, blocked, abandoned}`, the full writer terminal set per `content/commands/ds-implement-ticket.md` - not just `{done}`; a `{done}`-only reading would re-reconcile every `abandoned` or `failed` task on every run, forever. This is a distinct set from the fold's own **fold-absorbing** set `{done}`, which governs whether a status can be regressed, not whether `--all` re-sweeps it). Run the single-ticket algorithm for each. Transition without prompting. Aggregate counts.
 
 After the tasks.jsonl pass completes, run the tracker-wide sweep below (Tier 1, then Tier 2) as part of the same `--all` invocation.
 
@@ -18375,7 +18448,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
    **Cap: 100 most recently updated tickets.** Never truncate silently. If the query returns more than 100 non-terminal tickets, take the 100 most recently updated and print: `[ticket-status-sync] tracker-wide sweep capped at 100 most-recently-updated tickets; N older tickets skipped this run.`
 
-2. **Exclude already-reconciled tickets.** Drop any ticket key that was already processed by the tasks.jsonl pass above (its `ticket_id` appears in `.agentic/tasks.jsonl`) - that pass already evaluated it (transitioned or correctly left alone); re-evaluating it here is redundant, not wrong, but is skipped to keep the sweep focused on what the tasks.jsonl pass structurally cannot see.
+2. **Exclude already-reconciled tickets.** Drop any ticket key that was already processed by the tasks.jsonl pass above (its `ticket_id` appears in the **folded** record set from that pass) - that pass already evaluated it (transitioned or correctly left alone); re-evaluating it here is redundant, not wrong, but is skipped to keep the sweep focused on what the tasks.jsonl pass structurally cannot see.
 
 3. **Gather deterministic evidence per remaining ticket key `<KEY>`:**
    - `git log --grep "<KEY>" --oneline` on `BASE_BRANCH`.
@@ -18386,7 +18459,7 @@ Purpose: catch tickets whose work shipped in a conductor-led session outside `/d
 
 4. **Zero evidence found** (no commits, no merged PRs, no open PRs reference `<KEY>`): do NOT transition. This ticket flows into the Tier 2 unmatched-candidates pass below instead. Tier 1 only ever acts on positive ID-match evidence.
 
-5. **Evidence found - compute target state.** Do NOT invent a new state machine here. Feed the gathered evidence into the SAME "Resolution algorithm (single ticket)" mapping table above (step 4): a merged PR referencing `<KEY>` (and no open PR still referencing it) maps to the "PR merged" row -> `$TRACKER_STATE_DONE`; an open PR referencing `<KEY>` maps to "PR open + ready" or "PR draft" per its `isDraft`/`reviewDecision` -> `$TRACKER_STATE_QA` / `$TRACKER_STATE_IN_REVIEW`; commits referencing `<KEY>` on `BASE_BRANCH` with no PR record at all (a direct conductor commit) map to the "task complete but no PR found" row -> `$TRACKER_STATE_DONE`.
+5. **Evidence found - compute target state.** Do NOT invent a new state machine here. Feed the gathered evidence into the SAME "Resolution algorithm (single ticket)" mapping table above (step 4): a merged PR referencing `<KEY>` (and no open PR still referencing it) maps to the "PR merged" row -> `$TRACKER_STATE_DONE`; an open PR referencing `<KEY>` maps to "PR open + ready" or "PR draft" per its `isDraft`/`reviewDecision` -> `$TRACKER_STATE_QA` / `$TRACKER_STATE_IN_REVIEW`; commits referencing `<KEY>` on `BASE_BRANCH` with no PR record at all (a direct conductor commit) map to the "task done but no PR found" row -> `$TRACKER_STATE_DONE`.
 
 6. **Apply forward-only guard, then transition.** Identical to single-ticket steps 5-6: read the ticket's current tracker state and apply the SAME algorithm - do not restate it here, read `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper`. If a transition is warranted, spawn the tracker-writeback subagent using the `## Tracker Writeback Helper` invocation contract in `content/commands/ds-implement-ticket.md` verbatim - read that contract, do not re-enumerate its parameters here beyond the following call-site-specific values: `target_state: <expected>`, `forward_only_guard: true`, `tracker_state_values` (the 5 values resolved in Preflight). Soft-fail: a spawn or API failure logs and moves to the next ticket. Additionally, accumulate any `unmatched_state_name` returned by the guard across this sweep; if the tally is non-empty at the end of the `--all` pass, print ONE aggregate line (see Output section) instead of one line per ticket.
 
@@ -19660,7 +19733,7 @@ Using the batch results:
 - **Reuse `git status --porcelain` and `git stash list` from Step 0-pre** (do not re-run) to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
 - **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
 - **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
-- **Note task-state summary** - if `.agentic/tasks.jsonl` exists and contains entries with the current `session_id`, include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned). Do NOT copy task entries into MEMORY.md - they are already durable in the file.
+- **Note task-state summary** - if `.agentic/tasks.jsonl` exists, apply the **task-state fold** (`content/references/task-state-file.md`) and filter the **folded records** whose `session_id` is the current session - not a raw-line filter, which double-counts a task that was taken over: a dispossessed task's own records still carry this session's `session_id` even though the fold has moved ownership elsewhere. Include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned) over that filtered folded set. Do NOT copy task entries into MEMORY.md - they are already durable in the file.
 - **Note loop-state summary** — loop state is keyed per ticket, so enumerate every `.agentic/loop-state-*.json` **plus** the legacy `.agentic/loop-state.json`, and consider only those whose `session_id == $CLAUDE_CODE_SESSION_ID`. **The `session_id` filter is required, not optional:** it needed no gate in a one-file world, but a keyed checkout routinely holds another session's healthy in-flight loop, and reporting that as this session's incomplete loop is a false alarm on every wrap. For each surviving candidate: if `status=active`, note in the wrap summary that an incomplete loop was active when `/ds-wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `/ds-implement-ticket` invocation on that ticket will offer to resume). Name the candidate by its `loop_key` (falling back to `ticket_id`, then to the filename) so the note identifies which ticket. The wrap command does NOT delete or modify any loop-state file, keyed or legacy - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or `_wrap.md` beyond the one-line status note.
 - **Enumerate open PRs targeting the conductor's current branch** — from the batch's `gh pr list` output above (do not re-run the query). /ds-wrap writes AGENTS.md and memory.md additions onto the conductor's current branch (typically `main`). If those additions cite file paths or feature keys that live on branches with open PRs not yet merged, the doc additions will land on the target branch describing files/keys that do not yet exist there.
 
