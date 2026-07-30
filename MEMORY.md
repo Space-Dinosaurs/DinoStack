@@ -34,6 +34,10 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-27: The deferred G2 concurrent-wrap-queueing design's stated premise (`context.md` races) is stale post-#499** - `context.md` is now a lock-free derived rollup (session-keyed shards + compare-and-retry) with no remaining hazard. If G2 is resumed, re-scope it to the three files that actually still contend: `.agentic/_wrap.md`, root `MEMORY.md`, and `decisions.md`. See `.agentic/learnings.md` KNW-20260727-002 for full detail.
 
+- **2026-07-29: `.agentic/tasks.jsonl` ownership and ordering are defined by the executable `bin/tests/fold_model.py` (DS-108, #521), not by prose.** An executable model was chosen because it is diffable, directly testable, and cannot drift from the gates that enforce it - the prose rules had already drifted, and five plan revisions passed before a non-prefix-monotonic ordering defect surfaced. Ordering is arrival order only; `updated_at` feeds staleness, never ordering. Gates: `bin/tests/test_fold_invariants.py`, `bin/tests/test_tasks_jsonl_fold.sh`.
+
+- **2026-07-29: `strict_required_status_checks_policy` is now `true` on the `main` ruleset (DS-115), so merges serialize.** A base move invalidates a PR's results and GitHub does not re-run workflows on base movement, so each PR needs an explicit rebase plus a full 14-check re-run near merge time. Chosen because `check-adapter-sync` already detects stale-base regeneration (PR checkout is the merge ref, `refs/pull/N/merge`) - only re-run freshness was missing, so no new CI gate was needed. Complements the 2026-07-25 required-checks entry.
+
 ## Methodology Enforcement
 
 - **2026-07-01: The Elevated-signal table and the "when in doubt, classify Elevated" tie-break are duplicated across more files than a grep suggests** (`02-delegation.md`, `subagent-protocol.md`, `skeptic-protocol.md`, plus restatements in `orchestration-planner.md`/`agentic-status.md`). Match copies by semantics, not by grepping one phrase.
