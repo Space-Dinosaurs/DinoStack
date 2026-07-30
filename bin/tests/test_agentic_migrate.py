@@ -821,5 +821,90 @@ markers: []
 
 
 
+class TestOrderAwareCheckAndRepair(unittest.TestCase):
+    """Major 3 regression: `check`/`diff` must detect ordering drift even
+    when every individual pattern is textually present (the old presence-only
+    logic reported no drift forever once the umbrella existed anywhere in the
+    file), and `apply` must repair a misordered file and be idempotent."""
+
+    def _misordered_project(self, tmp):
+        project = Path(tmp) / "project"
+        project.mkdir()
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": 1}) + "\n")
+        gitignore_path = project / ".gitignore"
+        # Umbrella BELOW the negation - the broken ordering that silently
+        # defeats the negation (see bin/agentic-migrate _append_gitignore).
+        gitignore_path.write_text("!.agentic/qa.md\n.agentic/*\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        return project, gitignore_path
+
+    def _custom_manifest(self, tmp):
+        manifest_text = """
+scaffolding_version: 1
+gitignore:
+  - pattern: ".agentic/*"
+    purpose: "umbrella ignore"
+  - pattern: "!.agentic/qa.md"
+    purpose: "committed"
+files: []
+markers: []
+"""
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+        return manifest_path
+
+    def test_check_reports_drift_on_misordered_file_even_at_current_version(self):
+        tmp = tempfile.mkdtemp()
+        project, _ = self._misordered_project(tmp)
+        manifest_path = self._custom_manifest(tmp)
+
+        result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(out["gitignore_misordered"])
+
+    def test_diff_reports_ordering_issue(self):
+        tmp = tempfile.mkdtemp()
+        project, _ = self._misordered_project(tmp)
+        manifest_path = self._custom_manifest(tmp)
+
+        result = run(["diff", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn("ordering issue", result.stdout)
+
+    def test_apply_repairs_ordering_and_is_idempotent(self):
+        tmp = tempfile.mkdtemp()
+        project, gitignore_path = self._misordered_project(tmp)
+        manifest_path = self._custom_manifest(tmp)
+
+        r1 = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(r1.returncode, 0, msg=r1.stderr)
+
+        lines = gitignore_path.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(
+            lines, [".agentic/*", "!.agentic/qa.md"],
+            "umbrella must be moved above the negation, no other reordering",
+        )
+
+        # Real git proof: qa.md must not be ignored now that ordering is fixed.
+        check = subprocess.run(["git", "check-ignore", "-q", ".agentic/qa.md"], cwd=str(project))
+        self.assertNotEqual(check.returncode, 0, "qa.md must not be git-ignored after repair")
+
+        # check must now report ok (version already current; ordering fixed).
+        check_result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(check_result.returncode, 0, msg=check_result.stdout)
+
+        # Idempotent: a second apply makes no further byte-level changes.
+        first_content = gitignore_path.read_bytes()
+        r2 = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(r2.returncode, 0, msg=r2.stderr)
+        second_content = gitignore_path.read_bytes()
+        self.assertEqual(first_content, second_content, "second apply must be a true no-op")
+
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
