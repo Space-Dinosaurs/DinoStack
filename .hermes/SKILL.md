@@ -1503,9 +1503,7 @@ Purpose: Detailed code-standards reference blocks extracted from
 
 Public API: Read-only reference document. Cross-referenced from:
             content/rules/code-standards.md (inline pointers replacing
-            these verbose blocks); content/agents/qa-engineer.md
-            (Session naming section cross-references the Browser
-            Verification session-uniqueness scheme below).
+            these verbose blocks).
 
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
@@ -1518,8 +1516,7 @@ Upstream deps: content/rules/code-standards.md (parent rules file; read
                --disable-blink-features=AutomationControlled stealth flag).
 
 Downstream consumers: engineer agents (run per-language quality gates
-                      after every implementation); qa-engineer (Session
-                      naming scheme cross-reference); content/sections/
+                      after every implementation); content/sections/
                       12-protocol-details.md (code standards reference).
 
 Failure modes: Prose + code blocks; does not auto-execute. Per-language
@@ -1565,7 +1562,9 @@ Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"
 
 `sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized basename only, before the `-<epoch-seconds>-<pid>` suffix is appended - truncation can never eat the suffix, which is why the name stays unique even when the basename itself collapses.
 
-**Why the suffix is unconditional:** the sanitized basename alone does not guarantee uniqueness. The ~40-char cap can collapse two distinct basenames to the same truncated value - e.g. two worktree slugs differing only in a trailing unit index both truncate to the same prefix - and two checkouts can share a basename by construction, not coincidence: AE's own worktree-naming conventions generate exactly that (`.agentic/worktrees/<branch-name>`, `qa-<branch>`, per-unit slugs). The one cost of the suffix: the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including teardown. If a session name from an earlier run is lost, `agent-browser session list` is the recovery path (see the eventual-consistency caveat in `content/agents/qa-engineer.md` §Session naming).
+**Why the suffix is unconditional:** the sanitized basename alone does not guarantee uniqueness. The ~40-char cap can collapse two distinct basenames to the same truncated value - e.g. two worktree slugs differing only in a trailing unit index both truncate to the same prefix - and two checkouts can share a basename by construction, not coincidence: AE's own worktree-naming conventions generate exactly that (`.agentic/worktrees/<branch-name>`, `qa-<branch>`, per-unit slugs).
+
+The main cost of the suffix: the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including teardown - **do not re-run the resolution block on a later call to get it again.** Harness shell state does not persist between Bash tool calls, so re-deriving produces a different name every time and silently orphans the previous session: a blank result with no error on the next call, and the scoped `close` swallowing the evidence. A second cost: `agent-browser` keys session state under `~/.agent-browser/` by session name, so a per-run name accumulates one artifact per run, where the old deterministic name reused a single artifact per repo instead - no documented teardown path reaps them.
 
 ```bash
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" open <url>                # navigate
@@ -1578,6 +1577,8 @@ agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" close
 After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always scoped-close it when verification is done - otherwise the browser lingers open after the task. `agent-browser close --all` closes every session on the machine, including a concurrently-running sibling's - reserve it for manual, deliberate operator cleanup, never an automatic teardown path.
 
 **Escape hatch** (to observe the raw, non-stealth fingerprint): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically against `agent-browser 0.25.4`: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`; re-verify this override-vs-merge behavior if the installed version has moved on). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - args are resolved per-session at (re)launch, so editing the file while any session (this run's or a concurrent sibling's) may be live risks a silent, destructive relaunch that destroys that session's cookies, auth state, and navigation position with no error surfaced.
+
+`agent-browser session list` is eventually consistent for a few seconds after a scoped `close` returns - a just-closed session briefly still appearing in the list is not a teardown failure.
 
 ---
 
@@ -9122,6 +9123,8 @@ Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"
 `sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized value only, before the `-<epoch-seconds>-<pid>` suffix is appended in branches 1 and 2 - truncation can never eat the suffix, which is why the name stays unique even when the sanitized basename or ticket ID collapses.
 
 Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD, so it cannot serve as a session-name input; `git rev-parse --show-toplevel` is always populated, which is why the basename derives from it instead. Uniqueness itself comes from the per-run suffix in the Resolve steps above, not from the worktree directory's own name - so this holds regardless of what the caller names the worktree.
+
+**The main cost of the suffix:** the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including the teardown close mandated in the Workflow section below - **do not re-run the resolution block on a later call to get it again.** Harness shell state does not persist between Bash tool calls, so re-deriving produces a different name every time and silently orphans the previous session: a blank `snapshot` with no error, and the scoped `close 2>/dev/null || true` swallowing the evidence. A second cost: `agent-browser` keys session state under `~/.agent-browser/` by session name, so a per-run name accumulates one artifact per run, where the old deterministic name reused a single artifact per repo instead - no documented teardown path reaps them.
 
 **Escape hatch** (to observe the raw, non-stealth fingerprint - e.g. a scenario deliberately testing bot-detection behavior): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically against `agent-browser 0.25.4`: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`; re-verify this override-vs-merge behavior if the installed version has moved on). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - see the mid-run-edit warning in the Workflow section below.
 
