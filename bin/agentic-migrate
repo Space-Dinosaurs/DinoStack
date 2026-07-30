@@ -28,6 +28,7 @@ import importlib.machinery as _ilm
 import importlib.util as _ilu
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -155,10 +156,46 @@ def _pattern_present(lines: list[str], pattern: str) -> bool:
     return any(line.rstrip() == needle for line in lines)
 
 
+_AGENTIC_UMBRELLA_RE = re.compile(r"^(\*\*/)?/?\.agentic/?(\*{1,2})?$")
+
+
+def _is_agentic_umbrella_pattern(pattern: str) -> bool:
+    """True if `pattern` ignores the whole .agentic/ directory (an umbrella
+    pattern like `.agentic/*`, `.agentic/**`, `/.agentic/*`, `**/.agentic/**`),
+    as opposed to a specific file or subdirectory pattern like `.agentic/qa.md`
+    or `.agentic/session-log/`."""
+    return bool(_AGENTIC_UMBRELLA_RE.match(pattern.strip()))
+
+
 def _append_gitignore(gitignore_path: Path, pattern: str) -> None:
     """Append a pattern line to .gitignore, inserting a leading newline if the
-    file has content but does not end with one (prevents pattern fusion)."""
+    file has content but does not end with one (prevents pattern fusion).
+
+    git .gitignore matching is last-match-wins: a `!` negation only overrides
+    an ignore pattern that appears ABOVE it in the file. If `pattern` is an
+    .agentic/ umbrella ignore and the file already contains `!.agentic/...`
+    negation lines (e.g. seeded by /ds-init-project Step 9, which predates any
+    umbrella), appending the umbrella at EOF would land it BELOW those
+    negations and silently defeat every one of them. In that case, insert the
+    umbrella immediately above the first such negation line instead. This is
+    idempotent - a pattern already present is a no-op - and never reorders or
+    touches any other line.
+    """
     try:
+        lines = _gitignore_lines(gitignore_path)
+        if _pattern_present(lines, pattern):
+            return
+
+        if _is_agentic_umbrella_pattern(pattern):
+            negation_idx = next(
+                (i for i, line in enumerate(lines) if line.strip().startswith("!.agentic/")),
+                None,
+            )
+            if negation_idx is not None:
+                lines.insert(negation_idx, pattern)
+                gitignore_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+                return
+
         needs_leading_newline = False
         if gitignore_path.exists():
             content = gitignore_path.read_bytes()

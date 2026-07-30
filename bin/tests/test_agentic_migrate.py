@@ -511,5 +511,143 @@ markers: []
         self.assertIn("agentic-escape-test.txt", result.stderr, "stderr must mention the offending path")
 
 
+class TestGitignoreUmbrellaAboveExistingNegation(unittest.TestCase):
+    """Regression: git .gitignore matching is last-match-wins - a `!.agentic/...`
+    negation only works if it comes AFTER the umbrella pattern it overrides. When
+    a project's .gitignore already has negations (seeded by /ds-init-project Step
+    9, which predates any umbrella) and `apply` later adds the `.agentic/*`
+    umbrella, the umbrella must land ABOVE the existing negations, not at EOF."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.project = Path(self.tmp)
+        agentic = self.project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"debugger_on_failure": False}) + "\n")
+
+        # Simulate the pre-umbrella state: Step 9 negations exist, no umbrella yet.
+        self.gitignore_path = self.project / ".gitignore"
+        self.gitignore_path.write_text(
+            "node_modules/\n"
+            "!.agentic/session-log/\n"
+            "!.agentic/learnings.md\n"
+            "!.agentic/qa.md\n"
+            "!.agentic/deploy.md\n"
+            "!.agentic/tracking.md\n"
+            "!.agentic/qa-regressions.md\n"
+            "!.agentic/config.json\n"
+        )
+        subprocess.run(["git", "init", "-q"], cwd=str(self.project), check=True)
+
+    def test_umbrella_lands_above_negation_and_negation_still_wins(self):
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(self.project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        lines = self.gitignore_path.read_text(encoding="utf-8").splitlines()
+        self.assertIn(".agentic/*", lines, "umbrella pattern must have been added")
+        umbrella_idx = lines.index(".agentic/*")
+        negation_idx = next(i for i, l in enumerate(lines) if l.strip() == "!.agentic/qa.md")
+        self.assertLess(
+            umbrella_idx, negation_idx,
+            "umbrella must be inserted ABOVE the existing negation, not appended at EOF",
+        )
+
+        # Behavioral proof: qa.md must NOT be ignored (negation wins because it
+        # now follows the umbrella). Real git, not string matching.
+        check = subprocess.run(
+            ["git", "check-ignore", "-q", ".agentic/qa.md"],
+            cwd=str(self.project),
+        )
+        self.assertNotEqual(
+            check.returncode, 0,
+            "qa.md must NOT be git-ignored once the umbrella is correctly ordered",
+        )
+
+        # Unrelated pre-existing line must be untouched.
+        self.assertIn("node_modules/", lines)
+
+    def test_apply_is_idempotent_no_duplicate_umbrella(self):
+        r1 = run(["apply", "--manifest", MANIFEST, "--project-root", str(self.project)])
+        self.assertEqual(r1.returncode, 0, msg=r1.stderr)
+        first_content = self.gitignore_path.read_text(encoding="utf-8")
+
+        r2 = run(["apply", "--manifest", MANIFEST, "--project-root", str(self.project)])
+        self.assertEqual(r2.returncode, 0, msg=r2.stderr)
+        second_content = self.gitignore_path.read_text(encoding="utf-8")
+
+        lines = second_content.splitlines()
+        umbrella_count = sum(1 for l in lines if l.strip() == ".agentic/*")
+        self.assertEqual(umbrella_count, 1, "second apply must not duplicate the umbrella pattern")
+        self.assertEqual(
+            first_content, second_content,
+            "a no-op second apply must not change .gitignore content at all",
+        )
+
+
+class TestGitignoreUmbrellaAppendsWhenNoExistingNegation(unittest.TestCase):
+    """The no-existing-negation case must behave exactly as before: append at EOF."""
+
+    def test_umbrella_appended_at_eof_when_no_negation_present(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"debugger_on_failure": False}) + "\n")
+        gitignore_path = project / ".gitignore"
+        gitignore_path.write_text("node_modules/\n.env\n")
+
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        lines = gitignore_path.read_text(encoding="utf-8").splitlines()
+        self.assertIn(".agentic/*", lines)
+        umbrella_idx = lines.index(".agentic/*")
+        # No negation existed, so the umbrella must be appended after the
+        # original two lines (their relative order untouched), not inserted
+        # somewhere in the middle.
+        self.assertEqual(lines[0], "node_modules/")
+        self.assertEqual(lines[1], ".env")
+        self.assertGreaterEqual(umbrella_idx, 2)
+
+
+class TestInitProjectStep9NegationBlock(unittest.TestCase):
+    """content/commands/ds-init-project.md Step 9's .agentic/ gitignore block must
+    emit a `!.agentic/<file>` negation for every tracked config file it claims to
+    carve out, and must not duplicate `!.agentic/learnings.md`."""
+
+    STEP9_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
+
+    def _step9_block(self) -> str:
+        text = self.STEP9_PATH.read_text(encoding="utf-8")
+        start = text.index("# Agentic engineering runtime artifacts")
+        end = text.index("```", start)
+        return text[start:end]
+
+    def test_all_expected_negations_present_exactly_once(self):
+        block = self._step9_block()
+        expected = [
+            "!.agentic/session-log/",
+            "!.agentic/learnings.md",
+            "!.agentic/qa.md",
+            "!.agentic/deploy.md",
+            "!.agentic/tracking.md",
+            "!.agentic/qa-regressions.md",
+            "!.agentic/config.json",
+        ]
+        for negation in expected:
+            occurrences = block.count(negation)
+            self.assertEqual(
+                occurrences, 1,
+                f"{negation} must appear exactly once in the Step 9 block, found {occurrences}",
+            )
+
+    def test_preferences_json_is_not_negated(self):
+        """preferences.json is deliberately ignored (per-developer runtime state)
+        and must never be carved out of the umbrella."""
+        block = self._step9_block()
+        self.assertNotIn("!.agentic/preferences.json", block)
+        self.assertIn(".agentic/preferences.json", block)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
