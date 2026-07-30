@@ -452,3 +452,261 @@ def test_wrap_part_f_gate_resolves_tracker_state_values():
     assert any("TRACKER_STATE_IN_PROGRESS" in l for l in gate_lines), (
         "Part F Gate line no longer resolves TRACKER_STATE_IN_PROGRESS"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tracker-state reconciliation: Gap 1 diagnostic-enrichment mechanism
+# (content/commands/ds-implement-ticket.md ## Tracker Writeback Helper step 5)
+# ---------------------------------------------------------------------------
+
+def test_canonical_block_step5_diagnostic_runs_after_attempt(canonical_block):
+    assert "runs strictly AFTER a transition attempt, never before" in canonical_block
+    assert "no new round-trip on the happy path" in canonical_block
+
+
+def test_canonical_block_diagnostic_failure_is_swallowed(canonical_block):
+    idx = canonical_block.index("Any failure of this enrichment step itself is swallowed")
+    window = canonical_block[idx:idx + 200]
+    assert "`diagnostic` stays `null`" in window
+    assert "never changes" in window
+
+
+def test_canonical_block_jira_relabel_uses_already_fetched_data(canonical_block):
+    assert (
+        "jira_get_transitions` result already fetched during the attempt above (no new call)"
+        in canonical_block
+    )
+
+
+def test_canonical_block_linear_relabel_only_after_own_check_succeeds(canonical_block):
+    linear_bullet_idx = canonical_block.index("**Linear** - make ONE best-effort call")
+    linear_bullet = canonical_block[linear_bullet_idx:linear_bullet_idx + 900]
+    fail_idx = linear_bullet.index("If this call itself fails: swallow it")
+    succeed_idx = linear_bullet.index("If it succeeds: check whether")
+    assert fail_idx < succeed_idx, (
+        "the Linear diagnostic bullet must check the enrichment call's own failure "
+        "BEFORE checking whether the live states resolve target_state"
+    )
+
+
+def test_return_payload_schema_has_new_status_and_diagnostic_field():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    returns_lines = [l for l in text.splitlines() if l.strip().startswith("> **Returns:**")]
+    assert returns_lines, "Returns line not found"
+    assert all("skipped_unconfigured_state" in l for l in returns_lines)
+    assert all("`diagnostic`" in l for l in returns_lines)
+
+
+def test_line_508_failure_logging_has_both_forms():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    failure_logging_lines = [
+        l for l in text.splitlines() if l.strip().startswith("**Failure logging:**")
+    ]
+    assert failure_logging_lines, "Failure logging line not found"
+    assert all(
+        "FAILED: <error>" in l and "SKIPPED: <diagnostic>" in l
+        for l in failure_logging_lines
+    ), "the canonical Failure logging line must define both the FAILED and SKIPPED forms"
+
+
+def test_phase_2c_warning_updated_without_stale_silently_skipped_claim():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    heading = "## Phase 2c: Tracker state discovery (conditional)"
+    start = text.index(heading)
+    end = text.index("\n## ", start + len(heading))
+    section = text[start:end]
+    assert "attempted with this exact name first" in section
+    assert "transition may be silently skipped at runtime" not in section
+
+
+def test_phase_11_line_510_notes_qa_transition_unaffected():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    anchor = "For full details of the Phase 11 writeback subagent brief shape"
+    idx = text.index(anchor)
+    window = text[idx:idx + 700]
+    assert "diagnostic-enrichment behavior from" in window
+    assert "unaffected, unedited by this plan" in window
+
+
+def test_comment_gate_clauses_are_byte_identical_across_files():
+    status_sync_path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    wrap_path = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
+    status_sync_text = status_sync_path.read_text(encoding="utf-8")
+    wrap_text = wrap_path.read_text(encoding="utf-8")
+
+    status_sync_anchor = "Evidence comment (only when the transition succeeded)"
+    wrap_anchor = "Reconcile each detected key"
+    clause_re = re.compile(r"\*\*Gate the comment on the Writeback Helper's return payload having `transitioned: true`\.\*\*")
+
+    status_sync_idx = status_sync_text.index(status_sync_anchor)
+    status_sync_window = status_sync_text[status_sync_idx:status_sync_idx + 1200]
+    status_sync_match = clause_re.search(status_sync_window)
+
+    wrap_idx = wrap_text.index(wrap_anchor)
+    wrap_window = wrap_text[wrap_idx:wrap_idx + 1200]
+    wrap_match = clause_re.search(wrap_window)
+
+    clause_a = status_sync_match.group(0) if status_sync_match else ""
+    clause_b = wrap_match.group(0) if wrap_match else ""
+
+    # Non-empty guard BEFORE the equality assertion: a future edit that
+    # drifted BOTH files identically to drop the clause entirely would have
+    # both extractions return an empty string, and "" == "" would pass
+    # vacuously without this guard.
+    assert clause_a, "comment-gate clause not found in ds-ticket-status-sync.md"
+    assert clause_b, "comment-gate clause not found in ds-wrap.md"
+    assert clause_a == clause_b, (
+        "the comment-gate clause must be byte-identical across "
+        "ds-ticket-status-sync.md and ds-wrap.md"
+    )
+
+
+def test_ticket_status_sync_step8_has_exactly_three_indented_lines():
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    start = text.index(
+        "**Operator-visible line per transition attempt (mandatory, never silent"
+    )
+    block = text[start:start + 700]
+    indented_lines = [l for l in block.splitlines() if l.startswith("       [ticket-status-sync]")]
+    assert len(indented_lines) == 3, (
+        f"expected exactly 3 indented output-line forms, found {len(indented_lines)}"
+    )
+    assert any(l.endswith("- transitioned") for l in indented_lines)
+    assert any("FAILED: <error>" in l for l in indented_lines)
+    assert any("SKIPPED: <diagnostic>" in l for l in indented_lines)
+
+
+def test_ticket_status_sync_single_ticket_mode_prints_diagnostic_on_skip():
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    anchor = "In single-ticket mode, print the before/after state."
+    idx = text.index(anchor)
+    window = text[idx:idx + 600]
+    assert "skipped_unconfigured_state" in window
+    assert "[ticket-status-sync] <KEY>: SKIPPED - <diagnostic>" in window
+
+
+def test_wrap_part_f_output_has_exactly_three_indented_lines():
+    path = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
+    text = path.read_text(encoding="utf-8")
+    start = text.index("print one operator-visible line per transition attempt so failures stay visible:")
+    block = text[start:start + 700]
+    indented_lines = [l for l in block.splitlines() if l.startswith("    [wrap: Part F]")]
+    assert len(indented_lines) == 3, (
+        f"expected exactly 3 indented Part F output-line forms, found {len(indented_lines)}"
+    )
+    assert any(l.endswith("- transitioned") for l in indented_lines)
+    assert any("FAILED: <error>" in l for l in indented_lines)
+    assert any("SKIPPED: <diagnostic>" in l for l in indented_lines)
+
+
+def test_setup_has_tracker_state_diagnostic_toggle():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    setup_lines = [
+        l for l in text.splitlines() if l.strip().startswith("- `TRACKER_STATE_DIAGNOSTIC`")
+    ]
+    assert setup_lines, "TRACKER_STATE_DIAGNOSTIC Setup bullet not found"
+    assert all("tracker_state_diagnostic" in l for l in setup_lines)
+
+
+def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencing_step5(canonical_block):
+    diagnostic_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- `diagnostic_enabled`:")
+    ]
+    team_key_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- `linear_team_key`:")
+    ]
+    assert diagnostic_lines, "diagnostic_enabled pass-list line not found"
+    assert team_key_lines, "linear_team_key pass-list line not found"
+    for line in diagnostic_lines + team_key_lines:
+        assert "step 5" in line, f"expected 'step 5' reference in: {line}"
+        assert "step 6" not in line, f"stale 'step 6' reference found in: {line}"
+
+
+# Each entry is (path, expected substring). The expected substring includes
+# enough surrounding context to anchor on the SPECIFIC toggle-count sentence
+# rather than a bare word, since some files (README.md) restate the count in
+# more than one sentence - a bare "nineteen in text" presence check would stay
+# green even if only one of the two sentences were bumped.
+TOGGLE_COUNT_FILES = [
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds nineteen methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds nineteen methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve nineteen project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "nineteen-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve nineteen project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Nineteen toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds nineteen methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 19 behavioral toggles"),
+]
+
+TOGGLE_SEED_FILES = [
+    REPO_ROOT / "content" / "templates" / ".agentic" / "config.json",
+    REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+]
+
+TOGGLE_BULLET_FILES = [
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md",
+    REPO_ROOT / "content" / "references" / "conventions-detail.md",
+    REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+]
+
+
+def test_toggle_doc_sync_full_eight_site_checklist():
+    for path, expected in TOGGLE_COUNT_FILES:
+        text = path.read_text(encoding="utf-8")
+        assert expected in text, f"{path.relative_to(REPO_ROOT)} missing '{expected}' toggle count"
+
+    for path in TOGGLE_SEED_FILES:
+        text = path.read_text(encoding="utf-8")
+        assert '"pending_merge_sweep": true,\n  "tracker_state_diagnostic": true' in text, (
+            f"{path.relative_to(REPO_ROOT)} seed JSON missing tracker_state_diagnostic "
+            "immediately after pending_merge_sweep"
+        )
+
+
+def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():
+    for path in TOGGLE_BULLET_FILES:
+        text = path.read_text(encoding="utf-8")
+        pending_idx = text.index("pending_merge_sweep")
+        tracker_idx = text.index("tracker_state_diagnostic")
+        assert tracker_idx > pending_idx, (
+            f"{path.relative_to(REPO_ROOT)}: tracker_state_diagnostic bullet must follow "
+            "the pending_merge_sweep bullet"
+        )
+
+    components_text = (REPO_ROOT / "docs" / "components.md").read_text(encoding="utf-8")
+    components_pending_idx = components_text.index("pending_merge_sweep")
+    components_tracker_idx = components_text.index("tracker_state_diagnostic")
+    assert components_tracker_idx > components_pending_idx
+
+    config_ref_text = (REPO_ROOT / "docs" / "configuration-reference.md").read_text(encoding="utf-8")
+    config_ref_pending_idx = config_ref_text.index("| `pending_merge_sweep` |")
+    config_ref_tracker_idx = config_ref_text.index("| `tracker_state_diagnostic` |")
+    assert config_ref_tracker_idx > config_ref_pending_idx
+
+    ds_config_text = (REPO_ROOT / "content" / "commands" / "ds-config.md").read_text(encoding="utf-8")
+    ds_config_bullet_lines = [
+        l for l in ds_config_text.splitlines()
+        if l.strip().endswith("and any additional config-file toggles.")
+    ]
+    assert ds_config_bullet_lines, "ds-config.md setting-selection bullet line not found"
+    bullet_line = ds_config_bullet_lines[0]
+    assert bullet_line.index("pending_merge_sweep") < bullet_line.index("tracker_state_diagnostic")
+
+    ds_config_pending_row_idx = ds_config_text.index("| Pending-merge sweep |")
+    ds_config_tracker_row_idx = ds_config_text.index("| Tracker state diagnostic |")
+    assert ds_config_tracker_row_idx > ds_config_pending_row_idx
+
+
+def test_agentic_config_settings_registers_tracker_state_diagnostic():
+    path = REPO_ROOT / "bin" / "agentic-config"
+    text = path.read_text(encoding="utf-8")
+    rework_idx = text.index('"rework_detection": {"target": "project_config", "type": "bool"},')
+    tracker_idx = text.index('"tracker_state_diagnostic": {"target": "project_config", "type": "bool"},')
+    assert tracker_idx > rework_idx, (
+        "tracker_state_diagnostic must be registered in _SETTINGS immediately after rework_detection"
+    )

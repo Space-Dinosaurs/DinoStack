@@ -138,6 +138,7 @@ _SETTINGS: dict[str, dict] = {
     "skill_candidate_detection": {"target": "project_config", "type": "bool"},
     "skill_candidate_nudge": {"target": "project_config", "type": "bool"},
     "rework_detection": {"target": "project_config", "type": "bool"},
+    "tracker_state_diagnostic": {"target": "project_config", "type": "bool"},
     # .agentic/config.json enums
     "model_profile": {
         "target": "project_config",
