@@ -15949,6 +15949,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/settings.local.json`
 - `.agentic/qa.md` (only if web UI confirmed in Step 1)
 - `tests/visual-baselines/.gitkeep` (only if web UI confirmed in Step 1)
+- `agent-browser.json` (root) - agent-browser stealth launch-arg default; only if web UI confirmed in Step 1
 - `.agentic/deploy.md` (only if release signals detected in Step 0)
 - `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
 - `.agentic/learnings.md` — durable fix-pattern learnings from resolved Skeptic findings; always created (committed, not gitignored)
@@ -16615,6 +16616,20 @@ Read `package.json` (if present) and scan all dependency fields (`dependencies`,
 Mixed-version installs (framework adapter on SB7+ with legacy addon packages on SB6) are supported - the framework adapter version is authoritative.
 
 This file is committed (NOT gitignored) - the `.agentic/` umbrella ignore carves it out via `!.agentic/config.json` in `.gitignore` (added in Step 9) so the project's methodology toggles are portable and travel with the repo, the same way `qa.md` and `deploy.md` do. It is optional and graceful: if absent, every toggle takes its default and nothing breaks - seeding it here just gives the conductor a stable file to read and the operator a discoverable place to tune.
+
+### 6h. Create `agent-browser.json`
+
+Only create if the user confirmed a web UI in Step 1 AND the user did not decline web UI in Step 1 (`no web UI` / `skip web UI`). Only create if the file does not already exist at the project root — never overwrite an existing file. If web UI was declined, skip this step entirely.
+
+Content:
+
+```json
+{
+  "args": "--disable-blink-features=AutomationControlled"
+}
+```
+
+This file is committed (NOT gitignored) — it lives at the project root, outside `.agentic/`, so it has no interaction with the `.agentic/` umbrella ignore in `.gitignore`. It is read natively by `agent-browser`'s own project-config layer (a globally-installed third-party browser-automation CLI agents use for browser verification, distinct from `qa-engineer`'s Playwright-based checks) via an explicit `--config <repo-root>/agent-browser.json` flag on every invocation. The seeded `args` value flips `navigator.webdriver` from `true` to `false`, closing a bot-detection gap present in `agent-browser`'s default launch. This step adds no `.agentic/config.json` key and involves no `bin/agentic-config` change — `agent-browser` resolves this file entirely on its own, with no AE-side toggle plumbing.
 
 ### 7. Create `.claude/settings.local.json`
 
