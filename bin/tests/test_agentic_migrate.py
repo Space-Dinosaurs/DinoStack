@@ -838,12 +838,32 @@ class TestManifestCarveOutsRealGit(unittest.TestCase):
         result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
         self.assertEqual(result.returncode, 0, msg=result.stderr)
 
-        for rel in ("qa.md", "deploy.md", "tracking.md", "config.json", "learnings.md"):
-            target = f".agentic/{rel}"
+        # Derive the expected negation set from the manifest itself (rather
+        # than a hardcoded list) so this test cannot go stale the next time a
+        # negation is added - Minor 3 regression.
+        manifest_text = Path(MANIFEST).read_text(encoding="utf-8")
+        negation_patterns = re.findall(r'- pattern:\s*"(!\.agentic/[^"]+)"', manifest_text)
+        self.assertTrue(negation_patterns, "manifest must declare at least one negation")
+
+        for pattern in negation_patterns:
+            rel = pattern[1:]  # drop leading "!"
+            if rel.endswith("/**"):
+                # Recursive-glob negation: prove it covers a nested file,
+                # since check-ignore cannot be pointed at a glob directly.
+                target = rel[: -len("/**")] + "/example-file.txt"
+                (project / rel[: -len("/**")]).mkdir(parents=True, exist_ok=True)
+            elif rel.endswith("/"):
+                # A trailing-slash pattern only matches a real directory -
+                # git will not treat a nonexistent path as directory-typed.
+                target = rel.rstrip("/")
+                (project / target).mkdir(parents=True, exist_ok=True)
+            else:
+                target = rel
             check = subprocess.run(["git", "check-ignore", "-q", target], cwd=str(project))
             self.assertNotEqual(
                 check.returncode, 0,
-                f"{target} must NOT be git-ignored (manifest negation missing or broken)",
+                f"{target} (from manifest pattern {pattern!r}) must NOT be "
+                "git-ignored (manifest negation missing or broken)",
             )
 
         # Sanity check the negative: an artifact with no negation IS ignored,
