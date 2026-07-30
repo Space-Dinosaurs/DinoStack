@@ -732,6 +732,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
 
     errored = False
     wrote_anything = False
+    did_repair = False
 
     try:
         project_version = _read_project_version(project_root)
@@ -742,7 +743,8 @@ def cmd_apply(args: argparse.Namespace) -> int:
         # /ds-init-project Step 9, by a pre-fix version of this script) is
         # fixed first. See _repair_gitignore_order's docstring.
         gitignore_path = project_root / ".gitignore"
-        if _repair_gitignore_order(gitignore_path):
+        did_repair = _repair_gitignore_order(gitignore_path)
+        if did_repair:
             wrote_anything = True
 
         # --- gitignore rules ---
@@ -794,9 +796,23 @@ def cmd_apply(args: argparse.Namespace) -> int:
         if all_satisfied:
             _stamp_project_version(project_root, manifest_version)
             if wrote_anything:
+                # Reflect what actually happened: a version bump, an
+                # ordering-only repair at an already-current version, or
+                # both. Never phrase a pure ordering repair as a version
+                # migration when project_version == manifest_version.
+                version_changed = project_version != manifest_version
+                parts = []
+                if version_changed:
+                    parts.append(f"applied v{project_version} -> v{manifest_version} migration")
+                if did_repair:
+                    parts.append("repaired gitignore ordering")
+                if not parts:
+                    parts.append(f"synced scaffolding at v{manifest_version}")
+                message = "; ".join(parts)
+                message = message[0].upper() + message[1:]
                 _append_context_line(
                     project_root,
-                    f"[scaffolding-sync] Applied v{project_version} -> v{manifest_version} migration at {_now_iso()}.",
+                    f"[scaffolding-sync] {message} at {_now_iso()}.",
                 )
 
     finally:
