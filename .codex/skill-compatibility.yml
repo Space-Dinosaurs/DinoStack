@@ -42,6 +42,16 @@
       "source_token": ".agentic/loop-state.json"
     },
     {
+      "expected_target": ".claude/install.sh",
+      "generated_token": "$AE_REPO_DIR/.claude/install.sh",
+      "kind": "operational",
+      "occurrence_hash": "0735eff7758d01fe3c0d9ab01452424a159628ab3a461bfed0e9dbb87948db29",
+      "resolution_mode": "validated-repository",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".claude/install.sh"
+    },
+    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -620,16 +630,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Agent"
-    },
-    {
-      "expected_target": ".claude/install.sh",
-      "generated_token": "$AE_REPO_DIR/.claude/install.sh",
-      "kind": "operational",
-      "occurrence_hash": "4abb84232a8fef6106d665aa13987a3b2f93ee223d30104ef3c8eb6b3746dfa9",
-      "resolution_mode": "validated-repository",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".claude/install.sh"
     },
     {
       "expected_target": "content/references/agent-team.md",
@@ -1322,16 +1322,6 @@
       "source_token": "Bash"
     },
     {
-      "expected_target": "hooks/enforce-no-abdication.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-no-abdication.py",
-      "kind": "operational",
-      "occurrence_hash": "8d0b2b01035263cd2225b5b7ea31785fff15b428a18aaf259cd8af1f9f622b95",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-no-abdication.py"
-    },
-    {
       "expected_target": ".agentic/qa-regressions.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/qa-regressions.md",
       "kind": "operational",
@@ -1350,16 +1340,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "91f8940dcd6206110e667c6b8b969e619442b3a818adaff4689402ae5c7f0944",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/config.json"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -1732,6 +1712,16 @@
       "source_token": "content/references/events-log.md"
     },
     {
+      "expected_target": "hooks/enforce-no-abdication.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-no-abdication.py",
+      "kind": "operational",
+      "occurrence_hash": "bd4f8cf825d00d211ec213d2de07548eeec70763a63e3f226beccd53ac6b8fbc",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/enforce-no-abdication.py"
+    },
+    {
       "expected_target": "content/sections/09-events-log.md",
       "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
       "kind": "operational",
@@ -1850,6 +1840,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "c80dce47bb46467dbe9c85e3e19a84efe8a0283350c2b19ffcf5d3af81d8645d",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/config.json"
     },
     {
       "expected_target": "content/references/code-standards-detail.md",
