@@ -6,6 +6,8 @@ Uses subprocess to invoke the binary so behaviour matches real CLI usage.
 All tests use tmpdir isolation to avoid polluting the real project.
 """
 
+import importlib.machinery
+import importlib.util
 import json
 import os
 import re
@@ -20,6 +22,17 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BIN = str(REPO_ROOT / "bin" / "agentic-migrate")
 MANIFEST = str(REPO_ROOT / "content" / "project-scaffolding.yml")
+
+
+def _load_agentic_migrate_module():
+    """Import bin/agentic-migrate (no .py extension) as a module, for tests
+    that assert against its pure functions directly rather than round-tripping
+    through a subprocess."""
+    loader = importlib.machinery.SourceFileLoader("agentic_migrate_under_test", BIN)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
 
 
 def _manifest_version() -> int:
@@ -647,6 +660,165 @@ class TestInitProjectStep9NegationBlock(unittest.TestCase):
         block = self._step9_block()
         self.assertNotIn("!.agentic/preferences.json", block)
         self.assertIn(".agentic/preferences.json", block)
+
+
+
+
+class TestGitignoreInsertByteBehavior(unittest.TestCase):
+    """Major 1 regression: the insert-above-negation branch of
+    _append_gitignore must be byte-preserving. Before the fix it read via
+    Path.read_text().splitlines() (universal-newline translation strips CR)
+    and rewrote the whole file with "\\n".join(...) + "\\n", silently
+    converting every CRLF line ending to LF and gratuitously terminating a
+    file that previously had no trailing newline.
+
+    Both assertions below use a minimal single-pattern manifest so the insert
+    branch fires exactly once and no subsequent append (which is LF-only by
+    design, matching pre-existing behavior) can obscure what the insert
+    branch itself did.
+    """
+
+    def _single_umbrella_manifest(self, tmp):
+        manifest_text = """
+scaffolding_version: 1
+gitignore:
+  - pattern: ".agentic/*"
+    purpose: "umbrella ignore"
+files: []
+markers: []
+"""
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+        return manifest_path
+
+    def test_cr_byte_count_preserved_through_insert(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        manifest_path = self._single_umbrella_manifest(tmp)
+
+        gitignore_path = project / ".gitignore"
+        raw = b"node_modules/\r\n!.agentic/qa.md\r\n"
+        gitignore_path.write_bytes(raw)
+        original_cr_count = raw.count(b"\r")
+
+        result = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        after = gitignore_path.read_bytes()
+        # The two original lines keep their CR; the newly inserted umbrella
+        # line reuses the negation line's CRLF terminator, adding exactly one
+        # more. No other CR should appear or disappear.
+        self.assertEqual(
+            after.count(b"\r"), original_cr_count + 1,
+            f"CR bytes not preserved: before={original_cr_count} after={after!r}",
+        )
+        lines = after.split(b"\r\n")
+        self.assertIn(b".agentic/*", lines)
+        self.assertLess(
+            lines.index(b".agentic/*"), lines.index(b"!.agentic/qa.md"),
+            "umbrella must land above the negation",
+        )
+
+    def test_insert_does_not_add_trailing_newline_to_untouched_last_line(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        manifest_path = self._single_umbrella_manifest(tmp)
+
+        gitignore_path = project / ".gitignore"
+        # Negation line first (triggers the insert), then a final line with NO
+        # trailing newline. The insert happens above line 0; line 1 (the
+        # terminator-less last line) must be left byte-for-byte untouched.
+        raw = b"!.agentic/qa.md\nnode_modules"
+        gitignore_path.write_bytes(raw)
+
+        result = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        after = gitignore_path.read_bytes()
+        self.assertFalse(
+            after.endswith(b"\n"),
+            f"insert path gratuitously terminated a file with no trailing newline: {after!r}",
+        )
+        self.assertEqual(after, b".agentic/*\n!.agentic/qa.md\nnode_modules")
+
+
+class TestUmbrellaRegexTightening(unittest.TestCase):
+    """Minor 1: the umbrella regex must recognize `.agentic/**/*` (previously
+    missed - would append at EOF and defeat negations) and must NOT treat a
+    bare `.agentic/` directory-ignore as a negatable umbrella (git will not
+    descend into an excluded directory at all, so no ordering fix can help
+    it)."""
+
+    def setUp(self):
+        self.mod = _load_agentic_migrate_module()
+
+    def test_deep_glob_recognized_as_umbrella(self):
+        self.assertTrue(self.mod._is_agentic_umbrella_pattern(".agentic/**/*"))
+        self.assertTrue(self.mod._is_agentic_umbrella_pattern(".agentic/*"))
+        self.assertTrue(self.mod._is_agentic_umbrella_pattern(".agentic/**"))
+        self.assertTrue(self.mod._is_agentic_umbrella_pattern("**/.agentic/**/*"))
+
+    def test_bare_directory_forms_are_not_umbrella_patterns(self):
+        for bare in (".agentic", ".agentic/", "/.agentic", "/.agentic/", "**/.agentic"):
+            self.assertFalse(
+                self.mod._is_agentic_umbrella_pattern(bare),
+                f"{bare!r} must NOT be treated as a negatable umbrella pattern",
+            )
+
+    def test_bare_form_rewrite_targets(self):
+        self.assertEqual(self.mod._normalize_bare_agentic_pattern(".agentic"), ".agentic/*")
+        self.assertEqual(self.mod._normalize_bare_agentic_pattern(".agentic/"), ".agentic/*")
+        self.assertEqual(self.mod._normalize_bare_agentic_pattern("/.agentic/"), "/.agentic/*")
+        self.assertEqual(self.mod._normalize_bare_agentic_pattern("**/.agentic"), "**/.agentic/*")
+        self.assertIsNone(self.mod._normalize_bare_agentic_pattern(".agentic/*"))
+        self.assertIsNone(self.mod._normalize_bare_agentic_pattern(".agentic/qa.md"))
+
+
+class TestBareUmbrellaRewriteEndToEnd(unittest.TestCase):
+    """Minor 1, end-to-end: a bare-form manifest pattern must be rewritten
+    (with a visible stderr warning) rather than silently inserted verbatim,
+    where it would be permanently unnegatable."""
+
+    def test_bare_pattern_rewritten_via_apply(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        (project / ".gitignore").write_text("!.agentic/qa.md\n")
+
+        manifest_text = """
+scaffolding_version: 1
+gitignore:
+  - pattern: ".agentic"
+    purpose: "intentionally bare form for regression coverage"
+files: []
+markers: []
+"""
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+
+        result = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+        self.assertIn(
+            "rewriting bare .agentic/ ignore pattern", result.stderr,
+            "bare-form rewrite must emit a visible warning",
+        )
+
+        lines = (project / ".gitignore").read_text(encoding="utf-8").splitlines()
+        self.assertIn(".agentic/*", lines, "bare pattern must be rewritten to .agentic/*")
+        self.assertNotIn(".agentic", lines, "bare form must never be written verbatim")
+        self.assertLess(
+            lines.index(".agentic/*"), lines.index("!.agentic/qa.md"),
+            "rewritten umbrella must still land above the existing negation",
+        )
+
 
 
 if __name__ == "__main__":
