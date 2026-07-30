@@ -266,10 +266,16 @@ def test_canonical_block_pipeline_sequence_is_ordered_literal(canonical_block):
     # IN_PROGRESS(2)) satisfies without any diff to that test. Pin the exact
     # ordered clause as one literal substring - a permutation changes this
     # exact string and cannot pass.
+    #
+    # Gap 2 (declarable pipeline order): the wording changed from "the fixed
+    # pipeline sequence" to "the ordered sequence" since the sequence is now
+    # only the DEFAULT (a project may override it via JIRA_PIPELINE_ORDER /
+    # Pipeline order:), not a hardcoded constant. The ordered literal itself
+    # (IN_PROGRESS(0) < IN_REVIEW(1) < QA(2)) is unchanged.
     assert (
-        "the fixed pipeline sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2)"
+        "the ordered sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2)"
         in canonical_block
-    ), "the fixed pipeline sequence must be the literal ordered IN_PROGRESS(0) < IN_REVIEW(1) < QA(2) clause"
+    ), "the pipeline sequence must be the literal ordered IN_PROGRESS(0) < IN_REVIEW(1) < QA(2) clause"
 
 
 def test_canonical_block_category_rank_sequence_is_ordered_literal(canonical_block):
@@ -710,3 +716,224 @@ def test_agentic_config_settings_registers_tracker_state_diagnostic():
     assert tracker_idx > rework_idx, (
         "tracker_state_diagnostic must be registered in _SETTINGS immediately after rework_detection"
     )
+
+
+# ---------------------------------------------------------------------------
+# Gap 2: declarable pipeline order (content/commands/ds-implement-ticket.md
+# ## Tracker Writeback Helper step 4.d.iv, and its downstream consumers)
+# ---------------------------------------------------------------------------
+
+def test_invocation_contract_pass_list_has_pipeline_order_param(canonical_block):
+    pipeline_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- `pipeline_order`:")
+    ]
+    assert pipeline_lines, "pipeline_order pass-list line not found"
+    assert all(
+        "TRACKER_PIPELINE_ORDER" in line and "step 4.d.iv" in line
+        for line in pipeline_lines
+    ), "pipeline_order pass-list line must name TRACKER_PIPELINE_ORDER and reference step 4.d.iv"
+
+    # Re-run the pre-existing pass-list assertions to confirm this insertion
+    # did not silently widen the window an earlier test scopes to (the
+    # vacuity trap named in the spec: a new bullet landing inside an existing
+    # scoped window must not make that window's own checks pass vacuously).
+    start = canonical_block.index("3. Pass to the subagent:")
+    end = canonical_block.index("**Subagent responsibilities", start)
+    pass_list_window = canonical_block[start:end]
+    assert "tracker_state_values" in pass_list_window
+    assert "pipeline_order" in pass_list_window
+    diagnostic_lines_in_window = [
+        line for line in pass_list_window.splitlines()
+        if line.strip().startswith("- `diagnostic_enabled`:")
+    ]
+    assert diagnostic_lines_in_window, (
+        "diagnostic_enabled pass-list line must still be present after the "
+        "pipeline_order insertion"
+    )
+
+
+def test_setup_resolves_tracker_pipeline_order_with_default():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    assert "JIRA_PIPELINE_ORDER" in text
+    assert "TRACKER_PIPELINE_ORDER" in text
+    # Both the Jira item-1 sentence and the Linear item-3 sentence must state
+    # the default and the malformed-value fallback.
+    jira_idx = text.index("Also extract an optional pipeline-order override: `JIRA_PIPELINE_ORDER`")
+    jira_window = text[jira_idx:jira_idx + 500]
+    assert "default `IN_PROGRESS, IN_REVIEW, QA` when absent" in jira_window
+    assert "not a valid permutation of IN_PROGRESS/IN_REVIEW/QA - using the default order" in jira_window
+
+    linear_idx = text.index("Also extract an optional pipeline-order override: `Pipeline order:`")
+    linear_window = text[linear_idx:linear_idx + 300]
+    assert "same syntax, validation, and default as the Jira `JIRA_PIPELINE_ORDER` field above" in linear_window
+
+
+def test_setup_item2_linear_shaped_tracker_path_covers_pipeline_order():
+    # M-class fix: item 2 (the `TRACKER: linear` under `## Tracker`) inherits
+    # only the state-name override fields by cross-reference to item 3's
+    # prose; that cross-reference sentence must ALSO now cover pipeline
+    # order, or a project using this path never picks up a declared order.
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    item2_lines = [
+        l for l in text.splitlines()
+        if l.strip().startswith("2. Else if a `## Tracker` section exists with `TRACKER: linear`")
+    ]
+    assert item2_lines, "Setup item 2 (Linear-shaped ## Tracker path) line not found"
+    assert all("Pipeline order" in l for l in item2_lines), (
+        "Setup item 2 must explicitly cover the Pipeline order override field, "
+        "not just state-name overrides"
+    )
+
+
+def test_setup_item4_tracker_none_sets_default_pipeline_order():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    item4_lines = [
+        l for l in text.splitlines()
+        if l.strip().startswith("4. Else: set `TRACKER=none`.")
+    ]
+    assert item4_lines, "Setup item 4 (TRACKER=none) line not found"
+    assert all(
+        'TRACKER_PIPELINE_ORDER` to its default `IN_PROGRESS, IN_REVIEW, QA`' in l
+        for l in item4_lines
+    ), "Setup item 4 must set TRACKER_PIPELINE_ORDER to its default"
+
+
+def test_setup_print_summary_has_tracker_pipeline_order_line():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    summary_lines = [
+        l for l in text.splitlines() if l.startswith("TRACKER_PIPELINE_ORDER:")
+    ]
+    assert summary_lines, "Setup print summary is missing the TRACKER_PIPELINE_ORDER line"
+
+
+def test_step_4d_iv_uses_pipeline_order_as_rank_source(canonical_block):
+    # Line/paragraph-scoped: the ONLY line starting with the step 4.d.iv
+    # marker must reference pipeline_order as the rank source, and must not
+    # still claim the order is fixed/hardcoded - an inversion (reverting to
+    # the hardcoded constant) must fail this, not just pass on unordered
+    # token presence.
+    step_4d_iv_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- iv. Else, look up current and target against")
+    ]
+    assert step_4d_iv_lines, "step 4.d.iv line not found"
+    assert len(step_4d_iv_lines) == 1, "expected exactly one step 4.d.iv line"
+    line = step_4d_iv_lines[0]
+    assert "`pipeline_order`" in line
+    assert "rank = index within `pipeline_order`" in line
+    assert "declares `JIRA_PIPELINE_ORDER` / `Pipeline order:` in `AGENTS.md`" in line
+    assert "the declared order governs instead" in line
+    assert "not read from any tracker API and does not depend on operator-configured board/column order" not in line, (
+        "step 4.d.iv must not still claim the order is fixed/unconfigurable - that is the exact "
+        "claim Gap 2 makes false"
+    )
+
+    # The two sibling bullets that follow are unchanged verbatim per the
+    # spec - confirm they are still present and still resolve to their
+    # original permit/skip outcomes (regression guard against this edit
+    # accidentally touching them).
+    assert re.search(
+        r"If BOTH names resolve to a pipeline rank: \*\*permit\*\* iff `pipeline_rank\(current\) < pipeline_rank\(target\)`",
+        canonical_block,
+    )
+    fallthrough_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith(
+            "- Otherwise (at least one name does not resolve to a pipeline rank"
+        )
+    ]
+    assert fallthrough_lines
+    assert all("**skip** unconditionally" in line for line in fallthrough_lines)
+
+
+def test_canonical_block_rejects_fully_tracker_derived_pipeline_order(canonical_block):
+    assert "**Rejected: fully tracker-derived pipeline order.**" in canonical_block
+    idx = canonical_block.index("**Rejected: fully tracker-derived pipeline order.**")
+    window = canonical_block[idx:idx + 700]
+    assert "edge-local view of the workflow graph, not a global ordering of all states" in window
+    assert "cross-tracker-symmetric live-derived order" in window
+    assert "breaks universality" in window
+
+
+def test_phase_11_inputs_list_includes_pipeline_order():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    anchor = '`target_state`: `$TRACKER_STATE_QA`'
+    idx = text.index(anchor)
+    window = text[max(0, idx - 400):idx + 500]
+    assert "pipeline_order" in window, (
+        "Phase 11's own Inputs list is missing pipeline_order alongside target_state/tracker_state_values"
+    )
+
+
+def test_phase_11_summary_sentence_names_pipeline_order():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    anchor = "For full details of the Phase 11 writeback subagent brief shape"
+    idx = text.index(anchor)
+    window = text[idx:idx + 300]
+    assert "`pipeline_order`" in window
+    # Must not claim Phase 11 gains diagnostic/fallback behavior beyond what
+    # Gap 1 already granted - this edit is a pipeline_order addition only.
+    assert "gains" not in window.split("Phase 11's own Jira")[0]
+
+
+def test_ticket_status_sync_preflight_resolves_pipeline_order():
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    assert (
+        "Additionally resolve `TRACKER_PIPELINE_ORDER` from the same `AGENTS.md` fields "
+        "as `/ds-implement-ticket` Setup"
+        in text
+    )
+
+
+def test_ticket_status_sync_spawn_sites_have_pipeline_order():
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    anchor = (
+        "spawn the tracker-writeback subagent using the "
+        "`## Tracker Writeback Helper` invocation contract"
+    )
+    positions = [m.start() for m in re.finditer(re.escape(anchor), text)]
+    assert len(positions) == 2, (
+        f"expected exactly 2 tracker-writeback spawn sites, found {len(positions)}"
+    )
+    for pos in positions:
+        window = text[pos:pos + 700]
+        assert "pipeline_order" in window, (
+            f"spawn site at offset {pos} is missing pipeline_order"
+        )
+        # Regression guard: the pre-existing site checks must still hold in
+        # this same widened window.
+        assert "forward_only_guard: true" in window
+        assert "tracker_state_values" in window
+
+
+def test_wrap_part_f_gate_resolves_pipeline_order():
+    path = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
+    text = path.read_text(encoding="utf-8")
+    assert (
+        "Also resolve `TRACKER_PIPELINE_ORDER` (same fields and default as "
+        "`/ds-implement-ticket` Setup)."
+        in text
+    )
+    reconcile_idx = text.index("**Reconcile each detected key.**")
+    reconcile_window = text[reconcile_idx:reconcile_idx + 700]
+    assert "pipeline_order" in reconcile_window
+    assert "diagnostic_enabled" in reconcile_window
+    assert "linear_team_key" in reconcile_window
+
+
+def test_init_project_templates_show_pipeline_order_under_own_heading():
+    path = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
+    text = path.read_text(encoding="utf-8")
+
+    linear_idx = text.index("# State Done: Done")
+    linear_window = text[linear_idx:linear_idx + 200]
+    assert "# Optional pipeline-order override (default shown; uncomment to override):" in linear_window
+    assert "# Pipeline order: IN_PROGRESS, IN_REVIEW, QA" in linear_window
+
+    jira_idx = text.index("# JIRA_STATE_DONE: Done")
+    jira_window = text[jira_idx:jira_idx + 200]
+    assert "# Optional pipeline-order override (default shown; uncomment to override):" in jira_window
+    assert "# JIRA_PIPELINE_ORDER: IN_PROGRESS, IN_REVIEW, QA" in jira_window

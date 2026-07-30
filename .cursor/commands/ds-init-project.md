@@ -1140,6 +1140,8 @@ If `lc` was already installed, run `lc doctor` to verify the connection. If it f
 # State QA: Testing
 # State Blocked: Blocked
 # State Done: Done
+# Optional pipeline-order override (default shown; uncomment to override):
+# Pipeline order: IN_PROGRESS, IN_REVIEW, QA
 ```
 
 Place after `## Tools`. Prompt for: team key (required), workspace slug (required), QA assignee UUID (optional — "press Enter to skip"). If the user did not provide project names, omit the `Projects:` line.
@@ -1183,6 +1185,8 @@ JIRA_QA_TRANSITION: [transition name — optional, omit line if not provided]
 # JIRA_STATE_QA: QA
 # JIRA_STATE_BLOCKED: Blocked
 # JIRA_STATE_DONE: Done
+# Optional pipeline-order override (default shown; uncomment to override):
+# JIRA_PIPELINE_ORDER: IN_PROGRESS, IN_REVIEW, QA
 ```
 
 Place after `## Tools`. Prompt for: TICKET_PREFIX (required), JIRA_BASE_URL (required), JIRA_QA_ASSIGNEE_ACCOUNT_ID (optional), JIRA_QA_TRANSITION (optional). **Do not use a default value for `JIRA_QA_TRANSITION`** — if the user does not provide one, omit the line entirely. `/ds-implement-ticket` Phase 11 will skip the transition step when absent rather than guessing a transition name.
