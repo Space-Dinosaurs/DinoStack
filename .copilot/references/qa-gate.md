@@ -100,6 +100,8 @@ git worktree remove .agentic/worktrees/qa-<branch>
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
 
+Each qa-engineer's `--session` name is worktree-root-derived (see `content/agents/qa-engineer.md` §Session naming) - this is what prevents same-ticket concurrent siblings from colliding on the underlying `agent-browser` session, a separate axis from the `PORT=$((3000 + N))` dev-server-port offset shown above.
+
 ## Architect-plan-driven scenarios
 
 Phase 6b reads `qa_criteria.scenarios[]` directly from the architect plan or Brief - that block is the authoritative test plan. The architect plan template MUST include the `qa_criteria` YAML block on every Elevated unit (Critical Skeptic finding if absent; see `content/agents/architect.md`). The qa-engineer brief is a thin wrapper supplying the URL, the dev-server boot recipe, the diff, and the `ticket_id`; it does NOT re-author scenarios. Conductor MUST NOT hand-author scenarios at spawn time - that recreates the failure mode where verification drifts from what the architect committed to.
