@@ -106,7 +106,7 @@ If the port doesn't respond within 30 seconds, report BLOCKED with: "Dev server 
 **Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session otherwise lingers (visibly) after the run. Close is scoped to this run's own session (`$CONFIG_FLAG`/`$QA_SESSION`, resolved once per run - see Session naming below) - never `close --all`, which would tear down a concurrently-running sibling's session too:
 
 ```bash
-agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" close 2>/dev/null || true   # scoped close - this run's session only
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" close 2>/dev/null || true   # scoped close - this run's session only
 kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
 ```
 
@@ -155,8 +155,10 @@ Every `agent-browser` invocation in this file carries a project-config flag (ste
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
 CONFIG_FLAG=()
 [ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/agent-browser.json" ] && CONFIG_FLAG=(--config "$REPO_ROOT/agent-browser.json")
-agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" <subcommand> [args...]
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" <subcommand> [args...]
 ```
+
+Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"` form, when the surrounding script runs under `set -u`/`set -o nounset` - expanding an empty array via the bare form throws `unbound variable` on macOS's stock bash 3.2. The `+` form is a no-op on non-empty arrays and safe under nounset either way.
 
 `$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
 
@@ -169,13 +171,13 @@ agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" <subcommand> [args...]
 
 Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD; `git rev-parse --show-toplevel` never is, and is unique by filesystem construction (git refuses two worktrees on the same branch) - this is what actually guarantees no collision between concurrent same-ticket QA units, not merely makes it less likely.
 
-**Escape hatch** (to observe the raw, non-stealth fingerprint - e.g. a scenario deliberately testing bot-detection behavior): open a fresh, never-used `--session <name>` with the config flag omitted from that session's first `open` onward, or explicitly `close` an existing session and reopen the same name without the flag. Never edit the committed `agent-browser.json` in place to toggle this - see the mid-run-edit warning in the Workflow section below.
+**Escape hatch** (to observe the raw, non-stealth fingerprint - e.g. a scenario deliberately testing bot-detection behavior): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD regardless of whether `--config` was passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - see the mid-run-edit warning in the Workflow section below.
 
 `agent-browser session list` is eventually consistent for a few seconds after a scoped `close` returns - a just-closed session briefly still appearing in the list is not a teardown failure.
 
 ## Workflow
 
-> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the scoped-close teardown from the Project configuration section (`agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" close`, never `close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional. This also includes the temp-file cleanup block: delete `/tmp/qa_*` (except PASS screenshots) and `/tmp/qa_devserver.log` on every exit path.
+> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the scoped-close teardown from the Project configuration section (`agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" close`, never `close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional. This also includes the temp-file cleanup block: delete `/tmp/qa_*` (except PASS screenshots) and `/tmp/qa_devserver.log` on every exit path.
 
 > **Mid-run `agent-browser.json` edit hazard.** Never create or edit the project's `agent-browser.json` while any session from this run (or a concurrently-running sibling run) may be live - the next command against an affected session silently relaunches the browser, destroying its cookies, auth state, and navigation position with no error surfaced. This is especially dangerous after an authenticated login was established via the Auth handling section's cookie-injection path - a silent relaunch there manifests as an inexplicable FAIL or BLOCKED. Treat `agent-browser.json` as fixed for the duration of any active run.
 
@@ -205,13 +207,13 @@ Why worktree-root-path, not branch name: `git branch --show-current` is empty in
 
 Two tools are available. Choose based on complexity:
 
-**agent-browser** (globally installed CLI) - for navigation, visual checks, simple interactions. Every call carries `"${CONFIG_FLAG[@]}"` and `--session "$QA_SESSION"` (resolved once per run - see Session naming above):
+**agent-browser** (globally installed CLI) - for navigation, visual checks, simple interactions. Every call carries `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"` and `--session "$QA_SESSION"` (resolved once per run - see Session naming above):
 ```bash
-agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" open <url>          # navigate to a page
-agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" snapshot            # get page structure with element refs (@e1, @e2, ...)
-agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" click @e1           # click an element by ref
-agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" fill @e2 "text"     # fill an input field by ref
-agent-browser "${CONFIG_FLAG[@]}" --session "$QA_SESSION" screenshot          # capture visual state
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" open <url>          # navigate to a page
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" snapshot            # get page structure with element refs (@e1, @e2, ...)
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" click @e1           # click an element by ref
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" fill @e2 "text"     # fill an input field by ref
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" screenshot          # capture visual state
 ```
 
 **Playwright** (Python) - for multi-step flows, form interaction, console error capture, network inspection:
