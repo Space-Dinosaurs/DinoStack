@@ -15,8 +15,8 @@ Upstream deps: content/rules/code-standards.md (parent rules file; read
                Quality Gates preamble, and Package Management rules);
                agent-browser.json (project-root config file consumed via
                --config by the Browser Verification section below - seeded
-               by /ds-init-project, see the project's
-               docs/planning/agent-browser-hardening.md Brief; supplies the
+               by /ds-init-project for web-UI projects (see
+               content/commands/ds-init-project.md); supplies the
                --disable-blink-features=AutomationControlled stealth flag).
 
 Downstream consumers: engineer agents (run per-language quality gates
@@ -56,7 +56,7 @@ CONFIG_FLAG=()
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" <subcommand> [args...]
 ```
 
-Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"` form, when the surrounding script runs under `set -u`/`set -o nounset` (this repo's own scripts do) - expanding an empty array via the bare form throws `unbound variable` on macOS's stock bash 3.2. The `+` form is a no-op on non-empty arrays and safe under nounset either way.
+Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"` form, when the surrounding script runs under `set -u`/`set -o nounset` - expanding an empty array via the bare form throws `unbound variable` on macOS's stock bash 3.2. The `+` form is a no-op on non-empty arrays and safe under nounset either way.
 
 `$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
 
@@ -76,4 +76,4 @@ agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" close
 
 After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always scoped-close it when verification is done - otherwise the browser lingers open after the task. `agent-browser close --all` closes every session on the machine, including a concurrently-running sibling's - reserve it for manual, deliberate operator cleanup, never an automatic teardown path.
 
-**Escape hatch** (to observe the raw, non-stealth fingerprint): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD regardless of whether `--config` was passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - args are resolved per-session at (re)launch, so editing the file while any session (this run's or a concurrent sibling's) may be live risks a silent, destructive relaunch that destroys that session's cookies, auth state, and navigation position with no error surfaced.
+**Escape hatch** (to observe the raw, non-stealth fingerprint): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - args are resolved per-session at (re)launch, so editing the file while any session (this run's or a concurrent sibling's) may be live risks a silent, destructive relaunch that destroys that session's cookies, auth state, and navigation position with no error surfaced.
