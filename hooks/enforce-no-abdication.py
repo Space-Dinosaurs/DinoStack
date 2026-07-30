@@ -89,8 +89,13 @@ Downstream consumers: Claude Code hook runner (Stop event, matcher "*"). Wired
 Failure modes:
     - Malformed stdin: fail-open (exit 0, emit nothing). Hook bugs must never
       brick the session - fail-open preserves default CC behavior.
-    - Missing or malformed config.json: fail-open (exit 0). Guard is on by default
-      (abdication_guard_enabled defaults to true); corrupt/missing config fails open.
+    - Missing or malformed config.json: fail-open (exit 0). The guard requires
+      abdication_guard_enabled to be explicitly true in .agentic/config.json - it
+      is NOT on by default; an absent config.json, a config.json without the key,
+      or any read/parse error all mean the guard does not run at all. The shipped
+      template (content/templates/.agentic/config.json) and /ds-init-project set
+      the key, so AE-scaffolded projects are covered; a project without that file
+      has an inert guard.
     - Missing transcript file, an unreadable/unparseable JSONL window (no
       lines at all, only garbage lines, only valid-JSON-but-unrecognized-
       schema entries, or a window with no genuine human-turn boundary at
