@@ -855,8 +855,8 @@ def main() -> None:
         if not cwd:
             sys.exit(0)
 
-        # Read project config. Default on (abdication_guard_enabled defaults to
-        # true). Fail-open on any read/parse error.
+        # Runs only when abdication_guard_enabled is exactly `true`. Absent
+        # config, a missing key, or any parse error means it does not run.
         config_path = os.path.join(cwd, ".agentic", "config.json")
         try:
             with open(config_path, "r") as f:
