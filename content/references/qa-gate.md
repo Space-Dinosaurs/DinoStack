@@ -100,7 +100,7 @@ git worktree remove .agentic/worktrees/qa-<branch>
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
 
-Each qa-engineer's `--session` name is worktree-root-derived (see `content/agents/qa-engineer.md` §Session naming) - this is what prevents same-ticket concurrent siblings from colliding on the underlying `agent-browser` session, a separate axis from the `PORT=$((3000 + N))` dev-server-port offset shown above.
+Each qa-engineer's `--session` name carries a per-run disambiguator (see `content/agents/qa-engineer.md` §Session naming) - this is what prevents same-ticket concurrent siblings from colliding on the underlying `agent-browser` session, a separate axis from the `PORT=$((3000 + N))` dev-server-port offset shown above.
 
 ## Architect-plan-driven scenarios
 

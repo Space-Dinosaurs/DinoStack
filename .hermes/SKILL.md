@@ -1503,7 +1503,9 @@ Purpose: Detailed code-standards reference blocks extracted from
 
 Public API: Read-only reference document. Cross-referenced from:
             content/rules/code-standards.md (inline pointers replacing
-            these verbose blocks).
+            these verbose blocks); content/agents/qa-engineer.md
+            (Session naming section cross-references the Browser
+            Verification session-uniqueness scheme below).
 
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
@@ -1516,7 +1518,8 @@ Upstream deps: content/rules/code-standards.md (parent rules file; read
                --disable-blink-features=AutomationControlled stealth flag).
 
 Downstream consumers: engineer agents (run per-language quality gates
-                      after every implementation); content/sections/
+                      after every implementation); qa-engineer (Session
+                      naming scheme cross-reference); content/sections/
                       12-protocol-details.md (code standards reference).
 
 Failure modes: Prose + code blocks; does not auto-execute. Per-language
@@ -1557,12 +1560,12 @@ Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"
 `$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
 
 **Resolve `$SESSION` once per run:**
-1. `$REPO_ROOT` non-empty -> `verify-<sanitize(basename "$REPO_ROOT")>`
+1. `$REPO_ROOT` non-empty -> `verify-<sanitize(basename "$REPO_ROOT")>-<epoch-seconds>-<pid>`
 2. `$REPO_ROOT` empty -> `verify-<epoch-seconds>-<pid>`
 
-`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars.
+`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized basename only, before the `-<epoch-seconds>-<pid>` suffix is appended - truncation can never eat the suffix, which is why the name stays unique even when the basename itself collapses.
 
-**Uniqueness precondition:** this scheme is unique only per distinct checkout **directory name**, not per full path - the session name is keyed on the *basename* of `$REPO_ROOT`. It is unique in practice because AE mandates `isolation: "worktree"` for every concurrent `engineer`/`qa-engineer`/`release-orchestrator` spawn (see `content/rules/conventions.md` §Git Workflow), so concurrent Workers each resolve a distinct `REPO_ROOT` by construction. Two cases fall outside that guarantee: (1) two runs deliberately sharing one checkout - e.g. two operator sessions working in the same directory, or a Worker that fell back to the main tree instead of an isolated worktree; and (2) two different clones or worktrees whose directory basenames happen to match (`~/work/api` and `~/scratch/api` both resolve to `verify-api`) - only the basename is sanitized, not the full path. For either case, append a disambiguator resolved once per run, in the same style as the empty-`$REPO_ROOT` fallback above (`-<epoch-seconds>-<pid>`) - the session name then stops being deterministically re-findable across invocations, so any later teardown must use the resolved literal rather than re-deriving it.
+**Why the suffix is unconditional:** the sanitized basename alone does not guarantee uniqueness. The ~40-char cap can collapse two distinct basenames to the same truncated value - e.g. two worktree slugs differing only in a trailing unit index both truncate to the same prefix - and two checkouts can share a basename by construction, not coincidence: AE's own worktree-naming conventions generate exactly that (`.agentic/worktrees/<branch-name>`, `qa-<branch>`, per-unit slugs). The one cost of the suffix: the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including teardown. If a session name from an earlier run is lost, `agent-browser session list` is the recovery path (see the eventual-consistency caveat in `content/agents/qa-engineer.md` §Session naming).
 
 ```bash
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" open <url>                # navigate
@@ -3652,7 +3655,7 @@ git worktree remove .agentic/worktrees/qa-<branch>
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
 
-Each qa-engineer's `--session` name is worktree-root-derived (see `content/agents/qa-engineer.md` §Session naming) - this is what prevents same-ticket concurrent siblings from colliding on the underlying `agent-browser` session, a separate axis from the `PORT=$((3000 + N))` dev-server-port offset shown above.
+Each qa-engineer's `--session` name carries a per-run disambiguator (see `content/agents/qa-engineer.md` §Session naming) - this is what prevents same-ticket concurrent siblings from colliding on the underlying `agent-browser` session, a separate axis from the `PORT=$((3000 + N))` dev-server-port offset shown above.
 
 ## Architect-plan-driven scenarios
 
@@ -9112,13 +9115,13 @@ Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"
 `$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
 
 **Resolve `$QA_SESSION` once per run:**
-1. `$REPO_ROOT` non-empty -> session name = `sanitize(basename "$REPO_ROOT")` - **no added `qa-` prefix in this branch.** (`qa-gate.md`'s own worktree-fan-out recipe already names the worktree directory `qa-<branch>`, so `basename "$REPO_ROOT"` in that scenario is already `qa-<branch>`; prefixing another `qa-` would produce `qa-qa-<branch>`. The bare basename is already a sufficiently unique, recognizable session name - no semantic prefix is needed for uniqueness.)
-2. `$REPO_ROOT` empty AND `ticket_id` present -> `qa-<sanitize(ticket_id)>`
+1. `$REPO_ROOT` non-empty -> session name = `sanitize(basename "$REPO_ROOT")-<epoch-seconds>-<pid>` - **no added `qa-` prefix in this branch.** (`qa-gate.md`'s own worktree-fan-out recipe already names the worktree directory `qa-<branch>`, so `basename "$REPO_ROOT"` in that scenario is already `qa-<branch>`; prefixing another `qa-` would produce `qa-qa-<branch>`. The bare basename plus the per-run suffix below is already a sufficiently unique, recognizable session name - no semantic prefix is needed for uniqueness.)
+2. `$REPO_ROOT` empty AND `ticket_id` present -> `qa-<sanitize(ticket_id)>-<epoch-seconds>-<pid>`
 3. neither -> `qa-<epoch-seconds>-<pid>`
 
-`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars.
+`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized value only, before the `-<epoch-seconds>-<pid>` suffix is appended in branches 1 and 2 - truncation can never eat the suffix, which is why the name stays unique even when the sanitized basename or ticket ID collapses.
 
-Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD; `git rev-parse --show-toplevel` never is, and - because the QA worktree-fan-out recipe names each worktree directory `qa-<branch>` and git refuses two worktrees on the same branch - those directory *names* are what actually guarantee no collision between concurrent same-ticket QA units, not merely the fact that their full paths differ. (This scheme hashes only the basename into `$QA_SESSION`, so basename collisions across differently-located checkouts remain possible outside this fan-out convention - see the uniqueness precondition in `content/references/code-standards-detail.md`.)
+Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD, so it cannot serve as a session-name input; `git rev-parse --show-toplevel` is always populated, which is why the basename derives from it instead. Uniqueness itself comes from the per-run suffix in the Resolve steps above, not from the worktree directory's own name - so this holds regardless of what the caller names the worktree.
 
 **Escape hatch** (to observe the raw, non-stealth fingerprint - e.g. a scenario deliberately testing bot-detection behavior): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically against `agent-browser 0.25.4`: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`; re-verify this override-vs-merge behavior if the installed version has moved on). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - see the mid-run-edit warning in the Workflow section below.
 

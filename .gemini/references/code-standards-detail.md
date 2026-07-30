@@ -7,7 +7,9 @@ Purpose: Detailed code-standards reference blocks extracted from
 
 Public API: Read-only reference document. Cross-referenced from:
             content/rules/code-standards.md (inline pointers replacing
-            these verbose blocks).
+            these verbose blocks); content/agents/qa-engineer.md
+            (Session naming section cross-references the Browser
+            Verification session-uniqueness scheme below).
 
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
@@ -20,7 +22,8 @@ Upstream deps: content/rules/code-standards.md (parent rules file; read
                --disable-blink-features=AutomationControlled stealth flag).
 
 Downstream consumers: engineer agents (run per-language quality gates
-                      after every implementation); content/sections/
+                      after every implementation); qa-engineer (Session
+                      naming scheme cross-reference); content/sections/
                       12-protocol-details.md (code standards reference).
 
 Failure modes: Prose + code blocks; does not auto-execute. Per-language
@@ -61,12 +64,12 @@ Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"
 `$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
 
 **Resolve `$SESSION` once per run:**
-1. `$REPO_ROOT` non-empty -> `verify-<sanitize(basename "$REPO_ROOT")>`
+1. `$REPO_ROOT` non-empty -> `verify-<sanitize(basename "$REPO_ROOT")>-<epoch-seconds>-<pid>`
 2. `$REPO_ROOT` empty -> `verify-<epoch-seconds>-<pid>`
 
-`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars.
+`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized basename only, before the `-<epoch-seconds>-<pid>` suffix is appended - truncation can never eat the suffix, which is why the name stays unique even when the basename itself collapses.
 
-**Uniqueness precondition:** this scheme is unique only per distinct checkout **directory name**, not per full path - the session name is keyed on the *basename* of `$REPO_ROOT`. It is unique in practice because AE mandates `isolation: "worktree"` for every concurrent `engineer`/`qa-engineer`/`release-orchestrator` spawn (see `content/rules/conventions.md` §Git Workflow), so concurrent Workers each resolve a distinct `REPO_ROOT` by construction. Two cases fall outside that guarantee: (1) two runs deliberately sharing one checkout - e.g. two operator sessions working in the same directory, or a Worker that fell back to the main tree instead of an isolated worktree; and (2) two different clones or worktrees whose directory basenames happen to match (`~/work/api` and `~/scratch/api` both resolve to `verify-api`) - only the basename is sanitized, not the full path. For either case, append a disambiguator resolved once per run, in the same style as the empty-`$REPO_ROOT` fallback above (`-<epoch-seconds>-<pid>`) - the session name then stops being deterministically re-findable across invocations, so any later teardown must use the resolved literal rather than re-deriving it.
+**Why the suffix is unconditional:** the sanitized basename alone does not guarantee uniqueness. The ~40-char cap can collapse two distinct basenames to the same truncated value - e.g. two worktree slugs differing only in a trailing unit index both truncate to the same prefix - and two checkouts can share a basename by construction, not coincidence: AE's own worktree-naming conventions generate exactly that (`.agentic/worktrees/<branch-name>`, `qa-<branch>`, per-unit slugs). The one cost of the suffix: the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including teardown. If a session name from an earlier run is lost, `agent-browser session list` is the recovery path (see the eventual-consistency caveat in `content/agents/qa-engineer.md` §Session naming).
 
 ```bash
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" open <url>                # navigate
