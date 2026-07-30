@@ -815,13 +815,21 @@ def test_canonical_block_never_substitutes_a_different_write_target(canonical_bl
     """Outcome rubric R4: 'the mechanism never writes a tracker state outside
     the 5 configured TRACKER_STATE_* values - no substitution, no guessing,
     ever, on either tracker.' Two prior review rounds' Criticals were about
-    exactly this invariant. This is a genuine guard, not a keyword-presence
-    check: it pins BOTH write call sites to their single literal form (so
-    swapping `target_state` for a derived/nearest/closest value at either
-    call site fails), AND sweeps the whole canonical block for the
-    vocabulary a substitution mechanism would need to describe itself in
-    prose, so a future edit adding fallback-write logic ANYWHERE in the
-    block - not just in step 5 - trips it."""
+    exactly this invariant. This is a genuine guard, not a bare
+    keyword-presence check, but its coverage is bounded and stated honestly
+    here rather than overclaimed: it pins BOTH write call sites to their
+    single literal form (so swapping `target_state` for a derived/nearest/
+    closest value at either the Linear or Jira call site fails), AND sweeps
+    the whole canonical block for a specific, closed vocabulary list
+    (`closest match`, `nearest`, `substitut*`) that a substitution mechanism
+    described in THOSE WORDS would need to use, wherever in the block it
+    appears. It does NOT catch every conceivable phrasing of a fallback-write
+    mechanism - a future edit introducing substitution logic under novel
+    wording that avoids this specific vocabulary (verifier-confirmed: e.g.
+    'retry with the semantically equivalent live state name') would not be
+    caught by this test alone. Treat this as a guard against regression of
+    the two known call sites plus the vocabulary this invariant has
+    historically been described with, not as an exhaustive proof."""
     # Positive proof: the ONLY two write call sites are pinned to their
     # single literal form. Linear writes target_state directly; Jira writes
     # "the matching transition id" - selected from the tracker's own live

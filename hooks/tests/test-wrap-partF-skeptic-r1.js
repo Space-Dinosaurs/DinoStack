@@ -101,8 +101,19 @@ console.log('\n[3] evidence comment gated on transition success, not posted unco
   assert(/only when the transition succeeded/i.test(ticketStatusSyncText),
     'ticket-status-sync.md Tier 1 step 7 gates the evidence comment on transition success');
 
-  assert(/Post the evidence comment .* only when the Writeback Helper reports the transition applied/i.test(wrapText),
-    'wrap.md Part F gates the evidence comment on the Writeback Helper reporting the transition applied');
+  assert(/Gate the comment on the Writeback Helper's return payload having `transitioned: true`\./i.test(wrapText),
+    'wrap.md Part F gates the evidence comment on the Writeback Helper\'s return payload having transitioned: true');
+
+  // Also pin the follow-up sentence's polarity (the "do NOT post" clause).
+  // The gate-clause check above alone would stay green if a future edit left
+  // the bolded sentence untouched but flipped the actual conditional logic
+  // that follows it (e.g. "do NOT post a comment" -> "POST a comment
+  // anyway") - this is a distinct inversion the gate-clause regex cannot see
+  // on its own, since it never inspects what comes after the clause.
+  const gateIdx = wrapText.indexOf("Gate the comment on the Writeback Helper's return payload having");
+  const gateWindow = gateIdx >= 0 ? wrapText.slice(gateIdx, gateIdx + 400) : '';
+  assert(/do NOT post a comment/i.test(gateWindow),
+    'wrap.md Part F\'s gate clause is immediately followed by the "do NOT post a comment" negative-polarity sentence');
 }
 
 // ---------------------------------------------------------------------------
