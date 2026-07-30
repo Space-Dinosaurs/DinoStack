@@ -8,6 +8,12 @@
 #              committed shareable project intent (like config.json).
 #          v4: adds !.agentic/skill-candidates.md negation + seed so the skill-candidate
 #              backlog is committed and visible to all team members by default.
+#          v5: adds !.agentic/qa.md, !.agentic/deploy.md, !.agentic/tracking.md
+#              negations. These three tool-agnostic config files were already
+#              declared committed by /ds-init-project Step 9, but this manifest
+#              never carried a matching negation, so a repo that adopted the
+#              .agentic/* umbrella via agentic-migrate (rather than /ds-init-project)
+#              silently ignored all three.
 # Public API: read by bin/agentic-migrate; version field (scaffolding_version) compared
 #             against <project>/.agentic/config.json scaffolding_version stamp.
 # Upstream: none (this is the canonical source)
@@ -16,7 +22,7 @@
 # Failure modes: if malformed or missing, agentic-migrate exits 2 and skips migration;
 #                preflight swallows the error silently and proceeds with methodology active.
 
-scaffolding_version: 4
+scaffolding_version: 5
 gitignore:
   - pattern: ".agentic/*"
     purpose: "umbrella ignore"
@@ -34,6 +40,12 @@ gitignore:
     purpose: "committed: cross-harness team topology (shareable project intent)"
   - pattern: "!.agentic/skill-candidates.md"
     purpose: "committed: skill-candidate backlog shared across operators"
+  - pattern: "!.agentic/qa.md"
+    purpose: "committed: tool-agnostic QA scenario definitions shared across operators"
+  - pattern: "!.agentic/deploy.md"
+    purpose: "committed: tool-agnostic deploy runbook shared across operators"
+  - pattern: "!.agentic/tracking.md"
+    purpose: "committed: tool-agnostic tracker config shared across operators"
 files:
   - path: ".agentic/config.json"
     seed: "templates/.agentic/config.json"
