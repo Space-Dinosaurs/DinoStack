@@ -243,15 +243,31 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
     """Move every .agentic/ umbrella gitignore line that appears BELOW the
     first `!.agentic/` negation line to just above that negation line, so the
     negations that already exist (typically seeded by /ds-init-project Step 9
-    before any umbrella was added) start working again. Byte-preserving: each
-    moved line keeps its own original terminator, and no other line is
-    touched or reordered. Idempotent - a call on an already-ordered file (or
-    one with no negation lines) is a no-op and returns False.
+    before any umbrella was added) start working again. Byte-preserving: a
+    moved line that already carries its own terminator keeps it unchanged and
+    no other already-terminated line is touched or reordered.
+
+    Two lines are exempt from that "untouched" guarantee, both required to
+    avoid pattern fusion (concatenating two logical lines into one, which
+    silently destroys whichever pattern loses its line):
+
+    - A moved line that has NO terminator (only possible when it was the
+      file's terminator-less last line) is given the terminator of the line
+      it now precedes before insertion - otherwise it fuses with that line.
+    - After all moves, the file's original trailing-newline convention (did
+      the file end with a newline or not) is restored on the new last line,
+      since relocating the original terminator-less last line elsewhere
+      would otherwise silently change that convention.
+
+    Idempotent - a call on an already-ordered file (or one with no negation
+    lines) is a no-op and returns False.
     """
     try:
         byte_lines = _gitignore_byte_lines(gitignore_path)
         if not byte_lines:
             return False
+
+        original_had_trailing_newline = byte_lines[-1].endswith(b"\n")
 
         changed = False
         # Bounded: at most len(byte_lines) misordered umbrella lines can
@@ -265,8 +281,23 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
                 i for i, line in enumerate(str_lines) if line.strip().startswith("!.agentic/")
             )
             line = byte_lines.pop(misordered_idx)
+            if not line.endswith(b"\n"):
+                # Terminator-less line relocated away from EOF: it would
+                # otherwise fuse with the line it now precedes.
+                line = line + _line_terminator(byte_lines[negation_idx])
             byte_lines.insert(negation_idx, line)
             changed = True
+
+        if changed and byte_lines:
+            last = byte_lines[-1]
+            has_trailing_newline = last.endswith(b"\n")
+            if original_had_trailing_newline and not has_trailing_newline:
+                terminator = (
+                    _line_terminator(byte_lines[-2]) if len(byte_lines) > 1 else b"\n"
+                )
+                byte_lines[-1] = last + terminator
+            elif not original_had_trailing_newline and has_trailing_newline:
+                byte_lines[-1] = last[:-2] if last.endswith(b"\r\n") else last[:-1]
 
         if changed:
             gitignore_path.write_bytes(b"".join(byte_lines))

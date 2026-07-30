@@ -936,5 +936,99 @@ markers: []
         self.assertEqual(first_content, second_content, "second apply must be a true no-op")
 
 
+class TestOrderRepairTerminatorlessLastLine(unittest.TestCase):
+    """Major A regression: a misordered .agentic/ umbrella that is the
+    file's terminator-less LAST line must not fuse with the line it is
+    moved above when _repair_gitignore_order relocates it - fusion
+    destroys whichever negation shared that line. Also asserts the file's
+    original trailing-newline convention (present or absent) is preserved
+    rather than silently changed by relocating the terminator-less line."""
+
+    def _manifest(self, tmp):
+        manifest_text = """
+scaffolding_version: 1
+gitignore:
+  - pattern: ".agentic/*"
+    purpose: "umbrella ignore"
+  - pattern: "!.agentic/my-project-notes.md"
+    purpose: "project-specific negation"
+  - pattern: "!.agentic/config.json"
+    purpose: "committed"
+files: []
+markers: []
+"""
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+        return manifest_path
+
+    def test_terminatorless_last_line_umbrella_does_not_fuse(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": 1}) + "\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+
+        gitignore_path = project / ".gitignore"
+        # Umbrella is the file's LAST line, with NO trailing newline - the
+        # exact fixture that previously fused it with the negation line it
+        # was moved above, destroying the "!.agentic/my-project-notes.md"
+        # negation (a user-authored one, not manifest-declared, so the
+        # later append loop cannot mask the damage by re-adding it).
+        raw = (
+            b".agentic/loop-state.json\n"
+            b"!.agentic/my-project-notes.md\n"
+            b"!.agentic/config.json\n"
+            b".agentic/*"
+        )
+        gitignore_path.write_bytes(raw)
+
+        manifest_path = self._manifest(tmp)
+        result = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        after = gitignore_path.read_bytes()
+
+        # The fusion bug produced exactly this garbage line - assert absence.
+        self.assertNotIn(b".agentic/*!.agentic/my-project-notes.md", after)
+
+        lines = after.split(b"\n")
+        self.assertIn(b".agentic/loop-state.json", lines)
+        self.assertIn(b".agentic/*", lines)
+        self.assertIn(b"!.agentic/my-project-notes.md", lines)
+        self.assertIn(b"!.agentic/config.json", lines)
+
+        # The umbrella must land above BOTH negations.
+        umbrella_idx = lines.index(b".agentic/*")
+        self.assertLess(umbrella_idx, lines.index(b"!.agentic/my-project-notes.md"))
+        self.assertLess(umbrella_idx, lines.index(b"!.agentic/config.json"))
+
+        # Original file had no trailing newline - that convention must be
+        # preserved, not silently changed by relocating the terminator-less
+        # line elsewhere in the file.
+        self.assertFalse(
+            after.endswith(b"\n"), f"trailing-newline convention not preserved: {after!r}"
+        )
+
+        # Real git proof: the user-authored negation must actually work now,
+        # not merely look intact as a string.
+        check = subprocess.run(
+            ["git", "check-ignore", "-q", ".agentic/my-project-notes.md"], cwd=str(project)
+        )
+        self.assertNotEqual(
+            check.returncode, 0,
+            "!.agentic/my-project-notes.md negation must not be destroyed by the repair",
+        )
+        check = subprocess.run(["git", "check-ignore", "-q", ".agentic/config.json"], cwd=str(project))
+        self.assertNotEqual(check.returncode, 0, "!.agentic/config.json negation must survive too")
+
+        # Idempotent: a second apply is a true byte-level no-op.
+        second = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(second.returncode, 0, msg=second.stderr)
+        self.assertEqual(
+            gitignore_path.read_bytes(), after, "second apply must not change bytes"
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
