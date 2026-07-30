@@ -35,7 +35,9 @@ Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                .agentic/.pending-merge-last-sweep (60-minute throttle cursor for --pending-merge);
                .agentic/pending-merge-state.jsonl (per-(ticket_id, pr_number) terminal/non-terminal
                record for --pending-merge);
-               .agentic/config.json key pending_merge_sweep (boolean toggle gating --pending-merge).
+               .agentic/config.json key pending_merge_sweep (boolean toggle gating --pending-merge);
+               .agentic/config.json key tracker_state_diagnostic (boolean toggle gating the writeback
+               subagent's diagnostic-enrichment sub-step, read in Preflight).
 
 Downstream consumers: single-ticket and --all modes remain operator-invoked only; no programmatic consumers.
                       --pending-merge is additionally auto-invoked at session start by the conductor - see
@@ -210,7 +212,7 @@ GitHub's `--search` matches title and body case-insensitively, so the uppercase 
 
 `state` enum: `done` | `guard_skipped` | `closed_unmerged` | `abandoned` | `failing`. The first four are **terminal** - the pair is never reconsidered as a candidate again. `failing` is **non-terminal** and carries the running `attempts` counter.
 
-Record `done` on a successful transition; `guard_skipped` when the forward-only guard in step (f) skipped the transition; `closed_unmerged` from (c). On any error in (c), (d), (f), or the writeback spawn: append `failing` with `attempts` incremented from the prior latest entry for this pair (starting at 1) and `detail` set to the error string. When `attempts` reaches **3**, append `abandoned` instead and print:
+Record `done` on a successful transition; `guard_skipped` when the forward-only guard in step (f) skipped the transition; `closed_unmerged` from (c). Record `failing` (NOT `guard_skipped`) when the Writeback Helper's return payload has `status == "skipped_unconfigured_state"` - this is a retryable misconfiguration, not a permanent guard decision, so the pair must remain a candidate on future sweeps until the operator fixes `AGENTS.md`; it terminalizes via the same `attempts`/`abandoned` rule as any other `failing` entry below, not immediately. On any other error in (c), (d), (f), or the writeback spawn: append `failing` with `attempts` incremented from the prior latest entry for this pair (starting at 1) and `detail` set to the error string. When `attempts` reaches **3**, append `abandoned` instead and print:
 
     [ticket-status-sync] <KEY> (PR #<n>) abandoned after 3 failed sweeps: <detail> - run /ds-ticket-status-sync <KEY> to retry manually.
 

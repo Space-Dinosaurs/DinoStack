@@ -13,13 +13,13 @@ Covers:
   - (a2) semantic-inversion coverage: the central pipeline_rank comparator is
     literally `<` (not `>` or `<=`), and steps 4.a/4.b/4.c/4.d.i/4.d.ii/4.d.iii/
     4.d.iv resolve to the specific permit/skip outcome the algorithm requires,
-    the fixed IN_PROGRESS < IN_REVIEW < QA pipeline sequence and the Linear
-    category-rank sequence are pinned as ORDERED literals (not just unordered
-    token presence), and the invocation contract's tracker_state_values and
-    forward_only_guard parameters are checked against a scoped window (the
-    pass-list itself), not the whole block. These pin outcomes byte-identity
-    (b) cannot catch a reversal applied uniformly to the canonical block and
-    every adapter copy at once.
+    the pipeline sequence (default IN_PROGRESS < IN_REVIEW < QA, declarable
+    per Gap 2 below) and the Linear category-rank sequence are pinned as
+    ORDERED literals (not just unordered token presence), and the invocation
+    contract's tracker_state_values and forward_only_guard parameters are
+    checked against a scoped window (the pass-list itself), not the whole
+    block. These pin outcomes byte-identity (b) cannot catch a reversal
+    applied uniformly to the canonical block and every adapter copy at once.
   - (b) the canonical block is byte-identical across all adapter copies.
   - (c) a spelling heuristic: any line in the canonical block that mentions
     3+ of the category-rank tokens (backlog/unstarted/started/completed/
@@ -35,6 +35,49 @@ Covers:
   - (f) content/commands/ds-wrap.md's Part F Gate line resolves the 5
     TRACKER_STATE_* values (regression guard against a future edit silently
     dropping the Gate extension).
+  - (g) Gap 1 (loud diagnostic on a misconfigured TRACKER_STATE_* name) and
+    Gap 2 (declarable pipeline order) - tracker-state-reconciliation work,
+    roughly 50 assertions across both gaps:
+      * Gap 1: the diagnostic-enrichment sub-step runs strictly AFTER a
+        transition attempt (no happy-path round trip), its own failure is
+        always swallowed, Jira relabels from the already-fetched
+        jira_get_transitions result (no new call), Linear's relabel check
+        only inspects live states after its own list_workflow_states call
+        has itself succeeded, the return-payload schema's status enum union
+        specifically (not just the line) carries skipped_unconfigured_state,
+        the failure-logging line defines both FAILED and SKIPPED forms, the
+        Phase 2c warning no longer claims a silent skip, the Setup/pass-list/
+        Phase 11 additions for TRACKER_STATE_DIAGNOSTIC/diagnostic_enabled/
+        linear_team_key reference step 5 (never a stale step 6), the
+        ds-ticket-status-sync.md and ds-wrap.md comment-gate clauses are
+        byte-identical across files (with a non-empty guard so a
+        simultaneous drop in both files cannot pass vacuously on "" == ""),
+        both files' output blocks carry exactly 3 indented line forms, the
+        single-ticket-mode Output section prints the diagnostic on its own
+        line, the 8-site toggle-doc-sync checklist and bin/agentic-config
+        registration (plus its functional CLI round-trip in
+        bin/tests/test_agentic_config.py) hold, § Pending-merge sweep (g)
+        preserves closed_unmerged and adds the skipped_unconfigured_state ->
+        retryable-failing mapping, and a dedicated guard sweeps the whole
+        block for substitution-indicating vocabulary (closest match/nearest/
+        substitut*) to pin that the mechanism never writes an unconfigured
+        state.
+      * Gap 2: the pass-list's pipeline_order bullet is line-scoped and
+        references TRACKER_PIPELINE_ORDER/step 4.d.iv; Setup resolves the
+        override on both the Jira and Linear paths (including the
+        Linear-shaped `## Tracker` path, which previously only inherited
+        state-name overrides by cross-reference) with a stated default and
+        a malformed-value fallback; TRACKER=none sets the default
+        explicitly; the print summary gains a TRACKER_PIPELINE_ORDER line;
+        step 4.d.iv's rank source is pipeline_order (not a hardcoded
+        literal), while its two sibling bullets remain byte-identical to
+        origin/main; the "Rejected: fully tracker-derived pipeline order"
+        rationale paragraph is present; Phase 11's own Inputs list and
+        summary sentence, ds-ticket-status-sync.md's Preflight and both
+        spawn sites, and ds-wrap.md's Part F Gate/Reconcile all resolve and
+        pass pipeline_order; and ds-init-project.md's two AGENTS.md
+        templates show the commented-out override line under its own
+        heading.
 
 Run with: python3 -m pytest bin/tests/test_tracker_writeback_ranking_spec.py -q
 """
@@ -496,11 +539,24 @@ def test_canonical_block_linear_relabel_only_after_own_check_succeeds(canonical_
 
 
 def test_return_payload_schema_has_new_status_and_diagnostic_field():
+    """Regression test for a false-negative: the Returns line contains
+    'skipped_unconfigured_state' TWICE (once in the status enum union, once
+    in trailing prose explaining the status). A bare substring check on the
+    whole line stays green even if the enum union itself drops the new
+    value, as long as the prose sentence still mentions it. Scope the
+    assertion to the enum union specifically - the backtick-fenced type
+    literal immediately after 'status:' - not the whole line."""
     text = CANONICAL_PATH.read_text(encoding="utf-8")
     returns_lines = [l for l in text.splitlines() if l.strip().startswith("> **Returns:**")]
     assert returns_lines, "Returns line not found"
-    assert all("skipped_unconfigured_state" in l for l in returns_lines)
-    assert all("`diagnostic`" in l for l in returns_lines)
+    for line in returns_lines:
+        assert (
+            'status: "ok" | "partial" | "failed" | "skipped_unconfigured_state"'
+            in line
+        ), "the status enum union itself must include skipped_unconfigured_state"
+        assert "diagnostic: <string|null>" in line, (
+            "the return payload type literal must include the diagnostic field"
+        )
 
 
 def test_line_508_failure_logging_has_both_forms():
@@ -605,6 +661,43 @@ def test_wrap_part_f_output_has_exactly_three_indented_lines():
     assert any(l.endswith("- transitioned") for l in indented_lines)
     assert any("FAILED: <error>" in l for l in indented_lines)
     assert any("SKIPPED: <diagnostic>" in l for l in indented_lines)
+
+
+def test_pending_merge_sweep_g_preserves_closed_unmerged_and_adds_three_way_rule():
+    """§ Pending-merge sweep (g) must still map closed_unmerged from (c), and
+    must additionally map a skipped_unconfigured_state writeback outcome to
+    the RETRYABLE `failing` state (never `guard_skipped`, which is terminal).
+    Fails if closed_unmerged is dropped OR if the new status's mapping is
+    removed or changed to a terminal state."""
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    anchor = "**g. Record the determination.**"
+    idx = text.index(anchor)
+    window = text[idx:idx + 1600]
+
+    # closed_unmerged from (c) must still be present, unchanged.
+    assert "`closed_unmerged` from (c)" in window, (
+        "the closed_unmerged mapping from (c) must be preserved"
+    )
+
+    # skipped_unconfigured_state must map to failing, and the sentence must
+    # explicitly rule out guard_skipped for this case.
+    mapping_idx = window.index(
+        'Record `failing` (NOT `guard_skipped`) when the Writeback Helper\'s '
+        'return payload has `status == "skipped_unconfigured_state"`'
+    )
+    mapping_window = window[mapping_idx:mapping_idx + 400]
+    assert "retryable misconfiguration" in mapping_window
+    assert "terminalizes via the same `attempts`/`abandoned` rule as any other `failing` entry" in mapping_window
+
+    # The state enum sentence itself must be unchanged: still exactly 5
+    # values, guard_skipped still listed as terminal (not silently dropped
+    # or redefined as non-terminal to "fix" this some other way).
+    assert (
+        "`state` enum: `done` | `guard_skipped` | `closed_unmerged` | `abandoned` | `failing`. "
+        "The first four are **terminal**"
+        in text
+    )
 
 
 def test_setup_has_tracker_state_diagnostic_toggle():
@@ -715,6 +808,69 @@ def test_agentic_config_settings_registers_tracker_state_diagnostic():
     tracker_idx = text.index('"tracker_state_diagnostic": {"target": "project_config", "type": "bool"},')
     assert tracker_idx > rework_idx, (
         "tracker_state_diagnostic must be registered in _SETTINGS immediately after rework_detection"
+    )
+
+
+def test_canonical_block_never_substitutes_a_different_write_target(canonical_block):
+    """Outcome rubric R4: 'the mechanism never writes a tracker state outside
+    the 5 configured TRACKER_STATE_* values - no substitution, no guessing,
+    ever, on either tracker.' Two prior review rounds' Criticals were about
+    exactly this invariant. This is a genuine guard, not a keyword-presence
+    check: it pins BOTH write call sites to their single literal form (so
+    swapping `target_state` for a derived/nearest/closest value at either
+    call site fails), AND sweeps the whole canonical block for the
+    vocabulary a substitution mechanism would need to describe itself in
+    prose, so a future edit adding fallback-write logic ANYWHERE in the
+    block - not just in step 5 - trips it."""
+    # Positive proof: the ONLY two write call sites are pinned to their
+    # single literal form. Linear writes target_state directly; Jira writes
+    # "the matching transition id" - selected from the tracker's own live
+    # transitions list by exact name match against target_state (see the
+    # Jira relabel bullet's "did not match any available transition's target
+    # name" framing - an exact-match test, not a nearest/closest choice).
+    assert "`mcp__linear__save_issue` call with `state: target_state`" in canonical_block, (
+        "the Linear write call must pass target_state literally"
+    )
+    assert (
+        "call `mcp__mcp-atlassian__jira_transition_issue` for the matching transition id"
+        in canonical_block
+    ), "the Jira write call must use the id of the transition matching target_state, not a derived value"
+
+    # The relabeling invariant: diagnostic enrichment can only ever downgrade
+    # a status label after the fact - it can never redirect what gets written
+    # or manufacture a fake success.
+    assert (
+        'it can never convert `"failed"` into `"ok"`, and it can never prevent, delay, or retry the '
+        "original transition attempt."
+        in canonical_block
+    ), "the diagnostic-enrichment sub-step must state it can never convert failed into ok"
+
+    # Negative sweep: none of the vocabulary a write-time substitution
+    # mechanism would need is present anywhere in the block. "closest match"
+    # and "nearest" are reserved for Phase 2c's READ-ONLY validation warning
+    # (outside this block, and itself explicitly disclaiming any write - see
+    # "never writes to an unconfigured state" below), never for a write
+    # decision inside the Tracker Writeback Helper itself.
+    lowered = canonical_block.lower()
+    for forbidden in ("closest match", "nearest", "substitut"):
+        assert forbidden not in lowered, (
+            f"found substitution-indicating vocabulary {forbidden!r} inside the "
+            "Tracker Writeback Helper block - this is the exact invariant two "
+            "prior review rounds' Criticals were about"
+        )
+
+    # Companion check on Phase 2c's own read-only closest-match warning: it
+    # must explicitly disclaim writing to an unconfigured state, so the ONE
+    # place "closest match" legitimately appears in the file is pinned as
+    # non-write.
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    assert (
+        "Closest match: '<closest>'. Proceeding with configured name" in text
+    ), "Phase 2c's closest-match warning line not found"
+    warning_idx = text.index("Closest match: '<closest>'. Proceeding with configured name")
+    warning_window = text[warning_idx:warning_idx + 400]
+    assert "never writes to an unconfigured state" in warning_window, (
+        "Phase 2c's closest-match warning must explicitly disclaim writing to an unconfigured state"
     )
 
 
