@@ -144,6 +144,78 @@ else
   _fail "check-ignore is suffixed 2>/dev/null $COUNT_SUPPRESSED_CHECK_IGNORE time(s) in $WRAP - this would silently suppress the gitignored-file diagnostic Unit A step 2 requires to stay audible."
 fi
 
+# 6. Skeptic Major 2 - the numstat deletion-warning step must precede the
+#    commit step in Part G's numbered list, not follow it. Compare line
+#    numbers directly rather than trusting the step-number labels, since a
+#    label can be wrong while the text order is right or vice versa.
+LINE_DELETION_WARNING=$(grep -n '^5\. \*\*Deletion warning\.\*\*' "$WRAP" | head -1 | cut -d: -f1)
+LINE_COMMIT_STEP=$(grep -n '^6\. Commit with `git -C <worktree> commit -s`' "$WRAP" | head -1 | cut -d: -f1)
+if [ -n "$LINE_DELETION_WARNING" ] && [ -n "$LINE_COMMIT_STEP" ] && [ "$LINE_DELETION_WARNING" -lt "$LINE_COMMIT_STEP" ]; then
+  _pass "deletion-warning step (line $LINE_DELETION_WARNING) precedes the commit step (line $LINE_COMMIT_STEP) in $WRAP"
+else
+  _fail "deletion-warning step does not precede the commit step in $WRAP (deletion warning line='$LINE_DELETION_WARNING', commit line='$LINE_COMMIT_STEP') - Major 2 regression."
+fi
+
+# 7. Skeptic Major 3 - commit failure must have explicit handling AND be
+#    named in step 9's cleanup enumeration.
+if grep -qF 'If the commit fails' "$WRAP" && grep -qF 'status: "commit-failed"' "$WRAP"; then
+  _pass "Part G defines explicit commit-failure handling with a commit-failed status in $WRAP"
+else
+  _fail "Part G is missing explicit commit-failure handling or the commit-failed status in $WRAP - Major 3 regression."
+fi
+
+if grep -qF 'the step-6 commit-failure soft-fail' "$WRAP"; then
+  _pass "step 9's cleanup enumeration names the step-6 commit-failure soft-fail in $WRAP"
+else
+  _fail "step 9's cleanup enumeration in $WRAP does not name the step-6 commit-failure soft-fail - a leaked ephemeral worktree on commit failure would go undetected (Major 3 regression)."
+fi
+
+# 8. Skeptic Major 4 - the no-op path and the event-emission enumeration must
+#    agree: the no-op line must NOT say "no event", and it must say the event
+#    still fires. Assert the contradictory phrase is gone (count-first, per
+#    this file's own vacuous-pass discipline) before asserting the fix text.
+COUNT_NO_EVENT_CONTRADICTION=$(grep -c 'no worktree, no branch, no commit, no event' "$WRAP" || true)
+if [ "$COUNT_NO_EVENT_CONTRADICTION" -eq 0 ]; then
+  _pass "the contradictory 'no worktree, no branch, no commit, no event' phrase is absent from $WRAP (count=0)"
+else
+  _fail "'no worktree, no branch, no commit, no event' still appears $COUNT_NO_EVENT_CONTRADICTION time(s) in $WRAP - Major 4's no-op/event contradiction was not fixed."
+fi
+
+if grep -qF 'no worktree, no branch, no commit - but it still emits' "$WRAP"; then
+  _pass "the no-op path in $WRAP now states the event still fires, matching step 10's enumeration"
+else
+  _fail "$WRAP does not state that the no-op path still emits an event - Major 4 regression."
+fi
+
+# skipped-ignored must no longer be a status enum member (unreachable per
+# Major 4). It may still be mentioned in prose explaining its removal, and
+# files_skipped_ignored remains a valid array field name - so assert the
+# specific enum-list substring is gone, not the bare string anywhere.
+COUNT_SKIPPED_IGNORED_ENUM=$(grep -c 'no-changes`, `skipped-ignored`' "$WRAP" || true)
+if [ "$COUNT_SKIPPED_IGNORED_ENUM" -eq 0 ]; then
+  _pass "the unreachable 'skipped-ignored' status enum member is absent from the status enum list in $WRAP (count=0)"
+else
+  _fail "'skipped-ignored' status still appears in the status enum list $COUNT_SKIPPED_IGNORED_ENUM time(s) in $WRAP - Major 4's unreachable-enum-member fix was not applied."
+fi
+
+# 9. Skeptic Major 5 - the dead "4th stacked first-user-turn notice"
+#    quotation must be gone from ticket-rework.md.
+COUNT_DEAD_QUOTE=$(grep -c 'the 4th stacked first-user-turn notice' "$TICKET_REWORK" || true)
+if [ "$COUNT_DEAD_QUOTE" -eq 0 ]; then
+  _pass "the dead '4th stacked first-user-turn notice' quotation is absent from $TICKET_REWORK (count=0)"
+else
+  _fail "'the 4th stacked first-user-turn notice' still appears $COUNT_DEAD_QUOTE time(s) in $TICKET_REWORK - Major 5 regression."
+fi
+
+# 10. Skeptic Major 1 - the knowledge-strand tracker key must be
+#     content-derived (path + diff hash), not a bare path.
+CONVENTIONS=content/rules/conventions.md
+if grep -qF '<path>:<hash>' "$CONVENTIONS" && grep -qF 'SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>`' "$CONVENTIONS"; then
+  _pass "knowledge-strand tracker key is content-derived (path + diff hash) in $CONVENTIONS"
+else
+  _fail "knowledge-strand tracker key in $CONVENTIONS is not content-derived - Major 1 regression."
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
