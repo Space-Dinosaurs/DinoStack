@@ -646,6 +646,8 @@ class TestInitProjectStep9NegationBlock(unittest.TestCase):
             "!.agentic/tracking.md",
             "!.agentic/qa-regressions.md",
             "!.agentic/config.json",
+            "!.agentic/team.yml",
+            "!.agentic/skill-candidates.md",
         ]
         for negation in expected:
             occurrences = block.count(negation)
@@ -660,8 +662,6 @@ class TestInitProjectStep9NegationBlock(unittest.TestCase):
         block = self._step9_block()
         self.assertNotIn("!.agentic/preferences.json", block)
         self.assertIn(".agentic/preferences.json", block)
-
-
 
 
 class TestGitignoreInsertByteBehavior(unittest.TestCase):
@@ -820,6 +820,37 @@ markers: []
         )
 
 
+class TestManifestCarveOutsRealGit(unittest.TestCase):
+    """Major 2 regression: every tool-agnostic config file the canonical
+    manifest declares committed must actually NOT be git-ignored once applied
+    - verified against real `git check-ignore`, not string inspection.
+    qa.md, deploy.md, and tracking.md were missing their negation entirely."""
+
+    def test_carved_out_files_not_ignored(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        (project / ".gitignore").write_text("")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        for rel in ("qa.md", "deploy.md", "tracking.md", "config.json", "learnings.md"):
+            target = f".agentic/{rel}"
+            check = subprocess.run(["git", "check-ignore", "-q", target], cwd=str(project))
+            self.assertNotEqual(
+                check.returncode, 0,
+                f"{target} must NOT be git-ignored (manifest negation missing or broken)",
+            )
+
+        # Sanity check the negative: an artifact with no negation IS ignored,
+        # proving the umbrella itself is doing something (not a vacuous pass).
+        check = subprocess.run(["git", "check-ignore", "-q", ".agentic/context.md"], cwd=str(project))
+        self.assertEqual(check.returncode, 0, "context.md (no negation) must still be git-ignored")
+
 
 class TestOrderAwareCheckAndRepair(unittest.TestCase):
     """Major 3 regression: `check`/`diff` must detect ordering drift even
@@ -903,7 +934,6 @@ markers: []
         self.assertEqual(r2.returncode, 0, msg=r2.stderr)
         second_content = gitignore_path.read_bytes()
         self.assertEqual(first_content, second_content, "second apply must be a true no-op")
-
 
 
 if __name__ == "__main__":
