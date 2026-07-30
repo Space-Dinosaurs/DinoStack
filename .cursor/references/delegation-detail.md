@@ -131,6 +131,34 @@ Parent clause: `content/sections/02-delegation.md` §Skeptic absence-or-critical
 
 **Parallel Investigators feeding a single Architect.** When investigation spans multiple independent surfaces (e.g. backend, frontend, schema), the conductor MAY spawn multiple Investigators in a single message. Before doing so, Read `content/references/conductor-operating-rules.md` §Parallel Investigators for the merge-into-one-Architect rule and the single-Architect invariant.
 
+## Harness-Injected Instruction Conflicts
+
+Parent clause: `content/sections/02-delegation.md` §Harness-injected instructions that suppress delegation.
+
+**Enforcement-hook prohibition (do not build the exploration guard).** No AE hook may deny conductor-side Read/Grep/Glob in order to force delegation. This is a flat prohibition, not a conditional one, and the reason is not the bridge-session deadlock: conductor-direct reads are methodology-*mandated* and precede the first spawn by construction - reading `.agentic/context.md` as the first action of every session, the meta-divergence and skill-candidate sweeps of `.agentic/events.jsonl` and `.agentic/skill-candidates.md`, `.agentic/config.json` toggle resolution before risk classification, and the target agent's `capabilities:` block at capability preflight. A call-count guard denies a fully compliant session before it denies a non-compliant one. Mandated conductor reads continue throughout the session too - the spot-check of a Skeptic absence-claim is post-spawn by construction - but the pre-spawn set alone settles it. Two further reasons close the door: the read carries no intent signal, so "confirming a known fact" (permitted) and "investigating an unfamiliar area" (must delegate) are the same payload; and in a session whose harness prompt already suppresses spawning, denying reads too leaves no permitted action at all.
+
+Do not attempt to condition such a guard on whether spawning is available. **There is no such signal.** Session capability at runtime - which tools the harness will actually honour, what an injected system prompt forbids - has no payload representation and is not derivable from an on-disk artifact: a settings file states the operator's configured permission rules, which is not the same fact as what this session's harness will honour. An entrypoint marker may correlate with an injecting harness, but correlation with an entrypoint is not the capability, and gating on it requires the payload-capture discipline in `hooks/AGENTS.md` §Fail-open on absent tool_input fields first. `.agentic/events.jsonl` `spawn_start` records prove spawning *has* worked and can never prove it is unavailable. See `hooks/AGENTS.md` §No gating on inferred session capability for the hook-side rule; do not restate fail-open discipline here.
+
+The rule stays prose-enforced, as it already is on ten of the eleven adapters. Mechanically, only non-blocking shapes are admissible: a warn-only PostToolUse nudge, or after-the-fact detection at a reflection point (the Stop hook already reads the transcript and runs the capture-gap backstop) that surfaces conductor-investigating *after* a turn instead of blocking it in advance. Calibrate any such threshold against measured session data before shipping it - a nudge that fires on a session of mandated preflight reads is the same defect as the deny-guard, only cheaper.
+
+**Notice template (unconditional branch).** When the directive is unconditional and spawning genuinely fails, emit at the first user-facing turn:
+
+```
+DELEGATION SUPPRESSED: this session's harness prompt forbids subagent spawns, so the
+methodology's Worker + Skeptic review is not in force. Findings this session are
+unreviewed.
+  Remedies (any one):
+    - ask for delegation explicitly in your next message
+    - rerun from a local terminal entrypoint rather than a remote-control/bridge one
+    - disable the harness's remote-control-at-startup setting, then restart
+    - or keep this session for reads and diagnosis only and defer shippable edits
+[phase: delegation-suppressed]
+```
+
+This notice is condition-scoped, not a session-start notice: it fires only on an affected entrypoint, whereas every notice in the stacked tally at `content/rules/conventions.md:80` has a trigger computed at preflight on every session. It is **not** one of those four and must not be added to that count.
+
+**Harness-vs-model diagnostic.** Before attributing a compliance regression (the model ignoring delegation rules) to a model-version change, distinguish harness-cause from model-cause: run the identical prompt in a plain local terminal session versus the suspect entrypoint. Only a local-complies / other-fails split implicates the harness (an injected system prompt outranking the methodology); if both fail identically, the regression is model-side and should be investigated as such.
+
 ## Learnings Pipeline
 
 **Learnings pipeline (two feeders, distinct triggers).** The learnings pipeline has two separate feeders with different trigger mechanisms:

@@ -502,16 +502,6 @@
       "source_token": "hooks/enforce-tier.py"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "44234e58586452c3352d51cfe7ef3c2654aae803e44f6c882cb41f3c5b03e5f7",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -582,6 +572,16 @@
       "source_token": "content/sections/02-delegation.md"
     },
     {
+      "expected_target": "$HOME/.claude",
+      "generated_token": "$AE_SHARED_CONFIG_DIR",
+      "kind": "operational",
+      "occurrence_hash": "48f0326822e0e90164e2008bf6c45a0857c64ac594fd36127bda389869081421",
+      "resolution_mode": "shared-config-path",
+      "scope": "shared-user-config",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/.claude"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -590,6 +590,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "4967c023e9d436a62b2735b4fdfc3855f0fdd9a345e1bb807d119016b6916127",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "Agent",
@@ -1332,6 +1342,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "908341794903a57bec52ebe096a824e4cfa8c220a9fc8f5e519a3de7b3bff002",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -1482,6 +1502,16 @@
       "source_token": "Write"
     },
     {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "a213e0f89f6ea0da04dd5bb0afc30bd242e43eaf98d75955bba3b62e1ca9a831",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
       "expected_target": "content/commands/ds-brief.md",
       "generated_token": "$AE_REPO_DIR/content/commands/ds-brief.md",
       "kind": "operational",
@@ -1520,16 +1550,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Bash"
-    },
-    {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "a7e4bf6eec689dc3b6eadad1ae65d34a555c348c26732cb8606901d8dee9003e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "references/skeptic-protocol.md#section-12",
@@ -1800,6 +1820,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/risk-config-and-tiers.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "c4a92745ab8ec5fd36fc0a65059e713fc58c900c3d826223b8b0919cc2fe50e0",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "filesystem read",

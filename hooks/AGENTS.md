@@ -99,3 +99,24 @@ field genuinely is present in the payload.
 actually present in that harness's real shape. Do not assume a field
 documented for one tool name (or one harness) is present for a related tool
 name or a different harness - verify per tool_name.
+
+## No gating on inferred session capability
+
+A hook may gate on what the payload states. It may not gate on what the *session
+is capable of at runtime*: which tools the harness will actually honour, or what
+an injected system prompt forbids. Neither has a payload representation, and
+neither is derivable from an on-disk artifact - a settings file states the
+operator's configured permission rules, which is not the same fact as what this
+session's harness will honour, and a session-scoped state file can record that
+something already happened, never that it is unavailable. A hook written
+against an inferred capability is written against a predicate it cannot
+evaluate; it will either never fire or fire unconditionally, and which one is a
+coin toss at implementation time.
+
+The corollary bounds deny scope. Before adding a deny, name the action the
+agent is expected to take instead, and confirm that action is still permitted
+under every other active guard. A guard that denies the last remaining
+permitted action class is a deadlock, not stricter enforcement. The worked
+instance - why no hook may deny conductor Read/Grep/Glob to force delegation -
+is `content/references/delegation-detail.md` §Harness-Injected Instruction
+Conflicts.
