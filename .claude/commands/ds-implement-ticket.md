@@ -2536,7 +2536,7 @@ Capture the PR number from the URL printed by `gh pr create`.
 - `REWORK_DETECTION` is `false`.
 - `TICKET_ID` is null or empty (pure-freeform work has nothing to key a ledger record on).
 
-**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11c uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
+**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11d uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
 
 **One line, one `write()`.** The record is appended as a single `O_APPEND` write of one complete line. Never compose the line from multiple appends - the offset-atomicity guarantee that makes a lockless append safe is per-`write()`-call, not per-logical-record. There is no write-time lock and no read-before-write; all deduplication happens on read, keyed on `pr_number`.
 
@@ -2934,146 +2934,24 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 
 Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
 
-**Post-return path parse (conductor-side, after skill-candidate merge):**
-
-After the skill-candidate deep-cluster merge, parse the wrap-ticket return JSON into in-context variables for use by Phase 11c:
-
-```bash
-MEMORY_MD_PATH=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -r '.resolved_paths.memory_md // empty' 2>/dev/null || true)
-DECISIONS_MD_PATH=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -r '.resolved_paths.decisions_md // empty' 2>/dev/null || true)
-MEMORY_APPENDS_JSON=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -c '.memory_md_appends // []' 2>/dev/null || printf '[]')
-DECISIONS_APPENDS_JSON=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -c '.decisions_md_appends // []' 2>/dev/null || printf '[]')
-```
-
-Where `$WRAP_TICKET_RETURN` is the raw JSON string returned by the wrap-ticket agent. On skip (Phase 11b skipped, timeout, or non-JSON return), all four variables are empty/`[]` and Phase 11c no-ops.
-
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
 ---
 
-## Phase 11c: Knowledge-file commit (soft-fail)
+## Phase 11d: Review-rigor PR-body evidence (soft-fail)
 
-**Trigger:** runs after Phase 11b (and after the post-return path parse). Skip entirely when Phase 9 was skipped (no PR) or when the current ticket was Trivial (11b was skipped). No-ops when `MEMORY_MD_PATH` and `DECISIONS_MD_PATH` are both empty (wrap-ticket captured nothing or was skipped).
+**This is an INDEPENDENT top-level phase - it does not depend on any wrap-ticket return field.** Most tickets produce no `MEMORY.md`/`decisions.md` appends - this phase fires regardless, on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
 
-**Purpose:** the entries wrap-ticket appended to `MEMORY.md` and `decisions.md` live in the conductor's `$REPO` checkout (which is on the base branch on single-engineer paths). This phase appends those same entries to the feature branch so they appear in the PR diff as a `chore(knowledge):` commit. Append-based (never overwrites); idempotent on resume.
-
-This entire phase runs in a **single Bash invocation** so `$$`, `KNOW_COMMITTED`, `CHECKOUT`, and `KNOW_WORKTREE` persist across steps.
-
-```bash
-# Phase 11c: Knowledge-file commit (soft-fail)
-# Append helper: NUL-delimited whole-entry iteration (prevents line-splitting multi-line entries)
-_ae_append_entries() {
-  local target_file="$1" appends_json="$2" checkout="$3"
-  local full_path="$checkout/$target_file"
-  mkdir -p "$checkout/$(dirname "$target_file")" 2>/dev/null || true
-  local existing_content=""
-  [ -f "$full_path" ] && existing_content=$(cat "$full_path" 2>/dev/null) || true
-  local norm_existing
-  norm_existing=$(printf '%s' "$existing_content" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ')
-  while IFS= read -r -d '' entry; do
-    [ -z "$entry" ] && continue
-    local norm_entry
-    norm_entry=$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ' | sed 's/ *$//')
-    if printf '%s' "$norm_existing" | grep -qFe "$norm_entry" 2>/dev/null; then continue; fi
-    printf '%s\n' "$entry" >> "$full_path"
-    norm_existing="$norm_existing $norm_entry"
-  done < <(printf '%s' "$appends_json" | jq -j '.[] | . + "\u0000"' 2>/dev/null)
-}
-
-# 0. Nothing to do?
-if [ -z "$MEMORY_MD_PATH" ] && [ -z "$DECISIONS_MD_PATH" ]; then
-  STATUS=skipped
-  echo "[phase: knowledge-commit | ticket=$TICKET_ID | status=$STATUS]"
-else
-  # 1. Resolve the checkout that is (or will be) on the feature branch.
-  KNOW_WORKTREE=""
-  if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
-    CHECKOUT="$REPO"                      # fan-out: $REPO already on feature branch
-  else
-    git -C "$REPO" worktree prune 2>/dev/null || true
-    KNOW_WORKTREE="$REPO/.agentic/worktrees/knowledge-commit-$$"
-    git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
-    if git -C "$REPO" worktree add "$KNOW_WORKTREE" "$BRANCH_NAME" 2>/dev/null; then
-      CHECKOUT="$KNOW_WORKTREE"
-    else
-      CHECKOUT=""
-      echo "WARNING: Phase 11c skipped - could not create worktree for $BRANCH_NAME"
-    fi
-  fi
-
-  if [ -n "$CHECKOUT" ]; then
-    KNOW_COMMITTED=false
-
-    # 2. Append each new entry to its target file if not already present.
-    #    Presence check mirrors wrap-ticket dedup: lowercase + whitespace-collapse + substring.
-    for pair in "MEMORY_MD_PATH:MEMORY_APPENDS_JSON" "DECISIONS_MD_PATH:DECISIONS_APPENDS_JSON"; do
-      f_var="${pair%%:*}"; a_var="${pair##*:}"
-      KFILE="${!f_var}"; AJSON="${!a_var}"
-      [ -z "$KFILE" ] && continue
-      # Safety floor: never touch .agentic/ runtime state files on the feature branch.
-      case "$KFILE" in .agentic/*) continue ;; esac
-      _ae_append_entries "$KFILE" "$AJSON" "$CHECKOUT"
-      git -C "$CHECKOUT" add "$KFILE" 2>/dev/null || true
-    done
-
-    # 3. Commit only if staging produced a diff (no empty commit; idempotent on resume).
-    if ! git -C "$CHECKOUT" diff --cached --quiet 2>/dev/null; then
-      DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
-      if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
-      DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
-      SO_NAME=$(git -C "$CHECKOUT" config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
-      SO_EMAIL=$(git -C "$CHECKOUT" config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
-      if [ -n "$SO_NAME" ] && [ -n "$SO_EMAIL" ]; then
-        NL=$'\n'
-        MSG="chore(knowledge): capture MEMORY.md and decisions.md for ${TICKET_ID}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-        if git -C "$CHECKOUT" commit -m "$MSG" 2>/dev/null; then
-          KNOW_COMMITTED=true
-        else
-          git -C "$CHECKOUT" restore --staged . 2>/dev/null || true
-          echo "WARNING: Phase 11c commit failed"
-        fi
-      else
-        git -C "$CHECKOUT" restore --staged . 2>/dev/null || true
-        echo "WARNING: Phase 11c commit skipped - git user.name/email not set"
-      fi
-    fi
-
-    # 4. Push only if a commit was made (fast-forward over Phase 8 HEAD; no force).
-    if [ "$KNOW_COMMITTED" = "true" ]; then
-      git -C "$CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || \
-        echo "WARNING: Phase 11c push failed - commit is local only"
-    fi
-
-    # 5. Cleanup ephemeral worktree (only when we created one). Always soft-fail.
-    if [ -n "$KNOW_WORKTREE" ]; then
-      git -C "$REPO" worktree remove "$KNOW_WORKTREE" --force 2>/dev/null || true
-      git -C "$REPO" worktree prune 2>/dev/null || true
-    fi
-
-    if [ "$KNOW_COMMITTED" = "true" ]; then STATUS=committed; else STATUS=no-changes; fi
-    echo "[phase: knowledge-commit | ticket=$TICKET_ID | status=$STATUS]"
-  fi
-fi
-```
-
-Note on `worktree prune`: prune clears stale git administration entries (dead symlinks) for worktrees whose directories no longer exist. It does NOT remove PID-suffixed directories left behind by interrupted runs - those must be manually removed or will be reused/overwritten by a subsequent `worktree add` with the same path. The `$$`-suffixed path ensures unique naming per run, limiting orphan accumulation.
-
-**Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state-$LOOP_KEY.json`.
-
-### Review-rigor PR-body evidence (soft-fail)
-
-**This is an INDEPENDENT top-level step - it is NOT nested inside, and NOT gated by, the knowledge-file-commit block above.** It does not check `MEMORY_MD_PATH`, `DECISIONS_MD_PATH`, or the knowledge-commit block's `STATUS` variable. Most tickets produce no `MEMORY.md`/`decisions.md` appends (`STATUS=skipped` is the common case) - nesting this step inside that block's emptiness check would skip review-rigor evidence on the majority of PRs, reproducing the exact coverage gap DS-87 closes. This step fires on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
-
-**Trigger:** runs after the knowledge-file-commit step above (same Phase 11c). Skip entirely when Phase 9 was skipped (no PR was opened) - same top-level Phase 11c trigger.
+**Trigger:** runs after Phase 11b. Skip entirely when Phase 9 was skipped (no PR was opened).
 
 **Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state-$LOOP_KEY.json` or the session transcript.
 
-**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11d already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering.
 
 **Ticket scoping (closes a pre-existing latent bug).** The five `jq` reads below had **no ticket scoping at all** before per-ticket keying: they read one shared `.agentic/loop-state.json`, so in a batch they reported whichever ticket last wrote it. Every PR's `## Review rigor` section could therefore attribute another ticket's round count, tier, and findings tally to this ticket, with no gate able to fail on it. Reading `.agentic/loop-state-$LOOP_KEY.json` scopes them to this ticket by construction. Every read stays soft-fail (`2>/dev/null` plus a literal default) - an absent keyed file yields the same `n/a` / `0` defaults as before, never an error.
 
 ```bash
-# Phase 11c: Review-rigor PR-body evidence (soft-fail, independent of knowledge-commit)
+# Phase 11d: Review-rigor PR-body evidence (soft-fail)
 # BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
 # brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
 # spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
@@ -3121,7 +2999,7 @@ if [ -n "$RR_PR_NUMBER" ]; then
 fi
 ```
 
-**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
+**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
 
 ---
 

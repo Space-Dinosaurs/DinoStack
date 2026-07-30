@@ -5,7 +5,7 @@ Purpose: Canonical reference for the ticket-rework alert - the notice that
          and does not do (with the measured reason no continuation-vs-rework
          discriminator exists); the ledger schema, its nullability column,
          and the null-render rule; why pr_number is the sole identity key;
-         why the write lives at Phase 9 and not Phase 12 or Phase 11c; the
+         why the write lives at Phase 9 and not Phase 12 or Phase 11b; the
          append-plus-dedupe-on-read concurrency rationale; the dual-branch
          anchoring pattern (recorded so a future editor recognises the
          shape); the command-scoped-notice disclaimer; the trigger rule,
@@ -127,7 +127,7 @@ The ledger write happens once, at the `/ds-implement-ticket` Phase 9 PR-creation
 
 **Why not Phase 12.** Phase 12 sits downstream of all of the escalation exits described above. Anchoring the write there would silently drop every attempt that opened a PR but then stalled or was escalated before reaching Phase 12 - exactly the runs where a manual-verification pointer matters most, because those are the ones that ended in an unresolved state rather than a clean finish.
 
-**Why not Phase 11c.** Phase 11c is skipped on the Trivial path, which never reaches it. Anchoring the write there would drop the Trivial-path record shown above, which is exactly the record this doc uses to illustrate the null-render rule.
+**Why not Phase 11b.** Phase 11b (the per-ticket `wrap-ticket` capture phase) is skipped on the Trivial path (`skipped_reason: "trivial-no-brief"`), which never reaches it. Anchoring the write there would drop the Trivial-path record shown above, which is exactly the record this doc uses to illustrate the null-render rule.
 
 **Open-goal dry-run is correctly silent.** When an open-goal loop runs in dry-run mode, Phase 9 (along with the rest of the ship-side phases) is skipped for every iteration - no PR is ever opened, so there is nothing to derive a `pr_number` from, and no record is written. Synthetic per-iteration identifiers used internally by an open-goal loop never enter the ledger.
 

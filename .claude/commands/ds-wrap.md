@@ -264,6 +264,7 @@ Zero-substance procedure:
 - Skip Part D and Part D.5 (no session activity to extract skill-candidate or feedback signals from)
 - Skip Part E (nothing changed, nothing to compress)
 - Skip Part F (no session activity means no ticket-referencing commits to detect)
+- Skip Part G (no session activity means no knowledge-file changes to commit)
 - Still run Step 5 (worktree cleanup) - that is always useful
 - Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
 
@@ -700,7 +701,48 @@ Accumulate any `unmatched_state_name` returned by the guard across all detected 
 
 **Soft-fail (absolute).** Any error anywhere in Part F - tracker resolution failure, git call failure, MCP/gh API failure, subagent spawn failure - is swallowed with a one-line stderr log (`[wrap: Part F] <error>`), and Part F moves on to the next key or exits cleanly. Part F NEVER breaks, delays, retries-with-backoff, or blocks `/ds-wrap`'s return to the user. It runs once, best-effort, after the lock is already released - a slow or failing tracker call costs the user nothing beyond Part F's own runtime.
 
-Relay confirmation to the user. Include all paths written (`_wrap.md`, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), and the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
+**Part G - Knowledge-file commit.**
+
+Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock` above has already run, never before (same placement rationale as Part F: this step performs git and filesystem operations that must not extend how long `/ds-wrap` holds `.agentic/wrap/lock`). Part G is independent of Part F and may run in either order relative to it, but both must run after lock release. Purpose: `/ds-wrap` already writes root `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` inline (Part B and the draft-Worker/Skeptic loop) - but this repo's own git workflow only ships a commit via a worktree-isolated `engineer` branch (see `AGENTS.md` §Conventions). The conductor's own writes to these three files therefore never reach a commit unless a human remembers to do it by hand later. Part G closes that gap: it commits verbatim copies of the surviving files to a fresh branch and pushes it, leaving the human to open the PR.
+
+Skip Part G entirely on the **zero-substance path** (see Step 0.5, and the zero-substance skip enumeration above) - the zero-substance criteria mean no session activity happened, so any dirty knowledge file predates this session and is not this session's to commit; it instead becomes the concern of the session-start knowledge-strand sweep (`content/rules/conventions.md` §Session Context and Memory). Part G runs on the light path and the standard path, same as Part D and Part F.
+
+**Absolute soft-fail contract.** Part G NEVER blocks, NEVER fails the wrap, and NEVER propagates an error to the user beyond a one-line log. It inherits Part F's soft-fail contract verbatim: any error anywhere in Part G - git failure, disk failure, push failure, missing git config - is swallowed with a one-line stderr log (`[wrap: Part G] <error>`), and Part G moves on or exits cleanly.
+
+**Candidate set**, in this fixed order:
+1. `<cwd>/MEMORY.md`
+2. `<cwd>/decisions.md`
+3. `<cwd>/.agentic/learnings.md`
+
+**Per-file gating** - each check is a hard skip for THAT FILE ONLY; it never aborts the sweep of the remaining candidates:
+- File does not exist -> skip silently (no log line; this is the common case).
+- `git check-ignore -q -- <f>` succeeds (exit 0, file is gitignored) -> skip, but print a VISIBLE one-line diagnostic quoting the matched rule: run `git check-ignore -v -- <f>` and print `[wrap: Part G] <f> is gitignored (rule: <matched-rule-output>) - not committed.` **Do not redirect this to `/dev/null` or otherwise suppress it** - a gitignored knowledge file is exactly the silent-strand failure mode this unit exists to make audible.
+- File exists and is not gitignored, but is byte-identical to its `origin/<BASE_BRANCH>` version (`git diff --quiet origin/<BASE_BRANCH> -- <f>` exits 0) -> skip silently, nothing to ship.
+
+If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` breadcrumb and nothing else - no worktree, no branch, no commit, no event.
+
+**Otherwise (at least one file survives):**
+
+1. Resolve `BASE_BRANCH` the way the rest of the methodology does (declared in `AGENTS.md` - this repo declares `BASE_BRANCH: main`). `git fetch origin`, then create an ephemeral worktree on a new branch: `chore/knowledge-<YYYYMMDD>-<6-hex-random>`, cut from `origin/<BASE_BRANCH>`. The branch name is derived from the current UTC date plus 6 random hex characters ONLY - no operator identity, no hostname, no absolute path (universality is a project pillar - the branch name must be reproducible-shaped for any teammate on any machine). Worktree path: `.agentic/worktrees/<branch-name>`, consistent with the rest of the methodology's worktree convention.
+2. Copy each surviving file from the conductor's checkout into the worktree at the same relative path, VERBATIM - a plain byte-for-byte file copy (`cp`), never a re-render or re-format. Create parent directories in the worktree as needed (`.agentic/learnings.md` needs `.agentic/` to exist in the worktree).
+3. `git -C <worktree> add` each copied file.
+4. Resolve commit name/email from `git config user.name` / `git config user.email`. **If either is missing or empty: unstage the files (`git -C <worktree> reset`), print a visible warning (`[wrap: Part G] git user.name/user.email not configured - skipping knowledge commit.`), remove the ephemeral worktree per step 9 below, and stop here** - this is a soft-fail, not an escalation.
+5. Otherwise commit with `git -C <worktree> commit -s` (this repo enforces DCO - `Signed-off-by` is mandatory). Commit message:
+
+       chore(knowledge): capture <comma-separated basenames> from session
+
+       Signed-off-by: <name> <email>
+
+   `<comma-separated basenames>` is the list of surviving files by basename only (e.g. `MEMORY.md, decisions.md`), in candidate-set order.
+6. **Deletion warning.** Inspect `git -C <worktree> diff --cached --numstat` (run while the diff is still staged, immediately before the commit in step 5) for deleted-line counts per file. If ANY file shows deleted lines, print a PROMINENT warning naming each such file and its deleted-line count: `[wrap: Part G] WARNING: <file> has N deleted lines vs origin/<BASE_BRANCH> - this commit may revert content another session already merged. Review the PR diff carefully before merging.` Then still proceed - do not abort, do not attempt to merge or reconcile. Rationale (state this in the warning's spirit, not just here): the conductor's local copy may be stale relative to a knowledge commit another session already pushed and merged; a verbatim copy in that case would revert it. The design deliberately has no merge algorithm - the PR diff is where a human catches this, so the correct behavior here is to make the risk loud, not to build reconciliation logic.
+7. Push the branch: `git -C <worktree> push -u origin <branch-name>`. **Do NOT run `gh pr create`.** On push failure (network, auth, remote rejected): soft-fail per the absolute contract - log `[wrap: Part G] push failed: <error>` and skip to step 9 (worktree cleanup); do not retry.
+8. On push success, print the branch name plus a ready-to-paste PR-open command: `gh pr create --base <BASE_BRANCH> --head <branch-name>`. This is a printed affordance only, not an auto-executed action and not a prompt awaiting a reply - `/ds-wrap` summarizes a session, it does not ship on the operator's behalf, so it must never open an outward-facing PR unprompted.
+9. **Remove the ephemeral worktree on every exit path from this subsection** - success, the step-4 missing-git-config soft-fail, and the step-7 push-failure soft-fail all reach this cleanup (`git worktree remove` the ephemeral worktree; a leaked worktree is not an acceptable outcome of a soft failure).
+10. Emit one `agentic-emit` event describing the outcome: `agentic-emit knowledge_commit - - '<json>'` (see `bin/agentic-emit` for the exact 4-arg signature: `<event> <agent|-> <task_id|-> <json_data>`). The JSON `data` payload includes at minimum: `status` (one of `committed`, `no-changes`, `skipped-ignored`, `push-failed`, `failed`), `files_committed` (array of basenames actually committed), `files_skipped_ignored` (array of basenames skipped by the gitignore gate), and `branch` (the branch name, or `null` when no branch was created). Emit this event on every path that reaches a determinable outcome - including the no-op path (`status: "no-changes"`) and the missing-git-config / push-failure soft-fails (`status: "failed"` / `"push-failed"` respectively) - not only on success. Today the `[phase: ...]` breadcrumb is `echo`-only and produces no durable record; this event is what makes Part G's outcome auditable after the fact.
+
+**Residual coverage.** `/ds-wrap` is manual and synchronous (see line 13, "Manual `/ds-wrap` is synchronous"), and the deferred-wrap daemon that can complete a forgotten wrap headlessly is Claude-only and opt-in, defaulting to `deferred_wrap_daemon: false` (see the "Claude-host + opt-in + non-daemon guard" note under Step 0a). So a session that ends without ever invoking `/ds-wrap` still strands its knowledge-file writes until a LATER session's start-up sweep fires the read-only notice (`content/rules/conventions.md` §Session Context and Memory, the knowledge-strand sweep) - and permanently, if no later session ever runs. Part G narrows this gap; it does not close it.
+
+Relay confirmation to the user. Include all paths written (`_wrap.md`, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"), and the Part G outcome (files committed and the pushed branch name plus ready-to-paste `gh pr create` command, or the no-op/soft-fail reason: "no knowledge-file changes this session" / "<file> is gitignored" / "git user.name/user.email not configured" / "push failed" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 
