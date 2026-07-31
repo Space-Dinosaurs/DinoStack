@@ -1574,6 +1574,8 @@ agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" fill 
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" close 2>/dev/null || true # scoped close - never `close --all` in automatic teardown
 ```
 
+`$SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
+
 After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always scoped-close it when verification is done - otherwise the browser lingers open after the task. `agent-browser close --all` closes every session on the machine, including a concurrently-running sibling's - reserve it for manual, deliberate operator cleanup, never an automatic teardown path.
 
 **Escape hatch** (to observe the raw, non-stealth fingerprint): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically against `agent-browser 0.25.4`: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`; re-verify this override-vs-merge behavior if the installed version has moved on). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - args are resolved per-session at (re)launch, so editing the file while any session (this run's or a concurrent sibling's) may be live risks a silent, destructive relaunch that destroys that session's cookies, auth state, and navigation position with no error surfaced.
@@ -9063,6 +9065,8 @@ agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" cl
 kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
 ```
 
+`$QA_SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
+
 The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it. `agent-browser close --all` remains available as a manually-invoked operator cleanup command - it must never appear in an automatic per-agent teardown path.
 
 **Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Run this in teardown after the browser/dev-server steps above, choosing the branch that matches the result you are about to report:
@@ -9122,7 +9126,7 @@ Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"
 
 `sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized value only, before the `-<epoch-seconds>-<pid>` suffix is appended in branches 1 and 2 - truncation can never eat the suffix, which is why the name stays unique even when the sanitized basename or ticket ID collapses.
 
-Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD, so it cannot serve as a session-name input; `git rev-parse --show-toplevel` is always populated, which is why the basename derives from it instead. Uniqueness itself comes from the per-run suffix in the Resolve steps above, not from the worktree directory's own name - so this holds regardless of what the caller names the worktree.
+Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD, so it cannot serve as a session-name input; `git rev-parse --show-toplevel` is populated whenever the caller is inside a git repo (branches 2 and 3 above cover the case where it is not), which is why the basename derives from it instead. Uniqueness itself comes from the per-run suffix in the Resolve steps above, not from the worktree directory's own name - so this holds regardless of what the caller names the worktree.
 
 **The main cost of the suffix:** the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including the teardown close mandated in the Workflow section below - **do not re-run the resolution block on a later call to get it again.** Harness shell state does not persist between Bash tool calls, so re-deriving produces a different name every time and silently orphans the previous session: a blank `snapshot` with no error, and the scoped `close 2>/dev/null || true` swallowing the evidence. A second cost: `agent-browser` keys session state under `~/.agent-browser/` by session name, so a per-run name accumulates one artifact per run, where the old deterministic name reused a single artifact per repo instead - no documented teardown path reaps them.
 
@@ -9170,6 +9174,8 @@ agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" cl
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" fill @e2 "text"     # fill an input field by ref
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" screenshot          # capture visual state
 ```
+
+`$QA_SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
 
 **Playwright** (Python) - for multi-step flows, form interaction, console error capture, network inspection:
 ```python
