@@ -3175,6 +3175,23 @@ Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true
 
 **Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 
+**Post-merge local sync (unconditional).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. See `content/references/base-branch-sync.md`. A non-zero exit never blocks Phase 12 completion - `status=skipped-dirty`/`diverged`/`refused-unknown`/`ref-locked-elsewhere`/`fetch-failed` are all operator-visible breadcrumbs/warnings, matching every other soft-fail convention in this phase (qa.md snapshot cleanup, tracker writeback).
+
+```bash
+# Post-merge local base-branch sync (unconditional - runs regardless of
+# auto_merge_on_ci_green, regardless of whether THIS session merged anything).
+# Fast-forward only; never merge/rebase/autostash. Repo-relative path (not PATH-
+# dependent) so it works without a re-install of bin/ onto PATH. $REPO_DIR and
+# $BASE_BRANCH are conductor-substituted values by the time Phase 12 runs (both
+# resolved in Setup) - never empty here in a correctly-running session, and the
+# tool independently validates non-empty args regardless (exit 3 on empty).
+if [ -x "$REPO_DIR/bin/agentic-base-sync" ]; then
+  "$REPO_DIR/bin/agentic-base-sync" "$REPO" "$BASE_BRANCH"
+else
+  echo "WARNING: agentic-base-sync tool not found at $REPO_DIR/bin/ - skipping post-merge sync this run."
+fi
+```
+
 ---
 
 ## Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)
