@@ -4482,6 +4482,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": ".agentic/tracker.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
+      "kind": "operational",
+      "occurrence_hash": "28250a5b1f81e5e266b064bb6543457f3ac054a1c081e3bca2397b56b5ed04be",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker.yml"
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -6530,6 +6540,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
+    },
+    {
+      "expected_target": ".agentic/phase0-classifiers.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml",
+      "kind": "operational",
+      "occurrence_hash": "520267b48e816c94cdfe0866da2c0b1e5632550480b528d600864b6857231dd6",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/phase0-classifiers.yml"
     },
     {
       "expected_target": "hooks/lib/skill-candidate-deep-cluster.js",
@@ -9160,6 +9180,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/ds-wrap"
+    },
+    {
+      "expected_target": ".agentic/tracker.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
+      "kind": "operational",
+      "occurrence_hash": "9294a01476828245d14c714d6f34e1a5507c3e96b664d6ca32155bd1cb3315bb",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker.yml"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -11922,6 +11952,16 @@
       "source_token": "content/references/conductor-operating-rules.md"
     },
     {
+      "expected_target": ".agentic/tracker.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
+      "kind": "operational",
+      "occurrence_hash": "d4135fa6355e554b4e52f33c8d1d72c281e565f4b7ac904a4bbe7adbe3b18985",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker.yml"
+    },
+    {
       "expected_target": "implement-ticket",
       "generated_token": "$implement-ticket",
       "kind": "operational",
@@ -12770,6 +12810,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": ".agentic/tracker.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
+      "kind": "operational",
+      "occurrence_hash": "e6a3f98257aee6371dd92b1623ab32b6532b6a4e491bc7fb82f7d023ba78798d",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker.yml"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -16552,6 +16602,16 @@
       "source_token": "<cwd>/.agentic/wrap/lock"
     },
     {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "bead428fea889b1874a409581b8ef4bdc419ed5d8aebafce916d9e46844f1185",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
@@ -17010,6 +17070,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.agentic/_wrap.md"
+    },
+    {
+      "expected_target": ".agentic/tracker.yml",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker.yml",
+      "kind": "operational",
+      "occurrence_hash": "dcaa9c3f3046de91454012ed03c5d974231680cf69c41f5e9dbfb2832b44ab4f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/tracker.yml"
     },
     {
       "expected_target": "bin/agentic-codex-session-id",
@@ -17506,16 +17576,6 @@
       "generated_token": "$implement-ticket",
       "kind": "operational",
       "occurrence_hash": "fd91980ea1662535f1086ba14c85fcdaf1258e17908389a2164a53211738754e",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-implement-ticket"
-    },
-    {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "fe43111802cfab58f29b9d11f85ad5870712860c9b6014a495831de29e271bff",
       "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",

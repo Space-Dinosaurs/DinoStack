@@ -1164,6 +1164,14 @@
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-identity auto</code> / <code>agentic-identity init &lt;handle&gt;</code> / <code>agentic-identity confirm</code></p>
   </div>
 
+  <!-- Tracker config -->
+  <div class="rel-card" style="margin-bottom: 16px;">
+    <h4>Tracker config overlay</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">A project-local, gitignored <code>.agentic/tracker.yml</code> file, merged field-by-field over the AGENTS.md tracker resolution chain - lets a repo whose tracker can't be declared in a public file still resolve TRACKER at runtime.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any allowlisted key &nbsp; <strong>Default:</strong> absent file = AGENTS.md chain only</p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-tracker init --tracker jira --prefix P --base-url U</code> / <code>agentic-tracker resolve --json</code></p>
+  </div>
+
   <p class="desc" style="margin-bottom: 20px; font-size: 13px;">File settings (<code>agentic-engineering.json</code>, <code>.agentic/config.json</code>, AGENTS.md) take effect at the next session start. <code>export</code>ed env vars apply to the current session. Full reference: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
   <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/agentic-engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>

@@ -735,7 +735,7 @@ Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock`
 
 Skip Part F entirely on the **zero-substance path** (see Step 0.5) - no session activity means no ticket-referencing commits to detect. Part F runs on the light path and the standard path, same as Part D.
 
-**Gate.** Resolve `TRACKER`, `TICKET_PREFIX`, AND the 5 `TRACKER_STATE_*` values (`TRACKER_STATE_IN_PROGRESS`, `TRACKER_STATE_IN_REVIEW`, `TRACKER_STATE_QA`, `TRACKER_STATE_BLOCKED`, `TRACKER_STATE_DONE`) using the SAME resolution chain as `$implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections). If `TRACKER == none`, skip Part F silently - no output, no log line.
+**Gate.** Resolve `TRACKER`, `TICKET_PREFIX`, AND the 5 `TRACKER_STATE_*` values (`TRACKER_STATE_IN_PROGRESS`, `TRACKER_STATE_IN_REVIEW`, `TRACKER_STATE_QA`, `TRACKER_STATE_BLOCKED`, `TRACKER_STATE_DONE`) using the SAME resolution chain as `$implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections, plus the `$AE_PROJECT_DIR/.agentic/tracker.yml` local overlay). If `TRACKER == none`, skip Part F silently - no output, no log line. When `_source` is `overlay` or `merged`, print a `Tracker config source:` line before proceeding.
 
 Also resolve `TRACKER_STATE_DIAGNOSTIC` (same field/default as `$implement-ticket` Setup).
 
