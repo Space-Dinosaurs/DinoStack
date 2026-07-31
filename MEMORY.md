@@ -80,7 +80,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 ## Adapters & Build
 
-- **2026-07-09:** The 88,323 B resident-budget ratchet and `scripts/check-resident-budget.sh` referenced in `RUNBOOK-extraction-audit.md` do not exist on `main` - they assume unmerged PR #420 (DS-68). Until #420 lands, resident-set tickets have to report a re-derivable delta by hand instead of running the missing check. (ticket: DS-74)
+- **2026-07-31 (supersedes 2026-07-09): `scripts/check-resident-budget.sh` and the `resident-budget` CI workflow now exist on `main`.** Baseline is 123,938 B against `THRESHOLD=124938`; lower THRESHOLD in the same PR as any deliberate compression of the resident set. (ticket: DS-74)
 
 - **2026-07-09: A compression/extraction change that moves inline prose into `content/references/*-detail.md` creates a staleness class that merges silently, no conflict marker** - later commits keep patching the original location while the extracted copy diverges unnoticed. Catching all instances required a file-by-file audit of every post-branch commit (PR #420, DS-68).
 
