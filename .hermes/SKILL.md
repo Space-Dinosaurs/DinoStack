@@ -1227,11 +1227,14 @@ conditions on one native code) are never passed through. The wrapper's contract:
      (behind=0, ahead=N - the precursor state to the handoff's jam), an additional
      informational `NOTE:` line is printed on stdout; this does NOT change the exit
      code or the breadcrumb status.
-  1  diverged - local <base-branch> has commits not present on origin/<base-branch>,
+  1  diverged - local <base-branch> has commits not present on origin/<base-branch>
+     AND origin has commits not present locally (both `behind>0` and `ahead>0`),
      CONFIRMED via `rev-list --left-right --count` after a fresh plain re-fetch of
      origin/<base-branch> (never inferred from git's raw exit code or from a shared
-     fall-through). Local ref and working tree are left untouched. Diagnostic +
-     recovery guidance printed.
+     fall-through). An ahead-only state (`behind==0`, `ahead>0` - local has unpushed
+     commits but origin has not moved) is NOT divergence and does not return this
+     status - see exit 0's NOTE clause above. Local ref and working tree are left
+     untouched. Diagnostic + recovery guidance printed.
   2  skipped-dirty - HEAD was on <base-branch> and git's own merge-overwrite check
      (matched locale-independently via `LC_ALL=C`) refused the pull because a dirty
      path would be clobbered. Local ref and working tree untouched. A dirty tree
@@ -1348,7 +1351,17 @@ ae_base_branch_sync() {
     fi
     behind=$(printf '%s' "$counts" | awk '{print $1}')
     ahead=$(printf '%s' "$counts" | awk '{print $2}')
-    if [ "$ahead" -gt 0 ]; then
+    # Symmetric with the HEAD-elsewhere branch's `behind>0 && ahead>0` gate
+    # below, applied here as defence in depth even though this branch can't
+    # currently reach an ahead-only (behind==0) refusal in practice:
+    # `pull --ff-only` short-circuits to a trivial success ("Already up to
+    # date") whenever there is nothing new to merge from origin, so this
+    # refusal tail is only reached after a REAL merge attempt was refused -
+    # which implies behind>0. Do not weaken this back to a bare `ahead>0`
+    # check - that reintroduces the exact ahead-only-misreported-as-diverged
+    # defect fixed on the HEAD-elsewhere branch (round-4 Skeptic finding),
+    # should a future git version or code path reach here with behind==0.
+    if [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
       echo "WARNING: local $base has diverged from origin/$base (behind/ahead: ${behind}/${ahead}) - fast-forward sync refused."
       echo "Local-only commits on $base:"
       git -C "$repo" log "origin/${base}..${base}" --oneline 2>/dev/null
@@ -1356,9 +1369,10 @@ ae_base_branch_sync() {
       echo "[phase: base-sync | status=diverged | branch=$base]"
       return 1
     fi
-    # ahead == 0, counts are valid, and base IS checked out here - the refusal has
-    # no known cause on this branch. Report the unrecognized git error verbatim
-    # rather than guessing a reassuring status.
+    # Not a confirmed two-sided divergence (either ahead==0, or the
+    # defensive behind==0/ahead>0 case above) and base IS checked out here -
+    # the refusal has no known cause on this branch. Report the unrecognized
+    # git error verbatim rather than guessing a reassuring status.
     echo "WARNING: base-branch-sync could not fast-forward $base for an unrecognized reason (not a dirty-overwrite conflict, not a confirmed divergence). git error:"
     echo "$err"
     echo "[phase: base-sync | status=refused-unknown | branch=$base]"
@@ -1423,6 +1437,14 @@ ae_base_branch_sync() {
   if [ "$ahead" -gt 0 ]; then
     # behind == 0, ahead > 0: local is strictly ahead of origin, nothing on
     # origin has moved. Not divergence - see the comment above this branch.
+    # Note: `status=ff-updated-ref` here does NOT mean a ref was actually
+    # written (the fetch was refused, and local/origin SHAs are unchanged
+    # by this call) - it means "no sync needed, local already covers
+    # origin's tip", the same semantic the HEAD-on-base path reports as
+    # `ff-pulled` for the identical state. Kept as the existing
+    # success-path status (rather than introducing a new one) to minimize
+    # the surface a log-scanner or downstream caller has to handle; exit 0
+    # plus this NOTE is the operator-facing signal that matters.
     echo "NOTE: local $base is $ahead commit(s) ahead of origin/$base with nothing to pull - these are unpushed local-only commits. Push them soon: this is the exact precursor state the handoff's jammed-tree scenario started from."
     echo "[phase: base-sync | status=ff-updated-ref | branch=$base | head=$head]"
     return 0

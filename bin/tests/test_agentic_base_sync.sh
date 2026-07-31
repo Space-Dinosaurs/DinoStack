@@ -489,7 +489,13 @@ echo "=== Case 15 (round-4 CRITICAL regression): invoked via a PATH symlink stil
   SYMLINK_DIR="$TMP_ROOT/case15-symlink-bin"
   mkdir -p "$SYMLINK_DIR"
   ln -s "$TOOL" "$SYMLINK_DIR/agentic-base-sync"
-  OUT="$("$SYMLINK_DIR/agentic-base-sync" "$C/repo" base)"; RC=$?
+  # Capture stdout+stderr combined (2>&1): the pre-fix "base-branch-sync.sh
+  # not found" error is printed to STDERR (bin/agentic-base-sync:66), so a
+  # stdout-only capture can never observe it - that assertion would pass
+  # vacuously both before and after the fix. The breadcrumb/status
+  # assertions below still hold against the combined stream since the
+  # success path never writes to stderr.
+  OUT="$("$SYMLINK_DIR/agentic-base-sync" "$C/repo" base 2>&1)"; RC=$?
   ORIGIN_SHA="$(git -C "$C/repo" rev-parse origin/base)"
   LOCAL_SHA="$(git -C "$C/repo" rev-parse base)"
   _assert_eq "case15: symlink invocation exit 0 (not 3)" "0" "$RC"
