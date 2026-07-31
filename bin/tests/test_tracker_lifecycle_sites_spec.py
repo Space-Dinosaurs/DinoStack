@@ -40,6 +40,19 @@ Covers:
   - the changed Phase 1 W1 block is byte-identical across adapter copies
     of content/commands/ds-implement-ticket.md (excluding the .pi stub,
     which is a 7-line pointer with no such block).
+  - content/commands/ds-init-project.md Step 9 gitignore block:
+      * `.agentic/tracker.yml` sits between the `.agentic/compression-state.json`
+        and `.agentic/tracker-states.json` anchor lines inside the ignore-pattern
+        run, and NOT under the `# Tracked (explicitly NOT ignored):` comment
+        block - this is the consumer-protection line added ahead of the
+        `.agentic/tracker.yml` overlay file landing in a later PR (DS-74).
+        Placed under the tracked-comment block, it would read as though
+        `tracker.yml` were one of the tracked files instead of ignored.
+      * the Step 9 enumeration paragraph names `tracker.yml` explicitly
+        (`per-operator local tracker config; never committed`), not just the
+        updated count.
+      * the count word in that paragraph ("sixteen") matches the number of
+        ignore-pattern lines the paragraph is counting.
 
 Run with: python3 -m pytest bin/tests/test_tracker_lifecycle_sites_spec.py -q
 """
@@ -56,6 +69,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 IMPLEMENT_TICKET_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
 STATUS_SYNC_PATH = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
 CONVENTIONS_PATH = REPO_ROOT / "content" / "rules" / "conventions.md"
+INIT_PROJECT_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
 
 # All adapter copies expected to carry a byte-identical extraction of the
 # "### Tracker writeback (W1)" subsection. .pi/prompts/ds-implement-ticket.md
@@ -433,4 +447,86 @@ def test_w1_block_byte_identical_across_adapters():
     assert not mismatches, (
         f"W1 block diverges from {canonical_path.relative_to(REPO_ROOT)} in: "
         f"{mismatches}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# content/commands/ds-init-project.md Step 9: .agentic/tracker.yml consumer
+# protection (DS-74 - PR1: lands ahead of the .agentic/tracker.yml overlay
+# file itself, which lands in a later PR).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def init_project_text() -> str:
+    return INIT_PROJECT_PATH.read_text(encoding="utf-8")
+
+
+def test_tracker_yml_ignore_line_between_anchors(init_project_text):
+    # Position assertion: `.agentic/tracker.yml` must sit strictly between
+    # the two anchor lines, inside the ignore-pattern run of the fenced
+    # block. This fails both if the line is dropped entirely AND if it is
+    # re-placed under the "# Tracked (explicitly NOT ignored):" comment
+    # block, where it would misleadingly read as one of the tracked files.
+    compression_idx = init_project_text.index(".agentic/compression-state.json")
+    tracker_states_idx = init_project_text.index(".agentic/tracker-states.json")
+    assert compression_idx < tracker_states_idx, (
+        "anchor ordering assumption violated: .agentic/compression-state.json "
+        "must precede .agentic/tracker-states.json"
+    )
+    tracker_yml_idx = init_project_text.index(".agentic/tracker.yml")
+    assert compression_idx < tracker_yml_idx < tracker_states_idx, (
+        ".agentic/tracker.yml must occur strictly between "
+        ".agentic/compression-state.json and .agentic/tracker-states.json "
+        "in the Step 9 gitignore block - this is the consumer-protection "
+        "line that must land before the .agentic/tracker.yml overlay file "
+        "itself exists anywhere (DS-74)"
+    )
+    tracked_comment_idx = init_project_text.index(
+        "# Tracked (explicitly NOT ignored):"
+    )
+    assert tracker_yml_idx < tracked_comment_idx, (
+        ".agentic/tracker.yml must appear BEFORE the "
+        "'# Tracked (explicitly NOT ignored):' comment block - placed after "
+        "it, the line would misleadingly read as one of the tracked files "
+        "rather than an ignored one"
+    )
+
+
+def _step9_enumeration_paragraph(text: str) -> str:
+    marker = "since none of the"
+    idx = text.index(marker)
+    # The enumeration paragraph is a single unbroken line in the source
+    # (no internal newlines); isolate it by line boundaries around the
+    # marker so the paragraph-scoped assertions below are non-vacuous
+    # against the rest of the file.
+    line_start = text.rfind("\n", 0, idx) + 1
+    line_end = text.find("\n", idx)
+    if line_end == -1:
+        line_end = len(text)
+    return text[line_start:line_end]
+
+
+def test_step9_enumeration_names_tracker_yml(init_project_text):
+    paragraph = _step9_enumeration_paragraph(init_project_text)
+    assert "`tracker-states.json`" in paragraph, (
+        "sanity check: the Step 9 enumeration paragraph anchor must be "
+        "present"
+    )
+    assert (
+        "per-operator local tracker config; never committed"
+        in paragraph
+    ), (
+        "the Step 9 enumeration paragraph must name tracker.yml explicitly "
+        "('per-operator local tracker config; never committed'), not just "
+        "update the count word"
+    )
+
+
+def test_step9_enumeration_count_word_is_sixteen(init_project_text):
+    paragraph = _step9_enumeration_paragraph(init_project_text)
+    assert "since none of the sixteen lines above them" in paragraph, (
+        "the Step 9 enumeration paragraph's count word must be 'sixteen' "
+        "(matching the 16 ignore-pattern lines in the fenced block after "
+        "adding .agentic/tracker.yml); a stale 'fifteen' or any other word "
+        "must fail this assertion"
     )
