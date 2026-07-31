@@ -216,6 +216,62 @@ else
   _fail "knowledge-strand tracker key in $CONVENTIONS is not content-derived - Major 1 regression."
 fi
 
+# 11. Skeptic Major (final round) - the Part E clause in the deletion warning
+#     is provably dead (Part E's target set and Part G's candidate set are
+#     disjoint) and must be gone; the MEMORY-archive.md clause is reachable
+#     and must be retained.
+COUNT_PART_E_CLAUSE=$(grep -c 'Part E ran earlier\|Part E compressed' "$WRAP" || true)
+if [ "$COUNT_PART_E_CLAUSE" -eq 0 ]; then
+  _pass "the dead 'Part E ran earlier'/'Part E compressed' clause is absent from $WRAP (count=0)"
+else
+  _fail "'Part E ran earlier'/'Part E compressed' still appears $COUNT_PART_E_CLAUSE time(s) in $WRAP - the provably-dead Part E clause was not removed."
+fi
+
+if grep -qF 'moved verbatim to `MEMORY-archive.md`' "$WRAP"; then
+  _pass "the reachable MEMORY-archive.md clause is retained in the deletion warning in $WRAP"
+else
+  _fail "the MEMORY-archive.md clause is missing from the deletion warning in $WRAP - it is the one reachable caveat and must stay."
+fi
+
+# 12. Skeptic Minor 2 (final round) - a file absent from origin/<BASE_BRANCH>
+#     must be treated as changed, not silently skipped, in BOTH ds-wrap.md's
+#     Part G gating and the conventions.md sweep. `git diff --quiet` exits 0
+#     (falsely "unchanged") for a path that was never committed to that ref.
+if grep -qF 'git cat-file -e origin/<BASE_BRANCH>:<f>' "$WRAP"; then
+  _pass "Part G's per-file gating in $WRAP handles the absent-from-ref case via git cat-file -e"
+else
+  _fail "Part G's per-file gating in $WRAP does not check git cat-file -e origin/<BASE_BRANCH>:<f> - a brand-new untracked knowledge file would be silently skipped by git diff --quiet's false 'unchanged' report."
+fi
+
+if grep -qF 'git cat-file -e origin/<BASE_BRANCH>:<path>' "$CONVENTIONS"; then
+  _pass "the knowledge-strand sweep in $CONVENTIONS handles the absent-from-ref case via git cat-file -e"
+else
+  _fail "the knowledge-strand sweep in $CONVENTIONS does not check git cat-file -e origin/<BASE_BRANCH>:<path> - it shares Part G's absent-from-ref defect and would silently skip a brand-new untracked knowledge file."
+fi
+
+# 13. Skeptic Minor 1 (final round) - the status enum must cover a steps-1-3
+#     (worktree creation / file copy / git add) setup failure, not only the
+#     step-4 missing-git-config "failed" status. Assert the new member is
+#     present in BOTH the status enum list and the emit-on-every-path
+#     enumeration, and that step 9's cleanup handles it.
+if grep -qF '`committed`, `no-changes`, `setup-failed`, `commit-failed`, `push-failed`, `failed`' "$WRAP"; then
+  _pass "the status enum list in $WRAP includes 'setup-failed' for a steps-1-3 failure"
+else
+  _fail "the status enum list in $WRAP does not include 'setup-failed' - a git-worktree-add, cp, or git-add failure has no status member to report (Minor 1 regression)."
+fi
+
+if grep -qF 'the setup-failure soft-fail (`status: "setup-failed"`)' "$WRAP"; then
+  _pass "the emit-on-every-path enumeration in $WRAP names the setup-failure soft-fail"
+else
+  _fail "the emit-on-every-path enumeration in $WRAP does not name the setup-failure soft-fail - Minor 1's new status member is not wired into the 'emit on every path' contract."
+fi
+
+if grep -qF 'the steps-1-3 setup-failure soft-fail' "$WRAP"; then
+  _pass "step 9's cleanup enumeration in $WRAP names the steps-1-3 setup-failure soft-fail"
+else
+  _fail "step 9's cleanup enumeration in $WRAP does not name the steps-1-3 setup-failure soft-fail - a leaked ephemeral worktree on setup failure would go undetected."
+fi
+
 echo
 echo "Results: $PASS passed, $FAIL failed"
 if [ "$FAIL" -gt 0 ]; then
