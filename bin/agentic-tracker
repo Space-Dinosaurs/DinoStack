@@ -44,19 +44,22 @@ Downstream consumers: content/commands/ds-implement-ticket.md Setup (prefers
   reference). content/commands/ds-init-project.md Step 11 (writes via
   `agentic-tracker init` when the operator chooses the local-overlay scope).
 
-Failure modes: exits 0 (success, all subcommands), 2 (resolve only - the
-  live legacy `## Linear` shape guard fired; never suppressed by the
-  overlay), 3 (init/set - write refused by the git-state guard: the target
-  path is unignored, already tracked, or its ignore state can't be
-  determined; `--force-unignored` downgrades to a warning and proceeds),
-  4 (set - write-side key validation refused a credential-shaped or
-  unknown key, or an oversized value; runs BEFORE the git-state guard so a
-  secret is rejected for being a secret, not incidentally because the path
-  happened to be unignored; structurally unreachable for init, which only
-  ever writes its own allowlisted, non-credential-shaped flags).
-  `_resolve_tracker` never raises and never exits non-zero for any
-  file-state reason - the read path is fail-safe by construction; the only
-  non-zero `resolve` exit is 2. An absent, malformed, incomplete, or
+Failure modes: exits 0 (success, all subcommands), 2 (resolve, and show
+  --scope effective - the live legacy `## Linear` shape guard fired; never
+  suppressed by the overlay), 3 (init/set - write refused by the git-state
+  guard: the target path is unignored, already tracked, or its ignore
+  state can't be determined; `--force-unignored` downgrades to a warning
+  and proceeds), 4 (set - write-side key validation refused a
+  credential-shaped or unknown key, or an oversized value; runs BEFORE the
+  git-state guard so a secret is rejected for being a secret, not
+  incidentally because the path happened to be unignored; structurally
+  unreachable for init, which only ever writes its own allowlisted,
+  non-credential-shaped flags).
+  `_resolve_tracker` never raises and never exits/signals non-zero for any
+  file-state reason - the read path is fail-safe by construction, including
+  an unreadable AGENTS.md (degrades to no-section-resolved, same as
+  absent); the only non-zero exit `_resolve_tracker`'s caller ever signals
+  is 2, for the legacy guard above. An absent, malformed, incomplete, or
   credential-bearing overlay degrades to the AGENTS.md result (or
   TRACKER=none) with a distinct, actionable reason string; it is never
   partially honored. Writes use atomic_write(mode=0o600) from bin/_lib,
@@ -70,9 +73,13 @@ Failure modes: exits 0 (success, all subcommands), 2 (resolve only - the
   making a worktree-isolated agent resolve tracker config itself would
   need its own plumbing; this binary does not attempt it.
 
-Performance: Standard. File I/O plus at most three short-lived `git`
-             subprocess calls per write-path guard check (rev-parse,
-             ls-files, check-ignore); none on the read path.
+Performance: Standard. File I/O plus, on the read path, two short-lived
+             `git` subprocess calls per `_resolve_tracker` invocation
+             whenever the overlay path exists (`rev-parse
+             --is-inside-work-tree`, `ls-files --error-unmatch`) - paid by
+             all four resolve/show/resolve-consuming entry points, not
+             cached across them; the write-path guard (`init`/`set`) adds
+             up to one more (`check-ignore`) for up to three total.
 """
 
 from __future__ import annotations
@@ -137,6 +144,11 @@ CREDENTIAL_KEY_RE = re.compile(
 
 MAX_VALUE_LEN = 256
 
+# Hygiene cap on collected parse warnings - a pathological file (e.g. one key
+# repeated a very large number of times) must not make the warnings list grow
+# unbounded. Parsing itself is unaffected; only warning collection is capped.
+MAX_WARNINGS = 50
+
 PIPELINE_TOKENS = ("IN_PROGRESS", "IN_REVIEW", "QA")
 
 # Live guard text quoted verbatim from content/commands/ds-implement-ticket.md
@@ -191,6 +203,15 @@ def _project_tracker_path(cwd: Path | None = None) -> Path:
 # Pipeline-order normalization (byte-identical rule to the live step-1 chain)
 # ---------------------------------------------------------------------------
 
+def _append_warning(warnings: list[str], msg: str) -> None:
+    """Append msg to warnings, capped at MAX_WARNINGS (plus one truncation marker)."""
+    if len(warnings) < MAX_WARNINGS:
+        warnings.append(msg)
+    elif len(warnings) == MAX_WARNINGS:
+        warnings.append(f"... additional warnings suppressed (cap {MAX_WARNINGS})")
+    # else: already capped, no-op - parsing itself continues unaffected.
+
+
 def _normalize_pipeline_order(value: str) -> str | None:
     tokens = [t.strip().upper() for t in value.split(",")]
     if len(tokens) == 3 and len(set(tokens)) == 3 and sorted(tokens) == sorted(PIPELINE_TOKENS):
@@ -237,7 +258,7 @@ def _read_overlay(path: Path) -> tuple[dict, str, list[str], str | None]:
             continue
         # Rule 4: split on the FIRST colon; no colon = ignored with a warning.
         if ":" not in line:
-            warnings.append(f"ignoring line with no ':' separator: {line!r}")
+            _append_warning(warnings, f"ignoring line with no ':' separator: {line!r}")
             continue
         key_part, _, value_part = line.partition(":")
         # Rule 5: key stripped+lowercased; value stripped, one quote pair removed.
@@ -247,7 +268,7 @@ def _read_overlay(path: Path) -> tuple[dict, str, list[str], str | None]:
             value = value[1:-1]
         # Rule 7: duplicate keys - last occurrence wins, one warning.
         if key in parsed:
-            warnings.append(f"duplicate key '{key}': last occurrence wins")
+            _append_warning(warnings, f"duplicate key '{key}': last occurrence wins")
         parsed[key] = value
 
     # Credential-shaped-key guard runs on PARSED keys BEFORE allowlist
@@ -266,10 +287,10 @@ def _read_overlay(path: Path) -> tuple[dict, str, list[str], str | None]:
     fields: dict[str, str] = {}
     for key, value in parsed.items():
         if key not in ALLOWED_KEYS:
-            warnings.append(f"unknown key '{key}' dropped")
+            _append_warning(warnings, f"unknown key '{key}' dropped")
             continue
         if len(value) > MAX_VALUE_LEN:
-            warnings.append(f"key '{key}' dropped: value exceeds {MAX_VALUE_LEN} characters")
+            _append_warning(warnings, f"key '{key}' dropped: value exceeds {MAX_VALUE_LEN} characters")
             continue
         # Rule 6: an empty value is treated as unset.
         if value == "":
@@ -427,7 +448,12 @@ def _read_agents_md(path: Path) -> tuple[dict, str | None]:
     if not path.is_file():
         return {}, None
 
-    text = path.read_text(encoding="utf-8", errors="replace")
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        # Fail-safe: an unreadable AGENTS.md must never raise here - it
+        # degrades to "no AGENTS.md section resolved", the same as absent.
+        return {}, None
 
     tracker_section = _extract_section(text, "## Tracker")
     if tracker_section is not None:
@@ -505,7 +531,7 @@ def _git_state(path: Path) -> str:
         return "tracked"
 
     try:
-        r3 = _run_git(["check-ignore", "-q", str(path)], cwd)
+        r3 = _run_git(["check-ignore", "-q", "--", str(path)], cwd)
     except OSError:
         return "unknown"
     if r3.returncode == 0:
@@ -617,7 +643,11 @@ def _resolve_tracker(cwd: Path) -> dict:
         for k, v in overlay_fields.items():
             if k == "TRACKER":
                 continue
-            if merged.get(k) != v:
+            # Only a genuinely overwritten (present-in-base, different
+            # value) field counts as "overridden" - a field the overlay
+            # merely ADDS (absent from AGENTS.md) is not an override, per
+            # the plan's "each overwritten name" wording.
+            if k in merged and merged[k] != v:
                 overridden.append(k)
             merged[k] = v
         source = "merged"

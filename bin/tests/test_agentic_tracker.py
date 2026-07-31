@@ -57,6 +57,7 @@ _resolve_tracker = _mod._resolve_tracker
 _git_state = _mod._git_state
 _check_ignored = _mod._check_ignored
 _validate_write_key = _mod._validate_write_key
+TRACKED_READ_WARNING = _mod.TRACKED_READ_WARNING
 
 
 def _write(path: Path, text: str) -> None:
@@ -99,6 +100,13 @@ AGENTS_MD_JIRA_FULL = """## Tracker
 TRACKER: jira
 TICKET_PREFIX: DS
 JIRA_BASE_URL: https://solara6.atlassian.net
+"""
+
+AGENTS_MD_JIRA_FULL_WITH_QA = """## Tracker
+TRACKER: jira
+TICKET_PREFIX: DS
+JIRA_BASE_URL: https://solara6.atlassian.net
+JIRA_STATE_QA: QA
 """
 
 AGENTS_MD_LINEAR_FULL = """## Linear
@@ -159,9 +167,14 @@ def test_B_overlay_sole_source_no_agents_md():
 # ---------------------------------------------------------------------------
 
 def test_C_merge_overlay_wins_overridden_exact():
+    # AGENTS_MD_JIRA_FULL_WITH_QA declares BOTH TICKET_PREFIX and
+    # TRACKER_STATE_QA, so the overlay setting different values for both is
+    # a genuine overwrite, not merely an add - distinguishing "overridden"
+    # from "added" (a field the overlay sets that AGENTS.md never declared
+    # must NOT appear in _overridden).
     with tempfile.TemporaryDirectory() as tmp:
         cwd = Path(tmp)
-        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_FULL)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_FULL_WITH_QA)
         _write(
             cwd / ".agentic" / "tracker.yml",
             "tracker: jira\nprefix: MYDS\nstate_qa: Testing\n",
@@ -171,6 +184,23 @@ def test_C_merge_overlay_wins_overridden_exact():
         assert result["TRACKER_STATE_QA"] == "Testing"
         assert result["_overridden"] == ["TICKET_PREFIX", "TRACKER_STATE_QA"], result["_overridden"]
         print("PASS test_C_merge_overlay_wins_overridden_exact")
+
+
+def test_C2_merge_add_not_override():
+    # A field the overlay ADDS (absent from AGENTS.md) must not be counted
+    # as an override - only a genuinely overwritten (present-in-base,
+    # different value) field belongs in _overridden.
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_FULL)  # no qa_assignee declared
+        _write(
+            cwd / ".agentic" / "tracker.yml",
+            "tracker: jira\nqa_assignee: abc123\n",
+        )
+        result = _resolve_tracker(cwd)
+        assert result["JIRA_QA_ASSIGNEE_ACCOUNT_ID"] == "abc123"
+        assert result["_overridden"] == [], result["_overridden"]
+        print("PASS test_C2_merge_add_not_override")
 
 
 # ---------------------------------------------------------------------------
@@ -448,12 +478,44 @@ def test_R_legacy_guard_terminal_json_on_stdout():
         result = _resolve_tracker(cwd)
         assert result["_agents_md_guard"] is not None
 
-        r = _run_cli(["resolve", "--json"], cwd, dict(os.environ))
+        r = _run_cli(["resolve", "--json"], cwd, _git_env(cwd))
         assert r.returncode == 2
         import json as _json
         parsed = _json.loads(r.stdout)
         assert parsed["_agents_md_guard"]
         print("PASS test_R_legacy_guard_terminal_json_on_stdout")
+
+
+# ---------------------------------------------------------------------------
+# Critical regression: an unreadable AGENTS.md must degrade, never raise.
+# Fail-safe invariant: _resolve_tracker never raises and never exits/signals
+# non-zero for any file-state reason - the only non-zero exit is 2 (legacy
+# guard). An unreadable AGENTS.md (e.g. chmod 000) is a file-state reason.
+# ---------------------------------------------------------------------------
+
+def test_unreadable_agents_md_never_raises():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        agents_path = cwd / "AGENTS.md"
+        _write(agents_path, AGENTS_MD_JIRA_FULL)
+        _write(
+            cwd / ".agentic" / "tracker.yml",
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n",
+        )
+        os.chmod(agents_path, 0o000)
+        try:
+            result = _resolve_tracker(cwd)  # must not raise
+            assert result["_source"] == "overlay", result["_source"]
+            assert result["TICKET_PREFIX"] == "DS"
+
+            env = _git_env(cwd)
+            r = _run_cli(["resolve", "--json"], cwd, env)
+            assert r.returncode == 0, (r.returncode, r.stdout, r.stderr)
+            assert "Traceback" not in r.stderr
+        finally:
+            # Restore permissions so tempfile cleanup can remove the file.
+            os.chmod(agents_path, 0o644)
+        print("PASS test_unreadable_agents_md_never_raises")
 
 
 # ---------------------------------------------------------------------------
@@ -541,7 +603,7 @@ def test_S_d_unknown_git_state_fails_closed():
             encoding="utf-8",
         )
         shim.chmod(0o755)
-        env = dict(os.environ)
+        env = _git_env(repo)
         env["PATH"] = f"{shim_dir}:{env.get('PATH', '')}"
 
         r = _run_cli(
@@ -555,11 +617,70 @@ def test_S_d_unknown_git_state_fails_closed():
         print("PASS test_S_d_unknown_git_state_fails_closed")
 
 
+# ---------------------------------------------------------------------------
+# no-repo state: outside any git work tree, the write-path guard allows and
+# warns rather than refuses.
+# ---------------------------------------------------------------------------
+
+def test_no_repo_state_allows_and_warns():
+    with tempfile.TemporaryDirectory() as tmp:
+        # A plain directory with no .git anywhere in its ancestry. Guard
+        # against accidentally running this INSIDE the DinoStack repo's own
+        # tree (which would make cwd.parent resolve to a real git work
+        # tree and defeat the fixture) by asserting the state up front.
+        cwd = Path(tmp) / "no-git-here"
+        cwd.mkdir()
+        overlay_path = cwd / ".agentic" / "tracker.yml"
+        overlay_path.parent.mkdir(parents=True)
+        state = _git_state(overlay_path)
+        assert state == "no-repo", f"fixture precondition failed: git state was {state!r}, not no-repo"
+
+        may_write, returned_state, msg = _check_ignored(overlay_path)
+        assert may_write is True
+        assert returned_state == "no-repo"
+        assert msg, "no-repo must still emit a warning message"
+        print("PASS test_no_repo_state_allows_and_warns")
+
+
+# ---------------------------------------------------------------------------
+# Read-side tracked-file warning (plan r2 mitigation for Known limitation 2).
+# ---------------------------------------------------------------------------
+
+def test_tracked_overlay_emits_read_side_warning():
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        r_init = _run_cli(
+            ["init", "--tracker", "jira", "--prefix", "DS", "--base-url", "https://x.atlassian.net"],
+            repo,
+            env,
+        )
+        assert r_init.returncode == 0, r_init.stderr
+
+        subprocess.run(
+            ["git", "add", "-f", ".agentic/tracker.yml"], cwd=str(repo), env=env, check=True
+        )
+        subprocess.run(
+            ["git", "commit", "-q", "-m", "track overlay"], cwd=str(repo), env=env, check=True
+        )
+
+        result = _resolve_tracker(repo)
+        assert result["_git_state"] == "tracked"
+        assert TRACKED_READ_WARNING in result["_warnings"], result["_warnings"]
+
+        r_resolve = _run_cli(["resolve", "--json"], repo, env)
+        assert r_resolve.returncode == 0, r_resolve.stderr
+        assert TRACKED_READ_WARNING in r_resolve.stderr
+        print("PASS test_tracked_overlay_emits_read_side_warning")
+
+
 if __name__ == "__main__":
     test_A_no_overlay_jira_agents_md_byte_identical()
     test_A2_no_overlay_linear_agents_md()
     test_B_overlay_sole_source_no_agents_md()
     test_C_merge_overlay_wins_overridden_exact()
+    test_C2_merge_add_not_override()
     test_D_type_switch_discards_base_fields()
     test_E_credential_key_rejects_whole_file()
     test_F_unknown_key_dropped_not_whole_file()
@@ -576,5 +697,8 @@ if __name__ == "__main__":
     test_Q_missing_required_field_demotes_to_unusable()
     test_Q2_empty_value_treated_as_unset()
     test_R_legacy_guard_terminal_json_on_stdout()
+    test_unreadable_agents_md_never_raises()
     test_S_write_path_guard_five_cases()
     test_S_d_unknown_git_state_fails_closed()
+    test_no_repo_state_allows_and_warns()
+    test_tracked_overlay_emits_read_side_warning()

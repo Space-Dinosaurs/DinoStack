@@ -55,7 +55,43 @@ CASES = [
     ("agentic-feedback", ["--help"], 0),
     ("agentic-configure", ["--help"], 0),
     ("agentic-team", ["--help"], 0),
+    ("agentic-tracker", ["--help"], 0),
 ]
+
+# Completeness backstop: every bin/agentic-* python CLI that carries the
+# `_lib.py` sibling-resolution shim (the DS-66 bug surface) MUST appear in
+# CASES above - a hardcoded list with no completeness check is exactly how
+# agentic-tracker escaped this guard for one review round. This scan is
+# narrower than the full class docstring (which also covers CLIs that
+# resolve a sibling BINARY, e.g. agentic-configure -> agentic-team, already
+# covered by their own entries/EXTRA_TESTS below) - it only catches the
+# mechanically detectable `_lib.py` import shim.
+_LIB_SHIM_MARKER = '"_lib.py"'
+
+
+def _bin_agentic_clis_with_lib_shim() -> set[str]:
+    names = set()
+    for path in REPO_BIN.glob("agentic-*"):
+        if not path.is_file() or path.suffix:
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        if _LIB_SHIM_MARKER in text:
+            names.add(path.name)
+    return names
+
+
+def test_every_lib_shim_cli_is_covered_by_cases() -> None:
+    covered = {name for name, _args, _rc in CASES}
+    shimmed = _bin_agentic_clis_with_lib_shim()
+    missing = shimmed - covered
+    assert not missing, (
+        f"bin/agentic-* CLIs carrying the _lib.py sibling-resolution shim "
+        f"but missing from CASES: {sorted(missing)} - add a CASES entry so "
+        f"the symlink-resolution regression guard actually covers them"
+    )
 
 
 def _symlinked_cli(tmp_path: Path, cli_name: str) -> tuple[Path, dict]:
@@ -201,6 +237,7 @@ def test_agentic_configure_team_symlink_resolves_agentic_team() -> None:
 EXTRA_TESTS = [
     test_agentic_configure_models_symlink_resolves_agentic_models,
     test_agentic_configure_team_symlink_resolves_agentic_team,
+    test_every_lib_shim_cli_is_covered_by_cases,
 ]
 
 
