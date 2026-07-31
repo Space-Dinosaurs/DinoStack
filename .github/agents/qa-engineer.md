@@ -106,6 +106,8 @@ agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" cl
 kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
 ```
 
+`$QA_SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
+
 The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it. `agent-browser close --all` remains available as a manually-invoked operator cleanup command - it must never appear in an automatic per-agent teardown path.
 
 **Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Run this in teardown after the browser/dev-server steps above, choosing the branch that matches the result you are about to report:
@@ -159,15 +161,17 @@ Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"
 `$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
 
 **Resolve `$QA_SESSION` once per run:**
-1. `$REPO_ROOT` non-empty -> session name = `sanitize(basename "$REPO_ROOT")` - **no added `qa-` prefix in this branch.** (`qa-gate.md`'s own worktree-fan-out recipe already names the worktree directory `qa-<branch>`, so `basename "$REPO_ROOT"` in that scenario is already `qa-<branch>`; prefixing another `qa-` would produce `qa-qa-<branch>`. The bare basename is already a sufficiently unique, recognizable session name - no semantic prefix is needed for uniqueness.)
-2. `$REPO_ROOT` empty AND `ticket_id` present -> `qa-<sanitize(ticket_id)>`
+1. `$REPO_ROOT` non-empty -> session name = `sanitize(basename "$REPO_ROOT")-<epoch-seconds>-<pid>` - **no added `qa-` prefix in this branch.** (`qa-gate.md`'s own worktree-fan-out recipe already names the worktree directory `qa-<branch>`, so `basename "$REPO_ROOT"` in that scenario is already `qa-<branch>`; prefixing another `qa-` would produce `qa-qa-<branch>`. The bare basename plus the per-run suffix below is already a sufficiently unique, recognizable session name - no semantic prefix is needed for uniqueness.)
+2. `$REPO_ROOT` empty AND `ticket_id` present -> `qa-<sanitize(ticket_id)>-<epoch-seconds>-<pid>`
 3. neither -> `qa-<epoch-seconds>-<pid>`
 
-`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars.
+`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized value only, before the `-<epoch-seconds>-<pid>` suffix is appended in branches 1 and 2 - truncation can never eat the suffix, which is why the name stays unique even when the sanitized basename or ticket ID collapses.
 
-Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD; `git rev-parse --show-toplevel` never is, and is unique by filesystem construction (git refuses two worktrees on the same branch) - this is what actually guarantees no collision between concurrent same-ticket QA units, not merely makes it less likely.
+Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD, so it cannot serve as a session-name input; `git rev-parse --show-toplevel` is populated whenever the caller is inside a git repo (branches 2 and 3 above cover the case where it is not), which is why the basename derives from it instead. Uniqueness itself comes from the per-run suffix in the Resolve steps above, not from the worktree directory's own name - so this holds regardless of what the caller names the worktree.
 
-**Escape hatch** (to observe the raw, non-stealth fingerprint - e.g. a scenario deliberately testing bot-detection behavior): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - see the mid-run-edit warning in the Workflow section below.
+**The main cost of the suffix:** the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including the teardown close mandated in the Workflow section below - **do not re-run the resolution block on a later call to get it again.** Harness shell state does not persist between Bash tool calls, so re-deriving produces a different name every time and silently orphans the previous session: a blank `snapshot` with no error, and the scoped `close 2>/dev/null || true` swallowing the evidence. A second cost: `agent-browser` keys session state under `~/.agent-browser/` by session name, so a per-run name accumulates one artifact per run, where the old deterministic name reused a single artifact per repo instead - no documented teardown path reaps them.
+
+**Escape hatch** (to observe the raw, non-stealth fingerprint - e.g. a scenario deliberately testing bot-detection behavior): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically against `agent-browser 0.25.4`: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`; re-verify this override-vs-merge behavior if the installed version has moved on). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - see the mid-run-edit warning in the Workflow section below.
 
 `agent-browser session list` is eventually consistent for a few seconds after a scoped `close` returns - a just-closed session briefly still appearing in the list is not a teardown failure.
 
@@ -211,6 +215,8 @@ agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" cl
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" fill @e2 "text"     # fill an input field by ref
 agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" screenshot          # capture visual state
 ```
+
+`$QA_SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
 
 **Playwright** (Python) - for multi-step flows, form interaction, console error capture, network inspection:
 ```python
