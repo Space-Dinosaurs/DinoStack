@@ -12,9 +12,14 @@
 # Public API: ./bin/tests/test_check_resident_budget.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, mktemp, wc. zsh is used opportunistically for the
-#                bash/zsh parity assertion - skipped (not failed) when zsh
-#                is not on PATH.
+# Upstream deps: bash, mktemp, wc, python3, grep, cut (build_fixture() calls
+#                python3 to write deterministic fixture files; THRESHOLD and
+#                MIN_PLAUSIBLE_METHODOLOGY_BYTES are parsed out of the gate
+#                script with grep|cut). zsh is required for the bash/zsh
+#                parity assertion when running in CI (the assertion FAILs
+#                if zsh is absent under CI=true); locally, without zsh on
+#                PATH it is skipped (not failed) so contributors without
+#                zsh installed can still run the rest of the suite.
 #
 # Downstream consumers: developer running locally before commit; CI
 #                        (bin-sh-tests.yml auto-discovers bin/tests/test_*.sh).
@@ -109,6 +114,12 @@ if [[ -z "$THRESHOLD" ]]; then
 fi
 
 MIN_PLAUSIBLE="$(grep -E '^MIN_PLAUSIBLE_METHODOLOGY_BYTES=' "$GATE_SCRIPT" | head -1 | cut -d= -f2)"
+if [[ -z "$MIN_PLAUSIBLE" ]]; then
+  _fail "could not read MIN_PLAUSIBLE_METHODOLOGY_BYTES out of $GATE_SCRIPT"
+  echo ""
+  echo "Results: $PASS passed, $FAIL failed"
+  exit 1
+fi
 
 # --- Scenario 1: bash/zsh parity (the actual round-1 regression) ---
 # Under budget but above the build-failure floor:
@@ -141,6 +152,8 @@ if command -v zsh >/dev/null 2>&1; then
   else
     _fail "bash and zsh output diverged (this is the round-1 zsh regression) - bash: [$bash_out] zsh: [$zsh_out]"
   fi
+elif [[ -n "${CI:-}" ]]; then
+  _fail "zsh absent on PATH in CI - parity assertion cannot be skipped here"
 else
   echo "SKIP: zsh not found on PATH - skipping zsh parity assertion (bash-only coverage below still applies)"
 fi

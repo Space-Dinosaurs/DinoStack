@@ -37,8 +37,10 @@
 #       rebuilding adapters would otherwise be measured against a stale
 #       artifact and could slip a regression past this gate.
 #
-# Compatible with both bash and zsh invocation of the containing shell;
-# this script itself always runs under `bash scripts/check-resident-budget.sh`.
+# Compatible with both bash and zsh invocation of the containing shell; CI
+# always invokes it as `bash scripts/check-resident-budget.sh`, but a
+# contributor, reviewer, or this file's own regression test may invoke it
+# as `zsh scripts/check-resident-budget.sh` and it must behave identically.
 
 set -euo pipefail
 
