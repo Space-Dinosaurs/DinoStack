@@ -14,7 +14,9 @@
 #          in every project with more always-loaded context.
 #
 # Public API: bash scripts/check-resident-budget.sh
-#             Exits 0 when total bytes <= THRESHOLD, 1 otherwise.
+#             Exits 0 when total bytes <= THRESHOLD. Exits 1 when over
+#             budget, when a required input file is missing, or when the
+#             build-methodology.sh floor fires (see Failure modes below).
 #
 # Upstream deps: scripts/build-methodology.sh; content/rules/conventions.md;
 #                content/rules/code-standards.md.
@@ -40,10 +42,11 @@
 
 set -euo pipefail
 
-# BASH_SOURCE is unset under zsh (this script is invoked as `zsh
-# scripts/check-resident-budget.sh` by some CI/local paths, even though it
-# is written for bash) - fall back to $0 so REPO_DIR resolves correctly
-# under both interpreters instead of collapsing to "//".
+# BASH_SOURCE is unset under zsh. CI always invokes this script as `bash
+# scripts/check-resident-budget.sh` (see resident-budget.yml), but a
+# contributor or reviewer may run it under zsh locally - fall back to $0 so
+# REPO_DIR resolves correctly under both interpreters instead of collapsing
+# to "//".
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
 # Ratchet: 123,938 measured on origin/main 2026-07-31 + 1,000 B headroom.
