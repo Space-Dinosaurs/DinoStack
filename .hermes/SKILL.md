@@ -728,14 +728,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Pending-merge sweep at session start.** Runs at session start, after the skill-candidate sweep. Skip when any of: `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; fewer than 60 minutes have elapsed since the last sweep (the throttle); `.agentic/ticket-ledger.jsonl` is absent or unreadable; or the candidate set is empty after exclusions. Otherwise runs `/ds-ticket-status-sync --pending-merge`, tracked via `.agentic/.pending-merge-last-sweep` (throttle timestamp) and `.agentic/pending-merge-state.jsonl` (sweep state). See `content/commands/ds-ticket-status-sync.md` §Pending-merge sweep for the procedure. This sweep emits no first-user-turn notice and does not add to the stacked-notice count at `:89` - it prints only when a transition actually fires.
 
-**Knowledge-strand sweep at session start.** Runs at session start, after the pending-merge sweep. **Read-only** - no worktree, no branch, no git write, and no `git fetch`: resolve `BASE_BRANCH` using the same non-interactive steps 1-3 as **Base branch resolution** below (declared in `AGENTS.md`, else local `develop`, else local `development`, falling to `main`/`master` per step 5 without the step-4 prompt - this sweep never asks). Because it must not fetch, `origin/<BASE_BRANCH>` here can be a stale local copy of the remote ref; a stale ref can delay a notice by one session (until the next `git fetch` happens elsewhere), which is an acceptable cost for a non-blocking advisory. Applies Part G's per-file gating (`content/commands/ds-wrap.md` §Part G - Knowledge-file commit) against the conductor's own checkout only, for the same three-file candidate set in the same order (`MEMORY.md`, `decisions.md`, `.agentic/learnings.md`): file absent -> skip; `git check-ignore -q` succeeds -> skip; unchanged versus `origin/<BASE_BRANCH>` -> skip, BUT (same fix as Part G) a path absent from `origin/<BASE_BRANCH>` (`git cat-file -e origin/<BASE_BRANCH>:<path>` fails) is entirely new content and does NOT skip, even though `git diff --quiet` would falsely report it unchanged. For each file that survives gating, compute a tracker key `<path>:<hash>` where `<hash>` is the first 8 hex characters of the SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>` (the file's own pending diff, not its full contents). If that exact key is not already present in `.agentic/.knowledge-strand-surfaced`, emit at the next user-facing turn boundary:
-
-```
-KNOWLEDGE-STRAND: <file1>, <file2> have local changes not yet committed - run /ds-wrap to capture and commit them.
-[phase: knowledge-strand]
-```
-
-Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-strand-surfaced` (append-only, one key per line, gitignored under the `.agentic/` umbrella; file-absent = empty set). Keying on the diff hash rather than the bare path means the sweep re-fires for genuinely new stranded content even in a file that already produced a notice, while staying quiet for content it has already surfaced - the same per-event-not-per-path keying discipline the meta-divergence sweep applies via `original_task_id` and the skill-candidate sweep applies via domain. The tracker is still never pruned - once a file is committed (via `/ds-wrap` Part G or otherwise) its diff-against-`origin/<BASE_BRANCH>` changes or disappears, so the old key stops matching and a new key is computed next time content strands again; a stale key left behind is inert, not misleading, and it does not suppress notification of different future content because different content hashes differently. This sweep is cheap (three bounded file checks plus a hash, no network call, no worktree) and therefore carries no separate pagination/throttle mechanism beyond the surfaced-state dedup above - unlike the meta-divergence and skill-candidate sweeps, the tracker here is bounded by strand *events* (one key per distinct stranded-content state, per file) rather than by an ever-growing telemetry stream, and at roughly 70 bytes per entry it stays small enough that adding a cap would cost more to implement and maintain than it would ever save.
+**Knowledge-strand sweep.** Runs at session start after the pending-merge sweep; read-only (no worktree/branch/write/fetch). Checks the same three-file set as `/ds-wrap` Part G for uncommitted changes versus `origin/<BASE_BRANCH>`; emits a non-blocking `KNOWLEDGE-STRAND:` notice pointing at `/ds-wrap` when found. See `content/references/conventions-detail.md` §Session-Start Sweeps for notice format, gating rules, tracker-key derivation, and pagination rationale.
 
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
@@ -772,7 +765,7 @@ DEPRECATED: preset key '{value}' ({scope}) is present but NOT used - effective p
 will be rejected after the deprecation window.
 ```
 
-This deprecated-preset notice is one of 5 stacked first-user-turn notice sources in this section (meta-divergence, skill-candidate, identity-provisional-confirm, deprecated-preset, and the knowledge-strand sweep documented above); ordering among the five is immaterial.
+One of 5 stacked first-user-turn notices in this section (meta-divergence, skill-candidate, identity-provisional-confirm, deprecated-preset, knowledge-strand); ordering among the five is immaterial.
 
 **Telemetry is BUFFERED, not lost.** While identity is unconfirmed (provisional or absent), the Stop hook writes session telemetry to a pending buffer (`~/.agentic/session-log/.pending/<uuid>.json`) rather than directly to the session log. Pending sessions are flushed and attributed when `agentic-identity confirm` (or `init --force`) runs. No session is silently dropped.
 
@@ -1814,8 +1807,10 @@ and proceeds (soft-fail).
 Purpose: Detailed conventions reference blocks extracted from
          content/rules/conventions.md. Contains: the full Intent Layer
          section (artifact list, intent debt, Project Overview Layer,
-         Project Config toggle prose, and Ubiquitous Language); the Context
-         Economy rules; and the External Comment Discipline rules.
+         Project Config toggle prose, and Ubiquitous Language); the
+         Session-Start Sweeps detail (knowledge-strand sweep mechanics);
+         the Context Economy rules; and the External Comment Discipline
+         rules.
 
          Note: The Project Config prose here is the conventions-angle
          description of the same toggles also described in
@@ -1923,6 +1918,23 @@ A `glossary.md` at the project root (or referenced from the root `AGENTS.md`) ho
 - The glossary is part of the intent layer above - keep it current as the domain vocabulary evolves.
 
 A glossary is optional; not every project needs one. But once introduced, it is binding on the project.
+
+## Session-Start Sweeps
+
+### Knowledge-strand sweep
+
+Runs at session start, after the pending-merge sweep (see `content/rules/conventions.md` §Session Context and Memory for the sweep order and the summary notice format). **Read-only** - no worktree, no branch, no git write, and no `git fetch`: resolve `BASE_BRANCH` using the same non-interactive steps 1-3 as **Base branch resolution** (declared in `AGENTS.md`, else local `develop`, else local `development`, falling to `main`/`master` per step 5 without the step-4 prompt - this sweep never asks). Because it must not fetch, `origin/<BASE_BRANCH>` here can be a stale local copy of the remote ref; a stale ref can delay a notice by one session (until the next `git fetch` happens elsewhere), which is an acceptable cost for a non-blocking advisory.
+
+Applies Part G's per-file gating (`content/commands/ds-wrap.md` §Part G - Knowledge-file commit) against the conductor's own checkout only, for the same three-file candidate set in the same order (`MEMORY.md`, `decisions.md`, `.agentic/learnings.md`): file absent -> skip; `git check-ignore -q` succeeds -> skip; unchanged versus `origin/<BASE_BRANCH>` -> skip, BUT (same fix as Part G) a path absent from `origin/<BASE_BRANCH>` (`git cat-file -e origin/<BASE_BRANCH>:<path>` fails) is entirely new content and does NOT skip, even though `git diff --quiet` would falsely report it unchanged.
+
+For each file that survives gating, compute a tracker key `<path>:<hash>` where `<hash>` is the first 8 hex characters of the SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>` (the file's own pending diff, not its full contents). If that exact key is not already present in `.agentic/.knowledge-strand-surfaced`, emit at the next user-facing turn boundary:
+
+```
+KNOWLEDGE-STRAND: <file1>, <file2> have local changes not yet committed - run /ds-wrap to capture and commit them.
+[phase: knowledge-strand]
+```
+
+Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-strand-surfaced` (append-only, one key per line, gitignored under the `.agentic/` umbrella; file-absent = empty set). Keying on the diff hash rather than the bare path means the sweep re-fires for genuinely new stranded content even in a file that already produced a notice, while staying quiet for content it has already surfaced - the same per-event-not-per-path keying discipline the meta-divergence sweep applies via `original_task_id` and the skill-candidate sweep applies via domain. The tracker is still never pruned - once a file is committed (via `/ds-wrap` Part G or otherwise) its diff-against-`origin/<BASE_BRANCH>` changes or disappears, so the old key stops matching and a new key is computed next time content strands again; a stale key left behind is inert, not misleading, and it does not suppress notification of different future content because different content hashes differently. This sweep is cheap (three bounded file checks plus a hash, no network call, no worktree) and therefore carries no separate pagination/throttle mechanism beyond the surfaced-state dedup above - unlike the meta-divergence and skill-candidate sweeps, the tracker here is bounded by strand *events* (one key per distinct stranded-content state, per file) rather than by an ever-growing telemetry stream, and at roughly 70 bytes per entry it stays small enough that adding a cap would cost more to implement and maintain than it would ever save.
 
 ## Context Economy
 

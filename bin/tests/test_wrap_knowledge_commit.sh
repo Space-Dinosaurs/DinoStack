@@ -44,6 +44,7 @@ cd "$REPO_DIR" || exit 1
 
 IMPLEMENT_TICKET=content/commands/ds-implement-ticket.md
 WRAP=content/commands/ds-wrap.md
+CONV_DETAIL=content/references/conventions-detail.md
 
 PASS=0
 FAIL=0
@@ -208,12 +209,32 @@ else
 fi
 
 # 10. Skeptic Major 1 - the knowledge-strand tracker key must be
-#     content-derived (path + diff hash), not a bare path.
+#     content-derived (path + diff hash), not a bare path. The full
+#     derivation was relocated out of content/rules/conventions.md (DS-74
+#     resident-budget compression, #532) into content/references/
+#     conventions-detail.md §Session-Start Sweeps - assert against its new
+#     home, not the summary that replaced it inline.
 CONVENTIONS=content/rules/conventions.md
-if grep -qF '<path>:<hash>' "$CONVENTIONS" && grep -qF 'SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>`' "$CONVENTIONS"; then
-  _pass "knowledge-strand tracker key is content-derived (path + diff hash) in $CONVENTIONS"
+if grep -qF '<path>:<hash>' "$CONV_DETAIL" && grep -qF 'SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>`' "$CONV_DETAIL"; then
+  _pass "knowledge-strand tracker key is content-derived (path + diff hash) in $CONV_DETAIL"
 else
-  _fail "knowledge-strand tracker key in $CONVENTIONS is not content-derived - Major 1 regression."
+  _fail "knowledge-strand tracker key in $CONV_DETAIL is not content-derived - Major 1 regression."
+fi
+
+# 10b. The resident-set compression must be a genuine relocation, not a
+#      silent drop: conventions.md keeps a short pointer to the new home and
+#      must NOT still carry the full tracker-key derivation prose inline
+#      (that would mean the budget fix double-counted the content instead of
+#      moving it).
+if grep -qF 'conventions-detail.md` §Session-Start Sweeps' "$CONVENTIONS"; then
+  _pass "$CONVENTIONS points to conventions-detail.md §Session-Start Sweeps"
+else
+  _fail "$CONVENTIONS does not point to conventions-detail.md §Session-Start Sweeps - the knowledge-strand sweep pointer is missing."
+fi
+if grep -qF 'SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>`' "$CONVENTIONS"; then
+  _fail "$CONVENTIONS still carries the full tracker-key derivation prose inline - it was not actually relocated to $CONV_DETAIL, just duplicated."
+else
+  _pass "$CONVENTIONS no longer duplicates the tracker-key derivation prose (relocated, not copied)"
 fi
 
 # 11. Skeptic Major (final round) - the Part E clause in the deletion warning
@@ -243,10 +264,10 @@ else
   _fail "Part G's per-file gating in $WRAP does not check git cat-file -e origin/<BASE_BRANCH>:<f> - a brand-new untracked knowledge file would be silently skipped by git diff --quiet's false 'unchanged' report."
 fi
 
-if grep -qF 'git cat-file -e origin/<BASE_BRANCH>:<path>' "$CONVENTIONS"; then
-  _pass "the knowledge-strand sweep in $CONVENTIONS handles the absent-from-ref case via git cat-file -e"
+if grep -qF 'git cat-file -e origin/<BASE_BRANCH>:<path>' "$CONV_DETAIL"; then
+  _pass "the knowledge-strand sweep in $CONV_DETAIL handles the absent-from-ref case via git cat-file -e"
 else
-  _fail "the knowledge-strand sweep in $CONVENTIONS does not check git cat-file -e origin/<BASE_BRANCH>:<path> - it shares Part G's absent-from-ref defect and would silently skip a brand-new untracked knowledge file."
+  _fail "the knowledge-strand sweep in $CONV_DETAIL does not check git cat-file -e origin/<BASE_BRANCH>:<path> - it shares Part G's absent-from-ref defect and would silently skip a brand-new untracked knowledge file."
 fi
 
 # 13. Skeptic Minor 1 (final round) - the status enum must cover a steps-1-3

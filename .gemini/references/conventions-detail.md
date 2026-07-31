@@ -2,8 +2,10 @@
 Purpose: Detailed conventions reference blocks extracted from
          content/rules/conventions.md. Contains: the full Intent Layer
          section (artifact list, intent debt, Project Overview Layer,
-         Project Config toggle prose, and Ubiquitous Language); the Context
-         Economy rules; and the External Comment Discipline rules.
+         Project Config toggle prose, and Ubiquitous Language); the
+         Session-Start Sweeps detail (knowledge-strand sweep mechanics);
+         the Context Economy rules; and the External Comment Discipline
+         rules.
 
          Note: The Project Config prose here is the conventions-angle
          description of the same toggles also described in
@@ -111,6 +113,23 @@ A `glossary.md` at the project root (or referenced from the root `AGENTS.md`) ho
 - The glossary is part of the intent layer above - keep it current as the domain vocabulary evolves.
 
 A glossary is optional; not every project needs one. But once introduced, it is binding on the project.
+
+## Session-Start Sweeps
+
+### Knowledge-strand sweep
+
+Runs at session start, after the pending-merge sweep (see `content/rules/conventions.md` §Session Context and Memory for the sweep order and the summary notice format). **Read-only** - no worktree, no branch, no git write, and no `git fetch`: resolve `BASE_BRANCH` using the same non-interactive steps 1-3 as **Base branch resolution** (declared in `AGENTS.md`, else local `develop`, else local `development`, falling to `main`/`master` per step 5 without the step-4 prompt - this sweep never asks). Because it must not fetch, `origin/<BASE_BRANCH>` here can be a stale local copy of the remote ref; a stale ref can delay a notice by one session (until the next `git fetch` happens elsewhere), which is an acceptable cost for a non-blocking advisory.
+
+Applies Part G's per-file gating (`content/commands/ds-wrap.md` §Part G - Knowledge-file commit) against the conductor's own checkout only, for the same three-file candidate set in the same order (`MEMORY.md`, `decisions.md`, `.agentic/learnings.md`): file absent -> skip; `git check-ignore -q` succeeds -> skip; unchanged versus `origin/<BASE_BRANCH>` -> skip, BUT (same fix as Part G) a path absent from `origin/<BASE_BRANCH>` (`git cat-file -e origin/<BASE_BRANCH>:<path>` fails) is entirely new content and does NOT skip, even though `git diff --quiet` would falsely report it unchanged.
+
+For each file that survives gating, compute a tracker key `<path>:<hash>` where `<hash>` is the first 8 hex characters of the SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>` (the file's own pending diff, not its full contents). If that exact key is not already present in `.agentic/.knowledge-strand-surfaced`, emit at the next user-facing turn boundary:
+
+```
+KNOWLEDGE-STRAND: <file1>, <file2> have local changes not yet committed - run /ds-wrap to capture and commit them.
+[phase: knowledge-strand]
+```
+
+Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-strand-surfaced` (append-only, one key per line, gitignored under the `.agentic/` umbrella; file-absent = empty set). Keying on the diff hash rather than the bare path means the sweep re-fires for genuinely new stranded content even in a file that already produced a notice, while staying quiet for content it has already surfaced - the same per-event-not-per-path keying discipline the meta-divergence sweep applies via `original_task_id` and the skill-candidate sweep applies via domain. The tracker is still never pruned - once a file is committed (via `/ds-wrap` Part G or otherwise) its diff-against-`origin/<BASE_BRANCH>` changes or disappears, so the old key stops matching and a new key is computed next time content strands again; a stale key left behind is inert, not misleading, and it does not suppress notification of different future content because different content hashes differently. This sweep is cheap (three bounded file checks plus a hash, no network call, no worktree) and therefore carries no separate pagination/throttle mechanism beyond the surfaced-state dedup above - unlike the meta-divergence and skill-candidate sweeps, the tracker here is bounded by strand *events* (one key per distinct stranded-content state, per file) rather than by an ever-growing telemetry stream, and at roughly 70 bytes per entry it stays small enough that adding a cap would cost more to implement and maintain than it would ever save.
 
 ## Context Economy
 
