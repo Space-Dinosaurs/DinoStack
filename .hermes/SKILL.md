@@ -726,7 +726,9 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Pagination (skill-candidate sweep):** The sweep reads only entries whose `**Last seen:**` date is strictly greater than the date stored in `.agentic/.skill-candidates-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), all open un-surfaced entries are candidates. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to `.agentic/.skill-candidates-last-sweep` (atomic: tmp + `mv`). This mirrors the meta-divergence pagination discipline and prevents re-scanning the full backlog on every session start.
 
-**Pending-merge sweep at session start.** Runs at session start, after the skill-candidate sweep. Skip when any of: `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; fewer than 60 minutes have elapsed since the last sweep (the throttle); `.agentic/ticket-ledger.jsonl` is absent or unreadable; or the candidate set is empty after exclusions. Otherwise runs `/ds-ticket-status-sync --pending-merge`, tracked via `.agentic/.pending-merge-last-sweep` (throttle timestamp) and `.agentic/pending-merge-state.jsonl` (sweep state). See `content/commands/ds-ticket-status-sync.md` §Pending-merge sweep for the procedure. This sweep emits no first-user-turn notice and does not add to the stacked-notice count at `:80` - it prints only when a transition actually fires.
+**Pending-merge sweep at session start.** Runs at session start, after the skill-candidate sweep. Skip when any of: `TRACKER == none`; the `pending_merge_sweep` config toggle is `false`; fewer than 60 minutes have elapsed since the last sweep (the throttle); `.agentic/ticket-ledger.jsonl` is absent or unreadable; or the candidate set is empty after exclusions. Otherwise runs `/ds-ticket-status-sync --pending-merge`, tracked via `.agentic/.pending-merge-last-sweep` (throttle timestamp) and `.agentic/pending-merge-state.jsonl` (sweep state). See `content/commands/ds-ticket-status-sync.md` §Pending-merge sweep for the procedure. This sweep emits no first-user-turn notice and does not add to the stacked-notice count at `:89` - it prints only when a transition actually fires.
+
+**Knowledge-strand sweep.** Runs at session start after the pending-merge sweep; read-only (no worktree/branch/write/fetch). Checks the same three-file set as `/ds-wrap` Part G for uncommitted changes versus `origin/<BASE_BRANCH>`; emits a non-blocking `KNOWLEDGE-STRAND:` notice pointing at `/ds-wrap` when found. See `content/references/conventions-detail.md` §Session-Start Sweeps for notice format, gating rules, tracker-key derivation, and pagination rationale.
 
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
@@ -763,7 +765,7 @@ DEPRECATED: preset key '{value}' ({scope}) is present but NOT used - effective p
 will be rejected after the deprecation window.
 ```
 
-This is the 4th stacked first-user-turn notice (alongside meta-divergence, skill-candidate, and identity-provisional-confirm); ordering among the four is immaterial.
+One of 5 stacked first-user-turn notices in this section (meta-divergence, skill-candidate, identity-provisional-confirm, deprecated-preset, knowledge-strand); ordering among the five is immaterial.
 
 **Telemetry is BUFFERED, not lost.** While identity is unconfirmed (provisional or absent), the Stop hook writes session telemetry to a pending buffer (`~/.agentic/session-log/.pending/<uuid>.json`) rather than directly to the session log. Pending sessions are flushed and attributed when `agentic-identity confirm` (or `init --force`) runs. No session is silently dropped.
 
@@ -1805,8 +1807,10 @@ and proceeds (soft-fail).
 Purpose: Detailed conventions reference blocks extracted from
          content/rules/conventions.md. Contains: the full Intent Layer
          section (artifact list, intent debt, Project Overview Layer,
-         Project Config toggle prose, and Ubiquitous Language); the Context
-         Economy rules; and the External Comment Discipline rules.
+         Project Config toggle prose, and Ubiquitous Language); the
+         Session-Start Sweeps detail (knowledge-strand sweep mechanics);
+         the Context Economy rules; and the External Comment Discipline
+         rules.
 
          Note: The Project Config prose here is the conventions-angle
          description of the same toggles also described in
@@ -1914,6 +1918,23 @@ A `glossary.md` at the project root (or referenced from the root `AGENTS.md`) ho
 - The glossary is part of the intent layer above - keep it current as the domain vocabulary evolves.
 
 A glossary is optional; not every project needs one. But once introduced, it is binding on the project.
+
+## Session-Start Sweeps
+
+### Knowledge-strand sweep
+
+Runs at session start, after the pending-merge sweep (see `content/rules/conventions.md` §Session Context and Memory for the sweep order and the summary notice format). **Read-only** - no worktree, no branch, no git write, and no `git fetch`: resolve `BASE_BRANCH` using the same non-interactive steps 1-3 as **Base branch resolution** (declared in `AGENTS.md`, else local `develop`, else local `development`, falling to `main`/`master` per step 5 without the step-4 prompt - this sweep never asks). Because it must not fetch, `origin/<BASE_BRANCH>` here can be a stale local copy of the remote ref; a stale ref can delay a notice by one session (until the next `git fetch` happens elsewhere), which is an acceptable cost for a non-blocking advisory.
+
+Applies Part G's per-file gating (`content/commands/ds-wrap.md` §Part G - Knowledge-file commit) against the conductor's own checkout only, for the same three-file candidate set in the same order (`MEMORY.md`, `decisions.md`, `.agentic/learnings.md`): file absent -> skip; `git check-ignore -q` succeeds -> skip; unchanged versus `origin/<BASE_BRANCH>` -> skip, BUT (same fix as Part G) a path absent from `origin/<BASE_BRANCH>` (`git cat-file -e origin/<BASE_BRANCH>:<path>` fails) is entirely new content and does NOT skip, even though `git diff --quiet` would falsely report it unchanged.
+
+For each file that survives gating, compute a tracker key `<path>:<hash>` where `<hash>` is the first 8 hex characters of the SHA-256 of `git diff origin/<BASE_BRANCH> -- <path>` (the file's own pending diff, not its full contents). If that exact key is not already present in `.agentic/.knowledge-strand-surfaced`, emit at the next user-facing turn boundary:
+
+```
+KNOWLEDGE-STRAND: <file1>, <file2> have local changes not yet committed - run /ds-wrap to capture and commit them.
+[phase: knowledge-strand]
+```
+
+Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-strand-surfaced` (append-only, one key per line, gitignored under the `.agentic/` umbrella; file-absent = empty set). Keying on the diff hash rather than the bare path means the sweep re-fires for genuinely new stranded content even in a file that already produced a notice, while staying quiet for content it has already surfaced - the same per-event-not-per-path keying discipline the meta-divergence sweep applies via `original_task_id` and the skill-candidate sweep applies via domain. The tracker is still never pruned - once a file is committed (via `/ds-wrap` Part G or otherwise) its diff-against-`origin/<BASE_BRANCH>` changes or disappears, so the old key stops matching and a new key is computed next time content strands again; a stale key left behind is inert, not misleading, and it does not suppress notification of different future content because different content hashes differently. This sweep is cheap (three bounded file checks plus a hash, no network call, no worktree) and therefore carries no separate pagination/throttle mechanism beyond the surfaced-state dedup above - unlike the meta-divergence and skill-candidate sweeps, the tracker here is bounded by strand *events* (one key per distinct stranded-content state, per file) rather than by an ever-growing telemetry stream, and at roughly 70 bytes per entry it stays small enough that adding a cap would cost more to implement and maintain than it would ever save.
 
 ## Context Economy
 
@@ -5673,7 +5694,7 @@ Purpose: Canonical reference for the ticket-rework alert - the notice that
          and does not do (with the measured reason no continuation-vs-rework
          discriminator exists); the ledger schema, its nullability column,
          and the null-render rule; why pr_number is the sole identity key;
-         why the write lives at Phase 9 and not Phase 12 or Phase 11c; the
+         why the write lives at Phase 9 and not Phase 12 or Phase 11b; the
          append-plus-dedupe-on-read concurrency rationale; the dual-branch
          anchoring pattern (recorded so a future editor recognises the
          shape); the command-scoped-notice disclaimer; the trigger rule,
@@ -5795,7 +5816,7 @@ The ledger write happens once, at the `/ds-implement-ticket` Phase 9 PR-creation
 
 **Why not Phase 12.** Phase 12 sits downstream of all of the escalation exits described above. Anchoring the write there would silently drop every attempt that opened a PR but then stalled or was escalated before reaching Phase 12 - exactly the runs where a manual-verification pointer matters most, because those are the ones that ended in an unresolved state rather than a clean finish.
 
-**Why not Phase 11c.** Phase 11c is skipped on the Trivial path, which never reaches it. Anchoring the write there would drop the Trivial-path record shown above, which is exactly the record this doc uses to illustrate the null-render rule.
+**Why not Phase 11b.** Phase 11b (the per-ticket `wrap-ticket` capture phase) is skipped on the Trivial path (`skipped_reason: "trivial-no-brief"`), which never reaches it. Anchoring the write there would drop the Trivial-path record shown above, which is exactly the record this doc uses to illustrate the null-render rule.
 
 **Open-goal dry-run is correctly silent.** When an open-goal loop runs in dry-run mode, Phase 9 (along with the rest of the ship-side phases) is skipped for every iteration - no PR is ever opened, so there is nothing to derive a `pr_number` from, and no record is written. Synthetic per-iteration identifiers used internally by an open-goal loop never enter the ledger.
 
@@ -5823,7 +5844,7 @@ The common failure shape: a change that needs to run "after ticket list resoluti
 
 ## Command-scoped notice, not a session-start notice
 
-The REWORK notice fires inside `/ds-implement-ticket`'s Phase 1, once per ticket, when that specific ticket has one or more prior PR-opening attempts recorded in the ledger. **It is not a session-start stacked notice.** `content/rules/conventions.md` documents an exact count of stacked first-user-turn notices that fire at session start regardless of what the session is about (meta-divergence, skill-candidate, identity-provisional-confirm - explicitly enumerated as "the 4th stacked first-user-turn notice" for the most recently added one). The REWORK notice is a different mechanism entirely: it is scoped to a specific command and a specific ticket, fires mid-flow rather than at session start, and does not add to that count. A future editor updating the stacked-notice count in `content/rules/conventions.md` should not include this notice in that tally - it was never part of that enumeration and doesn't belong in it.
+The REWORK notice fires inside `/ds-implement-ticket`'s Phase 1, once per ticket, when that specific ticket has one or more prior PR-opening attempts recorded in the ledger. **It is not a session-start stacked notice.** `content/rules/conventions.md` documents an exact count of stacked first-user-turn notices that fire at session start regardless of what the session is about - currently five: meta-divergence, skill-candidate, identity-provisional-confirm, deprecated-preset, and the knowledge-strand sweep (see that section for the current count and ordering, which is immaterial). The REWORK notice is a different mechanism entirely: it is scoped to a specific command and a specific ticket, fires mid-flow rather than at session start, and does not add to that count. A future editor updating the stacked-notice count in `content/rules/conventions.md` should not include this notice in that tally - it was never part of that enumeration and doesn't belong in it. This paragraph deliberately does not hardcode the count as a literal quoted ordinal ("the Nth notice") - a prior version did, and a subsequent, unrelated addition to that list (the knowledge-strand sweep) silently falsified the quote; naming the current members without an ordinal survives future additions without going stale.
 
 ## Trigger rule
 
@@ -14861,7 +14882,7 @@ Capture the PR number from the URL printed by `gh pr create`.
 - `REWORK_DETECTION` is `false`.
 - `TICKET_ID` is null or empty (pure-freeform work has nothing to key a ledger record on).
 
-**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11c uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
+**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11d uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
 
 **One line, one `write()`.** The record is appended as a single `O_APPEND` write of one complete line. Never compose the line from multiple appends - the offset-atomicity guarantee that makes a lockless append safe is per-`write()`-call, not per-logical-record. There is no write-time lock and no read-before-write; all deduplication happens on read, keyed on `pr_number`.
 
@@ -15259,146 +15280,24 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 
 Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
 
-**Post-return path parse (conductor-side, after skill-candidate merge):**
-
-After the skill-candidate deep-cluster merge, parse the wrap-ticket return JSON into in-context variables for use by Phase 11c:
-
-```bash
-MEMORY_MD_PATH=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -r '.resolved_paths.memory_md // empty' 2>/dev/null || true)
-DECISIONS_MD_PATH=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -r '.resolved_paths.decisions_md // empty' 2>/dev/null || true)
-MEMORY_APPENDS_JSON=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -c '.memory_md_appends // []' 2>/dev/null || printf '[]')
-DECISIONS_APPENDS_JSON=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -c '.decisions_md_appends // []' 2>/dev/null || printf '[]')
-```
-
-Where `$WRAP_TICKET_RETURN` is the raw JSON string returned by the wrap-ticket agent. On skip (Phase 11b skipped, timeout, or non-JSON return), all four variables are empty/`[]` and Phase 11c no-ops.
-
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
 ---
 
-## Phase 11c: Knowledge-file commit (soft-fail)
+## Phase 11d: Review-rigor PR-body evidence (soft-fail)
 
-**Trigger:** runs after Phase 11b (and after the post-return path parse). Skip entirely when Phase 9 was skipped (no PR) or when the current ticket was Trivial (11b was skipped). No-ops when `MEMORY_MD_PATH` and `DECISIONS_MD_PATH` are both empty (wrap-ticket captured nothing or was skipped).
+**This is an INDEPENDENT top-level phase - it does not depend on any wrap-ticket return field.** Most tickets produce no `MEMORY.md`/`decisions.md` appends - this phase fires regardless, on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
 
-**Purpose:** the entries wrap-ticket appended to `MEMORY.md` and `decisions.md` live in the conductor's `$REPO` checkout (which is on the base branch on single-engineer paths). This phase appends those same entries to the feature branch so they appear in the PR diff as a `chore(knowledge):` commit. Append-based (never overwrites); idempotent on resume.
-
-This entire phase runs in a **single Bash invocation** so `$$`, `KNOW_COMMITTED`, `CHECKOUT`, and `KNOW_WORKTREE` persist across steps.
-
-```bash
-# Phase 11c: Knowledge-file commit (soft-fail)
-# Append helper: NUL-delimited whole-entry iteration (prevents line-splitting multi-line entries)
-_ae_append_entries() {
-  local target_file="$1" appends_json="$2" checkout="$3"
-  local full_path="$checkout/$target_file"
-  mkdir -p "$checkout/$(dirname "$target_file")" 2>/dev/null || true
-  local existing_content=""
-  [ -f "$full_path" ] && existing_content=$(cat "$full_path" 2>/dev/null) || true
-  local norm_existing
-  norm_existing=$(printf '%s' "$existing_content" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ')
-  while IFS= read -r -d '' entry; do
-    [ -z "$entry" ] && continue
-    local norm_entry
-    norm_entry=$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ' | sed 's/ *$//')
-    if printf '%s' "$norm_existing" | grep -qFe "$norm_entry" 2>/dev/null; then continue; fi
-    printf '%s\n' "$entry" >> "$full_path"
-    norm_existing="$norm_existing $norm_entry"
-  done < <(printf '%s' "$appends_json" | jq -j '.[] | . + "\u0000"' 2>/dev/null)
-}
-
-# 0. Nothing to do?
-if [ -z "$MEMORY_MD_PATH" ] && [ -z "$DECISIONS_MD_PATH" ]; then
-  STATUS=skipped
-  echo "[phase: knowledge-commit | ticket=$TICKET_ID | status=$STATUS]"
-else
-  # 1. Resolve the checkout that is (or will be) on the feature branch.
-  KNOW_WORKTREE=""
-  if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
-    CHECKOUT="$REPO"                      # fan-out: $REPO already on feature branch
-  else
-    git -C "$REPO" worktree prune 2>/dev/null || true
-    KNOW_WORKTREE="$REPO/.agentic/worktrees/knowledge-commit-$$"
-    git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
-    if git -C "$REPO" worktree add "$KNOW_WORKTREE" "$BRANCH_NAME" 2>/dev/null; then
-      CHECKOUT="$KNOW_WORKTREE"
-    else
-      CHECKOUT=""
-      echo "WARNING: Phase 11c skipped - could not create worktree for $BRANCH_NAME"
-    fi
-  fi
-
-  if [ -n "$CHECKOUT" ]; then
-    KNOW_COMMITTED=false
-
-    # 2. Append each new entry to its target file if not already present.
-    #    Presence check mirrors wrap-ticket dedup: lowercase + whitespace-collapse + substring.
-    for pair in "MEMORY_MD_PATH:MEMORY_APPENDS_JSON" "DECISIONS_MD_PATH:DECISIONS_APPENDS_JSON"; do
-      f_var="${pair%%:*}"; a_var="${pair##*:}"
-      KFILE="${!f_var}"; AJSON="${!a_var}"
-      [ -z "$KFILE" ] && continue
-      # Safety floor: never touch .agentic/ runtime state files on the feature branch.
-      case "$KFILE" in .agentic/*) continue ;; esac
-      _ae_append_entries "$KFILE" "$AJSON" "$CHECKOUT"
-      git -C "$CHECKOUT" add "$KFILE" 2>/dev/null || true
-    done
-
-    # 3. Commit only if staging produced a diff (no empty commit; idempotent on resume).
-    if ! git -C "$CHECKOUT" diff --cached --quiet 2>/dev/null; then
-      DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
-      if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
-      DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
-      SO_NAME=$(git -C "$CHECKOUT" config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
-      SO_EMAIL=$(git -C "$CHECKOUT" config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
-      if [ -n "$SO_NAME" ] && [ -n "$SO_EMAIL" ]; then
-        NL=$'\n'
-        MSG="chore(knowledge): capture MEMORY.md and decisions.md for ${TICKET_ID}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-        if git -C "$CHECKOUT" commit -m "$MSG" 2>/dev/null; then
-          KNOW_COMMITTED=true
-        else
-          git -C "$CHECKOUT" restore --staged . 2>/dev/null || true
-          echo "WARNING: Phase 11c commit failed"
-        fi
-      else
-        git -C "$CHECKOUT" restore --staged . 2>/dev/null || true
-        echo "WARNING: Phase 11c commit skipped - git user.name/email not set"
-      fi
-    fi
-
-    # 4. Push only if a commit was made (fast-forward over Phase 8 HEAD; no force).
-    if [ "$KNOW_COMMITTED" = "true" ]; then
-      git -C "$CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || \
-        echo "WARNING: Phase 11c push failed - commit is local only"
-    fi
-
-    # 5. Cleanup ephemeral worktree (only when we created one). Always soft-fail.
-    if [ -n "$KNOW_WORKTREE" ]; then
-      git -C "$REPO" worktree remove "$KNOW_WORKTREE" --force 2>/dev/null || true
-      git -C "$REPO" worktree prune 2>/dev/null || true
-    fi
-
-    if [ "$KNOW_COMMITTED" = "true" ]; then STATUS=committed; else STATUS=no-changes; fi
-    echo "[phase: knowledge-commit | ticket=$TICKET_ID | status=$STATUS]"
-  fi
-fi
-```
-
-Note on `worktree prune`: prune clears stale git administration entries (dead symlinks) for worktrees whose directories no longer exist. It does NOT remove PID-suffixed directories left behind by interrupted runs - those must be manually removed or will be reused/overwritten by a subsequent `worktree add` with the same path. The `$$`-suffixed path ensures unique naming per run, limiting orphan accumulation.
-
-**Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state-$LOOP_KEY.json`.
-
-### Review-rigor PR-body evidence (soft-fail)
-
-**This is an INDEPENDENT top-level step - it is NOT nested inside, and NOT gated by, the knowledge-file-commit block above.** It does not check `MEMORY_MD_PATH`, `DECISIONS_MD_PATH`, or the knowledge-commit block's `STATUS` variable. Most tickets produce no `MEMORY.md`/`decisions.md` appends (`STATUS=skipped` is the common case) - nesting this step inside that block's emptiness check would skip review-rigor evidence on the majority of PRs, reproducing the exact coverage gap DS-87 closes. This step fires on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
-
-**Trigger:** runs after the knowledge-file-commit step above (same Phase 11c). Skip entirely when Phase 9 was skipped (no PR was opened) - same top-level Phase 11c trigger.
+**Trigger:** runs after Phase 11b. Skip entirely when Phase 9 was skipped (no PR was opened).
 
 **Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state-$LOOP_KEY.json` or the session transcript.
 
-**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11d already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering.
 
 **Ticket scoping (closes a pre-existing latent bug).** The five `jq` reads below had **no ticket scoping at all** before per-ticket keying: they read one shared `.agentic/loop-state.json`, so in a batch they reported whichever ticket last wrote it. Every PR's `## Review rigor` section could therefore attribute another ticket's round count, tier, and findings tally to this ticket, with no gate able to fail on it. Reading `.agentic/loop-state-$LOOP_KEY.json` scopes them to this ticket by construction. Every read stays soft-fail (`2>/dev/null` plus a literal default) - an absent keyed file yields the same `n/a` / `0` defaults as before, never an error.
 
 ```bash
-# Phase 11c: Review-rigor PR-body evidence (soft-fail, independent of knowledge-commit)
+# Phase 11d: Review-rigor PR-body evidence (soft-fail)
 # BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
 # brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
 # spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
@@ -15446,7 +15345,7 @@ if [ -n "$RR_PR_NUMBER" ]; then
 fi
 ```
 
-**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
+**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
 
 ---
 
@@ -19839,6 +19738,7 @@ Zero-substance procedure:
 - Skip Part D and Part D.5 (no session activity to extract skill-candidate or feedback signals from)
 - Skip Part E (nothing changed, nothing to compress)
 - Skip Part F (no session activity means no ticket-referencing commits to detect)
+- Skip Part G (no session activity means no knowledge-file changes to commit)
 - Still run Step 5 (worktree cleanup) - that is always useful
 - Step 6 confirmation must say: "zero-substance path - nothing new to capture this session; ran worktree cleanup only"
 
@@ -20275,7 +20175,50 @@ Accumulate any `unmatched_state_name` returned by the guard across all detected 
 
 **Soft-fail (absolute).** Any error anywhere in Part F - tracker resolution failure, git call failure, MCP/gh API failure, subagent spawn failure - is swallowed with a one-line stderr log (`[wrap: Part F] <error>`), and Part F moves on to the next key or exits cleanly. Part F NEVER breaks, delays, retries-with-backoff, or blocks `/ds-wrap`'s return to the user. It runs once, best-effort, after the lock is already released - a slow or failing tracker call costs the user nothing beyond Part F's own runtime.
 
-Relay confirmation to the user. Include all paths written (`_wrap.md`, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), and the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
+**Part G - Knowledge-file commit.**
+
+Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock` above has already run, never before (same placement rationale as Part F: this step performs git and filesystem operations that must not extend how long `/ds-wrap` holds `.agentic/wrap/lock`). Part G is independent of Part F and may run in either order relative to it, but both must run after lock release. Purpose: `/ds-wrap` already writes root `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` inline (Part B and the draft-Worker/Skeptic loop) - but this repo's own git workflow only ships a commit via a worktree-isolated `engineer` branch (see `AGENTS.md` §Conventions). The conductor's own writes to these three files therefore never reach a commit unless a human remembers to do it by hand later. Part G closes that gap: it commits verbatim copies of the surviving files to a fresh branch and pushes it, leaving the human to open the PR.
+
+Skip Part G entirely on the **zero-substance path** (see Step 0.5, and the zero-substance skip enumeration above) - the zero-substance criteria mean no session activity happened, so any dirty knowledge file predates this session and is not this session's to commit; it instead becomes the concern of the session-start knowledge-strand sweep (`content/rules/conventions.md` §Session Context and Memory). Part G runs on the light path and the standard path, same as Part D and Part F.
+
+**Absolute soft-fail contract.** Part G NEVER blocks, NEVER fails the wrap, and NEVER propagates an error to the user beyond a one-line log. It inherits Part F's soft-fail contract verbatim: any error anywhere in Part G - git failure, disk failure, push failure, missing git config - is swallowed with a one-line stderr log (`[wrap: Part G] <error>`), and Part G moves on or exits cleanly.
+
+**Candidate set**, in this fixed order:
+1. `<cwd>/MEMORY.md`
+2. `<cwd>/decisions.md`
+3. `<cwd>/.agentic/learnings.md`
+
+**Resolve `BASE_BRANCH` and fetch, before gating.** Resolve `BASE_BRANCH` per `content/rules/conventions.md` §Base branch resolution steps 1-3 (declared in `AGENTS.md` - this repo declares `BASE_BRANCH: main` - else a local `develop` branch, else a local `development` branch). Part G's absolute soft-fail contract prohibits any interactive prompt, so it never takes that section's step-4 interactive stop-and-ask when none of the three resolve: it falls straight to the step-5 default (`main`, falling back to `master`) without asking, and Part G never auto-creates a branch regardless of which path resolves. Then run `git fetch origin`. Both must happen here, before the per-file gating below, because that gating compares against `origin/<BASE_BRANCH>` and must not compare against a stale local copy of the remote ref.
+
+**Per-file gating** - each check is a hard skip for THAT FILE ONLY; it never aborts the sweep of the remaining candidates:
+- File does not exist -> skip silently (no log line; this is the common case).
+- `git check-ignore -q -- <f>` succeeds (exit 0, file is gitignored) -> skip, but print a VISIBLE one-line diagnostic quoting the matched rule: run `git check-ignore -v -- <f>` and print `[wrap: Part G] <f> is gitignored (rule: <matched-rule-output>) - not committed.` **Do not redirect this to `/dev/null` or otherwise suppress it** - a gitignored knowledge file is exactly the silent-strand failure mode this unit exists to make audible.
+- File exists and is not gitignored, but is byte-identical to its `origin/<BASE_BRANCH>` version -> skip silently, nothing to ship. Check with `git cat-file -e origin/<BASE_BRANCH>:<f>` first: if the path does not exist at that ref (non-zero exit), the file is entirely new content and is NOT unchanged - it survives gating regardless of what `git diff --quiet` would report, because `git diff --quiet origin/<BASE_BRANCH> -- <f>` exits 0 (falsely "unchanged") for a path absent from the ref, which would otherwise silently defeat this feature for a project's first-ever `decisions.md` or `.agentic/learnings.md`. Only when the path exists at that ref does the byte-identity check apply: `git diff --quiet origin/<BASE_BRANCH> -- <f>` exits 0 -> skip.
+
+If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` breadcrumb - no worktree, no branch, no commit - but it still emits one `agentic-emit knowledge_commit` event per step 10 below, with `status: "no-changes"`, so the no-op outcome remains auditable in `events.jsonl` the same as every other outcome.
+
+**Otherwise (at least one file survives):**
+
+1. Create an ephemeral worktree on a new branch: `chore/knowledge-<YYYYMMDD>-<6-hex-random>`, cut from the already-fetched `origin/<BASE_BRANCH>` resolved above. The branch name is derived from the current UTC date plus 6 random hex characters ONLY - no operator identity, no hostname, no absolute path (universality is a project pillar - the branch name must be reproducible-shaped for any teammate on any machine). Worktree path: `.agentic/worktrees/<branch-name>`, consistent with the rest of the methodology's worktree convention.
+2. Copy each surviving file from the conductor's checkout into the worktree at the same relative path, VERBATIM - a plain byte-for-byte file copy (`cp`), never a re-render or re-format. Create parent directories in the worktree as needed (`.agentic/learnings.md` needs `.agentic/` to exist in the worktree).
+3. `git -C <worktree> add` each copied file. **If step 1 (worktree creation), step 2 (file copy), or step 3 (git add) fails** (a `git worktree add` failure, a disk or permission error on the copy, or any other non-zero exit): print a visible warning (`[wrap: Part G] setup failed at step <N>: <error> - skipping knowledge commit.`), remove the ephemeral worktree per step 9 below if one was created, and stop here - this is a soft-fail, not an escalation, and it records `status: "setup-failed"` at step 10.
+4. Resolve commit name/email from `git config user.name` / `git config user.email`. **If either is missing or empty: unstage the files (`git -C <worktree> reset`), print a visible warning (`[wrap: Part G] git user.name/user.email not configured - skipping knowledge commit.`), remove the ephemeral worktree per step 9 below, and stop here** - this is a soft-fail, not an escalation.
+5. **Deletion warning.** Inspect `git -C <worktree> diff --cached --numstat` for deleted-line counts per file - the diff is still staged at this point, ahead of the commit in step 6. If ANY file shows deleted lines, print a PROMINENT warning naming each such file and its deleted-line count. **If the deleted lines are an entry moved verbatim to `MEMORY-archive.md` per `MEMORY.md`'s own archiving discipline, note that explicitly in the warning** (e.g. `[wrap: Part G] WARNING: <file> has N deleted lines vs origin/<BASE_BRANCH> - likely an entry moved verbatim to MEMORY-archive.md per MEMORY.md's own archiving discipline, not a revert. Review the PR diff carefully before merging.`); otherwise print the warning without that caveat: `[wrap: Part G] WARNING: <file> has N deleted lines vs origin/<BASE_BRANCH> - this commit may revert content another session already merged. Review the PR diff carefully before merging.` Then still proceed either way - do not abort, do not attempt to merge or reconcile, and do not build any detection machinery beyond checking whether the deleted lines match an entry now present verbatim in `MEMORY-archive.md`. Rationale (state this in the warning's spirit, not just here): the conductor's local copy may be stale relative to a knowledge commit another session already pushed and merged; a verbatim copy in that case would revert it. The design deliberately has no merge algorithm - the PR diff is where a human catches this, so the correct behavior here is to make the risk loud (while distinguishing the likely-benign archiving case so a reviewer isn't misled by it), not to build reconciliation logic.
+6. Commit with `git -C <worktree> commit -s` (this repo enforces DCO - `Signed-off-by` is mandatory). Commit message:
+
+       chore(knowledge): capture <comma-separated basenames> from session
+
+       Signed-off-by: <name> <email>
+
+   `<comma-separated basenames>` is the list of surviving files by basename only (e.g. `MEMORY.md, decisions.md`), in candidate-set order. **If the commit fails** (a pre-commit hook rejection, a DCO/`Signed-off-by` mismatch, or any other non-zero exit): unstage the files (`git -C <worktree> reset`), print a visible warning (`[wrap: Part G] git commit failed: <error> - skipping knowledge commit.`), remove the ephemeral worktree per step 9 below, and stop here - this is a soft-fail, not an escalation, and it records `status: "commit-failed"` at step 10.
+7. Push the branch: `git -C <worktree> push -u origin <branch-name>`. **Do NOT run `gh pr create`.** On push failure (network, auth, remote rejected): soft-fail per the absolute contract - log `[wrap: Part G] push failed: <error>` and skip to step 9 (worktree cleanup); do not retry.
+8. On push success, print the branch name plus a ready-to-paste PR-open command: `gh pr create --base <BASE_BRANCH> --head <branch-name>`. This is a printed affordance only, not an auto-executed action and not a prompt awaiting a reply - `/ds-wrap` summarizes a session, it does not ship on the operator's behalf, so it must never open an outward-facing PR unprompted.
+9. **Remove the ephemeral worktree on every exit path from this subsection where one was created** - success, the steps-1-3 setup-failure soft-fail (when the worktree exists), the step-4 missing-git-config soft-fail, the step-6 commit-failure soft-fail, and the step-7 push-failure soft-fail all reach this cleanup (`git worktree remove` the ephemeral worktree; a leaked worktree is not an acceptable outcome of a soft failure).
+10. Emit one `agentic-emit` event describing the outcome: `agentic-emit knowledge_commit - - '<json>'` (see `bin/agentic-emit` for the exact 4-arg signature: `<event> <agent|-> <task_id|-> <json_data>`). The JSON `data` payload includes at minimum: `status` (one of `committed`, `no-changes`, `setup-failed`, `commit-failed`, `push-failed`, `failed` - `failed` denotes the step-4 missing-git-config soft-fail specifically, and `setup-failed` denotes a steps-1-3 worktree-creation/copy/stage soft-fail), `files_committed` (array of basenames actually committed), `files_skipped_ignored` (array of basenames skipped by the gitignore gate), and `branch` (the branch name, or `null` when no branch was created). Emit this event on every path that reaches a determinable outcome - the no-op path (`status: "no-changes"`), the setup-failure soft-fail (`status: "setup-failed"`), the missing-git-config soft-fail (`status: "failed"`), the commit-failure soft-fail (`status: "commit-failed"`), and the push-failure soft-fail (`status: "push-failed"`) - not only on success. There is no `skipped-ignored` status: a file skipped by the gitignore gate is recorded in `files_skipped_ignored` regardless of the overall outcome, and the overall `status` is driven only by whether the run produced a commit, not by which files were gitignored along the way. Today the `[phase: ...]` breadcrumb is `echo`-only and produces no durable record; this event is what makes Part G's outcome auditable after the fact.
+
+**Residual coverage.** `/ds-wrap` is manual and synchronous (see line 13, "Manual `/ds-wrap` is synchronous"), and the deferred-wrap daemon that can complete a forgotten wrap headlessly is Claude-only and opt-in, defaulting to `deferred_wrap_daemon: false` (see the "Claude-host + opt-in + non-daemon guard" note under Step 0a). So a session that ends without ever invoking `/ds-wrap` still strands its knowledge-file writes until a LATER session's start-up sweep fires the read-only notice (`content/rules/conventions.md` §Session Context and Memory, the knowledge-strand sweep) - and permanently, if no later session ever runs. Part G narrows this gap; it does not close it.
+
+Relay confirmation to the user. Include all paths written (`_wrap.md`, memory.md, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"), and the Part G outcome (files committed and the pushed branch name plus ready-to-paste `gh pr create` command, or the no-op/soft-fail reason: "no knowledge-file changes this session" / "<file> is gitignored" / "setup failed" / "git user.name/user.email not configured" / "git commit failed" / "push failed" / "skipped - zero-substance path"). Also include the cleanup summary if Step 5 ran.
 
 **The confirmation message MUST explicitly state which Skeptic rounds ran.** State the Skeptic round count for Steps 2–3 (draft Worker review) and the on-disk Skeptic round count from the Step 4 preamble (mandatory Skeptic on hand-authored output, if it ran). If any draft Worker → Skeptic round was skipped — for example, the conductor authored outputs inline because the Worker hallucinated, the light path was taken, or the zero-substance path was taken — say so explicitly and explain why. A confirmation that omits the Skeptic-round summary is non-conforming.
 
