@@ -54,6 +54,8 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pyyaml
+      - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
+        run: sudo apt-get update && sudo apt-get install -y zsh
       - name: run shell bin tests
         run: |
           set -e
