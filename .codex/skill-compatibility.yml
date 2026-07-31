@@ -5872,6 +5872,16 @@
       "source_token": "for"
     },
     {
+      "expected_target": "bin/agentic-resolve-worktree",
+      "generated_token": "$AE_REPO_DIR/bin/agentic-resolve-worktree",
+      "kind": "operational",
+      "occurrence_hash": "39aad6bf26df5d4fea3932352cedd8b185c7d6586cb2cc5072ef06903ab9f883",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "bin/agentic-resolve-worktree"
+    },
+    {
       "expected_target": "jq",
       "generated_token": "jq",
       "kind": "operational",
@@ -8900,6 +8910,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/risk-config-and-tiers.md"
+    },
+    {
+      "expected_target": "bin/agentic-base-sync",
+      "generated_token": "$AE_REPO_DIR/bin/agentic-base-sync",
+      "kind": "operational",
+      "occurrence_hash": "775e86188906f53396ffee581691e82a99ff5c162d2ecaf903cb18c22b338e61",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "bin/agentic-base-sync"
     },
     {
       "expected_target": ".agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak",
@@ -13262,6 +13282,16 @@
       "source_token": "then"
     },
     {
+      "expected_target": "content/SKILL.md",
+      "generated_token": "$AE_REPO_DIR",
+      "kind": "operational",
+      "occurrence_hash": "d291917a64a058957623a6d982bb87b17a301bd79b7a411501abcb39c4b13286",
+      "resolution_mode": "validated-repository",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "~/DinoStack"
+    },
+    {
       "expected_target": "hooks/lib/state-mark.js",
       "generated_token": "$AE_REPO_DIR/hooks/lib/state-mark.js",
       "kind": "operational",
@@ -14590,6 +14620,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "rm"
+    },
+    {
+      "expected_target": "scripts/lib/repo-dir.sh",
+      "generated_token": "$AE_REPO_DIR/scripts/lib/repo-dir.sh",
+      "kind": "operational",
+      "occurrence_hash": "ec6f155360b439ccc02c1c9424cf2b3f383fe3ca4224fb1382f4c1baf8a8f48f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "scripts/lib/repo-dir.sh"
     },
     {
       "expected_target": "true",

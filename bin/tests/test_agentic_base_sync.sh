@@ -239,24 +239,62 @@ echo "=== Case 6: HEAD elsewhere (fan-out sim), origin ahead, base not checked o
   _assert_eq "case6: working-tree HEAD unchanged" "$HEAD_BEFORE" "$HEAD_AFTER"
 }
 
-echo "=== Case 7: HEAD elsewhere, local base ref has a divergent commit -> diverged ==="
+echo "=== Case 7 (revised, round-4 correction): HEAD elsewhere, GENUINE two-sided divergence -> diverged ==="
+# Original setup advanced only local "base" (via a throwaway worktree) and
+# left origin unchanged: behind=0, ahead=1 - that is the AHEAD-ONLY benign
+# state (see case 7b below), not divergence. `fetch origin base:base`
+# refuses the non-fast-forward write either way, but the tool's OWN rule
+# (stated in the comment above the HEAD-elsewhere branch in
+# scripts/lib/base-branch-sync.sh) is that `diverged` requires BOTH
+# behind>0 AND ahead>0. This case now advances BOTH sides independently
+# from the same common ancestor so the divergence is real.
 {
   C="$TMP_ROOT/case7"
   _make_origin_and_clone "$C"
   git -C "$C/repo" checkout -q -b feature
-  # Advance local "base" (not checked out here) via a throwaway worktree, then
-  # remove that worktree so base is unchecked-out-anywhere again.
+  # Advance local "base" (not checked out in $repo) via a throwaway worktree,
+  # forking from the common-ancestor initial commit, then remove that
+  # worktree so base is unchecked-out-anywhere again.
   git -C "$C/repo" worktree add -q "$C/wt-tmp" base
-  echo "local-only-elsewhere" >> "$C/wt-tmp/file.txt"
-  git -C "$C/wt-tmp" add file.txt
+  echo "local-only-elsewhere" >> "$C/wt-tmp/other.txt"
+  git -C "$C/wt-tmp" add other.txt
   git -C "$C/wt-tmp" commit -q -m "local divergent commit on base (elsewhere)"
   git -C "$C/repo" worktree remove "$C/wt-tmp"
+  # Independently advance origin's base from the SAME common ancestor (via
+  # the seed clone, which never saw the local commit above).
+  _seed_advance "$C" "advance7-origin-side"
   SNAP_BEFORE="$(_snapshot "$C/repo")"
   OUT="$("$TOOL" "$C/repo" base)"; RC=$?
   SNAP_AFTER="$(_snapshot "$C/repo")"
   _assert_eq "case7: exit 1" "1" "$RC"
   _assert_contains "case7: breadcrumb diverged" "$OUT" "status=diverged"
+  _assert_contains "case7: local-only commit oneline shown" "$OUT" "local divergent commit"
   _assert_eq "case7: local base ref byte-identical pre/post" "$SNAP_BEFORE" "$SNAP_AFTER"
+}
+
+echo "=== Case 7b (round-4 addition): HEAD elsewhere, AHEAD-ONLY (behind=0) -> NOT diverged, ff-updated-ref + NOTE ==="
+# The benign counterpart to case 7: only local base advances, origin never
+# moves. `fetch origin base:base` still refuses (the write would move base
+# BACKWARD relative to local), but this is the exact same "unpushed local
+# commits" precursor state the HEAD-on-base ahead-only path (case 13)
+# reports as a benign success - misreporting it as `diverged` here would
+# tell the operator to cherry-pick onto a fresh branch when the correct
+# action is a plain `git push` (round-4 Skeptic finding).
+{
+  C="$TMP_ROOT/case7b"
+  _make_origin_and_clone "$C"
+  git -C "$C/repo" checkout -q -b feature
+  git -C "$C/repo" worktree add -q "$C/wt-tmp" base
+  echo "local-only-ahead" >> "$C/wt-tmp/other.txt"
+  git -C "$C/wt-tmp" add other.txt
+  git -C "$C/wt-tmp" commit -q -m "local ahead-only commit on base (elsewhere)"
+  git -C "$C/repo" worktree remove "$C/wt-tmp"
+  OUT="$("$TOOL" "$C/repo" base)"; RC=$?
+  _assert_eq "case7b: exit 0" "0" "$RC"
+  _assert_contains "case7b: breadcrumb ff-updated-ref" "$OUT" "status=ff-updated-ref"
+  _assert_not_contains "case7b: NOT diverged" "$OUT" "status=diverged"
+  _assert_contains "case7b: NOTE line present" "$OUT" "NOTE:"
+  _assert_contains "case7b: NOTE names 1 unpushed commit" "$OUT" "1 commit(s) ahead"
 }
 
 echo "=== Case 8: base ref checked out in ANOTHER worktree, no actual divergence -> ref-locked-elsewhere ==="
@@ -429,6 +467,37 @@ echo "=== Case 14 (revised, round-3 correction): origin/<base> absent post-fetch
   _assert_not_contains "case14 (HEAD-elsewhere): NOT ref-locked-elsewhere" "$OUT2" "status=ref-locked-elsewhere"
 }
 
+echo "=== Case 15 (round-4 CRITICAL regression): invoked via a PATH symlink still resolves scripts/lib/base-branch-sync.sh ==="
+# .claude/install.sh's ae_install_bins() installs this tool on PATH as a
+# SYMLINK: ~/.local/bin/agentic-base-sync -> $REPO_DIR/bin/agentic-base-sync.
+# content/rules/conventions.md call site 2 invokes it BY NAME
+# (`agentic-base-sync "$REPO" "$BASE_BRANCH"`), which resolves through that
+# symlink. Before the round-4 fix, SCRIPT_DIR was computed from
+# `dirname "${BASH_SOURCE[0]}"` WITHOUT resolving the symlink chain first -
+# when invoked via the symlink, BASH_SOURCE[0] is the symlink's own path
+# (e.g. a temp bin dir here, ~/.local/bin in production), so LIB_DIR
+# resolved to a nonexistent sibling of THAT directory, not of the real
+# script's directory, and the tool exited 3 with "base-branch-sync.sh not
+# found" before ever calling git - silently defeating call site 2 (the
+# reference doc's own words: "the mechanism that catches a PR merged by a
+# human, by another session, or via `gh pr merge` outside
+# /ds-implement-ticket entirely") on every real install.
+{
+  C="$TMP_ROOT/case15"
+  _make_origin_and_clone "$C"
+  _seed_advance "$C" "advance15"
+  SYMLINK_DIR="$TMP_ROOT/case15-symlink-bin"
+  mkdir -p "$SYMLINK_DIR"
+  ln -s "$TOOL" "$SYMLINK_DIR/agentic-base-sync"
+  OUT="$("$SYMLINK_DIR/agentic-base-sync" "$C/repo" base)"; RC=$?
+  ORIGIN_SHA="$(git -C "$C/repo" rev-parse origin/base)"
+  LOCAL_SHA="$(git -C "$C/repo" rev-parse base)"
+  _assert_eq "case15: symlink invocation exit 0 (not 3)" "0" "$RC"
+  _assert_contains "case15: symlink invocation breadcrumb ff-pulled" "$OUT" "status=ff-pulled"
+  _assert_not_contains "case15: symlink invocation did NOT fail to find base-branch-sync.sh" "$OUT" "base-branch-sync.sh not found"
+  _assert_eq "case15: symlink invocation local ref == origin ref" "$ORIGIN_SHA" "$LOCAL_SHA"
+}
+
 echo "=== Locale robustness note (Finding N2 / LC_ALL=C) ==="
 echo "Not independently reproducible as a test case on this git build: Apple"
 echo "Git 2.39.5 ships no locale catalogs, so a translated-message failure"
@@ -439,14 +508,21 @@ echo "inspection, not by a locale-switching test - same treatment as case 4/11."
 echo ""
 echo "=== Deliberate-failure harness self-check ==="
 # Verify the harness itself catches a real miss: assert something false and
-# confirm PASS/FAIL counters register it, then correct the counters back.
+# confirm the FAIL counter incremented by EXACTLY 1, then correct it back.
+# Snapshotting FAIL before the probe (rather than just checking "FAIL >= 1"
+# afterward) matters: if an earlier case had already failed for real, a
+# ">= 1" check would pass regardless of whether THIS probe's failure was
+# actually counted - it would only validate the counter when everything
+# else was already green.
+FAIL_BEFORE_PROBE="$FAIL"
 _assert_eq "harness self-check (expected to fail)" "yes" "no"
-if [[ "$FAIL" -ge 1 ]]; then
-  echo "PASS: harness self-check - a deliberately false assertion was correctly counted as FAIL"
+FAIL_DELTA=$((FAIL - FAIL_BEFORE_PROBE))
+if [[ "$FAIL_DELTA" -eq 1 ]]; then
+  echo "PASS: harness self-check - a deliberately false assertion incremented FAIL by exactly 1"
   PASS=$((PASS + 1))
   FAIL=$((FAIL - 1))
 else
-  echo "FAIL: harness self-check - deliberately false assertion was NOT counted; the FAIL counter is broken" >&2
+  echo "FAIL: harness self-check - deliberately false assertion changed FAIL by $FAIL_DELTA (expected 1); the FAIL counter is broken" >&2
   FAIL=$((FAIL + 1))
 fi
 

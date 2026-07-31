@@ -59,7 +59,25 @@ if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
   exit 3
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd -P)"
+# Resolve BASH_SOURCE[0] through any symlink chain before computing
+# SCRIPT_DIR. This tool is installed on PATH as a symlink
+# (~/.local/bin/agentic-base-sync -> $REPO_DIR/bin/agentic-base-sync, see
+# .claude/install.sh ae_install_bins()), so when invoked by name (call site
+# 2, content/rules/conventions.md step 6), BASH_SOURCE[0] is the SYMLINK
+# path - dirname of that resolves to ~/.local/bin, not $REPO_DIR/bin, and
+# LIB_DIR resolves to a nonexistent path. Pure-bash loop, not `readlink -f`
+# (GNU-only, absent on macOS/BSD).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd -P)"
+  SOURCE="$(readlink "$SOURCE")"
+  # A relative symlink target is relative to the symlink's own directory.
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$DIR/$SOURCE" ;;
+  esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" 2>/dev/null && pwd -P)"
 LIB_DIR="$(cd "$SCRIPT_DIR/../scripts/lib" 2>/dev/null && pwd -P)"
 
 if [ ! -f "$LIB_DIR/base-branch-sync.sh" ]; then
