@@ -805,17 +805,7 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 3. Are there uncommitted changes? If so, do they belong to the current task? Stash or commit unrelated work before proceeding.
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Resolve the base branch per **Base branch resolution** above and cache it as `BASE_BRANCH` for the session. Resolution is lazy only in its interactive step: the declaration / `develop` / `development` checks (steps 1-3) are non-interactive and may run here at session start, but step 4's prompt is deferred until `BASE_BRANCH` is first needed for a shippable operation (spawning an engineer, creating a worktree, opening a PR, or starting fresh from the base branch per step 2). A purely read-only session therefore never triggers the prompt. The prompt is a sanctioned stop-and-ask (an explicit command directive per the delegation Exception clause) exempt from the default-and-proceed protocol; surface it with `main` as the recommended default per the AskUserQuestion precondition.
-6. **When step 5 resolved `BASE_BRANCH` without needing the interactive prompt** (declaration, local `develop`, or local `development` matched), fast-forward the local ref (see `content/references/base-branch-sync.md` §Base-branch sync procedure):
-
-   ```bash
-   if command -v agentic-base-sync >/dev/null 2>&1; then
-     agentic-base-sync "$REPO" "$BASE_BRANCH"
-   else
-     echo "WARNING: agentic-base-sync not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local $BASE_BRANCH may be stale this session."
-   fi
-   ```
-
-   This is the mechanism that catches a PR merged by a human, by another session, or via `gh pr merge` outside `/ds-implement-ticket` entirely - Phase 12's post-Phase call (see `content/commands/ds-implement-ticket.md` §Phase 12) only runs inside a `/ds-implement-ticket` invocation and cannot catch a merge that happens between invocations or in a different tool entirely. Skip silently when `BASE_BRANCH` still requires the interactive prompt. A non-zero exit prints its own diagnostic and does not block preflight completion.
+6. **When step 5 resolved `BASE_BRANCH` non-interactively**, run `agentic-base-sync "$REPO" "$BASE_BRANCH"` (PATH-guarded, non-blocking on any exit). Skip silently otherwise. See `content/references/base-branch-sync.md` §Call sites.
 7. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start. The branch prune clears stale local branches with safe signals: `[gone]`-upstream branches (squash-merged and remote-deleted), branches fully merged into `origin/main`, and orphaned `worktree-agent-*` branches whose worktree no longer exists.
 
 **Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
@@ -1492,7 +1482,15 @@ The tool never rewrites the shared `<base-branch>` tree on divergence. On `statu
 ## Call sites
 
 - **`content/commands/ds-implement-ticket.md` Phase 12 (unconditional tail).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. Invoked via the repo-relative path `$REPO_DIR/bin/agentic-base-sync`, so it works without a PATH re-install. Only fires inside a `/ds-implement-ticket` invocation.
-- **`content/rules/conventions.md` Conductor preflight, step 6.** Fires once at session start, immediately after `BASE_BRANCH` is resolved non-interactively (declaration, local `develop`, or local `development` matched). Invoked via PATH (`agentic-base-sync`), guarded by `command -v`. This is the mechanism that catches a PR merged by a human, by another session, or via `gh pr merge` outside `/ds-implement-ticket` entirely - call site 1 cannot catch a merge that happens between `/ds-implement-ticket` invocations or in a different tool entirely. Skipped silently when `BASE_BRANCH` still requires the interactive prompt.
+- **`content/rules/conventions.md` Conductor preflight, step 6.** Fires once at session start, immediately after `BASE_BRANCH` is resolved non-interactively (declaration, local `develop`, or local `development` matched). Invoked via PATH (`agentic-base-sync`), guarded by `command -v`. This is the mechanism that catches a PR merged by a human, by another session, or via `gh pr merge` outside `/ds-implement-ticket` entirely - call site 1 cannot catch a merge that happens between `/ds-implement-ticket` invocations or in a different tool entirely. Skipped silently when `BASE_BRANCH` still requires the interactive prompt. A non-zero exit prints its own diagnostic and does not block preflight completion. Full invocation:
+
+  ```bash
+  if command -v agentic-base-sync >/dev/null 2>&1; then
+    agentic-base-sync "$REPO" "$BASE_BRANCH"
+  else
+    echo "WARNING: agentic-base-sync not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local $BASE_BRANCH may be stale this session."
+  fi
+  ```
 
 Neither call site alone is sufficient - Phase 12's call gives immediate in-session confirmation for merges that happen during a `/ds-implement-ticket` run; the preflight call catches everything else.
 
