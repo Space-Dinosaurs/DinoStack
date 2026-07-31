@@ -30,8 +30,14 @@
 #     structural fix: `ref-locked-elsewhere` ("base checked out in another
 #     worktree") is only reachable when HEAD is NOT on base - it is
 #     impossible for that to be the cause of a refusal when base IS checked
-#     out in this repo. Symmetrically, `refused-unknown` is only reachable
-#     when HEAD IS on base.
+#     out in this repo, so `ref-locked-elsewhere` is NEVER emitted from the
+#     HEAD-on-base branch. `refused-unknown` is NOT the symmetric opposite,
+#     though: it is reachable from BOTH branches - from HEAD-on-base as the
+#     generic "unrecognized git refusal" catch-all, AND from HEAD-elsewhere
+#     when the post-refusal rev-list counts come back empty (origin/<base>
+#     absent post-fetch, e.g. a --single-branch clone) - a state where
+#     "checked out in another worktree" cannot be confirmed, so
+#     ref-locked-elsewhere is correctly withheld in favor of refused-unknown.
 #   - Dirty-overwrite refusal text is matched via `LC_ALL=C` to avoid a
 #     translated git locale silently defeating the grep.
 #   - Divergence is always CONFIRMED via a fresh, plain `git fetch origin
@@ -87,7 +93,7 @@ ae_base_branch_sync() {
     # a local-ref write, so it cannot itself trigger a "checked out" refusal).
     verify_err=$(git -C "$repo" fetch origin "$base" 2>&1)
     if [ $? -ne 0 ]; then
-      echo "WARNING: base-branch-sync could not reach origin to verify $base (network or auth failure). Local $base left untouched. git error:"
+      echo "WARNING: base-branch-sync could not verify $base against origin (network/auth failure, or $base does not exist on origin - e.g. a misconfigured BASE_BRANCH). Local $base left untouched. git error:"
       echo "$verify_err"
       echo "[phase: base-sync | status=fetch-failed | branch=$base]"
       return 4
@@ -131,6 +137,15 @@ ae_base_branch_sync() {
   # reported as refused-unknown instead; ref-locked-elsewhere is reserved for
   # the one case this branch CAN disambiguate: valid, non-empty counts with
   # ahead==0, where "checked out elsewhere" is the only remaining explanation.
+  # `diverged` requires BOTH behind>0 AND ahead>0 - an ahead-only refusal
+  # (behind==0, ahead>0) is NOT divergence: `fetch origin base:base` refuses
+  # the ref write because it would move base BACKWARD relative to local, but
+  # nothing on origin has moved, so this is the exact same benign "unpushed
+  # local-only commits" precursor state the HEAD-on-base path's ahead-only
+  # success NOTE covers - reported the identical way here (NOTE + exit 0),
+  # not misclassified as diverged with cherry-pick/push-to-a-fresh-branch
+  # recovery advice that would be actively wrong (the correct action is a
+  # plain `git push`).
   err=$(git -C "$repo" fetch origin "${base}:${base}" 2>&1)
   if [ $? -eq 0 ]; then
     counts=$(git -C "$repo" rev-list --left-right --count "origin/${base}...${base}" 2>/dev/null)
@@ -145,7 +160,7 @@ ae_base_branch_sync() {
   # the only place either cause is disambiguated is right here, on this branch.
   verify_err=$(git -C "$repo" fetch origin "$base" 2>&1)
   if [ $? -ne 0 ]; then
-    echo "WARNING: base-branch-sync could not reach origin to verify $base (network or auth failure). Local $base left untouched. git error:"
+    echo "WARNING: base-branch-sync could not verify $base against origin (network/auth failure, or $base does not exist on origin - e.g. a misconfigured BASE_BRANCH). Local $base left untouched. git error:"
     echo "$verify_err"
     echo "[phase: base-sync | status=fetch-failed | branch=$base]"
     return 4
@@ -159,7 +174,7 @@ ae_base_branch_sync() {
   fi
   behind=$(printf '%s' "$counts" | awk '{print $1}')
   ahead=$(printf '%s' "$counts" | awk '{print $2}')
-  if [ "$ahead" -gt 0 ]; then
+  if [ "$behind" -gt 0 ] && [ "$ahead" -gt 0 ]; then
     echo "WARNING: local $base has diverged from origin/$base (behind/ahead: ${behind}/${ahead}) - fast-forward sync refused."
     echo "Local-only commits on $base:"
     git -C "$repo" log "origin/${base}..${base}" --oneline 2>/dev/null
@@ -167,8 +182,16 @@ ae_base_branch_sync() {
     echo "[phase: base-sync | status=diverged | branch=$base]"
     return 1
   fi
-  # ahead == 0, counts valid, and this IS the only branch where "checked out in
-  # another worktree" is a reachable cause (base is not checked out in $repo).
+  if [ "$ahead" -gt 0 ]; then
+    # behind == 0, ahead > 0: local is strictly ahead of origin, nothing on
+    # origin has moved. Not divergence - see the comment above this branch.
+    echo "NOTE: local $base is $ahead commit(s) ahead of origin/$base with nothing to pull - these are unpushed local-only commits. Push them soon: this is the exact precursor state the handoff's jammed-tree scenario started from."
+    echo "[phase: base-sync | status=ff-updated-ref | branch=$base | head=$head]"
+    return 0
+  fi
+  # behind >= 0, ahead == 0, counts valid, and this IS the only branch where
+  # "checked out in another worktree" is a reachable cause (base is not
+  # checked out in $repo).
   echo "[phase: base-sync | status=ref-locked-elsewhere | branch=$base]"
   return 4
 }
