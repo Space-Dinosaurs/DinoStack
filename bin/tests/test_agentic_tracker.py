@@ -406,6 +406,36 @@ def test_M_write_side_key_validation_exit_4():
         print("PASS test_M_write_side_key_validation_exit_4")
 
 
+def test_M2_set_unreadable_existing_overlay_degrades_no_traceback():
+    # cmd_set reads-then-rewrites an existing overlay; an unreadable file at
+    # that point (permission change between _check_ignored and the read, or
+    # any other OSError) must degrade to a clear operator-facing message and
+    # exit 1, never a raw traceback. Outside the plan's fail-safe invariant
+    # (which binds _resolve_tracker only) but a real rough edge on the same
+    # file class - see qa-regression note in the fix commit.
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = Path(tmp) / "repo"
+        env = _init_repo(repo)
+        _write(repo / ".gitignore", ".agentic/tracker.yml\n")
+        r_init = _run_cli(
+            ["init", "--tracker", "jira", "--prefix", "DS", "--base-url", "https://x.atlassian.net"],
+            repo,
+            env,
+        )
+        assert r_init.returncode == 0, r_init.stderr
+
+        overlay_path = repo / ".agentic" / "tracker.yml"
+        os.chmod(overlay_path, 0o000)
+        try:
+            r = _run_cli(["set", "prefix", "Y"], repo, env)
+            assert r.returncode == 1, (r.returncode, r.stdout, r.stderr)
+            assert "Traceback" not in r.stderr
+            assert "cannot read existing" in r.stderr
+        finally:
+            os.chmod(overlay_path, 0o600)
+        print("PASS test_M2_set_unreadable_existing_overlay_degrades_no_traceback")
+
+
 # ---------------------------------------------------------------------------
 # O: comment-skip protects a colon-bearing comment line
 # ---------------------------------------------------------------------------
@@ -692,6 +722,7 @@ if __name__ == "__main__":
     test_K_defaults_qa_differ_by_tracker()
     test_L_malformed_pipeline_order_defaults()
     test_M_write_side_key_validation_exit_4()
+    test_M2_set_unreadable_existing_overlay_degrades_no_traceback()
     test_O_comment_skip_before_parsing()
     test_P_defaults_for_none()
     test_Q_missing_required_field_demotes_to_unusable()

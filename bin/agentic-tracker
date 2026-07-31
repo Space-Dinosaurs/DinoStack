@@ -54,7 +54,11 @@ Failure modes: exits 0 (success, all subcommands), 2 (resolve, and show
   git-state guard so a secret is rejected for being a secret, not
   incidentally because the path happened to be unignored; structurally
   unreachable for init, which only ever writes its own allowlisted,
-  non-credential-shaped flags).
+  non-credential-shaped flags). `set` also exits 1 (not part of the
+  fail-safe-bound enumeration above, which covers `_resolve_tracker` only)
+  when an existing overlay it must read-then-rewrite is unreadable or not
+  valid UTF-8 - a clear operator-facing message rather than a raw
+  traceback.
   `_resolve_tracker` never raises and never exits/signals non-zero for any
   file-state reason - the read path is fail-safe by construction, including
   an unreadable AGENTS.md (degrades to no-section-resolved, same as
@@ -73,13 +77,15 @@ Failure modes: exits 0 (success, all subcommands), 2 (resolve, and show
   making a worktree-isolated agent resolve tracker config itself would
   need its own plumbing; this binary does not attempt it.
 
-Performance: Standard. File I/O plus, on the read path, two short-lived
-             `git` subprocess calls per `_resolve_tracker` invocation
-             whenever the overlay path exists (`rev-parse
-             --is-inside-work-tree`, `ls-files --error-unmatch`) - paid by
+Performance: Standard. File I/O plus, on the read path, up to three
+             short-lived `git` calls per `_resolve_tracker` invocation
+             whenever the overlay path exists (`rev-parse`, `ls-files`,
+             then `check-ignore` unless the file is tracked) - measured:
+             0 forks with no overlay, 2 forks when the overlay is tracked,
+             3 forks in the intended (gitignored) configuration. Paid by
              all four resolve/show/resolve-consuming entry points, not
-             cached across them; the write-path guard (`init`/`set`) adds
-             up to one more (`check-ignore`) for up to three total.
+             cached across them. The write-path guard (`init`/`set`)
+             re-runs the same ladder rather than adding to it.
 """
 
 from __future__ import annotations
@@ -778,7 +784,14 @@ def cmd_set(args: argparse.Namespace) -> int:
     existing_lines: list[str] = []
     found = False
     if path.is_file():
-        raw = path.read_text(encoding="utf-8")
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"agentic-tracker: cannot read existing {path}: {exc}", file=sys.stderr)
+            return 1
+        except UnicodeDecodeError as exc:
+            print(f"agentic-tracker: {path} is not valid UTF-8: {exc}", file=sys.stderr)
+            return 1
         for line in raw.split("\n"):
             stripped = line.strip()
             if not stripped or stripped.startswith("#") or ":" not in stripped:

@@ -66,7 +66,15 @@ CASES = [
 # resolve a sibling BINARY, e.g. agentic-configure -> agentic-team, already
 # covered by their own entries/EXTRA_TESTS below) - it only catches the
 # mechanically detectable `_lib.py` import shim.
-_LIB_SHIM_MARKER = '"_lib.py"'
+#
+# Matched bare (no surrounding quote), NOT '"_lib.py"' - a quoted marker is
+# quote-style-sensitive (`parent / "_lib.py"` matches, `parent / '_lib.py'`
+# does not), which lets a single-quoted import escape this exact backstop.
+# A bare match risks one class of false positive (a prose mention of
+# _lib.py with no actual import), which only costs a harmless CASES entry -
+# the asymmetric-cost direction this backstop must fail toward, since the
+# false-negative direction is precisely what it exists to prevent.
+_LIB_SHIM_MARKER = "_lib.py"
 
 
 def _bin_agentic_clis_with_lib_shim() -> set[str]:
