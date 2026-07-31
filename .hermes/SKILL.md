@@ -11391,7 +11391,7 @@ No subcommands or flags. Selection is done interactively.
 When an equivalent config toggle exists (e.g. `abdication_guard_enabled`
 covers `AE_ABDICATION_GUARD_DISABLE`), offer to set that instead.
 
-**Out of scope:** identity (owned by `/ds-identity`), `team.yml`
+**Out of scope:** identity (owned by `/ds-identity`), tracker config (owned by `agentic-tracker`), `team.yml`
 (v1 deferral), AGENTS.md source-of-truth conflicts across multiple nested files.
 
 ## `mode opt-in` footgun handling
@@ -11904,7 +11904,8 @@ rest of the batch:
 
 - `<item.repo>` no longer exists on disk, or is unreadable.
 - `<item.repo>/AGENTS.md` is missing, or has neither a `## Tracker` nor a
-  `## Linear` section (the resolution chain lands on `TRACKER=none`).
+  `## Linear` section (the resolution chain, including the `.agentic/tracker.yml`
+  local overlay check, lands on `TRACKER=none`).
 - The Tracker Create Helper (Step 4d) returns `CREATE_STATUS=failed` or
   `CREATE_STATUS=skipped`.
 
@@ -12790,10 +12791,23 @@ discovery will fill in most fields automatically.
 
 Do not continue. Do not attempt to write the migration. All config-mutation logic lives in `/ds-init-project`.
 
+**`.agentic/tracker.yml` local overlay.** After the fallback chain above resolves a base result (steps 1-4), check for a project-local, gitignored `<repo>/.agentic/tracker.yml` overlay and merge it in: the overlay wins field-by-field over the `AGENTS.md` result, and any changed field is disclosed. This lets a repo whose tracker cannot be declared in a tracked, universally-inherited `AGENTS.md` still resolve `TRACKER` at runtime, without baking one operator's workspace or account ID into a public file.
+
+- **Merge rule.** If no `AGENTS.md` section resolved (step 4 landed) OR the overlay's `tracker:` differs from the `AGENTS.md` `TRACKER`, the overlay is **sole source** and every `AGENTS.md`-derived field is discarded - a type switch is a replacement, never a merge. Otherwise, unset overlay fields fall through to the `AGENTS.md` value, and fields the overlay does set win, field-by-field.
+- **Three-state diagnostic.** The overlay resolves to one of `ok` (fields honored), `absent` (no file - falls through to the `AGENTS.md` result unchanged), or `unusable` (present but rejected - falls through to the `AGENTS.md` result, or to `TRACKER=none` if there was no `AGENTS.md` section either, plus a distinct, actionable reason naming what IS accepted).
+- **Required-field rule.** When the overlay is sole source, a resolved tracker with no `TICKET_PREFIX` (plus `JIRA_BASE_URL` for jira / `LINEAR_WORKSPACE` for linear) after defaults is invalid - the overlay is demoted to `unusable` rather than producing an impossible half-configured tracker.
+- **Parse boundary.** The overlay is a flat `key: value` line format, not full YAML: comment lines (`#`) and blank lines are skipped before any other processing; a line with no colon is ignored with a warning; keys are case-insensitive; an empty value is treated as unset; duplicate keys - last occurrence wins; values are capped at 256 characters.
+- **Credential guard.** Any parsed key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`, etc.) rejects the **entire file**, degrading to the `AGENTS.md` result - this file must never hold secrets; credentials resolve from the harness/MCP layer, never from this overlay.
+- **Data-only.** `.agentic/tracker.yml` is data-only and executes nothing - unlike `.agentic/phase0-classifiers.yml`, which runs with full conductor privileges (see the Trigger-based Phase 0 section below).
+- **Tracked-file warning.** If the overlay file is git-tracked (rather than ignored), print one warning before proceeding - it may hold another operator's tracker config committed by mistake or hand-authored outside the write-path guard.
+- **Guard interaction:** the legacy `## Linear` shape guard is evaluated before this overlay and is never suppressed by it.
+- Prefer `agentic-tracker resolve --json` for this whole step (it implements the merge rule, diagnostics, and guards above deterministically); when the binary is unavailable, apply the rule as written here.
+
 Print a summary of resolved values before Phase 1:
 
 ```
-Tracker:                    [linear | jira | none]
+Tracker:                    [linear | jira | none, or "none (.agentic/tracker.yml present but unusable: <reason>)" when the overlay is unusable]
+Tracker config source:      [.agentic/tracker.yml (overrides: <fields>) | (n/a - AGENTS.md only)]
 TICKET_PREFIX:              [value or "n/a"]
 BASE_BRANCH:                [value]
 AUTO_MERGE_ON_CI_GREEN:     [true | false]
@@ -16593,7 +16607,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 !.agentic/skill-candidates.md
 ```
 
-The targeted list covers runtime artifacts only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout), and `tracker.yml` (per-operator local tracker config; never committed - it may carry an operator's own account ID). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `config.json`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config, and each carries a matching `!.agentic/<file>` negation in the block above. `.agentic/learnings.md` IS tracked, also with a matching negation, so per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out negates the same way, so per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull. `.agentic/team.yml` (cross-harness team topology) and `.agentic/skill-candidates.md` (skill-candidate backlog) are also tracked, each with a matching negation in the block above, for the same reason. None of these negations do any work against this block itself, since none of the sixteen lines above them ignore these files - they are future-proofing against a project later adding a broad `.agentic/*` umbrella (see the in-block comment for why ordering matters there).
+The targeted list covers runtime artifacts and operator-local configuration only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout), and `tracker.yml` (per-operator local tracker config; never committed - it may carry an operator's own account ID). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `config.json`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config, and each carries a matching `!.agentic/<file>` negation in the block above. `.agentic/learnings.md` IS tracked, also with a matching negation, so per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out negates the same way, so per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull. `.agentic/team.yml` (cross-harness team topology) and `.agentic/skill-candidates.md` (skill-candidate backlog) are also tracked, each with a matching negation in the block above, for the same reason. None of these negations do any work against this block itself, since none of the sixteen lines above them ignore these files - they are future-proofing against a project later adding a broad `.agentic/*` umbrella (see the in-block comment for why ordering matters there).
 
 ### 10. Create `docs/` structure
 
@@ -16658,6 +16672,8 @@ To draft this intent layer instead of writing it by hand, spawn the `product-dis
 ### 11. Set up tracker
 
 Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
+
+Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `agentic-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
 
 **11a. Linear setup** (run if tracker = Linear)
 
@@ -18318,7 +18334,8 @@ Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
                for the tracker-wide sweep and the last-100-merged-PRs Tier 2 candidate scan);
                git log --grep (default-branch commit evidence for the tracker-wide sweep);
-               AGENTS.md ## Linear / ## Tracker sections (TRACKER resolution chain, same as implement-ticket.md Setup);
+               AGENTS.md ## Linear / ## Tracker sections plus the .agentic/tracker.yml local overlay
+               (TRACKER resolution chain, same as implement-ticket.md Setup);
                tracker query tools for the non-terminal ticket set (Jira mcp__mcp-atlassian__jira_search JQL;
                Linear mcp__linear__list_issues);
                content/commands/ds-implement-ticket.md ## Tracker Writeback Helper (subagent invocation shape incl. tracker_state_values, diagnostic_enabled, linear_team_key, pipeline_order; forward-only guard incl. same-category pipeline sub-rank; no dependency on .agentic/tracker-states.json);
@@ -18379,7 +18396,7 @@ Reconcile a ticket's tracker status (column) with the actual state of its code. 
 
 Run the activation preflight (see METHODOLOGY.md). If inactive, no-op and exit.
 
-Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections). If `TRACKER == none`, print "No tracker configured; nothing to sync." and exit.
+Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections, plus the `.agentic/tracker.yml` local overlay). If `TRACKER == none`, print "No tracker configured; nothing to sync." and exit. When `_source` is `overlay` or `merged`, print a `Tracker config source:` line the same way as `/ds-implement-ticket` Setup.
 
 Additionally resolve `TRACKER_STATE_DIAGNOSTIC` using the same Setup field as `/ds-implement-ticket`
 (`.agentic/config.json` key `tracker_state_diagnostic`, default `true`).
@@ -18560,8 +18577,9 @@ Upstream deps: content/commands/ds-implement-ticket.md Phase 0 (input normalizer
                invoked by reference - no copy) and Phase 1 Ticket-rework
                detection (per-entry ledger read, invoked by reference - no
                fork of the jq algorithm); METHODOLOGY.md (activation
-               preflight); AGENTS.md ## Tracker / ## Linear sections (TRACKER
-               resolution chain, same as implement-ticket Setup); Jira MCP
+               preflight); AGENTS.md ## Tracker / ## Linear sections plus the
+               .agentic/tracker.yml local overlay (TRACKER resolution chain,
+               same as implement-ticket Setup); Jira MCP
                (mcp__mcp-atlassian__jira_get_issue / jira_search); Linear MCP
                (mcp__linear__get_issue); content/references/trigger-catalog.md
                (yolo-guard, §d); .agentic/ticket-ledger.jsonl (local,
@@ -18638,7 +18656,7 @@ Strategic triage for a set of tickets. Produces a lane-distributed game plan wit
 
 Run the activation preflight (see `METHODOLOGY.md`). If inactive, no-op and exit.
 
-Resolve `TRACKER`, `TICKET_PREFIX`, and `JIRA_BASE_URL` using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Tracker` / `## Linear` sections). Cache results in-context for the session; do not re-resolve mid-command.
+Resolve `TRACKER`, `TICKET_PREFIX`, and `JIRA_BASE_URL` using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Tracker` / `## Linear` sections, plus the `.agentic/tracker.yml` local overlay). Cache results in-context for the session; do not re-resolve mid-command. When `_source` is `overlay` or `merged`, print a `Tracker config source:` line.
 
 Resolve `REWORK_DETECTION` the SAME way as `/ds-implement-ticket` Setup: read `.agentic/config.json` key `rework_detection` (boolean, default `true`; absent key resolves to `true`). This governs the per-entry ledger read below - see `content/references/ticket-rework.md`.
 
@@ -20154,7 +20172,7 @@ Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock`
 
 Skip Part F entirely on the **zero-substance path** (see Step 0.5) - no session activity means no ticket-referencing commits to detect. Part F runs on the light path and the standard path, same as Part D.
 
-**Gate.** Resolve `TRACKER`, `TICKET_PREFIX`, AND the 5 `TRACKER_STATE_*` values (`TRACKER_STATE_IN_PROGRESS`, `TRACKER_STATE_IN_REVIEW`, `TRACKER_STATE_QA`, `TRACKER_STATE_BLOCKED`, `TRACKER_STATE_DONE`) using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections). If `TRACKER == none`, skip Part F silently - no output, no log line.
+**Gate.** Resolve `TRACKER`, `TICKET_PREFIX`, AND the 5 `TRACKER_STATE_*` values (`TRACKER_STATE_IN_PROGRESS`, `TRACKER_STATE_IN_REVIEW`, `TRACKER_STATE_QA`, `TRACKER_STATE_BLOCKED`, `TRACKER_STATE_DONE`) using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections, plus the `.agentic/tracker.yml` local overlay). If `TRACKER == none`, skip Part F silently - no output, no log line. When `_source` is `overlay` or `merged`, print a `Tracker config source:` line before proceeding.
 
 Also resolve `TRACKER_STATE_DIAGNOSTIC` (same field/default as `/ds-implement-ticket` Setup).
 

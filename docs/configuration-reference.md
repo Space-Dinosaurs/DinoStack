@@ -173,6 +173,29 @@ Key points:
 
 ---
 
+## 8. Tracker config file: `.agentic/tracker.yml`
+
+Project-local, gitignored, pure data (never executes). Merged field-by-field, overlay winning, over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain used by `/ds-implement-ticket` Setup and its deferring consumers.
+
+| Key | Required | Maps to | Notes |
+|---|---|---|---|
+| `tracker` | always | `TRACKER` | `jira` \| `linear`; any other value = unusable |
+| `prefix` | when sole source | `TICKET_PREFIX` | |
+| `base_url` | when sole source + jira | `JIRA_BASE_URL` | |
+| `workspace` | when sole source + linear | `LINEAR_WORKSPACE` | |
+| `qa_assignee` | no | `JIRA_QA_ASSIGNEE_ACCOUNT_ID` / `LINEAR_QA_ASSIGNEE_ID` | |
+| `jira_qa_transition` | no | `JIRA_QA_TRANSITION` | jira only |
+| `state_in_progress` / `state_in_review` / `state_qa` / `state_blocked` / `state_done` | no | `TRACKER_STATE_*` | defaults match the live step-4 chain |
+| `pipeline_order` | no | `TRACKER_PIPELINE_ORDER` | comma permutation of `IN_PROGRESS, IN_REVIEW, QA`; warns and defaults on malformed |
+
+Any key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`) rejects the **entire file** - this is not a secret scanner, only a key-name guard; a short token pasted under an allowlisted key is still accepted.
+
+Commands: `agentic-tracker init --tracker {jira,linear} --prefix P [--base-url U] [--workspace W]`, `agentic-tracker show [--scope project|effective]`, `agentic-tracker set <key> <value>`, `agentic-tracker resolve [--json]`, `agentic-tracker path`.
+
+`agentic-tracker init`/`set` refuse to write at a path git would track: an unignored path (fix: add a `.gitignore` line), an already-tracked path (fix: `git rm --cached`, since a `.gitignore` line alone does not untrack an indexed file), or an indeterminate ignore state (fails closed). `--force-unignored` downgrades any of the three refusals to a warning and proceeds. Note: `git check-ignore` also honors `~/.gitignore_global` (`core.excludesFile`) and `.git/info/exclude`, so the guard can pass for one operator on a machine-local exclude while refusing a teammate in the same repo - harmless (git still will not track it for that operator), but worth knowing before filing a support question.
+
+---
+
 ## Advanced / less-common surfaces
 
 These are rarely needed outside of custom deployment or cross-harness tuning:

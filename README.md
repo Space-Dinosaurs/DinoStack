@@ -321,6 +321,18 @@ agentic-identity show --scope effective
 
 `agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
 
+## Tracker config: `.agentic/tracker.yml`
+
+A repo whose tracker cannot be declared in a tracked, universally-inherited `AGENTS.md` - doing so would bake one operator's workspace, project key, or account ID into a public file - can still resolve `TRACKER` at runtime via a project-local, gitignored overlay.
+
+```bash
+agentic-tracker init --tracker jira --prefix DS --base-url https://acme.atlassian.net
+agentic-tracker resolve --json   # merge algorithm, deterministically testable
+agentic-tracker show --scope project
+```
+
+The overlay is merged field-by-field over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain, with the overlay winning and every changed field disclosed. `agentic-tracker` refuses to write the file at a path git would track - it refuses an unignored path (fix: add a `.gitignore` line), refuses an already-tracked path (fix: `git rm --cached`), and fails closed when it cannot tell. An absent, malformed, incomplete, or credential-bearing overlay never blocks - it degrades to the `AGENTS.md` result with an actionable reason. See [configuration-reference.md](docs/configuration-reference.md) for the full field reference.
+
 ## Repo structure
 
 ```

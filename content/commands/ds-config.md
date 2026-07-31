@@ -74,7 +74,7 @@ No subcommands or flags. Selection is done interactively.
 When an equivalent config toggle exists (e.g. `abdication_guard_enabled`
 covers `AE_ABDICATION_GUARD_DISABLE`), offer to set that instead.
 
-**Out of scope:** identity (owned by `/ds-identity`), `team.yml`
+**Out of scope:** identity (owned by `/ds-identity`), tracker config (owned by `agentic-tracker`), `team.yml`
 (v1 deferral), AGENTS.md source-of-truth conflicts across multiple nested files.
 
 ## `mode opt-in` footgun handling

@@ -447,10 +447,23 @@ discovery will fill in most fields automatically.
 
 Do not continue. Do not attempt to write the migration. All config-mutation logic lives in `/ds-init-project`.
 
+**`.agentic/tracker.yml` local overlay.** After the fallback chain above resolves a base result (steps 1-4), check for a project-local, gitignored `<repo>/.agentic/tracker.yml` overlay and merge it in: the overlay wins field-by-field over the `AGENTS.md` result, and any changed field is disclosed. This lets a repo whose tracker cannot be declared in a tracked, universally-inherited `AGENTS.md` still resolve `TRACKER` at runtime, without baking one operator's workspace or account ID into a public file.
+
+- **Merge rule.** If no `AGENTS.md` section resolved (step 4 landed) OR the overlay's `tracker:` differs from the `AGENTS.md` `TRACKER`, the overlay is **sole source** and every `AGENTS.md`-derived field is discarded - a type switch is a replacement, never a merge. Otherwise, unset overlay fields fall through to the `AGENTS.md` value, and fields the overlay does set win, field-by-field.
+- **Three-state diagnostic.** The overlay resolves to one of `ok` (fields honored), `absent` (no file - falls through to the `AGENTS.md` result unchanged), or `unusable` (present but rejected - falls through to the `AGENTS.md` result, or to `TRACKER=none` if there was no `AGENTS.md` section either, plus a distinct, actionable reason naming what IS accepted).
+- **Required-field rule.** When the overlay is sole source, a resolved tracker with no `TICKET_PREFIX` (plus `JIRA_BASE_URL` for jira / `LINEAR_WORKSPACE` for linear) after defaults is invalid - the overlay is demoted to `unusable` rather than producing an impossible half-configured tracker.
+- **Parse boundary.** The overlay is a flat `key: value` line format, not full YAML: comment lines (`#`) and blank lines are skipped before any other processing; a line with no colon is ignored with a warning; keys are case-insensitive; an empty value is treated as unset; duplicate keys - last occurrence wins; values are capped at 256 characters.
+- **Credential guard.** Any parsed key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`, etc.) rejects the **entire file**, degrading to the `AGENTS.md` result - this file must never hold secrets; credentials resolve from the harness/MCP layer, never from this overlay.
+- **Data-only.** `.agentic/tracker.yml` is data-only and executes nothing - unlike `.agentic/phase0-classifiers.yml`, which runs with full conductor privileges (see the Trigger-based Phase 0 section below).
+- **Tracked-file warning.** If the overlay file is git-tracked (rather than ignored), print one warning before proceeding - it may hold another operator's tracker config committed by mistake or hand-authored outside the write-path guard.
+- **Guard interaction:** the legacy `## Linear` shape guard is evaluated before this overlay and is never suppressed by it.
+- Prefer `agentic-tracker resolve --json` for this whole step (it implements the merge rule, diagnostics, and guards above deterministically); when the binary is unavailable, apply the rule as written here.
+
 Print a summary of resolved values before Phase 1:
 
 ```
-Tracker:                    [linear | jira | none]
+Tracker:                    [linear | jira | none, or "none (.agentic/tracker.yml present but unusable: <reason>)" when the overlay is unusable]
+Tracker config source:      [.agentic/tracker.yml (overrides: <fields>) | (n/a - AGENTS.md only)]
 TICKET_PREFIX:              [value or "n/a"]
 BASE_BRANCH:                [value]
 AUTO_MERGE_ON_CI_GREEN:     [true | false]

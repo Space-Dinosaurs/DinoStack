@@ -27,7 +27,8 @@ Upstream deps: .agentic/tasks.jsonl (task state and pr_number/branch fields);
                gh CLI (pr view - state, isDraft, mergeable, reviewDecision; pr list --search / --state merged|open
                for the tracker-wide sweep and the last-100-merged-PRs Tier 2 candidate scan);
                git log --grep (default-branch commit evidence for the tracker-wide sweep);
-               AGENTS.md ## Linear / ## Tracker sections (TRACKER resolution chain, same as implement-ticket.md Setup);
+               AGENTS.md ## Linear / ## Tracker sections plus the .agentic/tracker.yml local overlay
+               (TRACKER resolution chain, same as implement-ticket.md Setup);
                tracker query tools for the non-terminal ticket set (Jira mcp__mcp-atlassian__jira_search JQL;
                Linear mcp__linear__list_issues);
                content/commands/ds-implement-ticket.md ## Tracker Writeback Helper (subagent invocation shape incl. tracker_state_values, diagnostic_enabled, linear_team_key, pipeline_order; forward-only guard incl. same-category pipeline sub-rank; no dependency on .agentic/tracker-states.json);
@@ -88,7 +89,7 @@ Reconcile a ticket's tracker status (column) with the actual state of its code. 
 
 Run the activation preflight (see METHODOLOGY.md). If inactive, no-op and exit.
 
-Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections). If `TRACKER == none`, print "No tracker configured; nothing to sync." and exit.
+Resolve `TRACKER` and the 5 `TRACKER_STATE_*` values using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Linear` / `## Tracker` sections, plus the `.agentic/tracker.yml` local overlay). If `TRACKER == none`, print "No tracker configured; nothing to sync." and exit. When `_source` is `overlay` or `merged`, print a `Tracker config source:` line the same way as `/ds-implement-ticket` Setup.
 
 Additionally resolve `TRACKER_STATE_DIAGNOSTIC` using the same Setup field as `/ds-implement-ticket`
 (`.agentic/config.json` key `tracker_state_diagnostic`, default `true`).
