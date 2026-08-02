@@ -1,3 +1,7 @@
+---
+description: "Scaffold a project: AGENTS.md hierarchy, CLI config, gitignore, .agentic/ seeds. Asks up front how you want work done."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-init-project

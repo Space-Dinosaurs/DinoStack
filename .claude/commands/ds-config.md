@@ -1,3 +1,7 @@
+---
+description: "View and change methodology settings (profile, mode, .agentic/config.json toggles) with guided prompts."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-config

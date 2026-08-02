@@ -1,3 +1,7 @@
+---
+description: "Shows the resolved mode/profile, WHERE each value comes from, what behavior it produces, and how to change it."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-status

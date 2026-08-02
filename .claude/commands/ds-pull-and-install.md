@@ -1,3 +1,7 @@
+---
+description: "Pull and reinstall agentic-engineering from upstream, or fresh-install if not yet set up."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-pull-and-install

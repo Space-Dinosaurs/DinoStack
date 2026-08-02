@@ -1,0 +1,1 @@
+description: "Opt this project out (writes an opt-out marker to AGENTS.md). --global also sets global mode=opt-out."
