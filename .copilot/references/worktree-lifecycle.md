@@ -58,6 +58,8 @@ WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
 git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 ```
 
+This is the self-scoped inline pattern; it does not need the general disposition model in `bin/tests/worktree_model.py` (`disposition_for` / `disposition_for_orphan_branch`) because it only ever operates on the branch the current session just pushed in the same phase.
+
 If the worktree is still locked by a running agent, `git worktree remove` will
 refuse until the agent finishes. That is expected and safe; the session-start
 prune script below remains a backstop.
@@ -97,7 +99,18 @@ git worktree prune
 # (not just `*` for the current one) - the sed must strip both, or the guard below
 # silently misparses the name and the liveness check/delete operate on a malformed string:
 git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" || git branch -D "$b"
+  git worktree list | grep -qF "[$b]" && continue
+  # Gate the delete via disposition_for_orphan_branch's evidence order
+  # (bin/tests/worktree_model.py) rather than deleting unconditionally -
+  # `merge_evidence` (ancestry) first, then `pr_state`, then
+  # `ls_remote_status` last, mirroring §Branch prune bullets 1/2 below.
+  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
+    git branch -D "$b"
+  elif command -v gh >/dev/null 2>&1 && [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+    git branch -D "$b"
+  else
+    echo "SKIP (unproven merge): $b - needs manual review" >&2
+  fi
 done
 ```
 
@@ -107,23 +120,38 @@ No cleanup or prune path in this document may call `git worktree remove -f -f` (
 
 ## Branch prune (stale local branches)
 
-Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged:
+Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged.
+
+Bullets 1/2's existing selection filters below are pre-model guards, confirmed sound and left unchanged by this ticket - each is already equivalent to the `merge_evidence`/`ls_remote_status` signal `disposition_for_orphan_branch()` (`bin/tests/worktree_model.py`) would compute from the same underlying facts, so no command change was needed to bring them into agreement with the model.
+
+**Bullet 3 targets the identical `worktree-agent-*`-with-no-live-worktree population as the session-start prune script above, at the same session-start phase - it now runs the same merge-evidence gate, not a separate unconditional delete.** An earlier revision of this ticket left bullet 3 ungated on the claim that "no genuine merge-evidence source exists for a bare branch name here" - that claim was false the moment the session-start prune script above gained exactly that source (ancestry, then PR state); shipping the gate in one script and not the other produced zero behavior change (bullet 3 unconditionally deleted whatever the gate above had just skipped) plus new stderr noise. Both scripts now apply the identical check, so a branch either survives both or is deleted by whichever runs first - never gated by one and swept unconditionally by the other.
 
 ```bash
 # Prune stale LOCAL branches. Safe signals only; never force-delete unproven work.
 git fetch origin --prune                       # drop stale remote-tracking refs
 
 # 1. Branches whose upstream is gone (merged + remote deleted via squash + --delete-branch):
+#    - equivalent to disposition_for_orphan_branch's ls_remote_status="not_pushed"-adjacent
+#      signal (the remote ref is gone because it WAS pushed and then merged+deleted).
 git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
   | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
 
-# 2. Branches fully merged into origin/main:
+# 2. Branches fully merged into origin/main, excluding main/master themselves:
+#    - equivalent to disposition_for_orphan_branch's merge_evidence="merged" resolution,
+#      with the main/master exclusion mirroring DEFAULT_BASE_BRANCHES / SKIP_BASE_BRANCH.
 git branch --merged origin/main | grep -vE '^[*+]|(^| )(main|master)$' | xargs -r -n1 git branch -d
 
-# 3. worktree-agent-* branches whose worktree no longer exists:
+# 3. worktree-agent-* branches whose worktree no longer exists - same merge-evidence
+#    gate as the session-start prune script above (ancestry, then PR state):
 #    (a branch checked out in a live worktree is protected by git and will be skipped)
 for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
-  git branch -D "$b" 2>/dev/null || true
+  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
+    git branch -D "$b" 2>/dev/null || true
+  elif command -v gh >/dev/null 2>&1 && [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+    git branch -D "$b" 2>/dev/null || true
+  else
+    echo "SKIP (unproven merge): $b - needs manual review" >&2
+  fi
 done
 ```
 
@@ -134,6 +162,12 @@ done
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
 DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above regardless of Claude Code's own 30-day orphan sweep: the sweep cleans Claude Code's isolation worktrees on a monthly cadence and is a backstop, not a replacement; stale worktrees accumulate between sweeps.
+
+## Project-override policy
+
+Worktree lifecycle rules - classification (`classify_entry`) and disposition (`disposition_for` / `disposition_for_orphan_branch`, all in `bin/tests/worktree_model.py`) - are methodology-owned and NOT overridable by a project `AGENTS.md`. A project may add non-conflicting project-specific conventions (e.g. pruning its own generated artifacts) but may NOT redefine which path prefixes mean ISOLATION/CONDUCTOR_CREATED, change the disposition gate order, or otherwise contradict the classification or trigger rules in this document.
+
+This is a deliberate absence from the small set of items a project MAY declare - e.g. `BASE_BRANCH:` per `content/rules/conventions.md` §Git Workflow. Unlike the base branch, worktree lifecycle touches cross-session safety: the harness's own lock-while-running behavior, branch-rename mapping across sessions, and another session's live work. A per-project override could not safely account for any of those, so none is offered and no declaration form is defined for it.
 
 ## Pre-spawn stash fallback
 

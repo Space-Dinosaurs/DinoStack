@@ -32,6 +32,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": ".agentic/worktrees/*",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/worktrees/*",
+      "kind": "operational",
+      "occurrence_hash": "06c351a62d702c08b735fbadaead2f9dda680db90f6fef80ea4624d130089760",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/worktrees/*"
+    },
+    {
       "expected_target": ".claude/install.sh",
       "generated_token": "$AE_REPO_DIR/.claude/install.sh",
       "kind": "operational",
@@ -222,14 +232,14 @@
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "**Isolation worktrees** are created explicitly by the conductor with `git worktree add` before `spawn_agent`, as required by the Codex spawn contract above. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` \u00a7Isolation worktree cleanup commands for the command block.",
-      "kind": "operational",
-      "occurrence_hash": "1f02322d8205045dec5b54481706c1ef594c309a6595ac51222ed3d2835ad449",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
+      "expected_target": "Agent",
+      "generated_token": "Agent",
+      "kind": "semantic-reference",
+      "occurrence_hash": "20414f0d398a5b7e62e44471d75b8717717e44b554d9254ffcfce9b8f854b425",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: \"worktree\"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` \u00a7Isolation worktree cleanup commands for the command block."
+      "source_token": "Agent"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -280,16 +290,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "291ba7bed68fe2622eecb8cfd311ac36d7ea25e95c12d0a9b7e29aa262f580ce",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -410,6 +410,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/activation-detail.md"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "39e9516a54a22f47cad1d75c481eb38bf35a2a1226cf69b1635f0646a1bd1acb",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "one bounded direct question after default derivation",
@@ -602,6 +612,16 @@
       "source_token": "scripts/codex-skills.py"
     },
     {
+      "expected_target": "bin/tests/worktree_model.py",
+      "generated_token": "$AE_REPO_DIR/bin/tests/worktree_model.py",
+      "kind": "operational",
+      "occurrence_hash": "535eef390ed296cbcf53cd5341b196ec8bf156db8a77944a4111f5dbf71f5b70",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/tests/worktree_model.py"
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -730,6 +750,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack"
+    },
+    {
+      "expected_target": ".claude/worktrees/*",
+      "generated_token": "$AE_REPO_DIR/.claude/worktrees/*",
+      "kind": "operational",
+      "occurrence_hash": "64ba768d285166c019a2ed2ebde69d88f43738218c61071a376d81e9e3af93b5",
+      "resolution_mode": "validated-repository",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".claude/worktrees/*"
     },
     {
       "expected_target": "Task",
@@ -1332,6 +1362,16 @@
       "source_token": ".agentic/qa-regressions.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "a9f7599b8863427bc913ec6131e8c3c3c11f2592f060daa3b6e8d8f15b72dffd",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "content/references/risk-config-and-tiers.md",
       "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
       "kind": "operational",
@@ -1472,6 +1512,16 @@
       "source_token": "model-param mapping"
     },
     {
+      "expected_target": "git worktree add",
+      "generated_token": "the explicit Codex worktree bootstrap contract above",
+      "kind": "operational",
+      "occurrence_hash": "b5e9f0bd3a2772f87c20dea0b03f9b0e36ab81d2466b2f7af7f92063e7eec20c",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "isolation: \"worktree\""
+    },
+    {
       "expected_target": "content/references/cross-session-loop-resume.md",
       "generated_token": "$AE_REPO_DIR/content/references/cross-session-loop-resume.md",
       "kind": "operational",
@@ -1572,6 +1622,16 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "c57789ec99199875cc45f23b6f9353ac3ddcd7bf17f404c79270f066257b465a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "content/commands/ds-skeptic.md",
       "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic`",
       "kind": "operational",
@@ -1610,6 +1670,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/simplify"
+    },
+    {
+      "expected_target": "content/commands/ds-cleanup-worktrees.md",
+      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-cleanup-worktrees`",
+      "kind": "operational",
+      "occurrence_hash": "ca3d1304b093d99879e9d63945a6af88adc11ecfd044bad436b77dd1bf6bff2b",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "`/ds-cleanup-worktrees`"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
