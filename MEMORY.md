@@ -48,6 +48,8 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-25 (supersedes 2026-07-08): `check-vision-alignment` CI is now a required status check on `main`**, per explicit operator decision - no longer advisory-only (14 required checks total). Canonical trigger-path list is still owned by `content/agents/skeptic.md` step 3.6 (grep `keep.*sync` to find the two derived copies).
 
+- **2026-08-01: A Skeptic convergence failure can relocate the same defect rather than repeat it verbatim - a re-review must diff the finding's shape, not its wording.** Two independent tickets (DS-118, DS-120) in one session each showed a "claimed fix" that removed the flagged line while an equivalent defect reappeared one step away (a write became a read of the same field at the same phase; a branch-name check moved into a reserved sub-pattern). See `.agentic/learnings.md` KNW-20260801-001 for both instances and the diagnostic pattern.
+
 ## Knowledge Capture
 
 - **2026-06-19: Committed root `MEMORY.md` is public and teammate-facing - keep maintainer-internal content out of it.** Route eval/auto-harness internals and session TODOs to the private memory store instead. Session-scoped files (session-learnings, `decisions.md`, ad-hoc `context.md`) stay local, never opened as a PR except a deliberate curated `docs(memory)` PR when authorized.
