@@ -138,17 +138,26 @@ Regression corpus: hooks/tests/test-corpus-abdication.py is the permanent
                   blocks on genuine hard-stop questions.
                2. Narrowing the design-fork negative gate to co-occurrence:
                   composes with (1) to strip hard-stop protection.
-               3. The whole-block "(recommended)" substring test (no
-                  fence-masking, no per-item split, no interrogative
-                  requirement, no negative-gate/surface-and-proceed
-                  suppression, routed through _ABDICATION_REASON): measured
-                  to block compliant turns and quoted methodology excerpts;
-                  never became a PR. NOT covered by this warning: a
-                  per-item, fence-masking classifier routed through a
-                  dedicated non-"proceed now" reason constant - see
-                  feat/prose-ballot-guard (PR #519), 0 Critical findings
-                  across three Skeptic rounds, clears Groups 3/5/7 of this
-                  corpus. Any revival must still pass the corpus in full.
+               3. A flat whole-block "(recommended)" substring test, no
+                  per-item split, routed through _ABDICATION_REASON: rejected
+                  on Skeptic findings against the plan proposing it - never
+                  built, never executed, never measured. Hard-gate/surface-
+                  and-proceed suppression and code-fence/blockquote exclusion
+                  are requirements any revival must add, not properties of
+                  the rejected shape. None of the corpus's 34 rows contain an
+                  "## Operator decisions" heading or a "(recommended)"/
+                  "Recommendation:" marker, so none exercise a ballot
+                  classifier's path - Groups 3/5/7 are the floor for the
+                  OTHER rejected attempts above, not this one; a revival must
+                  add a compliant ALLOW row and a genuine co-equal-ballot
+                  BLOCK row. A per-item, fence-masking design with a
+                  dedicated non-"proceed now" reason exists at
+                  feat/prose-ballot-guard (PR #519) - per its PR body, 0
+                  Critical findings across three Skeptic rounds, and it
+                  passes this corpus - but it deliberately exempts its
+                  ballot check from the negative gate and does not handle
+                  ">"-blockquote headings, so it does not itself satisfy the
+                  two requirements above; that tension is unresolved.
                4. Widening the destructive gate with
                   drop/alter table|column|index|database|schema: measured
                   13/13 false suppressions.

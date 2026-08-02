@@ -17,17 +17,26 @@ Purpose: Permanent regression corpus for hooks/enforce-no-abdication.py. This
            2. Narrowing the design-fork negative gate to require
               co-occurrence rather than a bare-word match: composes with (1)
               to strip hard-stop protection entirely (Group 5 below).
-           3. The whole-block "(recommended)" substring shape (no
-              fence-masking, no per-item split, no interrogative
-              requirement, no negative-gate/surface-and-proceed
-              suppression, routed through _ABDICATION_REASON): dropped
-              before landing - no corpus rows specifically pin this one
-              since it never reached a measurable shape. This does NOT
-              cover a per-item, fence-masking classifier with a dedicated
-              non-"proceed now" reason - feat/prose-ballot-guard (PR #519)
-              is that design, reviewed clean (0 Critical, three Skeptic
-              rounds) and passing this corpus; Groups 3/5/7 remain the
-              regression floor any revival attempt must still clear.
+           3. A flat whole-block "(recommended)" substring shape, no
+              per-item split, routed through _ABDICATION_REASON: rejected
+              on Skeptic findings against the plan proposing it - never
+              built, never reached a measurable shape. Hard-gate/surface-
+              and-proceed suppression and code-fence/blockquote exclusion
+              are requirements any revival must add, not properties of the
+              rejected shape. Zero of this corpus's 34 rows contain an
+              "## Operator decisions" heading or a "(recommended)"/
+              "Recommendation:" marker, so none exercise a ballot
+              classifier's path - Groups 3/5/7 are the floor for the OTHER
+              rejected attempts above, not this one; a revival must add a
+              compliant ALLOW row and a genuine co-equal-ballot BLOCK row.
+              This does NOT cover a per-item, fence-masking classifier with
+              a dedicated non-"proceed now" reason - feat/prose-ballot-guard
+              (PR #519) is that design, per its PR body 0 Critical findings
+              across three Skeptic rounds, and it passes this corpus - but
+              it deliberately exempts its ballot check from the negative
+              gate and does not handle ">"-blockquote headings, so it does
+              not itself satisfy the two requirements above; that tension
+              is unresolved.
            4. Widening the destructive negative gate with
               `drop/alter table|column|index|database|schema`: measured
               13/13 FALSE SUPPRESSIONS - it stops catching real abdication on
