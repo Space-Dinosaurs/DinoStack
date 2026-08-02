@@ -1134,8 +1134,8 @@
 
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4>Abdication guard</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook blocks conductor turns that end by asking permission for a non-destructive next step.</p>
-    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code><strong>false</strong></code> &nbsp; <strong>Default:</strong> <code>false</code></p>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook blocks conductor turns that end by asking permission for a non-destructive next step, or by announcing a surface-and-proceed default and then not acting on it.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code>true</code> / <code>false</code> &nbsp; <strong>Default:</strong> absent &rarr; guard inert</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>abdication_guard_enabled</code> in <code>.agentic/config.json</code>; disable per-session: <code>export AE_ABDICATION_GUARD_DISABLE=1</code></p>
     <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;enable the abdication guard&rdquo;</span></p>
   </div>
@@ -1162,6 +1162,14 @@
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">The developer handle used to attribute per-session telemetry logs.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> none (absent file = no attribution; run <code>agentic-identity auto</code> to derive from GitHub login)</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-identity auto</code> / <code>agentic-identity init &lt;handle&gt;</code> / <code>agentic-identity confirm</code></p>
+  </div>
+
+  <!-- Tracker config -->
+  <div class="rel-card" style="margin-bottom: 16px;">
+    <h4>Tracker config overlay</h4>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">A project-local, gitignored <code>.agentic/tracker.yml</code> file, merged field-by-field over the AGENTS.md tracker resolution chain - lets a repo whose tracker can't be declared in a public file still resolve TRACKER at runtime.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any allowlisted key &nbsp; <strong>Default:</strong> absent file = AGENTS.md chain only</p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-tracker init --tracker jira --prefix P --base-url U</code> / <code>agentic-tracker resolve --json</code></p>
   </div>
 
   <p class="desc" style="margin-bottom: 20px; font-size: 13px;">File settings (<code>agentic-engineering.json</code>, <code>.agentic/config.json</code>, AGENTS.md) take effect at the next session start. <code>export</code>ed env vars apply to the current session. Full reference: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
@@ -1343,7 +1351,7 @@
           <ul>
             <li>Worker implements &rarr; fresh Skeptic critiques &rarr; findings routed back &rarr; repeat until clean sign-off</li>
             <li><strong>Fresh Skeptic every round</strong> - never continued from prior round. Independence requires clean context (no anchoring to Worker's justifications)</li>
-            <li><strong>Global-context input set (Section 4.5)</strong> - every Skeptic spawn prompt includes: architect plan, Brief/Plan artifact, <code>qa_criteria</code> block, per-consumer impact table, related files, diff under review. Step 0 validates completeness before any review content is produced; incomplete inputs return BLOCKED. Supplemental reviewers (<code>security-auditor</code>, <code>perf-analyst</code>) receive a lexically distinct Supplemental-context block with no Step-0 enforcement.</li>
+            <li><strong>Global-context input set (Section 4.5)</strong> - every Skeptic spawn prompt includes: architect plan, Brief/Plan artifact, <code>qa_criteria</code> block, per-consumer impact table, related files, diff under review. Step 0 validates completeness before any review content is produced; incomplete inputs return BLOCKED. The enumerated <code>n/a</code> rationale set is canonical preferred wording, not an exhaustive whitelist, and falsity discovered after Step 0 is raised as a finding rather than a retroactive BLOCK. Supplemental reviewers (<code>security-auditor</code>, <code>perf-analyst</code>) receive a lexically distinct Supplemental-context block with no Step-0 enforcement.</li>
             <li>Resolved Issues Preflight prevents re-raising fixed items, but Skeptic can contest insufficient resolutions</li>
             <li>Same finding contested 2+ re-routes &rarr; escalate to human (prevents infinite loops)</li>
             <li>Simple/targeted changes: capped at 1 Skeptic round. Standard Elevated: 2-re-route limit</li>
@@ -1381,7 +1389,7 @@
             <li><strong>Skeptic strategy driven by planner</strong> - <code>skeptic_strategy: per-unit</code>: independent units each get their own Skeptic (can run in parallel). <code>skeptic_strategy: integration</code>: interdependent units share one Skeptic reviewing the combined diff - replaces Phase 6, not layers on top. <code>skeptic_strategy: multi-dimensional</code>: for high-stakes Elevated units (auth, payments, migrations, crypto) - fans out correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; all three must clear before sign-off.</li>
             <li><strong>Join conditions</strong> - all-done (merge in <code>merge_order</code>), partial success (merge green units, retry failed once at depth=1), total failure (escalate), blocked (escalate immediately).</li>
             <li><strong>Sequential <code>--no-ff</code> merge</strong> - unit branches merged in planner-specified <code>merge_order</code>. Conflict at any step: abort, stop remaining merges, spawn single engineer for sequential re-implementation. Post-merge integration quality check catches cross-unit failures.</li>
-            <li><strong>Task state in <code>.agentic/tasks.jsonl</code></strong> - conductor writes all entries (pending &rarr; in_progress &rarr; done/failed/blocked). Workers return summaries only. Crash recovery: <code>in_progress</code> entries on resume treated as failed, re-spawned with original brief from <code>inputs</code> field.</li>
+            <li><strong>Task state in <code>.agentic/tasks.jsonl</code></strong> - conductor appends all entries across agents (pending &rarr; in_progress &rarr; done/failed/blocked); never a rewrite, and a task-state fold reconciles records across concurrent conductor sessions. Workers return summaries only. Crash recovery: <code>in_progress</code> entries on resume treated as failed, re-spawned with original brief from <code>inputs</code> field.</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
@@ -1790,7 +1798,7 @@
         <p style="font-size: 0.85rem; color: var(--text-muted); margin: 0 0 8px 0;">The conductor runs these during a workflow. Operator-available but rarely typed directly.</p>
         <ul>
           <li><strong>/ds-skeptic</strong> - invoke the full adversarial review template. Provides the brief selection table and orchestration steps. Entry point for manually triggering Elevated review.</li>
-          <li><strong>/ds-ticket-status-sync</strong> - reconcile a ticket's tracker column with actual code state after <code>/ds-implement-ticket</code> exits before merge. Single-ticket or <code>--all</code> sweep; <code>--all</code> also sweeps the tracker itself for tickets shipped outside <code>/ds-implement-ticket</code> (deterministic ID-match may transition, unmatched candidates are report-only); soft-fails on tracker API errors.</li>
+          <li><strong>/ds-ticket-status-sync</strong> - reconcile a ticket's tracker column with actual code state after <code>/ds-implement-ticket</code> exits before merge. Three modes: single-ticket, <code>--all</code> sweep (also sweeps the tracker itself for tickets shipped outside <code>/ds-implement-ticket</code> - deterministic ID-match may transition, unmatched candidates are report-only), and <code>--pending-merge</code> (ledger-driven, pushes the Done transition once a ticket's PR merges; invoked automatically at session start, throttled, gated by the <code>pending_merge_sweep</code> config toggle); soft-fails on tracker API errors.</li>
           <li><strong>/ds-prune-harness</strong> - prune old eval runs from the internal harness to keep the results directory clean.</li>
           <li><strong>/ds-representation-audit</strong> - audit agent representation coverage across the methodology docs and slide decks.</li>
           <li><strong>/ds-test-suite-comprehension</strong> - given a directory or test target, returns a coverage map, verification gaps, and the highest-leverage places to add coverage. Pairs with the qa-engineer and the QA gate.</li>
@@ -1974,6 +1982,7 @@
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
           <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
           <li><strong>AGENTS.md updates</strong> - proposed additions to root and track AGENTS.md files (decisions, conventions, stack)</li>
+          <li><strong>knowledge-file commit (Part G)</strong> - a pushed <code>chore(knowledge):</code> branch carrying verbatim copies of any changed <code>MEMORY.md</code>, <code>decisions.md</code>, or <code>.agentic/learnings.md</code>, with a ready-to-paste <code>gh pr create</code> line - never opened automatically</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
@@ -1985,6 +1994,7 @@
           <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for memory.md) - subagents cannot reliably get write permissions</li>
           <li>Compresses always-loaded memory files when they grow past a size threshold (Worker + Skeptic loop guards against fact loss, with rolling backups as a safety net)</li>
           <li>Cleans up stale worktrees as final step - backed by the <code>/ds-cleanup-worktrees</code> skill</li>
+          <li>Commits and pushes any changed knowledge files to a fresh branch (Part G, soft-fail, outside the wrap lock) - closing the gap where conductor-authored MEMORY.md/decisions.md/learnings.md edits previously stranded on the base branch with no shippable commit</li>
         </ul>
       </div>
       <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">

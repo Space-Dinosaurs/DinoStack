@@ -124,7 +124,8 @@ rest of the batch:
 
 - `<item.repo>` no longer exists on disk, or is unreadable.
 - `<item.repo>/AGENTS.md` is missing, or has neither a `## Tracker` nor a
-  `## Linear` section (the resolution chain lands on `TRACKER=none`).
+  `## Linear` section (the resolution chain, including the `.agentic/tracker.yml`
+  local overlay check, lands on `TRACKER=none`).
 - The Tracker Create Helper (Step 4d) returns `CREATE_STATUS=failed` or
   `CREATE_STATUS=skipped`.
 

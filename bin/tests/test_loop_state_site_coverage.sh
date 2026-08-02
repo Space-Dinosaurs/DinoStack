@@ -297,11 +297,11 @@ hooks/tests/test-session-end-wrap-state-mark.js
 hooks/tests/test-state-mark-legacy-active.js
 hooks/tests/test-stop-context-cadence.js
 hooks/tests/test-stop-context-session-log.js
-content/references/task-state-file.md
 content/sections/03-planning-artifacts.md
 content/sections/09-events-log.md
 docs/agentic-engineering-comparison.html
 scripts/codex-skills.py
+bin/tests/test_agentic_migrate.py
 EOF
 
 diff "$TMP/actual" "$TMP/accounted" > "$TMP/gatec" 2>&1 || true

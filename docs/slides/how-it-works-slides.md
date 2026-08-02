@@ -499,7 +499,7 @@ Any unit returned <code>Status: BLOCKED</code>. Treat as failed. Conductor canno
 </div>
 
 <div class="callout">
-Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor writes all entries - workers return summaries only.
+Task state tracked in <code>.agentic/tasks.jsonl</code>. Conductor appends all entries across agents (never a rewrite) - workers return summaries only; a task-state fold makes concurrent-session reads safe.
 </div>
 
 ---

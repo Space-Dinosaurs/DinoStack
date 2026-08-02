@@ -79,7 +79,7 @@ The conductor delegates implementation work aggressively to specialist subagents
 - **Risk classification.** Must precede any spawn (per METHODOLOGY.md §Risk Classification).
 - **Promotion-gate check + Brief/Plan authoring.** Comprehension artifacts that the conductor must produce itself (per METHODOLOGY.md §Planning Artifacts).
 - **Stop-and-ask decisions.** The user-facing surface; subagents do not interact with the user.
-- **All `.agentic/*.json[l]` writes.** Sole-writer rule for the per-ticket keyed `loop-state-$LOOP_KEY.json` (and the legacy unkeyed `loop-state.json` it supersedes), `tasks.jsonl`, and any other state file under `.agentic/`.
+- **All `.agentic/*.json[l]` writes.** Sole-writer rule (across agents - not across sessions; `tasks.jsonl` is safe across concurrent conductor sessions via the append-only write contract and the task-state fold, see `content/references/task-state-file.md`) for the per-ticket keyed `loop-state-$LOOP_KEY.json` (and the legacy unkeyed `loop-state.json` it supersedes), `tasks.jsonl`, and any other state file under `.agentic/`.
 - **Re-route limit + convergence-failure tracking.** Conductor must hold the full loop history across iterations.
 - **Status updates and breadcrumbs to user.** All `[phase: ...]` and `[loop: ...]` emissions originate from the conductor.
 - **Dispatch logic.** Which agent, when, with what brief.
@@ -425,13 +425,14 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 - `AUTO_MERGE_ON_CI_GREEN` — read from `.agentic/config.json` key `auto_merge_on_ci_green` (boolean, default `false`). When `true`, Phase 12 squash-merges the PR after CI passes, the PR is ready, and no reviewer has requested changes. Default `false` leaves the PR open for human review.
 - `PR_WORKFLOW_REVIEWERS` — read from `AGENTS.md` `## PR Workflow` section, `Reviewers:` field (comma-separated GitHub usernames). Default: empty string. Section absence = empty. Used in Phase 10b as fallback reviewer assignment when no CODEOWNERS file is found.
 - `REWORK_DETECTION` — read from `.agentic/config.json` key `rework_detection` (boolean, default `true`; absent key resolves to `true`). When `false`, the ticket-rework alert goes fully dark: the Phase 9 ledger write, the Phase 1 detection read, the REWORK notice, and the escalation (Elevated risk floor, architect/Skeptic callouts, Tier-3 bump) are all disabled. See `content/references/ticket-rework.md`.
+- `TRACKER_STATE_DIAGNOSTIC` — read from `.agentic/config.json` key `tracker_state_diagnostic` (boolean, default `true`). When `false`, the writeback subagent's diagnostic-enrichment sub-step (see `## Tracker Writeback Helper` step 5) never runs; the subagent behaves exactly as it did before this plan (a plain transition attempt, generic soft-fail on error only, no extra operator-visible line naming available states). Set `false` for a project that has deliberately decided not to model a given `TRACKER_STATE_*` column and does not want a recurring diagnostic line about it.
 
 **Tracker resolution** — read tracker config using this fallback chain:
 
-1. If a `## Tracker` section exists in `AGENTS.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default). Also extract optional state-name overrides: `JIRA_STATE_IN_PROGRESS` → `TRACKER_STATE_IN_PROGRESS` (default `"In Progress"`), `JIRA_STATE_IN_REVIEW` → `TRACKER_STATE_IN_REVIEW` (default `"In Review"`), `JIRA_STATE_QA` → `TRACKER_STATE_QA` (default `"QA"`), `JIRA_STATE_BLOCKED` → `TRACKER_STATE_BLOCKED` (default `"Blocked"`), `JIRA_STATE_DONE` → `TRACKER_STATE_DONE` (default `"Done"`). All five fields are optional; absence = use default.
-2. Else if a `## Tracker` section exists with `TRACKER: linear` (future-proofing): treat as Linear and read Linear fields from `## Tracker` instead of `## Linear`. Apply the same state-name override fields as the Linear path below.
-3. Else if a `## Linear` section exists: set `TRACKER=linear`. Extract `Team` → `TICKET_PREFIX`, `Workspace` → `LINEAR_WORKSPACE`, `QA assignee ID` → `LINEAR_QA_ASSIGNEE_ID` (optional). Also extract optional state-name overrides: `State In Progress:` → `TRACKER_STATE_IN_PROGRESS` (default `"In Progress"`), `State In Review:` → `TRACKER_STATE_IN_REVIEW` (default `"In Review"`), `State QA:` → `TRACKER_STATE_QA` (default `"Testing"`), `State Blocked:` → `TRACKER_STATE_BLOCKED` (default `"Blocked"`), `State Done:` → `TRACKER_STATE_DONE` (default `"Done"`). All five fields are optional; absence = use default. (Note: Linear `TRACKER_STATE_QA` defaults to `"Testing"` while Jira defaults to `"QA"` — reflects common workspace conventions for each tracker.)
-4. Else: set `TRACKER=none`. Set all `TRACKER_STATE_*` variables to their defaults: `TRACKER_STATE_IN_PROGRESS="In Progress"`, `TRACKER_STATE_IN_REVIEW="In Review"`, `TRACKER_STATE_QA="Testing"`, `TRACKER_STATE_BLOCKED="Blocked"`, `TRACKER_STATE_DONE="Done"`.
+1. If a `## Tracker` section exists in `AGENTS.md` and contains `TRACKER: jira`: set `TRACKER=jira`. Extract `TICKET_PREFIX`, `JIRA_BASE_URL`, `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional), `JIRA_QA_TRANSITION` (optional — no default). Also extract optional state-name overrides: `JIRA_STATE_IN_PROGRESS` → `TRACKER_STATE_IN_PROGRESS` (default `"In Progress"`), `JIRA_STATE_IN_REVIEW` → `TRACKER_STATE_IN_REVIEW` (default `"In Review"`), `JIRA_STATE_QA` → `TRACKER_STATE_QA` (default `"QA"`), `JIRA_STATE_BLOCKED` → `TRACKER_STATE_BLOCKED` (default `"Blocked"`), `JIRA_STATE_DONE` → `TRACKER_STATE_DONE` (default `"Done"`). All five fields are optional; absence = use default. Also extract an optional pipeline-order override: `JIRA_PIPELINE_ORDER` → `TRACKER_PIPELINE_ORDER` (comma-separated permutation of exactly `IN_PROGRESS`, `IN_REVIEW`, `QA`, case-insensitive token match; default `IN_PROGRESS, IN_REVIEW, QA` when absent). On a malformed value (wrong token set, duplicate, unknown token): print `WARNING: JIRA_PIPELINE_ORDER '<value>' is not a valid permutation of IN_PROGRESS/IN_REVIEW/QA - using the default order.` and fall back to the default; do not abort Setup.
+2. Else if a `## Tracker` section exists with `TRACKER: linear` (future-proofing): treat as Linear and read Linear fields from `## Tracker` instead of `## Linear`. Apply the same state-name override fields AND the same `Pipeline order:` override field as the Linear path below.
+3. Else if a `## Linear` section exists: set `TRACKER=linear`. Extract `Team` → `TICKET_PREFIX`, `Workspace` → `LINEAR_WORKSPACE`, `QA assignee ID` → `LINEAR_QA_ASSIGNEE_ID` (optional). Also extract optional state-name overrides: `State In Progress:` → `TRACKER_STATE_IN_PROGRESS` (default `"In Progress"`), `State In Review:` → `TRACKER_STATE_IN_REVIEW` (default `"In Review"`), `State QA:` → `TRACKER_STATE_QA` (default `"Testing"`), `State Blocked:` → `TRACKER_STATE_BLOCKED` (default `"Blocked"`), `State Done:` → `TRACKER_STATE_DONE` (default `"Done"`). All five fields are optional; absence = use default. (Note: Linear `TRACKER_STATE_QA` defaults to `"Testing"` while Jira defaults to `"QA"` — reflects common workspace conventions for each tracker.) Also extract an optional pipeline-order override: `Pipeline order:` → `TRACKER_PIPELINE_ORDER`, same syntax, validation, and default as the Jira `JIRA_PIPELINE_ORDER` field above.
+4. Else: set `TRACKER=none`. Set all `TRACKER_STATE_*` variables to their defaults: `TRACKER_STATE_IN_PROGRESS="In Progress"`, `TRACKER_STATE_IN_REVIEW="In Review"`, `TRACKER_STATE_QA="Testing"`, `TRACKER_STATE_BLOCKED="Blocked"`, `TRACKER_STATE_DONE="Done"`. Set `TRACKER_PIPELINE_ORDER` to its default `IN_PROGRESS, IN_REVIEW, QA`.
 
 **Dual-shape note:** Linear projects canonically store tracker config under `## Linear`; Jira projects use `## Tracker`. This is intentional — it preserves zero-migration compatibility for every existing Linear project that already has a `## Linear` section.
 
@@ -444,10 +445,23 @@ discovery will fill in most fields automatically.
 
 Do not continue. Do not attempt to write the migration. All config-mutation logic lives in `/ds-init-project`.
 
+**`.agentic/tracker.yml` local overlay.** After the fallback chain above resolves a base result (steps 1-4), check for a project-local, gitignored `<repo>/.agentic/tracker.yml` overlay and merge it in: the overlay wins field-by-field over the `AGENTS.md` result, and any changed field is disclosed. This lets a repo whose tracker cannot be declared in a tracked, universally-inherited `AGENTS.md` still resolve `TRACKER` at runtime, without baking one operator's workspace or account ID into a public file.
+
+- **Merge rule.** If no `AGENTS.md` section resolved (step 4 landed) OR the overlay's `tracker:` differs from the `AGENTS.md` `TRACKER`, the overlay is **sole source** and every `AGENTS.md`-derived field is discarded - a type switch is a replacement, never a merge. Otherwise, unset overlay fields fall through to the `AGENTS.md` value, and fields the overlay does set win, field-by-field.
+- **Three-state diagnostic.** The overlay resolves to one of `ok` (fields honored), `absent` (no file - falls through to the `AGENTS.md` result unchanged), or `unusable` (present but rejected - falls through to the `AGENTS.md` result, or to `TRACKER=none` if there was no `AGENTS.md` section either, plus a distinct, actionable reason naming what IS accepted).
+- **Required-field rule.** When the overlay is sole source, a resolved tracker with no `TICKET_PREFIX` (plus `JIRA_BASE_URL` for jira / `LINEAR_WORKSPACE` for linear) after defaults is invalid - the overlay is demoted to `unusable` rather than producing an impossible half-configured tracker.
+- **Parse boundary.** The overlay is a flat `key: value` line format, not full YAML: comment lines (`#`) and blank lines are skipped before any other processing; a line with no colon is ignored with a warning; keys are case-insensitive; an empty value is treated as unset; duplicate keys - last occurrence wins; values are capped at 256 characters.
+- **Credential guard.** Any parsed key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`, etc.) rejects the **entire file**, degrading to the `AGENTS.md` result - this file must never hold secrets; credentials resolve from the harness/MCP layer, never from this overlay.
+- **Data-only.** `.agentic/tracker.yml` is data-only and executes nothing - unlike `.agentic/phase0-classifiers.yml`, which runs with full conductor privileges (see the Trigger-based Phase 0 section below).
+- **Tracked-file warning.** If the overlay file is git-tracked (rather than ignored), print one warning before proceeding - it may hold another operator's tracker config committed by mistake or hand-authored outside the write-path guard.
+- **Guard interaction:** the legacy `## Linear` shape guard is evaluated before this overlay and is never suppressed by it.
+- Prefer `agentic-tracker resolve --json` for this whole step (it implements the merge rule, diagnostics, and guards above deterministically); when the binary is unavailable, apply the rule as written here.
+
 Print a summary of resolved values before Phase 1:
 
 ```
-Tracker:                    [linear | jira | none]
+Tracker:                    [linear | jira | none, or "none (.agentic/tracker.yml present but unusable: <reason>)" when the overlay is unusable]
+Tracker config source:      [.agentic/tracker.yml (overrides: <fields>) | (n/a - AGENTS.md only)]
 TICKET_PREFIX:              [value or "n/a"]
 BASE_BRANCH:                [value]
 AUTO_MERGE_ON_CI_GREEN:     [true | false]
@@ -457,6 +471,7 @@ TRACKER_STATE_IN_REVIEW:    [value]
 TRACKER_STATE_QA:           [value]
 TRACKER_STATE_BLOCKED:      [value]
 TRACKER_STATE_DONE:         [value]
+TRACKER_PIPELINE_ORDER:     [value]
 ```
 
 All work lives in `$REPO`.
@@ -465,19 +480,22 @@ All work lives in `$REPO`.
 
 ## Tracker Writeback Helper
 
-Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and 2 awaiting callers (`/ds-ticket-status-sync` both single-ticket and `--all` modes, `/ds-wrap` Part F). Gated on `TRACKER != none`; no-op otherwise.
+Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
 
 **Invocation contract:**
 
 When the conductor reaches a writeback boundary:
 1. Skip entirely if `TRACKER == none`.
-2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers (`/ds-ticket-status-sync`, `/ds-wrap` Part F) are enumerated in the guard's step 4.d.iv below.
+2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - are enumerated in the guard's step 4.d.iv below.
 3. Pass to the subagent:
    - `tracker`: `linear` | `jira`
    - `ticket_id`: from current task context
    - `target_state`: one of the resolved `TRACKER_STATE_*` variables
-   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers `/ds-ticket-status-sync` (both single-ticket and `--all` modes) and `/ds-wrap` Part F
+   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F
    - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 5 values resolved once in Setup; required by the forward-only guard's same-category pipeline sub-rank
+   - `diagnostic_enabled`: `$TRACKER_STATE_DIAGNOSTIC` (boolean, resolved once in Setup; gates the diagnostic-enrichment sub-step of step 5 below)
+   - `linear_team_key`: `$TICKET_PREFIX` (Linear only; the team key already resolved in Setup from the `## Linear` `Team:` field - scopes the live `list_workflow_states` call in step 5's diagnostic-enrichment sub-step to the correct team, exactly as Phase 2c's own Fetch step already does for its advisory-only call)
+   - `pipeline_order`: the 3-element ordered permutation of `IN_PROGRESS`/`IN_REVIEW`/`QA` resolved once in Setup as `TRACKER_PIPELINE_ORDER`, defaulting to `["IN_PROGRESS","IN_REVIEW","QA"]`; rank = index within this list, consumed by step 4.d.iv's pipeline sub-rank.
    - Tracker-specific config: `LINEAR_WORKSPACE`, `LINEAR_QA_ASSIGNEE_ID` for Linear; equivalent for Jira
 
 **Subagent responsibilities (extended for `forward_only_guard`):**
@@ -501,16 +519,28 @@ When the conductor reaches a writeback boundary:
       - i. If `target_state`'s name case-insensitive-exact-matches the CURRENT state's name: **skip** (idempotent no-op - already there).
       - ii. Else if `target_state` matches `BLOCKED`: **permit** unconditionally. Blocked is always a permitted same-category target on both trackers - a genuine problem signal that must never be silently dropped, regardless of where the tracker's columns happen to sit.
       - iii. Else if the CURRENT state's name matches `BLOCKED`: **permit** unconditionally. Resuming or unblocking a ticket must always be able to move it forward into In Progress, In Review, or QA - Blocked never blocks a later forward transition.
-      - iv. Else, look up current and target against the fixed pipeline sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2) from `tracker_state_values`. This order is fixed by which writeback site fires it (W1 < W2 < W3) - it is not read from any tracker API and does not depend on operator-configured board/column order.
+      - iv. Else, look up current and target against `pipeline_order` (a 3-element ordered list of the tokens `IN_PROGRESS`/`IN_REVIEW`/`QA`, each resolved against `tracker_state_values` the same way): rank = index within `pipeline_order`. `pipeline_order` defaults to the ordered sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2) - the historical order in which AE's own writeback sites fire (W1 < W2 < W3) - unless the project declares `JIRA_PIPELINE_ORDER` / `Pipeline order:` in `AGENTS.md` (see Setup), in which case the declared order governs instead.
         - If BOTH names resolve to a pipeline rank: **permit** iff `pipeline_rank(current) < pipeline_rank(target)`; otherwise **skip**.
-        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 5 known `tracker_state_values` at all, or because it matches one of the 5 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 5 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** (`/ds-ticket-status-sync`, `/ds-wrap` Part F) do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 5 known `tracker_state_values` at all, or because it matches one of the 5 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 5 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
 5. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase. A state pre-read failure (MCP/API error) is also a skip: log a one-line warning to stderr and do not proceed. Do not assume any rank when the pre-read fails.
+
+   **Diagnostic enrichment (new, gated on `diagnostic_enabled`; runs strictly AFTER a transition attempt, never before, and can never change whether the write happens).** When step 4 permits a transition, the subagent attempts it using the EXISTING mechanism, completely unchanged from today - Linear: a single `mcp__linear__save_issue` call with `state: target_state`; Jira: discover available transitions via `mcp__mcp-atlassian__jira_get_transitions` on this ticket, then call `mcp__mcp-atlassian__jira_transition_issue` for the matching transition id. **Nothing runs before this attempt - there is no new round-trip on the happy path on either tracker.** (Jira's discovery call is not new API surface introduced by this plan - it is already required to obtain a transition id before any Jira transition can be attempted at all; Linear's `save_issue` remains the single direct call it is today.)
+
+   Only when that attempt does NOT succeed, and only when `diagnostic_enabled` is true, does the subagent attempt - best-effort - to enrich the outcome with a `diagnostic` string, using ONLY a data source positively established as sound for the claim being made on that tracker. **Any failure of this enrichment step itself is swallowed: it degrades the message (`diagnostic` stays `null`), it never changes `status`, `transitioned`, or any other part of the original outcome.**
+   - **Jira** - reuse the `jira_get_transitions` result already fetched during the attempt above (no new call). If `target_state` did not match any available transition's target name (this was already known before `jira_transition_issue` was ever called): relabel the outcome `status: "skipped_unconfigured_state"` and set `diagnostic` to: `"'<target_state>' not among the transitions currently available for this ticket (currently in '<current_status>') - available right now: [<comma-separated available transition target names, or "(none)">]. This is a per-ticket snapshot, not the project's full workflow - if '<target_state>' is reachable via a different path, this ticket just isn't there yet. Verify the name in AGENTS.md, or check the tracker directly."`. If instead a matching transition WAS found but the `jira_transition_issue` call itself errored (a genuine API/transient failure - the configured name was fine), leave `status: "failed"` exactly as today; there is nothing meaningful to enrich.
+   - **Linear** - make ONE best-effort call to `mcp__linear__list_workflow_states` filtered to `linear_team_key` (team-scoped, genuinely global for this team, confirmed via the `@linear/sdk` `WorkflowState` type). If this call itself fails: swallow it per the rule above - leave `status: "failed"` and `diagnostic: null`. If it succeeds: check whether `target_state` case-insensitive-exact-matches any returned state name. If NOT found: relabel the outcome `status: "skipped_unconfigured_state"` and set `diagnostic` to: `"'<target_state>' not found among <linear_team_key>'s live workflow states - available: [<comma-separated live state names>]."`. If `target_state` WAS found among the live states (the `save_issue` failure had some other cause - transient error, permissions, etc. - the configured name was fine), leave `status: "failed"` with `diagnostic` still attached as informational context, since a live list was already fetched successfully.
+
+   This step can only relabel a `"failed"` outcome to `"skipped_unconfigured_state"` when live data positively confirms the configured name is not currently usable; it can never convert `"failed"` into `"ok"`, and it can never prevent, delay, or retry the original transition attempt.
+
+   Fire-and-forget call sites (W1-W7, Phase 11) emit, for a `"skipped_unconfigured_state"` outcome only, the `diagnostic` text as ONE stderr line: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. A plain `"failed"` outcome (enriched with `diagnostic` or not) continues to use the existing `FAILED:` line format (see "Failure logging" below, extended for this case). Callers that await the result (3 modes of `/ds-ticket-status-sync`, `/ds-wrap` Part F) read `status` and `diagnostic` from the return payload and format them per their own operator-visible-line conventions (see the edits to those files below).
+
+**Rejected: fully tracker-derived pipeline order.** A live-fetched global ordering was considered instead of a declarable default. Jira's only available state-enumeration call (`jira_get_transitions` on a probe ticket) returns transitions available from that ticket's CURRENT status only - an edge-local view of the workflow graph, not a global ordering of all states - so no cross-tracker-symmetric live-derived order can be built that works the same way for both currently-supported trackers. A mechanism that only works for one tracker breaks universality; the explicit-declaration-with-fixed-default design above is the soundest project-level alternative.
 
 **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state (step 1) and the 5 `tracker_state_values` strings resolved once in Setup. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
 
-**Failure logging:** subagent stderr is captured by the conductor's `agentic-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. No block.
+**Failure logging:** subagent stderr is captured by the conductor's `agentic-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. A `status: "skipped_unconfigured_state"` outcome uses the distinct SKIPPED form defined in step 5's diagnostic-enrichment sub-step instead: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. No block, either form.
 
-For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block below — the brief is unchanged except for the addition of `target_state`, `forward_only_guard`, and `tracker_state_values` parameters.
+For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block below — the brief is unchanged except for the addition of `target_state`, `forward_only_guard`, `tracker_state_values`, and `pipeline_order` parameters. Phase 11's own Jira `JIRA_QA_TRANSITION`-gated transition mechanism (see "Behavior" above - unaffected, unedited by this plan) and its Linear path both additionally receive the diagnostic-enrichment behavior from `## Tracker Writeback Helper` step 5 when a transition attempt does not succeed; this plan does not change what Phase 11 writes or when, only what it reports when it does not write.
 
 ---
 
@@ -1097,6 +1127,28 @@ The notice's third line asserts an escalation. That escalation is applied at the
 
 ---
 
+### Tracker writeback (W1)
+
+**Anchoring (binding).** This step sits at the per-entry level, AFTER the three mutually exclusive tracker sub-sections above have dispatched - so it runs exactly once per entry regardless of which sub-section executed. Do not move it into one sub-section.
+
+**Gate.** Fire only when ALL of the following hold: `TRACKER != none` AND `[TICKET_ID]` matches the bare-ticket-ID accept regex used at Phase 0's fast-path and classification tables (`^[A-Z][A-Z0-9_]+-\d+$`, the same pattern cited at both `TICKET_PREFIX` sites above - a future edit to one is visibly an edit to both) AND (`TICKET_PREFIX` is unset OR `[TICKET_ID]` starts with `<TICKET_PREFIX>-`).
+
+The sub-section above has, by this point, already successfully fetched the ticket. **A failed ticket fetch means no In Progress write** - this step never fires ahead of a confirmed fetch.
+
+If the gate holds, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding.
+
+```
+[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
+```
+
+**Why the real-key guard exists.** Open-goal loop iterations carry synthetic ids of the form `<goal-slug>-iter-N` (see "Per-iteration ticket lifecycle" above) that are not tracker keys - without this guard every open-goal iteration would attempt a doomed pre-read against a nonexistent ticket.
+
+**Why this does not depend on Phase 2c.** Firing here does not depend on Phase 2c having run, because the forward-only guard's ranking never reads `.agentic/tracker-states.json` (see "This ranking never reads `.agentic/tracker-states.json`" in the Tracker Writeback Helper above) - it pre-reads the ticket's live current state directly.
+
+**Accepted consequence.** A ticket abandoned after Phase 1 but before any branch exists stays showing In Progress - a compensating backward transition is exactly what the forward-only guard skips. This is a decision, not an oversight.
+
+---
+
 Proceed to Phase 2 regardless of which sub-section executed.
 
 ---
@@ -1215,7 +1267,7 @@ Runs only when `TRACKER != none`. Skipped silently otherwise. Purpose: fetch the
 **Validate.** For each of the 5 resolved `TRACKER_STATE_*` values, look for an exact (case-insensitive) name match in `states[].name`. For each miss, compute the closest match by case-insensitive Levenshtein distance and emit one operator-visible warning:
 
 ```
-WARNING: configured state '<name>' not found in <tracker> workflow. Closest match: '<closest>'. Proceeding with configured name - transition may be silently skipped at runtime.
+WARNING: configured state '<name>' not found in <tracker> workflow. Closest match: '<closest>'. Proceeding with configured name - at write time, the transition is attempted with this exact name first; if that attempt does not succeed, a live diagnostic then names what IS currently available (see "Diagnostic enrichment" in `## Tracker Writeback Helper` step 5). It never blocks and never writes to an unconfigured state.
 ```
 
 Append each warning to the cache's `warnings[]` array. Do NOT block execution.
@@ -1306,7 +1358,7 @@ Your plan MUST:
 
 Apply the null-render rule when filling this block: a null `skeptic_rounds` renders `n/a`; a null `qa_status` renders its `skipped:<rationale>` value when one exists, otherwise `n/a`. Never emit a bare `null` into a spawn brief.
 
-**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every genuine Open Question before proceeding - see `METHODOLOGY.md` for resolution paths. A plan with only a "Deferred defaults" section (empty or non-empty) and an empty "Open questions" section does not block. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
+**Architect plan Skeptic review (mandatory):** After the Architect returns its plan, spawn a Skeptic with the "Document synthesis, architecture, and planning" adversarial brief plus the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5) - this is a pre-implementation review, so field 6 (diff under review) lists the file paths the plan proposes to modify rather than a git diff, field 1 (architect plan) is the plan itself under review, and field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-plan (Brief authoring gated on this sign-off)` when no Brief exists yet. Do not proceed to Phase 3b or Phase 4 until the Skeptic grants sign-off. If the Skeptic-approved plan contains a non-empty "Open questions" section, resolve every genuine Open Question before proceeding - see `METHODOLOGY.md` for resolution paths. A plan with only a "Deferred defaults" section (empty or non-empty) and an empty "Open questions" section does not block. For the full adversarial brief menu, see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
@@ -1338,13 +1390,15 @@ After receiving the orchestration-planner's output and before Phase 4, initializ
 mkdir -p .agentic && [ -f .agentic/tasks.jsonl ] || touch .agentic/tasks.jsonl
 ```
 
+An empty file (0 bytes) is not corrupt - it means `touch` ran but the conductor was interrupted before the first append. Do NOT re-`touch` it and do not treat it as corrupt; the task-state fold over zero records is simply an empty index, identical to file-absent.
+
 Also add `.agentic/` to the project's `.gitignore` if not already present.
 
 **Generate identifiers (once per conductor session):**
 - `session_id`: `<ISO-date>-<4hex>`, e.g. `20260415-a3f2`
 - `task_id` per task: `<ticket_id>-<unit_slug>` (e.g. `ENG-42-auth-middleware`), or `<session_id>-<unit_slug>` for null-ticket projects
 
-**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`. Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
+**Read the orchestration-planner's structured JSONL block** (the `## Task entries (machine-readable)` section at the end of the plan output). For each entry in that block, append a `pending` entry to `.agentic/tasks.jsonl`, **unless the task-state fold** (`content/references/task-state-file.md`) already reports records for that `task_id` - a concurrent conductor may have already initialized it, and appending a second `pending` for an already-live `task_id` degrades log hygiene even though it cannot regress a live claim (the fold's ownership rule already prevents that). Write tasks in dependency order - independent tasks (empty `depends_on`) first, dependent tasks after. Build each record in full and append it with **one complete `write()`** (`printf '%s\n' "$LINE" >> .agentic/tasks.jsonl`) - never composed from multiple writes, and never a rewrite; this is the append-only write contract every task-state write in this phase and Phase 5 follows. Each entry must include the fields from the schema: `task_id`, `session_id`, `ticket_id`, `unit_slug`, `status: pending`, `depends_on`, `created_at`, `updated_at`, `author_model` (set to `null` at init; populated by the conductor at engineer spawn in Phase 5 with the model id the engineer runs under), and the full `inputs` object (`description`, `acceptance_criteria`, `files_in_scope`, `quality_cmd`, `repo_path`, `base_branch`).
 
 Emit breadcrumb: `[phase: task-state-init | N tasks written]`
 
@@ -1372,13 +1426,30 @@ The conductor does not proceed to the Skeptic-on-Brief with an unresolved UNCOVE
 
 See `content/references/planning-artifacts.md` §Gate semantics for where this step sits relative to the Skeptic-on-Brief.
 
-**ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. No lock protocol is needed because the conductor is the sole writer.
+**ALL writes to `.agentic/tasks.jsonl` are conductor-only.** Workers do not read or write the task file. Workers return their summaries to the conductor in the normal return path; the conductor extracts results and writes all updates. Every conductor write is a single-line append; every read applies the task-state fold. No lock is needed because no writer ever rewrites the file.
 
 **File-absent vs file-present behavior:**
 
 - **File absent:** Fresh start. Create the file and append `pending` entries as described above.
-- **File present, same `session_id`:** Continuation within the same session (e.g., a prior worker returned BLOCKED and the human provided direction). Build the in-memory index using the field-level merge algorithm (see Worker behavior in the P1 design), determine which tasks are pending/in-progress/done, and proceed accordingly.
-- **File present, different `session_id`, with `in_progress` or `blocked` entries:** Orphaned tasks from a dead session. Log: "Found `.agentic/tasks.jsonl` with N orphaned tasks from a prior session." Surface the task list to the human with their last-known status and `updated_at` timestamp. Ask: "Do you want to resume from this state, or start fresh? (resume/restart)". On **restart**: rename the existing file to `.agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak`, create a new file, and proceed as fresh start. On **resume**: automatic resume is not yet implemented (P2). Display the last-known state of each task and say: "Automatic resume is not yet implemented. Here is the last-known state of each task: [table]. You can manually direct re-spawns for any in-progress tasks."
+- **File present, empty (0 bytes):** Identical to absent for the fold - `touch` ran but the conductor was interrupted before the first append. Do NOT re-`touch`; do NOT treat as corrupt.
+- **File present, non-empty:** Apply the **task-state fold** (`content/references/task-state-file.md` §Task-state fold) to build the in-memory per-`task_id` index before deciding anything - never read the latest raw line as the answer. Then classify each task by ownership × lifecycle per the fold's row grid (see `content/references/task-state-file.md` for the full 16-row matrix):
+  - **Own tasks** (this session is the folded owner): `pending` → spawn; `in_progress` with no intervening foreign claim → in-session continuation (e.g., a prior worker returned BLOCKED and the human provided direction) - do not re-spawn, await the return; `done` → do not spawn, dependency satisfied, **merge permitted** (the only case that permits a merge - re-fold immediately before merging per the fold-before-merge gate in Phase 5's Merge phase, condition `owner == self AND status == done`). **Invariant self-check:** folding to `own + done` while this session holds no build record for the task (no `branch_name`/`commit_sha` under this session's own `session_id`) violates I2 and means an implementation bug - **escalate, never merge**; `failed`/`blocked`/`abandoned` → partial-success retry may append a fresh `in_progress` claim (cap 1 automatic retry).
+  - **Foreign tasks, ticketed projects only** (a different session's `session_id` folds as owner; this ownership gate is structurally inert for null-ticket projects, where `task_id = <session_id>-<unit_slug>` and cross-session ids never collide - append-only still guarantees no state loss there, but there is no duplicate-fan-out protection): `pending` → spawn permitted, claim by appending `in_progress`; `in_progress` and fresh (< 10 min since the folded `updated_at`) → **do not spawn**, emit the row-7 warning below verbatim, do not merge, escalate; `in_progress` and stale (> 10 min) → orphan, spawn permitted, the fresh claim supersedes the prior one monotonically; `done` and this session holds no branch for the task → do not spawn, dependency satisfied; `done` and this session holds an outstanding branch for the task → do not spawn **and** do not merge that branch - the foreign owner's `done` is authoritative and this session's branch is a superseded generation whose commits may duplicate or conflict with the merged work; emit `WARNING: task <task_id> completed under session <X>; this session holds branch <B> for it. Not merging. Reconcile or discard manually.` and escalate; `failed`/`blocked`/`abandoned` → spawn permitted (retry), append `in_progress` with this session's own `session_id`.
+  - **Dispossessed** (this session's claim was superseded by a later foreign `in_progress` - reachable because the 10-minute staleness window is shorter than the 30-minute fan-out join deadline): **do not spawn** (including the Phase 5 partial-success retry spawn), **do not merge** this session's branch, and **do not append a terminal status** - `done` is absorbing under the fold and would hijack the new owner's task. Append outputs anyway (durable, and excluded from the folded record by the cross-generation whitelist, but recoverable from the raw log). Emit: `WARNING: task <task_id> was taken over by session <X> while this session's engineer was running. Not merging. Reconcile manually.` and escalate.
+  - **Legacy** (a record with no `session_id` - the schema has never mandated the field, so this includes both pre-fix records and any spec-compliant partial append that omits it): folds under a sentinel owner no session ever matches. Treated exactly as foreign-and-stale: `pending` → spawn permitted; `in_progress` → spawn permitted, **never** treated as fresh (an absent id cannot be shown live; blocking on it would deadlock every pre-fix project); `done` → do not spawn, and never mergeable by any viewer; `failed`/`blocked`/`abandoned` → spawn permitted.
+
+  **Monotonic ownership.** Ownership is claimed only by an `in_progress` append and is never regained once superseded - a session whose claim was superseded cannot silently take the task back by appending outputs or any other later record; it must append a fresh `in_progress` claim through this same gate, and only when the fold currently permits a spawn for that task.
+
+  On the foreign-and-fresh case, emit verbatim:
+
+  ```
+  WARNING: task <task_id> is in_progress under another session (session_id=<X>, updated_at=<Y>).
+  Not spawning. Resolve manually (wait for that session, kill it, or restart task state) and retry.
+  ```
+
+  `<Y>` is the folded `updated_at` - the owner's latest append - the same value the 10-minute staleness test consumes.
+
+  When the folded state, taken as a whole, shows orphaned tasks (`in_progress` or `blocked` entries stale under a different `session_id`, per the classification above): Log: "Found `.agentic/tasks.jsonl` with N orphaned tasks from a prior session." Surface the task list to the human with their last-known status and folded `updated_at` timestamp. Ask: "Do you want to resume from this state, or start fresh? (resume/restart)". On **restart**: rename the existing file to `.agentic/tasks.jsonl.YYYYMMDD-HHMMSS.bak`, create a new file, and proceed as fresh start - this is the one sanctioned truncation in the whole design, operator-confirmed, and never reachable from a malformed line. On **resume**: automatic resume is not yet implemented (P2). Display the last-known state of each task and say: "Automatic resume is not yet implemented. Here is the last-known state of each task: [table]. You can manually direct re-spawns for any in-progress tasks."
 - **File present, different `session_id`, all terminal (`done`, `failed`, `abandoned`):** Historical records from a prior implementation. Append new entries for the current session without disturbing existing ones.
 
 ---
@@ -1405,11 +1476,9 @@ Read the orchestration-planner's output to make the routing determination below 
 
 **Module manifests:** Files modified must carry module manifests per `~/DinoStack/.claude/skills/agentic-engineering/rules/module-manifest.md` when non-trivial. Skeptic enforcement is tiered in Phase 6: missing manifests are flagged as Minor (does not block sign-off), stale manifests as Major (blocks sign-off absent a compelling documented reason to defer), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path as Critical. When modifying an existing manifested file, update the manifest in the same change if purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics shift.
 
+**Tracker writeback note.** In Progress (W1) is written at Phase 1, not here - Phase 5 deliberately has no W1 site. Do not re-add one.
+
 ### If work is a single logical unit (or units must be sequential):
-
-**Tracker writeback (W1):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the engineer spawn below.
-
-[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
@@ -1473,19 +1542,15 @@ The engineer return shape on the Elevated path now requires `quality_gate_result
 
 **Trivial-path solo engineer carve-out.** Trivial solo engineer spawns keep the lightweight contract: no heavy `worktree_setup`/`quality_gates`/`git_finalization` contract block, no `quality_gate_results` return field, no Skeptic, no brief file. But the actor is a worktree-isolated `engineer`, not the conductor: branch creation, the (lightweight) quality check, the commit, and the push are all performed by the Trivial engineer inside its own worktree (`isolation: "worktree"`). The conductor never edits the shippable tree directly. Only the heavy Elevated ceremony is dropped - the actor and execution location are the worktree engineer.
 
-**Tracker writeback (W1 — Trivial path):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return. Continue immediately to the Trivial engineer spawn.
-
-[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS | path: trivial]
-
 **Tier:** Declare a tier if this spawn warrants non-default model selection (see Tier declaration in METHODOLOGY.md). Default is Tier 2 (omit the model param).
 
 **Task-state reads (multi-unit only, when `.agentic/tasks.jsonl` is in use):**
 
-Before spawning each worker: check the task's `depends_on` field in the file. All dependency `task_id`s must have `status: done` before this task can start. Update the task entry from `pending` -> `in_progress` immediately before spawning. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
+Before spawning each worker: apply the **task-state fold** (`content/references/task-state-file.md`) and check the task's `depends_on` field against the folded index. All dependency `task_id`s must have folded `status: done` before this task can start (rows 3/9 of the fold's row grid). Append a partial transition moving status from `pending` -> `in_progress` immediately before spawning - this append is the ownership claim. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path if using worktree isolation, null otherwise), `branch_name` (the branch the worker will operate on), and `author_model` (the model id the engineer will run under, recorded so reviewer spawns - Skeptic, security-auditor - can select a different model when role-model routing is active; set to `null` when the model is unknown or role-model routing is off).
 
-After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Write an update entry to `.agentic/tasks.jsonl` with these output fields. Status remains `in_progress` until Skeptic sign-off or final determination.
+After each worker returns: read the return summary, extract `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed`. Append an output-only entry to `.agentic/tasks.jsonl` with these output fields and **no `status` field** - an output append is never a claim and never a status transition (`content/references/task-state-file.md` §Task-state fold). "Status remains `in_progress`" is a statement about what the fold reports for this task until Skeptic sign-off or final determination, **not an instruction to re-emit the field**: re-emitting `status: in_progress` here would make this append a fresh ownership claim under the fold's state machine, letting a dispossessed session (rows 14/15) reclaim ownership merely by returning its engineer's outputs.
 
-After the Skeptic/QA loop resolves: update the task entry to its terminal status (`done`, `failed`, `blocked`, or `abandoned`) and populate the `loop_state` field from the P0 LOOP_STATE object. Include `outputs.skeptic_status` and `outputs.skeptic_findings_count` from the completed Skeptic review (or `skipped`/null if Skeptic was not required).
+After the Skeptic/QA loop resolves: append a partial transition setting the task's terminal status (`done`, `failed`, `blocked`, or `abandoned`) and populate the `loop_state` field from the P0 LOOP_STATE object. Include `outputs.skeptic_status` and `outputs.skeptic_findings_count` from the completed Skeptic review (or `skipped`/null if Skeptic was not required).
 
 ### If parallel independent units were identified:
 
@@ -1507,39 +1572,40 @@ git -C $REPO worktree add ${REPO}/.agentic/worktrees/${FEATURE_BRANCH}-${unit_sl
   -b ${FEATURE_BRANCH}-${unit_slug} origin/$BASE_BRANCH
 ```
 
-**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, verify all `depends_on` task_ids are `done` in the file and update each task entry from `pending` -> `in_progress`. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
+**Task-state reads (when `.agentic/tasks.jsonl` is in use):** Before spawning, apply the **task-state fold** and verify all `depends_on` task_ids are folded `done`, then append a partial transition per unit moving status from `pending` -> `in_progress` - one `in_progress` claim record per unit. Include `assigned_agent` (the named agent type being spawned, e.g. 'engineer'), `worktree_path` (absolute path of the unit's worktree), and `branch_name` (the unit's sub-branch `${FEATURE_BRANCH}-${unit_slug}`).
 
 Spawn one `engineer` agent per worktree in a single message (parallel, background). Each engineer works in its assigned worktree path and commits to its own sub-branch. Each agent's prompt should include:
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
 - The unit's `task_id`, acceptance criteria, `files_in_scope`, `quality_cmd`, and worktree path
 - The per-unit scope: extracted from the orchestration-planner's JSONL block for that unit
 
-**Join condition.** The conductor spawns all N engineers in a single message and waits for all N to return. After all N engineers return, evaluate the join:
+**Join condition.** The conductor spawns all N engineers in a single message and waits for all N to return. After all N engineers return, apply the **task-state fold** to each unit's `task_id` and evaluate the join against the folded status - never a raw last-line read:
 
-- **All-done join:** all N units reach `status: done` (Skeptic signed off per P0 loop where applicable). Proceed to merge phase.
-- **Partial success:** one or more units reach `status: failed` or `status: blocked`, and one or more reach `status: done`. Do NOT merge any branch. Apply partial success path (see below).
-- **Total failure:** all units failed or blocked. Clean up all worktrees, escalate to human with the orchestration-planner's original plan and all failure outputs. Recommend sequential implementation as fallback.
-- **Blocked:** any unit with `status: blocked` is treated as failed for join evaluation. A worker returns `Status: BLOCKED` when it encounters a scope conflict, design ambiguity, or permission issue requiring human input.
+- **All-done join:** all N units fold to `status: done` (Skeptic signed off per P0 loop where applicable). Proceed to merge phase.
+- **Partial success:** one or more units fold to `status: failed` or `status: blocked`, and one or more fold to `status: done`. Do NOT merge any branch. Apply partial success path (see below).
+- **Total failure:** all units fold to failed or blocked. Clean up all worktrees, escalate to human with the orchestration-planner's original plan and all failure outputs. Recommend sequential implementation as fallback.
+- **Blocked:** any unit folding to `status: blocked` is treated as failed for join evaluation. A worker returns `Status: BLOCKED` when it encounters a scope conflict, design ambiguity, or permission issue requiring human input.
+- **Dispossessed (rows 14-16):** if a unit's fold shows this session was superseded by a foreign `in_progress` claim mid-flight, treat that unit as neither done nor eligible for merge regardless of what this session's own engineer returned - **do not merge this session's branch for it**, and if the foreign owner's fold shows `done` with this session still holding an outstanding branch (row 16), do not merge that branch either. Escalate per §3.3's row-14/15/16 disposition; do not fold this unit into the all-done or partial-success counts above as if this session owned it.
 
 **Join timeout.** The join phase has a 30-minute total deadline. If the deadline elapses before all engineers have returned, units with no completion entry are treated as timed out (failed) and handled via the partial success path. Units that completed `status: done` before the deadline are still eligible for merge.
 
-**Fallback: no task-state file.** If `.agentic/tasks.jsonl` is not in use, derive status from each engineer's return value. Each engineer's return must include a structured status line as the first line: `Status: DONE`, `Status: DONE_WITH_CONCERNS`, or `Status: BLOCKED`. The engineer brief must explicitly require this structured first line.
+**Fallback: no task-state file.** If `.agentic/tasks.jsonl` is not in use, or is present but empty (0 bytes - the task-state fold over zero records is an empty index, identical to absent), derive status from each engineer's return value. Each engineer's return must include a structured status line as the first line: `Status: DONE`, `Status: DONE_WITH_CONCERNS`, or `Status: BLOCKED`. The engineer brief must explicitly require this structured first line.
 
-After all engineers return, update task-state output fields for each unit: write `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed` to each task's entry. Status remains `in_progress` until Skeptic sign-off or final determination.
+After all engineers return, append an output-only entry per unit: write `worker_summary`, `commit_sha`, `files_modified`, and `quality_gate_passed` to each task's entry, with **no `status` field** - same rule as the single-unit output append above (§3.1/§3.2 of the task-state fold): an output append is never a claim. "Status remains `in_progress`" describes the folded status until Skeptic sign-off or final determination; it is not an instruction to write the field.
 
 **Partial success path.** When one or more units fail and one or more succeed:
 1. Record which units are `done` vs `failed`/`blocked`.
 2. If done units are truly independent (no shared interface with failed units): merge done units into `FEATURE_BRANCH` sequentially in `merge_order`. Leave failed units' worktrees in place.
-3. Spawn a retry engineer for each failed unit, pointing it at the preserved worktree and the failure detail. The retry brief must include: (a) the original task brief from the task-state `inputs` field, (b) the failure detail from `outputs.worker_summary` and `outputs.quality_gate_passed`, (c) the preserved worktree path, (d) any partial commits in the worktree, and (e) explicit instruction that this is a re-run, not a fresh start.
+3. Spawn a retry engineer for each failed unit, pointing it at the preserved worktree and the failure detail. Apply the **task-state fold** first: `inputs` survives generation boundaries because it is on the fold's cross-generation whitelist, so the retry brief reads a coherent `inputs` even when the failed unit's fold spans more than one session. The retry brief must include: (a) the original task brief from the folded `inputs` field, (b) the failure detail from `outputs.worker_summary` and `outputs.quality_gate_passed`, (c) the preserved worktree path, (d) any partial commits in the worktree, and (e) explicit instruction that this is a re-run, not a fresh start.
 4. If the retry succeeds, merge and proceed to the Skeptic phase.
 5. If the retry fails a second time, escalate to human with the full failure history.
 6. Maximum retry depth: 1 automatic retry per unit.
 
-**Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`). Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
+**Per-unit Skeptic spawning (when `SKEPTIC_STRATEGY: per-unit`).** After each unit's engineer returns `done`, spawn a Skeptic for that unit's diff (unit worktree diff against `BASE_BRANCH`), including the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5, field 6 = the unit's worktree diff) alongside the adversarial brief. Per-unit Skeptics for independent units can be spawned in parallel (single message - they are reviewing non-overlapping diffs). Each unit's Skeptic integrates with the P0 persistence loop (Engineer -> Skeptic -> fix loop within the unit's worktree). A unit is `status: done` only after its Skeptic signs off, not after the engineer's first commit. After each unit's Skeptic/QA loop resolves, update the task entry to terminal status and populate `loop_state`, `outputs.skeptic_status`, and `outputs.skeptic_findings_count`.
 
-**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches onto a scratch integration branch (not `FEATURE_BRANCH` - the merge is provisional until the Skeptic signs off). Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to the scratch integration branch. The integration Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation (added when the planner classified units) becomes the adversarial brief hint: pass it to the integration Skeptic so it knows the expected interaction boundaries.
+**Integration Skeptic (when `SKEPTIC_STRATEGY: integration`).** Do NOT spawn per-unit Skeptics. After all units' engineers return done, merge all unit branches onto a scratch integration branch (not `FEATURE_BRANCH` - the merge is provisional until the Skeptic signs off). Spawn one integration Skeptic reviewing the combined diff from `BASE_BRANCH` to the scratch integration branch, including the Global-context input set (`## Global-context inputs` block per Section 4.5, field 6 = the combined diff). The integration Skeptic IS the Phase 6 gate for this strategy (see Phase 6 guard below). The orchestration-planner's independence annotation (added when the planner classified units) becomes the adversarial brief hint: pass it to the integration Skeptic so it knows the expected interaction boundaries.
 
-**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`:
+**Merge phase (all-done join).** After all units are done (Skeptics signed off for `per-unit`, or after integration merge for `integration`), merge unit sub-branches into `FEATURE_BRANCH` sequentially in `merge_order`. **Before merging each unit, apply the fold-before-merge gate** - see "Fold-before-merge and branch verification" below, which runs per unit immediately before that unit's merge command:
 
 ```bash
 git -C $REPO checkout $FEATURE_BRANCH
@@ -1560,7 +1626,7 @@ git -C $REPO merge --no-ff ${FEATURE_BRANCH}-${unit_slug}
 5. The sequential re-implementation engineer inherits a single-Skeptic review obligation (one Skeptic over combined diff, since units are now interdependent by fact of their conflict).
 6. The conflict re-route counts as iteration 1 of the Phase 6 loop (do not double-count).
 
-**Branch verification before merge.** Before merging each unit's branch, verify the worktree is on the expected branch:
+**Fold-before-merge and branch verification (third gate point).** Immediately before merging each unit's branch, re-apply the **task-state fold** to that unit's `task_id` and merge only if the folded state shows `owner == self AND status == done`. This is the third and final read-time ownership gate point - fold-before-spawn (Phase 5's spawn steps above) and fold-before-terminal-append (Phase 6) are the other two - and it is what makes the freeze lemma load-bearing rather than decorative: without it, a session could pass fold-before-spawn, have its claim superseded mid-flight (rows 14-16), and still merge on a stale read from earlier in the join. Any other folded result means **do not merge that unit's branch**: dispossessed (rows 14/15) or a foreign `done` while this session still holds an outstanding branch (row 16) both route to that row's disposition - escalate, do not merge. Also verify the worktree is on the expected branch:
 
 ```bash
 # Confirm branch matches expected sub-branch before merging:
@@ -1603,6 +1669,7 @@ Spawn a `skeptic` agent with:
 - The ticket description as the success criteria
 - The QA section from the ticket as acceptance tests
 - **When `IS_REWORK` is true:** the same `## PRIOR ATTEMPT(S) OPENED A PR - THIS IS REWORK` block injected into the Phase 3 architect brief, verbatim (same fields, same null-render rule), followed by: `Verify that the failure mode which brought this ticket back is actually addressed. Reviewing only whether the new diff is internally sound is insufficient - a diff can be clean on its own terms and still repeat or fail to fix what the prior attempt got wrong. Read the prior PR's diff. Withholding sign-off because the new diff does not demonstrably close the prior gap is a correct outcome.` Gated solely on `IS_REWORK` - this bullet is independent of `COMMENT_THREAD_SUMMARY` and fires at `TRACKER=none`.
+- **The Global-context input set** (`## Global-context inputs` block, required per `content/references/skeptic-protocol.md` Section 4.5): field 1 = `$ARCHITECT_PLAN_PATH` (or its `n/a - <reason>` per the enumerated set, or a truthful specific reason if none applies, if the architect was skipped); field 2 = `$BRIEF_PATH` (or `n/a - single Elevated unit (no Brief required by the promotion gate)` when no Brief tier applied); field 3 = the unit's `qa_criteria` block verbatim (from the Brief, or the architect plan if no Brief; `n/a - <reason>` only when genuinely absent per the Phase 0a-pre migration); field 4 = the per-consumer impact table verbatim if the architect plan produced one for a shared-utility surface, else `n/a - non-shared-utility surface (importer count below 5 threshold)`; field 5 = the related files list from the architect plan / orchestration-planner unit boundary; field 6 = the full diff command already listed above.
 
 For the full adversarial brief menu (security, logic, performance, data integrity, etc.), see `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md`.
 
@@ -1771,6 +1838,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
    - The original Skeptic's findings list verbatim
    - The original Skeptic's sign-off statement verbatim
    - The original adversarial brief
+   - The original Skeptic's Global-context input set verbatim (the `## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 that was assembled for the original Skeptic spawn) - the meta-Skeptic judges whether the original Skeptic missed something, which requires the same context the original had.
    - Instruction to produce a divergence report as TEXT in the return summary (Critical missed / Major missed / Minor missed / Agreement). Meta-Skeptic does NOT write to `.agentic/`.
 
 5. **On meta-Skeptic return (asynchronous).** When meta-Skeptic eventually returns its textual divergence report, the conductor parses the report, constructs the `meta_review_complete` payload, and emits:
@@ -2482,7 +2550,7 @@ Capture the PR number from the URL printed by `gh pr create`.
 - `REWORK_DETECTION` is `false`.
 - `TICKET_ID` is null or empty (pure-freeform work has nothing to key a ledger record on).
 
-**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11c uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
+**`pr_number` is derived at the write site, never read from `$PR_NUMBER`.** `$PR_NUMBER` is an in-context variable that is not reset between tickets in a batch; a failed `gh pr create` on ticket 2 would leave ticket 1's number in it and record the wrong PR against ticket 2. Derive it live from the currently-resolved `$BRANCH_NAME` using the same `gh pr view` lookup pattern Phase 11d uses. If the derivation yields nothing, skip the write - a record with no PR number is not a record. `$BRANCH_NAME` is a lookup key only; it is recorded in the `branch` field for forensics and is never an identity key (see `content/references/ticket-rework.md` §`pr_number` as the sole identity key).
 
 **One line, one `write()`.** The record is appended as a single `O_APPEND` write of one complete line. Never compose the line from multiple appends - the offset-atomicity guarantee that makes a lockless append safe is per-`write()`-call, not per-logical-record. There is no write-time lock and no read-before-write; all deduplication happens on read, keyed on `pr_number`.
 
@@ -2492,7 +2560,7 @@ Field derivation:
 - `risk_class` - `$RISK_CLASS`, **set at the Phase 2 "Risk classification declaration (unconditional)" subsection** to the conductor's declared classification, post-floor: `Trivial` | `Low` | `Elevated`. All three of `risk_class`, `skeptic_rounds`, and `qa_status` normalize an empty value to `null` in the record builder. For `risk_class` this is defence-in-depth rather than a reachable path - the Phase 2 declaration is unconditional, so an empty value would mean the declaration was skipped - but the three fields are read from the same per-ticket-reset in-context variables and are handled identically, so that a bug upstream produces an explicit `null` (which the null-render rule renders `n/a`) rather than an empty string, which that rule has nothing sensible to render.
 - `skeptic_rounds` - `$SKEPTIC_ROUNDS`, **captured at Phase 6 clean exit**, before Phase 6b overwrites the loop state. Do **not** read `loop_state.iteration` at this point unguarded: Phase 6b reinitializes that file with `phase: qa, iteration: 1`, so a post-QA read returns the QA iteration count, not the Skeptic round count. **Null on the Trivial path**, which never reaches Phase 6 and therefore never sets the variable. The disk fallback below exists only for a resumed session that lost the in-context variable, and it is doubly guarded - on `ticket_id` *and* on `loop_state.phase == "skeptic"`.
 - `qa_status` - the QA result (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`) when QA reached a terminal verdict; otherwise the skip rationale as `"skipped:<rationale>"`, where `<rationale>` is the `qa_criteria.qa_skip` enum value (set on Phase 6b's skip branch) or the literal `Trivial path` (set at the **Phase 2 declaration**, because Phase 6b is unreachable on the Trivial path). **Both non-QA paths - Trivial, and Elevated with a non-null `qa_skip` - write the rationale, not null.** That is the whole point of the field: a bare null renders `n/a` in the notice, which tells an operator doing manual verification that QA is *unavailable* when the truth is that QA was *deliberately skipped, for a stated reason*. Null is reserved for the degenerate case where neither a result nor a rationale can be resolved at all.
-- `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path). `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
+- `unit_count` - **derived, not read**; there is no `unit_count` variable in this command. Count of **distinct** `task_id`s among `.agentic/tasks.jsonl` records whose `ticket_id` matches this ticket (the Phase 5 fan-out path) - apply the **task-state fold** and dedupe, not a raw line count. `1` on a single-engineer path, and `1` when `tasks.jsonl` is absent or unreadable.
 
 **Variable definition sites.** `RISK_CLASS` and `QA_STATUS` carry the record's semantic content, so unlike `$BRANCH_NAME` / `$GH_REPO` they are stated explicitly rather than assumed:
 
@@ -2544,8 +2612,10 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
     case "$TRL_ROUNDS" in ''|*[!0-9]*) TRL_ROUNDS="" ;; esac
 
     # unit_count: derived from tasks.jsonl; 1 when absent, unreadable, or no matching records.
+    # sort -u dedupes by task_id before counting - a multi-record task (e.g. pending
+    # then in_progress then done) must count once, not once per append.
     TRL_UNITS=$(jq -r --arg t "$TICKET_ID" 'select(.ticket_id == $t) | .task_id' \
-      .agentic/tasks.jsonl 2>/dev/null | grep -c . || true)
+      .agentic/tasks.jsonl 2>/dev/null | sort -u | grep -c . || true)
     case "$TRL_UNITS" in ''|0|*[!0-9]*) TRL_UNITS=1 ;; esac
 
     # Build the whole record first, then append it with ONE write. Do not split this append.
@@ -2750,6 +2820,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 > - `target_state`: `$TRACKER_STATE_QA` (resolved in Setup; defaults to `"Testing"` for Linear, `"QA"` for Jira)
 > - `forward_only_guard`: `true`
 > - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }`
+> - `pipeline_order`: the 3-element ordered list resolved once in Setup (`TRACKER_PIPELINE_ORDER`) - see `## Tracker Writeback Helper` step 4.d.iv
 > - For Linear: `LINEAR_QA_ASSIGNEE_ID` (optional - omit if not configured)
 > - For Jira: `JIRA_QA_TRANSITION` (optional - omit if not configured); `JIRA_QA_ASSIGNEE_ACCOUNT_ID` (optional - omit if not configured)
 >
@@ -2772,7 +2843,7 @@ Spawn a tracker-writeback subagent (Tier 1, `general-purpose` agent type). The c
 >
 > (Linear comment may use markdown bold for `Test URL:` and `PR:` labels; Jira comment is plain text.)
 >
-> **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed", errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`.
+> **Returns:** `{ transitioned: <bool>, assigned: <bool>, comment_posted: <bool>, status: "ok" | "partial" | "failed" | "skipped_unconfigured_state", diagnostic: <string|null>, errors: [<string>] }`. Partial success (e.g. comment posted but transition skipped) returns `status: "partial"` with the reason in `errors`. `status: "skipped_unconfigured_state"` means the diagnostic-enrichment sub-step of step 5 (`## Tracker Writeback Helper`) confirmed, from live data, that `target_state` is not currently usable, AFTER a transition attempt did not succeed; `transitioned` is `false` and `diagnostic` carries the human-readable enrichment text.
 
 **Screenshot attachment upload (Linear and Jira, opt-in).** After the main tracker comment is posted, if `screenshot_upload: true` is set in `.agentic/qa.md` AND `QA_SCREENSHOT_PATHS` is non-empty, the tracker-writeback subagent also uploads the PASS screenshots as native attachments. Pass the following additional inputs to the subagent:
 
@@ -2877,146 +2948,24 @@ rm -f "$CLUSTER_TMP" 2>/dev/null || true
 
 Where `$REPO_CWD` is the absolute project root and the `cluster_results` value from the wrap-ticket return is written to the temp file as a JSON array. Any failure (node not found, helper error, write error) is silently swallowed. This call is fire-and-forget; Phase 12 proceeds immediately after without waiting for any result.
 
-**Post-return path parse (conductor-side, after skill-candidate merge):**
-
-After the skill-candidate deep-cluster merge, parse the wrap-ticket return JSON into in-context variables for use by Phase 11c:
-
-```bash
-MEMORY_MD_PATH=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -r '.resolved_paths.memory_md // empty' 2>/dev/null || true)
-DECISIONS_MD_PATH=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -r '.resolved_paths.decisions_md // empty' 2>/dev/null || true)
-MEMORY_APPENDS_JSON=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -c '.memory_md_appends // []' 2>/dev/null || printf '[]')
-DECISIONS_APPENDS_JSON=$(printf '%s' "$WRAP_TICKET_RETURN" | jq -c '.decisions_md_appends // []' 2>/dev/null || printf '[]')
-```
-
-Where `$WRAP_TICKET_RETURN` is the raw JSON string returned by the wrap-ticket agent. On skip (Phase 11b skipped, timeout, or non-JSON return), all four variables are empty/`[]` and Phase 11c no-ops.
-
 Emit breadcrumb: `[phase: wrap-ticket | ticket=<ticket_id> | status=<ok|skipped|failed>]`
 
 ---
 
-## Phase 11c: Knowledge-file commit (soft-fail)
+## Phase 11d: Review-rigor PR-body evidence (soft-fail)
 
-**Trigger:** runs after Phase 11b (and after the post-return path parse). Skip entirely when Phase 9 was skipped (no PR) or when the current ticket was Trivial (11b was skipped). No-ops when `MEMORY_MD_PATH` and `DECISIONS_MD_PATH` are both empty (wrap-ticket captured nothing or was skipped).
+**This is an INDEPENDENT top-level phase - it does not depend on any wrap-ticket return field.** Most tickets produce no `MEMORY.md`/`decisions.md` appends - this phase fires regardless, on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
 
-**Purpose:** the entries wrap-ticket appended to `MEMORY.md` and `decisions.md` live in the conductor's `$REPO` checkout (which is on the base branch on single-engineer paths). This phase appends those same entries to the feature branch so they appear in the PR diff as a `chore(knowledge):` commit. Append-based (never overwrites); idempotent on resume.
-
-This entire phase runs in a **single Bash invocation** so `$$`, `KNOW_COMMITTED`, `CHECKOUT`, and `KNOW_WORKTREE` persist across steps.
-
-```bash
-# Phase 11c: Knowledge-file commit (soft-fail)
-# Append helper: NUL-delimited whole-entry iteration (prevents line-splitting multi-line entries)
-_ae_append_entries() {
-  local target_file="$1" appends_json="$2" checkout="$3"
-  local full_path="$checkout/$target_file"
-  mkdir -p "$checkout/$(dirname "$target_file")" 2>/dev/null || true
-  local existing_content=""
-  [ -f "$full_path" ] && existing_content=$(cat "$full_path" 2>/dev/null) || true
-  local norm_existing
-  norm_existing=$(printf '%s' "$existing_content" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ')
-  while IFS= read -r -d '' entry; do
-    [ -z "$entry" ] && continue
-    local norm_entry
-    norm_entry=$(printf '%s' "$entry" | tr '[:upper:]' '[:lower:]' | tr -s '[:space:]' ' ' | sed 's/ *$//')
-    if printf '%s' "$norm_existing" | grep -qFe "$norm_entry" 2>/dev/null; then continue; fi
-    printf '%s\n' "$entry" >> "$full_path"
-    norm_existing="$norm_existing $norm_entry"
-  done < <(printf '%s' "$appends_json" | jq -j '.[] | . + "\u0000"' 2>/dev/null)
-}
-
-# 0. Nothing to do?
-if [ -z "$MEMORY_MD_PATH" ] && [ -z "$DECISIONS_MD_PATH" ]; then
-  STATUS=skipped
-  echo "[phase: knowledge-commit | ticket=$TICKET_ID | status=$STATUS]"
-else
-  # 1. Resolve the checkout that is (or will be) on the feature branch.
-  KNOW_WORKTREE=""
-  if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
-    CHECKOUT="$REPO"                      # fan-out: $REPO already on feature branch
-  else
-    git -C "$REPO" worktree prune 2>/dev/null || true
-    KNOW_WORKTREE="$REPO/.agentic/worktrees/knowledge-commit-$$"
-    git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
-    if git -C "$REPO" worktree add "$KNOW_WORKTREE" "$BRANCH_NAME" 2>/dev/null; then
-      CHECKOUT="$KNOW_WORKTREE"
-    else
-      CHECKOUT=""
-      echo "WARNING: Phase 11c skipped - could not create worktree for $BRANCH_NAME"
-    fi
-  fi
-
-  if [ -n "$CHECKOUT" ]; then
-    KNOW_COMMITTED=false
-
-    # 2. Append each new entry to its target file if not already present.
-    #    Presence check mirrors wrap-ticket dedup: lowercase + whitespace-collapse + substring.
-    for pair in "MEMORY_MD_PATH:MEMORY_APPENDS_JSON" "DECISIONS_MD_PATH:DECISIONS_APPENDS_JSON"; do
-      f_var="${pair%%:*}"; a_var="${pair##*:}"
-      KFILE="${!f_var}"; AJSON="${!a_var}"
-      [ -z "$KFILE" ] && continue
-      # Safety floor: never touch .agentic/ runtime state files on the feature branch.
-      case "$KFILE" in .agentic/*) continue ;; esac
-      _ae_append_entries "$KFILE" "$AJSON" "$CHECKOUT"
-      git -C "$CHECKOUT" add "$KFILE" 2>/dev/null || true
-    done
-
-    # 3. Commit only if staging produced a diff (no empty commit; idempotent on resume).
-    if ! git -C "$CHECKOUT" diff --cached --quiet 2>/dev/null; then
-      DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
-      if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
-      DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
-      SO_NAME=$(git -C "$CHECKOUT" config user.name 2>/dev/null || git config --global user.name 2>/dev/null || true)
-      SO_EMAIL=$(git -C "$CHECKOUT" config user.email 2>/dev/null || git config --global user.email 2>/dev/null || true)
-      if [ -n "$SO_NAME" ] && [ -n "$SO_EMAIL" ]; then
-        NL=$'\n'
-        MSG="chore(knowledge): capture MEMORY.md and decisions.md for ${TICKET_ID}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-        if git -C "$CHECKOUT" commit -m "$MSG" 2>/dev/null; then
-          KNOW_COMMITTED=true
-        else
-          git -C "$CHECKOUT" restore --staged . 2>/dev/null || true
-          echo "WARNING: Phase 11c commit failed"
-        fi
-      else
-        git -C "$CHECKOUT" restore --staged . 2>/dev/null || true
-        echo "WARNING: Phase 11c commit skipped - git user.name/email not set"
-      fi
-    fi
-
-    # 4. Push only if a commit was made (fast-forward over Phase 8 HEAD; no force).
-    if [ "$KNOW_COMMITTED" = "true" ]; then
-      git -C "$CHECKOUT" push -u origin "$BRANCH_NAME" 2>/dev/null || \
-        echo "WARNING: Phase 11c push failed - commit is local only"
-    fi
-
-    # 5. Cleanup ephemeral worktree (only when we created one). Always soft-fail.
-    if [ -n "$KNOW_WORKTREE" ]; then
-      git -C "$REPO" worktree remove "$KNOW_WORKTREE" --force 2>/dev/null || true
-      git -C "$REPO" worktree prune 2>/dev/null || true
-    fi
-
-    if [ "$KNOW_COMMITTED" = "true" ]; then STATUS=committed; else STATUS=no-changes; fi
-    echo "[phase: knowledge-commit | ticket=$TICKET_ID | status=$STATUS]"
-  fi
-fi
-```
-
-Note on `worktree prune`: prune clears stale git administration entries (dead symlinks) for worktrees whose directories no longer exist. It does NOT remove PID-suffixed directories left behind by interrupted runs - those must be manually removed or will be reused/overwritten by a subsequent `worktree add` with the same path. The `$$`-suffixed path ensures unique naming per run, limiting orphan accumulation.
-
-**Failure semantics:** every git op soft-fails. Phase 11c NEVER blocks Phase 12 or PR completion. Does NOT write `loop-state-$LOOP_KEY.json`.
-
-### Review-rigor PR-body evidence (soft-fail)
-
-**This is an INDEPENDENT top-level step - it is NOT nested inside, and NOT gated by, the knowledge-file-commit block above.** It does not check `MEMORY_MD_PATH`, `DECISIONS_MD_PATH`, or the knowledge-commit block's `STATUS` variable. Most tickets produce no `MEMORY.md`/`decisions.md` appends (`STATUS=skipped` is the common case) - nesting this step inside that block's emptiness check would skip review-rigor evidence on the majority of PRs, reproducing the exact coverage gap DS-87 closes. This step fires on every PR where Phase 9 ran, whether or not wrap-ticket captured anything.
-
-**Trigger:** runs after the knowledge-file-commit step above (same Phase 11c). Skip entirely when Phase 9 was skipped (no PR was opened) - same top-level Phase 11c trigger.
+**Trigger:** runs after Phase 11b. Skip entirely when Phase 9 was skipped (no PR was opened).
 
 **Purpose:** appends a `## Review rigor` section to the PR body recording the Brief/Plan path, Skeptic round count and tier, and the final findings tally, so a reviewer can see review depth without reconstructing it from `loop-state-$LOOP_KEY.json` or the session transcript.
 
-**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11c as a whole already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering as long as it stays inside Phase 11c.
+**Ordering dependency:** this step reads `.agentic/loop-state-$LOOP_KEY.json` `loop_state.findings_log` in its final (all-closed) state - the clean-exit auto-close at Phase 6 Step 3 sets every entry to `status: closed` before the loop exits. It must run BEFORE Phase 12 clears the file. Phase 11d already precedes Phase 12 (see the Phase 11b trigger note above), so this step inherits that ordering.
 
 **Ticket scoping (closes a pre-existing latent bug).** The five `jq` reads below had **no ticket scoping at all** before per-ticket keying: they read one shared `.agentic/loop-state.json`, so in a batch they reported whichever ticket last wrote it. Every PR's `## Review rigor` section could therefore attribute another ticket's round count, tier, and findings tally to this ticket, with no gate able to fail on it. Reading `.agentic/loop-state-$LOOP_KEY.json` scopes them to this ticket by construction. Every read stays soft-fail (`2>/dev/null` plus a literal default) - an absent keyed file yields the same `n/a` / `0` defaults as before, never an error.
 
 ```bash
-# Phase 11c: Review-rigor PR-body evidence (soft-fail, independent of knowledge-commit)
+# Phase 11d: Review-rigor PR-body evidence (soft-fail)
 # BRIEF_PATH / ARCHITECT_PLAN_PATH are the shell-variable form of the conductor's in-context
 # brief_path / architect_plan_path state (the same values passed to wrap-ticket's Phase 11b
 # spawn inputs above) - "n/a" when absent, matching the existing $BRANCH_NAME / $GH_REPO pattern.
@@ -3064,7 +3013,7 @@ if [ -n "$RR_PR_NUMBER" ]; then
 fi
 ```
 
-**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`, matching Phase 11c conventions above). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
+**Failure semantics:** every step soft-fails (`|| true` / `2>/dev/null`). A missing `gh`, an unresolvable PR, or a malformed `loop-state-$LOOP_KEY.json` never blocks Phase 12. Does NOT write `loop-state-$LOOP_KEY.json`.
 
 ---
 
@@ -3106,7 +3055,7 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   fi
 else
   echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-  echo "Note: If auto-merge is off (default), run \`/ds-ticket-status-sync TICKET_ID\` after manual merge to push the Done transition to the tracker."
+  echo "Note: If auto-merge is off (default), the Done transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see content/rules/conventions.md §Session Context and Memory). When rework_detection is false there are no ledger candidates and no automatic Done - run \`/ds-ticket-status-sync TICKET_ID\` after merge in that configuration. \`/ds-ticket-status-sync TICKET_ID\` also remains available to force the transition immediately."
 fi
 ```
 
@@ -3114,7 +3063,7 @@ fi
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DONE | trigger: auto-merge-success]
 
-Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here. Run `/ds-ticket-status-sync <TICKET_ID>` after the PR is merged to push the Done transition to the tracker.
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the Done transition is pushed automatically by the session-start pending-merge sweep instead (see `content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic Done - run `/ds-ticket-status-sync <TICKET_ID>` after merge in that configuration. `/ds-ticket-status-sync <TICKET_ID>` also remains available to force the transition immediately.
 
 **Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 

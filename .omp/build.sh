@@ -12,6 +12,15 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
 SKILL_DST="$REPO_DIR/.omp/skills/agentic-engineering"
 
+# Portable inode helper (macOS uses -f, Linux uses -c)
+get_inode() {
+  if stat -c %i /dev/null >/dev/null 2>&1; then
+    stat -c %i "$1"
+  else
+    stat -f %i "$1"
+  fi
+}
+
 mkdir -p "$SKILL_DST"
 
 required=(
@@ -113,13 +122,18 @@ symlink_dir "../../../content/commands"  "$SKILL_DST/commands"
 symlink_dir "../../../content/agents"    "$SKILL_DST/agents"
 symlink_dir "../../../content/templates" "$SKILL_DST/templates"
 
-# project-scaffolding.yml: hardlink (single file, not a dir)
+# project-scaffolding.yml: hardlink (single file, not a dir).
+# Compare inode (not mere existence) and re-link on mismatch - a stale copy
+# left by an older build must not be silently kept, or this replicated
+# manifest drifts from content/ with no CI signal (check-adapter-sync only
+# diffs generated content, it cannot detect a stale real file that "already
+# existed" and was therefore skipped).
 SCAFFOLDING_SRC="$REPO_DIR/content/project-scaffolding.yml"
 SCAFFOLDING_DST="$SKILL_DST/project-scaffolding.yml"
-if [[ -L "$SCAFFOLDING_DST" ]]; then
-  rm "$SCAFFOLDING_DST"
-fi
-if [[ ! -e "$SCAFFOLDING_DST" ]]; then
+if [[ -e "$SCAFFOLDING_DST" ]] && [[ "$(get_inode "$SCAFFOLDING_SRC")" == "$(get_inode "$SCAFFOLDING_DST")" ]]; then
+  :
+else
+  rm -f "$SCAFFOLDING_DST"
   ln "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST" 2>/dev/null || cp "$SCAFFOLDING_SRC" "$SCAFFOLDING_DST"
   echo "  + project-scaffolding.yml"
 fi

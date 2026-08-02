@@ -6,9 +6,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          signal + table; Common rationalizations to reject; Decision
          Stability and Contradiction Resolution (reversal counting, soft
          round cap, tripwire routing, anti-inversion test, worked example);
-         Investigator-before-Architect rules (incl shared-utility-MANDATORY
-         and Parallel Investigators); Learnings pipeline; Worker preamble +
-         execution contract template; Digest-return discipline.
+         Absence-claim scope axes (calibration worked example, both
+         directions, for the four search-narrowness axes); Investigator-
+         before-Architect rules (incl shared-utility-MANDATORY and Parallel
+         Investigators); Learnings pipeline; Worker preamble + execution
+         contract template; Digest-return discipline.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -113,6 +115,14 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 
 **Scope note.** The worked example's contradiction is real and still live on `main`; a separate ticket owns the fix. This section documents the resolution procedure, not the fix.
 
+## Absence-claim scope axes
+
+Parent clause: `content/sections/02-delegation.md` §Skeptic absence-or-critical findings. That clause names four axes on which a search can be too narrow - the pattern, the file set, any closed list, and (implicitly) the git state the search ran against. This is the calibration anchor, run in both directions.
+
+**Direction A (the search was too narrow - the claim is wrong).** DS-98's own history: the Global-context `n/a` rationale set was certified complete four separate times in two days, each certification made while fixing the previous one. Every check was a string-membership test against the list's current members, so every check passed and every check was wrong - a membership test can only ask "is this value in the list", never "is a legitimate value missing from it". Widening the grep pattern would not have helped; widening the file set would not have helped, because the list lived in one file. Only deriving the population independently - enumerating the actual spawn shapes the methodology supports, then diffing that against the enumerated set - surfaces the gap. That is why the closed-list axis needs its own method rather than "broaden the grep".
+
+**Direction B (the search was adequate - the absence claim stands).** A Skeptic asserts a renamed config key has no remaining references. It greps the new and old spellings case-insensitively (pattern), across the full tree including YAML/TOML/JSON fixtures and deploy manifests rather than just the diff (file set), against a freshly fetched `origin/<head>` rather than a stale local checkout (git state), and the identifier is not drawn from any enumerated vocabulary, so the closed-list axis does not apply. Three axes exercised, the fourth correctly ruled out by inspection - the claim is certifiable. Note the asymmetry: ruling an axis out is a positive statement about the artifact, not a skipped step. "The closed-list axis does not apply here because X is not drawn from an enumeration" is a valid certification; silence on the axis is not.
+
 ## Investigator-Before-Architect Rules
 
 **Investigator-before-Architect for unfamiliar territory.** When the task touches a codebase area the main session has not recently investigated - i.e., the "Unfamiliar codebase area" Elevated signal is present - the conductor must spawn the `investigator` agent first and pass its brief as input to the `architect` agent. The Architect consumes "what exists" from the Investigator and produces "what to build". This separates concerns: the Investigator maps the terrain and blast radius, the Architect makes design decisions on top of that map. The only exception is when the relevant files have been Read within the current conversation AND no substantive changes have been made to those files since they were read - i.e., the conductor has the current file contents in context as a direct tool-result, not a summary or recollection. "Relevant files" means the specific files the Architect would need to reason about the change, not the directory or the project generally. If this test is not met in full, spawn the Investigator - "I know this area" is not a valid skip reason, and neither is "I read something nearby". When in doubt, spawn the Investigator.
@@ -120,6 +130,34 @@ Then wait. Do NOT keep spawning Workers against an under-specified plan - that c
 **Investigator-before-Architect MANDATORY for shared-utility surfaces.** The "in-context file already read" exception above does NOT apply when the ticket's likely target is a shared utility, shared component, or shared type. Specifically: when the target file lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or any analogous shared-module directory convention used by the project, AND `grep`/`Glob` reveals 5 or more importers of the symbol(s) being changed, the Investigator step is mandatory regardless of whether the conductor has the file contents in context. The Investigator's output for this case MUST include a per-consumer impact table (see `content/agents/architect.md` "Per-consumer impact table" requirement) that the Architect then consumes verbatim. The conductor cannot skip the Investigator on shared-utility surfaces by self-assessing "I already know what this does" - in-context familiarity with the shared file itself does NOT imply familiarity with every call site. The 5-importer threshold is a mechanical signal: count importers with `grep -rn` before deciding; do not estimate. If the count is uncertain, default to spawning the Investigator (when in doubt, spawn).
 
 **Parallel Investigators feeding a single Architect.** When investigation spans multiple independent surfaces (e.g. backend, frontend, schema), the conductor MAY spawn multiple Investigators in a single message. Before doing so, Read `content/references/conductor-operating-rules.md` §Parallel Investigators for the merge-into-one-Architect rule and the single-Architect invariant.
+
+## Harness-Injected Instruction Conflicts
+
+Parent clause: `content/sections/02-delegation.md` §Harness-injected instructions that suppress delegation.
+
+**Enforcement-hook prohibition (do not build the exploration guard).** No AE hook may deny conductor-side Read/Grep/Glob in order to force delegation. This is a flat prohibition, not a conditional one, and the reason is not the bridge-session deadlock: conductor-direct reads are methodology-*mandated* and precede the first spawn by construction - reading `.agentic/context.md` as the first action of every session, the meta-divergence and skill-candidate sweeps of `.agentic/events.jsonl` and `.agentic/skill-candidates.md`, `.agentic/config.json` toggle resolution before risk classification, and the target agent's `capabilities:` block at capability preflight. A call-count guard denies a fully compliant session before it denies a non-compliant one. Mandated conductor reads continue throughout the session too - the spot-check of a Skeptic absence-claim is post-spawn by construction - but the pre-spawn set alone settles it. Two further reasons close the door: the read carries no intent signal, so "confirming a known fact" (permitted) and "investigating an unfamiliar area" (must delegate) are the same payload; and in a session whose harness prompt already suppresses spawning, denying reads too leaves no permitted action at all.
+
+Do not attempt to condition such a guard on whether spawning is available. **There is no such signal.** Session capability at runtime - which tools the harness will actually honour, what an injected system prompt forbids - has no payload representation and is not derivable from an on-disk artifact: a settings file states the operator's configured permission rules, which is not the same fact as what this session's harness will honour. An entrypoint marker may correlate with an injecting harness, but correlation with an entrypoint is not the capability, and gating on it requires the payload-capture discipline in `hooks/AGENTS.md` §Fail-open on absent tool_input fields first. `.agentic/events.jsonl` `spawn_start` records prove spawning *has* worked and can never prove it is unavailable. See `hooks/AGENTS.md` §No gating on inferred session capability for the hook-side rule; do not restate fail-open discipline here.
+
+The rule stays prose-enforced, as it already is on ten of the eleven adapters. Mechanically, only non-blocking shapes are admissible: a warn-only PostToolUse nudge, or after-the-fact detection at a reflection point (the Stop hook already reads the transcript and runs the capture-gap backstop) that surfaces conductor-investigating *after* a turn instead of blocking it in advance. Calibrate any such threshold against measured session data before shipping it - a nudge that fires on a session of mandated preflight reads is the same defect as the deny-guard, only cheaper.
+
+**Notice template (unconditional branch).** When the directive is unconditional and spawning genuinely fails, emit at the first user-facing turn:
+
+```
+DELEGATION SUPPRESSED: this session's harness prompt forbids subagent spawns, so the
+methodology's Worker + Skeptic review is not in force. Findings this session are
+unreviewed.
+  Remedies (any one):
+    - ask for delegation explicitly in your next message
+    - rerun from a local terminal entrypoint rather than a remote-control/bridge one
+    - disable the harness's remote-control-at-startup setting, then restart
+    - or keep this session for reads and diagnosis only and defer shippable edits
+[phase: delegation-suppressed]
+```
+
+This notice is condition-scoped, not a session-start notice: it fires only on an affected entrypoint, whereas every notice in the stacked tally at `content/rules/conventions.md:80` has a trigger computed at preflight on every session. It is **not** one of those four and must not be added to that count.
+
+**Harness-vs-model diagnostic.** Before attributing a compliance regression (the model ignoring delegation rules) to a model-version change, distinguish harness-cause from model-cause: run the identical prompt in a plain local terminal session versus the suspect entrypoint. Only a local-complies / other-fails split implicates the harness (an injected system prompt outranking the methodology); if both fail identically, the regression is model-side and should be investigated as such.
 
 ## Learnings Pipeline
 

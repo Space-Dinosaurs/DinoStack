@@ -15,7 +15,7 @@ module-group map.
 |---|---|---|---|
 | `enforce-askuserquestion-default.py` | Python | PreToolUse (AskUserQuestion) | Deny co-equal-ballot `AskUserQuestion` calls lacking a `(Recommended)` label. |
 | `enforce-background-spawn.py` | Python | PreToolUse (Task/Agent) | (a) Deny `Task` spawns missing `run_in_background: true` (legacy Task tool only - harness strips this field for Agent); (b) sentinel suppression: deny Task/Agent spawns and OMC Skills when `.agentic/teamrun/.active` is live. Foreground-exempt agents (wrap-ticket) bypass both checks. |
-| `enforce-no-abdication.py` | Python | Stop (main session only) | Block turns that end with permission-seeking interrogatives; inject a "proceed" directive. |
+| `enforce-no-abdication.py` | Python | Stop (main session only) | Block turns that end with a permission-seeking interrogative, or with a stalled surface-and-proceed commitment; inject a directive. |
 | `enforce-orchestrator-singularity.py` | Python | PreToolUse (Task/Agent) | Deny subagent spawns issued from inside a subagent context (no nested orchestration). |
 | `enforce-planning-artifact-spawn.py` | Python | PreToolUse (Write/Edit) | WARN-ONLY: surface an advisory (never deny) when a `docs/planning/**` write has no architect spawn on record in the last 4h. |
 | `enforce-shippable-edit.py` | Python | PreToolUse (Write/Edit/MultiEdit) | Deny a conductor-direct (`agent_id` absent) Write/Edit/MultiEdit against a shippable file inside the repo, per METHODOLOGY.md §Git Workflow's shippable/exempt classifier. Engineer subagent edits (`agent_id` present) always allow. |
@@ -108,3 +108,24 @@ field genuinely is present in the payload.
 actually present in that harness's real shape. Do not assume a field
 documented for one tool name (or one harness) is present for a related tool
 name or a different harness - verify per tool_name.
+
+## No gating on inferred session capability
+
+A hook may gate on what the payload states. It may not gate on what the *session
+is capable of at runtime*: which tools the harness will actually honour, or what
+an injected system prompt forbids. Neither has a payload representation, and
+neither is derivable from an on-disk artifact - a settings file states the
+operator's configured permission rules, which is not the same fact as what this
+session's harness will honour, and a session-scoped state file can record that
+something already happened, never that it is unavailable. A hook written
+against an inferred capability is written against a predicate it cannot
+evaluate; it will either never fire or fire unconditionally, and which one is a
+coin toss at implementation time.
+
+The corollary bounds deny scope. Before adding a deny, name the action the
+agent is expected to take instead, and confirm that action is still permitted
+under every other active guard. A guard that denies the last remaining
+permitted action class is a deadlock, not stricter enforcement. The worked
+instance - why no hook may deny conductor Read/Grep/Glob to force delegation -
+is `content/references/delegation-detail.md` §Harness-Injected Instruction
+Conflicts.

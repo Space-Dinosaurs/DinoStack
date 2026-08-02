@@ -1,6 +1,6 @@
 # bin/
 
-Fifteen CLI entry points (12 Python, 1 Bash, 2 Node) that the agentic-engineering
+Sixteen CLI entry points (13 Python, 1 Bash, 2 Node) that the agentic-engineering
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description
@@ -23,6 +23,7 @@ module-group map, not a duplicate of those manifests.
 | `agentic-migrate` | Python | Apply additive project scaffolding migrations (`check` / `apply` / `diff` subcommands). |
 | `agentic-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
 | `agentic-status` | Python | Read-only dump of the activation resolver state with provenance and plain-English explainer. |
+| `agentic-tracker` | Python | Manage the project-local, gitignored `.agentic/tracker.yml` tracker-config overlay (`init` / `show` / `set` / `resolve` / `path`), merged field-by-field over the `AGENTS.md` tracker resolution chain. |
 | `agentic-update` | Python | Non-interactive updater: fetch origin, rebuild adapters, reset version-check cache, run `agentic-doctor --fix`. |
 | `agentic-wrap-acquire-lock` | Node | Poll-wait (background) for the /ds-wrap directory lock, exiting when acquired, on a 20-minute timeout, or (`--no-wait`) immediately busy; publishes a role-tagged (`--role=agent\|daemon\|commit`) lock descriptor and structurally never removes a lock. |
 | `agentic-wrap-release-lock` | Node | Release the `/ds-wrap` directory lock (`.agentic/wrap/lock`) safely where `rm -rf` is permission-denied; owner-scoped - refuses removal when the descriptor names a live foreign-process PID, and refuses to touch anything at the lock path that isn't a lock directory it created. |

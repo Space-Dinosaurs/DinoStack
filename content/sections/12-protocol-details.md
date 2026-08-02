@@ -7,7 +7,7 @@ Read `content/references/activation-detail.md` §Step 5: First-Activation Notice
 See `content/sections/03-planning-artifacts.md` for the blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
 
 **Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules, or a detected instruction-layer contradiction:
-Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, and §Decision Stability and Contradiction Resolution.
+Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, §Decision Stability and Contradiction Resolution, and §Harness-Injected Instruction Conflicts.
 
 **Risk config and tiers** - when consulting config toggles, the graph-derived risk signal, or tier declaration detail:
 Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, and §Tier Declaration Detail.
@@ -61,7 +61,7 @@ Read `content/references/worktree-lifecycle.md` for the full bash command blocks
 Read `content/references/cross-session-loop-resume.md` §Cross-session loop resume for disk-write discipline, resumable phases, Brief/Plan path recording, and batch-state coexistence.
 
 **Task-state file** - when managing multi-unit plan orchestration state:
-Read `content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, field-level merge algorithm, and `author_model` field semantics.
+Read `content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, the task-state fold, and `author_model` field semantics.
 
 **Code standards detail** - when implementing or modifying code in a specific language:
 Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults for TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs, and §Browser Verification for `agent-browser` usage patterns.

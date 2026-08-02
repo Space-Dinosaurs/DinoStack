@@ -571,6 +571,24 @@ class TestWriteRoundTrips:
         data = json.loads((tmp_path / ".agentic" / "config.json").read_text())
         assert data["capability_preflight_mode"] == "blocking"
 
+    def test_tracker_state_diagnostic_round_trip(self, tmp_path, monkeypatch):
+        """Write tracker_state_diagnostic=false via the CLI then read back as JSON bool.
+
+        Functional counterpart to test_agentic_config_settings_registers_tracker_state_diagnostic
+        in bin/tests/test_tracker_writeback_ranking_spec.py, which only checks the static
+        _SETTINGS-dict presence. Mirrors test_rework_detection_round_trip's shape: PR #484's
+        Skeptic Major finding on rework_detection was closed by pairing a static registration
+        check with a functional round-trip check, and pending_merge_sweep later shipped without
+        the CLI round trip covered at all (registration omitted entirely). This test exercises
+        the CLI path itself so tracker_state_diagnostic cannot silently regress to
+        pending_merge_sweep's gap.
+        """
+        monkeypatch.chdir(tmp_path)
+        result = main(["agentic-config", "tracker_state_diagnostic", "false"])
+        assert result == 0
+        data = json.loads((tmp_path / ".agentic" / "config.json").read_text())
+        assert data["tracker_state_diagnostic"] is False
+
 
 # ---------------------------------------------------------------------------
 # Success output and warnings

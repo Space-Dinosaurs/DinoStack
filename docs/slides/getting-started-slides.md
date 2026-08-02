@@ -316,6 +316,7 @@ When the goal is done - or clearly won't be done today - run `/ds-wrap`. It does
 - Produces a structured `.agentic/_wrap.md` with decisions, next steps, and gotchas, carried into the derived `.agentic/context.md` you read at session start
 - Extracts stable facts and adds them to MEMORY.md
 - Updates AGENTS.md with conventions learned this session
+- Commits and pushes any changed MEMORY.md/decisions.md/learnings.md to a fresh branch, printing a ready-to-paste `gh pr create` line - never opens the PR for you
 - Leaves the next session starting from richer context than this one
 
 <div class="callout">

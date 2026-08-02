@@ -340,7 +340,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
      2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the `@AGENTS.md` and `@MEMORY.md` import pointers (root `MEMORY.md` is already ensured by this run's Step 8 seeding, so the import resolves).
      3. **`MEMORY.md` additions** — stable-facts bucket formatted as `- **YYYY-MM-DD:** [what and why, one-two sentences]` entries using today's date.
 
-   **Spawn Skeptic** (fresh, background) with the Worker's three artifacts and this adversarial brief verbatim:
+   **Spawn Skeptic** (fresh, background) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the original root `CLAUDE.md` path; field 6 is the three proposed artifacts' file paths or inline content), then the Worker's three artifacts to review:
 
    > "Does the split preserve every fact and instruction from the original CLAUDE.md? For each bucket: is any agentic content still sitting in the residual CLAUDE.md that should have moved to AGENTS.md? Is any project-specific Claude-only instruction incorrectly promoted to the tool-agnostic AGENTS.md where Codex/Cursor/Gemini will also read it? Are the MEMORY.md additions stable facts (rationale, dated observations) rather than temporary task state? Is the proposed AGENTS.md under 45 lines and does it have all required sections (H1, overview paragraph, Decisions, Tools, Docs, Conventions, Session start)? Did any implementation detail or rationale paragraph remain in AGENTS.md that belongs in MEMORY.md instead? Is the residual CLAUDE.md genuinely Claude-Code-specific, or is it agentic content that was dropped into the wrong bucket?"
 
@@ -892,7 +892,9 @@ Seed with these documented defaults exactly:
   "skill_candidate_detection": true,
   "skill_candidate_nudge": false,
   "ticket_driven": "offer",
-  "rework_detection": true
+  "rework_detection": true,
+  "pending_merge_sweep": true,
+  "tracker_state_diagnostic": true
 }
 ```
 
@@ -911,11 +913,13 @@ Seed with these documented defaults exactly:
 - `commit_telemetry` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 8 commits `.agentic/session-log/<developer_id>.jsonl` as a SEPARATE commit on the PR branch, gated on confirmed (non-provisional) identity. Set to `false` to opt out.
 - `deferred_wrap_daemon` - boolean, default `false` (opt-in). When `true`, an out-of-session daemon picks up deferred `/ds-wrap` jobs, tuned by the `deferred_wrap_*` related keys below. The default preserves the in-session synchronous `/ds-wrap` behavior. See `content/rules/conventions.md` §Project Config for semantics.
 - `deferred_wrap_idle_minutes` / `deferred_wrap_heartbeat_seconds` / `deferred_wrap_timeout_minutes` / `deferred_wrap_inprogress_reclaim_minutes` / `deferred_wrap_pending_ttl_days` - integer tuning params (not toggles), defaults `15` / `120` / `10` / `30` / `7`. Consulted only when `deferred_wrap_daemon` is `true`. See `content/rules/conventions.md` §Project Config for semantics.
-- `abdication_guard_enabled` - boolean, default `true` (opt-out). When `true`, a Stop hook (`hooks/enforce-no-abdication.py`) detects a permission-seeking interrogative in the final assistant message and blocks the stop, injecting a "proceed" directive. Set to `false` to opt out. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
+- `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; this template sets it). When active, a Stop hook (`hooks/enforce-no-abdication.py`) detects two shapes - a permission-seeking interrogative, or a surface-and-proceed default announced and then not acted on - in the final assistant message and blocks the stop, injecting a directive. Set to `false` to opt out once enabled. Disable per-session via `AE_ABDICATION_GUARD_DISABLE=1`. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_detection` - boolean, default `true`. Master toggle for the skill-candidate detector. When `true`, the Stop hook detects recurring friction patterns and surfaces skill candidates at session start (Layer 1). When `false`, no detection happens. See `content/rules/conventions.md` §Project Config for semantics.
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
 - `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. See `content/references/ticket-rework.md` §Config toggle for full semantics.
+- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
+- `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper` for full semantics.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
@@ -1014,20 +1018,35 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/wrap/
 .agentic/preferences.json
 .agentic/compression-state.json
+.agentic/tracker.yml
 .agentic/tracker-states.json
 # tracker-states.json is an intentionally-ignored runtime cache (24h TTL,
 # machine-local; stale on fresh checkout is acceptable - Phase 2c refetches).
 # Tracked (explicitly NOT ignored): .agentic/qa.md, .agentic/deploy.md,
-# .agentic/tracking.md, .agentic/learnings.md - these are tool-agnostic agent
-# config and fix-pattern knowledge that belong in source control.
+# .agentic/tracking.md, .agentic/qa-regressions.md, .agentic/learnings.md,
+# .agentic/config.json, .agentic/team.yml, .agentic/skill-candidates.md -
+# these are tool-agnostic agent config and fix-pattern knowledge that belong
+# in source control.
 # .agentic/session-log/ IS tracked (committed via Phase 8 telemetry commits).
-# The negation carve-outs below keep these tracked even if a project later
-# adds a broad .agentic/* umbrella ignore (e.g. via agentic-migrate).
+# Under this denylist these files are tracked by default (nothing above
+# ignores them) - the negations below are not load-bearing here. They exist
+# for the case where a project later adds a broad .agentic/* umbrella ignore
+# (e.g. via agentic-migrate): git .gitignore matching is last-match-wins, so
+# a negation only overrides an umbrella pattern that appears ABOVE it in the
+# file. agentic-migrate inserts new umbrella patterns above any existing
+# negation for this reason - see bin/agentic-migrate _append_gitignore.
 !.agentic/session-log/
 !.agentic/learnings.md
+!.agentic/qa.md
+!.agentic/deploy.md
+!.agentic/tracking.md
+!.agentic/qa-regressions.md
+!.agentic/config.json
+!.agentic/team.yml
+!.agentic/skill-candidates.md
 ```
 
-The targeted list covers runtime artifacts only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), and `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config. `.agentic/learnings.md` IS tracked - the `!.agentic/learnings.md` carve-out above overrides the umbrella ignore so that per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out overrides the umbrella ignore so that per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull.
+The targeted list covers runtime artifacts and operator-local configuration only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout), and `tracker.yml` (per-operator local tracker config; never committed - it may carry an operator's own account ID). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `config.json`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config, and each carries a matching `!.agentic/<file>` negation in the block above. `.agentic/learnings.md` IS tracked, also with a matching negation, so per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out negates the same way, so per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull. `.agentic/team.yml` (cross-harness team topology) and `.agentic/skill-candidates.md` (skill-candidate backlog) are also tracked, each with a matching negation in the block above, for the same reason. None of these negations do any work against this block itself, since none of the sixteen lines above them ignore these files - they are future-proofing against a project later adding a broad `.agentic/*` umbrella (see the in-block comment for why ordering matters there).
 
 ### 10. Create `docs/` structure
 
@@ -1093,6 +1112,8 @@ To draft this intent layer instead of writing it by hand, spawn the `product-dis
 
 Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
 
+Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `agentic-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
+
 **11a. Linear setup** (run if tracker = Linear)
 
 Check if `linearctl` is installed: `which lc`. If not installed:
@@ -1136,6 +1157,8 @@ If `lc` was already installed, run `lc doctor` to verify the connection. If it f
 # State QA: Testing
 # State Blocked: Blocked
 # State Done: Done
+# Optional pipeline-order override (default shown; uncomment to override):
+# Pipeline order: IN_PROGRESS, IN_REVIEW, QA
 ```
 
 Place after `## Tools`. Prompt for: team key (required), workspace slug (required), QA assignee UUID (optional — "press Enter to skip"). If the user did not provide project names, omit the `Projects:` line.
@@ -1179,6 +1202,8 @@ JIRA_QA_TRANSITION: [transition name — optional, omit line if not provided]
 # JIRA_STATE_QA: QA
 # JIRA_STATE_BLOCKED: Blocked
 # JIRA_STATE_DONE: Done
+# Optional pipeline-order override (default shown; uncomment to override):
+# JIRA_PIPELINE_ORDER: IN_PROGRESS, IN_REVIEW, QA
 ```
 
 Place after `## Tools`. Prompt for: TICKET_PREFIX (required), JIRA_BASE_URL (required), JIRA_QA_ASSIGNEE_ACCOUNT_ID (optional), JIRA_QA_TRANSITION (optional). **Do not use a default value for `JIRA_QA_TRANSITION`** — if the user does not provide one, omit the line entirely. `/ds-implement-ticket` Phase 11 will skip the transition step when absent rather than guessing a transition name.
