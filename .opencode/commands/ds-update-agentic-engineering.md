@@ -1,5 +1,5 @@
 ---
-description: /ds-update-agentic-engineering
+description: "/ds-update-agentic-engineering"
 agent: build
 ---
 # /ds-update-agentic-engineering

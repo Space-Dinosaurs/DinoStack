@@ -1,5 +1,5 @@
 ---
-description: Run agentic-engineering command /ds-feedback-triage
+description: "Run agentic-engineering command /ds-feedback-triage"
 argument-hint: "[arguments]"
 ---
 Use the /skill:agentic-engineering skill. Load /skill:agentic-engineering, then read commands/ds-feedback-triage.md from the loaded agentic-engineering skill directory. Execute that command with these arguments:

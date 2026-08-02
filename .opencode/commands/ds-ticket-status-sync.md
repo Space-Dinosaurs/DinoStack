@@ -1,5 +1,5 @@
 ---
-description: /ds-ticket-status-sync
+description: "/ds-ticket-status-sync"
 agent: build
 ---
 # /ds-ticket-status-sync

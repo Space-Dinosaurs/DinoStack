@@ -296,7 +296,6 @@ for src in "$CONTENT/agents/"*.md; do
       val="${val%"${val##*[![:space:]]}"}"
       case "$key" in
         name)        fm_name="$val" ;;
-        description) fm_description="$val" ;;
       esac
       continue
     fi
@@ -305,6 +304,24 @@ for src in "$CONTENT/agents/"*.md; do
       body_lines+=("$line")
     fi
   done < "$src"
+
+  # Extract 'description' via a real YAML parser rather than the bash
+  # key:value line-splitter above - the source value may be a quoted scalar
+  # (single-line or folded), so naive line-splitting would capture the
+  # literal quote/escape characters instead of the decoded value.
+  fm_description="$(python3 - "$src" <<'PYEOF'
+import sys, re
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as f:
+    text = f.read()
+m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
+if m:
+    fm = yaml.safe_load(m.group(1)) or {}
+    desc = fm.get("description") or ""
+    print(re.sub(r'\s+', ' ', desc).strip())
+PYEOF
+)"
 
   if [[ -z "$fm_name" ]]; then
     echo "WARNING: $src has no 'name' in frontmatter - skipping"

@@ -1,5 +1,5 @@
 ---
-description: /ds-disable
+description: "/ds-disable"
 agent: build
 ---
 # /ds-disable
