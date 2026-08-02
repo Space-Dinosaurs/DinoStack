@@ -495,7 +495,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
-**Isolation worktrees** (`.claude/worktrees/*`) are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
+**Isolation worktrees** (`.claude/worktrees/*`) are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately when it is the branch this session just pushed (the self-scoped inline pattern below needs no merge check). A later sweep of someone else's leftover isolation worktree (`/ds-cleanup-worktrees` Step 3) is not immediate removal - it additionally requires merge evidence and skips a pushed-but-unmerged branch. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
 
 **Feature worktrees** (`.agentic/worktrees/*`) are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands. Classified by **path, not branch name** (`bin/tests/worktree_model.py`, normative).
 
@@ -6472,7 +6472,9 @@ No cleanup or prune path in this document may call `git worktree remove -f -f` (
 
 Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged.
 
-Bullets 1/2's existing selection filters below are pre-model guards, confirmed sound and left unchanged by this ticket - each is already equivalent to the `merge_evidence`/`ls_remote_status` signal `disposition_for_orphan_branch()` (`bin/tests/worktree_model.py`) would compute from the same underlying facts, so no command change was needed to bring them into agreement with the model. **Bullet 3 is a deliberate exception, left exactly as it is today: unconditional `git branch -D`, not routed through the model at all** - no genuine merge-evidence source exists for a bare branch name with no PR/ancestry history to check here, and inventing one is out of scope for this ticket (DS-118); a future ticket, plausibly informed by DS-123, can route it through `disposition_for_orphan_branch` without any interface change once one exists. (Contrast the session-start prune script above, which prunes the *same* `worktree-agent-*` branch class but - unlike this bullet - already had a merge-evidence check added.)
+Bullets 1/2's existing selection filters below are pre-model guards, confirmed sound and left unchanged by this ticket - each is already equivalent to the `merge_evidence`/`ls_remote_status` signal `disposition_for_orphan_branch()` (`bin/tests/worktree_model.py`) would compute from the same underlying facts, so no command change was needed to bring them into agreement with the model.
+
+**Bullet 3 targets the identical `worktree-agent-*`-with-no-live-worktree population as the session-start prune script above, at the same session-start phase - it now runs the same merge-evidence gate, not a separate unconditional delete.** An earlier revision of this ticket left bullet 3 ungated on the claim that "no genuine merge-evidence source exists for a bare branch name here" - that claim was false the moment the session-start prune script above gained exactly that source (ancestry, then PR state); shipping the gate in one script and not the other produced zero behavior change (bullet 3 unconditionally deleted whatever the gate above had just skipped) plus new stderr noise. Both scripts now apply the identical check, so a branch either survives both or is deleted by whichever runs first - never gated by one and swept unconditionally by the other.
 
 ```bash
 # Prune stale LOCAL branches. Safe signals only; never force-delete unproven work.
@@ -6489,11 +6491,17 @@ git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
 #      with the main/master exclusion mirroring DEFAULT_BASE_BRANCHES / SKIP_BASE_BRANCH.
 git branch --merged origin/main | grep -vE '^[*+]|(^| )(main|master)$' | xargs -r -n1 git branch -d
 
-# 3. worktree-agent-* branches whose worktree no longer exists (NOT routed through the
-#    model - see the deferral note above):
+# 3. worktree-agent-* branches whose worktree no longer exists - same merge-evidence
+#    gate as the session-start prune script above (ancestry, then PR state):
 #    (a branch checked out in a live worktree is protected by git and will be skipped)
 for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
-  git branch -D "$b" 2>/dev/null || true
+  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
+    git branch -D "$b" 2>/dev/null || true
+  elif command -v gh >/dev/null 2>&1 && [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+    git branch -D "$b" 2>/dev/null || true
+  else
+    echo "SKIP (unproven merge): $b - needs manual review" >&2
+  fi
 done
 ```
 

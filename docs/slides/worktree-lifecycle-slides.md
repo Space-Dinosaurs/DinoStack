@@ -315,7 +315,13 @@ git worktree prune
 # gated on merge evidence (ancestry, then PR state) before deleting.
 git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
   git worktree list | grep -qF "[$b]" && continue
-  git merge-base --is-ancestor "$b" origin/main 2>/dev/null && git branch -D "$b"
+  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
+    git branch -D "$b"
+  elif [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+    git branch -D "$b"
+  else
+    echo "SKIP (unproven merge): $b" >&2
+  fi
 done
 ```
 

@@ -1147,7 +1147,13 @@ git worktree prune
 <span class="hljs-comment"># gated on merge evidence (ancestry, then PR state) before deleting.</span>
 git branch | grep <span class="hljs-string">&#x27;worktree-agent-&#x27;</span> | sed <span class="hljs-string">&#x27;s/^[* ]*//&#x27;</span> | <span class="hljs-keyword">while</span> <span class="hljs-built_in">read</span> b; <span class="hljs-keyword">do</span>
   git worktree list | grep -qF <span class="hljs-string">&quot;[<span class="hljs-variable">$b</span>]&quot;</span> &amp;&amp; <span class="hljs-built_in">continue</span>
-  git merge-base --is-ancestor <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span> origin/main 2&gt;/dev/null &amp;&amp; git branch -D <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span>
+  <span class="hljs-keyword">if</span> git merge-base --is-ancestor <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span> origin/main 2&gt;/dev/null; <span class="hljs-keyword">then</span>
+    git branch -D <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span>
+  <span class="hljs-keyword">elif</span> [ <span class="hljs-string">&quot;<span class="hljs-subst">$(gh pr view <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span> --json state -q .state 2&gt;/dev/null)</span>&quot;</span> = <span class="hljs-string">&quot;MERGED&quot;</span> ]; <span class="hljs-keyword">then</span>
+    git branch -D <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span>
+  <span class="hljs-keyword">else</span>
+    <span class="hljs-built_in">echo</span> <span class="hljs-string">&quot;SKIP (unproven merge): <span class="hljs-variable">$b</span>&quot;</span> &gt;&amp;2
+  <span class="hljs-keyword">fi</span>
 <span class="hljs-keyword">done</span>
 </code></pre>
 <p>The <strong>branch prune</strong> runs alongside it. Three safe signals only - never force-deletes unproven work:</p>

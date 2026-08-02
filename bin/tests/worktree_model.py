@@ -57,9 +57,14 @@ Downstream consumers: test_worktree_model.py (pytest suite);
                       selection filters are pre-model guards, annotated as
                       equivalent to what disposition_for_orphan_branch would
                       compute - left unchanged, not a literal call site);
-                      §Branch prune bullet 3 is explicitly NOT a consumer -
-                      deferred, unconditional git branch -D, unchanged by
-                      this ticket (DS-118 row 4);
+                      §Branch prune bullet 3 now applies the identical
+                      merge-evidence gate as the session-start prune script
+                      above it (ancestry, then PR state) - it targets the
+                      same worktree-agent-*-with-no-live-worktree population
+                      at the same session-start phase, so leaving it
+                      ungated while the script above was gated produced
+                      zero behavior change plus stderr noise; both are now
+                      consistently gated, not a literal call site;
                       content/commands/ds-cleanup-worktrees.md Steps 2/3/4
                       (classify_entry is the normative classification Step 2
                       describes; disposition_for is the normative gate Steps
