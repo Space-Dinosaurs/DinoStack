@@ -1,1 +1,2 @@
 model: sonnet
+description: "Summarize the current session into .agentic/context.md."

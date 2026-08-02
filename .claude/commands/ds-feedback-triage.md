@@ -1,3 +1,7 @@
+---
+description: "Triage captured session friction (~/.agentic/feedback.jsonl) into tracker tickets."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-feedback-triage

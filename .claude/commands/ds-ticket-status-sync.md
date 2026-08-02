@@ -1,3 +1,7 @@
+---
+description: "Reconcile a tracker column with the real PR/branch state."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-ticket-status-sync

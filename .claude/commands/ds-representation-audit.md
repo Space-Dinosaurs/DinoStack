@@ -1,3 +1,7 @@
+---
+description: "Propose prose rewrites where the methodology is unclear or bloated."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-representation-audit

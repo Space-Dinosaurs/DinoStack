@@ -38,6 +38,7 @@ Inspect & configure
   /ds-help                This list.
   /ds-disable             Opt this project out (writes an opt-out marker to AGENTS.md). --global also sets global mode=opt-out.
   /ds-cost                Token and wall-time rollups per agent/session/task from .agentic/events.jsonl.
+  /ds-identity            Manage the developer identity used for session telemetry attribution (manual, auto-derived, or provisional-to-confirmed).
 
 Plan & build
   /ds-brief                       Interactive planning dialogue that produces a Brief artifact before architects and engineers are spawned. /ds-brief --from <path> extracts a Brief from an existing PRD.
@@ -54,6 +55,9 @@ Maintain & curate
   /ds-cleanup-worktrees           Remove stale subagent and feature worktrees.
   /ds-ticket-status-sync          Reconcile a tracker column with the real PR/branch state.
   /ds-feedback-triage             Triage captured session friction (~/.agentic/feedback.jsonl) into tracker tickets.
+  /ds-configure-team              Configure and verify a cross-harness agent team (.agentic/team.yml): discovers installed harnesses and assigns a model per role.
+  /ds-skill-candidates            Read-only view of the skill-candidate backlog: recurring workflow friction grouped by domain, count, and suggested artifact type.
+  /ds-wrap-deferred               Non-interactive single-pass session enrichment invoked by the deferred-wrap daemon; not for direct use.
 
 Audit & improve the methodology
   /ds-prune-harness               Propose deletions of rules that are not earning their keep.

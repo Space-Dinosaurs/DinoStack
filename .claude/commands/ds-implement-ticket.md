@@ -1,3 +1,7 @@
+---
+description: "Drive a ticket from spec to a merged PR through the full risk-classified workflow (architect, skeptic, engineer, QA gate)."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # Implement Ticket
