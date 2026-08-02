@@ -21,7 +21,9 @@ Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
                       Plan authoring (Plan tier authoring sequence), cross-session
                       resume (promotion_tier field); /ds-brief command (rubric synthesis
                       in Section 3 and PRD extraction in Section 5); /ds-implement-ticket
-                      Phase 3b cross-artifact alignment check; skeptic agent (rubric
+                      Phase 3b cross-artifact alignment check; /ds-implement-ticket
+                      Phase 4 "Commit and push the planning artifact" subsection (Gate
+                      semantics steps 10/Plan-tier bullet); skeptic agent (rubric
                       check step 3.5); product-discovery agent (rubric drafting step 5b).
 
 Failure modes: Prose; does not execute. Drift between this file and the parent

@@ -3653,7 +3653,9 @@ Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
                       Plan authoring (Plan tier authoring sequence), cross-session
                       resume (promotion_tier field); /ds-brief command (rubric synthesis
                       in Section 3 and PRD extraction in Section 5); /ds-implement-ticket
-                      Phase 3b cross-artifact alignment check; skeptic agent (rubric
+                      Phase 3b cross-artifact alignment check; /ds-implement-ticket
+                      Phase 4 "Commit and push the planning artifact" subsection (Gate
+                      semantics steps 10/Plan-tier bullet); skeptic agent (rubric
                       check step 3.5); product-discovery agent (rubric drafting step 5b).
 
 Failure modes: Prose; does not execute. Drift between this file and the parent
@@ -14117,7 +14119,7 @@ See `content/references/planning-artifacts.md` §Gate semantics for where this s
 
 Runs exactly once per ticket, on every ticket path, immediately after `BRANCH_NAME` is resolved above and before any engineer spawns. Run only when `brief_path` or `plan_path` is populated - no-op otherwise, and `PLAN_PRESEEDED` is always assigned (`true`/`false`) either way.
 
-1. Run the **stale remote branch preflight** (see Phase 5, "Stale remote branch preflight") here, once, for the Elevated single-engineer case - see the scoping note there for why this moves off its Phase 5 location for this case only.
+1. Run the **stale remote branch preflight** (see Phase 5, "Stale remote branch preflight") here, once, for every spawn class this ticket will use (Elevated single-engineer AND fan-out alike) - **before** step 2's push, not after. Step 2 pushes to `$BRANCH_NAME` unconditionally; running the preflight after that push would let the conductor's own just-landed plan commit look like a foreign stale branch to a later `ls-remote` check and trigger a spurious `-v2` rename, orphaning the plan commit on the un-renamed ref. See the scoping note in Phase 5 for the corresponding exemption on both spawn classes.
 2. Run the commit-and-push procedure below (no checkout, DCO-trailered, pushed by explicit SHA, with conductor-side retry-on-rejection):
 
 ```bash
@@ -14144,8 +14146,10 @@ else
   TMP_INDEX="${GIT_DIR_ABS}/plan-commit-index-$$"
   export GIT_INDEX_FILE="${TMP_INDEX}"
   git -C "${REPO}" read-tree "${BASE_REF}"
-  if ! git -C "${REPO}" add -- "${ARTIFACT_REL}"; then
-    echo "WARNING: git add failed (rc=$?) for ${ARTIFACT_REL} - skipping plan commit."
+  git -C "${REPO}" add -- "${ARTIFACT_REL}"
+  ADD_RC=$?
+  if [ "${ADD_RC}" -ne 0 ]; then
+    echo "WARNING: git add failed (rc=${ADD_RC}) for ${ARTIFACT_REL} - skipping plan commit."
     unset GIT_INDEX_FILE
     rm -f "${TMP_INDEX}"
   else
@@ -14176,7 +14180,9 @@ fi
 
 **Known limitation:** the conductor-side retry-from-scratch path has not been executed under a genuine concurrent-write race in any round's testing - reasoned as correct from git's own atomicity guarantees on ref updates, not empirically confirmed under contention.
 
-**Known limitation:** `git check-ignore -q` is a per-path check, run against `docs/planning/<slug>` specifically, so a repo that ignores only some slugs is handled correctly per-slug rather than at the whole-tree level.
+**Known limitation:** `git check-ignore -q` is a per-path check, run against the actual `ARTIFACT_REL` (`docs/planning/<slug>.md` at Brief tier, `docs/planning/<slug>/` at Plan tier) specifically, so a repo that ignores only some slugs is handled correctly per-slug rather than at the whole-tree level.
+
+**Known limitation:** repeated invocation of this procedure with unchanged artifact content produces an additional, empty (no tree-content-change) commit each time - the procedure does not diff `NEW_TREE` against the prior tip before committing. Harmless (DCO-trailered, does not affect the artifact's own history) but not guarded against.
 
 **Documented, not fixed:** `commit-tree` bypasses the pre-commit hook, not only the commit-msg hook - benign for this docs-only artifact.
 
@@ -14208,7 +14214,7 @@ Read the orchestration-planner's output to make the routing determination below 
 ### If work is a single logical unit (or units must be sequential):
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
-- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
+- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit. `brief_path`/`plan_path` in this block are normalized to absolute paths per the "`brief_path`/`plan_path` normalization" formula given under the parallel fan-out path below - this is the single-engineer construction site the formula's own text names as co-equal to the fan-out one.
 - The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit
 - The branch name to work on
 - The repo path: `$REPO`
@@ -14255,11 +14261,15 @@ Decision table:
 
 The engineer is never asked to handle a rename mid-implementation. The conductor resolves uniqueness once, before the spawn. Log the resolution to `resolution_notes` (one line: `branch_collision: <original> → <renamed> (remote SHA <sha>)`) so the operator can audit later. This preflight runs on every engineer spawn that creates a branch (Elevated single-engineer, fan-out per-unit, Phase 7 fix engineer, and the Trivial-path solo worktree engineer - branch creation on the Trivial path is performed by that engineer in its worktree, see Phase 4).
 
-**Scoping note for the Brief/Plan case only:** when a Brief or Plan governs this ticket, the Elevated single-engineer invocation of this preflight moves to run exactly once, inside Phase 4's "Commit and push the planning artifact" subsection - not again at this Phase 5 location for that same ticket's single-engineer spawn. The other three spawn classes are unaffected and continue running this preflight at its existing location, unchanged.
+**Scoping note for the Brief/Plan case only:** when a Brief or Plan governs this ticket, this preflight moves to run exactly once, inside Phase 4's "Commit and push the planning artifact" subsection, BEFORE the plan commit is pushed - for both the Elevated single-engineer AND fan-out per-unit spawn classes on that ticket - not again at this Phase 5 location. Running it here a second time for a Brief/Plan-governed ticket would misread the conductor's own just-pushed plan commit as a foreign stale branch (the decision table below has no row for "SHA present because we pushed it ourselves this phase," so a literal read falls to the stale-branch row and appends a uniqueness suffix, orphaning the plan commit on the un-renamed ref). The Phase 7 fix engineer and the Trivial-path solo worktree engineer are unaffected (Trivial tickets never carry a Brief/Plan and so never reach the Phase 4 planning-artifact subsection; the Phase 7 fix engineer runs after the ticket's branch already exists) and continue running this preflight at its existing location, unchanged.
 
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
 - `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
+
+  **`PLAN_PRESEEDED` gates which literal form `create_commands` uses (Elevated single-engineer path only - fan-out per-unit sub-branches are always freshly cut from `origin/$BASE_BRANCH` regardless of this flag, see "Create one worktree per unit" below).** `PLAN_PRESEEDED` is set in Phase 4's "Commit and push the planning artifact" subsection (step 4 there).
+  - `PLAN_PRESEEDED == false` (no Brief/Plan, or the commit-and-push hit the gitignore no-op branch): `create_commands` is the standard create-from-base form: `git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH`.
+  - `PLAN_PRESEEDED == true` (the Phase 4 procedure already pushed a plan commit to `$BRANCH_NAME`): `create_commands` tracks the existing remote branch instead of creating it from base: `git -C $REPO worktree add $WORKTREE_PATH $BRANCH_NAME` (no `-b`, no base ref - the branch already exists on origin, seeded with the plan commit). Using the create-from-base form here would either fail (branch already exists) or silently orphan the plan commit depending on git version; tracking the existing ref is the only correct form once `PLAN_PRESEEDED` is true.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
 - `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 

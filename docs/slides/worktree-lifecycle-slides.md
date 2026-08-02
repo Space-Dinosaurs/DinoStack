@@ -168,7 +168,7 @@ Isolation by default. Clean up by rule.
   .callout { font-size: 0.88em; padding: 0.5em 1em; margin-top: 0.5em; }
 </style>
 
-- The conductor's main worktree holds untracked scaffolding: `.agentic/`, in-flight planning artifacts, loop-state files
+- The conductor's main worktree holds untracked scaffolding: `.agentic/`, loop-state files - NOT in-flight planning artifacts, which are committed and pushed as soon as they are authored
 - A subagent running in the same tree can stage and commit conductor files it was never meant to ship
 - This does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later
 - Worktree isolation prevents both pollution and cross-engineer commit contamination when parallel spawns share a tree
