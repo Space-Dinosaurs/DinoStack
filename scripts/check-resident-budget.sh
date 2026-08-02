@@ -51,12 +51,13 @@ set -euo pipefail
 # to "//".
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
-# Ratchet: 119,832 measured on this branch 2026-08-02 (progressive-disclosure
+# Ratchet: 120,066 measured on this branch 2026-08-02 (progressive-disclosure
 # compression of 02-delegation.md and 12-protocol-details.md - #541 - plus the
-# Skeptic-requested manifest/index/prohibition-clause fixes on top) + 1,000 B
-# headroom. Lower this value in the same commit as any deliberate compression
-# of the resident set. See the header comment above before raising it.
-THRESHOLD=120832
+# Skeptic-requested manifest/index/prohibition-clause fixes on top, rebased
+# onto origin/main #540 which grew the resident set) + 1,000 B headroom.
+# Lower this value in the same commit as any deliberate compression of the
+# resident set. See the header comment above before raising it.
+THRESHOLD=121066
 
 # Plausibility floor: if build-methodology.sh ever exits 0 while emitting
 # nothing or a truncated stream, methodology_bytes would be near-zero and
