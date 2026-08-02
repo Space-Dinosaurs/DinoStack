@@ -1,5 +1,5 @@
 ---
-description: /ds-wrap-deferred - Non-Interactive Single-Pass Session Enrichment
+description: "/ds-wrap-deferred - Non-Interactive Single-Pass Session Enrichment"
 agent: build
 ---
 # /ds-wrap-deferred - Non-Interactive Single-Pass Session Enrichment

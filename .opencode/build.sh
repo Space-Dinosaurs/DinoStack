@@ -25,6 +25,7 @@ for src in "$CONTENT/agents/"*.md; do
 
   python3 - "$src" "$dst" "$agent_name" "$REPO_DIR" <<'PYEOF'
 import sys, re
+import yaml
 
 src_path, dst_path, agent_name, repo_dir = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4]
 sys.path.insert(0, repo_dir + '/scripts/lib')
@@ -41,14 +42,18 @@ if not fm_match:
 fm_text = fm_match.group(1)
 body = fm_match.group(2)
 
-# Parse frontmatter fields
-desc_match = re.search(r'description:\s*>([\s\S]*?)(?=\n\w|\n---|\Z)', fm_text)
-if not desc_match:
-    desc_match = re.search(r'description:\s*(.*)', fm_text)
-desc = desc_match.group(1).strip().replace('\n', ' ') if desc_match else ""
+# Parse description via a real YAML parser - the source description may be a
+# quoted scalar (single-line or folded), so a raw-text regex would capture the
+# literal quote/escape characters instead of the decoded value.
+fm_parsed = yaml.safe_load(fm_text) or {}
+desc = (fm_parsed.get('description') or "").strip()
+desc = re.sub(r'\s+', ' ', desc)
 
 tools_match = re.search(r'tools:\s*(.*)', fm_text)
 tools_str = tools_match.group(1).strip() if tools_match else ""
+
+# Escape description for YAML double-quoted string
+desc_escaped = desc.replace('\\', '\\\\').replace('"', '\\"')
 
 has_write = bool(re.search(r'\bWrite\b', tools_str))
 has_edit = bool(re.search(r'\bEdit\b', tools_str))
@@ -71,7 +76,7 @@ body = strip_prereq(body)
 body = body.lstrip('\n')
 
 new_fm = f"""---
-description: {desc}
+description: "{desc_escaped}"
 mode: subagent
 {perm_block}
 ---"""
@@ -114,11 +119,23 @@ with open(src_path) as f:
 # Strip the prerequisite blockquote
 content = strip_prereq(content)
 
-# Extract the first line as description (typically a heading or summary)
+# Extract the first line as description (typically a heading or summary).
+# Skip leading HTML comment blocks (<!-- ... -->) - several command sources
+# open with a "Purpose:" comment block before the heading, and without this
+# skip the description degrades to the literal "<!--" opening marker.
 lines = content.strip().split('\n')
 desc = ""
+in_comment = False
 for line in lines:
     stripped = line.strip()
+    if in_comment:
+        if '-->' in stripped:
+            in_comment = False
+        continue
+    if stripped.startswith('<!--'):
+        if '-->' not in stripped[4:]:
+            in_comment = True
+        continue
     if stripped.startswith('# '):
         desc = stripped.lstrip('# ').strip()
         break
@@ -129,9 +146,12 @@ for line in lines:
 if not desc:
     desc = f"Run the {cmd_name} command"
 
+# Escape description for YAML double-quoted string
+desc_escaped = desc.replace('\\', '\\\\').replace('"', '\\"')
+
 # Build OpenCode command format
 new_content = f"""---
-description: {desc}
+description: "{desc_escaped}"
 agent: build
 ---
 {content.strip()}"""

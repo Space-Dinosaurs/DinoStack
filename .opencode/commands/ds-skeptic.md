@@ -1,5 +1,5 @@
 ---
-description: /ds-skeptic - The Skeptic Protocol Invocation
+description: "/ds-skeptic - The Skeptic Protocol Invocation"
 agent: build
 ---
 # /ds-skeptic - The Skeptic Protocol Invocation

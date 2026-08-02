@@ -1,5 +1,5 @@
 ---
-description: /ds-wrap — On-Demand Session Context Enrichment
+description: "/ds-wrap — On-Demand Session Context Enrichment"
 agent: build
 ---
 # /ds-wrap — On-Demand Session Context Enrichment

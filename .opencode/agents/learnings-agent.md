@@ -1,5 +1,5 @@
 ---
-description: Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files.
+description: "Session-scoped background learnings capture. Spawned by the conductor when the first mandatory capture trigger fires in a session. Receives learning events as messages, writes structured LRN (bug-fix) or KNW (knowledge) entries to .agentic/learnings.md and optionally to MEMORY.md. Uses dedup, caps, and soft-fail discipline. Does not touch decisions.md, AGENTS.md, findings.md, qa.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, context.md, _wrap.md, context.d/, or any source/config files."
 mode: subagent
 permission:
   edit: allow
