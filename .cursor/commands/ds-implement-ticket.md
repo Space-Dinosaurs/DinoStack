@@ -415,6 +415,7 @@ else:
 Before any phase, read the project's `AGENTS.md` and extract the following values:
 
 - `REPO` — absolute path to the repo root
+- `REPO_DIR` — absolute path to the **agentic-engineering / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used by `bin/agentic-resolve-worktree` (Phase 8 cleanup) and `bin/agentic-base-sync` (Phase 12, repo-relative invocation).
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
 - `BASE_BRANCH` — the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else `develop` if it exists locally; (3) else `development` if it exists locally; (4) else stop and ask the user: no `develop`/`development` integration branch found - use `main` (falling back to `master`), or set up a develop-based workflow? Offer `main` as the recommended default; (5) on decline / main preference, resolve `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
@@ -3063,6 +3064,23 @@ fi
 Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the Done transition is pushed automatically by the session-start pending-merge sweep instead (see `content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic Done - run `/ds-ticket-status-sync <TICKET_ID>` after merge in that configuration. `/ds-ticket-status-sync <TICKET_ID>` also remains available to force the transition immediately.
 
 **Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
+
+**Post-merge local sync (unconditional).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. See `content/references/base-branch-sync.md`. A non-zero exit never blocks Phase 12 completion - `status=skipped-dirty`/`diverged`/`refused-unknown`/`ref-locked-elsewhere`/`fetch-failed` are all operator-visible breadcrumbs/warnings, matching every other soft-fail convention in this phase (qa.md snapshot cleanup, tracker writeback).
+
+```bash
+# Post-merge local base-branch sync (unconditional - runs regardless of
+# auto_merge_on_ci_green, regardless of whether THIS session merged anything).
+# Fast-forward only; never merge/rebase/autostash. Repo-relative path (not PATH-
+# dependent) so it works without a re-install of bin/ onto PATH. $REPO_DIR and
+# $BASE_BRANCH are conductor-substituted values by the time Phase 12 runs (both
+# resolved in Setup) - never empty here in a correctly-running session, and the
+# tool independently validates non-empty args regardless (exit 3 on empty).
+if [ -x "$REPO_DIR/bin/agentic-base-sync" ]; then
+  "$REPO_DIR/bin/agentic-base-sync" "$REPO" "$BASE_BRANCH"
+else
+  echo "WARNING: agentic-base-sync tool not found at $REPO_DIR/bin/ - skipping post-merge sync this run."
+fi
+```
 
 ---
 
