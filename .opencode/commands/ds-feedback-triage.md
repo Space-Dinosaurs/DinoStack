@@ -1,5 +1,5 @@
 ---
-description: /ds-feedback-triage
+description: "/ds-feedback-triage"
 agent: build
 ---
 # /ds-feedback-triage

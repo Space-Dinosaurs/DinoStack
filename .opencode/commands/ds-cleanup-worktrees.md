@@ -1,5 +1,5 @@
 ---
-description: /ds-cleanup-worktrees
+description: "/ds-cleanup-worktrees"
 agent: build
 ---
 # /ds-cleanup-worktrees

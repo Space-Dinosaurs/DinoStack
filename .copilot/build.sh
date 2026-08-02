@@ -188,6 +188,7 @@ for src in "$CONTENT/agents/"*.md; do
 
   python3 - "$src" "$dst" "$REPO_DIR" <<'PYEOF'
 import sys, re, os
+import yaml
 
 src_path, dst_path, repo_dir = sys.argv[1], sys.argv[2], sys.argv[3]
 sys.path.insert(0, repo_dir + '/scripts/lib')
@@ -208,13 +209,12 @@ body = fm_match.group(2)
 name_match = re.search(r'^name:\s*(.*)', fm_text, re.MULTILINE)
 name = name_match.group(1).strip() if name_match else os.path.basename(src_path).replace('.md', '')
 
-# Extract description (handle multiline > block scalar and single-line)
-desc_match = re.search(r'description:\s*>([\s\S]*?)(?=\n\w|\n---|\Z)', fm_text)
-if not desc_match:
-    desc_match = re.search(r'description:\s*(.*)', fm_text)
-desc = desc_match.group(1).strip().replace('\n', ' ') if desc_match else name
-# Collapse multiple spaces
-desc = re.sub(r'  +', ' ', desc)
+# Extract description via a real YAML parser - the source description may be
+# a quoted scalar (single-line or folded), so a raw-text regex would capture
+# the literal quote/escape characters instead of the decoded value.
+fm_parsed = yaml.safe_load(fm_text) or {}
+desc = fm_parsed.get('description') or name
+desc = re.sub(r'\s+', ' ', desc).strip()
 
 # Extract tools
 tools_match = re.search(r'^tools:\s*(.*)', fm_text, re.MULTILINE)

@@ -1,5 +1,5 @@
 ---
-description: /ds-help
+description: "/ds-help"
 agent: build
 ---
 # /ds-help

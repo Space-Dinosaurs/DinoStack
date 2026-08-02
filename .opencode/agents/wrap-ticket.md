@@ -1,5 +1,5 @@
 ---
-description: Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion.
+description: "Per-ticket learnings capture invoked at /ds-implement-ticket Phase 11b. Constrained subset of /ds-wrap that fires automatically on every PR opened. Reads the ticket's findings_log, qa.md diff, merged diff, and conversation summary; appends durable learnings to MEMORY.md, decisions.md, and .agentic/_wrap.md (## Recent Focus only). Does not touch AGENTS.md, qa.md, findings.md, tasks.jsonl, any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy loop-state.json), batch-state.json, or any source/config files. Soft-fails on any error - never blocks Phase 12 or PR completion."
 mode: subagent
 permission:
   edit: allow

@@ -1,5 +1,5 @@
 ---
-description: /ds-status
+description: "/ds-status"
 agent: build
 ---
 # /ds-status

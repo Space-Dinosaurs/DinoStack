@@ -1,5 +1,5 @@
 ---
-description: /ds-init-project
+description: "/ds-init-project"
 agent: build
 ---
 # /ds-init-project

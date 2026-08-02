@@ -1,5 +1,5 @@
 ---
-description: /ds-memory-update - Memory Protocol: Capture a Decision
+description: "/ds-memory-update - Memory Protocol: Capture a Decision"
 agent: build
 ---
 # /ds-memory-update - Memory Protocol: Capture a Decision

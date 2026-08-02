@@ -6,10 +6,11 @@
    ```bash
    git clone git@github.com:Space-Dinosaurs/DinoStack.git ~/DinoStack
    ```
-2. Install the adapter for your tool:
+2. Install PyYAML for your `python3` (`pip install pyyaml`). Several adapter build scripts (`.codex/build.sh`, `.copilot/build.sh`, `.openclaw/build.sh`, `.opencode/build.sh`, `.cursor/build.sh`) parse frontmatter with it; without it, `hooks/pre-commit` fails loudly (an `import yaml` `ModuleNotFoundError`) the moment you stage a `content/` change - that failure is intentional and correct, not a bug to work around.
+3. Install the adapter for your tool:
    - Claude Code: `.claude/install.sh` (runs the initial build and wires up the pre-commit hook)
    - Cursor: `.cursor/install.sh` (runs the initial build for the Cursor adapter)
-3. Test changes locally by re-running the relevant `install.sh` and verifying behavior in a session
+4. Test changes locally by re-running the relevant `install.sh` and verifying behavior in a session
 
 ## What to contribute
 

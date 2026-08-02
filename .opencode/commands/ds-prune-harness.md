@@ -1,5 +1,5 @@
 ---
-description: /ds-prune-harness
+description: "/ds-prune-harness"
 agent: build
 ---
 # /ds-prune-harness
