@@ -141,16 +141,18 @@ Regression corpus: hooks/tests/test-corpus-abdication.py is the permanent
                3. A flat whole-block "(recommended)" substring test, no
                   per-item split, routed through _ABDICATION_REASON: rejected
                   on Skeptic findings against the plan proposing it - never
-                  built, never executed, never measured. Hard-gate/surface-
+                  built, never reached a measurable shape. Hard-gate/surface-
                   and-proceed suppression and code-fence/blockquote exclusion
-                  are requirements any revival must add, not properties of
-                  the rejected shape. None of the corpus's 34 rows contain an
+                  must be present from first authoring, not bolted on after
+                  review. None of the corpus's 34 rows contain an
                   "## Operator decisions" heading or a "(recommended)"/
                   "Recommendation:" marker, so none exercise a ballot
-                  classifier's path - Groups 3/5/7 are the floor for the
-                  OTHER rejected attempts above, not this one; a revival must
-                  add a compliant ALLOW row and a genuine co-equal-ballot
-                  BLOCK row. A per-item, fence-masking design with a
+                  classifier's path, leaving Groups 3/5/7 as the floor for
+                  the OTHER rejected attempts only; a revival must add a
+                  compliant ALLOW row and a genuine co-equal-ballot BLOCK
+                  row, and must route through a dedicated reason constant
+                  that does not carry an unconditional "proceed now"
+                  directive. A per-item, fence-masking design with a
                   dedicated non-"proceed now" reason exists at
                   feat/prose-ballot-guard (PR #519) - per its PR body, 0
                   Critical findings across three Skeptic rounds, and it

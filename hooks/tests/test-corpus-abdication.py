@@ -22,13 +22,15 @@ Purpose: Permanent regression corpus for hooks/enforce-no-abdication.py. This
               on Skeptic findings against the plan proposing it - never
               built, never reached a measurable shape. Hard-gate/surface-
               and-proceed suppression and code-fence/blockquote exclusion
-              are requirements any revival must add, not properties of the
-              rejected shape. Zero of this corpus's 34 rows contain an
+              must be present from first authoring, not bolted on after
+              review. Zero of this corpus's 34 rows contain an
               "## Operator decisions" heading or a "(recommended)"/
               "Recommendation:" marker, so none exercise a ballot
-              classifier's path - Groups 3/5/7 are the floor for the OTHER
-              rejected attempts above, not this one; a revival must add a
-              compliant ALLOW row and a genuine co-equal-ballot BLOCK row.
+              classifier's path, leaving Groups 3/5/7 as the floor for
+              the OTHER rejected attempts only; a revival must add a
+              compliant ALLOW row and a genuine co-equal-ballot BLOCK row,
+              and must route through a dedicated reason constant that
+              does not carry an unconditional "proceed now" directive.
               This does NOT cover a per-item, fence-masking classifier with
               a dedicated non-"proceed now" reason - feat/prose-ballot-guard
               (PR #519) is that design, per its PR body 0 Critical findings
