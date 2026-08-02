@@ -55,7 +55,7 @@ a warning is printed.
 ## 3. Project: `.agentic/config.json`
 
 Committed to the repo. Seeded with defaults by `/ds-init-project`. Absent file =
-all defaults, no behavior change. The 18 behavioral toggles plus 6 tuning
+all defaults, no behavior change. The 19 behavioral toggles plus 6 tuning
 parameters are listed below. The file also carries a `scaffolding_version` key
 that is installer/migration-managed (used by `/ds-migrate-project` as the
 source-of-truth stamp for "has this project been migrated to vN") - do not edit
@@ -77,12 +77,13 @@ it manually.
 | `storybook_version` | `7` | `6`, `7` | Storybook URL format (`6` = `?selectedKind=&selectedStory=`); set automatically by `/ds-init-project` |
 | `commit_telemetry` | `true` | bool | Phase 8 commits the per-developer session-log file as a separate PR commit; set to `false` to opt out |
 | `deferred_wrap_daemon` | `false` | bool | Opt-in for out-of-session daemon to run deferred `/ds-wrap` jobs (tuned by the `deferred_wrap_*` params below) |
-| `abdication_guard_enabled` | `true` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
+| `abdication_guard_enabled` | absent → guard inert; `/ds-init-project` template sets `true` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step, announcing a surface-and-proceed default and then not acting on it, or presenting a prose co-equal ballot in an `## Operator decisions` block; requires an explicit `true` to run; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
 | `skill_candidate_detection` | `true` | bool | Master toggle for the skill-candidate detector; `false` disables all layers |
 | `skill_candidate_nudge` | `false` | bool | In-session nudge when a domain crosses the candidate threshold (requires `skill_candidate_detection: true`) |
 | `ticket_driven` | absent-key: `offer` if tracker connected, `off` if not | `"off"`, `"offer"`, `"require"` | Controls ticket-creation gate before first implementer spawn; **absent key resolves based on tracker connection, not to a fixed default** |
 | `rework_detection` | `true` | bool | Disables the Phase 9 ledger write, Phase 1 detection, the notice, the `/ds-ticket-triage` badge, and the escalation with a single flag when `false` |
 | `pending_merge_sweep` | `true` | bool | Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable |
+| `tracker_state_diagnostic` | `true` | bool | Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable |
 
 ### Tuning parameters
 
@@ -169,6 +170,29 @@ Key points:
 - `settings.local.json` is gitignored; use it for secrets and local env values.
 - Hooks are wired by the installer into `~/.claude/settings.json`; do not move
   or rename them.
+
+---
+
+## 8. Tracker config file: `.agentic/tracker.yml`
+
+Project-local, gitignored, pure data (never executes). Merged field-by-field, overlay winning, over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain used by `/ds-implement-ticket` Setup and its deferring consumers.
+
+| Key | Required | Maps to | Notes |
+|---|---|---|---|
+| `tracker` | always | `TRACKER` | `jira` \| `linear`; any other value = unusable |
+| `prefix` | when sole source | `TICKET_PREFIX` | |
+| `base_url` | when sole source + jira | `JIRA_BASE_URL` | |
+| `workspace` | when sole source + linear | `LINEAR_WORKSPACE` | |
+| `qa_assignee` | no | `JIRA_QA_ASSIGNEE_ACCOUNT_ID` / `LINEAR_QA_ASSIGNEE_ID` | |
+| `jira_qa_transition` | no | `JIRA_QA_TRANSITION` | jira only |
+| `state_in_progress` / `state_in_review` / `state_qa` / `state_blocked` / `state_done` | no | `TRACKER_STATE_*` | defaults match the live step-4 chain |
+| `pipeline_order` | no | `TRACKER_PIPELINE_ORDER` | comma permutation of `IN_PROGRESS, IN_REVIEW, QA`; warns and defaults on malformed |
+
+Any key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`) rejects the **entire file** - this is not a secret scanner, only a key-name guard; a short token pasted under an allowlisted key is still accepted.
+
+Commands: `agentic-tracker init --tracker {jira,linear} --prefix P [--base-url U] [--workspace W]`, `agentic-tracker show [--scope project|effective]`, `agentic-tracker set <key> <value>`, `agentic-tracker resolve [--json]`, `agentic-tracker path`.
+
+`agentic-tracker init`/`set` refuse to write at a path git would track: an unignored path (fix: add a `.gitignore` line), an already-tracked path (fix: `git rm --cached`, since a `.gitignore` line alone does not untrack an indexed file), or an indeterminate ignore state (fails closed). `--force-unignored` downgrades any of the three refusals to a warning and proceeds. Note: `git check-ignore` also honors `~/.gitignore_global` (`core.excludesFile`) and `.git/info/exclude`, so the guard can pass for one operator on a machine-local exclude while refusing a teammate in the same repo - harmless (git still will not track it for that operator), but worth knowing before filing a support question.
 
 ---
 

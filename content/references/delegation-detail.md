@@ -10,7 +10,10 @@ Purpose: Detailed delegation-model reference blocks extracted from
          directions, for the four search-narrowness axes); Investigator-
          before-Architect rules (incl shared-utility-MANDATORY and Parallel
          Investigators); Learnings pipeline; Worker preamble + execution
-         contract template; Digest-return discipline.
+         contract template; AskUserQuestion and Operator Decisions
+         enforcement mechanics (hook wiring, detection limits, kill switch);
+         Operator Decisions block rationale (marker necessity, placement
+         discipline); Digest-return discipline.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -131,6 +134,34 @@ Parent clause: `content/sections/02-delegation.md` §Skeptic absence-or-critical
 
 **Parallel Investigators feeding a single Architect.** When investigation spans multiple independent surfaces (e.g. backend, frontend, schema), the conductor MAY spawn multiple Investigators in a single message. Before doing so, Read `content/references/conductor-operating-rules.md` §Parallel Investigators for the merge-into-one-Architect rule and the single-Architect invariant.
 
+## Harness-Injected Instruction Conflicts
+
+Parent clause: `content/sections/02-delegation.md` §Harness-injected instructions that suppress delegation.
+
+**Enforcement-hook prohibition (do not build the exploration guard).** No AE hook may deny conductor-side Read/Grep/Glob in order to force delegation. This is a flat prohibition, not a conditional one, and the reason is not the bridge-session deadlock: conductor-direct reads are methodology-*mandated* and precede the first spawn by construction - reading `.agentic/context.md` as the first action of every session, the meta-divergence and skill-candidate sweeps of `.agentic/events.jsonl` and `.agentic/skill-candidates.md`, `.agentic/config.json` toggle resolution before risk classification, and the target agent's `capabilities:` block at capability preflight. A call-count guard denies a fully compliant session before it denies a non-compliant one. Mandated conductor reads continue throughout the session too - the spot-check of a Skeptic absence-claim is post-spawn by construction - but the pre-spawn set alone settles it. Two further reasons close the door: the read carries no intent signal, so "confirming a known fact" (permitted) and "investigating an unfamiliar area" (must delegate) are the same payload; and in a session whose harness prompt already suppresses spawning, denying reads too leaves no permitted action at all.
+
+Do not attempt to condition such a guard on whether spawning is available. **There is no such signal.** Session capability at runtime - which tools the harness will actually honour, what an injected system prompt forbids - has no payload representation and is not derivable from an on-disk artifact: a settings file states the operator's configured permission rules, which is not the same fact as what this session's harness will honour. An entrypoint marker may correlate with an injecting harness, but correlation with an entrypoint is not the capability, and gating on it requires the payload-capture discipline in `hooks/AGENTS.md` §Fail-open on absent tool_input fields first. `.agentic/events.jsonl` `spawn_start` records prove spawning *has* worked and can never prove it is unavailable. See `hooks/AGENTS.md` §No gating on inferred session capability for the hook-side rule; do not restate fail-open discipline here.
+
+The rule stays prose-enforced, as it already is on ten of the eleven adapters. Mechanically, only non-blocking shapes are admissible: a warn-only PostToolUse nudge, or after-the-fact detection at a reflection point (the Stop hook already reads the transcript and runs the capture-gap backstop) that surfaces conductor-investigating *after* a turn instead of blocking it in advance. Calibrate any such threshold against measured session data before shipping it - a nudge that fires on a session of mandated preflight reads is the same defect as the deny-guard, only cheaper.
+
+**Notice template (unconditional branch).** When the directive is unconditional and spawning genuinely fails, emit at the first user-facing turn:
+
+```
+DELEGATION SUPPRESSED: this session's harness prompt forbids subagent spawns, so the
+methodology's Worker + Skeptic review is not in force. Findings this session are
+unreviewed.
+  Remedies (any one):
+    - ask for delegation explicitly in your next message
+    - rerun from a local terminal entrypoint rather than a remote-control/bridge one
+    - disable the harness's remote-control-at-startup setting, then restart
+    - or keep this session for reads and diagnosis only and defer shippable edits
+[phase: delegation-suppressed]
+```
+
+This notice is condition-scoped, not a session-start notice: it fires only on an affected entrypoint, whereas every notice in the stacked tally at `content/rules/conventions.md:80` has a trigger computed at preflight on every session. It is **not** one of those four and must not be added to that count.
+
+**Harness-vs-model diagnostic.** Before attributing a compliance regression (the model ignoring delegation rules) to a model-version change, distinguish harness-cause from model-cause: run the identical prompt in a plain local terminal session versus the suspect entrypoint. Only a local-complies / other-fails split implicates the harness (an injected system prompt outranking the methodology); if both fail identically, the regression is model-side and should be investigated as such.
+
 ## Learnings Pipeline
 
 **Learnings pipeline (two feeders, distinct triggers).** The learnings pipeline has two separate feeders with different trigger mechanisms:
@@ -169,6 +200,32 @@ When `brief_path` or `plan_path` is populated, the engineer reads it before star
 The `verification` field is **mandatory**. Its purpose is to force the conductor to specify *how the change will be verified before implementation begins*, not as a Skeptic afterthought. As coding gets cheaper, verification is the expensive thing, and the protocol reorganizes around verification rather than around shipping code. If the verification path is not knowable up front (truly novel surface, no existing tests, no feasible new test), state that explicitly as `"self-evident review"` and accept that the Skeptic and any QA gate are the only line of defense - do not leave the field blank.
 
 The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
+
+## AskUserQuestion and Operator Decisions Enforcement Mechanics
+
+Detail for the AskUserQuestion precondition kernel rule (`content/sections/02-delegation.md`). The hard-stop branch qualifier: AskUserQuestion is legitimately used only for a single confirmation of a genuinely irreversible AND unauthorized action, per the hard-stop branch - not for routine option surfacing.
+
+**Tool-path enforcement.** On Claude Code, a `PreToolUse` hook (`hooks/enforce-askuserquestion-default.py`, wired by `.claude/install.sh`) denies any single-select AskUserQuestion call presenting 2+ options where no option label contains "(Recommended)" - the exact token the hook checks. Other adapters rely on the prose rule alone.
+
+**Prose-path enforcement.** The same forbidden shape written as prose - a `## Operator decisions` block with 2+ items carrying no recommendation marker - is the prose form of a co-equal ballot and is ALSO mechanically enforced on Claude Code: a `Stop` hook (`hooks/enforce-no-abdication.py`, wired by `.claude/install.sh`) detects an `## Operator decisions` block where 2 or more items carry no derived-recommendation marker (a `Recommendation:` lead-in or a `(Recommended)` suffix) and blocks the turn, injecting a corrective directive. This check runs independently of the hook's permission-phrase negative gate, so irreversibility vocabulary in the ballot's items cannot suppress it.
+
+**Detection limits.** The detector recognizes the common list, numbered, and bold-numbered item forms (`- `, `1. `, `**1.`); other item formats (a markdown table, a bold-led item with no number, an unconventional heading wording) are not caught - it is a floor, not a guarantee of coverage.
+
+**Kill switch.** Set `AE_ABDICATION_GUARD_DISABLE=1` to disable (shared kill switch with the rest of that hook). Other adapters rely on the prose rule for both paths.
+
+## Operator Decisions Block Rationale
+
+Detail for the "Operator decisions go last in the turn" kernel rule (`content/sections/02-delegation.md`).
+
+**Why the literal heading.** `## Operator decisions` is required verbatim, not `## Decisions` - the latter is a common heading in project instruction files and would collide with anything that later matches on that string.
+
+**Item content.** Keep each item to the recommended action, one line of why, and the reversal offer.
+
+**Why the marker is not stylistic.** The `(Recommended)` suffix (or `Recommendation:` lead-in) is the single convention that lets both the tool path and the prose path be mechanically distinguished from a co-equal ballot, and it is the exact token the prose-path enforcement checks. An item lacking that marker is indistinguishable, to the enforcement and to a reader, from an unresolved option in a ballot - even a hard-stop item genuinely requiring operator authorization still has one recommended action (the thing that needs doing, pending authorization) and states it with the marker. This block-specific marker requirement is ADDITIONAL to, not a replacement for, the general recommendation-plus-confirmation phrasing described in the surface-and-proceed branch and the AskUserQuestion precondition (e.g. "Proceeding with X unless you say otherwise") - that phrasing remains sufficient on its own for a single surface-and-proceed decision surfaced OUTSIDE this block, where the ballot check can never fire on one item; once 2 or more items live under this heading, each one additionally needs the explicit marker, because that is the only thing that lets the block's enforcement (and a reader) tell a resolved decision item from an unresolved ballot option.
+
+**Cap and overflow.** Do not impose a numeric cap on the number of items - a cap with no overflow rule mechanically forces the conductor to hide a decision, which is the exact harm this rule exists to prevent.
+
+**Placement discipline.** A decision the operator has to scroll past other content to find is a defect - nothing follows the heading (no status line, no next steps, no caveats, no phase breadcrumb, no "meanwhile"), and the turn ends there: no further tool calls. Explanation of why something failed belongs above the heading, and only when it is evidence a decision in this same turn rests on - no analysis inside the block itself. Any per-turn declaration required elsewhere in this methodology (a phase breadcrumb, a first-user-turn notice, a `Capture:` line) is satisfied only by text preceding this heading - never by anything after it.
 
 ## Digest-Return Discipline
 

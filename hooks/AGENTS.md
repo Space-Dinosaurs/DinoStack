@@ -15,7 +15,7 @@ module-group map.
 |---|---|---|---|
 | `enforce-askuserquestion-default.py` | Python | PreToolUse (AskUserQuestion) | Deny co-equal-ballot `AskUserQuestion` calls lacking a `(Recommended)` label. |
 | `enforce-background-spawn.py` | Python | PreToolUse (Task/Agent) | (a) Deny `Task` spawns missing `run_in_background: true` (legacy Task tool only - harness strips this field for Agent); (b) sentinel suppression: deny Task/Agent spawns and OMC Skills when `.agentic/teamrun/.active` is live. Foreground-exempt agents (wrap-ticket) bypass both checks. |
-| `enforce-no-abdication.py` | Python | Stop (main session only) | Block turns that end with permission-seeking interrogatives OR a prose co-equal ballot (`## Operator decisions` block with 2+ unrecommended items); inject a "proceed" directive. |
+| `enforce-no-abdication.py` | Python | Stop (main session only) | Block turns that end with permission-seeking interrogatives, a stalled surface-and-proceed commitment, OR a prose co-equal ballot (`## Operator decisions` block with 2+ unrecommended items); inject a "proceed" directive. |
 | `enforce-orchestrator-singularity.py` | Python | PreToolUse (Task/Agent) | Deny subagent spawns issued from inside a subagent context (no nested orchestration). |
 | `enforce-tier.py` | Python | PreToolUse (Task/Agent) | Deny an explicit sub-Opus `model` downgrade on a mandated-Tier-3 review agent (security-auditor always; skeptic when the brief matches a Tier-3 escalation signal). Escalate-only, fail-open. |
 | `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
@@ -99,3 +99,24 @@ field genuinely is present in the payload.
 actually present in that harness's real shape. Do not assume a field
 documented for one tool name (or one harness) is present for a related tool
 name or a different harness - verify per tool_name.
+
+## No gating on inferred session capability
+
+A hook may gate on what the payload states. It may not gate on what the *session
+is capable of at runtime*: which tools the harness will actually honour, or what
+an injected system prompt forbids. Neither has a payload representation, and
+neither is derivable from an on-disk artifact - a settings file states the
+operator's configured permission rules, which is not the same fact as what this
+session's harness will honour, and a session-scoped state file can record that
+something already happened, never that it is unavailable. A hook written
+against an inferred capability is written against a predicate it cannot
+evaluate; it will either never fire or fire unconditionally, and which one is a
+coin toss at implementation time.
+
+The corollary bounds deny scope. Before adding a deny, name the action the
+agent is expected to take instead, and confirm that action is still permitted
+under every other active guard. A guard that denies the last remaining
+permitted action class is a deadlock, not stricter enforcement. The worked
+instance - why no hook may deny conductor Read/Grep/Glob to force delegation -
+is `content/references/delegation-detail.md` §Harness-Injected Instruction
+Conflicts.

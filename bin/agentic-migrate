@@ -28,6 +28,7 @@ import importlib.machinery as _ilm
 import importlib.util as _ilu
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -149,25 +150,227 @@ def _gitignore_lines(gitignore_path: Path) -> list[str]:
     return gitignore_path.read_text(encoding="utf-8").splitlines()
 
 
+def _gitignore_byte_lines(gitignore_path: Path) -> list[bytes]:
+    """Return the raw lines of .gitignore as bytes, each retaining its own
+    original line terminator (b'\\r\\n', b'\\n', or none on a terminator-less
+    final line). Unlike ``_gitignore_lines`` (which goes through
+    ``Path.read_text()`` and therefore loses CRLF/CR information to Python's
+    universal-newline translation on read), this is the byte-preserving path
+    used anywhere the file is going to be written back out."""
+    if not gitignore_path.is_file():
+        return []
+    return gitignore_path.read_bytes().splitlines(keepends=True)
+
+
+def _line_terminator(line: bytes) -> bytes:
+    """Return the line-ending bytes at the end of `line` (b'\\r\\n' or
+    b'\\n'). Falls back to b'\\n' if `line` has no terminator at all (e.g. it
+    was the file's last line and the file has no trailing newline) - this
+    only supplies a terminator for a line being newly inserted, it never
+    strips or adds a terminator to an existing line."""
+    if line.endswith(b"\r\n"):
+        return b"\r\n"
+    if line.endswith(b"\n"):
+        return b"\n"
+    return b"\n"
+
+
 def _pattern_present(lines: list[str], pattern: str) -> bool:
     """Exact-line match after rstrip() on both sides."""
     needle = pattern.rstrip()
     return any(line.rstrip() == needle for line in lines)
 
 
+# Recognizes only the *negatable* .agentic/ umbrella glob forms - patterns
+# that ignore the immediate (`*`) or full recursive (`**`, `**/*`) contents of
+# the directory while leaving the directory entry itself un-ignored, which is
+# what makes a later `!.agentic/<file>` negation able to work at all. See
+# _AGENTIC_BARE_DIR_RE below for the excluded bare-directory forms.
+_AGENTIC_UMBRELLA_RE = re.compile(r"^(\*\*/)?/?\.agentic/(\*\*/\*|\*\*|\*)$")
+
+# A bare .agentic/ directory-ignore (no trailing glob), e.g. `.agentic`,
+# `.agentic/`, `/.agentic/`, `**/.agentic`. git will not descend into an
+# ignored directory at all, so no `!.agentic/<file>` negation placed at any
+# position in the file can ever un-ignore a file inside it - ordering cannot
+# fix this the way it fixes a `*`-suffixed umbrella.
+_AGENTIC_BARE_DIR_RE = re.compile(r"^(\*\*/)?/?\.agentic/?$")
+
+
+def _is_agentic_umbrella_pattern(pattern: str) -> bool:
+    """True if `pattern` ignores the immediate or recursive contents of the
+    .agentic/ directory via a negatable glob form (`.agentic/*`,
+    `.agentic/**`, `.agentic/**/*`, `/.agentic/*`, `**/.agentic/**`), as
+    opposed to a specific file or subdirectory pattern like `.agentic/qa.md`
+    or `.agentic/session-log/`, or a bare directory form (see
+    _is_agentic_bare_dir_pattern) for which negation can never work."""
+    return bool(_AGENTIC_UMBRELLA_RE.match(pattern.strip()))
+
+
+def _normalize_bare_agentic_pattern(pattern: str) -> str | None:
+    """If `pattern` is a bare .agentic/ directory-ignore form, rewrite it to
+    the `*`-suffixed equivalent that CAN be negated (e.g. `.agentic` ->
+    `.agentic/*`, `**/.agentic` -> `**/.agentic/*`). Returns None if `pattern`
+    is not a bare-directory form."""
+    stripped = pattern.strip()
+    if not _AGENTIC_BARE_DIR_RE.match(stripped):
+        return None
+    prefix = stripped[: stripped.index(".agentic")]
+    return f"{prefix}.agentic/*"
+
+
+def _find_misordered_umbrella(lines: list[str]) -> int | None:
+    """Return the index of the first .agentic/ umbrella pattern line that
+    appears BELOW an existing `!.agentic/` negation line (an ordering
+    violation that silently defeats the negation - see _append_gitignore's
+    docstring), or None if there is no negation line or no such violation."""
+    first_negation_idx = next(
+        (i for i, line in enumerate(lines) if line.strip().startswith("!.agentic/")),
+        None,
+    )
+    if first_negation_idx is None:
+        return None
+    return next(
+        (
+            i
+            for i in range(first_negation_idx + 1, len(lines))
+            if _is_agentic_umbrella_pattern(lines[i].strip())
+        ),
+        None,
+    )
+
+
+def _repair_gitignore_order(gitignore_path: Path) -> bool:
+    """Move every .agentic/ umbrella gitignore line that appears BELOW the
+    first `!.agentic/` negation line to just above that negation line, so the
+    negations that already exist (typically seeded by /ds-init-project Step 9
+    before any umbrella was added) start working again. Byte-preserving: a
+    moved line that already carries its own terminator keeps it unchanged and
+    no other already-terminated line is touched or reordered.
+
+    Two lines are exempt from that "untouched" guarantee, both required to
+    avoid pattern fusion (concatenating two logical lines into one, which
+    silently destroys whichever pattern loses its line):
+
+    - A moved line that has NO terminator (only possible when it was the
+      file's terminator-less last line) is given the terminator of the line
+      it now precedes before insertion - otherwise it fuses with that line.
+    - After all moves, the file's original trailing-newline convention (did
+      the file end with a newline or not) is restored on the new last line,
+      since relocating the original terminator-less last line elsewhere
+      would otherwise silently change that convention.
+
+    Idempotent - a call on an already-ordered file (or one with no negation
+    lines) is a no-op and returns False.
+    """
+    try:
+        byte_lines = _gitignore_byte_lines(gitignore_path)
+        if not byte_lines:
+            return False
+
+        original_had_trailing_newline = byte_lines[-1].endswith(b"\n")
+
+        changed = False
+        # Bounded: at most len(byte_lines) misordered umbrella lines can
+        # exist, so this loop always terminates.
+        for _ in range(len(byte_lines) + 1):
+            str_lines = [b.decode("utf-8", errors="replace") for b in byte_lines]
+            misordered_idx = _find_misordered_umbrella(str_lines)
+            if misordered_idx is None:
+                break
+            negation_idx = next(
+                i for i, line in enumerate(str_lines) if line.strip().startswith("!.agentic/")
+            )
+            line = byte_lines.pop(misordered_idx)
+            if not line.endswith(b"\n"):
+                # Terminator-less line relocated away from EOF: it would
+                # otherwise fuse with the line it now precedes.
+                line = line + _line_terminator(byte_lines[negation_idx])
+            byte_lines.insert(negation_idx, line)
+            changed = True
+
+        if changed and byte_lines:
+            last = byte_lines[-1]
+            has_trailing_newline = last.endswith(b"\n")
+            if original_had_trailing_newline and not has_trailing_newline:
+                terminator = (
+                    _line_terminator(byte_lines[-2]) if len(byte_lines) > 1 else b"\n"
+                )
+                byte_lines[-1] = last + terminator
+            elif not original_had_trailing_newline and has_trailing_newline:
+                byte_lines[-1] = last[:-2] if last.endswith(b"\r\n") else last[:-1]
+
+        if changed:
+            gitignore_path.write_bytes(b"".join(byte_lines))
+        return changed
+    except Exception:
+        return False
+
+
 def _append_gitignore(gitignore_path: Path, pattern: str) -> None:
     """Append a pattern line to .gitignore, inserting a leading newline if the
-    file has content but does not end with one (prevents pattern fusion)."""
+    file has content but does not end with one (prevents pattern fusion).
+
+    git .gitignore matching is last-match-wins: a `!` negation only overrides
+    an ignore pattern that appears ABOVE it in the file. If `pattern` is an
+    .agentic/ umbrella ignore and the file already contains `!.agentic/...`
+    negation lines (e.g. seeded by /ds-init-project Step 9, which predates any
+    umbrella), appending the umbrella at EOF would land it BELOW those
+    negations and silently defeat every one of them. In that case, insert the
+    umbrella immediately above the first such negation line instead. This is
+    idempotent - a pattern already present is a no-op.
+
+    Byte-preserving: operates on raw bytes throughout (see
+    _gitignore_byte_lines / _line_terminator), so a CRLF file stays CRLF, a
+    file with no trailing newline is not gratuitously terminated beyond what
+    the append branch already required, and no line's terminator is altered
+    except the newly-inserted line's own (which reuses the terminator of the
+    negation line it is inserted above). No other line is reordered or
+    otherwise touched.
+
+    A bare .agentic/ directory-ignore form (e.g. `.agentic`, `.agentic/`) is
+    rewritten to its `*`-suffixed equivalent before insertion, with a warning
+    to stderr, because a bare form can never be un-ignored by any
+    `!.agentic/<file>` negation regardless of ordering.
+    """
     try:
-        needs_leading_newline = False
-        if gitignore_path.exists():
-            content = gitignore_path.read_bytes()
-            if content and not content.endswith(b"\n"):
-                needs_leading_newline = True
-        with open(gitignore_path, "a", encoding="utf-8") as f:
+        rewritten = _normalize_bare_agentic_pattern(pattern)
+        if rewritten is not None:
+            print(
+                f"agentic-migrate: rewriting bare .agentic/ ignore pattern "
+                f"{pattern!r} to {rewritten!r} - a bare directory ignore can "
+                "never be negated by a !.agentic/<file> carve-out at any "
+                "position, because git will not descend into an excluded "
+                "directory at all.",
+                file=sys.stderr,
+            )
+            pattern = rewritten
+
+        text_lines = _gitignore_lines(gitignore_path)
+        if _pattern_present(text_lines, pattern):
+            return
+
+        if _is_agentic_umbrella_pattern(pattern):
+            byte_lines = _gitignore_byte_lines(gitignore_path)
+            negation_idx = next(
+                (
+                    i
+                    for i, line in enumerate(byte_lines)
+                    if line.decode("utf-8", errors="replace").strip().startswith("!.agentic/")
+                ),
+                None,
+            )
+            if negation_idx is not None:
+                terminator = _line_terminator(byte_lines[negation_idx])
+                byte_lines.insert(negation_idx, pattern.encode("utf-8") + terminator)
+                gitignore_path.write_bytes(b"".join(byte_lines))
+                return
+
+        raw = gitignore_path.read_bytes() if gitignore_path.exists() else b""
+        needs_leading_newline = bool(raw) and not raw.endswith(b"\n")
+        with open(gitignore_path, "ab") as f:
             if needs_leading_newline:
-                f.write("\n")
-            f.write(pattern + "\n")
+                f.write(b"\n")
+            f.write(pattern.encode("utf-8") + b"\n")
     except Exception:
         pass
 
@@ -383,7 +586,15 @@ def _compute_diff(manifest: dict, project_root: Path) -> dict:
     {
       "gitignore_missing": [pattern, ...],
       "files_missing": [{"path": ..., "seed": ...}, ...],
+      "gitignore_misordered": bool,
     }
+
+    `gitignore_misordered` is True when an .agentic/ umbrella pattern already
+    present in .gitignore appears BELOW an existing `!.agentic/` negation line
+    - which silently defeats that negation (see _append_gitignore's
+    docstring) - regardless of whether every individual pattern is otherwise
+    present. This is independent of `gitignore_missing`: a file can have
+    every required line present and still be drifted purely on ordering.
     """
     gitignore_path = project_root / ".gitignore"
     existing_lines = _gitignore_lines(gitignore_path)
@@ -400,13 +611,22 @@ def _compute_diff(manifest: dict, project_root: Path) -> dict:
         if not target.exists():
             files_missing.append(entry)
 
-    return {"gitignore_missing": gitignore_missing, "files_missing": files_missing}
+    gitignore_misordered = _find_misordered_umbrella(existing_lines) is not None
+
+    return {
+        "gitignore_missing": gitignore_missing,
+        "files_missing": files_missing,
+        "gitignore_misordered": gitignore_misordered,
+    }
 
 
 def cmd_check(args: argparse.Namespace) -> int:
     """
-    Exit 0 if project is at-or-ahead of manifest version.
-    Exit 1 if drift.
+    Exit 0 if project is at-or-ahead of manifest version AND .gitignore is
+    correctly ordered (no umbrella pattern below an existing negation).
+    Exit 1 if drift (version behind, OR .gitignore misordered - the two are
+    independent: a project can be at the latest stamped version and still
+    have a misordered .gitignore, e.g. if it was hand-edited after apply).
     Exit 2 on error.
     """
     manifest_path = _resolve_manifest_path(args)
@@ -423,12 +643,18 @@ def cmd_check(args: argparse.Namespace) -> int:
     project_root = Path(args.project_root) if hasattr(args, "project_root") and args.project_root else Path.cwd()
     project_version = _read_project_version(project_root)
     manifest_version = manifest["scaffolding_version"]
+    gitignore_misordered = _compute_diff(manifest, project_root)["gitignore_misordered"]
 
-    if project_version >= manifest_version:
+    if project_version >= manifest_version and not gitignore_misordered:
         print(json.dumps({"status": "ok", "project_version": project_version, "manifest_version": manifest_version}))
         return 0
     else:
-        print(json.dumps({"status": "drift", "project_version": project_version, "manifest_version": manifest_version}))
+        print(json.dumps({
+            "status": "drift",
+            "project_version": project_version,
+            "manifest_version": manifest_version,
+            "gitignore_misordered": gitignore_misordered,
+        }))
         return 1
 
 
@@ -453,7 +679,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
     print(f"Manifest version: {manifest_version}")
     print(f"Project version:  {project_version}")
 
-    if not diff["gitignore_missing"] and not diff["files_missing"]:
+    if not diff["gitignore_missing"] and not diff["files_missing"] and not diff["gitignore_misordered"]:
         print("Status: up to date")
         return 0
 
@@ -461,6 +687,14 @@ def cmd_diff(args: argparse.Namespace) -> int:
         print("\n.gitignore patterns to add:")
         for pat in diff["gitignore_missing"]:
             print(f"  + {pat}")
+
+    if diff["gitignore_misordered"]:
+        print(
+            "\n.gitignore ordering issue: an .agentic/ umbrella pattern "
+            "appears BELOW an existing !.agentic/ negation line, which "
+            "silently defeats that negation. `apply` will move the umbrella "
+            "line above the negation."
+        )
 
     if diff["files_missing"]:
         print("\nFiles to seed:")
@@ -498,12 +732,22 @@ def cmd_apply(args: argparse.Namespace) -> int:
 
     errored = False
     wrote_anything = False
+    did_repair = False
 
     try:
         project_version = _read_project_version(project_root)
 
-        # --- gitignore rules ---
+        # --- gitignore ordering repair ---
+        # Runs before the rules loop below so any pre-existing misordering
+        # (e.g. an umbrella appended at EOF, below negations seeded by
+        # /ds-init-project Step 9, by a pre-fix version of this script) is
+        # fixed first. See _repair_gitignore_order's docstring.
         gitignore_path = project_root / ".gitignore"
+        did_repair = _repair_gitignore_order(gitignore_path)
+        if did_repair:
+            wrote_anything = True
+
+        # --- gitignore rules ---
         existing_lines = _gitignore_lines(gitignore_path)
 
         for entry in manifest.get("gitignore", []):
@@ -543,14 +787,32 @@ def cmd_apply(args: argparse.Namespace) -> int:
         all_rules_ok = not errored
         # Recompute diff to check all satisfied
         diff = _compute_diff(manifest, project_root)
-        all_satisfied = not diff["gitignore_missing"] and not diff["files_missing"]
+        all_satisfied = (
+            not diff["gitignore_missing"]
+            and not diff["files_missing"]
+            and not diff["gitignore_misordered"]
+        )
 
         if all_satisfied:
             _stamp_project_version(project_root, manifest_version)
             if wrote_anything:
+                # Reflect what actually happened: a version bump, an
+                # ordering-only repair at an already-current version, or
+                # both. Never phrase a pure ordering repair as a version
+                # migration when project_version == manifest_version.
+                version_changed = project_version != manifest_version
+                parts = []
+                if version_changed:
+                    parts.append(f"applied v{project_version} -> v{manifest_version} migration")
+                if did_repair:
+                    parts.append("repaired gitignore ordering")
+                if not parts:
+                    parts.append(f"synced scaffolding at v{manifest_version}")
+                message = "; ".join(parts)
+                message = message[0].upper() + message[1:]
                 _append_context_line(
                     project_root,
-                    f"[scaffolding-sync] Applied v{project_version} -> v{manifest_version} migration at {_now_iso()}.",
+                    f"[scaffolding-sync] {message} at {_now_iso()}.",
                 )
 
     finally:

@@ -5,7 +5,7 @@ Purpose: Canonical reference for the ticket-rework alert - the notice that
          and does not do (with the measured reason no continuation-vs-rework
          discriminator exists); the ledger schema, its nullability column,
          and the null-render rule; why pr_number is the sole identity key;
-         why the write lives at Phase 9 and not Phase 12 or Phase 11c; the
+         why the write lives at Phase 9 and not Phase 12 or Phase 11b; the
          append-plus-dedupe-on-read concurrency rationale; the dual-branch
          anchoring pattern (recorded so a future editor recognises the
          shape); the command-scoped-notice disclaimer; the trigger rule,
@@ -102,7 +102,7 @@ A Trivial-path record legitimately carries two null fields:
 | `risk_class` | No | Declared before any spawn happens. |
 | `skeptic_rounds` | **Yes** | The Trivial path bypasses the Skeptic loop entirely; the only durable iteration-count source is written by the Skeptic loop itself, which a Trivial ticket never enters. |
 | `qa_status` | **Yes, on two paths** | Trivial tickets never run QA. Elevated tickets with a `qa_skip` value also never run QA - the write records the skip rationale instead of a status. |
-| `unit_count` | No | **Derived, not read** - there is no `unit_count` variable anywhere in the command. Derivation rule: count of `.agentic/tasks.jsonl` records matching this `ticket_id` on the Phase 5 fan-out path; `1` on a single-engineer path; `1` when `tasks.jsonl` is absent or unreadable. |
+| `unit_count` | No | **Derived, not read** - there is no `unit_count` variable anywhere in the command. Derivation rule: apply the **task-state fold** (`content/references/task-state-file.md`) to `.agentic/tasks.jsonl` and count of **distinct** `task_id`s among the folded records matching this `ticket_id` on the Phase 5 fan-out path; `1` on a single-engineer path; `1` when `tasks.jsonl` is absent or unreadable. |
 
 **Null-render rule.** Any null field renders `n/a` in the notice and the triage badge - the same rendering convention `/ds-implement-ticket` already uses elsewhere for an unresolved iteration count. `qa_status` is the one exception: it prefers its skip rationale (`"skipped:<rationale>"`) over `n/a`, because "QA never ran, here's why" is exactly what an operator doing manual verification needs to know - a bare `n/a` would hide that QA was intentionally skipped rather than simply unavailable. The skip-rationale string is collision-free against the QA result vocabulary (`PASS`/`FAIL`/`PARTIAL`/`BLOCKED`/`INCONCLUSIVE`): none of those values, nor any of the `qa_skip` enum values, nor the literal `"Trivial path"`, contain a colon, so a first-colon parse of `qa_status` unambiguously separates the `skipped:` prefix from its rationale.
 
@@ -127,7 +127,7 @@ The ledger write happens once, at the `/ds-implement-ticket` Phase 9 PR-creation
 
 **Why not Phase 12.** Phase 12 sits downstream of all of the escalation exits described above. Anchoring the write there would silently drop every attempt that opened a PR but then stalled or was escalated before reaching Phase 12 - exactly the runs where a manual-verification pointer matters most, because those are the ones that ended in an unresolved state rather than a clean finish.
 
-**Why not Phase 11c.** Phase 11c is skipped on the Trivial path, which never reaches it. Anchoring the write there would drop the Trivial-path record shown above, which is exactly the record this doc uses to illustrate the null-render rule.
+**Why not Phase 11b.** Phase 11b (the per-ticket `wrap-ticket` capture phase) is skipped on the Trivial path (`skipped_reason: "trivial-no-brief"`), which never reaches it. Anchoring the write there would drop the Trivial-path record shown above, which is exactly the record this doc uses to illustrate the null-render rule.
 
 **Open-goal dry-run is correctly silent.** When an open-goal loop runs in dry-run mode, Phase 9 (along with the rest of the ship-side phases) is skipped for every iteration - no PR is ever opened, so there is nothing to derive a `pr_number` from, and no record is written. Synthetic per-iteration identifiers used internally by an open-goal loop never enter the ledger.
 
@@ -155,7 +155,7 @@ The common failure shape: a change that needs to run "after ticket list resoluti
 
 ## Command-scoped notice, not a session-start notice
 
-The REWORK notice fires inside `/ds-implement-ticket`'s Phase 1, once per ticket, when that specific ticket has one or more prior PR-opening attempts recorded in the ledger. **It is not a session-start stacked notice.** `content/rules/conventions.md` documents an exact count of stacked first-user-turn notices that fire at session start regardless of what the session is about (meta-divergence, skill-candidate, identity-provisional-confirm - explicitly enumerated as "the 4th stacked first-user-turn notice" for the most recently added one). The REWORK notice is a different mechanism entirely: it is scoped to a specific command and a specific ticket, fires mid-flow rather than at session start, and does not add to that count. A future editor updating the stacked-notice count in `content/rules/conventions.md` should not include this notice in that tally - it was never part of that enumeration and doesn't belong in it.
+The REWORK notice fires inside `/ds-implement-ticket`'s Phase 1, once per ticket, when that specific ticket has one or more prior PR-opening attempts recorded in the ledger. **It is not a session-start stacked notice.** `content/rules/conventions.md` documents an exact count of stacked first-user-turn notices that fire at session start regardless of what the session is about - currently five: meta-divergence, skill-candidate, identity-provisional-confirm, deprecated-preset, and the knowledge-strand sweep (see that section for the current count and ordering, which is immaterial). The REWORK notice is a different mechanism entirely: it is scoped to a specific command and a specific ticket, fires mid-flow rather than at session start, and does not add to that count. A future editor updating the stacked-notice count in `content/rules/conventions.md` should not include this notice in that tally - it was never part of that enumeration and doesn't belong in it. This paragraph deliberately does not hardcode the count as a literal quoted ordinal ("the Nth notice") - a prior version did, and a subsequent, unrelated addition to that list (the knowledge-strand sweep) silently falsified the quote; naming the current members without an ordinal survives future additions without going stale.
 
 ## Trigger rule
 

@@ -1,3 +1,7 @@
+---
+description: "Produce a test-gap map for a codebase."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-test-suite-comprehension

@@ -123,6 +123,16 @@ def is_block(returncode: int, stdout: str) -> bool:
         return False
 
 
+def get_reason(returncode: int, stdout: str) -> str | None:
+    """Return the block reason string, or None if this was not a valid
+    block response. Used to pin WHICH classifier fired (Major 2 regression
+    guard: the harness previously only asserted BLOCK-vs-ALLOW and
+    len(reason) > 0, never which reason string was chosen)."""
+    if not is_block(returncode, stdout):
+        return None
+    return json.loads(stdout.strip()).get("reason")
+
+
 def make_config_file(tmp_dir: str, enabled: bool = True) -> str:
     """Write a .agentic/config.json with abdication_guard_enabled set."""
     agentic_dir = os.path.join(tmp_dir, ".agentic")
@@ -1255,6 +1265,104 @@ def test_write_counter_pid_suffixed_tmp(tmp_dir: str) -> int:
     return failed
 
 
+def test_reason_precedence(tmp_dir: str) -> int:
+    """Pin WHICH reason string fires per classifier, and pin the precedence
+    order (ballot > stall > classic abdication) for a turn that matches more
+    than one classifier at once.
+
+    Major 2 regression guard: main() selects _BALLOT_REASON / _STALL_REASON /
+    _ABDICATION_REASON, but before this test the harness only asserted
+    BLOCK-vs-ALLOW and len(reason) > 0 - no test asserted WHICH reason fired,
+    and none constructed an input matching two classifiers at once. The
+    ordering (ballot subsumes the stall remedy for a ballot-shaped turn) was
+    a unilateral choice made when merging main's stall classifier with this
+    PR's ballot classifier; without a pin, swapping _BALLOT_REASON and
+    _STALL_REASON in main() would keep every other case in this file green.
+    """
+    print("\n  [Reason-precedence pin (Major 2 regression guard)]")
+    failed = 0
+    reason_dir = os.path.join(tmp_dir, "reason_precedence_cwd")
+    os.makedirs(reason_dir, exist_ok=True)
+    make_config_file(reason_dir, enabled=True)
+
+    # --- Classic abdication only -> _ABDICATION_REASON ---
+    rc, stdout, _ = run_hook(make_payload(reason_dir, ABDICATING_MSG))
+    reason = get_reason(rc, stdout)
+    ok = reason is not None and "asking the user permission" in reason
+    print(f"    [{'PASS' if ok else 'FAIL'}] Classic abdication -> _ABDICATION_REASON fires")
+    if not ok:
+        failed += 1
+        print(f"         reason: {reason!r}")
+
+    # --- Stall only (proven via transcript, no tool call) -> _STALL_REASON ---
+    stall_msg = "Proceeding with the migration unless you say otherwise."
+    stall_transcript = make_transcript(reason_dir, [
+        {"role": "user", "content": [{"type": "text", "text": "Do the thing"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": stall_msg}]},
+    ])
+    stall_payload = json.dumps({
+        "hook_event_name": "Stop",
+        "session_id": "test-reason-stall",
+        "cwd": reason_dir,
+        "stop_hook_active": False,
+        "permission_mode": "default",
+        "last_assistant_message": stall_msg,
+        "transcript_path": stall_transcript,
+    })
+    rc, stdout, _ = run_hook(stall_payload)
+    reason = get_reason(rc, stdout)
+    ok = reason is not None and "announced a surface-and-proceed default" in reason
+    print(f"    [{'PASS' if ok else 'FAIL'}] Stall-only (proven, no tool call) -> _STALL_REASON fires")
+    if not ok:
+        failed += 1
+        print(f"         reason: {reason!r}")
+
+    # --- Ballot only -> _BALLOT_REASON ---
+    ballot_msg = (
+        "Here is the analysis.\n\n"
+        "## Operator decisions\n"
+        "- Deploy the new config now\n"
+        "- Roll back the old schema\n"
+    )
+    rc, stdout, _ = run_hook(make_payload(reason_dir, ballot_msg))
+    reason = get_reason(rc, stdout)
+    ok = reason is not None and "Operator decisions' block presents a" in reason
+    print(f"    [{'PASS' if ok else 'FAIL'}] Ballot-only -> _BALLOT_REASON fires")
+    if not ok:
+        failed += 1
+        print(f"         reason: {reason!r}")
+
+    # --- Dual-match: both ballot-shaped AND a proven stall -> ballot wins ---
+    dual_msg = (
+        "Proceeding with the migration unless you say otherwise.\n\n"
+        "## Operator decisions\n"
+        "- Deploy the new config now\n"
+        "- Roll back the old schema\n"
+    )
+    dual_transcript = make_transcript(reason_dir, [
+        {"role": "user", "content": [{"type": "text", "text": "Do the thing"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": dual_msg}]},
+    ])
+    dual_payload = json.dumps({
+        "hook_event_name": "Stop",
+        "session_id": "test-reason-dual",
+        "cwd": reason_dir,
+        "stop_hook_active": False,
+        "permission_mode": "default",
+        "last_assistant_message": dual_msg,
+        "transcript_path": dual_transcript,
+    })
+    rc, stdout, _ = run_hook(dual_payload)
+    reason = get_reason(rc, stdout)
+    ok = reason is not None and "Operator decisions' block presents a" in reason
+    print(f"    [{'PASS' if ok else 'FAIL'}] Dual-match (ballot + proven stall) -> ballot wins")
+    if not ok:
+        failed += 1
+        print(f"         reason: {reason!r}")
+
+    return failed
+
+
 def test_transcript_fallback(tmp_dir: str) -> int:
     """Test transcript_path fallback when last_assistant_message is absent."""
     print("\n  [Transcript fallback tests]")
@@ -1398,6 +1506,9 @@ def main() -> None:
         total_failed += test_unwritable_counter_allows_stop(tmp_dir)
         total_failed += test_write_counter_pid_suffixed_tmp(tmp_dir)
 
+        # Reason-precedence pin.
+        total_failed += test_reason_precedence(tmp_dir)
+
         # Transcript fallback.
         total_failed += test_transcript_fallback(tmp_dir)
 
@@ -1413,6 +1524,7 @@ def main() -> None:
         + 1   # counter reset
         + 1   # corrupt counter
         + 1   # unwritable counter + #54360 conjunction regression
+        + 4   # reason-precedence pin
         + 2   # transcript fallback
         + 3   # smoke checks
     )

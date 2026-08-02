@@ -1,3 +1,7 @@
+---
+description: "Opt this project out (writes an opt-out marker to AGENTS.md). --global also sets global mode=opt-out."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-disable

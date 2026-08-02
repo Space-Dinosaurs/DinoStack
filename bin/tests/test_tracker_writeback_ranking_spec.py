@@ -13,13 +13,13 @@ Covers:
   - (a2) semantic-inversion coverage: the central pipeline_rank comparator is
     literally `<` (not `>` or `<=`), and steps 4.a/4.b/4.c/4.d.i/4.d.ii/4.d.iii/
     4.d.iv resolve to the specific permit/skip outcome the algorithm requires,
-    the fixed IN_PROGRESS < IN_REVIEW < QA pipeline sequence and the Linear
-    category-rank sequence are pinned as ORDERED literals (not just unordered
-    token presence), and the invocation contract's tracker_state_values and
-    forward_only_guard parameters are checked against a scoped window (the
-    pass-list itself), not the whole block. These pin outcomes byte-identity
-    (b) cannot catch a reversal applied uniformly to the canonical block and
-    every adapter copy at once.
+    the pipeline sequence (default IN_PROGRESS < IN_REVIEW < QA, declarable
+    per Gap 2 below) and the Linear category-rank sequence are pinned as
+    ORDERED literals (not just unordered token presence), and the invocation
+    contract's tracker_state_values and forward_only_guard parameters are
+    checked against a scoped window (the pass-list itself), not the whole
+    block. These pin outcomes byte-identity (b) cannot catch a reversal
+    applied uniformly to the canonical block and every adapter copy at once.
   - (b) the canonical block is byte-identical across all adapter copies.
   - (c) a spelling heuristic: any line in the canonical block that mentions
     3+ of the category-rank tokens (backlog/unstarted/started/completed/
@@ -35,6 +35,49 @@ Covers:
   - (f) content/commands/ds-wrap.md's Part F Gate line resolves the 5
     TRACKER_STATE_* values (regression guard against a future edit silently
     dropping the Gate extension).
+  - (g) Gap 1 (loud diagnostic on a misconfigured TRACKER_STATE_* name) and
+    Gap 2 (declarable pipeline order) - tracker-state-reconciliation work,
+    roughly 50 assertions across both gaps:
+      * Gap 1: the diagnostic-enrichment sub-step runs strictly AFTER a
+        transition attempt (no happy-path round trip), its own failure is
+        always swallowed, Jira relabels from the already-fetched
+        jira_get_transitions result (no new call), Linear's relabel check
+        only inspects live states after its own list_workflow_states call
+        has itself succeeded, the return-payload schema's status enum union
+        specifically (not just the line) carries skipped_unconfigured_state,
+        the failure-logging line defines both FAILED and SKIPPED forms, the
+        Phase 2c warning no longer claims a silent skip, the Setup/pass-list/
+        Phase 11 additions for TRACKER_STATE_DIAGNOSTIC/diagnostic_enabled/
+        linear_team_key reference step 5 (never a stale step 6), the
+        ds-ticket-status-sync.md and ds-wrap.md comment-gate clauses are
+        byte-identical across files (with a non-empty guard so a
+        simultaneous drop in both files cannot pass vacuously on "" == ""),
+        both files' output blocks carry exactly 3 indented line forms, the
+        single-ticket-mode Output section prints the diagnostic on its own
+        line, the 8-site toggle-doc-sync checklist and bin/agentic-config
+        registration (plus its functional CLI round-trip in
+        bin/tests/test_agentic_config.py) hold, § Pending-merge sweep (g)
+        preserves closed_unmerged and adds the skipped_unconfigured_state ->
+        retryable-failing mapping, and a dedicated guard sweeps the whole
+        block for substitution-indicating vocabulary (closest match/nearest/
+        substitut*) to pin that the mechanism never writes an unconfigured
+        state.
+      * Gap 2: the pass-list's pipeline_order bullet is line-scoped and
+        references TRACKER_PIPELINE_ORDER/step 4.d.iv; Setup resolves the
+        override on both the Jira and Linear paths (including the
+        Linear-shaped `## Tracker` path, which previously only inherited
+        state-name overrides by cross-reference) with a stated default and
+        a malformed-value fallback; TRACKER=none sets the default
+        explicitly; the print summary gains a TRACKER_PIPELINE_ORDER line;
+        step 4.d.iv's rank source is pipeline_order (not a hardcoded
+        literal), while its two sibling bullets remain byte-identical to
+        origin/main; the "Rejected: fully tracker-derived pipeline order"
+        rationale paragraph is present; Phase 11's own Inputs list and
+        summary sentence, ds-ticket-status-sync.md's Preflight and both
+        spawn sites, and ds-wrap.md's Part F Gate/Reconcile all resolve and
+        pass pipeline_order; and ds-init-project.md's two AGENTS.md
+        templates show the commented-out override line under its own
+        heading.
 
 Run with: python3 -m pytest bin/tests/test_tracker_writeback_ranking_spec.py -q
 """
@@ -266,10 +309,16 @@ def test_canonical_block_pipeline_sequence_is_ordered_literal(canonical_block):
     # IN_PROGRESS(2)) satisfies without any diff to that test. Pin the exact
     # ordered clause as one literal substring - a permutation changes this
     # exact string and cannot pass.
+    #
+    # Gap 2 (declarable pipeline order): the wording changed from "the fixed
+    # pipeline sequence" to "the ordered sequence" since the sequence is now
+    # only the DEFAULT (a project may override it via JIRA_PIPELINE_ORDER /
+    # Pipeline order:), not a hardcoded constant. The ordered literal itself
+    # (IN_PROGRESS(0) < IN_REVIEW(1) < QA(2)) is unchanged.
     assert (
-        "the fixed pipeline sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2)"
+        "the ordered sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2)"
         in canonical_block
-    ), "the fixed pipeline sequence must be the literal ordered IN_PROGRESS(0) < IN_REVIEW(1) < QA(2) clause"
+    ), "the pipeline sequence must be the literal ordered IN_PROGRESS(0) < IN_REVIEW(1) < QA(2) clause"
 
 
 def test_canonical_block_category_rank_sequence_is_ordered_literal(canonical_block):
@@ -452,3 +501,603 @@ def test_wrap_part_f_gate_resolves_tracker_state_values():
     assert any("TRACKER_STATE_IN_PROGRESS" in l for l in gate_lines), (
         "Part F Gate line no longer resolves TRACKER_STATE_IN_PROGRESS"
     )
+
+
+# ---------------------------------------------------------------------------
+# Tracker-state reconciliation: Gap 1 diagnostic-enrichment mechanism
+# (content/commands/ds-implement-ticket.md ## Tracker Writeback Helper step 5)
+# ---------------------------------------------------------------------------
+
+def test_canonical_block_step5_diagnostic_runs_after_attempt(canonical_block):
+    assert "runs strictly AFTER a transition attempt, never before" in canonical_block
+    assert "no new round-trip on the happy path" in canonical_block
+
+
+def test_canonical_block_diagnostic_failure_is_swallowed(canonical_block):
+    idx = canonical_block.index("Any failure of this enrichment step itself is swallowed")
+    window = canonical_block[idx:idx + 200]
+    assert "`diagnostic` stays `null`" in window
+    assert "never changes" in window
+
+
+def test_canonical_block_jira_relabel_uses_already_fetched_data(canonical_block):
+    assert (
+        "jira_get_transitions` result already fetched during the attempt above (no new call)"
+        in canonical_block
+    )
+
+
+def test_canonical_block_linear_relabel_only_after_own_check_succeeds(canonical_block):
+    linear_bullet_idx = canonical_block.index("**Linear** - make ONE best-effort call")
+    linear_bullet = canonical_block[linear_bullet_idx:linear_bullet_idx + 900]
+    fail_idx = linear_bullet.index("If this call itself fails: swallow it")
+    succeed_idx = linear_bullet.index("If it succeeds: check whether")
+    assert fail_idx < succeed_idx, (
+        "the Linear diagnostic bullet must check the enrichment call's own failure "
+        "BEFORE checking whether the live states resolve target_state"
+    )
+
+
+def test_return_payload_schema_has_new_status_and_diagnostic_field():
+    """Regression test for a false-negative: the Returns line contains
+    'skipped_unconfigured_state' TWICE (once in the status enum union, once
+    in trailing prose explaining the status). A bare substring check on the
+    whole line stays green even if the enum union itself drops the new
+    value, as long as the prose sentence still mentions it. Scope the
+    assertion to the enum union specifically - the backtick-fenced type
+    literal immediately after 'status:' - not the whole line."""
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    returns_lines = [l for l in text.splitlines() if l.strip().startswith("> **Returns:**")]
+    assert returns_lines, "Returns line not found"
+    for line in returns_lines:
+        assert (
+            'status: "ok" | "partial" | "failed" | "skipped_unconfigured_state"'
+            in line
+        ), "the status enum union itself must include skipped_unconfigured_state"
+        assert "diagnostic: <string|null>" in line, (
+            "the return payload type literal must include the diagnostic field"
+        )
+
+
+def test_line_508_failure_logging_has_both_forms():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    failure_logging_lines = [
+        l for l in text.splitlines() if l.strip().startswith("**Failure logging:**")
+    ]
+    assert failure_logging_lines, "Failure logging line not found"
+    assert all(
+        "FAILED: <error>" in l and "SKIPPED: <diagnostic>" in l
+        for l in failure_logging_lines
+    ), "the canonical Failure logging line must define both the FAILED and SKIPPED forms"
+
+
+def test_phase_2c_warning_updated_without_stale_silently_skipped_claim():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    heading = "## Phase 2c: Tracker state discovery (conditional)"
+    start = text.index(heading)
+    end = text.index("\n## ", start + len(heading))
+    section = text[start:end]
+    assert "attempted with this exact name first" in section
+    assert "transition may be silently skipped at runtime" not in section
+
+
+def test_phase_11_line_510_notes_qa_transition_unaffected():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    anchor = "For full details of the Phase 11 writeback subagent brief shape"
+    idx = text.index(anchor)
+    window = text[idx:idx + 700]
+    assert "diagnostic-enrichment behavior from" in window
+    assert "unaffected, unedited by this plan" in window
+
+
+def test_comment_gate_clauses_are_byte_identical_across_files():
+    status_sync_path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    wrap_path = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
+    status_sync_text = status_sync_path.read_text(encoding="utf-8")
+    wrap_text = wrap_path.read_text(encoding="utf-8")
+
+    status_sync_anchor = "Evidence comment (only when the transition succeeded)"
+    wrap_anchor = "Reconcile each detected key"
+    clause_re = re.compile(r"\*\*Gate the comment on the Writeback Helper's return payload having `transitioned: true`\.\*\*")
+
+    status_sync_idx = status_sync_text.index(status_sync_anchor)
+    status_sync_window = status_sync_text[status_sync_idx:status_sync_idx + 1200]
+    status_sync_match = clause_re.search(status_sync_window)
+
+    wrap_idx = wrap_text.index(wrap_anchor)
+    wrap_window = wrap_text[wrap_idx:wrap_idx + 1200]
+    wrap_match = clause_re.search(wrap_window)
+
+    clause_a = status_sync_match.group(0) if status_sync_match else ""
+    clause_b = wrap_match.group(0) if wrap_match else ""
+
+    # Non-empty guard BEFORE the equality assertion: a future edit that
+    # drifted BOTH files identically to drop the clause entirely would have
+    # both extractions return an empty string, and "" == "" would pass
+    # vacuously without this guard.
+    assert clause_a, "comment-gate clause not found in ds-ticket-status-sync.md"
+    assert clause_b, "comment-gate clause not found in ds-wrap.md"
+    assert clause_a == clause_b, (
+        "the comment-gate clause must be byte-identical across "
+        "ds-ticket-status-sync.md and ds-wrap.md"
+    )
+
+
+def test_ticket_status_sync_step8_has_exactly_three_indented_lines():
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    start = text.index(
+        "**Operator-visible line per transition attempt (mandatory, never silent"
+    )
+    block = text[start:start + 700]
+    indented_lines = [l for l in block.splitlines() if l.startswith("       [ticket-status-sync]")]
+    assert len(indented_lines) == 3, (
+        f"expected exactly 3 indented output-line forms, found {len(indented_lines)}"
+    )
+    assert any(l.endswith("- transitioned") for l in indented_lines)
+    assert any("FAILED: <error>" in l for l in indented_lines)
+    assert any("SKIPPED: <diagnostic>" in l for l in indented_lines)
+
+
+def test_ticket_status_sync_single_ticket_mode_prints_diagnostic_on_skip():
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    anchor = "In single-ticket mode, print the before/after state."
+    idx = text.index(anchor)
+    window = text[idx:idx + 600]
+    assert "skipped_unconfigured_state" in window
+    assert "[ticket-status-sync] <KEY>: SKIPPED - <diagnostic>" in window
+
+
+def test_wrap_part_f_output_has_exactly_three_indented_lines():
+    path = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
+    text = path.read_text(encoding="utf-8")
+    start = text.index("print one operator-visible line per transition attempt so failures stay visible:")
+    block = text[start:start + 700]
+    indented_lines = [l for l in block.splitlines() if l.startswith("    [wrap: Part F]")]
+    assert len(indented_lines) == 3, (
+        f"expected exactly 3 indented Part F output-line forms, found {len(indented_lines)}"
+    )
+    assert any(l.endswith("- transitioned") for l in indented_lines)
+    assert any("FAILED: <error>" in l for l in indented_lines)
+    assert any("SKIPPED: <diagnostic>" in l for l in indented_lines)
+
+
+def test_pending_merge_sweep_g_preserves_closed_unmerged_and_adds_three_way_rule():
+    """§ Pending-merge sweep (g) must still map closed_unmerged from (c), and
+    must additionally map a skipped_unconfigured_state writeback outcome to
+    the RETRYABLE `failing` state (never `guard_skipped`, which is terminal).
+    Fails if closed_unmerged is dropped OR if the new status's mapping is
+    removed or changed to a terminal state."""
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    anchor = "**g. Record the determination.**"
+    idx = text.index(anchor)
+    window = text[idx:idx + 1600]
+
+    # closed_unmerged from (c) must still be present, unchanged.
+    assert "`closed_unmerged` from (c)" in window, (
+        "the closed_unmerged mapping from (c) must be preserved"
+    )
+
+    # skipped_unconfigured_state must map to failing, and the sentence must
+    # explicitly rule out guard_skipped for this case.
+    mapping_idx = window.index(
+        'Record `failing` (NOT `guard_skipped`) when the Writeback Helper\'s '
+        'return payload has `status == "skipped_unconfigured_state"`'
+    )
+    mapping_window = window[mapping_idx:mapping_idx + 400]
+    assert "retryable misconfiguration" in mapping_window
+    assert "terminalizes via the same `attempts`/`abandoned` rule as any other `failing` entry" in mapping_window
+
+    # The state enum sentence itself must be unchanged: still exactly 5
+    # values, guard_skipped still listed as terminal (not silently dropped
+    # or redefined as non-terminal to "fix" this some other way).
+    assert (
+        "`state` enum: `done` | `guard_skipped` | `closed_unmerged` | `abandoned` | `failing`. "
+        "The first four are **terminal**"
+        in text
+    )
+
+
+def test_setup_has_tracker_state_diagnostic_toggle():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    setup_lines = [
+        l for l in text.splitlines() if l.strip().startswith("- `TRACKER_STATE_DIAGNOSTIC`")
+    ]
+    assert setup_lines, "TRACKER_STATE_DIAGNOSTIC Setup bullet not found"
+    assert all("tracker_state_diagnostic" in l for l in setup_lines)
+
+
+def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencing_step5(canonical_block):
+    diagnostic_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- `diagnostic_enabled`:")
+    ]
+    team_key_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- `linear_team_key`:")
+    ]
+    assert diagnostic_lines, "diagnostic_enabled pass-list line not found"
+    assert team_key_lines, "linear_team_key pass-list line not found"
+    for line in diagnostic_lines + team_key_lines:
+        assert "step 5" in line, f"expected 'step 5' reference in: {line}"
+        assert "step 6" not in line, f"stale 'step 6' reference found in: {line}"
+
+
+# Each entry is (path, expected substring). The expected substring includes
+# enough surrounding context to anchor on the SPECIFIC toggle-count sentence
+# rather than a bare word, since some files (README.md) restate the count in
+# more than one sentence - a bare "nineteen in text" presence check would stay
+# green even if only one of the two sentences were bumped.
+TOGGLE_COUNT_FILES = [
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds nineteen methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds nineteen methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve nineteen project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "nineteen-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve nineteen project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Nineteen toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds nineteen methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 19 behavioral toggles"),
+]
+
+TOGGLE_SEED_FILES = [
+    REPO_ROOT / "content" / "templates" / ".agentic" / "config.json",
+    REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+]
+
+TOGGLE_BULLET_FILES = [
+    REPO_ROOT / "README.md",
+    REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md",
+    REPO_ROOT / "content" / "references" / "conventions-detail.md",
+    REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+]
+
+
+def test_toggle_doc_sync_full_eight_site_checklist():
+    for path, expected in TOGGLE_COUNT_FILES:
+        text = path.read_text(encoding="utf-8")
+        assert expected in text, f"{path.relative_to(REPO_ROOT)} missing '{expected}' toggle count"
+
+    for path in TOGGLE_SEED_FILES:
+        text = path.read_text(encoding="utf-8")
+        assert '"pending_merge_sweep": true,\n  "tracker_state_diagnostic": true' in text, (
+            f"{path.relative_to(REPO_ROOT)} seed JSON missing tracker_state_diagnostic "
+            "immediately after pending_merge_sweep"
+        )
+
+
+def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():
+    for path in TOGGLE_BULLET_FILES:
+        text = path.read_text(encoding="utf-8")
+        pending_idx = text.index("pending_merge_sweep")
+        tracker_idx = text.index("tracker_state_diagnostic")
+        assert tracker_idx > pending_idx, (
+            f"{path.relative_to(REPO_ROOT)}: tracker_state_diagnostic bullet must follow "
+            "the pending_merge_sweep bullet"
+        )
+
+    components_text = (REPO_ROOT / "docs" / "components.md").read_text(encoding="utf-8")
+    components_pending_idx = components_text.index("pending_merge_sweep")
+    components_tracker_idx = components_text.index("tracker_state_diagnostic")
+    assert components_tracker_idx > components_pending_idx
+
+    config_ref_text = (REPO_ROOT / "docs" / "configuration-reference.md").read_text(encoding="utf-8")
+    config_ref_pending_idx = config_ref_text.index("| `pending_merge_sweep` |")
+    config_ref_tracker_idx = config_ref_text.index("| `tracker_state_diagnostic` |")
+    assert config_ref_tracker_idx > config_ref_pending_idx
+
+    ds_config_text = (REPO_ROOT / "content" / "commands" / "ds-config.md").read_text(encoding="utf-8")
+    ds_config_bullet_lines = [
+        l for l in ds_config_text.splitlines()
+        if l.strip().endswith("and any additional config-file toggles.")
+    ]
+    assert ds_config_bullet_lines, "ds-config.md setting-selection bullet line not found"
+    bullet_line = ds_config_bullet_lines[0]
+    assert bullet_line.index("pending_merge_sweep") < bullet_line.index("tracker_state_diagnostic")
+
+    ds_config_pending_row_idx = ds_config_text.index("| Pending-merge sweep |")
+    ds_config_tracker_row_idx = ds_config_text.index("| Tracker state diagnostic |")
+    assert ds_config_tracker_row_idx > ds_config_pending_row_idx
+
+
+def test_agentic_config_settings_registers_tracker_state_diagnostic():
+    path = REPO_ROOT / "bin" / "agentic-config"
+    text = path.read_text(encoding="utf-8")
+    rework_idx = text.index('"rework_detection": {"target": "project_config", "type": "bool"},')
+    tracker_idx = text.index('"tracker_state_diagnostic": {"target": "project_config", "type": "bool"},')
+    assert tracker_idx > rework_idx, (
+        "tracker_state_diagnostic must be registered in _SETTINGS immediately after rework_detection"
+    )
+
+
+def test_canonical_block_never_substitutes_a_different_write_target(canonical_block):
+    """Outcome rubric R4: 'the mechanism never writes a tracker state outside
+    the 5 configured TRACKER_STATE_* values - no substitution, no guessing,
+    ever, on either tracker.' Two prior review rounds' Criticals were about
+    exactly this invariant. This is a genuine guard, not a bare
+    keyword-presence check, but its coverage is bounded and stated honestly
+    here rather than overclaimed: it pins BOTH write call sites to their
+    single literal form (so swapping `target_state` for a derived/nearest/
+    closest value at either the Linear or Jira call site fails), AND sweeps
+    the whole canonical block for a specific, closed vocabulary list
+    (`closest match`, `nearest`, `substitut*`) that a substitution mechanism
+    described in THOSE WORDS would need to use, wherever in the block it
+    appears. It does NOT catch every conceivable phrasing of a fallback-write
+    mechanism - a future edit introducing substitution logic under novel
+    wording that avoids this specific vocabulary (verifier-confirmed: e.g.
+    'retry with the semantically equivalent live state name') would not be
+    caught by this test alone. Treat this as a guard against regression of
+    the two known call sites plus the vocabulary this invariant has
+    historically been described with, not as an exhaustive proof."""
+    # Positive proof: the ONLY two write call sites are pinned to their
+    # single literal form. Linear writes target_state directly; Jira writes
+    # "the matching transition id" - selected from the tracker's own live
+    # transitions list by exact name match against target_state (see the
+    # Jira relabel bullet's "did not match any available transition's target
+    # name" framing - an exact-match test, not a nearest/closest choice).
+    assert "`mcp__linear__save_issue` call with `state: target_state`" in canonical_block, (
+        "the Linear write call must pass target_state literally"
+    )
+    assert (
+        "call `mcp__mcp-atlassian__jira_transition_issue` for the matching transition id"
+        in canonical_block
+    ), "the Jira write call must use the id of the transition matching target_state, not a derived value"
+
+    # The relabeling invariant: diagnostic enrichment can only ever downgrade
+    # a status label after the fact - it can never redirect what gets written
+    # or manufacture a fake success.
+    assert (
+        'it can never convert `"failed"` into `"ok"`, and it can never prevent, delay, or retry the '
+        "original transition attempt."
+        in canonical_block
+    ), "the diagnostic-enrichment sub-step must state it can never convert failed into ok"
+
+    # Negative sweep: none of the vocabulary a write-time substitution
+    # mechanism would need is present anywhere in the block. "closest match"
+    # and "nearest" are reserved for Phase 2c's READ-ONLY validation warning
+    # (outside this block, and itself explicitly disclaiming any write - see
+    # "never writes to an unconfigured state" below), never for a write
+    # decision inside the Tracker Writeback Helper itself.
+    lowered = canonical_block.lower()
+    for forbidden in ("closest match", "nearest", "substitut"):
+        assert forbidden not in lowered, (
+            f"found substitution-indicating vocabulary {forbidden!r} inside the "
+            "Tracker Writeback Helper block - this is the exact invariant two "
+            "prior review rounds' Criticals were about"
+        )
+
+    # Companion check on Phase 2c's own read-only closest-match warning: it
+    # must explicitly disclaim writing to an unconfigured state, so the ONE
+    # place "closest match" legitimately appears in the file is pinned as
+    # non-write.
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    assert (
+        "Closest match: '<closest>'. Proceeding with configured name" in text
+    ), "Phase 2c's closest-match warning line not found"
+    warning_idx = text.index("Closest match: '<closest>'. Proceeding with configured name")
+    warning_window = text[warning_idx:warning_idx + 400]
+    assert "never writes to an unconfigured state" in warning_window, (
+        "Phase 2c's closest-match warning must explicitly disclaim writing to an unconfigured state"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Gap 2: declarable pipeline order (content/commands/ds-implement-ticket.md
+# ## Tracker Writeback Helper step 4.d.iv, and its downstream consumers)
+# ---------------------------------------------------------------------------
+
+def test_invocation_contract_pass_list_has_pipeline_order_param(canonical_block):
+    pipeline_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- `pipeline_order`:")
+    ]
+    assert pipeline_lines, "pipeline_order pass-list line not found"
+    assert all(
+        "TRACKER_PIPELINE_ORDER" in line and "step 4.d.iv" in line
+        for line in pipeline_lines
+    ), "pipeline_order pass-list line must name TRACKER_PIPELINE_ORDER and reference step 4.d.iv"
+
+    # Re-run the pre-existing pass-list assertions to confirm this insertion
+    # did not silently widen the window an earlier test scopes to (the
+    # vacuity trap named in the spec: a new bullet landing inside an existing
+    # scoped window must not make that window's own checks pass vacuously).
+    start = canonical_block.index("3. Pass to the subagent:")
+    end = canonical_block.index("**Subagent responsibilities", start)
+    pass_list_window = canonical_block[start:end]
+    assert "tracker_state_values" in pass_list_window
+    assert "pipeline_order" in pass_list_window
+    diagnostic_lines_in_window = [
+        line for line in pass_list_window.splitlines()
+        if line.strip().startswith("- `diagnostic_enabled`:")
+    ]
+    assert diagnostic_lines_in_window, (
+        "diagnostic_enabled pass-list line must still be present after the "
+        "pipeline_order insertion"
+    )
+
+
+def test_setup_resolves_tracker_pipeline_order_with_default():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    assert "JIRA_PIPELINE_ORDER" in text
+    assert "TRACKER_PIPELINE_ORDER" in text
+    # Both the Jira item-1 sentence and the Linear item-3 sentence must state
+    # the default and the malformed-value fallback.
+    jira_idx = text.index("Also extract an optional pipeline-order override: `JIRA_PIPELINE_ORDER`")
+    jira_window = text[jira_idx:jira_idx + 500]
+    assert "default `IN_PROGRESS, IN_REVIEW, QA` when absent" in jira_window
+    assert "not a valid permutation of IN_PROGRESS/IN_REVIEW/QA - using the default order" in jira_window
+
+    linear_idx = text.index("Also extract an optional pipeline-order override: `Pipeline order:`")
+    linear_window = text[linear_idx:linear_idx + 300]
+    assert "same syntax, validation, and default as the Jira `JIRA_PIPELINE_ORDER` field above" in linear_window
+
+
+def test_setup_item2_linear_shaped_tracker_path_covers_pipeline_order():
+    # M-class fix: item 2 (the `TRACKER: linear` under `## Tracker`) inherits
+    # only the state-name override fields by cross-reference to item 3's
+    # prose; that cross-reference sentence must ALSO now cover pipeline
+    # order, or a project using this path never picks up a declared order.
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    item2_lines = [
+        l for l in text.splitlines()
+        if l.strip().startswith("2. Else if a `## Tracker` section exists with `TRACKER: linear`")
+    ]
+    assert item2_lines, "Setup item 2 (Linear-shaped ## Tracker path) line not found"
+    assert all("Pipeline order" in l for l in item2_lines), (
+        "Setup item 2 must explicitly cover the Pipeline order override field, "
+        "not just state-name overrides"
+    )
+
+
+def test_setup_item4_tracker_none_sets_default_pipeline_order():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    item4_lines = [
+        l for l in text.splitlines()
+        if l.strip().startswith("4. Else: set `TRACKER=none`.")
+    ]
+    assert item4_lines, "Setup item 4 (TRACKER=none) line not found"
+    assert all(
+        'TRACKER_PIPELINE_ORDER` to its default `IN_PROGRESS, IN_REVIEW, QA`' in l
+        for l in item4_lines
+    ), "Setup item 4 must set TRACKER_PIPELINE_ORDER to its default"
+
+
+def test_setup_print_summary_has_tracker_pipeline_order_line():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    summary_lines = [
+        l for l in text.splitlines() if l.startswith("TRACKER_PIPELINE_ORDER:")
+    ]
+    assert summary_lines, "Setup print summary is missing the TRACKER_PIPELINE_ORDER line"
+
+
+def test_step_4d_iv_uses_pipeline_order_as_rank_source(canonical_block):
+    # Line/paragraph-scoped: the ONLY line starting with the step 4.d.iv
+    # marker must reference pipeline_order as the rank source, and must not
+    # still claim the order is fixed/hardcoded - an inversion (reverting to
+    # the hardcoded constant) must fail this, not just pass on unordered
+    # token presence.
+    step_4d_iv_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith("- iv. Else, look up current and target against")
+    ]
+    assert step_4d_iv_lines, "step 4.d.iv line not found"
+    assert len(step_4d_iv_lines) == 1, "expected exactly one step 4.d.iv line"
+    line = step_4d_iv_lines[0]
+    assert "`pipeline_order`" in line
+    assert "rank = index within `pipeline_order`" in line
+    assert "declares `JIRA_PIPELINE_ORDER` / `Pipeline order:` in `AGENTS.md`" in line
+    assert "the declared order governs instead" in line
+    assert "not read from any tracker API and does not depend on operator-configured board/column order" not in line, (
+        "step 4.d.iv must not still claim the order is fixed/unconfigurable - that is the exact "
+        "claim Gap 2 makes false"
+    )
+
+    # The two sibling bullets that follow are unchanged verbatim per the
+    # spec - confirm they are still present and still resolve to their
+    # original permit/skip outcomes (regression guard against this edit
+    # accidentally touching them).
+    assert re.search(
+        r"If BOTH names resolve to a pipeline rank: \*\*permit\*\* iff `pipeline_rank\(current\) < pipeline_rank\(target\)`",
+        canonical_block,
+    )
+    fallthrough_lines = [
+        line for line in canonical_block.splitlines()
+        if line.strip().startswith(
+            "- Otherwise (at least one name does not resolve to a pipeline rank"
+        )
+    ]
+    assert fallthrough_lines
+    assert all("**skip** unconditionally" in line for line in fallthrough_lines)
+
+
+def test_canonical_block_rejects_fully_tracker_derived_pipeline_order(canonical_block):
+    assert "**Rejected: fully tracker-derived pipeline order.**" in canonical_block
+    idx = canonical_block.index("**Rejected: fully tracker-derived pipeline order.**")
+    window = canonical_block[idx:idx + 700]
+    assert "edge-local view of the workflow graph, not a global ordering of all states" in window
+    assert "cross-tracker-symmetric live-derived order" in window
+    assert "breaks universality" in window
+
+
+def test_phase_11_inputs_list_includes_pipeline_order():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    anchor = '`target_state`: `$TRACKER_STATE_QA`'
+    idx = text.index(anchor)
+    window = text[max(0, idx - 400):idx + 500]
+    assert "pipeline_order" in window, (
+        "Phase 11's own Inputs list is missing pipeline_order alongside target_state/tracker_state_values"
+    )
+
+
+def test_phase_11_summary_sentence_names_pipeline_order():
+    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    anchor = "For full details of the Phase 11 writeback subagent brief shape"
+    idx = text.index(anchor)
+    window = text[idx:idx + 300]
+    assert "`pipeline_order`" in window
+    # Must not claim Phase 11 gains diagnostic/fallback behavior beyond what
+    # Gap 1 already granted - this edit is a pipeline_order addition only.
+    assert "gains" not in window.split("Phase 11's own Jira")[0]
+
+
+def test_ticket_status_sync_preflight_resolves_pipeline_order():
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    assert (
+        "Additionally resolve `TRACKER_PIPELINE_ORDER` from the same `AGENTS.md` fields "
+        "as `/ds-implement-ticket` Setup"
+        in text
+    )
+
+
+def test_ticket_status_sync_spawn_sites_have_pipeline_order():
+    path = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
+    text = path.read_text(encoding="utf-8")
+    anchor = (
+        "spawn the tracker-writeback subagent using the "
+        "`## Tracker Writeback Helper` invocation contract"
+    )
+    positions = [m.start() for m in re.finditer(re.escape(anchor), text)]
+    assert len(positions) == 2, (
+        f"expected exactly 2 tracker-writeback spawn sites, found {len(positions)}"
+    )
+    for pos in positions:
+        window = text[pos:pos + 700]
+        assert "pipeline_order" in window, (
+            f"spawn site at offset {pos} is missing pipeline_order"
+        )
+        # Regression guard: the pre-existing site checks must still hold in
+        # this same widened window.
+        assert "forward_only_guard: true" in window
+        assert "tracker_state_values" in window
+
+
+def test_wrap_part_f_gate_resolves_pipeline_order():
+    path = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
+    text = path.read_text(encoding="utf-8")
+    assert (
+        "Also resolve `TRACKER_PIPELINE_ORDER` (same fields and default as "
+        "`/ds-implement-ticket` Setup)."
+        in text
+    )
+    reconcile_idx = text.index("**Reconcile each detected key.**")
+    reconcile_window = text[reconcile_idx:reconcile_idx + 700]
+    assert "pipeline_order" in reconcile_window
+    assert "diagnostic_enabled" in reconcile_window
+    assert "linear_team_key" in reconcile_window
+
+
+def test_init_project_templates_show_pipeline_order_under_own_heading():
+    path = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
+    text = path.read_text(encoding="utf-8")
+
+    linear_idx = text.index("# State Done: Done")
+    linear_window = text[linear_idx:linear_idx + 200]
+    assert "# Optional pipeline-order override (default shown; uncomment to override):" in linear_window
+    assert "# Pipeline order: IN_PROGRESS, IN_REVIEW, QA" in linear_window
+
+    jira_idx = text.index("# JIRA_STATE_DONE: Done")
+    jira_window = text[jira_idx:jira_idx + 200]
+    assert "# Optional pipeline-order override (default shown; uncomment to override):" in jira_window
+    assert "# JIRA_PIPELINE_ORDER: IN_PROGRESS, IN_REVIEW, QA" in jira_window

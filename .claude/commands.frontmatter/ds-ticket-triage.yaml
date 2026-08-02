@@ -1,0 +1,1 @@
+description: "Triage a set of tickets: analyse dependencies, distribute across parallel lanes, emit paste-ready /ds-implement-ticket kickoff prompts. Plan-only; no code edits, no tracker writes."

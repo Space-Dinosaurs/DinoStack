@@ -18,6 +18,8 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 ## Decisions
 
+- **2026-07-31: Knowledge-file committing moved from `/ds-implement-ticket` Phase 11c (deleted, #534) to `/ds-wrap` Part G.** Phase 11c had produced zero commits ever: it read only `wrap-ticket`'s return JSON so `learnings-agent` writes were invisible, it skipped when no PR existed, and a categorical `.agentic/*` floor refused `learnings.md` outright. Part G copies the three files **verbatim** onto a `chore/knowledge-*` branch and pushes - no merge algorithm, because the destination is a reviewed PR and a human reads the diff. An earlier design spent three review rounds building entry-hashing, section-anchoring, and a ledger before that was recognized. Review-rigor was promoted to Phase **11d**, deliberately not reusing `11c` (it fires on Trivial tickets, which would falsify `ticket-rework.md`'s "11c is skipped on Trivial").
+
 - **2026-07-25 (supersedes 2026-05-18): Adapter-drift CI gate (`check-adapter-sync`) is now a required status check on `main` and hard-blocks merge on drift.** Verified against the live branch-protection ruleset (14 required checks total, `check-adapter-sync` among them). No longer advisory-only.
 
 - **2026-07-01: "Works for everyone" (universality) is a North Star pillar.** Shared DinoStack behavior must never bake in one operator's identity, workspace, tracker, or local setup - resolve per-operator context at runtime and degrade gracefully when unconfigured. Test: would this work for a teammate with different credentials/tracker/harness?
@@ -34,6 +36,10 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-27: The deferred G2 concurrent-wrap-queueing design's stated premise (`context.md` races) is stale post-#499** - `context.md` is now a lock-free derived rollup (session-keyed shards + compare-and-retry) with no remaining hazard. If G2 is resumed, re-scope it to the three files that actually still contend: `.agentic/_wrap.md`, root `MEMORY.md`, and `decisions.md`. See `.agentic/learnings.md` KNW-20260727-002 for full detail.
 
+- **2026-07-29: `.agentic/tasks.jsonl` ownership and ordering are defined by the executable `bin/tests/fold_model.py` (DS-108, #521), not by prose.** An executable model was chosen because it is diffable, directly testable, and cannot drift from the gates that enforce it - the prose rules had already drifted, and five plan revisions passed before a non-prefix-monotonic ordering defect surfaced. Ordering is arrival order only; `updated_at` feeds staleness, never ordering. Gates: `bin/tests/test_fold_invariants.py`, `bin/tests/test_tasks_jsonl_fold.sh`.
+
+- **2026-07-29: `strict_required_status_checks_policy` is now `true` on the `main` ruleset (DS-115), so merges serialize.** A base move invalidates a PR's results and GitHub does not re-run workflows on base movement, so each PR needs an explicit rebase plus a full 14-check re-run near merge time. Chosen because `check-adapter-sync` already detects stale-base regeneration (PR checkout is the merge ref, `refs/pull/N/merge`) - only re-run freshness was missing, so no new CI gate was needed. Complements the 2026-07-25 required-checks entry.
+
 ## Methodology Enforcement
 
 - **2026-07-01: The Elevated-signal table and the "when in doubt, classify Elevated" tie-break are duplicated across more files than a grep suggests** (`02-delegation.md`, `subagent-protocol.md`, `skeptic-protocol.md`, plus restatements in `orchestration-planner.md`/`agentic-status.md`). Match copies by semantics, not by grepping one phrase.
@@ -41,6 +47,8 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 - **2026-07-07: A PreToolUse hook can't see the conductor's own structural decisions (only `tool_input`).** Tier-3 escalation for authoring roles (architect/adr-generator/product-discovery) on Plan+ADR units must be conductor-declared (explicit `model: opus`) - the hook can only backstop a sub-Opus downgrade, never detect the trigger itself.
 
 - **2026-07-25 (supersedes 2026-07-08): `check-vision-alignment` CI is now a required status check on `main`**, per explicit operator decision - no longer advisory-only (14 required checks total). Canonical trigger-path list is still owned by `content/agents/skeptic.md` step 3.6 (grep `keep.*sync` to find the two derived copies).
+
+- **2026-08-01: A Skeptic convergence failure can relocate the same defect rather than repeat it verbatim - a re-review must diff the finding's shape, not its wording.** Two independent tickets (DS-118, DS-120) in one session each showed a "claimed fix" that removed the flagged line while an equivalent defect reappeared one step away (a write became a read of the same field at the same phase; a branch-name check moved into a reserved sub-pattern). See `.agentic/learnings.md` KNW-20260801-001 for both instances and the diagnostic pattern.
 
 ## Knowledge Capture
 
@@ -66,7 +74,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 - **2026-07-02: Checking for duplicate in-flight work only at spawn time misses collisions that start or merge while a Worker runs.** Check open PRs and `git status` before spawning, and re-check for a superseding merge before opening a PR (dirty `mergeStateStatus` on a fresh PR is the symptom); stand down and cite it.
 
-- **2026-06-13: Two reusable git lessons.** (1) To flip a gitignored file to tracked, append a negation line (`!.agentic/<file>`) rather than removing the ignore rule - additive negation is safe, removal leaks. (2) Green CI per-PR doesn't guarantee `main`'s end state when multiple sessions touch it concurrently - assert directly (`git ls-files`, `git check-ignore`).
+- **2026-07-31 (supersedes 2026-06-13): Four reusable git lessons, all of which have shipped bugs here.** (1) To flip a gitignored file to tracked, append a negation (`!.agentic/<file>`) rather than removing the ignore rule - additive negation is safe, removal leaks. (2) A negation cannot re-include a file whose parent **directory** is excluded: `.agentic/`, `/.agentic/`, and bare `.agentic` all defeat `!.agentic/qa.md`; only glob forms (`/.agentic/*`, `**/.agentic/**`) work. (3) Matching is **last-match-wins**, so a negation only overrides an umbrella placed **above** it - `bin/agentic-migrate` appended umbrellas at EOF and silently killed every carve-out (fixed #527). (4) **`git diff --quiet <ref> -- <path>` exits 0 for a path that has never been committed to `<ref>`** - "unchanged", not "new" - so an untracked file is invisible to any gate built on it; pair it with `git cat-file -e <ref>:<path>` (this defeated Part G for brand-new files, fixed pre-merge in #534). Green CI per-PR still doesn't guarantee `main`'s end state under concurrent sessions - assert directly with `git ls-files` / `git check-ignore`.
 
 - **2026-07-25 (supersedes 2026-06-16): Merging to `main` needs exactly 1 code-owner approval, not 3** - verified against the live ruleset (`required_approving_review_count: 1`; CODEOWNERS designates `* @tysonhummel` as sole owner). `--admin` is still required for `gh pr merge` when: the PR is authored by @tysonhummel (GitHub disallows self-approval), or no `@tysonhummel` reviewer is present - the normal unattended-agent case. Confirmed merging #483-#486; an approval-required failure on `--admin` means the bypass actor was removed from the ruleset and needs re-adding in GitHub's UI.
 
@@ -76,7 +84,7 @@ This is the always-loaded tier (imported via `@MEMORY.md`) - keep it under ~120 
 
 ## Adapters & Build
 
-- **2026-07-09:** The 88,323 B resident-budget ratchet and `scripts/check-resident-budget.sh` referenced in `RUNBOOK-extraction-audit.md` do not exist on `main` - they assume unmerged PR #420 (DS-68). Until #420 lands, resident-set tickets have to report a re-derivable delta by hand instead of running the missing check. (ticket: DS-74)
+- **2026-07-31 (supersedes 2026-07-09): `scripts/check-resident-budget.sh` and the `resident-budget` CI workflow now exist on `main`.** Baseline is 123,938 B against `THRESHOLD=124938`; lower THRESHOLD in the same PR as any deliberate compression of the resident set. **When a change busts the budget, the fix is progressive disclosure, not raising THRESHOLD** - #534 added ~3.4 KB of sweep procedure to `content/rules/conventions.md` (loaded in *every* session on *every* project, to describe a rarely-firing notice), measured 127,355 B, and landed at 124,440 B by moving the mechanics to `content/references/conventions-detail.md` behind a pointer. Never compress *unrelated* prose to make room: that hides the new cost inside someone else's savings, which is what the ratchet exists to prevent. (ticket: DS-74)
 
 - **2026-07-09: A compression/extraction change that moves inline prose into `content/references/*-detail.md` creates a staleness class that merges silently, no conflict marker** - later commits keep patching the original location while the extracted copy diverges unnoticed. Catching all instances required a file-by-file audit of every post-branch commit (PR #420, DS-68).
 

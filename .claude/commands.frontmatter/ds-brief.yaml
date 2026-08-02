@@ -1,0 +1,1 @@
+description: "Interactive planning dialogue that produces a Brief artifact before architects and engineers are spawned. /ds-brief --from <path> extracts a Brief from an existing PRD."

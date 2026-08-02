@@ -1,3 +1,7 @@
+---
+description: "Remove stale subagent and feature worktrees."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-cleanup-worktrees

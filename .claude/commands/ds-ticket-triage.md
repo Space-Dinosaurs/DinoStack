@@ -1,3 +1,7 @@
+---
+description: "Triage a set of tickets: analyse dependencies, distribute across parallel lanes, emit paste-ready /ds-implement-ticket kickoff prompts. Plan-only; no code edits, no tracker writes."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 <!--
@@ -23,8 +27,9 @@ Upstream deps: content/commands/ds-implement-ticket.md Phase 0 (input normalizer
                invoked by reference - no copy) and Phase 1 Ticket-rework
                detection (per-entry ledger read, invoked by reference - no
                fork of the jq algorithm); METHODOLOGY.md (activation
-               preflight); AGENTS.md ## Tracker / ## Linear sections (TRACKER
-               resolution chain, same as implement-ticket Setup); Jira MCP
+               preflight); AGENTS.md ## Tracker / ## Linear sections plus the
+               .agentic/tracker.yml local overlay (TRACKER resolution chain,
+               same as implement-ticket Setup); Jira MCP
                (mcp__mcp-atlassian__jira_get_issue / jira_search); Linear MCP
                (mcp__linear__get_issue); content/references/trigger-catalog.md
                (yolo-guard, §d); .agentic/ticket-ledger.jsonl (local,
@@ -101,7 +106,7 @@ Strategic triage for a set of tickets. Produces a lane-distributed game plan wit
 
 Run the activation preflight (see `METHODOLOGY.md`). If inactive, no-op and exit.
 
-Resolve `TRACKER`, `TICKET_PREFIX`, and `JIRA_BASE_URL` using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Tracker` / `## Linear` sections). Cache results in-context for the session; do not re-resolve mid-command.
+Resolve `TRACKER`, `TICKET_PREFIX`, and `JIRA_BASE_URL` using the SAME resolution chain as `/ds-implement-ticket` Setup (AGENTS.md `## Tracker` / `## Linear` sections, plus the `.agentic/tracker.yml` local overlay). Cache results in-context for the session; do not re-resolve mid-command. When `_source` is `overlay` or `merged`, print a `Tracker config source:` line.
 
 Resolve `REWORK_DETECTION` the SAME way as `/ds-implement-ticket` Setup: read `.agentic/config.json` key `rework_detection` (boolean, default `true`; absent key resolves to `true`). This governs the per-entry ledger read below - see `content/references/ticket-rework.md`.
 

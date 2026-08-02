@@ -1,0 +1,919 @@
+#!/usr/bin/env python3
+"""
+Purpose: CLI for a project-local, gitignored tracker-config overlay
+         (`<repo>/.agentic/tracker.yml`) that is merged, field-by-field with
+         the overlay winning, over the AGENTS.md `## Tracker` / `## Linear`
+         resolution chain used by `/ds-implement-ticket` Setup and its
+         deferring consumers. Lets a repo whose tracker cannot be declared
+         in a tracked, universally-inherited AGENTS.md still resolve
+         TRACKER at runtime, without baking one operator's workspace or
+         account ID into a public file (DS-74).
+
+Public API:
+  agentic-tracker init --tracker {jira,linear} --prefix P [--base-url U]
+                       [--workspace W] [--qa-assignee ID] [--force]
+                       [--force-unignored]
+  agentic-tracker show [--scope {project,effective}]
+  agentic-tracker set <key> <value> [--force-unignored]
+  agentic-tracker resolve [--json] [--project-root PATH]
+  agentic-tracker path
+  agentic-tracker --help
+
+  Helpers: _project_tracker_path(cwd=None), _read_overlay(path),
+           _read_agents_md(path), _defaults_for(tracker),
+           _git_state(path), _check_ignored(path, force_unignored=False),
+           _resolve_tracker(cwd), _validate_write_key(key, value).
+
+Data model: `<repo>/.agentic/tracker.yml` - project-local, gitignored,
+  pure data (never executes). Closed key allowlist (ALLOWED_KEYS): tracker,
+  prefix, base_url, workspace, qa_assignee, jira_qa_transition,
+  state_in_progress, state_in_review, state_qa, state_blocked, state_done,
+  pipeline_order, created_at. Unlike `.agentic/phase0-classifiers.yml`
+  (which runs with full conductor privileges), this file is data-only.
+
+Upstream deps: Python 3 stdlib only (argparse, json, os, re, subprocess,
+               sys, datetime, pathlib). Shared helper: bin/_lib
+               (atomic_write). Shells out to `git` for the write-path
+               ignore/tracked-state guard only; absent git degrades to
+               `no-repo` (allow, warn), never a hard failure.
+
+Downstream consumers: content/commands/ds-implement-ticket.md Setup (prefers
+  `agentic-tracker resolve --json`; falls back to the prose chain when the
+  binary is unavailable); ds-ticket-status-sync.md, ds-wrap.md Part F,
+  ds-ticket-triage.md, ds-feedback-triage.md (same resolution chain, by
+  reference). content/commands/ds-init-project.md Step 11 (writes via
+  `agentic-tracker init` when the operator chooses the local-overlay scope).
+
+Failure modes: exits 0 (success, all subcommands), 2 (resolve, and show
+  --scope effective - the live legacy `## Linear` shape guard fired; never
+  suppressed by the overlay), 3 (init/set - write refused by the git-state
+  guard: the target path is unignored, already tracked, or its ignore
+  state can't be determined; `--force-unignored` downgrades to a warning
+  and proceeds), 4 (set - write-side key validation refused a
+  credential-shaped or unknown key, or an oversized value; runs BEFORE the
+  git-state guard so a secret is rejected for being a secret, not
+  incidentally because the path happened to be unignored; structurally
+  unreachable for init, which only ever writes its own allowlisted,
+  non-credential-shaped flags). `set` also exits 1 (not part of the
+  fail-safe-bound enumeration above, which covers `_resolve_tracker` only)
+  when an existing overlay it must read-then-rewrite is unreadable or not
+  valid UTF-8 - a clear operator-facing message rather than a raw
+  traceback.
+  `_resolve_tracker` never raises and never exits/signals non-zero for any
+  file-state reason - the read path is fail-safe by construction, including
+  an unreadable AGENTS.md (degrades to no-section-resolved, same as
+  absent); the only non-zero exit `_resolve_tracker`'s caller ever signals
+  is 2, for the legacy guard above. An absent, malformed, incomplete, or
+  credential-bearing overlay degrades to the AGENTS.md result (or
+  TRACKER=none) with a distinct, actionable reason string; it is never
+  partially honored. Writes use atomic_write(mode=0o600) from bin/_lib,
+  so the destination is never partially written. This binary's write-path
+  guard (`_check_ignored`) binds only itself - a hand-authored
+  `.agentic/tracker.yml` on the no-binary prose path is outside it; the
+  read path is deliberately ungated so an existing checkout is never
+  bricked by a drifted .gitignore, but a tracked file still triggers a
+  warn-only notice at every read. Resolution here is conductor-side in
+  $REPO - an isolation worktree carries no `.agentic/`, so a future change
+  making a worktree-isolated agent resolve tracker config itself would
+  need its own plumbing; this binary does not attempt it.
+
+Performance: Standard. File I/O plus, on the read path, up to three
+             short-lived `git` calls per `_resolve_tracker` invocation
+             whenever the overlay path exists (`rev-parse`, `ls-files`,
+             then `check-ignore` unless the file is tracked) - measured:
+             0 forks with no overlay, 2 forks when the overlay is tracked,
+             3 forks in the intended (gitignored) configuration. Paid by
+             all four resolve/show/resolve-consuming entry points, not
+             cached across them. The write-path guard (`init`/`set`)
+             re-runs the same ladder rather than adding to it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Shared helpers from bin/_lib (same directory; bin/ is on sys.path at
+# runtime). .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-tracker
+# -> repo bin/agentic-tracker, as created by install.sh) back to the real
+# bin/ directory so _lib.py is found on a bare `agentic-tracker` invocation.
+# The bare `.parent` form (no `.resolve()`) is the live DS-66 bug - it
+# resolves to a missing ~/.local/bin/_lib.py and soft-fails silently.
+import sys as _sys
+import importlib.util as _ilu
+import importlib.machinery as _ilm
+
+_LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
+if "_lib" in _sys.modules:
+    _lib_mod = _sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    _sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
+atomic_write = _lib_mod.atomic_write
+del _sys, _ilu, _ilm, _lib_mod
+
+TRACKER_FILE = "tracker.yml"
+
+ALLOWED_KEYS: set[str] = {
+    "tracker",
+    "prefix",
+    "base_url",
+    "workspace",
+    "qa_assignee",
+    "jira_qa_transition",
+    "state_in_progress",
+    "state_in_review",
+    "state_qa",
+    "state_blocked",
+    "state_done",
+    "pipeline_order",
+    "created_at",
+}
+
+REQUIRED_KEYS: dict[str, set[str]] = {
+    "jira": {"prefix", "base_url"},
+    "linear": {"prefix", "workspace"},
+}
+
+CREDENTIAL_KEY_RE = re.compile(
+    r"(?i)(token|secret|password|passwd|api[_-]?key|credential|cookie|bearer|\bpat\b)"
+)
+
+MAX_VALUE_LEN = 256
+
+# Hygiene cap on collected parse warnings - a pathological file (e.g. one key
+# repeated a very large number of times) must not make the warnings list grow
+# unbounded. Parsing itself is unaffected; only warning collection is capped.
+MAX_WARNINGS = 50
+
+PIPELINE_TOKENS = ("IN_PROGRESS", "IN_REVIEW", "QA")
+
+# Live guard text quoted verbatim from content/commands/ds-implement-ticket.md
+# "Legacy `## Linear` shape guard" (the em dash is quoted live text, not
+# newly authored prose).
+LEGACY_LINEAR_GUARD_MESSAGE = (
+    "Your tracker config is missing fields /ds-implement-ticket needs. "
+    "Run /ds-init-project to update it —\n"
+    "discovery will fill in most fields automatically."
+)
+
+TRACKED_READ_WARNING = (
+    "WARNING: .agentic/tracker.yml is tracked in this repo - it may hold "
+    "another operator's tracker config."
+)
+
+_UNIGNORED_MSG = (
+    "agentic-tracker: .agentic/tracker.yml is NOT gitignored in this repo - refusing to write.\n"
+    "This file can carry your tracker workspace and account ID; committing it would put one\n"
+    "operator's config in a tracked file.\n"
+    "Fix: add this line to .gitignore, then re-run:\n"
+    "    .agentic/tracker.yml\n"
+    "Override (not recommended): --force-unignored"
+)
+
+_TRACKED_MSG = (
+    "agentic-tracker: .agentic/tracker.yml is already TRACKED in this repo - refusing to write.\n"
+    "A .gitignore line alone will not help: git keeps tracking a file already in the index.\n"
+    "Fix: untrack it first, then re-run:\n"
+    "    git rm --cached .agentic/tracker.yml\n"
+    "    # ensure .gitignore contains: .agentic/tracker.yml\n"
+    "Override (not recommended): --force-unignored"
+)
+
+_UNKNOWN_MSG = (
+    "agentic-tracker: cannot determine whether .agentic/tracker.yml is gitignored (git exited 128).\n"
+    "Refusing to write rather than risk committing tracker config. Re-run inside a healthy\n"
+    "git work tree, or override with --force-unignored."
+)
+
+
+# ---------------------------------------------------------------------------
+# Path resolution
+# ---------------------------------------------------------------------------
+
+def _project_tracker_path(cwd: Path | None = None) -> Path:
+    """Return the project-local overlay path for cwd (or Path.cwd())."""
+    return Path(cwd or Path.cwd()) / ".agentic" / TRACKER_FILE
+
+
+# ---------------------------------------------------------------------------
+# Pipeline-order normalization (byte-identical rule to the live step-1 chain)
+# ---------------------------------------------------------------------------
+
+def _append_warning(warnings: list[str], msg: str) -> None:
+    """Append msg to warnings, capped at MAX_WARNINGS (plus one truncation marker)."""
+    if len(warnings) < MAX_WARNINGS:
+        warnings.append(msg)
+    elif len(warnings) == MAX_WARNINGS:
+        warnings.append(f"... additional warnings suppressed (cap {MAX_WARNINGS})")
+    # else: already capped, no-op - parsing itself continues unaffected.
+
+
+def _normalize_pipeline_order(value: str) -> str | None:
+    tokens = [t.strip().upper() for t in value.split(",")]
+    if len(tokens) == 3 and len(set(tokens)) == 3 and sorted(tokens) == sorted(PIPELINE_TOKENS):
+        return ", ".join(tokens)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# .agentic/tracker.yml parsing (normative parse boundary)
+# ---------------------------------------------------------------------------
+
+def _read_overlay(path: Path) -> tuple[dict, str, list[str], str | None]:
+    """Parse the overlay file. Returns (fields, status, warnings, reason).
+
+    status is one of "ok" / "absent" / "unusable". fields is {} unless
+    status == "ok" - the overlay is never partially honored.
+    """
+    if not path.is_file():
+        return {}, "absent", [], None
+
+    try:
+        raw_bytes = path.read_bytes()
+    except OSError as exc:
+        return {}, "unusable", [], f"unreadable ({exc})"
+
+    try:
+        text = raw_bytes.decode("utf-8")
+    except UnicodeDecodeError as exc:
+        return {}, "unusable", [], f"unreadable ({exc})"
+
+    # Rule 1: strip a leading UTF-8 BOM before any other processing.
+    if text.startswith("﻿"):
+        text = text[1:]
+
+    parsed: dict[str, str] = {}
+    warnings: list[str] = []
+
+    for raw_line in text.split("\n"):
+        # Rule 2: strip trailing newline (already split), then .strip()
+        # (also absorbs CRLF and tab indentation).
+        line = raw_line.strip()
+        # Rule 3: empty or comment lines are skipped entirely.
+        if not line or line.startswith("#"):
+            continue
+        # Rule 4: split on the FIRST colon; no colon = ignored with a warning.
+        if ":" not in line:
+            _append_warning(warnings, f"ignoring line with no ':' separator: {line!r}")
+            continue
+        key_part, _, value_part = line.partition(":")
+        # Rule 5: key stripped+lowercased; value stripped, one quote pair removed.
+        key = key_part.strip().lower()
+        value = value_part.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        # Rule 7: duplicate keys - last occurrence wins, one warning.
+        if key in parsed:
+            _append_warning(warnings, f"duplicate key '{key}': last occurrence wins")
+        parsed[key] = value
+
+    # Credential-shaped-key guard runs on PARSED keys BEFORE allowlist
+    # filtering - otherwise the allowlist would silently drop the
+    # offending key and the guard would never see it.
+    for key in parsed:
+        if CREDENTIAL_KEY_RE.search(key):
+            return (
+                {},
+                "unusable",
+                warnings,
+                f"credential-shaped key '{key}' - this file must never hold secrets; "
+                "credentials resolve from the harness/MCP config",
+            )
+
+    fields: dict[str, str] = {}
+    for key, value in parsed.items():
+        if key not in ALLOWED_KEYS:
+            _append_warning(warnings, f"unknown key '{key}' dropped")
+            continue
+        if len(value) > MAX_VALUE_LEN:
+            _append_warning(warnings, f"key '{key}' dropped: value exceeds {MAX_VALUE_LEN} characters")
+            continue
+        # Rule 6: an empty value is treated as unset.
+        if value == "":
+            continue
+        fields[key] = value
+
+    tracker_raw = fields.get("tracker")
+    if not tracker_raw:
+        return {}, "unusable", warnings, "no 'tracker:' key - accepted values: jira, linear"
+    if tracker_raw not in ("jira", "linear"):
+        return (
+            {},
+            "unusable",
+            warnings,
+            f"unknown tracker '{tracker_raw}' - accepted values: jira, linear",
+        )
+
+    resolved = _translate_overlay_fields(fields, tracker_raw, warnings)
+    return resolved, "ok", warnings, None
+
+
+def _translate_overlay_fields(fields: dict, tracker: str, warnings: list[str]) -> dict:
+    """Map allowlisted overlay keys onto canonical AGENTS.md-shaped field names."""
+    resolved: dict = {"TRACKER": tracker}
+    if "prefix" in fields:
+        resolved["TICKET_PREFIX"] = fields["prefix"]
+
+    if tracker == "jira":
+        if "base_url" in fields:
+            resolved["JIRA_BASE_URL"] = fields["base_url"]
+        if "qa_assignee" in fields:
+            resolved["JIRA_QA_ASSIGNEE_ACCOUNT_ID"] = fields["qa_assignee"]
+        if "jira_qa_transition" in fields:
+            resolved["JIRA_QA_TRANSITION"] = fields["jira_qa_transition"]
+    else:  # linear
+        if "workspace" in fields:
+            resolved["LINEAR_WORKSPACE"] = fields["workspace"]
+        if "qa_assignee" in fields:
+            resolved["LINEAR_QA_ASSIGNEE_ID"] = fields["qa_assignee"]
+
+    for src, dst in (
+        ("state_in_progress", "TRACKER_STATE_IN_PROGRESS"),
+        ("state_in_review", "TRACKER_STATE_IN_REVIEW"),
+        ("state_qa", "TRACKER_STATE_QA"),
+        ("state_blocked", "TRACKER_STATE_BLOCKED"),
+        ("state_done", "TRACKER_STATE_DONE"),
+    ):
+        if src in fields:
+            resolved[dst] = fields[src]
+
+    if "pipeline_order" in fields:
+        normalized = _normalize_pipeline_order(fields["pipeline_order"])
+        if normalized is None:
+            warnings.append(
+                f"WARNING: pipeline_order '{fields['pipeline_order']}' is not a valid "
+                "permutation of IN_PROGRESS/IN_REVIEW/QA - using the default order."
+            )
+        else:
+            resolved["TRACKER_PIPELINE_ORDER"] = normalized
+
+    return resolved
+
+
+# ---------------------------------------------------------------------------
+# AGENTS.md parsing (mirrors, but can drift from, the live prose chain -
+# Known limitation 7; mitigated by tests A/A2/C/D/K/R only, not exhaustively)
+# ---------------------------------------------------------------------------
+
+def _extract_section(text: str, heading: str) -> str | None:
+    """Return the body of a `## <heading>` section through the next `## ` or EOF."""
+    m = re.search(r"^" + re.escape(heading) + r"\s*$", text, re.MULTILINE)
+    if not m:
+        return None
+    start = m.end()
+    rest = text[start:]
+    next_m = re.search(r"^## ", rest, re.MULTILINE)
+    end = start + next_m.start() if next_m else len(text)
+    return text[start:end]
+
+
+def _field(section: str, label: str) -> str | None:
+    """Extract a `Label: value` or `- Label: value` single-line field, first match."""
+    m = re.search(
+        r"^[ \t]*-?[ \t]*" + re.escape(label) + r":\s*(.+?)\s*$", section, re.MULTILINE
+    )
+    if not m:
+        return None
+    val = m.group(1).strip()
+    return val or None
+
+
+def _parse_jira_section(section: str) -> dict:
+    fields = {"TRACKER": "jira"}
+    for src, dst in (
+        ("TICKET_PREFIX", "TICKET_PREFIX"),
+        ("JIRA_BASE_URL", "JIRA_BASE_URL"),
+        ("JIRA_QA_ASSIGNEE_ACCOUNT_ID", "JIRA_QA_ASSIGNEE_ACCOUNT_ID"),
+        ("JIRA_QA_TRANSITION", "JIRA_QA_TRANSITION"),
+        ("JIRA_STATE_IN_PROGRESS", "TRACKER_STATE_IN_PROGRESS"),
+        ("JIRA_STATE_IN_REVIEW", "TRACKER_STATE_IN_REVIEW"),
+        ("JIRA_STATE_QA", "TRACKER_STATE_QA"),
+        ("JIRA_STATE_BLOCKED", "TRACKER_STATE_BLOCKED"),
+        ("JIRA_STATE_DONE", "TRACKER_STATE_DONE"),
+    ):
+        v = _field(section, src)
+        if v:
+            fields[dst] = v
+    order = _field(section, "JIRA_PIPELINE_ORDER")
+    if order:
+        normalized = _normalize_pipeline_order(order)
+        if normalized:
+            fields["TRACKER_PIPELINE_ORDER"] = normalized
+    return fields
+
+
+def _parse_linear_shaped(
+    section: str, prefix_label: str, workspace_label: str, qa_label: str
+) -> tuple[dict, str | None]:
+    """Shared parser for '## Linear' and '## Tracker' (TRACKER: linear) shapes."""
+    fields: dict = {"TRACKER": "linear"}
+    prefix = _field(section, prefix_label)
+    if prefix:
+        fields["TICKET_PREFIX"] = prefix
+    workspace = _field(section, workspace_label)
+    if workspace:
+        fields["LINEAR_WORKSPACE"] = workspace
+    qa = _field(section, qa_label)
+    if qa:
+        fields["LINEAR_QA_ASSIGNEE_ID"] = qa
+    for src, dst in (
+        ("State In Progress", "TRACKER_STATE_IN_PROGRESS"),
+        ("State In Review", "TRACKER_STATE_IN_REVIEW"),
+        ("State QA", "TRACKER_STATE_QA"),
+        ("State Blocked", "TRACKER_STATE_BLOCKED"),
+        ("State Done", "TRACKER_STATE_DONE"),
+    ):
+        v = _field(section, src)
+        if v:
+            fields[dst] = v
+    order = _field(section, "Pipeline order")
+    if order:
+        normalized = _normalize_pipeline_order(order)
+        if normalized:
+            fields["TRACKER_PIPELINE_ORDER"] = normalized
+    return fields, workspace
+
+
+def _read_agents_md(path: Path) -> tuple[dict, str | None]:
+    """Mirror the live AGENTS.md fallback chain steps 1-3 (step 4 = caller default).
+
+    Returns (fields, guard_error). guard_error is non-None exactly when the
+    live legacy `## Linear` shape guard condition holds - the section
+    resolved to TRACKER=linear but is missing the required Workspace field.
+    """
+    if not path.is_file():
+        return {}, None
+
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        # Fail-safe: an unreadable AGENTS.md must never raise here - it
+        # degrades to "no AGENTS.md section resolved", the same as absent.
+        return {}, None
+
+    tracker_section = _extract_section(text, "## Tracker")
+    if tracker_section is not None:
+        t = _field(tracker_section, "TRACKER")
+        if t and t.strip().lower() == "jira":
+            return _parse_jira_section(tracker_section), None
+        if t and t.strip().lower() == "linear":
+            fields, workspace = _parse_linear_shaped(
+                tracker_section, "TICKET_PREFIX", "LINEAR_WORKSPACE", "LINEAR_QA_ASSIGNEE_ID"
+            )
+            if not workspace:
+                return {}, LEGACY_LINEAR_GUARD_MESSAGE
+            return fields, None
+
+    linear_section = _extract_section(text, "## Linear")
+    if linear_section is not None:
+        fields, workspace = _parse_linear_shaped(
+            linear_section, "Team", "Workspace", "QA assignee ID"
+        )
+        if not workspace:
+            return {}, LEGACY_LINEAR_GUARD_MESSAGE
+        return fields, None
+
+    return {}, None
+
+
+# ---------------------------------------------------------------------------
+# Defaults (live step-4 defaults)
+# ---------------------------------------------------------------------------
+
+def _defaults_for(tracker: str | None) -> dict:
+    is_jira = tracker == "jira"
+    return {
+        "TRACKER_STATE_IN_PROGRESS": "In Progress",
+        "TRACKER_STATE_IN_REVIEW": "In Review",
+        "TRACKER_STATE_QA": "QA" if is_jira else "Testing",
+        "TRACKER_STATE_BLOCKED": "Blocked",
+        "TRACKER_STATE_DONE": "Done",
+        "TRACKER_PIPELINE_ORDER": "IN_PROGRESS, IN_REVIEW, QA",
+    }
+
+
+# ---------------------------------------------------------------------------
+# Write-path guard
+# ---------------------------------------------------------------------------
+
+def _run_git(args: list[str], cwd: Path, capture_stdout: bool = False) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ["git"] + args,
+        cwd=str(cwd),
+        stdout=subprocess.PIPE if capture_stdout else subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        text=True,
+    )
+
+
+def _git_state(path: Path) -> str:
+    """Resolve one of: no-repo | tracked | ignored | unignored | unknown."""
+    cwd = path.parent if path.parent.exists() else Path.cwd()
+    try:
+        r = _run_git(["rev-parse", "--is-inside-work-tree"], cwd, capture_stdout=True)
+    except (FileNotFoundError, OSError):
+        return "no-repo"
+    if r.returncode != 0 or (r.stdout or "").strip() != "true":
+        return "no-repo"
+
+    # git ls-files --error-unmatch is the index-aware trap: an already-
+    # tracked path returns exit 0 here even with a matching .gitignore
+    # line, so this MUST be checked before check-ignore.
+    try:
+        r2 = _run_git(["ls-files", "--error-unmatch", "--", str(path)], cwd)
+    except OSError:
+        return "unknown"
+    if r2.returncode == 0:
+        return "tracked"
+
+    try:
+        r3 = _run_git(["check-ignore", "-q", "--", str(path)], cwd)
+    except OSError:
+        return "unknown"
+    if r3.returncode == 0:
+        return "ignored"
+    if r3.returncode == 1:
+        return "unignored"
+    return "unknown"
+
+
+def _check_ignored(path: Path, force_unignored: bool = False) -> tuple[bool, str, str]:
+    """Returns (may_write, state, message)."""
+    state = _git_state(path)
+
+    if state == "no-repo":
+        return True, state, (
+            "agentic-tracker: not inside a git work tree; nothing prevents this file "
+            "from being committed elsewhere. Proceeding."
+        )
+    if state == "ignored":
+        return True, state, ""
+
+    if state == "tracked":
+        msg = _TRACKED_MSG
+    elif state == "unignored":
+        msg = _UNIGNORED_MSG
+    else:
+        msg = _UNKNOWN_MSG
+
+    if force_unignored:
+        return True, state, "WARNING: " + msg
+    return False, state, msg
+
+
+# ---------------------------------------------------------------------------
+# Write-side key validation (set/init, defined behavior)
+# ---------------------------------------------------------------------------
+
+def _validate_write_key(key: str, value: str) -> tuple[bool, str | None]:
+    if CREDENTIAL_KEY_RE.search(key):
+        return False, (
+            f"credential-shaped key '{key}' - this file must never hold secrets; "
+            "credentials resolve from the harness/MCP config"
+        )
+    if key not in ALLOWED_KEYS:
+        return False, f"unknown key '{key}' - accepted keys: {', '.join(sorted(ALLOWED_KEYS))}"
+    if len(value) > MAX_VALUE_LEN:
+        return False, f"value exceeds {MAX_VALUE_LEN} characters"
+    return True, None
+
+
+# ---------------------------------------------------------------------------
+# Merge algorithm
+# ---------------------------------------------------------------------------
+
+def _base_result(base: dict) -> dict:
+    defaults = _defaults_for(base.get("TRACKER") if base else None)
+    result = {**defaults, **(base or {})}
+    result["TRACKER"] = result.get("TRACKER", "none")
+    result["_source"] = "agents-md" if base else "none"
+    return result
+
+
+def _resolve_tracker(cwd: Path) -> dict:
+    """Fail-safe: never raises, never exits/signals non-zero for a file-state reason."""
+    agents_path = cwd / "AGENTS.md"
+    base, guard_error = _read_agents_md(agents_path)
+    warnings: list[str] = []
+
+    if guard_error is not None:
+        result = _base_result(base)
+        result["_overlay_status"] = None
+        result["_overlay_reason"] = None
+        result["_overridden"] = []
+        result["_agents_md_guard"] = guard_error
+        result["_git_state"] = None
+        result["_warnings"] = warnings
+        return result
+
+    overlay_path = _project_tracker_path(cwd)
+    overlay_fields, overlay_status, overlay_warnings, overlay_reason = _read_overlay(overlay_path)
+    warnings.extend(overlay_warnings)
+
+    git_state = _git_state(overlay_path) if overlay_path.exists() else None
+    if git_state == "tracked":
+        warnings.append(TRACKED_READ_WARNING)
+
+    if overlay_status in ("absent", "unusable"):
+        result = _base_result(base)
+        result["_overlay_status"] = overlay_status
+        result["_overlay_reason"] = overlay_reason
+        result["_overridden"] = []
+        result["_agents_md_guard"] = None
+        result["_git_state"] = git_state
+        result["_warnings"] = warnings
+        return result
+
+    # overlay_status == "ok"
+    overlay_tracker = overlay_fields.get("TRACKER")
+    base_tracker = base.get("TRACKER") if base else None
+    sole_source = (not base) or (overlay_tracker != base_tracker)
+
+    if sole_source:
+        merged = dict(overlay_fields)
+        overridden: list[str] = []
+        source = "overlay"
+    else:
+        merged = dict(base)
+        overridden = []
+        for k, v in overlay_fields.items():
+            if k == "TRACKER":
+                continue
+            # Only a genuinely overwritten (present-in-base, different
+            # value) field counts as "overridden" - a field the overlay
+            # merely ADDS (absent from AGENTS.md) is not an override, per
+            # the plan's "each overwritten name" wording.
+            if k in merged and merged[k] != v:
+                overridden.append(k)
+            merged[k] = v
+        source = "merged"
+
+    defaults = _defaults_for(merged.get("TRACKER"))
+    resolved_fields = {**defaults, **merged}
+
+    if sole_source:
+        required = REQUIRED_KEYS.get(resolved_fields.get("TRACKER"), set())
+        canon_map = {"prefix": "TICKET_PREFIX", "base_url": "JIRA_BASE_URL", "workspace": "LINEAR_WORKSPACE"}
+        missing = [k for k in sorted(required) if not resolved_fields.get(canon_map.get(k, k))]
+        if missing:
+            reason = (
+                f"missing required field(s) for tracker '{resolved_fields.get('TRACKER')}': "
+                f"{', '.join(missing)}"
+            )
+            result = _base_result(base)
+            result["_overlay_status"] = "unusable"
+            result["_overlay_reason"] = reason
+            result["_overridden"] = []
+            result["_agents_md_guard"] = None
+            result["_git_state"] = git_state
+            result["_warnings"] = warnings
+            return result
+
+    result = dict(resolved_fields)
+    result["_source"] = source
+    result["_overlay_status"] = "ok"
+    result["_overlay_reason"] = None
+    result["_overridden"] = overridden
+    result["_agents_md_guard"] = None
+    result["_git_state"] = git_state
+    result["_warnings"] = warnings
+    return result
+
+
+def _disclosure_lines(result: dict) -> list[str]:
+    lines: list[str] = []
+    source = result.get("_source")
+    if source in ("overlay", "merged"):
+        overridden = result.get("_overridden") or []
+        overrides_str = ", ".join(overridden) if overridden else "(none)"
+        lines.append(f"Tracker config source: .agentic/tracker.yml (overrides: {overrides_str})")
+    if result.get("_overlay_status") == "unusable":
+        lines.append(
+            f"Tracker: {result.get('TRACKER', 'none')} "
+            f"(.agentic/tracker.yml present but unusable: {result.get('_overlay_reason')})"
+        )
+        lines.append("Fix:     agentic-tracker show --scope project")
+    return lines
+
+
+# ---------------------------------------------------------------------------
+# Subcommands
+# ---------------------------------------------------------------------------
+
+def cmd_init(args: argparse.Namespace) -> int:
+    cwd = Path.cwd()
+    path = _project_tracker_path(cwd)
+    tracker = args.tracker
+    prefix = args.prefix
+
+    fields_to_write = [("tracker", tracker), ("prefix", prefix)]
+    if tracker == "jira":
+        if not args.base_url:
+            print("agentic-tracker: --base-url is required for --tracker jira.", file=sys.stderr)
+            return 1
+        fields_to_write.append(("base_url", args.base_url))
+    else:
+        if not args.workspace:
+            print("agentic-tracker: --workspace is required for --tracker linear.", file=sys.stderr)
+            return 1
+        fields_to_write.append(("workspace", args.workspace))
+    if args.qa_assignee:
+        fields_to_write.append(("qa_assignee", args.qa_assignee))
+
+    # Write-side key validation runs before the git-state guard, deliberately.
+    for key, value in fields_to_write:
+        ok, err = _validate_write_key(key, value)
+        if not ok:
+            print(f"agentic-tracker: {err}", file=sys.stderr)
+            return 4
+
+    may_write, _state, msg = _check_ignored(path, force_unignored=args.force_unignored)
+    if not may_write:
+        print(msg, file=sys.stderr)
+        return 3
+    if msg:
+        print(msg, file=sys.stderr)
+
+    if path.is_file() and not args.force:
+        print(f"agentic-tracker: {path} already exists. Use --force to overwrite.", file=sys.stderr)
+        return 1
+
+    created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    lines = [f"{key}: {value}" for key, value in fields_to_write]
+    lines.append(f"created_at: {created_at}")
+
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        atomic_write(path, "\n".join(lines) + "\n", mode=0o600)
+    except Exception as exc:
+        print(f"agentic-tracker: write failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Tracker config written: {path}")
+    return 0
+
+
+def cmd_set(args: argparse.Namespace) -> int:
+    cwd = Path.cwd()
+    path = _project_tracker_path(cwd)
+    key = args.key.strip().lower()
+    value = args.value
+
+    ok, err = _validate_write_key(key, value)
+    if not ok:
+        print(f"agentic-tracker: {err}", file=sys.stderr)
+        return 4
+
+    may_write, _state, msg = _check_ignored(path, force_unignored=args.force_unignored)
+    if not may_write:
+        print(msg, file=sys.stderr)
+        return 3
+    if msg:
+        print(msg, file=sys.stderr)
+
+    existing_lines: list[str] = []
+    found = False
+    if path.is_file():
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"agentic-tracker: cannot read existing {path}: {exc}", file=sys.stderr)
+            return 1
+        except UnicodeDecodeError as exc:
+            print(f"agentic-tracker: {path} is not valid UTF-8: {exc}", file=sys.stderr)
+            return 1
+        for line in raw.split("\n"):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or ":" not in stripped:
+                existing_lines.append(line)
+                continue
+            k = stripped.split(":", 1)[0].strip().lower()
+            if k == key:
+                existing_lines.append(f"{key}: {value}")
+                found = True
+            else:
+                existing_lines.append(line)
+    if not found:
+        existing_lines.append(f"{key}: {value}")
+    while existing_lines and existing_lines[-1] == "":
+        existing_lines.pop()
+
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    try:
+        atomic_write(path, "\n".join(existing_lines) + "\n", mode=0o600)
+    except Exception as exc:
+        print(f"agentic-tracker: write failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Set {key} in {path}")
+    return 0
+
+
+def cmd_show(args: argparse.Namespace) -> int:
+    cwd = Path.cwd()
+    scope = args.scope
+
+    if scope == "project":
+        path = _project_tracker_path(cwd)
+        fields, status, warnings, reason = _read_overlay(path)
+        print(f"path:   {path}")
+        print(f"status: {status}")
+        if reason:
+            print(f"reason: {reason}")
+        for w in warnings:
+            print(f"warning: {w}")
+        if "TRACKER" in fields:
+            print(f"tracker: {fields['TRACKER']}")
+        for k in sorted(k for k in fields if k != "TRACKER"):
+            print(f"{k}: {fields[k]}")
+        return 0
+
+    # effective
+    result = _resolve_tracker(cwd)
+    print(f"TRACKER:       {result.get('TRACKER', 'none')}")
+    print(f"_source:       {result.get('_source')}")
+    for line in _disclosure_lines(result):
+        print(line)
+    if result.get("_agents_md_guard"):
+        print(result["_agents_md_guard"], file=sys.stderr)
+        return 2
+    return 0
+
+
+def cmd_resolve(args: argparse.Namespace) -> int:
+    cwd = Path(args.project_root) if args.project_root else Path.cwd()
+    result = _resolve_tracker(cwd)
+    exit_code = 2 if result.get("_agents_md_guard") else 0
+
+    if args.json:
+        print(json.dumps(result, sort_keys=True))
+    else:
+        print(f"TRACKER:       {result.get('TRACKER', 'none')}")
+        print(f"_source:       {result.get('_source')}")
+        for line in _disclosure_lines(result):
+            print(line)
+
+    if result.get("_agents_md_guard"):
+        print(result["_agents_md_guard"], file=sys.stderr)
+    for w in result.get("_warnings", []):
+        print(w, file=sys.stderr)
+
+    return exit_code
+
+
+def cmd_path(_args: argparse.Namespace) -> int:
+    print(str(_project_tracker_path(Path.cwd())))
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="agentic-tracker",
+        description="Manage the project-local .agentic/tracker.yml overlay.",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    p_init = sub.add_parser("init", help="Create the overlay file")
+    p_init.add_argument("--tracker", choices=["jira", "linear"], required=True)
+    p_init.add_argument("--prefix", required=True)
+    p_init.add_argument("--base-url", default=None)
+    p_init.add_argument("--workspace", default=None)
+    p_init.add_argument("--qa-assignee", default=None)
+    p_init.add_argument("--force", action="store_true")
+    p_init.add_argument("--force-unignored", action="store_true")
+    p_init.set_defaults(func=cmd_init)
+
+    p_show = sub.add_parser("show", help="Print overlay or effective (resolved) config")
+    p_show.add_argument("--scope", choices=["project", "effective"], default="project")
+    p_show.set_defaults(func=cmd_show)
+
+    p_set = sub.add_parser("set", help="Set a single allowlisted key")
+    p_set.add_argument("key")
+    p_set.add_argument("value")
+    p_set.add_argument("--force-unignored", action="store_true")
+    p_set.set_defaults(func=cmd_set)
+
+    p_resolve = sub.add_parser("resolve", help="Resolve TRACKER via the merge chain")
+    p_resolve.add_argument("--json", action="store_true")
+    p_resolve.add_argument("--project-root", default=None)
+    p_resolve.set_defaults(func=cmd_resolve)
+
+    p_path = sub.add_parser("path", help="Print the overlay path for cwd")
+    p_path.set_defaults(func=cmd_path)
+
+    args = p.parse_args(argv[1:])
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

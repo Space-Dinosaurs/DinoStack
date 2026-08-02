@@ -1,3 +1,7 @@
+---
+description: "Apply scaffolding migrations to bring a project up to the current manifest version."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-migrate-project

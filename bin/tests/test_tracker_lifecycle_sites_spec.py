@@ -40,6 +40,19 @@ Covers:
   - the changed Phase 1 W1 block is byte-identical across adapter copies
     of content/commands/ds-implement-ticket.md (excluding the .pi stub,
     which is a 7-line pointer with no such block).
+  - content/commands/ds-init-project.md Step 9 gitignore block:
+      * `.agentic/tracker.yml` sits between the `.agentic/compression-state.json`
+        and `.agentic/tracker-states.json` anchor lines inside the ignore-pattern
+        run, and NOT under the `# Tracked (explicitly NOT ignored):` comment
+        block - this is the consumer-protection line added ahead of the
+        `.agentic/tracker.yml` overlay file landing in a later PR (DS-74).
+        Placed under the tracked-comment block, it would read as though
+        `tracker.yml` were one of the tracked files instead of ignored.
+      * the Step 9 enumeration paragraph names `tracker.yml` explicitly
+        (`per-operator local tracker config; never committed`), not just the
+        updated count.
+      * the count word in that paragraph ("sixteen") matches the number of
+        ignore-pattern lines the paragraph is counting.
 
 Run with: python3 -m pytest bin/tests/test_tracker_lifecycle_sites_spec.py -q
 """
@@ -56,6 +69,19 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 IMPLEMENT_TICKET_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
 STATUS_SYNC_PATH = REPO_ROOT / "content" / "commands" / "ds-ticket-status-sync.md"
 CONVENTIONS_PATH = REPO_ROOT / "content" / "rules" / "conventions.md"
+INIT_PROJECT_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
+WRAP_PATH = REPO_ROOT / "content" / "commands" / "ds-wrap.md"
+TICKET_TRIAGE_PATH = REPO_ROOT / "content" / "commands" / "ds-ticket-triage.md"
+CONFIG_CMD_PATH = REPO_ROOT / "content" / "commands" / "ds-config.md"
+
+# The four entry points that must disclose the .agentic/tracker.yml overlay
+# source (prose row 4 - DS-74 PR2).
+TRACKER_DISCLOSURE_ENTRY_POINTS = [
+    IMPLEMENT_TICKET_PATH,
+    STATUS_SYNC_PATH,
+    WRAP_PATH,
+    TICKET_TRIAGE_PATH,
+]
 
 # All adapter copies expected to carry a byte-identical extraction of the
 # "### Tracker writeback (W1)" subsection. .pi/prompts/ds-implement-ticket.md
@@ -433,4 +459,222 @@ def test_w1_block_byte_identical_across_adapters():
     assert not mismatches, (
         f"W1 block diverges from {canonical_path.relative_to(REPO_ROOT)} in: "
         f"{mismatches}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# content/commands/ds-init-project.md Step 9: .agentic/tracker.yml consumer
+# protection (DS-74 - PR1: lands ahead of the .agentic/tracker.yml overlay
+# file itself, which lands in a later PR).
+# ---------------------------------------------------------------------------
+
+@pytest.fixture(scope="module")
+def init_project_text() -> str:
+    return INIT_PROJECT_PATH.read_text(encoding="utf-8")
+
+
+def _step9_fenced_block(text: str) -> str:
+    # Scope every anchor/position assertion below to the Step 9 gitignore
+    # fenced block itself, not the whole file. A file-wide str.index() is
+    # sound only as long as every anchor is unique across the entire
+    # document; Step 11 (prose row 8) adds a second, later
+    # ".agentic/tracker.yml" mention, so scoping here is what keeps this
+    # test non-vacuous against that addition (Minor 2, r3 changelog).
+    marker = "# Agentic engineering runtime artifacts"
+    idx = text.index(marker)
+    fence_start = text.rfind("```", 0, idx)
+    fence_end = text.index("```", idx)
+    return text[fence_start:fence_end]
+
+
+def test_tracker_yml_ignore_line_between_anchors(init_project_text):
+    # Position assertion: `.agentic/tracker.yml` must sit strictly between
+    # the two anchor lines, inside the ignore-pattern run of the fenced
+    # block. This fails both if the line is dropped entirely AND if it is
+    # re-placed under the "# Tracked (explicitly NOT ignored):" comment
+    # block, where it would misleadingly read as one of the tracked files.
+    block = _step9_fenced_block(init_project_text)
+    compression_idx = block.index(".agentic/compression-state.json")
+    tracker_states_idx = block.index(".agentic/tracker-states.json")
+    assert compression_idx < tracker_states_idx, (
+        "anchor ordering assumption violated: .agentic/compression-state.json "
+        "must precede .agentic/tracker-states.json"
+    )
+    tracker_yml_idx = block.index(".agentic/tracker.yml")
+    assert compression_idx < tracker_yml_idx < tracker_states_idx, (
+        ".agentic/tracker.yml must occur strictly between "
+        ".agentic/compression-state.json and .agentic/tracker-states.json "
+        "in the Step 9 gitignore block - this is the consumer-protection "
+        "line that must land before the .agentic/tracker.yml overlay file "
+        "itself exists anywhere (DS-74)"
+    )
+    tracked_comment_idx = block.index(
+        "# Tracked (explicitly NOT ignored):"
+    )
+    assert tracker_yml_idx < tracked_comment_idx, (
+        ".agentic/tracker.yml must appear BEFORE the "
+        "'# Tracked (explicitly NOT ignored):' comment block - placed after "
+        "it, the line would misleadingly read as one of the tracked files "
+        "rather than an ignored one"
+    )
+
+
+def _step9_enumeration_paragraph(text: str) -> str:
+    marker = "since none of the"
+    idx = text.index(marker)
+    # The enumeration paragraph is a single unbroken line in the source
+    # (no internal newlines); isolate it by line boundaries around the
+    # marker so the paragraph-scoped assertions below are non-vacuous
+    # against the rest of the file.
+    line_start = text.rfind("\n", 0, idx) + 1
+    line_end = text.find("\n", idx)
+    if line_end == -1:
+        line_end = len(text)
+    return text[line_start:line_end]
+
+
+def test_step9_enumeration_names_tracker_yml(init_project_text):
+    paragraph = _step9_enumeration_paragraph(init_project_text)
+    assert "`tracker-states.json`" in paragraph, (
+        "sanity check: the Step 9 enumeration paragraph anchor must be "
+        "present"
+    )
+    assert (
+        "per-operator local tracker config; never committed"
+        in paragraph
+    ), (
+        "the Step 9 enumeration paragraph must name tracker.yml explicitly "
+        "('per-operator local tracker config; never committed'), not just "
+        "update the count word"
+    )
+
+
+# Word forms for the plausible ignore-pattern-line-count range. Extend this
+# map (never re-pin a literal count word) if the block legitimately grows
+# past 20 lines.
+_NUMBER_WORDS = {
+    10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen",
+    15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
+    19: "nineteen", 20: "twenty",
+}
+
+
+def test_step9_enumeration_count_word_matches_actual_line_count(init_project_text):
+    # Derived, not pinned (Minor 1, r3 changelog): parse the actual number
+    # of `.agentic/...` ignore-pattern lines in the fenced block and assert
+    # the enumeration paragraph's count word matches THAT number - a future
+    # 17th ignore line added without updating the prose now fails this
+    # assertion instead of silently passing against a stale literal.
+    block = _step9_fenced_block(init_project_text)
+    ignore_lines = [
+        line for line in block.splitlines()
+        if re.match(r"^\.agentic/", line.strip())
+    ]
+    count = len(ignore_lines)
+    assert count in _NUMBER_WORDS, (
+        f"ignore-pattern-line count {count} is outside the mapped word range; "
+        "extend _NUMBER_WORDS"
+    )
+    expected_word = _NUMBER_WORDS[count]
+    paragraph = _step9_enumeration_paragraph(init_project_text)
+    assert f"since none of the {expected_word} lines above them" in paragraph, (
+        f"the Step 9 enumeration paragraph's count word must match the actual "
+        f"count of ignore-pattern lines in the fenced block ({count} -> "
+        f"'{expected_word}'); paragraph: {paragraph!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# PR2 prose assertions (DS-74): the .agentic/tracker.yml overlay merge rule,
+# its insertion point in ds-implement-ticket.md Setup, the disclosure line
+# at all four entry points, the Step 11 local-overlay prompt, and the
+# ds-config.md out-of-scope clause.
+# ---------------------------------------------------------------------------
+
+def test_overlay_block_after_dual_shape_note_before_print_summary(implement_ticket_text):
+    # Prose row 1.
+    dual_shape_idx = implement_ticket_text.index("**Dual-shape note:**")
+    print_summary_idx = implement_ticket_text.index(
+        "Print a summary of resolved values before Phase 1:"
+    )
+    tracker_yml_idx = implement_ticket_text.index(
+        ".agentic/tracker.yml", dual_shape_idx
+    )
+    assert dual_shape_idx < tracker_yml_idx < print_summary_idx, (
+        "the .agentic/tracker.yml overlay block must occur after the "
+        "Dual-shape note and before the Print-summary anchor, inside Setup"
+    )
+
+
+def test_guard_interaction_literal_after_legacy_guard_stop(implement_ticket_text):
+    # Prose row 2. Exact literal so the assertion pins the guard
+    # interaction wording, not just "some mention" of it.
+    stop_anchor = (
+        "Do not continue. Do not attempt to write the migration. "
+        "All config-mutation logic lives in `/ds-init-project`."
+    )
+    stop_idx = implement_ticket_text.index(stop_anchor)
+    print_summary_idx = implement_ticket_text.index(
+        "Print a summary of resolved values before Phase 1:"
+    )
+    literal = (
+        "the legacy `## Linear` shape guard is evaluated before this "
+        "overlay and is never suppressed by it"
+    )
+    literal_idx = implement_ticket_text.index(literal, stop_idx)
+    assert stop_idx < literal_idx < print_summary_idx, (
+        "the guard-interaction literal must occur after the legacy-guard "
+        "stop line and before the Print-summary anchor"
+    )
+
+
+def test_wrap_gate_line_and_file_disclose_tracker_config_source():
+    # Prose row 3.
+    text = WRAP_PATH.read_text(encoding="utf-8")
+    gate_lines = [l for l in text.splitlines() if l.strip().startswith("**Gate.**")]
+    assert gate_lines, "Part F Gate line not found in ds-wrap.md"
+    assert any("TRACKER_STATE_IN_PROGRESS" in l for l in gate_lines), (
+        "Part F Gate line no longer resolves TRACKER_STATE_IN_PROGRESS"
+    )
+    assert "Tracker config source:" in text, (
+        "ds-wrap.md must disclose the .agentic/tracker.yml overlay source"
+    )
+
+
+@pytest.mark.parametrize(
+    "path", TRACKER_DISCLOSURE_ENTRY_POINTS, ids=lambda p: str(p.relative_to(REPO_ROOT))
+)
+def test_tracker_config_source_disclosed_at_every_entry_point(path):
+    # Prose row 4.
+    text = path.read_text(encoding="utf-8")
+    assert "Tracker config source:" in text, (
+        f"{path.relative_to(REPO_ROOT)} must disclose the .agentic/tracker.yml "
+        "overlay source"
+    )
+
+
+def test_step11_local_overlay_prompt_present(init_project_text):
+    # Prose row 8.
+    heading_idx = init_project_text.index("### 11. Set up tracker")
+    linear_setup_idx = init_project_text.index("**11a. Linear setup**", heading_idx)
+    literal = ".agentic/tracker.yml` (local, gitignored)"
+    literal_idx = init_project_text.index(literal, heading_idx)
+    assert heading_idx < literal_idx < linear_setup_idx, (
+        "the Step 11 local-overlay prompt naming .agentic/tracker.yml (local, "
+        "gitignored) must occur between the '### 11. Set up tracker' heading "
+        "and '**11a. Linear setup**'"
+    )
+
+
+def test_config_cmd_out_of_scope_names_agentic_tracker():
+    # Prose row 9.
+    text = CONFIG_CMD_PATH.read_text(encoding="utf-8")
+    out_of_scope_idx = text.index("**Out of scope:**")
+    identity_idx = text.index(
+        "identity (owned by `/ds-identity`)", out_of_scope_idx
+    )
+    tracker_idx = text.index("agentic-tracker", out_of_scope_idx)
+    assert out_of_scope_idx < identity_idx < tracker_idx, (
+        "agentic-tracker must be named in the ds-config.md Out-of-scope "
+        "clause, after the identity clause it extends"
     )

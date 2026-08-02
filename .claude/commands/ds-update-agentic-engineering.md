@@ -1,3 +1,7 @@
+---
+description: "Edit, sync, build, and commit changes to the methodology itself."
+---
+
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-update-agentic-engineering
