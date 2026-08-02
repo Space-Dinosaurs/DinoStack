@@ -129,6 +129,25 @@ Performance: < 5 ms per call on typical transcripts (one file read for config,
              regardless of transcript evidence) or no stall-commitment marker
              is present in it (classifier 2 cannot fire without one) - see
              main().
+
+Regression corpus: hooks/tests/test-corpus-abdication.py is the permanent
+             regression corpus for this hook. FOUR change attempts were each
+             measured unsafe and dropped - do not re-attempt any of them
+             without first passing that corpus:
+               1. Widening _PERMISSION_PHRASES: measured 11/17 then 7/8 false
+                  blocks on genuine hard-stop questions.
+               2. Narrowing the design-fork negative gate to co-occurrence:
+                  composes with (1) to strip hard-stop protection.
+               3. A prose-ballot classifier and an operator-decisions-block
+                  classifier: multiple Critical Skeptic findings.
+               4. Widening the destructive gate with
+                  drop/alter table|column|index|database|schema: measured
+                  13/13 false suppressions.
+             Any NEW classifier added here should route its injected
+             directive through _STALL_REASON's two-exit pattern (proceed now
+             OR explicitly wait for authorization), not _ABDICATION_REASON's
+             unconditional "proceed now" - a false positive on the latter is
+             unrecoverable.
 """
 
 import json
