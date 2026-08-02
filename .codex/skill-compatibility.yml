@@ -22,16 +22,6 @@
       "source_token": ".codex/skills/**"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "022225a4c56c0e67da7e80f1182256acc86bb76219a8f68992c4142033761c1e",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": ".agentic/loop-state.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state.json",
       "kind": "operational",
@@ -42,6 +32,16 @@
       "source_token": ".agentic/loop-state.json"
     },
     {
+      "expected_target": "content/sections/05-qa-gate.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/05-qa-gate.md",
+      "kind": "operational",
+      "occurrence_hash": "03c3e39e4ae25a03c7cfee93e22cc5ccbd96df5285bac4b6fe9ecdc10f8f5f40",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/05-qa-gate.md"
+    },
+    {
       "expected_target": ".claude/install.sh",
       "generated_token": "$AE_REPO_DIR/.claude/install.sh",
       "kind": "operational",
@@ -50,6 +50,26 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".claude/install.sh"
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "0776f37eded7a805f736d544285ef5d399781fcef054d420dde8f134fc34a85e",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "080be05fbca1ee16dec95282d8f3f27ac4b40088c063f1e10041a7956ace4611",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -72,24 +92,24 @@
       "source_token": "content/rules/conventions.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "0aa2b6ea2c380851aa6e443cb2127838f3fa4842e61815fcc1174e932c79677f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "agentic-engineering",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
-      "occurrence_hash": "0bc3223b4caeb2715cc87eb314beec8173dc9a0c2ed35ea0639d3a6fa13ea7f5",
+      "occurrence_hash": "0c74fc31a1705837203c08b3cb5e63511d4d8df402d9ddcc11f2a5d5f90dd252",
       "resolution_mode": "mapped-resource",
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
-      "expected_target": "content/references/capture-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/references/capture-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "0be5f464be6c7acaa535d5c643b999013291503a46e9d1ebeb29731fe647046e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/capture-classification.md"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -112,16 +132,6 @@
       "source_token": "hooks/enforce-askuserquestion-default.py"
     },
     {
-      "expected_target": "Task",
-      "generated_token": "Task",
-      "kind": "semantic-reference",
-      "occurrence_hash": "0e1e7ac01b6a9a08dce66549ffa7ce121a1e0158049467043c7ce292f9916489",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Task"
-    },
-    {
       "expected_target": "implement-ticket",
       "generated_token": "$implement-ticket",
       "kind": "operational",
@@ -130,6 +140,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "content/sections/03-planning-artifacts.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/03-planning-artifacts.md",
+      "kind": "operational",
+      "occurrence_hash": "0e88dbf4cddf1cd3b7322b2517947fa1d57553da1f0e1e573b220438884d1474",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/03-planning-artifacts.md"
     },
     {
       "expected_target": "content/rules/conventions.md",
@@ -162,26 +182,6 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "105965526fe32d571db1c2f072b58c8d0cfbaa332cf14cebe311aa0ed2efad69",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "content/references/planning-artifacts.md",
-      "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
-      "kind": "operational",
-      "occurrence_hash": "10830c35d1b43157711f5aaff452d327435ed29b3d1f28f06cfed3d784d2b49c",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/planning-artifacts.md"
-    },
-    {
       "expected_target": ".claude/",
       "generated_token": "$AE_REPO_DIR/.claude/",
       "kind": "operational",
@@ -190,6 +190,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".claude/"
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "12de191d5567af5357b9cae7cf9b842c1f88d87e3d296d325832112d4367d5c4",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
@@ -222,16 +232,6 @@
       "source_token": "content/references/spawn-presets-example.yml"
     },
     {
-      "expected_target": "content/references/qa-gate.md",
-      "generated_token": "$AE_REPO_DIR/content/references/qa-gate.md",
-      "kind": "operational",
-      "occurrence_hash": "14fd122cd68823cc7f80af1993487d09a645abd9bd5bf890b2e4846b23de80c9",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/qa-gate.md"
-    },
-    {
       "expected_target": "content/references/worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
@@ -246,16 +246,6 @@
       "generated_token": "$implement-ticket",
       "kind": "operational",
       "occurrence_hash": "166b294202b4074de36ac458ea4b2cf60eff5e7b485606cdde6b3898ec26bb26",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
-    },
-    {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "1dac02dd7b6c3f6a12263116e7cf096df25f361ea73b84de2a2455b4d85f1126",
       "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
@@ -282,16 +272,6 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "brief",
-      "generated_token": "$brief",
-      "kind": "operational",
-      "occurrence_hash": "215d8408eba243726d981bdaf53f14efa0be83c45c85d297c6c48ea841831316",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-brief"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -302,14 +282,24 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "expected_target": "brief",
+      "generated_token": "$brief",
       "kind": "operational",
-      "occurrence_hash": "23dba7a72cd657c6d8c6007f635241cece5b3c5467c748f3b16dafc6f28e2707",
-      "resolution_mode": "mapped-resource",
+      "occurrence_hash": "24429c6251501b6e4aa0e85d26cd475b104025d421e4a593cc8c48b34658f4cd",
+      "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+      "source_token": "/ds-brief"
+    },
+    {
+      "expected_target": "Task",
+      "generated_token": "Task",
+      "kind": "semantic-reference",
+      "occurrence_hash": "246bae2265d2a6cca59a72c5b2e059a68f2002a4bde03ca3bb553d7a70991c48",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Task"
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -322,24 +312,14 @@
       "source_token": "content/references/conductor-operating-rules.md"
     },
     {
-      "expected_target": "bin/agentic-team",
-      "generated_token": "$AE_REPO_DIR/bin/agentic-team",
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
-      "occurrence_hash": "2496b53252a582dd2b8cef182b916e202059f732dfcd5f6677ccb643ce217e45",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/agentic-team"
-    },
-    {
-      "expected_target": "content/commands/ds-skeptic.md",
-      "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic`",
-      "kind": "operational",
-      "occurrence_hash": "275dee81c0393866eb76afdce1d24a20cba2a9190f1edd5408b9fe199c347c7b",
-      "resolution_mode": "manual-command-resource",
+      "occurrence_hash": "26efebbd664485c28b308d4ffde204cf568e6156a1d2c0a51f62d9ea32ff9b31",
+      "resolution_mode": "mapped-resource",
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "`/ds-skeptic`"
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -362,14 +342,24 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
-      "expected_target": "content/sections/11-worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/11-worktree-lifecycle.md",
+      "expected_target": "references/skeptic-protocol.md#section-12",
+      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
       "kind": "operational",
-      "occurrence_hash": "2bc3a3a18e89444625f7442df07d42deb428a34cb8ee429095cf2df79275a6f0",
+      "occurrence_hash": "29657b3204300ea6531694b1479168b21e28a0425ef063575437e0f5e7232eba",
+      "resolution_mode": "cleanup-resource-contract",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/simplify"
+    },
+    {
+      "expected_target": "content/references/conventions-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "2ba293e8d2fb9b6c2f5a73e2dc4e64a0cc2e8dee0a1dd2f65ed1231a26c025ae",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/11-worktree-lifecycle.md"
+      "source_token": "content/references/conventions-detail.md"
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -382,24 +372,14 @@
       "source_token": "content/references/conductor-operating-rules.md"
     },
     {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "2df0a73289cb66a7496117dfba6895eef57105bfc78d80d43f4401d92ea8d91d",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
+      "expected_target": "shell",
+      "generated_token": "Bash",
+      "kind": "semantic-reference",
+      "occurrence_hash": "2d05a74d77f16b1cda8ddd265be901da379eb0465abd30d74ef4abc6529aa14c",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
-    },
-    {
-      "expected_target": ".claude/install.sh",
-      "generated_token": "$AE_REPO_DIR/.claude/install.sh",
-      "kind": "operational",
-      "occurrence_hash": "2e8e64d96e0d8ebef5238aca035070f0cea0988e568208991d1efb0744fed6a4",
-      "resolution_mode": "validated-repository",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".claude/install.sh"
+      "source_token": "Bash"
     },
     {
       "expected_target": "apply_patch",
@@ -412,6 +392,16 @@
       "source_token": "Edit"
     },
     {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "30921297830d401b159602736ed05b113ea27df5029257a5cf69ca8357f63c0c",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+    },
+    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
@@ -420,6 +410,16 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/"
+    },
+    {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "322c9dbb1a08e0f70cf41067a642cef33d106795f3e03cccc640acfe283a5dbe",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "filesystem read",
@@ -442,6 +442,36 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "35d5becb849ad9182a75f5a6672464700b020d2b6932649aeebcbadfa73d0e9a",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "372a5a29e48aa89065e9c93b1a1d3a2d4a68240abe0d2eea3a931f6e6d2d7f47",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "37a5128c924a9d1e7e9821713cdd52f3488076e1f7b376fec855ed69ff8c95f4",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+    },
+    {
       "expected_target": "content/references/activation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
       "kind": "operational",
@@ -450,26 +480,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/activation-detail.md"
-    },
-    {
-      "expected_target": "content/references/conventions-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conventions-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "3a7224e2f8d74bef25f7d091974178fcceef5b662c52e6629647af6516e748cc",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/conventions-detail.md"
-    },
-    {
-      "expected_target": "hooks/enforce-orchestrator-singularity.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-orchestrator-singularity.py",
-      "kind": "operational",
-      "occurrence_hash": "3ad7e452f1d1398a8325f018920d8f6cc0961960e56a4b8a2498d2ff53f2f68b",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-orchestrator-singularity.py"
     },
     {
       "expected_target": "one bounded direct question after default derivation",
@@ -482,24 +492,44 @@
       "source_token": "AskUserQuestion"
     },
     {
-      "expected_target": "Task",
-      "generated_token": "Task",
-      "kind": "semantic-reference",
-      "occurrence_hash": "40a5e825ddedf69feb928d68a037e49e0256943fd0bf4a6fe098c5386ffafbc8",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Task"
-    },
-    {
-      "expected_target": "hooks/enforce-tier.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-tier.py",
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
-      "occurrence_hash": "4352d77c9cbf7335d150c17cda7b0b6a12afe9999270f69d87dbcff64453ac12",
+      "occurrence_hash": "3f0bf887c07c61ba0b512d188bb2fa8181d53523cffd55490f3b5a389c29e240",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-tier.py"
+      "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
+      "expected_target": "Agent",
+      "generated_token": "Agent",
+      "kind": "semantic-reference",
+      "occurrence_hash": "409077d9fd8c04b1d91887437e5b9558ed922109729653e4f62e9d52ee3eade6",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Agent"
+    },
+    {
+      "expected_target": "spawn_agent",
+      "generated_token": "**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an\nisolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):\n\n1. `git fetch origin`.\n2. Resolve `BASE_BRANCH` with\n   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch \"$AE_PROJECT_DIR\"`. This applies the\n   canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in\n   project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),\n   then local `develop`, then local `development`. Multiple matching declarations are rejected as\n   ambiguous. If none exists, the helper fails closed; ask the operator whether to use `main`\n   (recommended, falling back to `master`) or establish a develop-based workflow, exactly as\n   required by the base-branch resolution protocol.\n3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.\n4. Run `git worktree add \"$AE_PROJECT_DIR/.agentic/worktrees/<branch>\" -b \"<branch>\" \"origin/$BASE_BRANCH\"`.\n5. Load the named role instructions with\n   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.\n6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the\n   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role\n   instructions plus the execution contract. The spawned agent must use shell commands in that\n   worktree and must not edit the conductor checkout.\n\nCodex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and\nwait operations to collect completion, and applies the existing review gates to the returned diff.\nClaude hook payload fields and Claude Task behavior do not apply on Codex.",
+      "kind": "operational",
+      "occurrence_hash": "41bb21800fc6e41b7184aa2043d3c32228418dd45ebcf40d79c12e24bddb3098",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default, and `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption. For the payload-capture history and the asymmetric allow/deny hook mechanics: read `content/references/delegation-detail.md` \u00a7Background-Spawn Enforcement Detail."
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "42e9f6ae65751719a114a2b49f6195f86b95f17828539d12eabbeeeaeac7dda5",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -532,14 +562,14 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "content/references/activation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
+      "expected_target": "content/references/agent-team.md",
+      "generated_token": "$AE_REPO_DIR/content/references/agent-team.md",
       "kind": "operational",
-      "occurrence_hash": "472d74bf680d137f16037ea5eac838663c58ebaf2a5261ac6433dc0cf3b3ff94",
+      "occurrence_hash": "476b94915c1be9337559d28ff97b4e4203269df7ed88849d74c774ab8181b012",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/activation-detail.md"
+      "source_token": "content/references/agent-team.md"
     },
     {
       "expected_target": "filesystem read",
@@ -582,46 +612,6 @@
       "source_token": "~/.claude"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "494cd3d1f759b6d77171cf3c21d5acd3d924772692b156a1b949513fa32d2a78",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "4967c023e9d436a62b2735b4fdfc3855f0fdd9a345e1bb807d119016b6916127",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": "Agent",
-      "generated_token": "Agent",
-      "kind": "semantic-reference",
-      "occurrence_hash": "49bdd83b9d252cd881cfcf4201736d867104a8c94fe3dd936359f11ba23eba7e",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Agent"
-    },
-    {
-      "expected_target": "content/references/agent-team.md",
-      "generated_token": "$AE_REPO_DIR/content/references/agent-team.md",
-      "kind": "operational",
-      "occurrence_hash": "4b7dc47ef2162f39ad5fd1a32ed5439a37c139c4617b51b24404fa25b73045dc",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/agent-team.md"
-    },
-    {
       "expected_target": "content/SKILL.md",
       "generated_token": "$AE_REPO_DIR",
       "kind": "operational",
@@ -642,24 +632,14 @@
       "source_token": "hooks/enforce-tier.py"
     },
     {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "expected_target": "content/references/task-state-file.md",
+      "generated_token": "$AE_REPO_DIR/content/references/task-state-file.md",
       "kind": "operational",
-      "occurrence_hash": "4d94241a043be585a889fb04e12e4726ec7eefa1a7c9a284b1760747158e9c3d",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
+      "occurrence_hash": "4d6cddbdf8ba1f7e0c5b01a19372eabab424d07657a29488c22d0e2e2bff9d9d",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "4de237c97ef7fd1a5bdae3a3ef3a1da46dd05944c6e8068871f8e6570abb1c44",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
+      "source_token": "content/references/task-state-file.md"
     },
     {
       "expected_target": ".agentic/config.json",
@@ -682,16 +662,6 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "Agent",
-      "generated_token": "Claude Agent",
-      "kind": "operational",
-      "occurrence_hash": "4e7435e0dc499e40bb38aaf5c03e8500efe9e527870de0d29c0cb4f57b2619a4",
-      "resolution_mode": "claude-harness-reference",
-      "scope": "claude-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Agent"
-    },
-    {
       "expected_target": "brief",
       "generated_token": "$brief",
       "kind": "operational",
@@ -712,26 +682,6 @@
       "source_token": "scripts/codex-skills.py"
     },
     {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
-      "kind": "operational",
-      "occurrence_hash": "506ba0de347648e3138a26aeb9bee5e1aa1d50532d15bcf71e63d0ae954bbcf0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/04-risk-classification.md"
-    },
-    {
-      "expected_target": "spawn_agent",
-      "generated_token": "**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an\nisolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):\n\n1. `git fetch origin`.\n2. Resolve `BASE_BRANCH` with\n   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch \"$AE_PROJECT_DIR\"`. This applies the\n   canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in\n   project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),\n   then local `develop`, then local `development`. Multiple matching declarations are rejected as\n   ambiguous. If none exists, the helper fails closed; ask the operator whether to use `main`\n   (recommended, falling back to `master`) or establish a develop-based workflow, exactly as\n   required by the base-branch resolution protocol.\n3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.\n4. Run `git worktree add \"$AE_PROJECT_DIR/.agentic/worktrees/<branch>\" -b \"<branch>\" \"origin/$BASE_BRANCH\"`.\n5. Load the named role instructions with\n   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.\n6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the\n   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role\n   instructions plus the execution contract. The spawned agent must use shell commands in that\n   worktree and must not edit the conductor checkout.\n\nCodex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and\nwait operations to collect completion, and applies the existing review gates to the returned diff.\nClaude hook payload fields and Claude Task behavior do not apply on Codex.",
-      "kind": "operational",
-      "occurrence_hash": "524210aa7f1e16fb58d5ba3e1d47fd1144dc36cf95e1b5fbea808b108f7616b1",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness DOES pass `run_in_background` through to the PreToolUse hook payload for `Agent` spawns (confirmed by live payload capture 2026-07-07 - hook tool_input keys for an Agent spawn observed as `description`/`prompt`/`run_in_background`/`subagent_type`, correcting the earlier assumption that the field was stripped). `hooks/enforce-background-spawn.py` enforces background-by-default on BOTH `Task` and `Agent`, with an asymmetric rule per tool: on `Agent`, only an explicit `run_in_background: false` is denied - an absent field allows (Agent already backgrounds by default at the harness level, so omitting it is the correct norm) and `true` also allows; on `Task` (legacy), only `run_in_background: true` allows - absent, `false`, or any non-boolean value denies. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The hook retains two active responsibilities: (a) `run_in_background` enforcement for both `Task` and `Agent` per the asymmetric rule above, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption."
-    },
-    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -742,16 +692,6 @@
       "source_token": "AskUserQuestion"
     },
     {
-      "expected_target": "cross-harness dispatch contract",
-      "generated_token": "**Routing enforcement differs by harness.** Claude Code's `PreToolUse` hooks enforce its legacy Agent and Task behavior, but those hooks do not mediate Codex `spawn_agent`. On Codex, the conductor follows the binding prose contract and, for a role routed to another harness, executes discover -> dispatch -> status -> collect without silently falling back to a native spawn. See `$AE_REPO_DIR/content/references/cross-harness-teams.md` for the full decision rule, config schema, self-containment guard, dispatch table, and enforcement-status table.",
-      "kind": "operational",
-      "occurrence_hash": "5676e84e378aab2632ce6950ac89cb805ebfd3ca88a09ea3f31019d91993d058",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "**Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. A future enhancement will also proactively block a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude`, but that check is not yet merged. On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it. See `content/references/cross-harness-teams.md` for the full decision rule, config schema, self-containment guard, per-harness dispatch table, and the per-harness enforcement-status table."
-    },
-    {
       "expected_target": "content/references/skeptic-protocol.md",
       "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
       "kind": "operational",
@@ -760,6 +700,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
+      "expected_target": "content/references/cross-harness-teams.md",
+      "generated_token": "$AE_REPO_DIR/content/references/cross-harness-teams.md",
+      "kind": "operational",
+      "occurrence_hash": "57b37184e3e1dd769d6587ee64dcef37841679a69de0fd9169fe8294ae74ca38",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/cross-harness-teams.md"
     },
     {
       "expected_target": "$HOME/.claude",
@@ -780,6 +730,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Task"
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "5b7dd5a7d5366e1df499e39cc875ab9a31eb7f2abf02ce94b5250b9908129349",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "content/references/risk-config-and-tiers.md",
@@ -812,16 +772,6 @@
       "source_token": "Task"
     },
     {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "5e3b9efecaae3375aec0065e2797c52f9b6b577513a379d8105903211ec82bab",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
       "expected_target": "brief",
       "generated_token": "$brief",
       "kind": "operational",
@@ -830,16 +780,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-brief"
-    },
-    {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "5ed32afbc14ee85a03122ed1d9ff02498d13beb827081937d0da674042476264",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "content/rules/module-manifest.md",
@@ -852,6 +792,16 @@
       "source_token": "content/rules/module-manifest.md"
     },
     {
+      "expected_target": "content/sections/04-risk-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "60e72199ae0f9c6c714e37ea7c151a88bef2c23ddba3cf965d633c4fd5a1c339",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
       "expected_target": ".claude/install.sh",
       "generated_token": "$AE_REPO_DIR/.claude/install.sh",
       "kind": "operational",
@@ -862,6 +812,16 @@
       "source_token": ".claude/install.sh"
     },
     {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "63c4d2f66a55ec04d675355568e45298f13a0a0691307124a358eb5e4ced1bca",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+    },
+    {
       "expected_target": "content/SKILL.md",
       "generated_token": "$AE_REPO_DIR",
       "kind": "operational",
@@ -870,16 +830,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "650a09655a962361cdb3d8b3ebac1e8a826b29b9fd9031baa9c3448daf69ae21",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "Task",
@@ -902,6 +852,16 @@
       "source_token": "content/references/planning-artifacts.md"
     },
     {
+      "expected_target": "content/references/activation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "6639bd1a2c186f6168c66bb9ad2049195dbe19f3d31b4d7778302cb67933166a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/activation-detail.md"
+    },
+    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -910,26 +870,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/04-risk-classification.md"
-    },
-    {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "6650d8151e7530e1a742c5b8db83b30642fbaa85cab2e33c1f4270d7817ae6e3",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "66528939cb5b68103ec786fc85a7b3e1824f79dafbe2e9bc4c2dc6312fb5dfa2",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "content/references/spawn-presets.md",
@@ -982,16 +922,6 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "6caf25fc542b89c1ec360b72d6d7d53ff18c2ca0a4cd50beb05b21bfa2cbb237",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
       "expected_target": "content/rules/conventions.md",
       "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
       "kind": "operational",
@@ -1002,24 +932,14 @@
       "source_token": "content/rules/conventions.md"
     },
     {
-      "expected_target": "hooks/enforce-planning-artifact-spawn.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-planning-artifact-spawn.py",
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
       "kind": "operational",
-      "occurrence_hash": "6d3b3fbc011ccad548c04fe77874d2a56e240c960d3bc99a66fce9ac29941945",
+      "occurrence_hash": "6db1e681ebbb94c6a17aa635d8dc0a781f1241e937ff317997ea33e45606b113",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-planning-artifact-spawn.py"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "6d97cdf6e5b10a533e92836956a00bd84f9062c54e0279f5ecd77f43eda970b3",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
+      "source_token": "content/references/events-log.md"
     },
     {
       "expected_target": "filesystem read",
@@ -1062,6 +982,16 @@
       "source_token": "**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a `session_total` event on every TURN (not just at session exit); this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by qa-engineer, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark))."
     },
     {
+      "expected_target": "Task",
+      "generated_token": "Task",
+      "kind": "semantic-reference",
+      "occurrence_hash": "713e13e84d9184c426664e00d351b6dcf62466b0b5fdd06b7d9625c2045b8148",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Task"
+    },
+    {
       "expected_target": "brief",
       "generated_token": "$brief",
       "kind": "operational",
@@ -1070,26 +1000,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-brief"
-    },
-    {
-      "expected_target": "apply_patch",
-      "generated_token": "Edit",
-      "kind": "semantic-reference",
-      "occurrence_hash": "772e484de7c29299bfac3e266255c9659f8ae726b258b3785cd0633873bd0175",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Edit"
-    },
-    {
-      "expected_target": "content/references/planning-artifacts.md",
-      "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
-      "kind": "operational",
-      "occurrence_hash": "77c21ba22010ce04f260cf5d4d243097c5611827cac63662cb53344380553282",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/planning-artifacts.md"
     },
     {
       "expected_target": ".agentic/events.jsonl",
@@ -1122,16 +1032,6 @@
       "source_token": "Agent"
     },
     {
-      "expected_target": "content/sections/06-capability-preflight.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/06-capability-preflight.md",
-      "kind": "operational",
-      "occurrence_hash": "7cb134b90cb077681ea99041349c0cc7ac427b0429b1fe8f886b3b1651debcc8",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/06-capability-preflight.md"
-    },
-    {
       "expected_target": ".agentic/presets.yml",
       "generated_token": "$AE_PROJECT_DIR/.agentic/presets.yml",
       "kind": "operational",
@@ -1140,26 +1040,6 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/presets.yml"
-    },
-    {
-      "expected_target": "spawn_agent message",
-      "generated_token": "explicit Tier 3 task-brief intent",
-      "kind": "operational",
-      "occurrence_hash": "7e26dde7e492e88a7b2f960e92ff1ef4f1ee9bb934c896faa9c97800dd219f57",
-      "resolution_mode": "codex-role-routing",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "`model: opus`"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "7ee70f28f7efaf4f4b204576c7f35f9d2fffbf2eee8fa83bdcee81cca75afd91",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -1203,36 +1083,6 @@
     },
     {
       "expected_target": "apply_patch",
-      "generated_token": "Write",
-      "kind": "semantic-reference",
-      "occurrence_hash": "81e8428467f9e67d4aa4a70b50c08e164cbabb1ac4faee89d7a674002c06db7d",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Write"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "82fd86a64ccf16327f72850943cc1a4c4ce41586dd8776401e10b9172a89adc6",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "83056acba45cc5de23ecff9fe81e86d3ebff54cd89c8eb6d2ec6d68cbb520f20",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "apply_patch",
       "generated_token": "Edit",
       "kind": "semantic-reference",
       "occurrence_hash": "852e86fa5fbef582ad5cfb399bd4183bc1324f8f18e16f12920c493f254423b7",
@@ -1242,44 +1092,34 @@
       "source_token": "Edit"
     },
     {
-      "expected_target": ".claude/install.sh",
-      "generated_token": "$AE_REPO_DIR/.claude/install.sh",
+      "expected_target": ".agentic/qa-regressions.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/qa-regressions.md",
       "kind": "operational",
-      "occurrence_hash": "853afb5e39d9d37a850406b306293e9df78ce6f6dd249a0c4c01267a1eb1bbb8",
+      "occurrence_hash": "858a061f46ab309277bbc9a18c70f4cdf2d2f7be9a200c3253fc96f8fa224d8b",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/qa-regressions.md"
+    },
+    {
+      "expected_target": "content/references/capture-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/references/capture-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "8678ec83fb205cdceeac0e3f6723211e8e835d189a2b66444a2419bcb3e07ac0",
       "resolution_mode": "validated-repository",
-      "scope": "dinostack-repository",
+      "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": ".claude/install.sh"
+      "source_token": "content/references/capture-classification.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "85c4631eb772f1c96272f1d718495fde20f348535ba1ce2af8710525672248dc",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "expected_target": "content/commands/ds-skeptic.md",
+      "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic`",
       "kind": "operational",
-      "occurrence_hash": "88ee247bd1894062ce6a7912a98781dbc3f432eb5cbd4d27b9a973d16ba4c782",
-      "resolution_mode": "mapped-resource",
+      "occurrence_hash": "88099a33f3b78c8e3aed6b260dc29aeefb96b4d2e4d3849ffa6d381d05d4f6e2",
+      "resolution_mode": "manual-command-resource",
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "898b5a562b893210a4373a1a76eb0ec227bee725223cb684d90c907cbeea7ea9",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+      "source_token": "`/ds-skeptic`"
     },
     {
       "expected_target": ".agentic/config.json",
@@ -1322,16 +1162,6 @@
       "source_token": "Bash"
     },
     {
-      "expected_target": ".agentic/qa-regressions.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/qa-regressions.md",
-      "kind": "operational",
-      "occurrence_hash": "8f89c18ee8b2fa9f0c7e18f483e4d5a743600fa5d37892cf50c91d1640737267",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/qa-regressions.md"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -1360,6 +1190,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/04-risk-classification.md"
+    },
+    {
+      "expected_target": "content/references/planning-artifacts.md",
+      "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
+      "kind": "operational",
+      "occurrence_hash": "922ddae549b10a49f3643ae684b070b23319197c8813825cec8aa98b585c64a1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/planning-artifacts.md"
     },
     {
       "expected_target": "content/commands/ds-update-agentic-engineering.md",
@@ -1412,6 +1252,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "content/references/conductor-operating-rules.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
+      "kind": "operational",
+      "occurrence_hash": "99478927bbc7d1477aa6bbf4455c80514bc2f3a5ac152d7e527309fea93a630e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/conductor-operating-rules.md"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -1420,16 +1270,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": "content/agents/skeptic.md",
-      "generated_token": "$AE_REPO_DIR/content/agents/skeptic.md",
-      "kind": "operational",
-      "occurrence_hash": "9b49feaf088784c1f9e6a0fea19ca866d24abe6b225fab9472033aed3181efa2",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/agents/skeptic.md"
     },
     {
       "expected_target": "content/commands/ds-implement-ticket.md",
@@ -1442,44 +1282,14 @@
       "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "9d8bfd077e71026ec48a695bb93770792cf1aa2965dfb2ef415a7da03e5a62d4",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "9eeb635d7ab3dfe00c7ad3ef39400375dc866a73bd461cf41ce2701972fe6cb0",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "Task",
-      "generated_token": "Task",
-      "kind": "semantic-reference",
-      "occurrence_hash": "9f5221c628ce1af4fc1827fd5eae63a4769849da89c84b47550bf1bdb7f64ad2",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Task"
-    },
-    {
-      "expected_target": "bin/agentic-team",
-      "generated_token": "$AE_REPO_DIR/bin/agentic-team",
+      "expected_target": "content/references/events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
       "kind": "operational",
-      "occurrence_hash": "9f8bdd06b8d4c47fab53f88d0fb2ab51c477ec528bbbf085e321a9f688f3e60a",
+      "occurrence_hash": "9ed78efc8290608ef139de15b1567e007e67f6d6db13b962ccd67a6141c5e9a5",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/agentic-team"
+      "source_token": "content/references/events-log.md"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -1522,44 +1332,24 @@
       "source_token": "content/commands/ds-brief.md"
     },
     {
-      "expected_target": "bin/agentic-team",
-      "generated_token": "$AE_REPO_DIR/bin/agentic-team",
+      "expected_target": "content/sections/11-worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/11-worktree-lifecycle.md",
       "kind": "operational",
-      "occurrence_hash": "a4353c3622634196180779bc681bb032e96dc14cfd0d73d155dc23917044d752",
+      "occurrence_hash": "a71d30df0e8fbbf4a23e5e72c012ba500cad61cb22b0c2ab8db4e97ba32afee1",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/agentic-team"
+      "source_token": "content/sections/11-worktree-lifecycle.md"
     },
     {
-      "expected_target": "content/references/trigger-catalog.md",
-      "generated_token": "$AE_REPO_DIR/content/references/trigger-catalog.md",
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
       "kind": "operational",
-      "occurrence_hash": "a56ce41b2ce09d2adf87db0b6e3187881c2907b5152186da9574ddd9b3cfa9ff",
+      "occurrence_hash": "aae4c309d64f15bfab2a6e712f1e8d34a8530a474076055107b6d4c399b5865e",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/trigger-catalog.md"
-    },
-    {
-      "expected_target": "shell",
-      "generated_token": "Bash",
-      "kind": "semantic-reference",
-      "occurrence_hash": "a5ecac68492b8f62a038823ba5923d579633755b5a91a88dab6dfa83f80d3141",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Bash"
-    },
-    {
-      "expected_target": "references/skeptic-protocol.md#section-12",
-      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
-      "kind": "operational",
-      "occurrence_hash": "aa3749a4ab38ed102414b22a5853fd2739c01c345b8d117c96269f7857a253f9",
-      "resolution_mode": "cleanup-resource-contract",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/simplify"
+      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "content/rules/conventions.md",
@@ -1570,16 +1360,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/rules/conventions.md"
-    },
-    {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "acab527bfc366fb70495b7c97805650bb36176ba1fca8009d3144304c822c838",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "filesystem read",
@@ -1602,16 +1382,6 @@
       "source_token": ".agentic/loop-state-<LOOP_KEY>.json"
     },
     {
-      "expected_target": "content/references/task-state-file.md",
-      "generated_token": "$AE_REPO_DIR/content/references/task-state-file.md",
-      "kind": "operational",
-      "occurrence_hash": "af7c863e0ad1443561ade7279791c0d653cc544fcf1a209eff688bbb8fcdcb7e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/task-state-file.md"
-    },
-    {
       "expected_target": "shell",
       "generated_token": "Bash",
       "kind": "semantic-reference",
@@ -1632,16 +1402,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "content/commands/ds-skeptic.md",
-      "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic`",
-      "kind": "operational",
-      "occurrence_hash": "b0b013c9a1cc84b7626ff37539aa9630a7e11a4054357ef9d11fc613be592015",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "`/ds-skeptic`"
-    },
-    {
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
@@ -1655,7 +1415,7 @@
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
-      "occurrence_hash": "b11e78c48784bc92df3beefa80d1070a17ce31fae8896e4025b7e7d2d1499063",
+      "occurrence_hash": "b0f69825f5aa2b12959f376b7d294d241dc65abd253decd30ba600b5a8823add",
       "resolution_mode": "canonical-prose",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
@@ -1672,14 +1432,14 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "expected_target": "content/references/capability-preflight.md",
+      "generated_token": "$AE_REPO_DIR/content/references/capability-preflight.md",
       "kind": "operational",
-      "occurrence_hash": "b41214cf55adbaa43e57efaf76bccb6ff1e146cce502149d56e68cf8552d2995",
+      "occurrence_hash": "b473d57d78ce755a5a5f25759808fc2e8382a08c5bfaaab02f15ac32a96e992d",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
+      "source_token": "content/references/capability-preflight.md"
     },
     {
       "expected_target": "spawn_agent message",
@@ -1690,6 +1450,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "model-param mapping"
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "b60367ed567c87deb2fa2a92d499124ba84f9ccd78e2e700fc2f96d611fa35f1",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "content/references/cross-session-loop-resume.md",
@@ -1712,14 +1482,14 @@
       "source_token": ".agentic/tasks.jsonl"
     },
     {
-      "expected_target": "content/references/events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
+      "expected_target": "content/references/cross-harness-teams.md",
+      "generated_token": "$AE_REPO_DIR/content/references/cross-harness-teams.md",
       "kind": "operational",
-      "occurrence_hash": "bc60525363273cc77c9594f6d65a7ed4bb234bd7f2751dc1099acdc9102e09a3",
+      "occurrence_hash": "bcde339280414db8cdfd0c185f44a134f8e40958c9b0c7bc58f6eace64b9ba0b",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/events-log.md"
+      "source_token": "content/references/cross-harness-teams.md"
     },
     {
       "expected_target": "hooks/enforce-no-abdication.py",
@@ -1732,16 +1502,6 @@
       "source_token": "hooks/enforce-no-abdication.py"
     },
     {
-      "expected_target": "content/sections/09-events-log.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
-      "kind": "operational",
-      "occurrence_hash": "bdb51d89d3363103c946f64a9685a91c36457ce27c3b9e15aaf79dd3b4493447",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/09-events-log.md"
-    },
-    {
       "expected_target": "content/references/capture-classification.md",
       "generated_token": "$AE_REPO_DIR/content/references/capture-classification.md",
       "kind": "operational",
@@ -1752,24 +1512,14 @@
       "source_token": "content/references/capture-classification.md"
     },
     {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
       "kind": "operational",
-      "occurrence_hash": "bf9af4323d4cc2b915fcd9ab91e173351839b35462a1dd1fd61adcb408a32a21",
-      "resolution_mode": "mapped-resource",
+      "occurrence_hash": "bfe69fec76d5e29b458f17615d1109b44c91f601a4f6f6a312e9be3d54bea08f",
+      "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
-      "expected_target": "content/sections/05-qa-gate.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/05-qa-gate.md",
-      "kind": "operational",
-      "occurrence_hash": "c02cd9d88149448622dbdae19ab1686b13c5d4a4f04413d5d1cb9b9d282918dd",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/05-qa-gate.md"
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": ".claude/",
@@ -1792,16 +1542,6 @@
       "source_token": "content/references/planning-artifacts.md"
     },
     {
-      "expected_target": "spawn_agent message",
-      "generated_token": "explicit below-Tier-3 role routing",
-      "kind": "operational",
-      "occurrence_hash": "c3a15afa15c962135e623ba8c19f4fe5e70ba8be68b4cef740c29acd17585ce2",
-      "resolution_mode": "codex-role-routing",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "explicit sub-Opus `model` param"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -1810,6 +1550,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "content/references/qa-gate.md",
+      "generated_token": "$AE_REPO_DIR/content/references/qa-gate.md",
+      "kind": "operational",
+      "occurrence_hash": "c43a2e7bf53d4df28e5149ef10707957246c0998efc1fe24db917c17e96d3d72",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/qa-gate.md"
     },
     {
       "expected_target": "content/references/risk-config-and-tiers.md",
@@ -1822,46 +1572,6 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "c4a92745ab8ec5fd36fc0a65059e713fc58c900c3d826223b8b0919cc2fe50e0",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "c55cb3eeb3e78051e5bea8b3a15a6a59bef1a9f37af0f9fd17c9845ad8e4fbef",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "c60ea5b3309a9b5f48702bdc8bea1242c81eaf641dba7d301061be7dd8d176ce",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "c6c29fb9b511cbf408f5900335ef8da6baaea6ed1c0448e753557263280b3fbc",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": ".agentic/config.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
       "kind": "operational",
@@ -1870,16 +1580,6 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/config.json"
-    },
-    {
-      "expected_target": "content/references/code-standards-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/code-standards-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "c8dbfee7f110ffc3b29921bdf9c0ef59666b1f393ddbf358afe65078b50cb16e",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/code-standards-detail.md"
     },
     {
       "expected_target": "references/skeptic-protocol.md#section-12",
@@ -1892,40 +1592,20 @@
       "source_token": "/simplify"
     },
     {
-      "expected_target": "content/sections/04-risk-classification.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
+      "expected_target": "content/references/code-standards-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/code-standards-detail.md",
       "kind": "operational",
-      "occurrence_hash": "ca97e6bbfc397908b89d8fa8722f6a809f5c31039148e7211c38e4ee06081f40",
+      "occurrence_hash": "ca39cceac185efeebe2494ec6fe36e2cd02be0d5d7c54a908425d4c13600626c",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/04-risk-classification.md"
-    },
-    {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "cc382d67dec6f70b1144ebac1bd402e7b19aa6617e83b81bb2a0620639b44c69",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
-      "expected_target": "bin/agentic-team",
-      "generated_token": "$AE_REPO_DIR/bin/agentic-team",
-      "kind": "operational",
-      "occurrence_hash": "cc7e2caee60c9910faa050bd7f08e1c194bb256495f7614fe36100be64ec9dc5",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/agentic-team"
+      "source_token": "content/references/code-standards-detail.md"
     },
     {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
-      "occurrence_hash": "cd93513472c4c0bec3ffe87d74be3341c5adf8a07f7eeeb35f6133730d0227c5",
+      "occurrence_hash": "ca97e6bbfc397908b89d8fa8722f6a809f5c31039148e7211c38e4ee06081f40",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
@@ -1942,6 +1622,26 @@
       "source_token": "Task"
     },
     {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "ce0e128b127055ce500a0ca4876e4df2166adb80eddb6863bf7a13179bd8fae7",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "content/references/trigger-catalog.md",
+      "generated_token": "$AE_REPO_DIR/content/references/trigger-catalog.md",
+      "kind": "operational",
+      "occurrence_hash": "ce73c6fadf807adbcee62731bc1c8ef382ee70a5340cc54be14d54594b5cfa6b",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/trigger-catalog.md"
+    },
+    {
       "expected_target": ".agentic/config.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
       "kind": "operational",
@@ -1950,26 +1650,6 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/config.json"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "d26dc79d285079b1152747d35a2332e91ac790a805c6ddede680e18aea41a77a",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "content/references/capability-preflight.md",
-      "generated_token": "$AE_REPO_DIR/content/references/capability-preflight.md",
-      "kind": "operational",
-      "occurrence_hash": "d3812644f941e3f761ed245b0ef359123e21fe89b88f602a1aafbe7b35336d80",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/capability-preflight.md"
     },
     {
       "expected_target": ".agentic/identity.yml",
@@ -1982,6 +1662,16 @@
       "source_token": "<cwd>/.agentic/identity.yml"
     },
     {
+      "expected_target": "content/references/cross-session-loop-resume.md",
+      "generated_token": "$AE_REPO_DIR/content/references/cross-session-loop-resume.md",
+      "kind": "operational",
+      "occurrence_hash": "d54daba4657a7670e2baadc9588f362cf842d2fb19fc38a1ac97f5604da28656",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/cross-session-loop-resume.md"
+    },
+    {
       "expected_target": "content/references/capability-preflight.md",
       "generated_token": "$AE_REPO_DIR/content/references/capability-preflight.md",
       "kind": "operational",
@@ -1992,16 +1682,6 @@
       "source_token": "content/references/capability-preflight.md"
     },
     {
-      "expected_target": "content/references/cross-session-loop-resume.md",
-      "generated_token": "$AE_REPO_DIR/content/references/cross-session-loop-resume.md",
-      "kind": "operational",
-      "occurrence_hash": "d776d33027f68d160bacd04f48b6c7b8155e0b0da2d54e7c92ee35e53c129787",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/cross-session-loop-resume.md"
-    },
-    {
       "expected_target": "implement-ticket",
       "generated_token": "$implement-ticket",
       "kind": "operational",
@@ -2010,6 +1690,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "da64acf5ce28701cd5c1347cfcecf1daebad44b0175f769e977a4ec066585350",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -2030,16 +1720,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "dca07a30bb07fbf064c88c3e3c09dd787f2193a268c76f302cf1016d88ea95db",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -2092,6 +1772,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/references/planning-artifacts.md",
+      "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
+      "kind": "operational",
+      "occurrence_hash": "e0c558c709759f64e8621dfa7e7c4b0f40f67ae8d30bbb0497faf664b5cecf67",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/planning-artifacts.md"
+    },
+    {
       "expected_target": "content/references/task-state-file.md",
       "generated_token": "$AE_REPO_DIR/content/references/task-state-file.md",
       "kind": "operational",
@@ -2102,34 +1792,24 @@
       "source_token": "content/references/task-state-file.md"
     },
     {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "expected_target": "Agent",
+      "generated_token": "Agent",
+      "kind": "semantic-reference",
+      "occurrence_hash": "e66adee0952f31fd50a02aef02864dfeb9a70608058634beab8c21807fbe44a4",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Agent"
+    },
+    {
+      "expected_target": "content/sections/06-capability-preflight.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/06-capability-preflight.md",
       "kind": "operational",
-      "occurrence_hash": "e6f895bbfeb024252a8ae6cbf022b6306bc41b183c1585d21a7e7045e8f6f740",
+      "occurrence_hash": "e8d06d49da5d5657e41d067e638821be060dc93af922f6b94da0b0ef7f6278cc",
       "resolution_mode": "validated-repository",
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
-      "expected_target": "content/sections/03-planning-artifacts.md",
-      "generated_token": "$AE_REPO_DIR/content/sections/03-planning-artifacts.md",
-      "kind": "operational",
-      "occurrence_hash": "e81da94025010055f76c07da5de980333ffe6ccb56f604ff85a98617d9ffd417",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/sections/03-planning-artifacts.md"
-    },
-    {
-      "expected_target": "agentic-engineering",
-      "generated_token": "$AE_CORE_SKILL_ROOT",
-      "kind": "operational",
-      "occurrence_hash": "ea6264fc2702b39baa66726f6c106af4ba30dacfad0d0e2690f626a52a9dd151",
-      "resolution_mode": "mapped-resource",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+      "source_token": "content/sections/06-capability-preflight.md"
     },
     {
       "expected_target": "git worktree add + spawn_agent",
@@ -2152,26 +1832,6 @@
       "source_token": "There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: \"worktree\"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout."
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "eb2df4d9e98aafd19ef973713c7bae4c6853ed43b762c500a095bc5ae15fbd05",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "spawn_agent message",
-      "generated_token": "explicit below-Tier-3 role routing",
-      "kind": "operational",
-      "occurrence_hash": "ed966d1ad6996b196d5025c146e89150282f9b74ac263782d3908751e82fa1f0",
-      "resolution_mode": "codex-role-routing",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "explicit sub-Opus `model` param"
-    },
-    {
       "expected_target": "references/skeptic-protocol.md#section-12",
       "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
       "kind": "operational",
@@ -2190,6 +1850,26 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/loop-state.json"
+    },
+    {
+      "expected_target": "Task",
+      "generated_token": "Task",
+      "kind": "semantic-reference",
+      "occurrence_hash": "eec3912b94e226adc56a62dd0ad16d808094215e4d802be7b71977327f3582ff",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Task"
+    },
+    {
+      "expected_target": "content/agents/skeptic.md",
+      "generated_token": "$AE_REPO_DIR/content/agents/skeptic.md",
+      "kind": "operational",
+      "occurrence_hash": "efc373f6762b18d326ebeb2145d977a17cd8aa682352a214159fcc96c9bacf7c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/agents/skeptic.md"
     },
     {
       "expected_target": "content/rules/conventions.md",
@@ -2212,36 +1892,6 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "f1c8f81347648a2844291582b0159c090289cb7ff62946765707611f185439c8",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
-    },
-    {
-      "expected_target": "content/references/conductor-operating-rules.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
-      "kind": "operational",
-      "occurrence_hash": "f373bd9cc83a54733db23bd6fa57227b91f75844e2794298e65e4d9ac8ee18f9",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/conductor-operating-rules.md"
-    },
-    {
-      "expected_target": "Agent",
-      "generated_token": "Agent",
-      "kind": "semantic-reference",
-      "occurrence_hash": "f3d3e02e3f09ea4d6c27ed65ffcafef78421a3361dd5e2c76c7d69ac797509cc",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Agent"
-    },
-    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -2262,6 +1912,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "content/commands/ds-skeptic.md",
+      "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic`",
+      "kind": "operational",
+      "occurrence_hash": "f780c1be458a0081693b780511e0bc878a2659a930171aadf2e2729274175846",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "`/ds-skeptic`"
+    },
+    {
       "expected_target": "content/references/planning-artifacts.md",
       "generated_token": "$AE_REPO_DIR/content/references/planning-artifacts.md",
       "kind": "operational",
@@ -2270,6 +1930,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/planning-artifacts.md"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "f8a3c1286c1647cbb3b3ef9d223d3d46305de1a904869b5415502581c9507b98",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "one bounded direct question after default derivation",
@@ -2290,6 +1960,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: \"worktree\"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking \"why is `.agentic/loop-state.json` in this PR?\" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both."
+    },
+    {
+      "expected_target": "content/sections/09-events-log.md",
+      "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
+      "kind": "operational",
+      "occurrence_hash": "fe537648d176ba250326a7850e7080aca81cb35a5ca953888203dbf42ed6cba9",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/sections/09-events-log.md"
     },
     {
       "expected_target": "content/commands/ds-status.md",
