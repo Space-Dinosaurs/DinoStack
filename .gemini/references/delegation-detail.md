@@ -9,8 +9,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          Absence-claim scope axes (calibration worked example, both
          directions, for the four search-narrowness axes); Investigator-
          before-Architect rules (incl shared-utility-MANDATORY and Parallel
-         Investigators); Learnings pipeline; Worker preamble + execution
-         contract template; Digest-return discipline.
+         Investigators); Harness-Injected Instruction Conflicts (notice
+         template, operator remedies, harness-vs-model diagnostic);
+         Learnings pipeline; Worker preamble + execution contract template;
+         Digest-return discipline; Orchestration enforcement hooks + fan-out
+         `skeptic_strategy` detail; Background-spawn enforcement detail.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -201,3 +204,23 @@ The `task_id` field is included for Elevated multi-unit spawns only (when `.agen
 ## Digest-Return Discipline
 
 **Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, not-done list, and the optional `learnings_candidate[]` field - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. When `learnings_candidate[]` is non-empty, the conductor routes each entry through the guardrail-first gate (capture-classification.md) before forwarding `Capture: MUST` entries to `learnings-agent`; see `content/references/conductor-operating-rules.md` §learnings-agent for the routing algorithm. See `content/references/digest-return-pattern.md` for the full digest field list and conductor consumption rules.
+
+## Orchestration Enforcement Hooks and Fan-out Detail
+
+This section holds the mechanical hook detail behind the "Named agents" rule in `content/sections/02-delegation.md` - the acting rules (prefer orchestration-planner, skip-planner conditions, the simple/targeted-unit carve-out, mid-task reclassification, the `general-purpose` fallback, shell/git routing, no-subagent-spawns-subagents, and the Trivial-path worktree-isolated engineer rule) stay inline in the kernel; only the hook mechanics live here.
+
+**Singularity hook.** On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule.
+
+**Tier-3 escalation hook.** The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). The hook also backstops the authoring-role escalation (architect / adr-generator / product-discovery on Plan+ADR-tier units, per risk-config-and-tiers.md): it denies an explicit sub-Opus `model` param on those spawns when the brief matches an authoring escalation signal, but the structural Plan+ADR trigger is conductor-computed and invisible to the hook, so the conductor's explicit `model: opus` remains the primary control. Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule.
+
+**Planning-artifact hook.** The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence.
+
+**Fan-out `skeptic_strategy` block.** When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.
+
+## Background-Spawn Enforcement Detail
+
+This section holds the forensic/mechanical detail behind the background-by-default rule in `content/sections/02-delegation.md` - the acting rules (background-by-default itself, the "omit `run_in_background`, never pass `false`" conductor norm, and the `wrap-ticket` synchronous carve-out) stay inline in the kernel; only the payload-capture history and the asymmetric allow/deny mechanics live here.
+
+**Payload capture (2026-07-07).** The harness DOES pass `run_in_background` through to the PreToolUse hook payload for `Agent` spawns (confirmed by live payload capture 2026-07-07 - hook tool_input keys for an Agent spawn observed as `description`/`prompt`/`run_in_background`/`subagent_type`, correcting the earlier assumption that the field was stripped).
+
+**Asymmetric allow/deny mechanics.** `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`, with an asymmetric rule per tool: on `Agent`, only an explicit `run_in_background: false` is denied - an absent field allows (Agent already backgrounds by default at the harness level, so omitting it is the correct norm) and `true` also allows; on `Task` (legacy), only `run_in_background: true` allows - absent, `false`, or any non-boolean value denies. The hook retains two active responsibilities: (a) `run_in_background` enforcement for both `Task` and `Agent` per the asymmetric rule above, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live.
