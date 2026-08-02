@@ -18,6 +18,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+      - run: pip install pyyaml
       - name: Check codex skill sync
         run: bash scripts/check-codex-skill-sync.sh
       - name: Run native skill generator tests
