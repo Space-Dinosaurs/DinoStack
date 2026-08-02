@@ -1,6 +1,6 @@
 ---
 model: sonnet
-description: "Summarize the current session into .agentic/context.md."
+description: "Summarize the current session into .agentic/_wrap.md."
 ---
 
 > **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.

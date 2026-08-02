@@ -50,7 +50,7 @@ Plan & build
 Maintain & curate
   /ds-memory-update               Capture a stable project fact or decision into MEMORY.md.
   /ds-pull-and-install            Pull and reinstall agentic-engineering from upstream, or fresh-install if not yet set up.
-  /ds-wrap                        Summarize the current session into .agentic/context.md.
+  /ds-wrap                        Summarize the current session into .agentic/_wrap.md.
   /ds-migrate-project             Apply scaffolding migrations to bring a project up to the current manifest version.
   /ds-cleanup-worktrees           Remove stale subagent and feature worktrees.
   /ds-ticket-status-sync          Reconcile a tracker column with the real PR/branch state.
