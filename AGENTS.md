@@ -18,11 +18,15 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 - `evals/` is git-untracked by decision #203 and stays that way pending an explicit re-tracking decision; it is therefore invisible (not merely ignored) inside an isolation worktree. See `evals/AGENTS.md` for the working rules.
 
+- Post-merge local base-branch sync (#540, DS-121): `bin/agentic-base-sync`, called **unconditionally at the `/ds-implement-ticket` Phase 12 tail** - deliberately NOT nested under `auto_merge_on_ci_green` (which defaults `false`, so nesting would leave it dead for most projects). A `diverged` status requires BOTH `behind>0` AND `ahead>0`; ahead-only is not divergence. Full status taxonomy and recovery guidance: `content/references/base-branch-sync.md`.
+
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
 - `gh pr create` requires an authenticated `gh` session (`gh auth status`). Run `gh auth login` if needed, then `gh pr create`.
 - `rm -rf` is blocked by Claude Code permissions in this repo; remove files individually: `rm <file>` then `rmdir <dir>`
 - `bin/agentic-memory` — lightweight memory retrieval tool for querying `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md` on demand.
+- `bin/agentic-base-sync` — fast-forwards the local base branch after a merge without a checkout; the only mechanism that moves a local branch ref outside an explicit checkout+pull.
+- Force-push (`--force`, `-f`, `--force-with-lease`) is blanket-denied by the harness permission layer for subagents AND the conductor; chat authorization does not clear it. Push to a NEW branch name instead of rebasing a branch with an open PR.
 - `bin/agentic-tracker` — manage the project-local gitignored `.agentic/tracker.yml` overlay (`init` / `set` / `show` / `path` / `resolve`). Applied after the four-step `AGENTS.md` tracker chain: if `AGENTS.md` declares no tracker, or a different one, the overlay is sole source and fully replaces the base (`_source: "overlay"`); it merges field-by-field (`_source: "merged"`) only when both declare the same tracker. Refuses to write to any path git would track; `--force-unignored` overrides.
 
 ## Deploy
@@ -55,6 +59,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - After any change to `content/SKILL.md`, run both `.pi/build.sh` and `.claude/build.sh` to regenerate adapter-specific SKILL.md copies. The pre-commit hook does not auto-stage these.
 - Mutation-testing a `content/` spec assertion requires `bash scripts/build-all.sh` BEFORE running the test - mutating `content/` alone trips the byte-identity assertion and falsely confirms that a semantic assertion caught the change.
 - The `codex-skill-sync` CI gate validates exactly four generated native skills under `.codex/skills/`. After changing a canonical input, review and refresh `.codex/skill-compatibility.yml` with `python3 scripts/codex-skills.py inventory --repo . > .codex/skill-compatibility.yml`, then run `.codex/build.sh`; never hand-edit generated skill files.
+- `REPO_DIR` is distinct from `REPO`: `REPO` is the ticket's own project checkout, `REPO_DIR` is the agentic-engineering / DinoStack install where `bin/`-tools live. Resolve via `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): `repo_dir` from `~/.agentic/agentic-engineering-config.json` when present and a valid git repo, else `~/DinoStack`. Both `bin/agentic-resolve-worktree` and `bin/agentic-base-sync` depend on it.
 - Any local adapter-drift check must copy its pathspec verbatim from the `Fail on adapter drift` step in `.github/workflows/adapter-sync.yml` - the 11 adapter dirs PLUS `.github/copilot-instructions.md`, `.github/agents`, `.github/prompts`, `.github/instructions`, `.github/hooks`. `scripts/build-all.sh`'s `ADAPTERS` array is the build loop, not the diff assertion, and omits those five. `git diff --exit-code` exits 0 silently on a pathspec that does not exist, so a hand-typed list green-lights whatever it misspells or omits.
 - Verify DCO author/sign-off with lowercase `git log --format=%ae` (raw). Uppercase `%aE` and `git show` both APPLY `.mailmap`, which displays a mismatched author email on a correctly signed commit.
 - `docs/planning/` is gitignored, so a worktree-isolated engineer branched from `origin/main` cannot read a plan there - restate any obligation it carries in the spawn brief, and never keep the same binding prose in both (a fix applied to one copy drifts silently).
