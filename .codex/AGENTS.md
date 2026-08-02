@@ -538,6 +538,8 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Per Claude Code's own worktree documentation and its v2.1.157 changelog, once the agent finishes the harness releases the lock and then auto-cleans the worktree via `git worktree remove` (not a raw directory delete) if it is unchanged, and a periodic orphan sweep also skips any still-locked worktree. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
+**Worktree reuse across multiple rounds of work is out of scope for this document.** See DS-123 for the open design question and its evidence history.
+
 ## Protocol Details (read on trigger)
 
 **Activation detail (Steps 5-6)** - when Step 4 of the activation preflight resolves to active:

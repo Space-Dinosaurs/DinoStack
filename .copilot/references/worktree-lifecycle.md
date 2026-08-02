@@ -58,6 +58,8 @@ WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
 git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 ```
 
+This is the self-scoped inline pattern; it does not need the general disposition model below because it only ever operates on the branch the current session just pushed in the same phase.
+
 If the worktree is still locked by a running agent, `git worktree remove` will
 refuse until the agent finishes. That is expected and safe; the session-start
 prune script below remains a backstop.
