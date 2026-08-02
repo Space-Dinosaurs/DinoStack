@@ -1,1 +1,1 @@
-{"compatibility_inventory_sha256":"ef60cd9f6aefc34becd44ba855ac38872a2546120162298def830e1c8c118598","resources":{"core":{"path":"resources","type":"directory"},"workflow":{"path":"resources/commands/ds-wrap.md","type":"file"}},"schema_version":1,"skill":"wrap"}
+{"compatibility_inventory_sha256":"80223cd06832cb7b11e87fead9f98da294445148c7cfd330aac5e736f5868030","resources":{"core":{"path":"resources","type":"directory"},"workflow":{"path":"resources/commands/ds-wrap.md","type":"file"}},"schema_version":1,"skill":"wrap"}
