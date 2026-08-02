@@ -138,8 +138,17 @@ Regression corpus: hooks/tests/test-corpus-abdication.py is the permanent
                   blocks on genuine hard-stop questions.
                2. Narrowing the design-fork negative gate to co-occurrence:
                   composes with (1) to strip hard-stop protection.
-               3. A prose-ballot classifier and an operator-decisions-block
-                  classifier: multiple Critical Skeptic findings.
+               3. The whole-block "(recommended)" substring test (no
+                  fence-masking, no per-item split, no interrogative
+                  requirement, no negative-gate/surface-and-proceed
+                  suppression, routed through _ABDICATION_REASON): measured
+                  to block compliant turns and quoted methodology excerpts;
+                  never became a PR. NOT covered by this warning: a
+                  per-item, fence-masking classifier routed through a
+                  dedicated non-"proceed now" reason constant - see
+                  feat/prose-ballot-guard (PR #519), 0 Critical findings
+                  across three Skeptic rounds, clears Groups 3/5/7 of this
+                  corpus. Any revival must still pass the corpus in full.
                4. Widening the destructive gate with
                   drop/alter table|column|index|database|schema: measured
                   13/13 false suppressions.

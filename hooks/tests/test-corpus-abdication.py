@@ -17,12 +17,17 @@ Purpose: Permanent regression corpus for hooks/enforce-no-abdication.py. This
            2. Narrowing the design-fork negative gate to require
               co-occurrence rather than a bare-word match: composes with (1)
               to strip hard-stop protection entirely (Group 5 below).
-           3. Two new ballot classifiers (a prose-ballot classifier and an
-              operator-decisions-block classifier): multiple Critical
-              Skeptic findings, dropped before landing - no corpus rows
-              specifically pin this one since it never reached a measurable
-              shape, but Groups 3/5/7 are the regression floor any revival
-              attempt must still clear.
+           3. The whole-block "(recommended)" substring shape (no
+              fence-masking, no per-item split, no interrogative
+              requirement, no negative-gate/surface-and-proceed
+              suppression, routed through _ABDICATION_REASON): dropped
+              before landing - no corpus rows specifically pin this one
+              since it never reached a measurable shape. This does NOT
+              cover a per-item, fence-masking classifier with a dedicated
+              non-"proceed now" reason - feat/prose-ballot-guard (PR #519)
+              is that design, reviewed clean (0 Critical, three Skeptic
+              rounds) and passing this corpus; Groups 3/5/7 remain the
+              regression floor any revival attempt must still clear.
            4. Widening the destructive negative gate with
               `drop/alter table|column|index|database|schema`: measured
               13/13 FALSE SUPPRESSIONS - it stops catching real abdication on
