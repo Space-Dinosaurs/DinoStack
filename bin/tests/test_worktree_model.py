@@ -32,6 +32,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from worktree_model import (  # noqa: E402
+    DEFAULT_BASE_BRANCHES,
     MERGE_EVIDENCE_ORDER,
     Disposition,
     DispositionFacts,
@@ -266,6 +267,50 @@ class TestClassifyCrossRepo:
         wc = classify_entry(foreign_entry, host=REPO_ROOT, repo_root=REPO_ROOT, is_main=False)
         assert wc is WorktreeClass.UNMANAGED
 
+    def test_host_not_equal_repo_root_foreign_path_stays_unmanaged(self):
+        # DS-118's MANDATORY cross-repo non-collision guarantee, exercised
+        # with `host != repo_root` for the first time (all other tests in
+        # this suite pass them equal, which is why a mutation deleting the
+        # `under_host` guard (":316-317") previously survived all 33 tests -
+        # `relative_path` alone happened to fail closed by coincidence in
+        # every host==repo_root fixture). Here `host` is THIS repo's root
+        # but the caller passes a DIFFERENT (foreign) `repo_root` - the
+        # scenario the guard exists to catch: without it, `relative_path`
+        # would relativize the foreign entry against the foreign
+        # `repo_root` and produce a matching `.claude/worktrees/` prefix,
+        # misclassifying it ISOLATION.
+        foreign_root = "/some/other/host/repo"
+        foreign_entry = WorktreeEntry(
+            path=f"{foreign_root}/.claude/worktrees/agent-x",
+            head="cafebabe",
+            branch="feature/unrelated",
+            is_detached=False,
+        )
+        wc = classify_entry(foreign_entry, host=REPO_ROOT, repo_root=foreign_root, is_main=False)
+        assert wc is WorktreeClass.UNMANAGED
+
+
+class TestClassifyBareEntryUnderAdminPath:
+    def test_bare_entry_under_isolation_path_still_unmanaged(self):
+        # Companion to test_classify_bare_entry_is_unmanaged: that test's
+        # bare fixture path ("/tmp/scratch/bare.git") is NOT under either
+        # admin prefix, so it resolves UNMANAGED via the fall-through branch
+        # even with the `is_bare` guard (":308-311") deleted - which is why
+        # a mutation removing that guard also survived all 33 tests. Here
+        # the bare entry's path IS under `.claude/worktrees/`, so only the
+        # explicit `is_bare` guard - not the fall-through - can produce the
+        # correct UNMANAGED result; without it this would misclassify
+        # ISOLATION.
+        entry = WorktreeEntry(
+            path=f"{REPO_ROOT}/.claude/worktrees/bare-like",
+            head=None,
+            branch=None,
+            is_detached=False,
+            is_bare=True,
+        )
+        wc = classify_entry(entry, host=REPO_ROOT, repo_root=REPO_ROOT, is_main=False)
+        assert wc is WorktreeClass.UNMANAGED
+
 
 class TestClassifyEvals:
     def test_evals_worktrees_resolve_unmanaged(self):
@@ -278,6 +323,44 @@ class TestClassifyEvals:
         entry = next(e for e in entries if e.path.endswith("wt-6343844a930f"))
         wc = classify_entry(entry, host=REPO_ROOT, repo_root=REPO_ROOT, is_main=False)
         assert wc is WorktreeClass.UNMANAGED
+
+
+def test_classify_entry_is_branch_invariant_sweep():
+    # Outcome rubric line 1's invariant ("classify_entry never reads
+    # entry.branch"), swept mechanically across 4 representative paths x 9
+    # branch values rather than asserted from a single fixture per class -
+    # closes this ticket's Minor 1 (the invariant held empirically but was
+    # previously untested as a sweep). Any branch value must yield the same
+    # WorktreeClass for a fixed path.
+    paths = [
+        REPO_ROOT,  # is_main True case handled separately below
+        f"{REPO_ROOT}/.claude/worktrees/agent-x",
+        f"{REPO_ROOT}/.agentic/worktrees/some-unit",
+        f"{REPO_ROOT}/some/random/place",
+    ]
+    branch_values = [
+        None,
+        "main",
+        "master",
+        "develop",
+        "feature/x",
+        "fix/y",
+        "chore/z",
+        "worktree-agent-x",
+        "weird/../branch",
+    ]
+    for path in paths:
+        results = set()
+        for branch in branch_values:
+            entry = WorktreeEntry(
+                path=path,
+                head="deadbeef",
+                branch=branch,
+                is_detached=(branch is None),
+            )
+            wc = classify_entry(entry, host=REPO_ROOT, repo_root=REPO_ROOT, is_main=(path == REPO_ROOT))
+            results.add(wc)
+        assert len(results) == 1, f"path {path!r} classified differently across branch values: {results}"
 
 
 def test_relative_path_pure_normalization():
@@ -421,6 +504,39 @@ class TestDispositionForOrphanBranch:
             pr_state="not_checked",
         )
         assert disposition_for_orphan_branch("some-branch", facts) is Disposition.SKIP_AMBIGUOUS_NO_PR
+
+    def test_orphan_branch_main_and_master_never_eligible_even_with_merged_evidence(self):
+        # Major 5: main/master previously resolved ELIGIBLE when
+        # merge_evidence="merged" - trivially true for a base branch
+        # against itself. The base-branch guard must win over every
+        # evidence source, including the strongest one.
+        facts = DispositionFacts(
+            dirty_status="not_checked",
+            head_reachable="not_checked",
+            ls_remote_status="not_checked",
+            merge_evidence="merged",
+            pr_state="MERGED",
+        )
+        assert disposition_for_orphan_branch("main", facts) is Disposition.SKIP_BASE_BRANCH
+        assert disposition_for_orphan_branch("master", facts) is Disposition.SKIP_BASE_BRANCH
+        assert DEFAULT_BASE_BRANCHES == ("main", "master")
+
+    def test_orphan_branch_base_branches_is_explicit_not_inferred(self):
+        # A caller with a differently-named base branch (e.g. "develop")
+        # must pass its own base_branches - the function never infers one,
+        # and the default set does not silently protect an unlisted branch.
+        facts = DispositionFacts(
+            dirty_status="not_checked",
+            head_reachable="not_checked",
+            ls_remote_status="not_checked",
+            merge_evidence="merged",
+            pr_state="not_checked",
+        )
+        assert disposition_for_orphan_branch("develop", facts) is Disposition.ELIGIBLE
+        assert (
+            disposition_for_orphan_branch("develop", facts, base_branches=("develop",))
+            is Disposition.SKIP_BASE_BRANCH
+        )
 
     def test_orphan_branch_never_produces_worktree_only_dispositions(self):
         # Source-level guarantee: disposition_for_orphan_branch has no

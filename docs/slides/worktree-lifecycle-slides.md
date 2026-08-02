@@ -193,18 +193,18 @@ The conductor never edits the shippable tree directly - not even for Trivial one
 <div class="columns">
 <div class="card">
 <strong>Isolation worktrees</strong><br/>
-Named <code>worktree-agent-*</code>. Created automatically by the Agent tool when <code>isolation: "worktree"</code> is set on the spawn call. Each parallel subagent gets its own copy of the tree.<br/><br/>
+Path <code>.claude/worktrees/*</code>. Created automatically by the Agent tool when <code>isolation: "worktree"</code> is set on the spawn call. Each parallel subagent gets its own copy of the tree.<br/><br/>
 <strong>Cleanup trigger:</strong> once the agent returns and the conductor opens a PR (or confirms no PR is needed), the isolation worktree is redundant. The branch holds the commits. Remove immediately.
 </div>
 <div class="card">
 <strong>Feature worktrees</strong><br/>
-Named <code>feature/*</code>, <code>fix/*</code>, or <code>chore/*</code>. Created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br/><br/>
+Path <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br/><br/>
 <strong>Cleanup trigger:</strong> removed after the PR is merged. The merge (not the PR open) is the trigger.
 </div>
 </div>
 
 <div class="callout">
-Two classes, two distinct cleanup triggers. Getting the trigger wrong leaves stale worktrees that accumulate between runs and confuse subsequent sessions.
+Classified by <strong>path, never branch name</strong> (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code> is normative - DS-118: a renamed branch can live inside either admin directory, so a name-based scheme collides). Two classes, two distinct cleanup triggers. Getting the trigger wrong leaves stale worktrees that accumulate between runs and confuse subsequent sessions.
 </div>
 
 ---
@@ -311,9 +311,11 @@ Run **once at session start** in the conductor preflight - not before every suba
 ```bash
 git fetch origin
 git worktree prune
-# Delete orphaned worktree-agent-* branches not checked out in a live worktree:
+# Orphaned worktree-agent-* branches not checked out in a live worktree:
+# gated on merge evidence (ancestry, then PR state) before deleting.
 git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" || git branch -D "$b"
+  git worktree list | grep -qF "[$b]" && continue
+  git merge-base --is-ancestor "$b" origin/main 2>/dev/null && git branch -D "$b"
 done
 ```
 

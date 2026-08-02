@@ -495,15 +495,15 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
-**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
+**Isolation worktrees** (`.claude/worktrees/*`) are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
 
-**Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
+**Feature worktrees** (`.agentic/worktrees/*`) are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands. Classified by **path, not branch name** (`bin/tests/worktree_model.py`, normative).
 
 **Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Per Claude Code's own worktree documentation and its v2.1.157 changelog, once the agent finishes the harness releases the lock and then auto-cleans the worktree via `git worktree remove` (not a raw directory delete) if it is unchanged, and a periodic orphan sweep also skips any still-locked worktree. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
-**Worktree reuse across multiple rounds of work is out of scope for this document.** See DS-123 for the open design question and its evidence history.
+**Lifecycle rules are methodology-owned, not project-overridable** - see `content/references/worktree-lifecycle.md` §Project-override policy. **Worktree reuse across rounds is out of scope here (DS-123).**
 
 ## Protocol Details (read on trigger)
 
@@ -6408,7 +6408,7 @@ WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
 git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 ```
 
-This is the self-scoped inline pattern; it does not need the general disposition model below because it only ever operates on the branch the current session just pushed in the same phase.
+This is the self-scoped inline pattern; it does not need the general disposition model in `bin/tests/worktree_model.py` (`disposition_for` / `disposition_for_orphan_branch`) because it only ever operates on the branch the current session just pushed in the same phase.
 
 If the worktree is still locked by a running agent, `git worktree remove` will
 refuse until the agent finishes. That is expected and safe; the session-start
@@ -6449,7 +6449,18 @@ git worktree prune
 # (not just `*` for the current one) - the sed must strip both, or the guard below
 # silently misparses the name and the liveness check/delete operate on a malformed string:
 git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" || git branch -D "$b"
+  git worktree list | grep -qF "[$b]" && continue
+  # Gate the delete via disposition_for_orphan_branch's evidence order
+  # (bin/tests/worktree_model.py) rather than deleting unconditionally -
+  # `merge_evidence` (ancestry) first, then `pr_state`, then
+  # `ls_remote_status` last, mirroring §Branch prune bullets 1/2 below.
+  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
+    git branch -D "$b"
+  elif command -v gh >/dev/null 2>&1 && [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+    git branch -D "$b"
+  else
+    echo "SKIP (unproven merge): $b - needs manual review" >&2
+  fi
 done
 ```
 
@@ -6459,20 +6470,27 @@ No cleanup or prune path in this document may call `git worktree remove -f -f` (
 
 ## Branch prune (stale local branches)
 
-Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged:
+Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged.
+
+Bullets 1/2's existing selection filters below are pre-model guards, confirmed sound and left unchanged by this ticket - each is already equivalent to the `merge_evidence`/`ls_remote_status` signal `disposition_for_orphan_branch()` (`bin/tests/worktree_model.py`) would compute from the same underlying facts, so no command change was needed to bring them into agreement with the model. **Bullet 3 is a deliberate exception, left exactly as it is today: unconditional `git branch -D`, not routed through the model at all** - no genuine merge-evidence source exists for a bare branch name with no PR/ancestry history to check here, and inventing one is out of scope for this ticket (DS-118); a future ticket, plausibly informed by DS-123, can route it through `disposition_for_orphan_branch` without any interface change once one exists. (Contrast the session-start prune script above, which prunes the *same* `worktree-agent-*` branch class but - unlike this bullet - already had a merge-evidence check added.)
 
 ```bash
 # Prune stale LOCAL branches. Safe signals only; never force-delete unproven work.
 git fetch origin --prune                       # drop stale remote-tracking refs
 
 # 1. Branches whose upstream is gone (merged + remote deleted via squash + --delete-branch):
+#    - equivalent to disposition_for_orphan_branch's ls_remote_status="not_pushed"-adjacent
+#      signal (the remote ref is gone because it WAS pushed and then merged+deleted).
 git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
   | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
 
-# 2. Branches fully merged into origin/main:
+# 2. Branches fully merged into origin/main, excluding main/master themselves:
+#    - equivalent to disposition_for_orphan_branch's merge_evidence="merged" resolution,
+#      with the main/master exclusion mirroring DEFAULT_BASE_BRANCHES / SKIP_BASE_BRANCH.
 git branch --merged origin/main | grep -vE '^[*+]|(^| )(main|master)$' | xargs -r -n1 git branch -d
 
-# 3. worktree-agent-* branches whose worktree no longer exists:
+# 3. worktree-agent-* branches whose worktree no longer exists (NOT routed through the
+#    model - see the deferral note above):
 #    (a branch checked out in a live worktree is protected by git and will be skipped)
 for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
   git branch -D "$b" 2>/dev/null || true
@@ -6486,6 +6504,12 @@ done
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
 DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above regardless of Claude Code's own 30-day orphan sweep: the sweep cleans Claude Code's isolation worktrees on a monthly cadence and is a backstop, not a replacement; stale worktrees accumulate between sweeps.
+
+## Project-override policy
+
+Worktree lifecycle rules - classification (`classify_entry`) and disposition (`disposition_for` / `disposition_for_orphan_branch`, all in `bin/tests/worktree_model.py`) - are methodology-owned and NOT overridable by a project `AGENTS.md`. A project may add non-conflicting project-specific conventions (e.g. pruning its own generated artifacts) but may NOT redefine which path prefixes mean ISOLATION/CONDUCTOR_CREATED, change the disposition gate order, or otherwise contradict the classification or trigger rules in this document.
+
+This is a deliberate absence from the small set of items a project MAY declare - e.g. `BASE_BRANCH:` per `content/rules/conventions.md` §Git Workflow. Unlike the base branch, worktree lifecycle touches cross-session safety: the harness's own lock-while-running behavior, branch-rename mapping across sessions, and another session's live work. A per-project override could not safely account for any of those, so none is offered and no declaration form is defined for it.
 
 ## Pre-spawn stash fallback
 
@@ -11542,7 +11566,7 @@ git worktree prune
 
 ---
 
-## Step 2: List active worktrees
+## Step 2: List and classify active worktrees
 
 ```bash
 git worktree list
@@ -11550,17 +11574,19 @@ git worktree list
 
 The **first entry** is always the main worktree - the repo root directory. Skip it unconditionally regardless of what branch it is on.
 
-Categorize each remaining entry by its branch name:
+Classify every remaining entry by **path relative to the repo root, never by branch name** - this is what `classify_entry()` in `bin/tests/worktree_model.py` does, and it is the single normative definition of the four classes below (DS-118 defect 1: a `feature/*`/`fix/*`/`chore/*`-named branch can and does live inside a `.claude/worktrees/` isolation directory once renamed post-creation, which a branch-name-only heuristic cannot disambiguate). Where this prose and `classify_entry` disagree, `classify_entry` wins.
 
-- **Isolation worktrees** - branch matches `worktree-agent-*`. Temporary agent sandboxes. Go to Step 3.
-- **Feature worktrees** - branch matches `feature/*`, `fix/*`, or `chore/*`. Long-lived task branches. Go to Step 4.
-- **Anything else** - report it to the user and skip removal.
+- **Isolation worktrees** - path starts with `.claude/worktrees/` -> `WorktreeClass.ISOLATION`. Temporary agent sandboxes. Go to Step 3.
+- **Feature (conductor-created) worktrees** - path starts with `.agentic/worktrees/` -> `WorktreeClass.CONDUCTOR_CREATED`. Long-lived task branches. Go to Step 4.
+- **Anything else** - `WorktreeClass.UNMANAGED` (a bare-repo entry, a path outside this repo's own host, or a path under neither admin directory, e.g. `evals/.worktrees/wt-*`). Report it to the user and skip removal.
 
 ---
 
 ## Step 3: Remove isolation worktrees
 
-For each isolation worktree, resolve its path from the branch name and check its status before touching it:
+For each ISOLATION-classified entry, apply `disposition_for()`'s gate order - locked, dirty, then merge-evidence-independent-of-push (`bin/tests/worktree_model.py`; where this prose and `disposition_for` disagree, `disposition_for` wins). (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around - `SKIP_LOCKED`.)
+
+Resolve its path from the branch name and check its status before touching it:
 
 ```bash
 source "${REPO_DIR:-.}/scripts/lib/worktree.sh" 2>/dev/null || true
@@ -11570,8 +11596,6 @@ git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 
 where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
-There are three cases. (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around.)
-
 **Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
 
 ```bash
@@ -11580,20 +11604,41 @@ git worktree prune
 git branch -D "$b"
 ```
 
-**Directory exists, clean (no output):** Remove the worktree and delete the branch:
+**Directory exists, dirty (output present)** (`SKIP_DIRTY`): List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
+
+**Directory exists, clean (no output):** resolve merge evidence in `disposition_for`'s order - `merge_evidence` (ancestry) first, then `pr_state`, then `ls_remote_status` last, since push status alone is never sufficient proof of merge:
+
+```bash
+HEAD_SHA=$(git -C "$WORKTREE_PATH" rev-parse HEAD)
+git merge-base --is-ancestor "$HEAD_SHA" origin/main 2>/dev/null && MERGE_EVIDENCE=merged || MERGE_EVIDENCE=unmerged
+```
+
+- `MERGE_EVIDENCE=merged` (`ELIGIBLE`): remove the worktree and delete the branch:
 
 ```bash
 git worktree remove "$WORKTREE_PATH"
 git branch -D "$b"
 ```
 
-**Directory exists, dirty (output present):** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
+- `MERGE_EVIDENCE=unmerged`: fall back to PR state, if `gh` is available - `gh pr view "$b" --json state -q .state`. `OPEN` skips (`SKIP_PR_OPEN`, report to the user); `MERGED` is `ELIGIBLE` (remove as above - covers a squash-merge ancestry missed). `CLOSED`/no PR/`gh` unavailable falls through to push status: `git ls-remote --exit-code --heads origin "$b"` - absent -> `SKIP_NOT_PUSHED`, command error -> `SKIP_LS_REMOTE_ERROR`, present -> `SKIP_AMBIGUOUS_NO_PR`. Every skip outcome here reports the branch to the user for manual review - never delete on an inconclusive read.
 
 ---
 
-## Step 4: Remove feature worktrees with merged PRs
+## Step 4: Remove feature (conductor-created) worktrees with merged PRs
 
-For each feature worktree, check whether its PR has been merged:
+For each CONDUCTOR_CREATED-classified entry, apply `disposition_for()`'s gate order - locked, **dirty (this check was previously missing here - closing that gap)**, then merge-evidence-independent-of-push:
+
+**Locked** (`SKIP_LOCKED`): as in Step 3.
+
+**Dirty** (`SKIP_DIRTY`):
+
+```bash
+git -C <worktree-path> status --porcelain
+```
+
+Any output: skip removal, list the dirty files, and report to the user.
+
+**Clean only - merge evidence.** Check whether the branch's PR has been merged:
 
 ```bash
 gh pr list --state all --head <branch-name> --json number,state,title
@@ -11606,11 +11651,11 @@ git worktree remove <worktree-path>
 git branch -D <branch-name>
 ```
 
-**If state is `OPEN` or `CLOSED` (not merged):** skip removal. Report the branch name, PR number, and state to the user so they can decide.
+**If state is `OPEN` or `CLOSED` (not merged):** skip removal (`SKIP_PR_OPEN` / inconclusive). Report the branch name, PR number, and state to the user so they can decide.
 
-**If no PR exists:** skip removal. Report the branch as having no PR and needing manual review.
+**If no PR exists:** fall back to ancestry (`git merge-base --is-ancestor <head> origin/main`). Merged -> `ELIGIBLE`, remove as above. Still unmerged -> `SKIP_AMBIGUOUS_NO_PR`. Report the branch as needing manual review.
 
-**If `gh` is not available:** skip the PR check for all feature worktrees. Report each feature worktree as "needs manual review - gh CLI not available". Do not block or error.
+**If `gh` is not available:** skip the PR check for all feature worktrees; fall back to the ancestry check alone. Report each feature worktree still unmerged as "needs manual review - gh CLI not available". Do not block or error.
 
 ---
 

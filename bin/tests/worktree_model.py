@@ -27,26 +27,51 @@ Public API:
   disposition_for(entry, wt_class, facts, *,
                    merge_evidence_order=MERGE_EVIDENCE_ORDER) -> Disposition
   disposition_for_orphan_branch(branch, facts, *,
-                   merge_evidence_order=MERGE_EVIDENCE_ORDER) -> Disposition
+                   merge_evidence_order=MERGE_EVIDENCE_ORDER,
+                   base_branches=DEFAULT_BASE_BRANCHES) -> Disposition
   relative_path(path, repo_root)                      -> str
   WorktreeEntry, DispositionFacts                      -> dataclasses
   WorktreeClass, Disposition                            -> enums
   MERGE_EVIDENCE_ORDER                                   -> evidence-source
                                                             precedence tuple
+  DEFAULT_BASE_BRANCHES                                  -> ("main", "master")
+                                                            default guard set
 
 Upstream deps: none (stdlib only, no I/O). Pure functions throughout -
                callers gather live facts (via `git`, `gh`) and pass them in.
 
 Downstream consumers: test_worktree_model.py (pytest suite);
                       test_worktree_lifecycle_spec.sh (shell-level
-                      determinism smoke spec); content/references/
-                      worktree-lifecycle.md §Branch prune / §Session-start
-                      prune script (disposition_for_orphan_branch is the
-                      normative disposition gate those bullets' existing
-                      selection filters are proven against);
-                      content/commands/ds-cleanup-worktrees.md Steps 3/4
-                      (classify_entry + disposition_for are the normative
-                      gate for isolation- and feature-worktree removal).
+                      determinism smoke spec); content/sections/
+                      11-worktree-lifecycle.md and content/references/
+                      worktree-lifecycle.md (both point at this file as the
+                      normative classification/disposition definition rather
+                      than restating the algorithm in prose);
+                      content/references/worktree-lifecycle.md
+                      §Session-start prune script (its worktree-agent-*
+                      branch delete is gated on a merge-evidence check
+                      before deleting - ancestry then PR state, mirroring
+                      disposition_for_orphan_branch's evidence order,
+                      though not a literal function call from this bash
+                      context); §Branch prune bullets 1/2 (their existing
+                      selection filters are pre-model guards, annotated as
+                      equivalent to what disposition_for_orphan_branch would
+                      compute - left unchanged, not a literal call site);
+                      §Branch prune bullet 3 is explicitly NOT a consumer -
+                      deferred, unconditional git branch -D, unchanged by
+                      this ticket (DS-118 row 4);
+                      content/commands/ds-cleanup-worktrees.md Steps 2/3/4
+                      (classify_entry is the normative classification Step 2
+                      describes; disposition_for is the normative gate Steps
+                      3/4 describe, in disposition_for's own locked -> dirty
+                      -> merge-evidence order - Step 4's dirty check, absent
+                      before this ticket, was added to close that gap).
+                      None of these prose consumers literally import or
+                      shell out to this module at conductor runtime - as
+                      with fold_model.py (DS-108), the model is the
+                      normative definition the prose is checked against and
+                      kept in sync with; where prose and this module
+                      disagree, this module wins.
 
 Failure modes: `parse_porcelain` raises ValueError on a block missing the
                `worktree` key unconditionally, and (for a non-bare block
@@ -340,6 +365,7 @@ class Disposition(Enum):
     SKIP_PR_OPEN = "SKIP_PR_OPEN"
     SKIP_AMBIGUOUS_NO_PR = "SKIP_AMBIGUOUS_NO_PR"
     SKIP_UNREFERENCED_COMMIT = "SKIP_UNREFERENCED_COMMIT"
+    SKIP_BASE_BRANCH = "SKIP_BASE_BRANCH"
 
 
 @dataclass
@@ -454,11 +480,20 @@ def disposition_for(
     return _resolve_merge_evidence(facts, merge_evidence_order)
 
 
+#: Default `base_branches` for `disposition_for_orphan_branch` - matches the
+#: exclusion set the live §Branch prune bullet 2 filter already applies
+#: (`grep -vE '^[*+]|(^| )(main|master)$'`). Callers with a differently-named
+#: base branch (e.g. `develop`) MUST pass their own `base_branches` tuple
+#: explicitly - this function never infers it from the environment.
+DEFAULT_BASE_BRANCHES: Tuple[str, ...] = ("main", "master")
+
+
 def disposition_for_orphan_branch(
     branch: str,
     facts: DispositionFacts,
     *,
     merge_evidence_order: Tuple[str, ...] = MERGE_EVIDENCE_ORDER,
+    base_branches: Tuple[str, ...] = DEFAULT_BASE_BRANCHES,
 ) -> Disposition:
     """Disposition for a BRANCH with no live worktree at all - no
     `WorktreeEntry`, no `WorktreeClass` involved (used by branch-prune
@@ -468,10 +503,28 @@ def disposition_for_orphan_branch(
     produce `SKIP_MAIN`, `SKIP_UNMANAGED`, `SKIP_LOCKED`, `SKIP_DIRTY`, or
     `SKIP_UNREFERENCED_COMMIT` - none of those concepts (a live checkout,
     a lock, a dirty tree, a detached HEAD) apply to a branch with no
-    worktree. It reduces to the same merge-evidence resolution
-    `disposition_for` falls through to for a branched, clean, unlocked
-    entry.
+    worktree. Absent a `base_branches` match (below) it reduces to the same
+    merge-evidence resolution `disposition_for` falls through to for a
+    branched, clean, unlocked entry.
+
+    `base_branches` is an explicit, caller-supplied guard, never inferred:
+    when `branch` is a member (case-sensitive exact match), this function
+    returns `SKIP_BASE_BRANCH` unconditionally, before any evidence source is
+    consulted - a base/integration branch is never eligible for deletion
+    regardless of what `facts` claims about its merge status. This closes
+    the gap where `disposition_for_orphan_branch("main", merge_evidence=
+    "merged", ...)` previously resolved `ELIGIBLE`: `merge_evidence="merged"`
+    is trivially and permanently true for a base branch against itself,
+    which made the merge-evidence-first ordering actively dangerous for this
+    one input class. Every one of this ticket's 11 call sites already
+    excludes `main`/`master` via its own pre-model selection filter (see
+    content/references/worktree-lifecycle.md §Branch prune bullet 2's
+    `grep -vE`), so this guard is a defense-in-depth floor for any FUTURE
+    caller that forgets to - not a behavior change for the callers that
+    exist today.
     """
-    del branch  # identifies the branch to the caller/audit trail only;
-    # this function's own logic depends solely on `facts`.
+    if branch in base_branches:
+        return Disposition.SKIP_BASE_BRANCH
+    del branch  # beyond the guard above, identifies the branch to the
+    # caller/audit trail only - the remaining logic depends solely on `facts`.
     return _resolve_merge_evidence(facts, merge_evidence_order)
