@@ -17,12 +17,28 @@ Purpose: Permanent regression corpus for hooks/enforce-no-abdication.py. This
            2. Narrowing the design-fork negative gate to require
               co-occurrence rather than a bare-word match: composes with (1)
               to strip hard-stop protection entirely (Group 5 below).
-           3. Two new ballot classifiers (a prose-ballot classifier and an
-              operator-decisions-block classifier): multiple Critical
-              Skeptic findings, dropped before landing - no corpus rows
-              specifically pin this one since it never reached a measurable
-              shape, but Groups 3/5/7 are the regression floor any revival
-              attempt must still clear.
+           3. A flat whole-block "(recommended)" substring shape, no
+              per-item split, routed through _ABDICATION_REASON: rejected
+              on Skeptic findings against the plan proposing it - never
+              built, never reached a measurable shape. Hard-gate/surface-
+              and-proceed suppression and code-fence/blockquote exclusion
+              must be present from first authoring, not bolted on after
+              review. Zero of this corpus's 34 rows contain an
+              "## Operator decisions" heading or a "(recommended)"/
+              "Recommendation:" marker, so none exercise a ballot
+              classifier's path, leaving Groups 3/5/7 as the floor for
+              the OTHER rejected attempts only; a revival must add a
+              compliant ALLOW row and a genuine co-equal-ballot BLOCK row,
+              and must route through a dedicated reason constant that
+              does not carry an unconditional "proceed now" directive.
+              This does NOT cover a per-item, fence-masking classifier with
+              a dedicated non-"proceed now" reason - feat/prose-ballot-guard
+              (PR #519) is that design, per its PR body 0 Critical findings
+              across three Skeptic rounds, and it passes this corpus - but
+              it deliberately exempts its ballot check from the negative
+              gate and does not handle ">"-blockquote headings, so it does
+              not itself satisfy the two requirements above; that tension
+              is unresolved.
            4. Widening the destructive negative gate with
               `drop/alter table|column|index|database|schema`: measured
               13/13 FALSE SUPPRESSIONS - it stops catching real abdication on
