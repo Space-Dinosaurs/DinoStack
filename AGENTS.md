@@ -16,11 +16,14 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - Harness-injected instructions that suppress delegation (#530, `d6b61e7b`): kernel rule in `content/sections/02-delegation.md`; detail, notice template, and harness-vs-model diagnostic in `content/references/delegation-detail.md` §Harness-Injected Instruction Conflicts.
 - No enforcement hook may deny conductor Read/Grep/Glob to force delegation, and none may gate on inferred session capability - flat prohibitions (#530): `hooks/AGENTS.md` §No gating on inferred session capability.
 
+- `evals/` is git-untracked by decision #203 and stays that way pending an explicit re-tracking decision; it is therefore invisible (not merely ignored) inside an isolation worktree. See `evals/AGENTS.md` for the working rules.
+
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
 - `gh pr create` requires an authenticated `gh` session (`gh auth status`). Run `gh auth login` if needed, then `gh pr create`.
 - `rm -rf` is blocked by Claude Code permissions in this repo; remove files individually: `rm <file>` then `rmdir <dir>`
 - `bin/agentic-memory` — lightweight memory retrieval tool for querying `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md` on demand.
+- `bin/agentic-tracker` — manage the project-local gitignored `.agentic/tracker.yml` overlay (`init` / `set` / `show` / `path` / `resolve`). Applied after the four-step `AGENTS.md` tracker chain: if `AGENTS.md` declares no tracker, or a different one, the overlay is sole source and fully replaces the base (`_source: "overlay"`); it merges field-by-field (`_source: "merged"`) only when both declare the same tracker. Refuses to write to any path git would track; `--force-unignored` overrides.
 
 ## Deploy
 - Docs site: deploy steps are in `docs/technical/deploy.md` (local-only, not tracked upstream). Always verify the linked project ID before running `vercel --prod`.
@@ -37,7 +40,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 	7. Clean up: isolation worktrees are removed after the branch is pushed to origin; feature worktrees are cleaned up after merge. The session-start prune script and branch-prune block remain as backstops. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands and §Feature worktree cleanup commands.
 	8. Update local main: `git checkout main && git pull --ff-only origin main`.
 	- Steps 6-8 are automatic - never pause for merge approval when CI is green.
-	- `main` enforces strict required status checks: a PR whose base has moved must be rebased and re-run before merge - GitHub does not re-run workflows on base movement.
+	- `main` enforces strict required status checks: a PR whose base has moved must be rebased and re-run before merge - GitHub does not re-run workflows on base movement. Sync with `gh pr update-branch --rebase`; the default (merge) update produces an unsigned commit that fails the DCO check.
 	- Failed CI is a hard stop - investigate before proceeding.
 - **Conductor never edits shippable artifacts directly, including Trivial one-line changes.** Every shippable change is delegated to a worktree-isolated `engineer` branched from `origin/main`; the conductor edits only exempt artifacts (`.agentic/`, conductor-direct prints/decisions/resolver execution) in its own checkout. See `content/rules/conventions.md` §Git Workflow for the shippable/exempt classifier.
 - Superseding an open PR: close + rebase, never bundle - see `content/rules/conventions.md` §Git Workflow.
@@ -46,6 +49,7 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 - Assembling a multi-unit PR: the repo enforces a DCO Signed-off-by check on EVERY commit. Conductor `git merge --no-ff` assembly commits are unsigned and fail DCO - instead cherry-pick each engineer's signed unit commit (no merge commits) or pass `git merge --signoff`. Never force-push to fix unsigned merge commits; `gh pr merge --admin --squash` discards merge commits at merge time anyway.
 - When you struggle with a repeatable task (starting dev servers, deploying, running migrations, connecting to databases, etc.) and find the solution, proactively save the working steps to MEMORY.md so future sessions don't repeat the struggle.
 - The pre-commit hook does not currently auto-stage `.claude/skills/agentic-engineering/METHODOLOGY.md` or `.codex/agents/*.toml`. After any `content/` edit, either stage these regenerated artifacts manually or extend the `git add` list in `hooks/pre-commit`.
+- A green `bin/tests/` run is not the gate set - the required `hooks-js-tests` check pins methodology prose byte-for-byte and lives outside `bin/tests/`. After any `content/` prose edit, run the hooks JS suite too. It has no single literal command: the job is an inline `for f in hooks/tests/test-*.js` loop that `node`-runs each file, minus the two wrap-lock files that run in the separate `wrap-lock-tests` job (see `.github/workflows/hooks-tests.yml`).
 - Any change to `content/rules/`, `content/references/`, `content/agents/`, `content/commands/`, or `content/sections/` MUST also update `docs/index.html` and any affected `docs/slides/*.md` (then run `bash scripts/build-slides.sh` and commit the regenerated `.html` - do not hand-edit the `.html`; upgrading marp is an intentional same-PR action: bump `scripts/package.json` + regenerate `scripts/package-lock.json` + rebuild) in the same PR; additionally, any now-stale count, list, or reference in `README.md`, `CONTRIBUTING.md`, or `content/SKILL.md` is in-scope for the same PR. Public-facing intent debt is the worst kind. The canonical trigger predicate and tiered Skeptic classification for this obligation live in `content/references/doc-sync-obligation.md`; Skeptic flags missing docs sync per those tiers (Major by default, Critical when a public-facing doc actively misleads).
 - Any new interactive prompt added to `.claude/install.sh` MUST use the `ae_confirm()` helper (reads `/dev/tty` when available, defaults "no"). Never use bare `read -p` - it aborts under `set -euo pipefail` + piped stdin (the `curl | bash` install path).
 - After any change to `content/SKILL.md`, run both `.pi/build.sh` and `.claude/build.sh` to regenerate adapter-specific SKILL.md copies. The pre-commit hook does not auto-stage these.
