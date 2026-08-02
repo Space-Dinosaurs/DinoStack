@@ -9,8 +9,11 @@ Purpose: Detailed delegation-model reference blocks extracted from
          Absence-claim scope axes (calibration worked example, both
          directions, for the four search-narrowness axes); Investigator-
          before-Architect rules (incl shared-utility-MANDATORY and Parallel
-         Investigators); Learnings pipeline; Worker preamble + execution
-         contract template; Digest-return discipline.
+         Investigators); Harness-Injected Instruction Conflicts (notice
+         template, operator remedies, harness-vs-model diagnostic);
+         Learnings pipeline; Worker preamble + execution contract template;
+         Digest-return discipline; Orchestration enforcement hooks + fan-out
+         `skeptic_strategy` detail; Background-spawn enforcement detail.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
