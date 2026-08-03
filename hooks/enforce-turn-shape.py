@@ -150,7 +150,13 @@ KILL_SWITCH_ENV = "AE_TURN_SHAPE_GUARD_DISABLE"
 # Deliberately loose - ticket IDs, branch names, and phase vocabulary vary
 # across projects and sessions; this is a structural check, not a content
 # check.
-_IDENTITY_LINE_RE = re.compile(r"^\S.*·.*·.*\[phase:.*\]", re.IGNORECASE)
+#
+# Each `·`-delimited segment is bounded to `[^·\n]*` (not `.*`) so the regex
+# cannot backtrack across segment boundaries - a plain `.*·.*·.*` pattern
+# backtracks cubically on a long first line with many `·` characters and no
+# `[phase:` tag (measured: 3200 dots took 13.8s, exceeding this hook's own
+# 10s registered timeout and its "< 5ms per call" manifest claim).
+_IDENTITY_LINE_RE = re.compile(r"^\S[^·\n]*·[^·\n]*·.*\[phase:.*\]", re.IGNORECASE)
 
 # "## Operator decisions" heading (see content/sections/02-delegation.md
 # "Operator decisions go last in the turn"). Case-insensitive, tolerant of
@@ -186,7 +192,18 @@ _COMPLETION_RE = re.compile(
 # cannot verify the quote actually echoes the operator's preceding
 # message; it only recognizes the SHAPE of "I am answering by quoting
 # something".
-_QUOTED_FRAGMENT_RE = re.compile(r'"[^"\n]{8,}"|\'[^\'\n]{8,}\'|^>\s*\S.{6,}', re.MULTILINE)
+#
+# The single-quote alternative is DELIBERATELY OMITTED (Skeptic Major 1):
+# `'[^'\n]{8,}'` matches the text between any two apostrophes in ordinary
+# English prose - "they're green, that's all", "I don't think we can't
+# merge yet" both false-positive as a quoted "answer". A straight-quote
+# pair heuristic is not a reliable single-quote detector on prose that
+# routinely contains contractions and possessives, and this detector is
+# explicitly licensed to be loose only in the "cannot verify an echo"
+# sense - not in the sense of matching non-quote punctuation. Double
+# quotes and a leading blockquote marker (">") remain, since neither is
+# routinely produced by ordinary prose.
+_QUOTED_FRAGMENT_RE = re.compile(r'"[^"\n]{8,}"|^>\s*\S.{6,}', re.MULTILINE)
 
 
 def _first_nonblank_line(text: str) -> str:
@@ -300,7 +317,16 @@ def _last_assistant_text_from_transcript(transcript_path: str) -> str:
                         parts.append(block.get("text", ""))
                     elif isinstance(block, str):
                         parts.append(block)
-                return " ".join(parts)
+                # Joined with "\n", not " " (Skeptic Minor): a space-join
+                # collapses a multi-block message onto a single line, so
+                # _body_after_identity_line() sees an empty body and both
+                # the status-only and forced-yield checks go silently inert
+                # on this fallback path even though they fire correctly on
+                # the primary last_assistant_message path for the same
+                # text. Under-flagging is the safe failure direction (this
+                # hook never blocks), but the fallback should still mirror
+                # the primary path's line structure.
+                return "\n".join(parts)
             return ""
     except Exception:
         return ""

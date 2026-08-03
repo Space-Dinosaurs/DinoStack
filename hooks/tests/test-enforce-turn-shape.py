@@ -298,9 +298,19 @@ check("k3. valid JSON but not an object -> QUIET", is_quiet(rc, out))
 #    is NOT flagged (shape check gated off)
 # ---------------------------------------------------------------------------
 
+# l1's body MUST contain a non-Waiting: line (here: "Shipped unit 3, task
+# is complete.") so the forced-yield gate ("stoppage is the SOLE
+# warrant") is genuinely exercised - if the completion warrant is not
+# recognized, this line would trip "forced-yield: extra content" the same
+# way case (f) does. A body consisting of ONLY a Waiting: line (the prior
+# version of this fixture) is vacuous: _forced_yield_flag's per-line loop
+# returns None regardless of the gate, since every body line already
+# matches _WAITING_LINE_RE - deleting the `warrants["completion"] or`
+# term from the gate condition would leave this fixture green.
 completion_plus_waiting_msg = (
     IDENTITY_COMPLETE + "\n"
-    "Waiting: nothing further - this is a note, task is complete.\n"
+    "Shipped unit 3, task is complete.\n"
+    "Waiting: nothing further.\n"
 )
 rc, out, err = run_hook(make_payload(completion_plus_waiting_msg))
 check("l1. completion warrant + Waiting: line -> QUIET (shape check skipped)", is_quiet(rc, out))
@@ -366,13 +376,86 @@ def _run_main_with_stdin(payload: str, calls: list):
 _calls_flagged: list = []
 _out_flagged = _run_main_with_stdin(make_payload("Done."), _calls_flagged)
 check(
-    "n1. log_fire called exactly once with hook_name='enforce-turn-shape' on a finding",
-    len(_calls_flagged) == 1 and _calls_flagged[0][0] == "enforce-turn-shape",
+    "n1. log_fire called exactly once with hook_name='enforce-turn-shape', "
+    "decision='allow_advisory' on a finding",
+    len(_calls_flagged) == 1
+    and _calls_flagged[0][0] == "enforce-turn-shape"
+    and _calls_flagged[0][1] == "allow_advisory",
 )
 
 _calls_clean: list = []
 _out_clean = _run_main_with_stdin(make_payload(IDENTITY_COMPLETE), _calls_clean)
 check("n2. log_fire NOT called on a clean turn", len(_calls_clean) == 0)
+
+
+# ---------------------------------------------------------------------------
+# o. transcript_path fallback (_last_assistant_text_from_transcript), used
+#    when last_assistant_message is absent/empty. Previously zero coverage
+#    (Skeptic Minor). Covers a single-block transcript entry AND a
+#    two-block entry, pinning the "\n".join(parts) fix - a two-block entry
+#    joined with " " would collapse the body onto one line and silently
+#    suppress the forced-yield finding this case expects.
+# ---------------------------------------------------------------------------
+
+
+def _write_transcript(tmp_dir: str, lines: list) -> str:
+    path = os.path.join(tmp_dir, "transcript.jsonl")
+    with open(path, "w", encoding="utf-8") as f:
+        for line in lines:
+            f.write(json.dumps(line) + "\n")
+    return path
+
+
+with tempfile.TemporaryDirectory() as tmp_dir:
+    # o1. single-block assistant content (string form) via transcript fallback.
+    transcript_path = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK
+                + "\nSome explanation here that is not itself a Waiting line.\n"
+                + "Waiting: operator approval to proceed.\n",
+            },
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": transcript_path})
+    )
+    check(
+        "o1. transcript fallback, single string-content block -> ADVISORY (forced-yield)",
+        is_advisory(rc, out, "forced-yield"),
+    )
+
+    # o2. two-block assistant content (list-of-text-blocks form) via
+    # transcript fallback - the case the "\n".join fix targets. Split
+    # across two text blocks so a " ".join would collapse them onto one
+    # line and silently suppress the forced-yield finding.
+    transcript_path = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "go"},
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": IDENTITY_OK
+                        + "\nSome explanation here that is not itself a Waiting line.",
+                    },
+                    {"type": "text", "text": "Waiting: operator approval to proceed."},
+                ],
+            },
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": transcript_path})
+    )
+    check(
+        "o2. transcript fallback, two-block content joined with newline -> ADVISORY (forced-yield)",
+        is_advisory(rc, out, "forced-yield"),
+    )
 
 
 # ---------------------------------------------------------------------------
