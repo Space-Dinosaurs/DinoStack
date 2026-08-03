@@ -1,6 +1,6 @@
 """
 Purpose: Executes the Phase 8 commit-and-telemetry shell block
-         (content/commands/ds-implement-ticket.md:2249-2346, marked
+         (content/commands/ds-implement-ticket.md:2249-2347, marked
          `@harness:phase8-commit-and-telemetry`) against real temp-git
          fixtures under both bash and zsh, so the class of defect that two
          review rounds each missed fails mechanically instead of surviving a
@@ -28,6 +28,15 @@ Failure modes: n/a (test module). Tests #7 and #8 are themselves a self-check
 Performance: standard; each parametrized test does a handful of local git
              operations plus one subprocess shell invocation. Whole suite
              runs in low single-digit seconds.
+
+Known scope limitation: the feature-commit `git add [specific files]` line
+             (rendered to `.agentic/session-log/${DEVELOPER}.jsonl` via
+             md_shell_extract.PLACEHOLDER_WHITELIST) runs before $DEVELOPER
+             is assigned later in the block, so it is a guaranteed pathspec
+             mismatch under every fixture here and no test exercises the
+             feature-commit path - only the telemetry-commit path (which
+             resolves $DEVELOPER first) is covered. See
+             bin/tests/lib/md_shell_extract.py's manifest for detail.
 """
 from __future__ import annotations
 
@@ -265,8 +274,32 @@ def test_correct_block_skips_telemetry_when_identity_unconfirmed(tmp_path, shell
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_defect1_hoisted_cp_silently_drops_telemetry_commit(tmp_path, shell):
+    """Both-directions check (M3): the unmutated block MUST produce a
+    telemetry commit on this exact fixture shape before we assert the mutant
+    suppresses it - otherwise a broken fixture (e.g. a wrong session-log
+    filename that makes a commit impossible under any block) would make this
+    test pass vacuously regardless of whether the mutant is actually caught."""
     shell = _shell_or_skip(shell)
-    fixture = git_fixture.build_worktree_shape(tmp_path)
+
+    unmutated_dir = tmp_path / "unmutated"
+    unmutated_dir.mkdir()
+    unmutated_fixture = git_fixture.build_worktree_shape(unmutated_dir)
+    unmutated_rendered = mse.render(_raw_block())
+    unmutated_result = _execute(unmutated_rendered, unmutated_fixture, shell)
+    assert mse.COMPLETION_MARKER in unmutated_result.stdout, unmutated_result.stderr
+    unmutated_body = _telemetry_commit_body(
+        _pr_checkout(unmutated_fixture), unmutated_fixture.branch_name, unmutated_fixture.env
+    )
+    assert unmutated_body is not None, (
+        "harness self-check failed: the UNMUTATED block produced no "
+        "telemetry commit on this fixture shape - the fixture (not the "
+        "defect) is broken, so a mutant assertion of body is None below "
+        "would be vacuous"
+    )
+
+    mutant_dir = tmp_path / "mutant"
+    mutant_dir.mkdir()
+    fixture = git_fixture.build_worktree_shape(mutant_dir)
     mutant = mse.render(_make_d1_mutant(_raw_block()))
     check = mse.syntax_check(mutant, shell)
     assert check.returncode == 0, f"D1 mutant must parse (same-scope reorder): {check.stderr}"
@@ -282,8 +315,30 @@ def test_defect1_hoisted_cp_silently_drops_telemetry_commit(tmp_path, shell):
 
 @pytest.mark.parametrize("shell", SHELLS)
 def test_defect2_guard_before_cp_noops_on_single_engineer_path(tmp_path, shell):
+    """Both-directions check (M3): see test_defect1's docstring - the
+    unmutated block must be shown to produce a telemetry commit on this
+    fixture shape before the mutant's suppression of it is meaningful."""
     shell = _shell_or_skip(shell)
-    fixture = git_fixture.build_worktree_shape(tmp_path)
+
+    unmutated_dir = tmp_path / "unmutated"
+    unmutated_dir.mkdir()
+    unmutated_fixture = git_fixture.build_worktree_shape(unmutated_dir)
+    unmutated_rendered = mse.render(_raw_block())
+    unmutated_result = _execute(unmutated_rendered, unmutated_fixture, shell)
+    assert mse.COMPLETION_MARKER in unmutated_result.stdout, unmutated_result.stderr
+    unmutated_body = _telemetry_commit_body(
+        _pr_checkout(unmutated_fixture), unmutated_fixture.branch_name, unmutated_fixture.env
+    )
+    assert unmutated_body is not None, (
+        "harness self-check failed: the UNMUTATED block produced no "
+        "telemetry commit on this fixture shape - the fixture (not the "
+        "defect) is broken, so a mutant assertion of body is None below "
+        "would be vacuous"
+    )
+
+    mutant_dir = tmp_path / "mutant"
+    mutant_dir.mkdir()
+    fixture = git_fixture.build_worktree_shape(mutant_dir)
     mutant_raw = _make_d2_mutant(_raw_block())
     mutant = mse.render(mutant_raw)
     check = mse.syntax_check(mutant, shell)
@@ -314,18 +369,20 @@ def test_defect3_missing_dco_guard_emits_malformed_trailer(tmp_path, shell):
     today, so the test passes, and strict xfail turns a pass into
     XPASS(strict) -> suite red on merge).
 
-    Defect location: content/commands/ds-implement-ticket.md:2274-2325 - the
-    telemetry-commit block builds TELEM_MSG (:2316) from $SO_NAME/$SO_EMAIL
-    with NO guard analogous to the one at :2264 that protects the FEATURE
+    Defect location: content/commands/ds-implement-ticket.md:2284-2325 - the
+    telemetry-commit block builds TELEM_MSG (:2317) from $SO_NAME/$SO_EMAIL
+    with NO guard analogous to the one at :2265 that protects the FEATURE
     commit. When git config user.name/user.email are unset (but the commit
     itself still succeeds via GIT_AUTHOR_*/GIT_COMMITTER_* env vars, as a CI
     runner or a fresh clone with no `git config --global user.*` might have),
     the telemetry commit lands with the literal malformed trailer
     `Signed-off-by:  <>` (two spaces, empty angle brackets).
 
-    The follow-up ticket that adds the :2283-2325 guard MUST invert this
-    test (assert the malformed trailer no longer occurs) in the SAME PR
-    that fixes the defect.
+    The follow-up ticket that adds a :2284-2325 guard analogous to :2265
+    MUST invert this test (assert the malformed trailer no longer occurs)
+    in the SAME PR that fixes the defect. Follow-up ticket: DS-<TBD> - no
+    ticket has been filed yet; the conductor will replace this placeholder
+    with the real ticket ID when one is filed.
     """
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_identity_no_gitconfig_shape(tmp_path)

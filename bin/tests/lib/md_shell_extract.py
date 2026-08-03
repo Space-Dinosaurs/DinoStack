@@ -31,6 +31,20 @@ Failure modes: every extraction/render/transform step is fail-closed - 0 or
 
 Performance: standard; extraction/render/transform are pure string ops over
              a <5KB block. syntax_check() forks a subprocess per call.
+
+Known scope limitation: PLACEHOLDER_WHITELIST["[specific files]"] renders to
+             `.agentic/session-log/${DEVELOPER}.jsonl`, but that `git add`
+             line executes before `$DEVELOPER` is assigned a few lines later
+             in the rendered block. The feature-commit `git add` is therefore
+             a guaranteed `fatal: pathspec '.agentic/session-log/.jsonl' did
+             not match` under every fixture this harness builds, and no test
+             in bin/tests/test_phase8_telemetry_shell.py produces or asserts
+             a feature commit - only the telemetry-commit path (which
+             resolves $DEVELOPER first) is exercised. Extending coverage to
+             the feature commit requires a placeholder value that does not
+             depend on a later-assigned variable; this whitelist value was
+             deliberately left unchanged rather than papered over, to avoid
+             masking the render()-order defect it documents.
 """
 from __future__ import annotations
 

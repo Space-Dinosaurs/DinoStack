@@ -1,12 +1,12 @@
 """
 Purpose: Builds hermetic, disposable git repo fixtures that reproduce the six
          shapes of consumer/project state the Phase 8 commit-and-telemetry
-         shell block (content/commands/ds-implement-ticket.md:2249-2346) can
+         shell block (content/commands/ds-implement-ticket.md:2249-2347) can
          run against: the DinoStack repo itself, an /ds-init-project-scaffolded
-         consumer repo, a fan-out engineer worktree, a fan-out primary
-         checkout, an unconfirmed-identity operator, and a confirmed identity
-         with no git user.* config. Built for
-         bin/tests/test_phase8_telemetry_shell.py.
+         consumer repo, a single-engineer worktree (WORKTREE_PATH-resolved PR
+         checkout), a fan-out primary checkout, an unconfirmed-identity
+         operator, and a confirmed identity with no git user.* config. Built
+         for bin/tests/test_phase8_telemetry_shell.py.
 
 Public API: Fixture (dataclass: repo_dir, worktree_dir, branch_name,
             developer, env)
@@ -20,9 +20,11 @@ Public API: Fixture (dataclass: repo_dir, worktree_dir, branch_name,
 Upstream deps: stdlib only (subprocess, dataclasses, pathlib). Shells out to
                the system `git` binary. Does not touch the developer's real
                $HOME, ~/.gitconfig, or /etc/gitconfig - every fixture pins
-               GIT_CONFIG_NOSYSTEM=1 and a fixture-local GIT_CONFIG_GLOBAL so
-               no ambient git identity, init.defaultBranch, or gpgsign setting
-               can leak in.
+               HOME to a fixture-local temp dir, GIT_CONFIG_NOSYSTEM=1, and a
+               fixture-local GIT_CONFIG_GLOBAL so no ambient git identity,
+               init.defaultBranch, gpgsign setting, or ~/.nvm/nvm.sh (which
+               would otherwise prepend to PATH ahead of the agentic-identity
+               stub dir) can leak in.
 
 Downstream consumers: bin/tests/test_phase8_telemetry_shell.py
 
@@ -112,7 +114,11 @@ def _base_env(tmp_path: Path, user_name: Optional[str], user_email: Optional[str
     else:
         global_gitconfig.write_text("", encoding="utf-8")
 
+    fixture_home = tmp_path / ".fixture-home"
+    fixture_home.mkdir(parents=True, exist_ok=True)
+
     env = dict(os.environ)
+    env["HOME"] = str(fixture_home)
     env["GIT_CONFIG_NOSYSTEM"] = "1"
     env["GIT_CONFIG_GLOBAL"] = str(global_gitconfig)
     env["LC_ALL"] = "C"
@@ -283,7 +289,7 @@ def build_fanout_shape(tmp_path: Path) -> Fixture:
 def build_no_identity_shape(tmp_path: Path) -> Fixture:
     """(v) Identity unconfirmed/absent: `agentic-identity show` resolves no
     `developer_id:` line, so $DEVELOPER is empty and the
-    `[ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]` guard at :2283
+    `[ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]` guard at :2284
     short-circuits - the telemetry block is never entered."""
     branch_name = "feature/harness-fixture-v"
     repo_dir = tmp_path / "repo"
@@ -304,7 +310,7 @@ def build_identity_no_gitconfig_shape(tmp_path: Path) -> Fixture:
     `git config user.name`/`user.email` anywhere (no global, no repo-local).
     `git commit` still succeeds because GIT_AUTHOR_*/GIT_COMMITTER_*/EMAIL
     are set directly in the process env - but `SO_NAME`/`SO_EMAIL` (built
-    exclusively from `git config user.name`/`user.email`, :2261-2262) resolve
+    exclusively from `git config user.name`/`user.email`, :2262-2263) resolve
     empty, so the telemetry trailer lands as the malformed
     `Signed-off-by:  <>` (D3, live on main today)."""
     branch_name = "feature/harness-fixture-vi"
