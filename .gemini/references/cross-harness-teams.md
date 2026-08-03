@@ -268,10 +268,14 @@ of the five dispatchable roles (`engineer`, `debugger`, `qa-engineer`,
 `default_harness`) is anything other than `claude`, denies the native spawn
 with an actionable instruction, e.g.:
 
-> `cross-harness team active: role 'engineer' is assigned to harness 'omp'
-> (model kimi/kimi-k2.7). Dispatch with: bin/agentic-team dispatch --harness
-> omp --role engineer --brief <file> --workdir <dir> --model kimi/kimi-k2.7 -
-> then poll status/collect.`
+> `cross-harness team active: role 'engineer' is assigned to harness 'omp'.
+> Dispatch with: bin/agentic-team dispatch --harness omp --role engineer
+> --brief <file> --workdir <dir> --model <model-from-team.yml> - then poll
+> status/collect.`
+
+The model value is deliberately never interpolated into this message - it is
+untrusted, project-controlled text from `team.yml`, so the hook substitutes
+the literal placeholder `<model-from-team.yml>` instead.
 
 `conductor`, `investigator`, `architect`, and `orchestration-planner` are never
 denied by this branch even if `team.yml` maps them elsewhere (their entries are
@@ -317,6 +321,7 @@ binding prose contract, not a mechanically enforced hook. Per-harness status:
 | **OpenClaw** | Prose-contract only - no hook infrastructure | Would live in `.openclaw/` hooks if the runtime adds them |
 | **Pi** | Prose-contract only - no hook infrastructure | Would live in `.pi/` config hooks if the runtime adds them |
 | **omp** | Prose-contract only - no hook infrastructure | Would live in `.omp/` config hooks if the runtime adds them |
+| **Copilot** | Prose-contract only - no hook infrastructure | Would live in `.copilot/` config hooks if the runtime adds them |
 | **Hermes** | Prose-contract only - no hook infrastructure | Would live in a Hermes hook slot if the runtime adds them |
 
 The leaf-worker clause (layer 4) and workdir fence (layer 1) provide
@@ -367,4 +372,4 @@ boundary is transparent to the Skeptic/QA layer.
 
 Once `collect` returns, its output re-enters the Skeptic/QA gates exactly as described above under "How collected worker output re-enters the Skeptic/QA gates" - same adversarial review, same `qa_criteria` triggers, same re-route limits, no new gate or bypass for cross-harness origin.
 
-**Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. A future enhancement will also proactively block a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude`, but that check is not yet merged. On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it.
+**Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. That same hook also proactively blocks a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude` - the "Proactive team-routing enforcement" branch described above, which runs before any dispatch has ever happened and closes the chicken-and-egg gap in the sentinel-only check (escape hatch: `AE_TEAM_ROUTING_DISABLE=1`). On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it.
