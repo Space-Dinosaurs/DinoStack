@@ -40,6 +40,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 
 HOOK_PATH = os.path.join(os.path.dirname(__file__), "..", "enforce-turn-shape.py")
 
@@ -340,6 +341,46 @@ rc, out, err = run_hook(make_payload(stoppage_with_explanation_msg))
 check(
     "m. stoppage-only + one explanatory sentence -> ADVISORY (forced-yield)",
     is_advisory(rc, out, "forced-yield"),
+)
+
+# ---------------------------------------------------------------------------
+# p. REGRESSION (Skeptic Major, round 2): apostrophes/contractions must NOT
+#    satisfy the 'answer' warrant. Pins the fix that dropped the
+#    single-quote alternative from _QUOTED_FRAGMENT_RE - without the fix,
+#    this message's contractions/possessives ("they're", "that's",
+#    "engineer's", "isn't", "don't", "can't") would each open/close a
+#    bogus quoted-fragment match, setting the answer warrant and silently
+#    suppressing the status-only flag this case expects.
+# ---------------------------------------------------------------------------
+
+apostrophe_msg = (
+    IDENTITY_OK + "\n"
+    "Ran the tests, they're green, that's all.\n"
+    "The engineer's branch isn't stale.\n"
+    "I don't think we can't merge yet.\n"
+)
+rc, out, err = run_hook(make_payload(apostrophe_msg))
+check(
+    "p. apostrophes do NOT satisfy the answer warrant -> ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# ---------------------------------------------------------------------------
+# q. REGRESSION (Skeptic Minor, round 2): pin the catastrophic-backtracking
+#    fix on _IDENTITY_LINE_RE. A first line with ~3200 middle-dot/period
+#    characters and no '[phase:' tag must classify in well under a second -
+#    a generous 1.0s bound (measured value is now microseconds) that is
+#    loose enough to avoid flaking on a slow CI runner while still catching
+#    a regression to the unbounded '.*' form (measured 13.8s pre-fix).
+# ---------------------------------------------------------------------------
+
+_pathological_msg = "x" + ("·" * 3200) + "\nno phase tag here at all\n"
+_start = time.monotonic()
+rc, out, err = run_hook(make_payload(_pathological_msg))
+_elapsed = time.monotonic() - _start
+check(
+    f"q. pathological identity-line input completes in <1.0s (took {_elapsed:.4f}s)",
+    _elapsed < 1.0,
 )
 
 # ---------------------------------------------------------------------------
