@@ -14,7 +14,7 @@ A conductor turn is warranted only when at least one of these four conditions ho
 
 1. **Decision** - a `## Operator decisions` heading is present in the turn.
 2. **Stoppage** - a `Waiting:` line is present in the turn (see §7, forced yield).
-3. **Completion** - the turn contains `[phase: complete]` or an explicit terminal-completion phrase. A bare `done`, `shipped`, or `merged` deliberately does **not** count - those three words are this repo's canonical vocabulary for a *non-warranted* status ping, exactly the noise this gate exists to suppress.
+3. **Completion** - the turn contains `[phase: complete]` or an explicit terminal-completion phrase. A bare `done`, `shipped`, or `merged` deliberately does **not** count - those words commonly appear in ordinary status prose ("unit 2 merged", "PR merged, pulling main") and are too weak a signal on their own to carry the completion warrant.
 4. **Answer** - the turn contains a quoted fragment responding to the operator's immediately-preceding message. This is the weakest of the four and best-effort only; it exists so a direct question never goes unanswered, not as a loophole for narration.
 
 Everything else - agent spawned, agent returned, phase advanced, unit merged, CI green - is a silent continue. No turn is written for it.
@@ -28,7 +28,7 @@ A conductor turn reports on **this session's work only**. Do not mention other c
 When a turn is warranted, it follows this fixed order:
 
 1. **Identity line first**: `ticket · branch · [phase: x]`. The `[phase: label]` breadcrumb itself is governed by `content/references/subagent-protocol.md` Rule 6 - read it there for firing points and the crash-recovery rationale; it is not restated here to avoid two copies drifting.
-2. **Status slots**: `State`, `Running`, `Blocked` - one line each, omitted when empty. Capped at **1-3 status lines per turn**, with the forced-yield shape (§7) as the sole exception to that cap's line *contents* (it uses `Waiting:` lines instead of `State`/`Running`/`Blocked`, still 1-3 lines).
+2. **Status slots**: `State`, `Running`, `Blocked` - one line each, omitted when empty. Capped at **1-3 status lines per turn**, with the forced-yield shape (§7) as the sole exception to the cap itself, not merely to its line contents: a forced-yield turn drops `State`/`Running`/`Blocked` entirely and instead carries one `Waiting:` line per agent, however many that is - the count is unbounded, not re-capped at 1-3.
 3. **`## Operator decisions`, last.** Placement and internal formatting are governed by `content/sections/02-delegation.md` - read it there rather than here.
 
 **The 1-3 line cap applies to the status slots only.** `## Operator decisions`, when present, is **additional** to that cap, not counted against it. This is a deliberate asymmetry, not an oversight: the kernel paragraph in `content/sections/02-delegation.md` that governs the Operator decisions block mandates a multi-line format per decision item - "the recommended action, one line of why, and the reversal offer" - and explicitly forbids imposing a numeric cap on the number of items, because a cap with no overflow rule would mechanically force the conductor to hide a decision. Reading the 1-3 line cap here as applying to the whole turn, decisions block included, would put this file in direct contradiction with that kernel paragraph. It does not: the cap governs `State`/`Running`/`Blocked` only.
@@ -68,7 +68,7 @@ Waiting: skeptic - unit 3 correctness review
 Waiting: qa-engineer - unit 3 browser scenarios
 ```
 
-One `Waiting:` line per agent, naming the agent and what it is waiting for. Nothing else. No state recap, no phase narration, no next-steps, no "meanwhile" commentary, no restating what was already reported in a prior turn. The operator's own stated requirement, worth quoting directly: *"It should list the agents it's waiting on and why and that's it. Not a whole bunch of extra stuff, only the important and necessary information always."*
+One `Waiting:` line per agent, naming the agent and what it is waiting for. Nothing else. No state recap, no phase narration, no next-steps, no "meanwhile" commentary, no restating what was already reported in a prior turn. The operator's requirement, as recorded in ticket DS-122: *"It should list the agents it's waiting on and why and that's it. Not a whole bunch of extra stuff, only the important and necessary information always."*
 
 ## Worked non-example - the silent continue
 
@@ -99,7 +99,7 @@ State plainly: **a silent continue is the opposite of abdication.** The abdicati
 
 - **Output.** Non-blocking. On a finding, emits `{"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "TURN-SHAPE: <finding>"}}` and exits 0. Exit is 0 unconditionally - this hook can never block a stop.
 - **Config toggle.** `turn_shape_guard_enabled` in `.agentic/config.json`, **default ON when the key is absent.** This is deliberately inverted from `abdication_guard_enabled` (which defaults OFF when absent and requires explicit opt-in): because this hook never blocks, there is no downside symmetric to the abdication guard's block-by-default risk, so the safer default here is to run.
-- **Kill switch.** `AE_TURN_SHAPE_GUARD_DISABLE=1` disables per-session, matching the convention used by the abdication guard and the AskUserQuestion enforcement hook.
+- **Kill switch.** `AE_TURN_SHAPE_GUARD_DISABLE=1` disables per-session, matching the convention used by the abdication guard's own kill switch (`hooks/enforce-no-abdication.py`).
 - **Classification order.** Warrant classification (§2) runs first and is authoritative. The forced-yield shape check (§4, §7) is strictly subordinate: it fires only when `stoppage` is the sole warrant present on the turn - a turn that also carries a decision, completion, or answer warrant is exempt from the forced-yield shape requirement even if it also contains a `Waiting:` line.
 - **Registration is guarded**, unlike its sibling hooks: `test -f <script> && python3 <script> || exit 0`. This is deliberate - a missing script under the unguarded pattern used by other hooks would exit 2 (the blocking code) after a revert or partial checkout, which is exactly the failure this hook must never cause given its advisory-only contract.
 - **Fail-open.** A top-level exception guard wraps the hook body; any unexpected error exits 0 rather than surfacing as a block.
@@ -107,5 +107,5 @@ State plainly: **a silent continue is the opposite of abdication.** The abdicati
 
 **Two documented residual false positives** - accepted trade-offs, not defects to fix:
 
-1. A stoppage-only turn that adds a separate explanatory sentence beside the `Waiting:` line is flagged, because the hook expects the `Waiting:` line to be self-contained. Fold the reason into the line itself instead of appending prose: `Waiting: unit 3 still running, blocks merge` rather than a `Waiting:` line followed by a sentence explaining why.
+1. A stoppage-only turn that adds a separate explanatory sentence beside the `Waiting:` line is flagged, because the hook expects the `Waiting:` line to be self-contained. Fold the reason into the line itself instead of appending prose: `Waiting: engineer - unit 3, blocks merge` rather than a `Waiting:` line followed by a sentence explaining why.
 2. A `Waiting:` turn that also answers the operator's preceding question can be misclassified. The `answer` warrant detector (§2, warrant 4) is deliberately weak - best-effort quoted-fragment matching - and can miss a genuine answer folded into a `Waiting:` turn, causing the turn to collapse to the sole-stoppage forced-yield shape and get flagged even though it also carried a real answer.
