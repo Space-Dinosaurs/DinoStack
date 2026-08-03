@@ -45,7 +45,7 @@ module-group map.
 ## Upstream dependencies
 
 - Python hooks: Python 3 stdlib only (`json`, `sys`, `os`, `importlib.util`
-  for the six enforce-*.py hooks' best-effort dynamic import of
+  for the seven enforce-*.py hooks' best-effort dynamic import of
   `lib/enforcement_log.py`).
 - Node hooks: Node built-ins only (`fs`, `path`, `child_process`) plus `lib/wrap-marker.js`, `lib/capture-gap.js`, and `lib/stdin-guard.js` (no npm packages).
 - Bash hooks: `bash`, `python3` (for JSON escaping), `jq` (with grep/sed fallback), `node`.

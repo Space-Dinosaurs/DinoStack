@@ -126,7 +126,7 @@ Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from in
 ```
 
 - `ts`: ISO8601 UTC with millisecond precision (matches the `events.jsonl` convention).
-- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the six consumer hooks named above.
+- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the seven consumer hooks named above.
 - `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (five hooks) and `"allow_advisory"` (`enforce-planning-artifact-spawn.py`).
 - `reason`: human-readable reason string, truncated to 800 chars (the same text fed back to the model via `permissionDecisionReason`).
 

@@ -767,20 +767,77 @@ def test_toggle_doc_sync_full_eight_site_checklist():
         )
 
 
-def test_events_log_enforcer_subcount_matches_hooks_agents_md():
-    # content/references/events-log.md restates the same enforce-*.py caller
-    # subcount as hooks/AGENTS.md (:43 and :81) - it is an orphaned count site
-    # that no single unit's file list names, so it drifts silently unless
-    # pinned here alongside the eight toggle-count sites above.
-    path = REPO_ROOT / "content" / "references" / "events-log.md"
-    text = path.read_text(encoding="utf-8")
-    assert "seven of the eight `hooks/enforce-*.py` PreToolUse/Stop hooks" in text, (
-        f"{path.relative_to(REPO_ROOT)} missing updated enforcer subcount "
-        "('seven of the eight ... PreToolUse/Stop hooks')"
-    )
-    assert "six of the seven" not in text, (
-        f"{path.relative_to(REPO_ROOT)} still has the stale 'six of the seven' enforcer subcount"
-    )
+# The log_fire() enforcer-caller subcount ("N of the M enforce-*.py hooks
+# call lib/enforcement_log.py") is restated across hooks/AGENTS.md and
+# content/references/events-log.md in THREE different grammatical forms -
+# "six of the seven", the bare cardinal "the six enforce-*.py hooks", and
+# "one of the six consumer hooks" - none of which a single-phrasing sweep
+# catches as a set. This is why sites kept surviving prior sweeps: a check
+# keyed to one exact string finds only the sites written in that exact form.
+#
+# Site inventory (all reference the same fact: 7 enforce-*.py hooks on
+# origin/main today, 6 of them call log_fire; the sibling turn-shape-hook
+# unit adds the 8th enforcer and makes it 7-of-8 post-merge):
+#   hooks/AGENTS.md:43  - "N of the M enforce-*.py hooks" (table cell)
+#   hooks/AGENTS.md:48  - bare cardinal "the N enforce-*.py hooks'"
+#   hooks/AGENTS.md:81  - "N of the M enforce-*.py hooks" (prose)
+#   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
+#   events-log.md:129   - "one of the N consumer hooks named above"
+_ENFORCER_SUBCOUNT_SITES = [
+    (
+        REPO_ROOT / "hooks" / "AGENTS.md",
+        "by seven of the eight enforce-*.py hooks - every one except `enforce-no-abdication.py`",
+    ),
+    (
+        REPO_ROOT / "hooks" / "AGENTS.md",
+        "for the seven enforce-*.py hooks' best-effort dynamic import",
+    ),
+    (
+        REPO_ROOT / "hooks" / "AGENTS.md",
+        "Seven of the eight enforce-*.py hooks additionally",
+    ),
+    (
+        REPO_ROOT / "content" / "references" / "events-log.md",
+        "seven of the eight `hooks/enforce-*.py` PreToolUse/Stop hooks",
+    ),
+    (
+        REPO_ROOT / "content" / "references" / "events-log.md",
+        'one of the seven consumer hooks named above',
+    ),
+]
+
+# Bidirectional: "six" followed by "enforce" within one sentence (catches
+# "six of the seven enforce-*.py" and "the six enforce-*.py hooks"), OR
+# "enforce" followed by "six" within one sentence (catches "...enforce-
+# shippable-edit" - one of the six consumer hooks"). The `[^.]{0,80}` bound
+# stops the match from crossing a sentence boundary into an unrelated "six".
+_STALE_ENFORCER_SUBCOUNT_RE = re.compile(
+    r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b"
+)
+
+
+def test_enforcer_subcount_is_current_across_all_known_sites():
+    # Positive: every known site carries the current 7-caller / 8-enforcer
+    # phrasing, in its own grammatical form.
+    for path, expected in _ENFORCER_SUBCOUNT_SITES:
+        text = path.read_text(encoding="utf-8")
+        assert expected in text, (
+            f"{path.relative_to(REPO_ROOT)} missing updated enforcer-subcount "
+            f"phrasing: '{expected}'"
+        )
+
+    # Negative, phrasing-agnostic: no stale "six ... enforce" (or reversed)
+    # survives in either file, regardless of which of the three grammatical
+    # forms it was written in. This is the part a positive-only pin cannot
+    # do - a half-fix that bumps the count-table cell but leaves a bare-
+    # cardinal restatement stale elsewhere in the same file still fails here.
+    for path in {p for p, _ in _ENFORCER_SUBCOUNT_SITES}:
+        text = path.read_text(encoding="utf-8")
+        match = _STALE_ENFORCER_SUBCOUNT_RE.search(text)
+        assert match is None, (
+            f"{path.relative_to(REPO_ROOT)} still has a stale enforcer-subcount "
+            f"phrasing near: {match.group(0)!r}"
+        )
 
 
 def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():
