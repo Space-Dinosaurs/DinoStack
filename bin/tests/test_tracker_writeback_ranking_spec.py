@@ -728,17 +728,17 @@ def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencin
 # Each entry is (path, expected substring). The expected substring includes
 # enough surrounding context to anchor on the SPECIFIC toggle-count sentence
 # rather than a bare word, since some files (README.md) restate the count in
-# more than one sentence - a bare "nineteen in text" presence check would stay
+# more than one sentence - a bare "twenty in text" presence check would stay
 # green even if only one of the two sentences were bumped.
 TOGGLE_COUNT_FILES = [
-    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds nineteen methodology toggles"),
-    (REPO_ROOT / "README.md", "`.agentic/config.json` holds nineteen methodology toggles (one reserved/inert"),
-    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve nineteen project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "nineteen-toggle project config catalog"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve nineteen project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Nineteen toggles"),
-    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds nineteen methodology toggles"),
-    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 19 behavioral toggles"),
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 20 behavioral toggles"),
 ]
 
 TOGGLE_SEED_FILES = [

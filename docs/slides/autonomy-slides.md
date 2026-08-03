@@ -381,6 +381,18 @@ Piecemeal questions past the threshold paper over a structural gap and burn oper
 
 ---
 
+## Fixed-shape, warranted turns
+
+Every conductor turn has a bounded shape: result first, decisions last, nothing that isn't load-bearing for what the operator needs to act on next.
+
+An advisory Stop hook (`enforce-turn-shape.py`) checks the final turn against this rule and logs a finding - it never blocks the stop. Controlled by `turn_shape_guard_enabled` (default on).
+
+<div class="callout">
+Advisory, not enforcement: the rule is about respecting operator attention, not gating the session.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # Pick the best default. Note the choice. Proceed.
