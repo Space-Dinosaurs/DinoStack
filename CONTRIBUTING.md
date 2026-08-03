@@ -112,7 +112,7 @@ When contributing a new feature, pick the right home for each artifact:
 | Code reader | Module manifest header in the source file itself - see `content/rules/module-manifest.md` |
 | End user of the feature | `content/commands/<command>.md` or `content/references/<ref>.md`. Note: editing `content/**` requires rebuilding adapters in the same PR, or CI (`check-adapter-sync` / `methodology-drift`) fails. |
 | Operator / maintainer of a non-trivial feature | A committed feature README co-located with the code (e.g. `hooks/<feature>.README.md`). Include: how to enable/configure it, what state it owns, how to stop/reset it, the security model, and the rollback procedure. This is the committed home for content that would otherwise be stranded in `docs/planning/`. |
-| Durable facts and decisions | `MEMORY.md` (facts + rationale), `decisions.md` (decision log, where the project keeps one), or the relevant `AGENTS.md` (agent-facing conventions). |
+| Durable facts and decisions | `MEMORY.md` and `decisions.md`, where the project tracks them as committed files - in DinoStack itself both are gitignored local scratch (DS-129), so use the relevant `AGENTS.md` (agent-facing conventions) instead. |
 | Contributors / reviewers (North Star alignment) | `docs/overview/vision.md` - the product-intent lens every PR is measured against. Read it before opening a change that affects operator attention, autonomy, or verifiability. |
 
 ## Contributing a feature - documentation checklist

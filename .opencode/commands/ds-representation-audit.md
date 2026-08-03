@@ -188,7 +188,7 @@ If the user approves N candidates, the conductor runs `/ds-update-agentic-engine
 
 ## docs/planning/ - Vercel note
 
-`docs/planning/` is inside the Vercel static deploy tree (per project MEMORY.md). Proposal files written there will be published to the deployed site. This is intentional - the representation audit trail is a design artifact. If the deployed site's nav does not link `docs/planning/`, the files are accessible only by direct URL. Do not treat proposal files as sensitive.
+`docs/planning/` is inside the Vercel static deploy tree. Proposal files written there will be published to the deployed site. This is intentional - the representation audit trail is a design artifact. If the deployed site's nav does not link `docs/planning/`, the files are accessible only by direct URL. Do not treat proposal files as sensitive.
 
 If you want to avoid publishing a given proposal, move or delete the file from `docs/planning/` before deploying - but this is optional and not required by default.
 
