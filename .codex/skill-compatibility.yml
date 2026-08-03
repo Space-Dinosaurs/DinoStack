@@ -3892,6 +3892,16 @@
       "source_token": "git"
     },
     {
+      "expected_target": "then",
+      "generated_token": "then",
+      "kind": "operational",
+      "occurrence_hash": "1b7d60636a796c0e82a35f5b90d6f9dd8122013f25bcb513c3386bba3751b5f0",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "then"
+    },
+    {
       "expected_target": "rm",
       "generated_token": "rm",
       "kind": "operational",
@@ -5782,6 +5792,16 @@
       "source_token": "do"
     },
     {
+      "expected_target": ".agentic/session-log/",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/session-log/",
+      "kind": "operational",
+      "occurrence_hash": "424a148cb13401077e2148464be5a326d6b845d912276a386d03f5f6b661b404",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/session-log/"
+    },
+    {
       "expected_target": "printf",
       "generated_token": "printf",
       "kind": "operational",
@@ -6282,6 +6302,16 @@
       "source_token": "unset"
     },
     {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "NL",
+      "kind": "display-only",
+      "occurrence_hash": "4bf4e883784c44f8b2e6167e03c9ee1f19b1b94301ce90788caa2e19477075e5",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "NL"
+    },
+    {
       "expected_target": "cp",
       "generated_token": "cp",
       "kind": "operational",
@@ -6500,6 +6530,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "agentic-emit"
+    },
+    {
+      "expected_target": "git",
+      "generated_token": "git",
+      "kind": "operational",
+      "occurrence_hash": "50615361949f97fd81dfc1b9ed26ee42c62e6b050f6a1ce90fdaa5ef329c5e27",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "git"
     },
     {
       "expected_target": "agentic-engineering",
@@ -6752,6 +6792,16 @@
       "source_token": "group_by"
     },
     {
+      "expected_target": "echo",
+      "generated_token": "echo",
+      "kind": "operational",
+      "occurrence_hash": "58164b88b48692bc37d1c6c54ecbb4d72feb0a11fa783e469391315b457a83e8",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "echo"
+    },
+    {
       "expected_target": "git",
       "generated_token": "git",
       "kind": "operational",
@@ -6800,6 +6850,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/tasks.jsonl"
+    },
+    {
+      "expected_target": ".agentic/session-log/",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/session-log/",
+      "kind": "operational",
+      "occurrence_hash": "5986a93c021441499bf5106fc94b99f5039740bbbd0b5a16f600e7f6e6059df2",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/session-log/"
     },
     {
       "expected_target": ".agentic/tasks.jsonl",
@@ -6880,6 +6940,16 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "`/ds-ticket-status-sync`"
+    },
+    {
+      "expected_target": "git",
+      "generated_token": "git",
+      "kind": "operational",
+      "occurrence_hash": "5ba132f059a811e80734d31a66023544b4dc5583b7322baf9de5d58187232fc4",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "git"
     },
     {
       "expected_target": ".agentic/loop-state-session-*.json",
@@ -8432,6 +8502,16 @@
       "source_token": "PR_CHECKOUT"
     },
     {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "add",
+      "kind": "display-only",
+      "occurrence_hash": "7d79cb0a96d86232e0ea65b9c1e25a8214076f0f1c30c03242500b0fc918e0ee",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "add"
+    },
+    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -8450,16 +8530,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "pr"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "add",
-      "kind": "display-only",
-      "occurrence_hash": "7e79559a34a0e8dfa397376819fff7bbf5a9d28d425b2a4ae75b9d5ccd9fc10b",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "add"
     },
     {
       "expected_target": ".agentic/tasks.jsonl",
@@ -8510,16 +8580,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "PR_NUMBER"
-    },
-    {
-      "expected_target": ".agentic/session-log/",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/session-log/",
-      "kind": "operational",
-      "occurrence_hash": "8097a415764b69d38bba6316040fa6c65215c51a1dd1464a5e254e897f272ea0",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/session-log/"
     },
     {
       "expected_target": "if",
@@ -8620,6 +8680,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
+    },
+    {
+      "expected_target": "git",
+      "generated_token": "git",
+      "kind": "operational",
+      "occurrence_hash": "83b560ba09ec536d26af03c37effd03b56a2eb1bbddfd9fa584ddd52f75fa919",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "git"
     },
     {
       "expected_target": "done",
@@ -9240,6 +9310,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "local"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "skipping",
+      "kind": "display-only",
+      "occurrence_hash": "9244c9d562e9a661f749b4f13841323673089938485d6669c1e7334efcc19ed4",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "skipping"
     },
     {
       "expected_target": "implement-ticket",
@@ -10650,6 +10730,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/trigger-catalog.md"
+    },
+    {
+      "expected_target": "if",
+      "generated_token": "if",
+      "kind": "operational",
+      "occurrence_hash": "ae2c4065b24ce9b3ff947ad78bc951373e1f88eb8acaca20dbf5fcb35e0eb8a3",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "if"
     },
     {
       "expected_target": "Task",
@@ -12252,16 +12342,6 @@
       "source_token": "content/references/ticket-rework.md"
     },
     {
-      "expected_target": "git",
-      "generated_token": "git",
-      "kind": "operational",
-      "occurrence_hash": "d61d9700562e2e3936f9e212553826c0b37f9c6133b3bec8e021deb3ab619128",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "git"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "length",
       "kind": "display-only",
@@ -12320,6 +12400,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "echo"
+    },
+    {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "**Telemetry commit - Codex runtime boundary.** Commit only existing `$AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl` entries produced by a supported writer. The current Codex Stop hook does not create those entries; it writes only `~/.codex/projects/[hash]/context.md`. Project-local telemetry migration is deferred to `context-writer-migration`.",
+      "kind": "operational",
+      "occurrence_hash": "d758c5cfc96c1ff29abb3312d1b0ab3dda221cd8aa16a792f6c2c75877692b99",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). The block is path-aware: on the fan-out path `$REPO` is already on the feature branch (after the \"Merge phase (all-done join)\" `git checkout $FEATURE_BRANCH`), so `$PR_CHECKOUT=$REPO`; on single-engineer paths the conductor must capture `$WORKTREE_PATH` from the engineer's return summary before Phase 8 runs, and the file is copied into the worktree before staging (git cannot stage files outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - if `$PR_CHECKOUT` is on a different branch the commit is skipped with a one-line warning and the feature commit is never affected. On single-engineer paths only, the telemetry commit is pushed in the same block; fan-out push is handled in the fan-out push block. A `git config user.name`/`user.email` guard mirrors the feature commit's own DCO-identity guard above - if either is empty the telemetry commit is skipped (staged file unstaged) with a visible WARNING, never emitting a malformed `Signed-off-by` trailer. **Note on eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs. The current session's line is written by the Stop hook at session end and lands in the next ticket's Phase 8 commit - this is a known property, not a bug."
     },
     {
       "expected_target": "if",
@@ -12702,16 +12792,6 @@
       "source_token": "--argjson"
     },
     {
-      "expected_target": "git",
-      "generated_token": "git",
-      "kind": "operational",
-      "occurrence_hash": "de67a400900dd4eeec88e2360e521b5034e2401e21839bf3d02cbc5b1446776a",
-      "resolution_mode": "PATH-provided",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "git"
-    },
-    {
       "expected_target": "content/references/capture-classification.md",
       "generated_token": "$AE_REPO_DIR/content/references/capture-classification.md",
       "kind": "operational",
@@ -12840,6 +12920,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": "fi",
+      "generated_token": "fi",
+      "kind": "operational",
+      "occurrence_hash": "e10f45efbf4177d508bb14a279d3d8094e7053328792a58527f3b45467a02c50",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "fi"
     },
     {
       "expected_target": "fi",
@@ -13502,6 +13592,16 @@
       "source_token": "path"
     },
     {
+      "expected_target": "else",
+      "generated_token": "else",
+      "kind": "operational",
+      "occurrence_hash": "ecdbfe5640296ca6c1363162350cdd1bd37c68f0175745bfb21ac87c4b6cffde",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "else"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -13710,16 +13810,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
-    },
-    {
-      "expected_target": "hashed-source-occurrence",
-      "generated_token": "NL",
-      "kind": "display-only",
-      "occurrence_hash": "f18dbc4f7de94e70ee36dfefd6ab9ac7f3fe5069e31c09c5a9bd5cf800c48238",
-      "resolution_mode": "display-only",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "NL"
     },
     {
       "expected_target": "wrap",
@@ -13990,16 +14080,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/commands/ds-ticket-triage.md"
-    },
-    {
-      "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Telemetry commit - Codex runtime boundary.** Commit only existing `$AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl` entries produced by a supported writer. The current Codex Stop hook does not create those entries; it writes only `~/.codex/projects/[hash]/context.md`. Project-local telemetry migration is deferred to `context-writer-migration`.",
-      "kind": "operational",
-      "occurrence_hash": "f71b611507dd2c82bd5bb8a6ba45df8d668d560882233916d7bd2e2c89a44b66",
-      "resolution_mode": "codex-stop-hook-runtime",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "**Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). The block is path-aware: on the fan-out path `$REPO` is already on the feature branch (after the line-977 `git checkout`), so `$PR_CHECKOUT=$REPO`; on single-engineer paths the conductor must capture `$WORKTREE_PATH` from the engineer's return summary before Phase 8 runs, and the file is copied into the worktree before staging (git cannot stage files outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - if `$PR_CHECKOUT` is on a different branch the commit is skipped with a one-line warning and the feature commit is never affected. On single-engineer paths only, the telemetry commit is pushed in the same block; fan-out push is handled in the fan-out push block. **Note on eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs. The current session's line is written by the Stop hook at session end and lands in the next ticket's Phase 8 commit - this is a known property, not a bug."
     },
     {
       "expected_target": "cut",

@@ -1,14 +1,15 @@
 """
 Purpose: Executes the Phase 8 commit-and-telemetry shell block
-         (content/commands/ds-implement-ticket.md:2249-2347, marked
+         (content/commands/ds-implement-ticket.md, marked
          `@harness:phase8-commit-and-telemetry`) against real temp-git
          fixtures under both bash and zsh, so the class of defect that two
          review rounds each missed fails mechanically instead of surviving a
          third: D1 (a hoisted SESSION_LOG_SRC assignment silently drops the
          telemetry commit), D2 (an existence guard placed before the mkdir/cp
          that creates the file no-ops the whole block), and D3 (a missing
-         DCO-identity guard on the telemetry commit emits a malformed
-         `Signed-off-by:  <>` trailer - live and unfixed on main today).
+         DCO-identity guard on the telemetry commit would emit a malformed
+         `Signed-off-by:  <>` trailer - fixed; the guard now skips the
+         telemetry commit instead of emitting the malformed trailer).
 
 Public API: none (pytest test module; 9 functions x {bash, zsh} = 18 tests).
 
@@ -22,8 +23,9 @@ Downstream consumers: .github/workflows/bin-tests.yml (python-bin-tests job),
 Failure modes: n/a (test module). Tests #7 and #8 are themselves a self-check
                of the harness: if a mutant fails to be caught, the harness
                regressed to not detecting the defect class it exists for.
-               Test #9 is a deliberate characterization test that PASSES
-               against current unfixed main - see its docstring.
+               Test #9 now guards the D3 fix: it asserts the telemetry commit
+               is skipped (not the malformed trailer) when git user.name/
+               user.email are unset - see its docstring.
 
 Performance: standard; each parametrized test does a handful of local git
              operations plus one subprocess shell invocation. Whole suite
@@ -357,41 +359,46 @@ def test_defect2_guard_before_cp_noops_on_single_engineer_path(tmp_path, shell):
 
 
 # ---------------------------------------------------------------------------
-# 9. D3 characterization test - documents a LIVE, unfixed defect on main.
+# 9. D3 regression test - guards the DCO-identity guard fix.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("shell", SHELLS)
-def test_defect3_missing_dco_guard_emits_malformed_trailer(tmp_path, shell):
-    """CHARACTERIZATION TEST - passes against current main because it
-    documents a live, unfixed defect. Do NOT mark this xfail(strict=True):
-    a prior revision did, and it was inverted (the assertions below hold
-    today, so the test passes, and strict xfail turns a pass into
-    XPASS(strict) -> suite red on merge).
+def test_dco_guard_skips_telemetry_commit_when_gitconfig_missing(tmp_path, shell):
+    """Guards the fix for D3: the telemetry-commit block now mirrors the
+    feature commit's DCO-identity guard - if `git config user.name` /
+    `user.email` are both unset, the telemetry commit is skipped (with a
+    visible WARNING and the staged file unstaged) rather than emitting the
+    malformed `Signed-off-by:  <>` trailer (two spaces, empty angle
+    brackets).
 
-    Defect location: content/commands/ds-implement-ticket.md:2284-2325 - the
-    telemetry-commit block builds TELEM_MSG (:2317) from $SO_NAME/$SO_EMAIL
-    with NO guard analogous to the one at :2265 that protects the FEATURE
-    commit. When git config user.name/user.email are unset (but the commit
-    itself still succeeds via GIT_AUTHOR_*/GIT_COMMITTER_* env vars, as a CI
-    runner or a fresh clone with no `git config --global user.*` might have),
-    the telemetry commit lands with the literal malformed trailer
-    `Signed-off-by:  <>` (two spaces, empty angle brackets).
+    Fixture (vi) (build_identity_no_gitconfig_shape) has a confirmed
+    developer identity but no `git config user.*` anywhere - `git commit`
+    would still succeed via GIT_AUTHOR_*/GIT_COMMITTER_* env vars, but
+    $SO_NAME/$SO_EMAIL (built exclusively from `git config user.name`/
+    `user.email`) resolve empty, so this fixture exercises the guard's skip
+    path.
 
-    The follow-up ticket that adds a :2284-2325 guard analogous to :2265
-    MUST invert this test (assert the malformed trailer no longer occurs)
-    in the SAME PR that fixes the defect. Follow-up ticket: DS-<TBD> - no
-    ticket has been filed yet; the conductor will replace this placeholder
-    with the real ticket ID when one is filed.
+    Prior to the fix, this test (then named
+    test_defect3_missing_dco_guard_emits_malformed_trailer) was a
+    CHARACTERIZATION test asserting the malformed trailer WAS present - see
+    git history for that version if the pre-fix behavior needs to be
+    reproduced.
     """
     shell = _shell_or_skip(shell)
     fixture = git_fixture.build_identity_no_gitconfig_shape(tmp_path)
     rendered = mse.render(_raw_block())
     result = _execute(rendered, fixture, shell)
-    assert mse.COMPLETION_MARKER in result.stdout, result.stderr
-    body = _telemetry_commit_body(_pr_checkout(fixture), fixture.branch_name, fixture.env)
-    assert body is not None, "expected a chore(telemetry): commit even with no git user.* config"
-    assert "Signed-off-by:  <>" in body, (
-        f"expected the LIVE malformed trailer 'Signed-off-by:  <>' (D3, "
-        f"unfixed on main) in the telemetry commit body, got: {body!r}"
+    assert mse.COMPLETION_MARKER in result.stdout, (
+        "expected the block to run to completion (a genuine skip is "
+        f"required, not a crash): {result.stderr}"
     )
+    body = _telemetry_commit_body(_pr_checkout(fixture), fixture.branch_name, fixture.env)
+    assert body is None, (
+        f"expected NO chore(telemetry): commit when git user.name/user.email "
+        f"are unset (DCO-identity guard should skip it), got: {body!r}"
+    )
+    assert (
+        "WARNING: git user.name or user.email not set; skipping telemetry "
+        "commit to avoid malformed DCO trailer." in result.stdout
+    ), f"expected the DCO-identity-guard WARNING in stdout, got: {result.stdout!r}"

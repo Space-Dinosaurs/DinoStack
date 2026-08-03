@@ -1,7 +1,8 @@
 """
 Purpose: Builds hermetic, disposable git repo fixtures that reproduce the six
          shapes of consumer/project state the Phase 8 commit-and-telemetry
-         shell block (content/commands/ds-implement-ticket.md:2249-2347) can
+         shell block (@harness:phase8-commit-and-telemetry in
+         content/commands/ds-implement-ticket.md) can
          run against: the DinoStack repo itself, an /ds-init-project-scaffolded
          consumer repo, a single-engineer worktree (WORKTREE_PATH-resolved PR
          checkout), a fan-out primary checkout, an unconfirmed-identity
@@ -270,8 +271,9 @@ def build_worktree_shape(tmp_path: Path) -> Fixture:
 def build_fanout_shape(tmp_path: Path) -> Fixture:
     """(iv) Fan-out primary checkout: $REPO is already checked out on
     $BRANCH_NAME (per the block's own comment: "Fan-out path: $REPO is on
-    $FEATURE_BRANCH after the line-977 checkout"), so PR_CHECKOUT resolves
-    to $REPO directly with no WORKTREE_PATH involved. Correct positive path."""
+    $FEATURE_BRANCH after the "Merge phase (all-done join)" checkout"), so
+    PR_CHECKOUT resolves to $REPO directly with no WORKTREE_PATH involved.
+    Correct positive path."""
     branch_name = "feature/harness-fixture-iv"
     developer = "dev-fanout"
     repo_dir = tmp_path / "repo"
@@ -310,9 +312,10 @@ def build_identity_no_gitconfig_shape(tmp_path: Path) -> Fixture:
     `git config user.name`/`user.email` anywhere (no global, no repo-local).
     `git commit` still succeeds because GIT_AUTHOR_*/GIT_COMMITTER_*/EMAIL
     are set directly in the process env - but `SO_NAME`/`SO_EMAIL` (built
-    exclusively from `git config user.name`/`user.email`, :2262-2263) resolve
-    empty, so the telemetry trailer lands as the malformed
-    `Signed-off-by:  <>` (D3, live on main today)."""
+    exclusively from `git config user.name`/`user.email`) resolve empty, so
+    the telemetry-commit block's DCO-identity guard fires and skips the
+    telemetry commit instead of emitting the malformed `Signed-off-by:  <>`
+    trailer (D3, fixed)."""
     branch_name = "feature/harness-fixture-vi"
     developer = "dev-no-gitconfig"
     repo_dir = tmp_path / "repo"
