@@ -268,10 +268,14 @@ of the five dispatchable roles (`engineer`, `debugger`, `qa-engineer`,
 `default_harness`) is anything other than `claude`, denies the native spawn
 with an actionable instruction, e.g.:
 
-> `cross-harness team active: role 'engineer' is assigned to harness 'omp'
-> (model kimi/kimi-k2.7). Dispatch with: bin/agentic-team dispatch --harness
-> omp --role engineer --brief <file> --workdir <dir> --model kimi/kimi-k2.7 -
-> then poll status/collect.`
+> `cross-harness team active: role 'engineer' is assigned to harness 'omp'.
+> Dispatch with: bin/agentic-team dispatch --harness omp --role engineer
+> --brief <file> --workdir <dir> --model <model-from-team.yml> - then poll
+> status/collect.`
+
+The model value is deliberately never interpolated into this message - it is
+untrusted, project-controlled text from `team.yml`, so the hook substitutes
+the literal placeholder `<model-from-team.yml>` instead.
 
 `conductor`, `investigator`, `architect`, and `orchestration-planner` are never
 denied by this branch even if `team.yml` maps them elsewhere (their entries are
@@ -317,6 +321,7 @@ binding prose contract, not a mechanically enforced hook. Per-harness status:
 | **OpenClaw** | Prose-contract only - no hook infrastructure | Would live in `.openclaw/` hooks if the runtime adds them |
 | **Pi** | Prose-contract only - no hook infrastructure | Would live in `.pi/` config hooks if the runtime adds them |
 | **omp** | Prose-contract only - no hook infrastructure | Would live in `.omp/` config hooks if the runtime adds them |
+| **Copilot** | Prose-contract only - no hook infrastructure | Would live in `.copilot/` config hooks if the runtime adds them |
 | **Hermes** | Prose-contract only - no hook infrastructure | Would live in a Hermes hook slot if the runtime adds them |
 
 The leaf-worker clause (layer 4) and workdir fence (layer 1) provide
