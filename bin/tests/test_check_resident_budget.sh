@@ -100,11 +100,11 @@ sys.stdout.write('s' * n)
 " "$cs_bytes" > "$dir/content/rules/code-standards.md"
 }
 
-# THRESHOLD is fixed inside the real gate script (currently 124938) - we
-# don't parse or override it, so fixtures are built to land on either side
-# of the *real* threshold value. Read it out of the script so this test
-# tracks the ratchet automatically instead of hardcoding a copy that can
-# drift from the real value.
+# THRESHOLD is fixed inside the real gate script and ratchets downward over
+# time - we don't parse or override it, so fixtures are built to land on
+# either side of the *real* threshold value. Read it out of the script so
+# this test tracks the ratchet automatically instead of hardcoding a copy
+# that can drift from the real value.
 THRESHOLD="$(grep -E '^THRESHOLD=' "$GATE_SCRIPT" | head -1 | cut -d= -f2)"
 if [[ -z "$THRESHOLD" ]]; then
   _fail "could not read THRESHOLD out of $GATE_SCRIPT"

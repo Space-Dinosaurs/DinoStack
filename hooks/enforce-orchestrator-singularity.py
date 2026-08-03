@@ -19,7 +19,10 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Task" or "Agent").
             Reads JSON from stdin, writes hookSpecificOutput JSON to stdout when
             denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (os, sys, json). No external dependencies.
+Upstream deps: Python 3 stdlib only (os, sys, json, importlib.util). No
+               external dependencies. Best-effort dynamic import of the
+               sibling hooks/lib/enforcement_log.py fire-logging helper -
+               a failed import degrades to a no-op logger, never a crash.
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for the Task /
                       Agent tool). Wired via ~/.claude/settings.json by
@@ -64,6 +67,31 @@ import os
 import sys
 
 
+def _load_log_fire():
+    """Best-effort dynamic import of the shared fire-logging helper.
+
+    Falls back to a no-op when the sibling module cannot be loaded (missing
+    file, syntax error, snapshot copy drift) - fire-logging is additive
+    telemetry, never a hard dependency of the enforcement decision itself.
+
+    Called lazily from inside the deny branch (never at module scope) so the
+    overwhelming majority of invocations - every silent allow, and every
+    kill-switched invocation that exits before reaching the deny branch -
+    never read, compile, or exec this file at all.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "enforcement_log.py")
+        spec = _ilu.spec_from_file_location("enforcement_log", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.log_fire
+    except Exception:
+        return lambda *a, **k: None
+
+
 def main() -> None:
     # Kill-switch: fail-open immediately before touching stdin.
     if os.environ.get("AE_SINGULARITY_GUARD_DISABLE") == "1":
@@ -91,29 +119,42 @@ def main() -> None:
 
         # Deny: a subagent attempted to spawn a nested subagent.
         tool_name = data.get("tool_name", "Task/Agent")
+        deny_reason = (
+            tool_name
+            + " spawn blocked: a subagent (agent_id="
+            + repr(agent_id)
+            + ") attempted to spawn a nested subagent. "
+            "The AE invariant is that the main conductor is the sole "
+            "orchestrator (METHODOLOGY.md §Delegation: 'No subagent can "
+            "spawn subagents - the main agent is the sole orchestrator.'). "
+            "Return BLOCKED from the current worker so the conductor can "
+            "re-route the spawn. "
+            "To disable this guard: set AE_SINGULARITY_GUARD_DISABLE=1 "
+            "and restart Claude Code."
+        )
+        # Decision print comes FIRST, unconditionally. Telemetry is loaded
+        # and called only after the decision has reached stdout, and is
+        # wrapped in its own try/except so a raising log_fire (e.g. a
+        # signature mismatch from a half-applied lib snapshot) can never
+        # suppress or follow this deny - see hooks/lib/enforcement_log.py
+        # manifest "Failure modes".
         print(
             json.dumps(
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
                         "permissionDecision": "deny",
-                        "permissionDecisionReason": (
-                            tool_name
-                            + " spawn blocked: a subagent (agent_id="
-                            + repr(agent_id)
-                            + ") attempted to spawn a nested subagent. "
-                            "The AE invariant is that the main conductor is the sole "
-                            "orchestrator (METHODOLOGY.md §Delegation: 'No subagent can "
-                            "spawn subagents - the main agent is the sole orchestrator.'). "
-                            "Return BLOCKED from the current worker so the conductor can "
-                            "re-route the spawn. "
-                            "To disable this guard: set AE_SINGULARITY_GUARD_DISABLE=1 "
-                            "and restart Claude Code."
-                        ),
+                        "permissionDecisionReason": deny_reason,
                     }
                 }
             )
         )
+        try:
+            _load_log_fire()(
+                data, "enforce-orchestrator-singularity", "deny", deny_reason
+            )
+        except Exception:
+            pass
         sys.exit(0)
 
     except Exception:

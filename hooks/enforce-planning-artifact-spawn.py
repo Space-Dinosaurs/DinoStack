@@ -38,7 +38,11 @@ Behavior:
 Failure mode: Fully fail-open. Any parse error, missing key, os error, or
               unexpected exception -> exit 0 (allow). NEVER denies. NEVER
               writes to stdout with permissionDecision "deny". NEVER writes
-              to stdout with permissionDecision "ask" (no human prompt).
+              to stdout with permissionDecision "ask" (no human prompt). The
+              advisory action (permissionDecision "allow" with a non-empty
+              permissionDecisionReason) also fires a best-effort call to the
+              sibling hooks/lib/enforcement_log.py log_fire() helper - a
+              failed import or write there degrades to a no-op, never a deny.
 
 Kill-switch: Set AE_PLANNING_GUARD_DISABLE=1 in the environment that launches
              Claude Code and restart. The hook silently exits 0 on every call
@@ -49,6 +53,30 @@ import json
 import os
 import sys
 import time
+
+
+def _load_log_fire():
+    """Best-effort dynamic import of the shared fire-logging helper.
+
+    Falls back to a no-op when the sibling module cannot be loaded (missing
+    file, syntax error, snapshot copy drift) - fire-logging is additive
+    telemetry, never a hard dependency of the advisory itself.
+
+    Called lazily from inside the advisory branch (never at module scope) so
+    the overwhelming majority of invocations - every silent allow - never
+    read, compile, or exec this file at all.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "enforcement_log.py")
+        spec = _ilu.spec_from_file_location("enforcement_log", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.log_fire
+    except Exception:
+        return lambda *a, **k: None
 
 
 def main():
@@ -117,6 +145,12 @@ def main():
             "already ran this session, ignore. "
             "Silence with AE_PLANNING_GUARD_DISABLE=1."
         )
+        # Decision print comes FIRST, unconditionally, matching the deny-path
+        # convention in the other five enforce-*.py hooks (see
+        # hooks/lib/enforcement_log.py manifest "Failure modes"). Telemetry
+        # is loaded and called only after the decision has reached stdout,
+        # wrapped in its own try/except so a raising log_fire can never
+        # suppress or follow the advisory.
         print(
             json.dumps(
                 {
@@ -128,6 +162,12 @@ def main():
                 }
             )
         )
+        try:
+            _load_log_fire()(
+                data, "enforce-planning-artifact-spawn", "allow_advisory", advisory_msg
+            )
+        except Exception:
+            pass
         sys.exit(0)
 
     except Exception:

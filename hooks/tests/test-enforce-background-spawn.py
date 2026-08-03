@@ -10,10 +10,21 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fire_log_test_helper import run_hook_with_raising_log_fire
 
 HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-background-spawn.py"
 )
+
+# None of this file's payloads set a "cwd" field, so the hook's fire-logging
+# helper (hooks/lib/enforcement_log.py) falls back to os.getcwd() - which,
+# without an explicit subprocess cwd=, would be wherever this test file is
+# invoked from (typically the live checkout). Pin the child process's cwd to
+# an ephemeral temp dir so DENY-path fire-log writes never touch the repo.
+_TEST_CWD = tempfile.mkdtemp(prefix="test-enforce-background-spawn-")
 
 
 def run_hook(payload: str) -> tuple[int, str, str]:
@@ -31,6 +42,7 @@ def run_hook(payload: str) -> tuple[int, str, str]:
         capture_output=True,
         text=True,
         env=env,
+        cwd=_TEST_CWD,
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -187,10 +199,74 @@ for label, payload, expected in cases:
         print(f"         stderr:   {stderr!r}")
         print(f"         expected: {expected}")
 
+# fire-log integration: a DENY action must append a well-formed line to
+# <cwd>/.agentic/.enforcement-fires.jsonl (hooks/lib/enforcement_log.py); a
+# passthrough ALLOW (Agent, run_in_background omitted) must write nothing.
+label_fl = "fire-log integration - deny writes a line, passthrough writes nothing"
+_fire_cwd = tempfile.mkdtemp(prefix="test-enforce-background-spawn-firelog-")
+_fire_log_path = os.path.join(_fire_cwd, ".agentic", ".enforcement-fires.jsonl")
+
+# (a) DENY case: Agent with run_in_background explicitly False.
+run_hook(json.dumps({
+    "tool_name": "Agent",
+    "cwd": _fire_cwd,
+    "tool_input": {"run_in_background": False},
+}))
+ok_fl_a = os.path.exists(_fire_log_path)
+if ok_fl_a:
+    with open(_fire_log_path, "r", encoding="utf-8") as f:
+        _fire_lines = [json.loads(ln) for ln in f if ln.strip()]
+    ok_fl_a = (
+        len(_fire_lines) == 1
+        and _fire_lines[0].get("hook") == "enforce-background-spawn"
+        and _fire_lines[0].get("decision") == "deny"
+    )
+
+# (b) Passthrough case: Agent, run_in_background omitted (allowed by
+#     default) -> no additional line written.
+run_hook(json.dumps({
+    "tool_name": "Agent",
+    "cwd": _fire_cwd,
+    "tool_input": {},
+}))
+with open(_fire_log_path, "r", encoding="utf-8") as f:
+    _fire_lines_after = [json.loads(ln) for ln in f if ln.strip()]
+ok_fl_b = len(_fire_lines_after) == 1  # unchanged
+
+ok_fl = ok_fl_a and ok_fl_b
+status_fl = "PASS" if ok_fl else "FAIL"
+if not ok_fl:
+    failed += 1
+print(f"  [{status_fl}] {label_fl}")
+
+# Skeptic Critical regression: a raising log_fire() must NOT suppress the
+# deny decision. Confirmed failing pre-fix: against a8ded298 (the commit
+# under review), the copied-hook subprocess exits 0 with EMPTY stdout - the
+# deny is silently lost - because the pre-fix _deny() called log_fire()
+# BEFORE print(). See hooks/tests/_fire_log_test_helper.py.
+label_rf = "raising log_fire cannot suppress the deny decision"
+_rc_rf, _stdout_rf, _stderr_rf = run_hook_with_raising_log_fire(
+    "enforce-background-spawn.py",
+    json.dumps({
+        "tool_name": "Agent",
+        "tool_input": {"run_in_background": False},
+    }),
+)
+ok_rf = _rc_rf == 0 and not is_allow(_rc_rf, _stdout_rf)
+status_rf = "PASS" if ok_rf else "FAIL"
+if not ok_rf:
+    failed += 1
+print(f"  [{status_rf}] {label_rf}")
+if not ok_rf:
+    print(f"         stdout: {_stdout_rf!r}")
+    print(f"         stderr: {_stderr_rf[-500:]!r}")
+
+total_tests = len(cases) + 2
+
 print()
 if failed == 0:
-    print(f"All {len(cases)} tests passed.")
+    print(f"All {total_tests} tests passed.")
     sys.exit(0)
 else:
-    print(f"{failed}/{len(cases)} tests FAILED.")
+    print(f"{failed}/{total_tests} tests FAILED.")
     sys.exit(1)

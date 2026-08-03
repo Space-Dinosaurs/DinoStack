@@ -1,5 +1,5 @@
 ---
-description: /ds-cost
+description: "/ds-cost"
 agent: build
 ---
 # /ds-cost

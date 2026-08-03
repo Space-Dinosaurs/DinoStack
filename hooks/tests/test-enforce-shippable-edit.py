@@ -20,6 +20,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fire_log_test_helper import run_hook_with_raising_log_fire
+
 HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-shippable-edit.py"
 )
@@ -28,6 +31,15 @@ HOOK_PATH = os.path.join(
 REPO_ROOT = os.path.realpath(
     os.path.join(os.path.dirname(__file__), "..", "..")
 )
+
+# Default child-process cwd for cases that pass cwd=None (the common case:
+# make_payload's own "cwd" JSON field defaults to "", so the hook's
+# fire-logging helper falls back to os.getcwd()). Without pinning this to an
+# ephemeral temp dir, a DENY-path fire-log write would land in the real repo
+# whenever a test does not deliberately supply its own cwd (e.g. the
+# snapshot-meta and _outside_dir cases below, which still pass their own
+# explicit cwd and are unaffected by this default).
+_DEFAULT_TEST_CWD = tempfile.mkdtemp(prefix="test-enforce-shippable-edit-")
 
 
 def run_hook(payload: str, extra_env: dict | None = None, cwd: str | None = None) -> tuple[int, str, str]:
@@ -41,7 +53,7 @@ def run_hook(payload: str, extra_env: dict | None = None, cwd: str | None = None
         env=env,
         capture_output=True,
         text=True,
-        cwd=cwd,
+        cwd=cwd or _DEFAULT_TEST_CWD,
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -323,6 +335,71 @@ def _run_snapshot_case() -> None:
 _run_snapshot_case()
 
 # ---------------------------------------------------------------------------
+# fire-log integration: a DENY action must append a well-formed line to
+# <cwd>/.agentic/.enforcement-fires.jsonl; a subagent ALLOW (agent_id
+# present) must write nothing.
+# ---------------------------------------------------------------------------
+print("-- fire-log integration --")
+total += 1
+# The hook's deny path only fires for a target INSIDE the real repo root
+# (_target, reused from the "conductor blocked" section above) - a target
+# under an arbitrary temp dir is "not this repo's concern" and allows
+# silently (no fire). The payload's "cwd" field is unrelated to that path
+# resolution (file_path here is already absolute) - it only controls where
+# the fire-logging helper's log lands, so point it at an isolated temp dir.
+_fire_cwd = os.path.realpath(tempfile.mkdtemp(prefix="test-enforce-shippable-edit-firelog-"))
+_fire_log_path = os.path.join(_fire_cwd, ".agentic", ".enforcement-fires.jsonl")
+_fire_target = _target
+
+rc, stdout, stderr = run_hook(make_payload("Write", _fire_target, cwd=_fire_cwd), cwd=_fire_cwd)
+ok = os.path.exists(_fire_log_path)
+if ok:
+    with open(_fire_log_path, "r", encoding="utf-8") as f:
+        _fire_lines = [json.loads(ln) for ln in f if ln.strip()]
+    ok = (
+        len(_fire_lines) == 1
+        and _fire_lines[0].get("hook") == "enforce-shippable-edit"
+        and _fire_lines[0].get("decision") == "deny"
+    )
+
+# Subagent ALLOW (agent_id present) -> no additional line written.
+run_hook(
+    make_payload("Write", _fire_target, agent_id="wt-1", cwd=_fire_cwd),
+    cwd=_fire_cwd,
+)
+with open(_fire_log_path, "r", encoding="utf-8") as f:
+    _fire_lines_after = [json.loads(ln) for ln in f if ln.strip()]
+ok = ok and len(_fire_lines_after) == 1  # unchanged
+
+status = "PASS" if ok else "FAIL"
+if not ok:
+    failed += 1
+print(f"  [{status}] deny writes a line, subagent allow writes nothing")
+
+# ---------------------------------------------------------------------------
+# Skeptic Critical regression: a raising log_fire() must NOT suppress the
+# deny decision. Confirmed failing pre-fix: against a8ded298 (the commit
+# under review), the copied-hook subprocess exits 0 with EMPTY stdout - the
+# deny is silently lost - because the pre-fix code called log_fire() BEFORE
+# print(). Uses snapshot_source_repo_dir so the copied hook's
+# _resolve_repo_root() still resolves to the REAL repo root (needed for the
+# deny branch to trigger at all). See hooks/tests/_fire_log_test_helper.py.
+# ---------------------------------------------------------------------------
+total += 1
+_rc_rf, _stdout_rf, _stderr_rf = run_hook_with_raising_log_fire(
+    "enforce-shippable-edit.py",
+    make_payload("Write", _fire_target, cwd=_fire_cwd),
+    snapshot_source_repo_dir=REPO_ROOT,
+)
+ok = _rc_rf == 0 and not is_allow(_rc_rf, _stdout_rf)
+status = "PASS" if ok else "FAIL"
+if not ok:
+    failed += 1
+print(f"  [{status}] raising log_fire cannot suppress the deny decision")
+if not ok:
+    print(f"         stdout: {_stdout_rf!r}")
+    print(f"         stderr: {_stderr_rf[-500:]!r}")
+
 print()
 if failed == 0:
     print(f"All {total} tests passed.")

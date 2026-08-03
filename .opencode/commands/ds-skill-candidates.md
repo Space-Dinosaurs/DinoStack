@@ -1,5 +1,5 @@
 ---
-description: /ds-skill-candidates
+description: "/ds-skill-candidates"
 agent: build
 ---
 # /ds-skill-candidates

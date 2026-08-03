@@ -37,6 +37,31 @@ get_inode() {
   fi
 }
 
+# Defense-in-depth: the loops below raw-cat hand-authored sidecar YAML files
+# between "---" fences with no escaping - correctness today depends entirely
+# on the sidecar author having hand-quoted any colon-space or leading-# value.
+# Validate the resulting frontmatter actually parses before trusting it, so a
+# future unquoted sidecar edit fails the build instead of shipping silently
+# broken (or silently truncated) frontmatter.
+validate_frontmatter() {
+  local dst="$1"
+  python3 - "$dst" <<'PYEOF'
+import sys, re
+import yaml
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    text = f.read()
+m = re.match(r'^---\n(.*?)\n---\n', text, re.DOTALL)
+if not m:
+    sys.exit(f"ERROR: {path}: no YAML frontmatter block found")
+try:
+    yaml.safe_load(m.group(1))
+except yaml.YAMLError as e:
+    sys.exit(f"ERROR: {path}: invalid frontmatter YAML: {e}")
+PYEOF
+}
+
 # Methodology: assemble from content/sections/ then prepend YAML frontmatter.
 # content/rules/agent-methodology.md was deleted in Wave 1; the loop below
 # covers only the remaining 3 rules files.
@@ -44,6 +69,7 @@ methodology_sidecar="$FRONTMATTER_DIR/agent-methodology.yaml"
 methodology_dst="$RULES_DST/agent-methodology.mdc"
 PREAMBLE_SRC="$REPO_DIR/.cursor/cursor-compat-preamble.md"
 { echo "---"; cat "$methodology_sidecar"; echo "---"; echo; cat "$PREAMBLE_SRC"; echo; echo; bash "$REPO_DIR/scripts/build-methodology.sh"; } > "$methodology_dst"
+validate_frontmatter "$methodology_dst"
 
 # Rules: prepend YAML frontmatter from sidecar files to produce .mdc.
 # Covers code-standards, conventions, module-manifest (not agent-methodology).
@@ -53,6 +79,7 @@ for src in "$CONTENT/rules/"*.md; do
   dst="$RULES_DST/$name.mdc"
   if [[ -f "$sidecar" ]]; then
     { echo "---"; cat "$sidecar"; echo "---"; echo; cat "$src"; } > "$dst"
+    validate_frontmatter "$dst"
   else
     echo "WARNING: no sidecar for $name, copying without frontmatter"
     cp "$src" "$dst"

@@ -1456,6 +1456,82 @@ See `content/references/planning-artifacts.md` §Gate semantics for where this s
 
 **Branch naming:** use the branch naming convention from AGENTS.md. Derive the short title from the ticket title: lowercase, hyphens, ~4-5 words max. The conductor resolves `BRANCH_NAME` here regardless of path.
 
+### Commit and push the planning artifact
+
+Runs exactly once per ticket, on every ticket path, immediately after `BRANCH_NAME` is resolved above and before any engineer spawns. Run only when `brief_path` or `plan_path` is populated - no-op otherwise, and `PLAN_PRESEEDED` is always assigned (`true`/`false`) either way.
+
+1. Run the **stale remote branch preflight** (see Phase 5, "Stale remote branch preflight") here, once, for every spawn class this ticket will use (Elevated single-engineer AND fan-out alike) - **before** step 2's push, not after. Step 2 pushes to `$BRANCH_NAME` unconditionally; running the preflight after that push would let the conductor's own just-landed plan commit look like a foreign stale branch to a later `ls-remote` check and trigger a spurious `-v2` rename, orphaning the plan commit on the un-renamed ref. See the scoping note in Phase 5 for the corresponding exemption on both spawn classes.
+2. Run the commit-and-push procedure below (no checkout, DCO-trailered, pushed by explicit SHA, with conductor-side retry-on-rejection):
+
+```bash
+ARTIFACT_REL="${plan_path:-$brief_path}"   # repo-relative; both fields are
+# guaranteed populated by this procedure's own gate condition ("run only when
+# brief_path or plan_path is populated") - no separate SLUG variable exists
+# anywhere in content/, so ARTIFACT_REL is derived directly from the field that
+# is actually defined, never from an undeclared symbol.
+
+if git -C "${REPO}" check-ignore -q -- "${ARTIFACT_REL}"; then
+  echo "[phase: plan-commit-skipped | docs/planning/ is gitignored in this repo (repo policy: plans stay local) - not committing or pushing.]"
+else
+  git -C "${REPO}" fetch -q origin
+
+  if git -C "${REPO}" ls-remote --exit-code --heads origin "${BRANCH_NAME}" >/dev/null 2>&1; then
+    BASE_REF="origin/${BRANCH_NAME}"
+    VERB="revise"
+  else
+    BASE_REF="origin/${BASE_BRANCH}"
+    VERB="add"
+  fi
+
+  GIT_DIR_ABS="$(git -C "${REPO}" rev-parse --absolute-git-dir)"
+  TMP_INDEX="${GIT_DIR_ABS}/plan-commit-index-$$"
+  export GIT_INDEX_FILE="${TMP_INDEX}"
+  git -C "${REPO}" read-tree "${BASE_REF}"
+  git -C "${REPO}" add -- "${ARTIFACT_REL}"
+  ADD_RC=$?
+  if [ "${ADD_RC}" -ne 0 ]; then
+    echo "WARNING: git add failed (rc=${ADD_RC}) for ${ARTIFACT_REL} - skipping plan commit."
+    unset GIT_INDEX_FILE
+    rm -f "${TMP_INDEX}"
+  else
+    NEW_TREE=$(git -C "${REPO}" write-tree)
+    unset GIT_INDEX_FILE
+    rm -f "${TMP_INDEX}"
+
+    SO_NAME="$(git -C "${REPO}" config user.name)"
+    SO_EMAIL="$(git -C "${REPO}" config user.email)"
+    if [ -z "${SO_NAME}" ] || [ -z "${SO_EMAIL}" ]; then
+      echo "WARNING: git config user.name or user.email is empty - skipping plan commit (DCO trailer cannot be populated)."
+    else
+      COMMIT_MSG="$(printf 'docs(plan): %s %s\n\nSigned-off-by: %s <%s>' "${VERB}" "${ARTIFACT_REL}" "${SO_NAME}" "${SO_EMAIL}")"
+      NEW_COMMIT=$(git -C "${REPO}" commit-tree "${NEW_TREE}" -p "${BASE_REF}" -m "${COMMIT_MSG}")
+
+      if ! git -C "${REPO}" push origin "${NEW_COMMIT}:refs/heads/${BRANCH_NAME}"; then
+        echo "Conductor push rejected (non-fast-forward) - retrying the entire procedure from the top."
+        # Re-run is: fetch again, recompute BASE_REF against the now-current tip, rebuild
+        # the tree and commit, push again. Idempotent and stateless (never reads its own
+        # prior local state - only the current remote tip), so a bare retry is always
+        # correct and requires no special-casing.
+        : # (conductor re-invokes this entire procedure block once; no new logic needed)
+      fi
+    fi
+  fi
+fi
+```
+
+**Known limitation:** the conductor-side retry-from-scratch path has not been executed under a genuine concurrent-write race in any round's testing - reasoned as correct from git's own atomicity guarantees on ref updates, not empirically confirmed under contention.
+
+**Known limitation:** `git check-ignore -q` is a per-path check, run against the actual `ARTIFACT_REL` (`docs/planning/<slug>.md` at Brief tier, `docs/planning/<slug>/` at Plan tier) specifically, so a repo that ignores only some slugs is handled correctly per-slug rather than at the whole-tree level.
+
+**Known limitation:** repeated invocation of this procedure with unchanged artifact content produces an additional, empty (no tree-content-change) commit each time - the procedure does not diff `NEW_TREE` against the prior tip before committing. Harmless (DCO-trailered, does not affect the artifact's own history) but not guarded against.
+
+**Documented, not fixed:** `commit-tree` bypasses the pre-commit hook, not only the commit-msg hook - benign for this docs-only artifact.
+
+3. When the artifact is a Plan directory, `plan_path` was already set to `docs/planning/<slug>/` (repo-relative) when the Plan directory was assembled (`content/references/planning-artifacts.md` §Gate semantics); this subsection consumes that value, it does not set it.
+4. Set `PLAN_PRESEEDED` (`true`/`false`) based on whether this subsection actually committed and pushed (i.e. did not hit the gitignore no-op branch above).
+
+This subsection is reached exactly once per ticket, on every ticket path, before any engineer spawns - it is the fix for gaps 1 and 2 (Plan-tier directories and the promotion-gate path had no commit step), not for gap 3 (re-commit on revision - see DS-124).
+
 **Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands.
 
 **Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH` command. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
@@ -1479,7 +1555,7 @@ Read the orchestration-planner's output to make the routing determination below 
 ### If work is a single logical unit (or units must be sequential):
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
-- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
+- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit. `brief_path`/`plan_path` in this block are normalized to absolute paths per the "`brief_path`/`plan_path` normalization" formula given under the parallel fan-out path below - this is the single-engineer construction site the formula's own text names as co-equal to the fan-out one.
 - The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit
 - The branch name to work on
 - The repo path: `$REPO`
@@ -1526,11 +1602,29 @@ Decision table:
 
 The engineer is never asked to handle a rename mid-implementation. The conductor resolves uniqueness once, before the spawn. Log the resolution to `resolution_notes` (one line: `branch_collision: <original> → <renamed> (remote SHA <sha>)`) so the operator can audit later. This preflight runs on every engineer spawn that creates a branch (Elevated single-engineer, fan-out per-unit, Phase 7 fix engineer, and the Trivial-path solo worktree engineer - branch creation on the Trivial path is performed by that engineer in its worktree, see Phase 4).
 
+**Scoping note for the Brief/Plan case only:** when a Brief or Plan governs this ticket, this preflight moves to run exactly once, inside Phase 4's "Commit and push the planning artifact" subsection, BEFORE the plan commit is pushed - for both the Elevated single-engineer AND fan-out per-unit spawn classes on that ticket - not again at this Phase 5 location. Running it here a second time for a Brief/Plan-governed ticket would misread the conductor's own just-pushed plan commit as a foreign stale branch (the decision table below has no row for "SHA present because we pushed it ourselves this phase," so a literal read falls to the stale-branch row and appends a uniqueness suffix, orphaning the plan commit on the un-renamed ref). The Phase 7 fix engineer and the Trivial-path solo worktree engineer are unaffected (Trivial tickets never carry a Brief/Plan and so never reach the Phase 4 planning-artifact subsection; the Phase 7 fix engineer runs after the ticket's branch already exists) and continue running this preflight at its existing location, unchanged.
+
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
 - `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
+
+  **`PLAN_PRESEEDED` gates which literal form `create_commands` uses (Elevated single-engineer path only - fan-out per-unit sub-branches are always freshly cut from `origin/$BASE_BRANCH` regardless of this flag, see "Create one worktree per unit" below).** `PLAN_PRESEEDED` is set in Phase 4's "Commit and push the planning artifact" subsection (step 4 there).
+  - `PLAN_PRESEEDED == false` (no Brief/Plan, or the commit-and-push hit the gitignore no-op branch): `create_commands` is the standard create-from-base form: `git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH`.
+  - `PLAN_PRESEEDED == true` (the Phase 4 procedure already pushed a plan commit to `$BRANCH_NAME`): `create_commands` tracks the existing remote branch instead of creating it from base: `git -C $REPO worktree add $WORKTREE_PATH $BRANCH_NAME` (no `-b`, no base ref - the branch already exists on origin, seeded with the plan commit). Using the create-from-base form here would either fail (branch already exists) or silently orphan the plan commit depending on git version; tracking the existing ref is the only correct form once `PLAN_PRESEEDED` is true.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
 - `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
+
+  **Non-fast-forward recovery.** On a rejected (non-fast-forward) push, the engineer runs this specified recovery once:
+
+  ```
+  git -C <worktree> fetch origin $BRANCH_NAME
+  git -C <worktree> rebase origin/$BRANCH_NAME
+  git -C <worktree> push origin HEAD:refs/heads/$BRANCH_NAME
+  ```
+
+  Rebase conflict -> `git -C <worktree> rebase --abort`, return BLOCKED with the conflict output. Retried push ALSO rejected -> return BLOCKED, do not loop.
+
+  **What BLOCKED means for cleanup.** When the retry is exhausted and the engineer returns BLOCKED, its isolation worktree holds an **unpushed commit** - the engineer's actual deliverable, not yet on any ref the PR flow can see. The conductor **must not** run its normal worktree cleanup in this specific BLOCKED state - that cleanup path assumes the branch has already been pushed to origin, and running it here is the exact mechanism by which the ticket's real deliverable would be lost. The worktree must be preserved until a human resolves the underlying rejection.
 
 Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
 
@@ -1554,6 +1648,8 @@ After the Skeptic/QA loop resolves: append a partial transition setting the task
 
 **N=1 degenerate case:** If the orchestration-planner returned exactly 1 unit, do NOT invoke the fan-out primitive. Fall through to the standard single-engineer path above.
 
+When this ticket has a Brief or Plan (Phase 4's "Commit and push the planning artifact" subsection ran and did not hit the gitignore no-op branch), `FEATURE_BRANCH` **is** the exact `BRANCH_NAME` value resolved there. Tickets with no Brief/Plan are unaffected; `FEATURE_BRANCH`'s origin for them remains as underspecified as before this ticket (Known limitations).
+
 Use git worktrees to give each engineer an isolated copy. The orchestration-planner's JSONL block provides `unit_slug`, `merge_order`, and `skeptic_strategy` for each unit - read these fields to drive worktree naming, merge ordering, and Skeptic strategy. Before creating worktrees, prune stale state from any prior fan-out:
 
 ```bash
@@ -1576,6 +1672,14 @@ Spawn one `engineer` agent per worktree in a single message (parallel, backgroun
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
 - The unit's `task_id`, acceptance criteria, `files_in_scope`, `quality_cmd`, and worktree path
 - The per-unit scope: extracted from the orchestration-planner's JSONL block for that unit
+- `brief_path_for_engineer`/`plan_path_for_engineer` (see "`brief_path`/`plan_path` normalization" below) are **ticket-level** values, identical across every unit in this fan-out - they are NOT part of the per-unit JSONL scope and must be included in every unit's contract explicitly, not derived from it. This is the fix for Plan tier's own visibility gap: fan-out unit sub-branches are cut from `origin/$BASE_BRANCH`, never `FEATURE_BRANCH` (see "Create one worktree per unit, each rooted from `BASE_BRANCH`" above), so absolute-path delivery here is not optional belt-and-suspenders the way it is on the single-engineer path - it is the *only* visibility mechanism available to a fan-out unit engineer, since no git-native path exists for it at all.
+
+**`brief_path`/`plan_path` normalization.** Applied at TWO construction sites - Phase 5's single-engineer contract construction, and this fan-out per-unit spawn construction - both using the identical, ticket-level (not per-unit) values:
+
+```
+brief_path_for_engineer = brief_path if brief_path.startswith("/") else f"{REPO}/{brief_path}"
+plan_path_for_engineer  = plan_path  if plan_path.startswith("/")  else f"{REPO}/{plan_path}"
+```
 
 **Join condition.** The conductor spawns all N engineers in a single message and waits for all N to return. After all N engineers return, apply the **task-state fold** to each unit's `task_id` and evaluate the join against the folded status - never a raw last-line read:
 

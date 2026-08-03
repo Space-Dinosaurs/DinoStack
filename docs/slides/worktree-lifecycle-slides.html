@@ -312,7 +312,7 @@ hr {
 <h2 id="why-worktree-isolation-matters">Why worktree isolation matters</h2>
 
 <ul>
-<li>The conductor's main worktree holds untracked scaffolding: <code>.agentic/</code>, in-flight planning artifacts, loop-state files</li>
+<li>The conductor's main worktree holds untracked scaffolding: <code>.agentic/</code>, loop-state files - NOT in-flight planning artifacts, which are committed and pushed as soon as they are authored</li>
 <li>A subagent running in the same tree can stage and commit conductor files it was never meant to ship</li>
 <li>This does not surface as a test break - it surfaces as a reviewer asking &quot;why is <code>.agentic/loop-state.json</code> in this PR?&quot; days later</li>
 <li>Worktree isolation prevents both pollution and cross-engineer commit contamination when parallel spawns share a tree</li>
@@ -475,17 +475,17 @@ hr {
 <div class="columns">
 <div class="card">
 <strong>Isolation worktrees</strong><br />
-Named <code>worktree-agent-*</code>. Created automatically by the Agent tool when <code>isolation: "worktree"</code> is set on the spawn call. Each parallel subagent gets its own copy of the tree.<br /><br />
+Path <code>.claude/worktrees/*</code>. Created automatically by the Agent tool when <code>isolation: "worktree"</code> is set on the spawn call. Each parallel subagent gets its own copy of the tree.<br /><br />
 <strong>Cleanup trigger:</strong> once the agent returns and the conductor opens a PR (or confirms no PR is needed), the isolation worktree is redundant. The branch holds the commits. Remove immediately.
 </div>
 <div class="card">
 <strong>Feature worktrees</strong><br />
-Named <code>feature/*</code>, <code>fix/*</code>, or <code>chore/*</code>. Created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br /><br />
+Path <code>.agentic/worktrees/&lt;branch-name&gt;</code>.<br /><br />
 <strong>Cleanup trigger:</strong> removed after the PR is merged. The merge (not the PR open) is the trigger.
 </div>
 </div>
 <div class="callout">
-Two classes, two distinct cleanup triggers. Getting the trigger wrong leaves stale worktrees that accumulate between runs and confuse subsequent sessions.
+Classified by <strong>path, never branch name</strong> (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code> is normative - DS-118: a renamed branch can live inside either admin directory, so a name-based scheme collides). Two classes, two distinct cleanup triggers. Getting the trigger wrong leaves stale worktrees that accumulate between runs and confuse subsequent sessions.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="4" data-marpit-scope-s003="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -1143,9 +1143,17 @@ hr {
 <p>Run <strong>once at session start</strong> in the conductor preflight - not before every subagent spawn. Cache the resolved base branch for the session:</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">git fetch origin
 git worktree prune
-<span class="hljs-comment"># Delete orphaned worktree-agent-* branches not checked out in a live worktree:</span>
+<span class="hljs-comment"># Orphaned worktree-agent-* branches not checked out in a live worktree:</span>
+<span class="hljs-comment"># gated on merge evidence (ancestry, then PR state) before deleting.</span>
 git branch | grep <span class="hljs-string">&#x27;worktree-agent-&#x27;</span> | sed <span class="hljs-string">&#x27;s/^[* ]*//&#x27;</span> | <span class="hljs-keyword">while</span> <span class="hljs-built_in">read</span> b; <span class="hljs-keyword">do</span>
-  git worktree list | grep -qF <span class="hljs-string">&quot;[<span class="hljs-variable">$b</span>]&quot;</span> || git branch -D <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span>
+  git worktree list | grep -qF <span class="hljs-string">&quot;[<span class="hljs-variable">$b</span>]&quot;</span> &amp;&amp; <span class="hljs-built_in">continue</span>
+  <span class="hljs-keyword">if</span> git merge-base --is-ancestor <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span> origin/main 2&gt;/dev/null; <span class="hljs-keyword">then</span>
+    git branch -D <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span>
+  <span class="hljs-keyword">elif</span> [ <span class="hljs-string">&quot;<span class="hljs-subst">$(gh pr view <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span> --json state -q .state 2&gt;/dev/null)</span>&quot;</span> = <span class="hljs-string">&quot;MERGED&quot;</span> ]; <span class="hljs-keyword">then</span>
+    git branch -D <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span>
+  <span class="hljs-keyword">else</span>
+    <span class="hljs-built_in">echo</span> <span class="hljs-string">&quot;SKIP (unproven merge): <span class="hljs-variable">$b</span>&quot;</span> &gt;&amp;2
+  <span class="hljs-keyword">fi</span>
 <span class="hljs-keyword">done</span>
 </code></pre>
 <p>The <strong>branch prune</strong> runs alongside it. Three safe signals only - never force-deletes unproven work:</p>

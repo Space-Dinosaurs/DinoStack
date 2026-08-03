@@ -1,5 +1,5 @@
 ---
-description: /ds-config
+description: "/ds-config"
 agent: build
 ---
 # /ds-config

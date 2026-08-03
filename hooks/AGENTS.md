@@ -1,8 +1,8 @@
 # hooks/
 
 Claude Code lifecycle hooks that enforce methodology rules at the harness
-level and write session telemetry to disk. Thirteen scripts in the table below
-(5 Python PreToolUse/Stop enforcers, 5 Node lifecycle handlers, 3 Bash helpers).
+level and write session telemetry to disk. Fifteen scripts in the table below
+(7 Python PreToolUse/Stop enforcers, 5 Node lifecycle handlers, 3 Bash helpers).
 `pre-commit` is also present but is a git hook, not a Claude Code lifecycle
 hook, and is out of scope for this table. `lib/` holds shared utilities
 consumed by the JS hooks and one bin script. Each script ships with a
@@ -17,6 +17,8 @@ module-group map.
 | `enforce-background-spawn.py` | Python | PreToolUse (Task/Agent) | (a) Deny `Task` spawns missing `run_in_background: true` (legacy Task tool only - harness strips this field for Agent); (b) sentinel suppression: deny Task/Agent spawns and OMC Skills when `.agentic/teamrun/.active` is live. Foreground-exempt agents (wrap-ticket) bypass both checks. |
 | `enforce-no-abdication.py` | Python | Stop (main session only) | Block turns that end with permission-seeking interrogatives, a stalled surface-and-proceed commitment, OR a prose co-equal ballot (`## Operator decisions` block with 2+ unrecommended items); inject a "proceed" directive. |
 | `enforce-orchestrator-singularity.py` | Python | PreToolUse (Task/Agent) | Deny subagent spawns issued from inside a subagent context (no nested orchestration). |
+| `enforce-planning-artifact-spawn.py` | Python | PreToolUse (Write/Edit) | WARN-ONLY: surface an advisory (never deny) when a `docs/planning/**` write has no architect spawn on record in the last 4h. |
+| `enforce-shippable-edit.py` | Python | PreToolUse (Write/Edit/MultiEdit) | Deny a conductor-direct (`agent_id` absent) Write/Edit/MultiEdit against a shippable file inside the repo, per METHODOLOGY.md §Git Workflow's shippable/exempt classifier. Engineer subagent edits (`agent_id` present) always allow. |
 | `enforce-tier.py` | Python | PreToolUse (Task/Agent) | Deny an explicit sub-Opus `model` downgrade on a mandated-Tier-3 review agent (security-auditor always; skeptic when the brief matches a Tier-3 escalation signal). Escalate-only, fail-open. |
 | `post-tool-use-capture-nudge.js` | Node | PostToolUse (Task/Agent) | Surface an in-session capture-gap nudge when a learning-worthy event has no captured learning. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
 | `pre-tool-use-spawn-emit.js` | Node | PreToolUse (Task/Agent) | Append a `spawn_start` event to `.agentic/events.jsonl` on every subagent spawn (populates telemetry in ad-hoc sessions) and write the `.last-architect-spawn` sentinel on architect spawns. Stdin read via `lib/stdin-guard.js` (bounded, never blocks). |
@@ -37,10 +39,13 @@ module-group map.
 | `lib/stdin-guard.js` | Shared bounded-stdin reader (`readStdinGuarded`) with a first-byte timeout, a re-armed inactivity timeout, a one-shot absolute deadline, a max-bytes cap, and early-completion-by-parse (gated behind a cheap tail precheck), so a stdin-blocking hook cannot hang a harness's shutdown path when the spawning process never closes stdin; wired into all 9 consumers: `stop-context.js`, `post-tool-use-capture-nudge.js`, `session-end-wrap.js`, `pre-tool-use-spawn-emit.js`, the `.codex/hooks/stop-context-codex.js`, `.gemini/hooks/stop-context-gemini.js`, and `.copilot/hooks/stop-context-copilot.js` ports, the `.cursor/hooks/stop-context-cursor.js` port, plus the generated `.github/hooks/stop-context-copilot.js` mirror. |
 | `lib/hooks-staleness-core.sh` | DS-54: classifies the methodology checkout's hooks-snapshot state (`never_migrated` / `half_applied` / `stale_but_stable` / `current`, evaluation order in that order - mutually exclusive by construction) and prints at most one nudge line; used by `session-start-wrap.sh`. Fail-open, always exits 0. |
 | `../../scripts/lib/hooks-snapshot.sh` | DS-54: lives outside `hooks/` (shared with the adapter `install.sh`/`uninstall.sh` scripts, not just hook code) but is the load-bearing dependency both `hooks-staleness-core.sh` and every in-scope adapter installer source. Owns hooks-snapshot key/dir resolution, the source-hash function, `sync_hooks_snapshot`/`remove_hooks_snapshot` (bounded-delete guarded), and `hooks_config_points_at_snapshot`. |
+| `lib/enforcement_log.py` | Shared fire-logging helper: appends one line to `.agentic/.enforcement-fires.jsonl` whenever an enforce-*.py hook takes a non-passthrough action (deny, or allow-with-advisory-reason); a silent allow never calls it. Dynamically imported (best-effort, fails open to a no-op), lazily from inside each caller's action branch, by six of the seven enforce-*.py hooks - every one except `enforce-no-abdication.py`, which keeps its own pre-existing `.abdication-guard-fire-count` counter file unchanged. |
 
 ## Upstream dependencies
 
-- Python hooks: Python 3 stdlib only (`json`, `sys`, `os`).
+- Python hooks: Python 3 stdlib only (`json`, `sys`, `os`, `importlib.util`
+  for the six enforce-*.py hooks' best-effort dynamic import of
+  `lib/enforcement_log.py`).
 - Node hooks: Node built-ins only (`fs`, `path`, `child_process`) plus `lib/wrap-marker.js`, `lib/capture-gap.js`, and `lib/stdin-guard.js` (no npm packages).
 - Bash hooks: `bash`, `python3` (for JSON escaping), `jq` (with grep/sed fallback), `node`.
 - All hooks read `[cwd]/.agentic/` state files; none read outside the project root except identity files at `~/.agentic/`.
@@ -72,7 +77,11 @@ exit 0 without denying the triggering action. Enforcement gaps are preferable
 to blanket blocks. Hooks never raise to the Claude Code harness; non-fatal
 errors are swallowed or written to stderr. The only intentional side effects
 are append-only writes to `.agentic/` files and deny decisions on clearly
-violating tool calls.
+violating tool calls. Six of the seven enforce-*.py hooks additionally
+append a fire-log line to `.agentic/.enforcement-fires.jsonl` on every
+non-passthrough action (via `lib/enforcement_log.py`); `enforce-no-abdication.py`
+is the exception and keeps its own separate `.agentic/.abdication-guard-fire-count`
+counter unchanged - see the `lib/` table above.
 
 ## Fail-open on absent tool_input fields
 
