@@ -402,6 +402,16 @@
       "source_token": "Task"
     },
     {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "3802900dc50266735cd87b6e78c10d579f022c223878bccf2ca039a8c4cb26b0",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
+    },
+    {
       "expected_target": "content/references/activation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
       "kind": "operational",
@@ -460,6 +470,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "434df2612c68c02a1dc42db62a51404443048c4387f358e10efba5b0d220e76d",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -882,26 +902,6 @@
       "source_token": "content/rules/conventions.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "6edc3beff2c406b3b0cada2a774f3f157cd3c7f8fc361dd4892377c7be0645e2",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "703e84deb57bc134b9a2dd1b60de8bc161c5fa7b145c363f060ec128659b5f77",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
       "expected_target": "content/references/events-log.md",
       "generated_token": "$AE_REPO_DIR/content/references/events-log.md",
       "kind": "operational",
@@ -1010,6 +1010,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/qa-gate.md"
+    },
+    {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "7bd5801d5a8257a16f3d8d19f4688541df31f6ea73027e66741853aa887d5e87",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/config.json"
     },
     {
       "expected_target": "Agent",
@@ -1552,6 +1562,16 @@
       "source_token": "model-param mapping"
     },
     {
+      "expected_target": "content/references/conductor-turn-format.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conductor-turn-format.md",
+      "kind": "operational",
+      "occurrence_hash": "b50adf3567e8d736c42b06367775cd33aa1d69548bdbb841f1c30f544de910c0",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/conductor-turn-format.md"
+    },
+    {
       "expected_target": "git worktree add",
       "generated_token": "the explicit Codex worktree bootstrap contract above",
       "kind": "operational",
@@ -1880,16 +1900,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "de208f07aa76e790110770fec885df9992211836e946772a4a89620ee0271c36",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/config.json"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
