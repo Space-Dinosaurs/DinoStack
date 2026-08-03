@@ -28,6 +28,25 @@ Test coverage:
   - Malformed stdin -> ALLOW (fail-open)
   - Smoke: abdicating payload -> exactly one valid JSON block object
   - Smoke: clean payload -> empty stdout
+  - Prose-ballot: 2-item 'Operator decisions' block, no recommendations -> BLOCK
+  - Prose-ballot: same block, every item recommended -> ALLOW
+  - Prose-ballot: single-item block -> ALLOW
+  - Prose-ballot: ballot saturated with negative-gate vocabulary still BLOCKs
+    (the escape this check exists to close)
+  - Prose-ballot: mixed block (1 recommended + 1 unrecommended item) -> ALLOW
+  - Negative gate regression: a genuine single irreversible-action
+    confirmation (no Operator decisions heading) still passes -> ALLOW
+  - REGRESSION: verbatim real-world 5-item bold-numbered ballot fires
+  - Prose-ballot: bold-numbered bare/all-recommended/single-item/fenced-body/
+    mixed-formatting variants
+  - REGRESSION (Skeptic MAJOR 2): indented sub-bullets not counted as items
+  - REGRESSION (Skeptic MAJOR 3): heading quoted inside a fence -> ALLOW
+  - REGRESSION (Skeptic MAJOR 4): narrative paragraphs, no list syntax,
+    under the heading -> ALLOW (no paragraph-mode fallback)
+  - Heading tightening: 3-hash heading and trailing-colon heading -> BLOCK
+  - REGRESSION (Skeptic round 2, MAJOR 1): verbatim reviewer input (general
+    surface-and-proceed phrasing, no marker, in-block) -> BLOCK; the same
+    content with the block-required marker added -> ALLOW
 """
 
 from __future__ import annotations
@@ -102,6 +121,16 @@ def is_block(returncode: int, stdout: str) -> bool:
         )
     except Exception:
         return False
+
+
+def get_reason(returncode: int, stdout: str) -> str | None:
+    """Return the block reason string, or None if this was not a valid
+    block response. Used to pin WHICH classifier fired (Major 2 regression
+    guard: the harness previously only asserted BLOCK-vs-ALLOW and
+    len(reason) > 0, never which reason string was chosen)."""
+    if not is_block(returncode, stdout):
+        return None
+    return json.loads(stdout.strip()).get("reason")
 
 
 def make_config_file(tmp_dir: str, enabled: bool = True) -> str:
@@ -460,6 +489,457 @@ def build_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | None]]:
 
 
 # ---------------------------------------------------------------------------
+# Prose-ballot cases (content/sections/02-delegation.md "Operator decisions
+# go last in the turn" + "AskUserQuestion precondition" - the ban on
+# co-equal ballots applies identically to prose, not just the tool call.)
+# ---------------------------------------------------------------------------
+
+def build_prose_ballot_cases(tmp_dir: str) -> list[tuple[str, str, str, dict | None]]:
+    cases: list[tuple[str, str, str, dict | None]] = []
+
+    def fresh_dir(name: str) -> str:
+        d = os.path.join(tmp_dir, name)
+        os.makedirs(d, exist_ok=True)
+        make_config_file(d, enabled=True)
+        return d
+
+    # --- 2-item ballot, no recommendations -> BLOCK ---
+    cases.append((
+        "Prose ballot: 2-item Operator decisions, no recommendations -> BLOCK",
+        make_payload(
+            fresh_dir("ballot_bare"),
+            last_assistant_message=(
+                "Found two viable migration strategies.\n\n"
+                "## Operator decisions\n"
+                "- Use a blue-green cutover: this reverses decision #203 and "
+                "cannot be undone once the old cluster is decommissioned.\n"
+                "- Use a rolling upgrade: this is a load-bearing decision "
+                "that changes the schema in a way that is hard to reverse.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Same shape, every item recommended -> ALLOW ---
+    cases.append((
+        "Prose ballot: every item carries a recommendation -> ALLOW",
+        make_payload(
+            fresh_dir("ballot_all_recommended"),
+            last_assistant_message=(
+                "Found two decisions this turn.\n\n"
+                "## Operator decisions\n"
+                "- Cache eviction policy: Recommendation: LRU, matches the "
+                "existing cache module. Reversible with a one-line config flip.\n"
+                "- Retry backoff: use exponential backoff (Recommended) - "
+                "matches src/http/client.ts. Reversible with a one-line revert.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Single item -> ALLOW ("A single item never fires") ---
+    cases.append((
+        "Prose ballot: single-item Operator decisions block -> ALLOW",
+        make_payload(
+            fresh_dir("ballot_single"),
+            last_assistant_message=(
+                "One decision this turn.\n\n"
+                "## Operator decisions\n"
+                "- Delete the stale branch: this is irreversible and cannot "
+                "be undone. Proceeding requires your confirmation.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Ballot saturated with negative-gate vocabulary still fires ---
+    # REGRESSION: this is the exact escape observed in the incident that
+    # motivated this check - a ballot phrased with irreversibility/design-
+    # fork tokens that would suppress _is_abdication's permission-phrase
+    # check must NOT suppress the ballot check.
+    cases.append((
+        "REGRESSION: ballot saturated with negative-gate vocabulary still BLOCKs",
+        make_payload(
+            fresh_dir("ballot_negative_gate_saturated"),
+            last_assistant_message=(
+                "Two design forks surfaced during the migration.\n\n"
+                "## Operator decisions\n"
+                "- Option A: this is destructive, irreversible, and cannot "
+                "be undone once merged - it permanently deletes the legacy "
+                "table and reverses decision #203, a load-bearing design "
+                "decision with schema migration implications.\n"
+                "- Option B: this is a design fork requiring a force push "
+                "to rewrite history; data loss is possible and unrecoverable "
+                "if the wrong branch is targeted.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Mixed block: 1 recommended + 1 unrecommended -> ALLOW ---
+    # "An item carrying a recommendation does not count toward the
+    # violation" - only 1 of 2 items lacks a recommendation here, below the
+    # 2-unrecommended threshold.
+    cases.append((
+        "Prose ballot: mixed block (1 recommended, 1 not) -> ALLOW",
+        make_payload(
+            fresh_dir("ballot_mixed"),
+            last_assistant_message=(
+                "One flagged item, one already resolved.\n\n"
+                "## Operator decisions\n"
+                "- Logging library: Recommendation: keep pino, matches "
+                "existing usage across the service.\n"
+                "- Retention window: needs your call, no default derivable "
+                "from existing config.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- No Operator decisions heading + genuine single irreversible
+    # confirmation still passes the ORIGINAL negative gate (no regression
+    # introduced by adding the ballot check). ---
+    cases.append((
+        "Negative-gate regression: single irreversible confirmation, no heading -> ALLOW",
+        make_payload(
+            fresh_dir("no_heading_single_confirm"),
+            last_assistant_message=(
+                "This permanently deletes the legacy table and cannot be "
+                "undone. Should I proceed?"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # =========================================================================
+    # REGRESSION (coordinator-verified escape): real conductor ballots use
+    # bold-numbered paragraph items ("**1. Title.** body"), not markdown list
+    # syntax. The original _ITEM_START_RE matched only "-", "*", and plain
+    # numbered lines, so it detected ZERO items in a real 5-item ballot and
+    # never fired. This is the VERBATIM real-world sample (structure and
+    # wording matched to the actual conductor output that escaped detection):
+    # items 2, 3, 4 carry "Recommendation:", items 1 and 5 do not - 2
+    # unrecommended items should fire the guard. Item 1 also contains a
+    # fenced code block, which must not itself be miscounted as a second item
+    # or have its diff-like/list-like content misread as a new item marker.
+    # =========================================================================
+    REAL_BALLOT_SAMPLE = (
+        "Wrapping up. Several things need your input before I continue.\n\n"
+        "## Operator decisions\n\n"
+        "**1. Run one command to unblock PR #516.** Force-push was denied "
+        "to both the engineer and me. I traced it to a branch-protection "
+        "rule that blocks force-push on any branch matching `feature/*` "
+        "regardless of author. This is a repo-owner-only setting; I cannot "
+        "change it myself. Run:\n\n"
+        "```\n"
+        "gh api repos/Space-Dinosaurs/DinoStack/branches/feature/tier-filter/protection -X DELETE\n"
+        "```\n\n"
+        "then re-run the rebase. There is no derivable default here - only "
+        "you hold the permission to change branch protection.\n\n"
+        "**2. PR #422 - rebase, extract, or close?** PR #422 has drifted "
+        "far enough from main that a straight rebase would touch 40+ "
+        "files. Recommendation: **extract the tier-filter mechanism** into "
+        "its own PR and close #422 - the rest of its diff is already "
+        "superseded by #480. Reversible: reopen #422 from its current "
+        "branch tip if the extraction turns out wrong.\n\n"
+        "**3. Approve removing rate-limit retries?** The retry loop added "
+        "in #390 masks a genuine upstream 429 rather than backing off "
+        "correctly, and every retry burns another API call against our "
+        "quota. Recommendation: **approve**; one commit to revert.\n\n"
+        "**4. Re-track evals/runner/ and evals/scoring/ in git?** These "
+        "were gitignored during the early eval-harness spike and never "
+        "re-added. Recommendation: **re-track the code** (not the "
+        "generated output) - matches how the rest of evals/ is tracked.\n\n"
+        "**5. Probe the SubagentStop payload with me present?** The only "
+        "route to real cost and duration telemetry for subagent spawns is "
+        "capturing a live SubagentStop payload, which requires you to "
+        "trigger a subagent spawn while I watch stdin. This can't be "
+        "scripted or deferred - it needs a live session with both of us "
+        "present.\n"
+    )
+    cases.append((
+        "REGRESSION (real ballot sample, coordinator-verified escape): "
+        "5-item bold-numbered ballot, items 1+5 unrecommended -> BLOCK",
+        make_payload(
+            fresh_dir("real_ballot_sample"),
+            last_assistant_message=REAL_BALLOT_SAMPLE,
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Bold-numbered items, 2+ without a recommendation -> BLOCK ---
+    cases.append((
+        "Bold-numbered ballot: 2 items, no recommendations -> BLOCK",
+        make_payload(
+            fresh_dir("bold_numbered_bare"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Delete the orphaned branch?** This is irreversible "
+                "once merged and cannot be undone.\n\n"
+                "**2. Rotate the leaked token?** This is a design decision "
+                "with long-term impact on the auth flow.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Bold-numbered items, every item carries Recommendation: -> ALLOW ---
+    cases.append((
+        "Bold-numbered ballot: every item carries Recommendation: -> ALLOW",
+        make_payload(
+            fresh_dir("bold_numbered_all_recommended"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Cache eviction policy.** Recommendation: **LRU** - "
+                "matches the existing cache module.\n\n"
+                "**2. Retry backoff.** Recommendation: **exponential** - "
+                "matches src/http/client.ts.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Single bold-numbered item with no recommendation -> ALLOW ---
+    cases.append((
+        "Single bold-numbered item, no recommendation -> ALLOW",
+        make_payload(
+            fresh_dir("bold_numbered_single"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Delete the stale branch?** This is irreversible and "
+                "cannot be undone. Proceeding requires your confirmation.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- One item plus a fenced code block -> ALLOW (fence != second item) ---
+    cases.append((
+        "Bold-numbered single item with a fenced code block body -> ALLOW",
+        make_payload(
+            fresh_dir("bold_numbered_single_with_fence"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Run this command to unblock the branch.** This is "
+                "irreversible and cannot be undone. Run:\n\n"
+                "```\n"
+                "- this diff-style line must not be read as a bullet item\n"
+                "+ neither must this one\n"
+                "```\n\n"
+                "There is no derivable default here.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Mixed formatting: one markdown list item + one bold-numbered item,
+    # both unrecommended -> BLOCK ---
+    cases.append((
+        "Mixed formatting: 1 markdown-list item + 1 bold-numbered item, "
+        "both unrecommended -> BLOCK",
+        make_payload(
+            fresh_dir("mixed_formatting_ballot"),
+            last_assistant_message=(
+                "## Operator decisions\n"
+                "- Rotate the signing key: this is a design decision with "
+                "long-term impact and cannot be undone once rotated.\n\n"
+                "**2. Approve the schema migration?** This changes the "
+                "schema in a way that is hard to reverse.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # =========================================================================
+    # MAJOR 2 REGRESSION (Skeptic-verified): indented sub-bullets under a
+    # single fully-recommended item were counted as separate top-level items.
+    # An indented "- the DCO check passed" is a supporting detail of its
+    # parent item, not a new decision, and must not be counted.
+    # =========================================================================
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 2): single recommended item with 2 "
+        "indented sub-bullets -> ALLOW (sub-bullets not counted as items)",
+        make_payload(
+            fresh_dir("indented_sub_bullets_single_item"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Merge PR #516.** Recommendation: merge now; CI is "
+                "green.\n"
+                "   - the DCO check passed\n"
+                "   - the adapter-sync check passed\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 2): 2 recommended items, each with an "
+        "indented sub-bullet -> ALLOW",
+        make_payload(
+            fresh_dir("indented_sub_bullets_two_items"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "**1. Merge PR #516.** Recommendation: merge now.\n"
+                "   - CI is green\n\n"
+                "**2. Close DS-114.** Recommendation: close as done.\n"
+                "   - all acceptance criteria met\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # =========================================================================
+    # MAJOR 3 REGRESSION (Skeptic-verified): the heading was searched for in
+    # UNMASKED text, so a fenced example quoting this rule's own heading
+    # text (a PR body explaining this change, a /ds-wrap note, a Skeptic
+    # digest) would match and swallow everything after the fence as a fake
+    # "block". Fences must be masked before the heading search runs.
+    # =========================================================================
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 3): heading text quoted inside a fenced "
+        "example -> ALLOW (fence masked before heading search)",
+        make_payload(
+            fresh_dir("heading_inside_fence"),
+            last_assistant_message=(
+                "This PR adds detection for a specific block shape:\n\n"
+                "```\n"
+                "## Operator decisions\n"
+                "- Option A: no recommendation given\n"
+                "- Option B: no recommendation given\n"
+                "```\n\n"
+                "That's the shape the hook now catches. Implementation "
+                "complete, quality gates pass.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # =========================================================================
+    # MAJOR 4 REGRESSION (Skeptic-verified): the removed paragraph-mode
+    # fallback over-fired on ordinary non-ballot narrative under the
+    # heading. With the fallback removed, a "nothing to decide" narrative
+    # with no list/number syntax must never fire (returns 0 items, below
+    # the 2-item threshold), even though it is 2 blank-line-separated
+    # paragraphs.
+    # =========================================================================
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 4): narrative paragraphs, no list "
+        "syntax, under the heading -> ALLOW (no paragraph-mode fallback)",
+        make_payload(
+            fresh_dir("narrative_no_list_syntax"),
+            last_assistant_message=(
+                "## Operator decisions\n\n"
+                "None this turn. Everything was derivable from the five "
+                "default sources.\n\n"
+                "I proceeded with the worktree-isolated engineer per "
+                "AGENTS.md.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    # --- Heading tightening: 3-hash heading must still be caught ---
+    cases.append((
+        "Heading tightening: '### Operator decisions' (3-hash) -> BLOCK",
+        make_payload(
+            fresh_dir("heading_three_hash"),
+            last_assistant_message=(
+                "### Operator decisions\n\n"
+                "- Option A: no recommendation given, design decision.\n"
+                "- Option B: no recommendation given, load-bearing.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # --- Heading tightening: trailing colon must still be caught ---
+    cases.append((
+        "Heading tightening: '## Operator decisions:' (trailing colon) -> BLOCK",
+        make_payload(
+            fresh_dir("heading_trailing_colon"),
+            last_assistant_message=(
+                "## Operator decisions:\n\n"
+                "- Option A: no recommendation given, design decision.\n"
+                "- Option B: no recommendation given, load-bearing.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+
+    # =========================================================================
+    # MAJOR 1 REGRESSION (Skeptic round 2, spec-consistency): content/
+    # sections/02-delegation.md's ":76"/":78" general surface-and-proceed
+    # canonical form ("Proceeding with X unless you say otherwise") carries
+    # no marker, while ":80" mandates the marker on every Operator-decisions
+    # item. Resolved at the spec level (this file's docstring/section 80
+    # amendment): the marker requirement is ADDITIONAL to, not a
+    # replacement for, the general phrasing - it applies once 2+ items live
+    # under the heading, where the ballot check can fire. The general
+    # phrasing alone (no marker) therefore remains genuinely non-compliant
+    # for an in-block multi-item decision and correctly still fires; the
+    # SAME content, once each item additionally carries the marker per the
+    # block-specific rule, is fully compliant and must not fire. Both
+    # directions are pinned here so the two documents cannot drift apart
+    # again without a test catching it.
+    # =========================================================================
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 1, verbatim reviewer input): 2 items "
+        "using the general surface-and-proceed phrasing with no marker, "
+        "inside the Operator decisions block -> BLOCK (marker is "
+        "additionally required in-block; this is consistent post-fix, not "
+        "a contradiction)",
+        make_payload(
+            fresh_dir("major1_verbatim_no_marker"),
+            last_assistant_message=(
+                "## Operator decisions\n"
+                "- Proceeding with approach A (matches existing pattern in "
+                "src/foo.ts) unless you say otherwise.\n"
+                "- Proceeding with exponential backoff (matches "
+                "src/http/client.ts) unless you say otherwise.\n"
+            ),
+        ),
+        "BLOCK",
+        None,
+    ))
+    cases.append((
+        "REGRESSION (Skeptic MAJOR 1, corrected canonical form): same 2 "
+        "decisions, each additionally carrying the block-required marker "
+        "-> ALLOW (proves the resolved contract is satisfiable)",
+        make_payload(
+            fresh_dir("major1_corrected_with_marker"),
+            last_assistant_message=(
+                "## Operator decisions\n"
+                "- Recommendation: approach A - matches existing pattern "
+                "in src/foo.ts. Proceeding unless you say otherwise.\n"
+                "- Recommendation: exponential backoff - matches "
+                "src/http/client.ts. Proceeding unless you say otherwise.\n"
+            ),
+        ),
+        "ALLOW",
+        None,
+    ))
+
+    return cases
+
+
+# ---------------------------------------------------------------------------
 # Counter tests (require filesystem state)
 # ---------------------------------------------------------------------------
 
@@ -785,6 +1265,104 @@ def test_write_counter_pid_suffixed_tmp(tmp_dir: str) -> int:
     return failed
 
 
+def test_reason_precedence(tmp_dir: str) -> int:
+    """Pin WHICH reason string fires per classifier, and pin the precedence
+    order (ballot > stall > classic abdication) for a turn that matches more
+    than one classifier at once.
+
+    Major 2 regression guard: main() selects _BALLOT_REASON / _STALL_REASON /
+    _ABDICATION_REASON, but before this test the harness only asserted
+    BLOCK-vs-ALLOW and len(reason) > 0 - no test asserted WHICH reason fired,
+    and none constructed an input matching two classifiers at once. The
+    ordering (ballot subsumes the stall remedy for a ballot-shaped turn) was
+    a unilateral choice made when merging main's stall classifier with this
+    PR's ballot classifier; without a pin, swapping _BALLOT_REASON and
+    _STALL_REASON in main() would keep every other case in this file green.
+    """
+    print("\n  [Reason-precedence pin (Major 2 regression guard)]")
+    failed = 0
+    reason_dir = os.path.join(tmp_dir, "reason_precedence_cwd")
+    os.makedirs(reason_dir, exist_ok=True)
+    make_config_file(reason_dir, enabled=True)
+
+    # --- Classic abdication only -> _ABDICATION_REASON ---
+    rc, stdout, _ = run_hook(make_payload(reason_dir, ABDICATING_MSG))
+    reason = get_reason(rc, stdout)
+    ok = reason is not None and "asking the user permission" in reason
+    print(f"    [{'PASS' if ok else 'FAIL'}] Classic abdication -> _ABDICATION_REASON fires")
+    if not ok:
+        failed += 1
+        print(f"         reason: {reason!r}")
+
+    # --- Stall only (proven via transcript, no tool call) -> _STALL_REASON ---
+    stall_msg = "Proceeding with the migration unless you say otherwise."
+    stall_transcript = make_transcript(reason_dir, [
+        {"role": "user", "content": [{"type": "text", "text": "Do the thing"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": stall_msg}]},
+    ])
+    stall_payload = json.dumps({
+        "hook_event_name": "Stop",
+        "session_id": "test-reason-stall",
+        "cwd": reason_dir,
+        "stop_hook_active": False,
+        "permission_mode": "default",
+        "last_assistant_message": stall_msg,
+        "transcript_path": stall_transcript,
+    })
+    rc, stdout, _ = run_hook(stall_payload)
+    reason = get_reason(rc, stdout)
+    ok = reason is not None and "announced a surface-and-proceed default" in reason
+    print(f"    [{'PASS' if ok else 'FAIL'}] Stall-only (proven, no tool call) -> _STALL_REASON fires")
+    if not ok:
+        failed += 1
+        print(f"         reason: {reason!r}")
+
+    # --- Ballot only -> _BALLOT_REASON ---
+    ballot_msg = (
+        "Here is the analysis.\n\n"
+        "## Operator decisions\n"
+        "- Deploy the new config now\n"
+        "- Roll back the old schema\n"
+    )
+    rc, stdout, _ = run_hook(make_payload(reason_dir, ballot_msg))
+    reason = get_reason(rc, stdout)
+    ok = reason is not None and "Operator decisions' block presents a" in reason
+    print(f"    [{'PASS' if ok else 'FAIL'}] Ballot-only -> _BALLOT_REASON fires")
+    if not ok:
+        failed += 1
+        print(f"         reason: {reason!r}")
+
+    # --- Dual-match: both ballot-shaped AND a proven stall -> ballot wins ---
+    dual_msg = (
+        "Proceeding with the migration unless you say otherwise.\n\n"
+        "## Operator decisions\n"
+        "- Deploy the new config now\n"
+        "- Roll back the old schema\n"
+    )
+    dual_transcript = make_transcript(reason_dir, [
+        {"role": "user", "content": [{"type": "text", "text": "Do the thing"}]},
+        {"role": "assistant", "content": [{"type": "text", "text": dual_msg}]},
+    ])
+    dual_payload = json.dumps({
+        "hook_event_name": "Stop",
+        "session_id": "test-reason-dual",
+        "cwd": reason_dir,
+        "stop_hook_active": False,
+        "permission_mode": "default",
+        "last_assistant_message": dual_msg,
+        "transcript_path": dual_transcript,
+    })
+    rc, stdout, _ = run_hook(dual_payload)
+    reason = get_reason(rc, stdout)
+    ok = reason is not None and "Operator decisions' block presents a" in reason
+    print(f"    [{'PASS' if ok else 'FAIL'}] Dual-match (ballot + proven stall) -> ballot wins")
+    if not ok:
+        failed += 1
+        print(f"         reason: {reason!r}")
+
+    return failed
+
+
 def test_transcript_fallback(tmp_dir: str) -> int:
     """Test transcript_path fallback when last_assistant_message is absent."""
     print("\n  [Transcript fallback tests]")
@@ -915,6 +1493,11 @@ def main() -> None:
         print(f"\nRunning {len(cases)} parametric cases...")
         total_failed += run_cases(cases)
 
+        # Prose-ballot cases.
+        ballot_cases = build_prose_ballot_cases(tmp_dir)
+        print(f"\nRunning {len(ballot_cases)} prose-ballot cases...")
+        total_failed += run_cases(ballot_cases)
+
         # Counter tests.
         total_failed += test_counter_cap(tmp_dir)
         total_failed += test_54360_loop_terminates(tmp_dir)
@@ -922,6 +1505,9 @@ def main() -> None:
         total_failed += test_corrupt_counter_file(tmp_dir)
         total_failed += test_unwritable_counter_allows_stop(tmp_dir)
         total_failed += test_write_counter_pid_suffixed_tmp(tmp_dir)
+
+        # Reason-precedence pin.
+        total_failed += test_reason_precedence(tmp_dir)
 
         # Transcript fallback.
         total_failed += test_transcript_fallback(tmp_dir)
@@ -932,11 +1518,13 @@ def main() -> None:
     print()
     total_cases = (
         len(cases)
+        + len(ballot_cases)
         + 3   # counter cap: 3 assertions
         + 1   # #54360 loop-termination regression
         + 1   # counter reset
         + 1   # corrupt counter
         + 1   # unwritable counter + #54360 conjunction regression
+        + 4   # reason-precedence pin
         + 2   # transcript fallback
         + 3   # smoke checks
     )

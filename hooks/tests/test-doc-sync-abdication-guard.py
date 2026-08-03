@@ -2,7 +2,12 @@
 """
 Regression guard: the `abdication_guard_enabled` documentation must not
 regress to the false claims DS-115 fix pass 1 (commit 61a802df) corrected
-across three files.
+across three files, NOR to the "only two shapes" undercount that PR #519's
+prose-ballot classifier fix left stale in three further published docs
+(docs/safe-configuration.md, docs/configuration-reference.md,
+docs/components.md) - the guard now blocks three shapes (permission-seeking
+interrogative, stalled surface-and-proceed, prose co-equal ballot), and a
+doc that only names two is factually wrong about live hook behavior.
 
 Why this exists: `abdication_guard_enabled` has no code-level default - an
 absent key leaves the guard inert (see hooks/enforce-no-abdication.py:864,
@@ -178,12 +183,86 @@ def test_hooks_agents_md_states_both_shapes() -> int:
     return failed
 
 
+def test_safe_configuration_md_states_ballot_shape() -> int:
+    """Assertion 14: docs/safe-configuration.md's enforce-no-abdication.py
+    bullet describes the prose co-equal ballot shape, not just the
+    permission-seeking interrogative and stalled surface-and-proceed
+    shapes. The pre-fix text read "detects two shapes in the final
+    assistant message", which is now factually false - the guard has
+    blocked a third shape (an `## Operator decisions` block presenting a
+    co-equal ballot) since PR #519 landed."""
+    print("\n  [MUST STATE: ballot shape in docs/safe-configuration.md]")
+    failed = 0
+    text = read_file("docs/safe-configuration.md")
+    match = re.search(
+        r"`enforce-no-abdication\.py`.*?(?=\n- \[|\n##|\Z)", text, re.DOTALL
+    )
+    entry = match.group(0) if match else ""
+    entry_lower = entry.lower()
+    if not entry:
+        print("  [FAIL] 14. enforce-no-abdication.py entry not found in docs/safe-configuration.md")
+        return 1
+    two_shapes_present = "detects two shapes" in entry_lower
+    ballot_present = "ballot" in entry_lower or "operator decisions" in entry_lower
+    ok = (not two_shapes_present) and ballot_present
+    print(f"  [{'PASS' if ok else 'FAIL'}] 14. docs/safe-configuration.md entry describes the ballot shape and drops the 'two shapes' undercount")
+    if not ok:
+        failed += 1
+    return failed
+
+
+def test_configuration_reference_md_states_ballot_shape() -> int:
+    """Assertion 15: docs/configuration-reference.md's abdication_guard_enabled
+    table row describes the prose co-equal ballot shape. This file is
+    linked from docs/index.html (three times) as "a complete list of every
+    setting and its default" - it is the canonical reference the summary
+    card points readers to, so it cannot lag the summary."""
+    print("\n  [MUST STATE: ballot shape in docs/configuration-reference.md]")
+    failed = 0
+    text = read_file("docs/configuration-reference.md")
+    match = re.search(r"\| `abdication_guard_enabled` \|.*\|\n", text)
+    row = match.group(0) if match else ""
+    row_lower = row.lower()
+    if not row:
+        print("  [FAIL] 15. abdication_guard_enabled row not found in docs/configuration-reference.md")
+        return 1
+    ballot_present = "ballot" in row_lower or "operator decisions" in row_lower
+    print(f"  [{'PASS' if ballot_present else 'FAIL'}] 15. docs/configuration-reference.md row describes the ballot shape")
+    if not ballot_present:
+        failed += 1
+    return failed
+
+
+def test_components_md_states_ballot_shape() -> int:
+    """Assertion 16: docs/components.md's abdication_guard_enabled entry
+    (in the Project config / overview layer catalog paragraph) describes
+    the prose co-equal ballot shape, not just the permission-seeking
+    interrogative and surface-and-proceed shapes."""
+    print("\n  [MUST STATE: ballot shape in docs/components.md]")
+    failed = 0
+    text = read_file("docs/components.md")
+    match = re.search(r"`abdication_guard_enabled`[^)]*\)", text)
+    entry = match.group(0) if match else ""
+    entry_lower = entry.lower()
+    if not entry:
+        print("  [FAIL] 16. abdication_guard_enabled entry not found in docs/components.md")
+        return 1
+    ballot_present = "ballot" in entry_lower or "operator decisions" in entry_lower
+    print(f"  [{'PASS' if ballot_present else 'FAIL'}] 16. docs/components.md abdication_guard_enabled entry describes the ballot shape")
+    if not ballot_present:
+        failed += 1
+    return failed
+
+
 def main() -> None:
     total_failed = 0
     total_failed += test_forbidden_phrases_absent()
     total_failed += test_enforce_no_abdication_comment_corrected()
     total_failed += test_components_md_states_absent_semantics()
     total_failed += test_hooks_agents_md_states_both_shapes()
+    total_failed += test_safe_configuration_md_states_ballot_shape()
+    total_failed += test_configuration_reference_md_states_ballot_shape()
+    total_failed += test_components_md_states_ballot_shape()
 
     print()
     if total_failed == 0:

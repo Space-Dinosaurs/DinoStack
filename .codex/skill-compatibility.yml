@@ -42,16 +42,6 @@
       "source_token": ".agentic/worktrees/*"
     },
     {
-      "expected_target": ".claude/install.sh",
-      "generated_token": "$AE_REPO_DIR/.claude/install.sh",
-      "kind": "operational",
-      "occurrence_hash": "0735eff7758d01fe3c0d9ab01452424a159628ab3a461bfed0e9dbb87948db29",
-      "resolution_mode": "validated-repository",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".claude/install.sh"
-    },
-    {
       "expected_target": "content/rules/conventions.md",
       "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
       "kind": "operational",
@@ -92,6 +82,16 @@
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "0c0ebc9f05bcaa528615b0e1453f313c4f119c28941a7758a2d8064a62d7ee4b",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/config.json"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -100,16 +100,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": "hooks/enforce-askuserquestion-default.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-askuserquestion-default.py",
-      "kind": "operational",
-      "occurrence_hash": "0d919ba2eb588819d1313f02e1954b79cf86a6d283749ea69a7052d79f2de8e0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-askuserquestion-default.py"
     },
     {
       "expected_target": "implement-ticket",
@@ -230,6 +220,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+    },
+    {
+      "expected_target": "one bounded direct question after default derivation",
+      "generated_token": "AskUserQuestion",
+      "kind": "semantic-reference",
+      "occurrence_hash": "1d923c35ef10a9c68e7d0899619e19532d26219d341b105cedde41fdb94d399e",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "AskUserQuestion"
     },
     {
       "expected_target": "Agent",
@@ -422,16 +422,6 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
-      "expected_target": "one bounded direct question after default derivation",
-      "generated_token": "AskUserQuestion",
-      "kind": "semantic-reference",
-      "occurrence_hash": "3da1346f1d81a2162119ab3caa41add03461d3aaba0ec41e3458bd765b02273e",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "AskUserQuestion"
-    },
-    {
       "expected_target": "content/references/activation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
       "kind": "operational",
@@ -470,6 +460,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
+    },
+    {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "449ad2f0d74d4a6ffb2b54fe72ee6203e92c50265a76194aae457335498a1f6f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -612,6 +612,16 @@
       "source_token": "scripts/codex-skills.py"
     },
     {
+      "expected_target": "one bounded direct question after default derivation",
+      "generated_token": "AskUserQuestion",
+      "kind": "semantic-reference",
+      "occurrence_hash": "519b45eb98dafa5ceb29da4853537f3f286e4f3489abb11eaf65cc50c75b1f84",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "AskUserQuestion"
+    },
+    {
       "expected_target": "bin/tests/worktree_model.py",
       "generated_token": "$AE_REPO_DIR/bin/tests/worktree_model.py",
       "kind": "operational",
@@ -622,14 +632,14 @@
       "source_token": "bin/tests/worktree_model.py"
     },
     {
-      "expected_target": "one bounded direct question after default derivation",
-      "generated_token": "AskUserQuestion",
-      "kind": "semantic-reference",
-      "occurrence_hash": "55b2daf9f84060c8eaefc96f914f26ef38bb728422e1ad9f04135cca044397e0",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
+      "expected_target": "hooks/enforce-no-abdication.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-no-abdication.py",
+      "kind": "operational",
+      "occurrence_hash": "539de7116e930bb0ea82eb9c4a383b25079144dc5e9848968eabbd612a33f371",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
-      "source_token": "AskUserQuestion"
+      "source_token": "hooks/enforce-no-abdication.py"
     },
     {
       "expected_target": "content/references/skeptic-protocol.md",
@@ -730,16 +740,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/sections/04-risk-classification.md"
-    },
-    {
-      "expected_target": ".claude/install.sh",
-      "generated_token": "$AE_REPO_DIR/.claude/install.sh",
-      "kind": "operational",
-      "occurrence_hash": "60eb5240b466c00e4df053ba0040e6af755bc24eb444bee5dbd4abb478ad1d1b",
-      "resolution_mode": "validated-repository",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".claude/install.sh"
     },
     {
       "expected_target": "content/SKILL.md",
@@ -930,6 +930,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "`/ds-skeptic`"
+    },
+    {
+      "expected_target": ".claude/install.sh",
+      "generated_token": "$AE_REPO_DIR/.claude/install.sh",
+      "kind": "operational",
+      "occurrence_hash": "71fc57ee055c754a6498946f78ac56067c89e114bbdf8e1396f97e3365a2ff8e",
+      "resolution_mode": "validated-repository",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".claude/install.sh"
     },
     {
       "expected_target": "brief",
@@ -1152,6 +1162,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "one bounded direct question after default derivation",
+      "generated_token": "AskUserQuestion",
+      "kind": "semantic-reference",
+      "occurrence_hash": "9185f3d78d865315bb61739dc86411be3fb4f7f830ef890445f3978371bef295",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "AskUserQuestion"
+    },
+    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -1362,6 +1382,26 @@
       "source_token": ".agentic/qa-regressions.md"
     },
     {
+      "expected_target": "one bounded direct question after default derivation",
+      "generated_token": "AskUserQuestion",
+      "kind": "semantic-reference",
+      "occurrence_hash": "a64aff5ad41f49e617fa71a1fd5417a922cdead1bbcae43b41252d1c36556bb0",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "AskUserQuestion"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "a871d36df07646a2510ba4a2b80b000bfbf32f355a8bcd7f32737334ed3c7a7d",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "content/references/worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
@@ -1552,16 +1592,6 @@
       "source_token": ".agentic/tasks.jsonl"
     },
     {
-      "expected_target": "hooks/enforce-no-abdication.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-no-abdication.py",
-      "kind": "operational",
-      "occurrence_hash": "bd4f8cf825d00d211ec213d2de07548eeec70763a63e3f226beccd53ac6b8fbc",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/enforce-no-abdication.py"
-    },
-    {
       "expected_target": "content/references/capture-classification.md",
       "generated_token": "$AE_REPO_DIR/content/references/capture-classification.md",
       "kind": "operational",
@@ -1652,16 +1682,6 @@
       "source_token": "content/sections/09-events-log.md"
     },
     {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "c80dce47bb46467dbe9c85e3e19a84efe8a0283350c2b19ffcf5d3af81d8645d",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/config.json"
-    },
-    {
       "expected_target": "references/skeptic-protocol.md#section-12",
       "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
       "kind": "operational",
@@ -1742,6 +1762,16 @@
       "source_token": "content/sections/11-worktree-lifecycle.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "d3961cfbe758062df0d0853a1a47a536a5bcc2976f192864a110ff2622b8bc99",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": ".agentic/identity.yml",
       "generated_token": "$AE_PROJECT_DIR/.agentic/identity.yml",
       "kind": "operational",
@@ -1802,6 +1832,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "one bounded direct question after default derivation",
+      "generated_token": "AskUserQuestion",
+      "kind": "semantic-reference",
+      "occurrence_hash": "daf8281b6ec00ead711983b013ef57d4e3bd7269a0fdc69dd7536b43ccb9bd82",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "AskUserQuestion"
+    },
+    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -1860,16 +1900,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": "one bounded direct question after default derivation",
-      "generated_token": "AskUserQuestion",
-      "kind": "semantic-reference",
-      "occurrence_hash": "df55bbdfd0f548e495780c9ea68f90d4d1d962e31e4e001ab99cb982ce60fe46",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "AskUserQuestion"
     },
     {
       "expected_target": "filesystem read",
@@ -1972,6 +2002,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "f28ed21cd79e1c9b057a61b04921af114211a8ed170dad284e0f696a0228b3ee",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -2020,16 +2060,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": "one bounded direct question after default derivation",
-      "generated_token": "AskUserQuestion",
-      "kind": "semantic-reference",
-      "occurrence_hash": "f8e2ee37674d5444fccb7263f5c45f21194ee42e236c3ce55e73a1eaf1f6cb70",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "AskUserQuestion"
     },
     {
       "expected_target": "content/references/capture-classification.md",

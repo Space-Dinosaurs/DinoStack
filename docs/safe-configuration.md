@@ -93,11 +93,12 @@ hook installed separately:
   - PreToolUse; denies any `Task` spawn issued from a subagent context; disable via
   `AE_SINGULARITY_GUARD_DISABLE=1`.
 - [`enforce-no-abdication.py`](../hooks/enforce-no-abdication.py) - Stop hook;
-  detects two shapes in the final assistant message - a permission-seeking interrogative,
-  or a surface-and-proceed default announced and then not acted on - and blocks
-  the stop, injecting a directive; requires `abdication_guard_enabled: true` in
-  `.agentic/config.json` (absent/malformed config = guard does not run; the shipped
-  template and `/ds-init-project` set it); set to `false` to opt out once enabled;
+  detects three shapes in the final assistant message - a permission-seeking interrogative,
+  a surface-and-proceed default announced and then not acted on, or a prose co-equal
+  ballot in an `## Operator decisions` block - and blocks the stop, injecting a
+  directive; requires `abdication_guard_enabled: true` in `.agentic/config.json`
+  (absent/malformed config = guard does not run; the shipped template and
+  `/ds-init-project` set it); set to `false` to opt out once enabled;
   disable via `AE_ABDICATION_GUARD_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
