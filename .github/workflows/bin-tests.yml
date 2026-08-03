@@ -16,7 +16,15 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pytest pyyaml
+      - name: install zsh (required for the bash/zsh parity matrix in test_phase8_telemetry_shell.py)
+        run: sudo apt-get update && sudo apt-get install -y zsh
       - run: python3 -m pytest bin/tests/ -q
+      - name: floor collected test_phase8_telemetry_shell.py count at 18
+        # 9 test functions x 2 shells (bash, zsh) = 18 collected IDs. Adding or
+        # removing a test function in bin/tests/test_phase8_telemetry_shell.py
+        # obliges updating the floor below in the same PR.
+        run: |
+          python3 -m pytest bin/tests/test_phase8_telemetry_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 18) { print "expected >= 18 collected tests (9 functions x 2 shells), got " $1; exit 1 } }'
   # Python hook tests live here (shared python toolchain with bin-tests); JS/sh
   # hook tests live in hooks-tests.yml.
   hooks-python-tests:

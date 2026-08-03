@@ -2251,6 +2251,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
 Stage specific files - never `git add -A` or `git add .`:
 
 ```bash
+# @harness:phase8-commit-and-telemetry
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
 git -C $REPO add [specific files]
 
