@@ -2347,7 +2347,7 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
   SESSION_LOG_SRC="$REPO/.agentic/session-log/${DEVELOPER}.jsonl"
 
   # Resolve PR_CHECKOUT: the checkout that holds the PR branch.
-  # Fan-out path: $REPO is on $FEATURE_BRANCH after the line-977 checkout.
+  # Fan-out path: $REPO is on $FEATURE_BRANCH after the "Merge phase (all-done join)" checkout.
   # Single-engineer paths: engineer return supplies WORKTREE_PATH.
   if [ "$(git -C "$REPO" rev-parse --abbrev-ref HEAD 2>/dev/null)" = "$BRANCH_NAME" ]; then
     PR_CHECKOUT="$REPO"
@@ -2374,10 +2374,15 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
     git -C "$PR_CHECKOUT" add "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
     # Only commit if the index has a diff (avoids empty-commit on no new sessions).
     if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
-      NL=$'
+      if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
+        echo "WARNING: git user.name or user.email not set; skipping telemetry commit to avoid malformed DCO trailer."
+        git -C "$PR_CHECKOUT" restore --staged "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
+      else
+        NL=$'
 '
-      TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-      git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||         git -C "$PR_CHECKOUT" restore --staged "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
+        TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
+        git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||           git -C "$PR_CHECKOUT" restore --staged "$AE_PROJECT_DIR/.agentic/session-log/${DEVELOPER}.jsonl"
+      fi
     fi
     # Push only on single-engineer paths (fan-out push handled in its own block).
     if [ "$PR_CHECKOUT" != "$REPO" ]; then
