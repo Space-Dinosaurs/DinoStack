@@ -15062,16 +15062,6 @@
       "source_token": "Task"
     },
     {
-      "expected_target": "hooks/enforce-no-abdication.py",
-      "generated_token": "$AE_REPO_DIR/hooks/enforce-no-abdication.py",
-      "kind": "operational",
-      "occurrence_hash": "3549278e30e34f1ea1f833a71d6c3062c82515f4acf5547b86b7d2f318614a30",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "hooks/enforce-no-abdication.py"
-    },
-    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -15130,6 +15120,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Why: `context.md` had 13 writer sites and no mutual exclusion between them (the wrap lock was CHECKED by two of them and ACQUIRED by neither, and a third ignored it entirely). Making the shared file DERIVED means a lost update self-heals on the next turn instead of losing data, which is what lets the rollup write be lock-free - and therefore what lets a stuck-lock banner reach the operator through a lock that would previously have suppressed it. Create the `<cwd>/.agentic/` directory if it does not exist."
+    },
+    {
+      "expected_target": ".agentic/.enforcement-fires.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/.enforcement-fires.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "394ff0cfc8609eb9193e0f7ba5b235491687050ed5fe2cb2c414b92ed3761ee2",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/.enforcement-fires.jsonl"
     },
     {
       "expected_target": ".claude/compression-state.json",
@@ -15270,6 +15270,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/dev"
+    },
+    {
+      "expected_target": "hooks/lib/enforcement_log.py",
+      "generated_token": "$AE_REPO_DIR/hooks/lib/enforcement_log.py",
+      "kind": "operational",
+      "occurrence_hash": "4646124fad04d7683fec9c66b9ec3e3bcb72de9a845375abd4a8c61cb893de70",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "hooks/lib/enforcement_log.py"
     },
     {
       "expected_target": "wrap",
@@ -16252,6 +16262,16 @@
       "source_token": "/ds-wrap"
     },
     {
+      "expected_target": "hooks/enforce-no-abdication.py",
+      "generated_token": "$AE_REPO_DIR/hooks/enforce-no-abdication.py",
+      "kind": "operational",
+      "occurrence_hash": "85085c4c49f6ea5e87732c322b7956dcf22a804b3c37dc7bc9930e916a4c4c23",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "hooks/enforce-no-abdication.py"
+    },
+    {
       "expected_target": ".agentic/wrap/last-wrap",
       "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/last-wrap",
       "kind": "operational",
@@ -17122,6 +17142,16 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
+      "expected_target": ".agentic/.abdication-guard-fire-count",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/.abdication-guard-fire-count",
+      "kind": "operational",
+      "occurrence_hash": "c5c00169d5d35db846c181544b5ba07a3b00c9e51f1aff5a685cfd920a7e96bc",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/.abdication-guard-fire-count"
+    },
+    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -17490,16 +17520,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/<name>.md"
-    },
-    {
-      "expected_target": ".agentic/.abdication-guard-fire-count",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/.abdication-guard-fire-count",
-      "kind": "operational",
-      "occurrence_hash": "def138de576fe39ac74aa20db5f0d24bf532451ed3e4669ca758e75c1622ddd3",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/.abdication-guard-fire-count"
     },
     {
       "expected_target": ".claude/",

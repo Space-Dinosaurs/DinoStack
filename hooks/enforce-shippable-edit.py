@@ -45,16 +45,19 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Write", "Edit",
             or "MultiEdit"). Reads JSON from stdin, writes hookSpecificOutput
             JSON to stdout only when denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, os, sys, pathlib). Reads
-               <hooks-dir>/../.snapshot-meta.json (optional; DS-54 session-
-               stable snapshot metadata) to resolve the live repo root when
-               running from a snapshot copy instead of the checkout itself.
-               `from __future__ import annotations` keeps the file importable
-               on Python 3.8/3.9 (PEP 604 `str | None` hints would otherwise
-               raise TypeError at module import time, before the kill-switch
-               and outer try/except can catch it - see enforce-tier.py's
-               manifest for the same trap; macOS system python3 is 3.9 and is
-               the documented supported floor).
+Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, importlib.util).
+               Reads <hooks-dir>/../.snapshot-meta.json (optional; DS-54
+               session-stable snapshot metadata) to resolve the live repo
+               root when running from a snapshot copy instead of the
+               checkout itself. `from __future__ import annotations` keeps
+               the file importable on Python 3.8/3.9 (PEP 604 `str | None`
+               hints would otherwise raise TypeError at module import time,
+               before the kill-switch and outer try/except can catch it -
+               see enforce-tier.py's manifest for the same trap; macOS
+               system python3 is 3.9 and is the documented supported floor).
+               Also a soft-dependency on the sibling hooks/lib/
+               enforcement_log.py fire-logging helper (dynamic import, fails
+               open to a no-op logger).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Write,
                       Edit, and MultiEdit). Wired via ~/.claude/settings.json
@@ -127,6 +130,30 @@ DENY_MESSAGE_TEMPLATE = (
 )
 
 INSTRUCTION_LAYER_BASENAMES = {"AGENTS.md", "MEMORY.md", "CLAUDE.md"}
+
+
+def _load_log_fire():
+    """Best-effort dynamic import of the shared fire-logging helper.
+
+    Falls back to a no-op when the sibling module cannot be loaded (missing
+    file, syntax error, snapshot copy drift) - fire-logging is additive
+    telemetry, never a hard dependency of the enforcement decision itself.
+
+    Called lazily from inside the deny branch (never at module scope) so the
+    overwhelming majority of invocations - every silent allow - never read,
+    compile, or exec this file at all.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here / "lib" / "enforcement_log.py"
+        spec = _ilu.spec_from_file_location("enforcement_log", str(mod_path))
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
+        return mod.log_fire
+    except Exception:
+        return lambda *a, **k: None
 
 
 def _resolve_repo_root() -> str | None:
@@ -227,19 +254,28 @@ def main() -> None:
 
         # Everything else tracked inside the repo is a shippable file the
         # conductor must not edit directly - deny.
+        deny_reason = DENY_MESSAGE_TEMPLATE.format(path=target)
+        # Decision print comes FIRST, unconditionally. Telemetry is loaded
+        # and called only after the decision has reached stdout, and is
+        # wrapped in its own try/except so a raising log_fire (e.g. a
+        # signature mismatch from a half-applied lib snapshot) can never
+        # suppress or follow this deny - see hooks/lib/enforcement_log.py
+        # manifest "Failure modes".
         print(
             json.dumps(
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
                         "permissionDecision": "deny",
-                        "permissionDecisionReason": DENY_MESSAGE_TEMPLATE.format(
-                            path=target
-                        ),
+                        "permissionDecisionReason": deny_reason,
                     }
                 }
             )
         )
+        try:
+            _load_log_fire()(data, "enforce-shippable-edit", "deny", deny_reason)
+        except Exception:
+            pass
         sys.exit(0)
 
     except Exception:

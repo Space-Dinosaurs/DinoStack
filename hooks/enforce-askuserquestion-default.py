@@ -16,7 +16,11 @@ Purpose: PreToolUse hook that enforces the METHODOLOGY §Delegation AskUserQuest
 Public API: Run as a Claude Code PreToolUse hook. Reads JSON from stdin,
             writes hookSpecificOutput JSON to stdout when denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, sys). No external dependencies.
+Upstream deps: Python 3 stdlib only (json, sys, importlib.util). No external
+               dependencies. Best-effort dynamic import of the sibling
+               hooks/lib/enforcement_log.py fire-logging helper (see G2 in
+               MEMORY.md / this hook's Failure modes) - a failed import
+               degrades to a no-op logger, never a crash.
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for the
                       AskUserQuestion tool). Wired via ~/.claude/settings.json
@@ -37,13 +41,47 @@ Failure modes:
     - Older Claude Code versions (pre-permissionDecision support, issue #4669):
       if a future version ignores permissionDecision: deny, switch to exit 2 with
       the reason on stderr as the fallback enforcement path.
+    - Fire-log write failure (hooks/lib/enforcement_log.py unimportable, disk
+      full, unwritable .agentic/, OR a raising log_fire from a signature
+      mismatch on a half-applied lib snapshot): never affects the deny
+      decision or this hook's own exit code. Two layers of protection: (1)
+      the deny decision is printed to stdout BEFORE the lib is even loaded
+      or called, so the decision has already reached the model regardless of
+      what happens next; (2) the load-and-call is additionally wrapped in
+      its own try/except at the call site, so a raise there cannot even
+      reach the outer except handler or produce stderr noise.
 
 Performance: < 1 ms per call (pure in-memory JSON parse + bounded iteration over
              questions/options + single print, no I/O).
 """
 
 import json
+import os
 import sys
+
+
+def _load_log_fire():
+    """Best-effort dynamic import of the shared fire-logging helper.
+
+    Falls back to a no-op when the sibling module cannot be loaded (missing
+    file, syntax error, snapshot copy drift) - fire-logging is additive
+    telemetry, never a hard dependency of the enforcement decision itself.
+
+    Called lazily from inside the deny branch (never at module scope) so the
+    overwhelming majority of invocations - every silent allow - never read,
+    compile, or exec this file at all.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "enforcement_log.py")
+        spec = _ilu.spec_from_file_location("enforcement_log", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod.log_fire
+    except Exception:
+        return lambda *a, **k: None
 
 
 def _has_recommended_label(options) -> bool:
@@ -100,28 +138,41 @@ def main() -> None:
         if not deny:
             sys.exit(0)
 
+        deny_reason = (
+            "AskUserQuestion blocked: a single-select question presents 2+ "
+            "options with no recommended default. Per METHODOLOGY.md "
+            "§Delegation (AskUserQuestion precondition), a multiple-choice "
+            "ballot is disallowed when a best option is derivable. Derive "
+            "the best option from the five default sources, then EITHER "
+            "proceed with it directly (no AskUserQuestion call) OR re-issue "
+            'with exactly one option whose label ends in "(Recommended)" '
+            "and proceed-unless-told-otherwise framing. Genuinely "
+            "irreversible AND unauthorized confirmations are exempt - mark "
+            'the recommended option\'s label "(Recommended)" to pass.'
+        )
+        # Decision print comes FIRST, unconditionally. Telemetry is loaded
+        # and called only after the decision has reached stdout, and is
+        # wrapped in its own try/except so a raising log_fire (e.g. a
+        # signature mismatch from a half-applied lib snapshot) can never
+        # suppress or follow this deny - see hooks/lib/enforcement_log.py
+        # manifest "Failure modes".
         print(
             json.dumps(
                 {
                     "hookSpecificOutput": {
                         "hookEventName": "PreToolUse",
                         "permissionDecision": "deny",
-                        "permissionDecisionReason": (
-                            "AskUserQuestion blocked: a single-select question presents 2+ "
-                            "options with no recommended default. Per METHODOLOGY.md "
-                            "§Delegation (AskUserQuestion precondition), a multiple-choice "
-                            "ballot is disallowed when a best option is derivable. Derive "
-                            "the best option from the five default sources, then EITHER "
-                            "proceed with it directly (no AskUserQuestion call) OR re-issue "
-                            'with exactly one option whose label ends in "(Recommended)" '
-                            "and proceed-unless-told-otherwise framing. Genuinely "
-                            "irreversible AND unauthorized confirmations are exempt - mark "
-                            'the recommended option\'s label "(Recommended)" to pass.'
-                        ),
+                        "permissionDecisionReason": deny_reason,
                     }
                 }
             )
         )
+        try:
+            _load_log_fire()(
+                data, "enforce-askuserquestion-default", "deny", deny_reason
+            )
+        except Exception:
+            pass
         sys.exit(0)
 
     except Exception:

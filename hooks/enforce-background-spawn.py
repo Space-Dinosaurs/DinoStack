@@ -66,6 +66,9 @@ Upstream deps: Python 3 stdlib (json, os, sys, time, pathlib, importlib) for
                load, _known_harnesses() falls back to an empty/minimal set
                and the harness is simply treated as unknown, which still
                fails safe (denies with a generic message; never crashes).
+               Also a soft-dependency on the sibling hooks/lib/
+               enforcement_log.py fire-logging helper (dynamic import, same
+               fallback-to-no-op pattern as _known_harnesses()).
 
 Downstream consumers: Claude Code hook runner (PreToolUse event for Task, Agent,
                       and Skill tools). Wired via ~/.claude/settings.json by
@@ -148,6 +151,30 @@ _DISPATCHABLE_ROLES = frozenset({
 _KNOWN_HARNESSES_FALLBACK = frozenset({
     "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
 })
+
+
+def _load_log_fire():
+    """Best-effort dynamic import of the shared fire-logging helper.
+
+    Falls back to a no-op when the sibling module cannot be loaded (missing
+    file, syntax error, snapshot copy drift) - fire-logging is additive
+    telemetry, never a hard dependency of the enforcement decision itself.
+
+    Called lazily from inside the deny branch (never at module scope) so the
+    overwhelming majority of invocations - every silent allow - never read,
+    compile, or exec this file at all.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = Path(__file__).resolve().parent
+        mod_path = here / "lib" / "enforcement_log.py"
+        spec = _ilu.spec_from_file_location("enforcement_log", str(mod_path))
+        mod = _ilu.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(mod)
+        return mod.log_fire
+    except Exception:
+        return lambda *a, **k: None
 
 
 def _known_harnesses() -> frozenset:
@@ -298,7 +325,12 @@ def _sentinel_is_live(cwd: str) -> bool:
         # Any read/parse/stat error -> treat as absent (fail-open).
         return False
 
-def _deny(reason: str) -> None:
+def _deny(data: dict, reason: str) -> None:
+    # Decision print comes FIRST, unconditionally. Telemetry is loaded and
+    # called only after the decision has reached stdout, and is wrapped in
+    # its own try/except so a raising log_fire (e.g. a signature mismatch
+    # from a half-applied lib snapshot) can never suppress or follow this
+    # deny - see hooks/lib/enforcement_log.py manifest "Failure modes".
     print(json.dumps({
         "hookSpecificOutput": {
             "hookEventName": "PreToolUse",
@@ -306,6 +338,10 @@ def _deny(reason: str) -> None:
             "permissionDecisionReason": reason,
         }
     }))
+    try:
+        _load_log_fire()(data, "enforce-background-spawn", "deny", reason)
+    except Exception:
+        pass
     sys.exit(0)
 
 def main() -> None:
@@ -356,6 +392,7 @@ def main() -> None:
                                 # controlled, e.g. a malicious PR) - do not
                                 # echo it back into an LLM-facing message.
                                 _deny(
+                                    data,
                                     f"cross-harness team active: role '{role}' is "
                                     "assigned to a non-claude harness in team.yml; "
                                     "dispatch via bin/agentic-team."
@@ -368,6 +405,7 @@ def main() -> None:
                                 # instead; harness is allowlist-validated
                                 # above so it may stay verbatim.
                                 _deny(
+                                    data,
                                     f"cross-harness team active: role '{role}' is assigned to "
                                     f"harness '{harness}'. Dispatch with: "
                                     f"bin/agentic-team dispatch --harness {harness} --role {role} "
@@ -389,6 +427,7 @@ def main() -> None:
             if _sentinel_is_live(cwd):
                 if tool_name in ("Task", "Agent"):
                     _deny(
+                        data,
                         f"{tool_name} spawn blocked: a DinoStack cross-harness team "
                         "run is active (.agentic/teamrun/.active sentinel present and "
                         "live). Dispatch workers via `bin/agentic-team dispatch` "
@@ -416,6 +455,7 @@ def main() -> None:
                         skill_name = raw
                 if skill_name.startswith("oh-my-claudecode:"):
                     _deny(
+                        data,
                         f"Skill '{skill_name}' blocked: a DinoStack cross-harness "
                         "team run is active (.agentic/teamrun/.active sentinel "
                         "present and live). OMC skills must not be invoked while "
@@ -470,6 +510,7 @@ def main() -> None:
             # a violation.
             if rib is False:
                 _deny(
+                    data,
                     "Agent spawn blocked: run_in_background is explicitly "
                     "false. All delegated subagent spawns MUST run in the "
                     "background (METHODOLOGY.md §Delegation). Omit "
@@ -488,6 +529,7 @@ def main() -> None:
         # Deny foreground Task spawns and feed back a clear, actionable reason
         # so the conductor re-issues with run_in_background: true.
         _deny(
+            data,
             "Task spawn blocked: run_in_background is missing or false. "
             "All delegated subagent spawns MUST set run_in_background: true "
             "(METHODOLOGY.md §Delegation). Re-issue the Task call with "

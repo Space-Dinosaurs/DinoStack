@@ -17,6 +17,9 @@ import sys
 import tempfile
 import time
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fire_log_test_helper import run_hook_with_raising_log_fire
+
 HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-planning-artifact-spawn.py"
 )
@@ -255,6 +258,59 @@ run_case(
     env={},
     expected="ALLOW+QUIET",
 )
+
+# 11. fire-log integration: the advisory (allow_advisory) action must append
+#     a well-formed line to <cwd>/.agentic/.enforcement-fires.jsonl; the
+#     quiet-allow path (case 9, recent sentinel) must write nothing.
+_fire_log_path = os.path.join(AGENTIC_DIR, ".enforcement-fires.jsonl")
+try:
+    os.remove(_fire_log_path)
+except OSError:
+    pass
+
+total += 1
+remove_sentinel()
+run_hook(make_payload("Edit", PLANNING_FILE, TMPDIR), env={})
+ok = os.path.exists(_fire_log_path)
+if ok:
+    with open(_fire_log_path, "r", encoding="utf-8") as f:
+        _fire_lines = [json.loads(ln) for ln in f if ln.strip()]
+    ok = (
+        len(_fire_lines) == 1
+        and _fire_lines[0].get("hook") == "enforce-planning-artifact-spawn"
+        and _fire_lines[0].get("decision") == "allow_advisory"
+    )
+
+write_fresh_sentinel()
+run_hook(make_payload("Edit", PLANNING_FILE, TMPDIR), env={})
+with open(_fire_log_path, "r", encoding="utf-8") as f:
+    _fire_lines_after = [json.loads(ln) for ln in f if ln.strip()]
+ok = ok and len(_fire_lines_after) == 1  # unchanged - quiet allow logged nothing
+
+status = "PASS" if ok else "FAIL"
+if not ok:
+    failed += 1
+print(f"  [{status}] fire-log integration - advisory writes a line, quiet allow writes nothing")
+
+# 12. Skeptic Critical regression: a raising log_fire() must NOT suppress
+# the advisory allow decision. Confirmed failing pre-fix: against a8ded298
+# (the commit under review), the copied-hook subprocess exits 0 with EMPTY
+# stdout - the advisory is silently lost - because the pre-fix code called
+# log_fire() BEFORE print(). See hooks/tests/_fire_log_test_helper.py.
+total += 1
+remove_sentinel()
+_rc_rf, _stdout_rf, _stderr_rf = run_hook_with_raising_log_fire(
+    "enforce-planning-artifact-spawn.py",
+    make_payload("Edit", PLANNING_FILE, TMPDIR),
+)
+ok = is_allow_with_advisory(_rc_rf, _stdout_rf)
+status = "PASS" if ok else "FAIL"
+if not ok:
+    failed += 1
+print(f"  [{status}] raising log_fire cannot suppress the advisory decision")
+if not ok:
+    print(f"         stdout: {_stdout_rf!r}")
+    print(f"         stderr: {_stderr_rf[-500:]!r}")
 
 # ---------------------------------------------------------------------------
 print()

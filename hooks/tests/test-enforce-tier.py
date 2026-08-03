@@ -12,10 +12,21 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _fire_log_test_helper import run_hook_with_raising_log_fire
 
 HOOK_PATH = os.path.join(
     os.path.dirname(__file__), "..", "enforce-tier.py"
 )
+
+# None of this file's payloads set a "cwd" field, so the hook's fire-logging
+# helper (hooks/lib/enforcement_log.py) falls back to os.getcwd() - which,
+# without an explicit subprocess cwd=, would be wherever this test file is
+# invoked from (typically the live checkout). Pin the child process's cwd to
+# an ephemeral temp dir so DENY-path fire-log writes never touch the repo.
+_TEST_CWD = tempfile.mkdtemp(prefix="test-enforce-tier-")
 
 
 def run_hook(payload: str, extra_env: dict | None = None) -> tuple[int, str, str]:
@@ -29,6 +40,7 @@ def run_hook(payload: str, extra_env: dict | None = None) -> tuple[int, str, str
         env=env,
         capture_output=True,
         text=True,
+        cwd=_TEST_CWD,
     )
     return result.returncode, result.stdout, result.stderr
 
@@ -545,7 +557,74 @@ print(f"  [{status_35}] {label_35}")
 if not ok_35:
     print(f"         reason:   {reason_35!r}")
 
-total_tests = len(cases) + 1
+# 36 (fire-log integration): a DENY action must append a well-formed line to
+# <cwd>/.agentic/.enforcement-fires.jsonl (hooks/lib/enforcement_log.py);
+# a passthrough ALLOW (case 1, model omitted) must write nothing at all -
+# no .agentic/ dir is even created. Uses an explicit "cwd" in the payload
+# (rather than relying on the subprocess cwd= isolation _TEST_CWD provides)
+# so this test exercises the same data["cwd"] read path a real Claude Code
+# payload uses.
+import tempfile as _tempfile_36
+
+label_36 = "36: fire-log integration - deny writes a line, passthrough writes nothing"
+_fire_cwd = _tempfile_36.mkdtemp(prefix="test-enforce-tier-firelog-")
+_fire_log_path = os.path.join(_fire_cwd, ".agentic", ".enforcement-fires.jsonl")
+
+# (a) DENY case: security-auditor downgraded below Opus.
+run_hook(json.dumps({
+    "tool_name": "Agent",
+    "cwd": _fire_cwd,
+    "tool_input": {"subagent_type": "security-auditor", "model": "sonnet"},
+}))
+ok_36a = os.path.exists(_fire_log_path)
+if ok_36a:
+    with open(_fire_log_path, "r", encoding="utf-8") as f:
+        _fire_lines = [json.loads(ln) for ln in f if ln.strip()]
+    ok_36a = (
+        len(_fire_lines) == 1
+        and _fire_lines[0].get("hook") == "enforce-tier"
+        and _fire_lines[0].get("decision") == "deny"
+    )
+
+# (b) Passthrough case: model omitted on the same agent -> ALLOW, no write.
+run_hook(json.dumps({
+    "tool_name": "Agent",
+    "cwd": _fire_cwd,
+    "tool_input": {"subagent_type": "security-auditor"},
+}))
+with open(_fire_log_path, "r", encoding="utf-8") as f:
+    _fire_lines_after = [json.loads(ln) for ln in f if ln.strip()]
+ok_36b = len(_fire_lines_after) == 1  # unchanged - passthrough logged nothing
+
+ok_36 = ok_36a and ok_36b
+status_36 = "PASS" if ok_36 else "FAIL"
+if not ok_36:
+    failed += 1
+print(f"  [{status_36}] {label_36}")
+
+# 37 (Skeptic Critical regression): a raising log_fire() must NOT suppress
+# the deny decision. Confirmed failing pre-fix: against a8ded298 (the
+# commit under review), the copied-hook subprocess exits 0 with EMPTY
+# stdout - the deny is silently lost - because the pre-fix _deny() called
+# log_fire() BEFORE print(). See hooks/tests/_fire_log_test_helper.py.
+label_37 = "37: raising log_fire cannot suppress the deny decision"
+_rc_37, _stdout_37, _stderr_37 = run_hook_with_raising_log_fire(
+    "enforce-tier.py",
+    json.dumps({
+        "tool_name": "Agent",
+        "tool_input": {"subagent_type": "security-auditor", "model": "sonnet"},
+    }),
+)
+ok_37 = _rc_37 == 0 and not is_allow(_rc_37, _stdout_37)
+status_37 = "PASS" if ok_37 else "FAIL"
+if not ok_37:
+    failed += 1
+print(f"  [{status_37}] {label_37}")
+if not ok_37:
+    print(f"         stdout: {_stdout_37!r}")
+    print(f"         stderr: {_stderr_37[-500:]!r}")
+
+total_tests = len(cases) + 3
 
 print()
 if failed == 0:

@@ -6,7 +6,9 @@ Purpose: Full reference for the events log V1 telemetry event-type schemas and
          tool_failure_workaround) plus the deprecated conductor_direct block kept
          for historical reference, append discipline, atomicity, retention, and
          consumer notes. Also documents the per-developer session log
-         (.agentic/session-log/) written by the Stop hook.
+         (.agentic/session-log/) written by the Stop hook, and the enforcement
+         fire log (.agentic/.enforcement-fires.jsonl) written by
+         hooks/lib/enforcement_log.py.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/09-events-log.md (pointer after Schema block),
@@ -28,7 +30,8 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       the SessionEnd hook, for the once-per-session terminal
                       loop-state/batch-state mark - AND writes per-developer session
                       log to .agentic/session-log/);
-                      /ds-wrap command (reads events.jsonl for structural session skeleton);
+                      /ds-wrap command (reads events.jsonl for structural session skeleton,
+                      and .agentic/.enforcement-fires.jsonl for Part D.5 signal 3(b));
                       bin/agentic-cost team (reads .agentic/session-log/ for team rollup).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
@@ -111,3 +114,26 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 **No identity:** The session-log write is skipped only when the 4-tier resolution yields no effective identity - i.e. neither the project-local `<repo>/.agentic/identity.yml` nor the global `~/.agentic/identity.yml` resolves a usable handle (both absent, or only provisional handles present such that telemetry is buffered rather than written directly). A developer whose identity is confirmed at any tier (project-confirmed or global-confirmed) receives a normal session-log write; a developer with only provisional identities has telemetry buffered to `~/.agentic/session-log/.pending/` until `agentic-identity confirm` is run. When no tier resolves at all, the Stop hook appends a one-time nudge to this session's `.agentic/context.d/<session_id>.md` shard - from which the derived `.agentic/context.md` rollup carries it - directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
 
 **Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files on the local checkout and renders a per-developer rollup table sorted by total tokens. Because session-logs are committed via Phase 8 telemetry commits, the rollup reflects sessions from all developers whose telemetry has landed on the branch via pull after merge - enabling cross-developer team visibility without a separate aggregation service.
+
+## Enforcement fire log (`.agentic/.enforcement-fires.jsonl`)
+
+Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from inside the action branch, never at module scope) by six of the seven `hooks/enforce-*.py` PreToolUse hooks whenever they take a non-passthrough action - a deny, or an allow-with-advisory-reason. A silent allow (the overwhelming majority of invocations) never calls it, so the file stays small. `enforce-no-abdication.py` is the one exception: it keeps its own separate `.agentic/.abdication-guard-fire-count` counter, unchanged by this mechanism (see `hooks/AGENTS.md`).
+
+**Canonical line schema (4 fields, one JSON object per line):**
+
+```json
+{"ts": "2026-07-27T12:00:00.000Z", "hook": "enforce-tier", "decision": "deny", "reason": "Agent spawn blocked: security-auditor was spawned with model='sonnet'..."}
+```
+
+- `ts`: ISO8601 UTC with millisecond precision (matches the `events.jsonl` convention).
+- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the six consumer hooks named above.
+- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (five hooks) and `"allow_advisory"` (`enforce-planning-artifact-spawn.py`).
+- `reason`: human-readable reason string, truncated to 800 chars (the same text fed back to the model via `permissionDecisionReason`).
+
+**No session correlation.** Unlike `events.jsonl`, this file carries no `session_uuid` or equivalent field - `log_fire()` writes only `cwd`-scoped, not session-scoped. A tally over this file is therefore a REPO-WIDE cumulative count across every session that has ever run since the file was created (or last rotated/deleted away), never a single-session count. Any consumer reporting this file's contents (e.g. `/ds-wrap` Part D.5 signal 3(b)) must state this scope explicitly.
+
+**Atomicity:** each line is a single `os.write()` to an `O_APPEND`-opened file descriptor. The atomicity guarantee is POSIX's `O_APPEND` seek-to-end-plus-write semantics, not `PIPE_BUF` (which governs pipes/FIFOs, not regular files); this does not hold over NFS. Project-local `.agentic/` writes are the only current use, so the NFS caveat is noted but not a practical concern today.
+
+**Retention:** not auto-rotated. Same operating posture as `events.jsonl` above - manual `mv` if it grows past concern. Project-local; gitignored.
+
+**Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") reads only the last ~500 lines and tallies occurrences per `hook` value as a `guardrail-fire` feedback candidate.
