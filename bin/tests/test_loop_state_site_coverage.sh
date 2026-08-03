@@ -302,6 +302,7 @@ content/sections/09-events-log.md
 docs/agentic-engineering-comparison.html
 scripts/codex-skills.py
 bin/tests/test_agentic_migrate.py
+bin/tests/lib/git_fixture.py
 EOF
 
 diff "$TMP/actual" "$TMP/accounted" > "$TMP/gatec" 2>&1 || true
