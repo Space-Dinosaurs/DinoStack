@@ -239,8 +239,12 @@ fi
 
 # 11. Skeptic Major (final round) - the Part E clause in the deletion warning
 #     is provably dead (Part E's target set and Part G's candidate set are
-#     disjoint) and must be gone; the MEMORY-archive.md clause is reachable
-#     and must be retained.
+#     disjoint) and must be gone. The MEMORY-archive.md clause (DS-130) was a
+#     DinoStack-local convention that leaked into the shipped methodology -
+#     /ds-init-project never scaffolds a MEMORY-archive.md for consumer
+#     projects, so the caveat was unreachable for every consumer and has been
+#     retired; the deletion warning now prints unconditionally with no
+#     archive-specific carve-out.
 COUNT_PART_E_CLAUSE=$(grep -c 'Part E ran earlier\|Part E compressed' "$WRAP" || true)
 if [ "$COUNT_PART_E_CLAUSE" -eq 0 ]; then
   _pass "the dead 'Part E ran earlier'/'Part E compressed' clause is absent from $WRAP (count=0)"
@@ -249,9 +253,29 @@ else
 fi
 
 if grep -qF 'moved verbatim to `MEMORY-archive.md`' "$WRAP"; then
-  _pass "the reachable MEMORY-archive.md clause is retained in the deletion warning in $WRAP"
+  _fail "the MEMORY-archive.md clause is still present in the deletion warning in $WRAP - it was retired (DS-130) because /ds-init-project never scaffolds MEMORY-archive.md for consumer projects, making the caveat unreachable for every consumer."
 else
-  _fail "the MEMORY-archive.md clause is missing from the deletion warning in $WRAP - it is the one reachable caveat and must stay."
+  _pass "the MEMORY-archive.md clause is absent from the deletion warning in $WRAP (DS-130 retirement holds)"
+fi
+
+# 11c. DS-130 - the revert-risk warning itself is Part G's only defense
+#      against a stale verbatim copy reverting content another session
+#      already merged. It MUST survive the archive-caveat removal above -
+#      this pins that survival so the two edits can never be conflated.
+if grep -qF 'this commit may revert content another session already merged' "$WRAP"; then
+  _pass "the revert-risk warning survives the DS-130 archive-caveat removal in $WRAP"
+else
+  _fail "the revert-risk warning is missing from $WRAP - Part G's only defense against a stale verbatim copy reverting merged content was lost."
+fi
+
+# 11d. DS-130 - the dangling "otherwise print the warning without that
+#      caveat" connector must be gone too; it only made sense paired with the
+#      archive-specific branch above and would otherwise survive as residue.
+COUNT_WITHOUT_CAVEAT=$(grep -c 'without that caveat' "$WRAP" || true)
+if [ "$COUNT_WITHOUT_CAVEAT" -eq 0 ]; then
+  _pass "the dangling 'without that caveat' connector is absent from $WRAP (count=0)"
+else
+  _fail "'without that caveat' still appears $COUNT_WITHOUT_CAVEAT time(s) in $WRAP - the DS-130 archive-caveat retirement left this connector residue behind."
 fi
 
 # 12. Skeptic Minor 2 (final round) - a file absent from origin/<BASE_BRANCH>
