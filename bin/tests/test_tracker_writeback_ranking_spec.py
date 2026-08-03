@@ -767,6 +767,22 @@ def test_toggle_doc_sync_full_eight_site_checklist():
         )
 
 
+def test_events_log_enforcer_subcount_matches_hooks_agents_md():
+    # content/references/events-log.md restates the same enforce-*.py caller
+    # subcount as hooks/AGENTS.md (:43 and :81) - it is an orphaned count site
+    # that no single unit's file list names, so it drifts silently unless
+    # pinned here alongside the eight toggle-count sites above.
+    path = REPO_ROOT / "content" / "references" / "events-log.md"
+    text = path.read_text(encoding="utf-8")
+    assert "seven of the eight `hooks/enforce-*.py` PreToolUse/Stop hooks" in text, (
+        f"{path.relative_to(REPO_ROOT)} missing updated enforcer subcount "
+        "('seven of the eight ... PreToolUse/Stop hooks')"
+    )
+    assert "six of the seven" not in text, (
+        f"{path.relative_to(REPO_ROOT)} still has the stale 'six of the seven' enforcer subcount"
+    )
+
+
 def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():
     for path in TOGGLE_BULLET_FILES:
         text = path.read_text(encoding="utf-8")

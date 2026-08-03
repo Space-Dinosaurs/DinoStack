@@ -117,7 +117,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 
 ## Enforcement fire log (`.agentic/.enforcement-fires.jsonl`)
 
-Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from inside the action branch, never at module scope) by six of the seven `hooks/enforce-*.py` PreToolUse hooks whenever they take a non-passthrough action - a deny, or an allow-with-advisory-reason. A silent allow (the overwhelming majority of invocations) never calls it, so the file stays small. `enforce-no-abdication.py` is the one exception: it keeps its own separate `.agentic/.abdication-guard-fire-count` counter, unchanged by this mechanism (see `hooks/AGENTS.md`).
+Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from inside the action branch, never at module scope) by seven of the eight `hooks/enforce-*.py` PreToolUse/Stop hooks whenever they take a non-passthrough action - a deny, or an allow-with-advisory-reason. A silent allow (the overwhelming majority of invocations) never calls it, so the file stays small. `enforce-no-abdication.py` is the one exception: it keeps its own separate `.agentic/.abdication-guard-fire-count` counter, unchanged by this mechanism (see `hooks/AGENTS.md`).
 
 **Canonical line schema (4 fields, one JSON object per line):**
 
