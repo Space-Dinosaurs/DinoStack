@@ -75,7 +75,7 @@ Run this check once at the top of the first skill invocation in a session (and a
 
 **The main session agent is a conductor, not an implementer.** The conductor is the main session agent: it decomposes work, delegates to specialist subagents that do the implementation and investigation, and synthesizes results when those subagents report back. It stays available and focused on orchestration - responsive to the user at all times.
 
-**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default; the harness DOES pass `run_in_background` through to the PreToolUse hook payload for `Agent` spawns (confirmed by live payload capture 2026-07-07 - hook tool_input keys for an Agent spawn observed as `description`/`prompt`/`run_in_background`/`subagent_type`, correcting the earlier assumption that the field was stripped). `hooks/enforce-background-spawn.py` enforces background-by-default on BOTH `Task` and `Agent`, with an asymmetric rule per tool: on `Agent`, only an explicit `run_in_background: false` is denied - an absent field allows (Agent already backgrounds by default at the harness level, so omitting it is the correct norm) and `true` also allows; on `Task` (legacy), only `run_in_background: true` allows - absent, `false`, or any non-boolean value denies. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The hook retains two active responsibilities: (a) `run_in_background` enforcement for both `Task` and `Agent` per the asymmetric rule above, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption.
+**All delegated tasks run in the background by default.** Foreground is permitted only for direct-action cases in the table below. Never block inline - spawn in the background, give the user a status update, and wait for completion notification. On the current Claude Code harness, `Agent` spawns run in the background by default, and `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`. The conductor norm on Claude Code: omit `run_in_background` entirely on `Agent` spawns and rely on the harness default; never pass `false`. The one sanctioned synchronous agent is `wrap-ticket`, which runs to completion in line because the conductor holds `.agentic/wrap/lock` for its duration and Phase 12 cleanup must wait for it to return; treat that as a behavioral property of `wrap-ticket`, not a general exemption. For the payload-capture history and the asymmetric allow/deny hook mechanics: read `content/references/delegation-detail.md` §Background-Spawn Enforcement Detail.
 
 **Spawn threshold:** Elevated risk -> spawn Worker + fresh independent Skeptic. Low risk -> direct action. Trivial risk -> delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly. When in doubt, classify as Elevated. **Downward tie-break counterweight:** this default is overridden only when a named Low or Trivial override's full definition - including every exclusion clause - is affirmatively satisfied and zero other Elevated signals are present; "provably small" means the override can be named and each exclusion individually confirmed against the diff, not a general impression that the change looks safe.
 
@@ -210,7 +210,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Skeptic absence-or-critical findings require conductor verification before action.** When a Skeptic returns a finding that asserts absence, non-completion, reversion, or relocation of any work - those claims are not self-verifying regardless of authorship. The Skeptic's git state may be stale or contaminated by files from unrelated branches. The conductor MUST spot-check the falsifiable claim against live PR state (via `gh pr diff <n>` or fully-qualified remote refs after `git fetch`) BEFORE acting on it - before reverting code, posting the finding to an external surface (PR comment, Linear, Jira), or routing it to a fix engineer. Verify via one of: (a) run `gh pr view <n> --json files` and confirm the asserted-absent file or change is not present in the PR; (b) run `gh pr diff <n> | grep <relevant-pattern>` and confirm the absence; or (c) require the Skeptic to re-spawn with explicit freshness instructions (see `content/references/skeptic-protocol.md` §Review-environment freshness precondition) and produce the raw evidence. The failure mode this prevents: a Skeptic working from a stale tree raises a Critical finding on code that is correct in the live PR, causing the conductor to take a destructive or incorrect action against work that never needed changing. "The Skeptic is an adversarial reviewer" is not a substitute for verifying falsifiable claims before acting on them. **Scope is the other failure mode - it binds the conductor's own claims too.** Freshness cannot fix a scope defect - a too-narrow search repeats the same wrong answer on a fresher tree. `grep -rn X` returning 0 proves X's literal absence, not "the axis is closed" - broaden the pattern, the file set, and any closed list before certifying. Broaden a closed list by deriving its members independently and diffing against it: grepping the members you already have can only confirm them, never surface the one that is missing. Worked example: `content/references/delegation-detail.md` §Absence-claim scope axes.
 
-**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Or the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) and carries neither the Unfamiliar-codebase-area nor the Architecture-decision-constraining-future-choices signal - skip both architect and planner, go straight to Worker+Skeptic. Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). The hook also backstops the authoring-role escalation (architect / adr-generator / product-discovery on Plan+ADR-tier units, per risk-config-and-tiers.md): it denies an explicit sub-Opus `model` param on those spawns when the brief matches an authoring escalation signal, but the structural Plan+ADR trigger is conductor-computed and invisible to the hook, so the conductor's explicit `model: opus` remains the primary control. Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule. The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). **When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition below). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.**
+**Named agents:** Prefer named agents over generic Workers. Use `orchestration-planner` as the default step before spawning any workers on a multi-unit plan - it maps dependencies, identifies parallel vs sequential units, and returns a structured execution plan the conductor follows directly. Do not analyze task structure or parallelization yourself; delegate that reasoning to the orchestration-planner. Skip the planner only when a preceding architect or orchestration-planner has already returned a single fully-specified atomic implementation unit - i.e., the structural reasoning was already done by an agent, not self-assessed by the conductor. Or the unit meets the simple/targeted-unit metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) and carries neither the Unfamiliar-codebase-area nor the Architecture-decision-constraining-future-choices signal - skip both architect and planner, go straight to Worker+Skeptic. Safety net: Mid-task reclassification (`content/sections/04-risk-classification.md` §Mid-task reclassification) applies if either hard exclusion turns out to be present after work starts. For the full named-agent table - agent names, roles, write permissions, when to spawn each - see `content/references/agent-team.md`. Fall back to `general-purpose` only when none of these fit. Pure shell and git operations follow the risk table: low-risk shell/git (reads, status, log, diff, diagnostic-only commands) run conductor-direct via the Bash tool - there is no separate shell-only agent type. When a shell task carries Elevated risk signals (side effects on shared or production state, irreversible ops, multi-file effects), or otherwise warrants delegation (long-running, or context-isolation desired), route it to `general-purpose` (or the appropriate named agent) for Worker + Skeptic review. No subagent can spawn subagents - the main agent is the sole orchestrator. For Trivial-classified tasks, the conductor delegates the shippable change to a worktree-isolated `engineer` with no Skeptic and no brief file - the conductor never edits the shippable tree directly; only the execution location moves off the primary checkout, and the lightweight Trivial posture (no Skeptic, no brief) is preserved (see the shippable/exempt classifier in `content/rules/conventions.md` §Git Workflow). When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields, and per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the "independent elevated units get their own Skeptic" rule in Task Decomposition below). For the singularity/Tier-3/planning-artifact enforcement hook mechanics and the fan-out `skeptic_strategy` field semantics: read `content/references/delegation-detail.md` §Orchestration Enforcement Hooks and Fan-out Detail.
 **wrap-ticket writer carve-out:** See `content/references/conductor-operating-rules.md` §wrap-ticket writer carve-out.
 
 **Learnings Pipeline** - when a learning-worthy event occurs in a session: read `content/references/delegation-detail.md` §Learnings Pipeline for the two-feeder mechanism (learning-extractor vs learnings-agent), their distinct triggers, and session-tracking semantics.
@@ -221,7 +221,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Worker Preamble and Execution Contract Template** - when spawning an Elevated-risk engineer: read `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template for the full contract fields, verification mandate, and task_id field semantics.
 
-**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
+**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, loop-state files - NOT in-flight planning artifacts, which are committed and pushed per `content/references/planning-artifacts.md` §Gate semantics as soon as they are authored, subject to the per-repo gitignore eligibility gate). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
 
 There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: "worktree"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.
 
@@ -230,16 +230,7 @@ Pre-spawn stash fallback: see `content/references/worktree-lifecycle.md` §Pre-s
 Preamble:
 *"You are a Worker agent. Implement this specific change and return your complete output. The main agent will arrange Skeptic review."*
 
-**Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor - regardless of which CLI harness it is running on (Claude Code, Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) - follows the same four-step dispatch contract for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves to a harness other than its own:
-
-1. **Discover** - run `bin/agentic-team discover` to confirm the target harness binary is installed and its native sandbox flag (if any). Missing binary -> fall back to native delegation unchanged, no error, no prompt.
-2. **Dispatch** - run `bin/agentic-team dispatch --role <role> --brief <path>` to spawn the worker in its own throwaway workdir (worktree or directory copy). The conductor never runs git inside the worker's workdir; the conductor remains sole git owner of the live repo.
-3. **Status poll** - run `bin/agentic-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block synchronously past the configured `dispatch.timeout_seconds` watchdog.
-4. **Collect** - run `bin/agentic-team collect <run-id>` to demux the harness-specific output shape and extract the final message text.
-
-Once `collect` returns the final message, that text is treated identically to a native Worker return summary: it enters the existing Skeptic/QA gates unchanged - same adversarial review, same `qa_criteria` triggers, same re-route limits. No new gate, no bypass, no special case for cross-harness origin.
-
-**Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. A future enhancement will also proactively block a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude`, but that check is not yet merged. On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it. See `content/references/cross-harness-teams.md` for the full decision rule, config schema, self-containment guard, per-harness dispatch table, and the per-harness enforcement-status table.
+**Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor - regardless of which CLI harness it is running on - dispatches any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves to a harness other than its own via the discover -> dispatch -> status -> collect contract, and the collected output enters the existing Skeptic/QA gates unchanged - no new gate, no bypass, no special case for cross-harness origin. Only Claude Code enforces this contract mechanically; on every other harness the conductor must self-apply it and must not silently fall back to a native spawn just because no hook stops it. Read `content/references/cross-harness-teams.md` §Conductor Dispatch Contract for the full 4-step contract, per-harness enforcement differences, and `content/references/cross-harness-teams.md` (main body) for the decision rule, config schema, self-containment guard, per-harness dispatch table, and the per-harness enforcement-status table.
 
 **Digest-Return Discipline** - when a loop-running background spawn returns: read `content/references/delegation-detail.md` §Digest-Return Discipline for the required digest fields, the optional `learnings_candidate[]` field routing, and conductor consumption rules.
 
@@ -495,93 +486,46 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation is mandatory for every shippable-edit spawn.** Every `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn is also `isolation: "worktree"` - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
-**Isolation worktrees (`worktree-agent-*`)** are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
+**Isolation worktrees** (`.claude/worktrees/*`) are created by the Agent tool when `isolation: "worktree"` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately when it is the branch this session just pushed (the self-scoped inline pattern below needs no merge check). A later sweep of someone else's leftover isolation worktree (`/ds-cleanup-worktrees` Step 3) is not immediate removal - it additionally requires merge evidence and skips a pushed-but-unmerged branch. See `content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
 
-**Feature worktrees (`feature/*`, `fix/*`, `chore/*`)** are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands for the command block.
+**Feature worktrees** (`.agentic/worktrees/*`) are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands. Classified by **path, not branch name** (`bin/tests/worktree_model.py`, normative).
 
 **Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
 
 **Subagents do not have hooks.** Hooks fire only in the main session. Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Per Claude Code's own worktree documentation and its v2.1.157 changelog, once the agent finishes the harness releases the lock and then auto-cleans the worktree via `git worktree remove` (not a raw directory delete) if it is unchanged, and a periodic orphan sweep also skips any still-locked worktree. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
+**Lifecycle rules are methodology-owned, not project-overridable** - see `content/references/worktree-lifecycle.md` §Project-override policy. **Worktree reuse across rounds is out of scope here (DS-123).**
+
 ## Protocol Details (read on trigger)
 
-**Activation detail (Steps 5-6)** - when Step 4 of the activation preflight resolves to active:
-Read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the sentinel write contract, TTY/QUIET gate, and `agentic-migrate` flow.
-
-**Planning artifacts (Brief and Plan tiers)** - when authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units:
-See `content/sections/03-planning-artifacts.md` for the blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, and the canonical `qa_default_skip` definition live in `content/references/planning-artifacts.md`.
-
-**Delegation detail** - when consulting the full Worker autonomy contract, stop-frequency planning signal, or investigator-before-architect rules, or a detected instruction-layer contradiction:
-Read `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, §Decision Stability and Contradiction Resolution, and §Harness-Injected Instruction Conflicts.
-
-**Risk config and tiers** - when consulting config toggles, the graph-derived risk signal, or tier declaration detail:
-Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, and §Tier Declaration Detail.
-
-**Phase breadcrumb** - at every natural orchestration boundary (after agent spawn, agent return, escalation, task completion):
-Emit `[phase: label]` inline in your status update to the user. Full vocabulary in `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6.
-
-**Skeptic loop orchestration** - when Elevated risk is declared:
-Run `/ds-skeptic` for the full orchestration template, or read `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Sections 2-5) for loop steps, state management, re-route limits, and escalation. For findings accumulation rules across loop iterations (findings_log schema, re-raise detection, auto-close rule), see `/ds-implement-ticket` Phase 6.
-
-**Findings classification and sign-off** - when reviewing Skeptic output:
-Read `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Sections 6, 11) for Critical/Major/Minor definitions, required sign-off format, and validation rules.
-
-**Elevated + Cleanup path** - when declaring Elevated + Cleanup:
-Read `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 12) for the /simplify integration workflow and second Skeptic narrow-scope review.
-
-**Adversarial briefs** - when writing the brief for a Skeptic:
-Run `/ds-skeptic` (includes brief selection table) or read `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 8) for domain-specific templates.
-
-**Parallel spawning and worktrees** - when decomposing work into multiple agents:
-Read `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` (Sections 2, 5, 7) for parallel-by-default, worktree isolation rules, and check-in behavior.
-
-**Task decomposition and review scope** - when breaking work into multiple Workers:
-Read `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` (Section 6) for decomposition rules and `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 9) for review scope guidance.
-
-**Agent team composition** - which agent to use and how they compose:
-Read `~/DinoStack/.claude/skills/agentic-engineering/references/agent-team.md` for flows (feature, bug, security), decision rules, and spawn prompts.
-
-**Regression test obligation** - when a Worker fixes a Critical or Major Skeptic finding:
-Read `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test, the Worker obligation to add one, and the Skeptic verification rule.
-
-**QA regression-test obligation** - when a Worker fixes a qa-engineer FAIL:
-Read `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` for the engineer's regression-test obligation, the documented-exception path via `.agentic/qa-regressions.md`, and the Skeptic verification rule. Symmetric to the Skeptic-side `regression-test-obligation.md`.
-
-**Doc-sync obligation** - when a change alters a count, list, path, convention, or behavior an intent-layer doc asserts:
-Read `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` for the trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, and the tiered Skeptic verification rule.
-
-**Capability preflight** - before every Agent spawn:
-See `content/sections/06-capability-preflight.md` for when preflight runs, advisory vs blocking mode, and the absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, and cache schema live in `content/references/capability-preflight.md`.
-
-**QA gate** - when Skeptic sign-off is granted on a UI-visible change:
-See `content/sections/05-qa-gate.md` for the QA-fires invariant, skip enums, diff-read rule, and re-route limits. Full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, and the dev-server boot pattern live in `content/references/qa-gate.md`.
-
-**Events log schema** - full V1 telemetry event-type field shapes and operational notes:
-Read `content/references/events-log.md` for the `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, and `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, and consumer notes. Writer scope and base schema remain in `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.)
-
-**Worktree lifecycle commands** - cleanup command blocks for isolation and feature worktrees, session-start prune script:
-Read `content/references/worktree-lifecycle.md` for the full bash command blocks. Isolation mandate, two-class summary, and session-start prune rule remain in `content/sections/11-worktree-lifecycle.md`.
-
-**Cross-session loop resume** - when `/ds-implement-ticket` loop state must be resumed:
-Read `content/references/cross-session-loop-resume.md` §Cross-session loop resume for disk-write discipline, resumable phases, Brief/Plan path recording, and batch-state coexistence.
-
-**Task-state file** - when managing multi-unit plan orchestration state:
-Read `content/references/task-state-file.md` §Task-state file for schema, file-absent/present behavior, orphan detection, the task-state fold, and `author_model` field semantics.
-
-**Code standards detail** - when implementing or modifying code in a specific language:
-Read `content/references/code-standards-detail.md` §Per-Language Strict Defaults for TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs, and §Browser Verification for `agent-browser` usage patterns.
-
-**Conventions detail** - when consulting the intent layer, context economy, or external comment rules:
-Read `content/references/conventions-detail.md` §The Intent Layer for artifact list and Project Config toggle catalog, §Context Economy for context-window discipline, and §External Comment Discipline for PR/review comment rules.
-
-**Capture classification** - when deciding whether to write a learning entry at a mandatory trigger:
-Read `content/references/capture-classification.md` for the guardrail-first precedence chain, the two-gate MUST/SHOULD/SKIP table, and the per-trigger declaration format. Mandatory triggers and the `Capture:` block format are owned by `content/references/conductor-operating-rules.md §learnings-agent`.
-
-**Outcome rubric** - when authoring or reviewing a Brief for Elevated work:
-Read `content/references/planning-artifacts.md` for the line schema (`{id, line, verification_type: deterministic | judgment}`), field guidance (distinct from Verification gate commands - the operator's semantic definition of done), and verification-gate `Rubric lines resolved` subsection. The rubric is co-authored via `product-discovery` step 5b (staged to `docs/overview/_proposed/outcome-rubric.md`) and confirmed before Brief authoring; `/ds-brief` Section 3 copies the staged draft or elicits rubric lines inline. The independent Skeptic grades judgment lines adversarially (step 3.5 in `content/agents/skeptic.md`); absence on Elevated is a Critical finding.
-
-**Trigger catalog and open-goal loops** - when setting up an action-triggered workflow or declaring a measured goal condition rather than a fixed unit list:
-Read `content/references/trigger-catalog.md` for the three trigger types (manual / scheduled / action-triggered), the open-goal loop contract (trigger / action / measured condition / hard-stop), and the yolo-guard: a trigger fires the conductor (never a worker-spawn bypass), and risk classification plus a fresh Skeptic apply on every iteration regardless of how the loop was started.
+| Topic | Trigger | Reference |
+|---|---|---|
+| **Activation detail (Steps 5-6)** | Step 4 of the activation preflight resolves to active | `content/references/activation-detail.md` §Step 5: First-Activation Notice, §Step 6: Scaffolding-Sync Check - sentinel write contract, TTY/QUIET gate, `agentic-migrate` flow |
+| **Planning artifacts (Brief and Plan tiers)** | authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units | `content/sections/03-planning-artifacts.md` for blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, canonical `qa_default_skip` definition: `content/references/planning-artifacts.md` |
+| **Delegation detail** | consulting the full Worker autonomy contract, stop-frequency planning signal, investigator-before-architect rules, or a detected instruction-layer contradiction | `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, §Decision Stability and Contradiction Resolution, §Harness-Injected Instruction Conflicts, §Orchestration Enforcement Hooks and Fan-out Detail, §Background-Spawn Enforcement Detail |
+| **Risk config and tiers** | consulting config toggles, the graph-derived risk signal, or tier declaration detail | `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, §Tier Declaration Detail |
+| **Phase breadcrumb** | every natural orchestration boundary (after agent spawn, agent return, escalation, task completion) | Emit `[phase: label]` inline in your status update. Full vocabulary: `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` Rule 6 |
+| **Skeptic loop orchestration** | Elevated risk is declared | Run `/ds-skeptic` for the full orchestration template, or `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Sections 2-5) - loop steps, state management, re-route limits, escalation. Findings accumulation across loop iterations (findings_log schema, re-raise detection, auto-close rule): `/ds-implement-ticket` Phase 6 |
+| **Findings classification and sign-off** | reviewing Skeptic output | `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Sections 6, 11) - Critical/Major/Minor definitions, required sign-off format, validation rules |
+| **Elevated + Cleanup path** | declaring Elevated + Cleanup | `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 12) - /simplify integration workflow, second Skeptic narrow-scope review |
+| **Adversarial briefs** | writing the brief for a Skeptic | Run `/ds-skeptic` (brief selection table) or `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 8) - domain-specific templates |
+| **Parallel spawning and worktrees** | decomposing work into multiple agents | `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` (Sections 2, 5, 7) - parallel-by-default, worktree isolation rules, check-in behavior |
+| **Task decomposition and review scope** | breaking work into multiple Workers | `~/DinoStack/.claude/skills/agentic-engineering/references/subagent-protocol.md` (Section 6) - decomposition rules; `~/DinoStack/.claude/skills/agentic-engineering/references/skeptic-protocol.md` (Section 9) - review scope guidance |
+| **Agent team composition** | which agent to use and how they compose | `~/DinoStack/.claude/skills/agentic-engineering/references/agent-team.md` - flows (feature, bug, security), decision rules, spawn prompts |
+| **Regression test obligation** | a Worker fixes a Critical or Major Skeptic finding | `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` - what counts as a valid regression test, the Worker obligation to add one, the Skeptic verification rule |
+| **QA regression-test obligation** | a Worker fixes a qa-engineer FAIL | `~/DinoStack/.claude/skills/agentic-engineering/references/qa-regression-obligation.md` - engineer's regression-test obligation, documented-exception path via `.agentic/qa-regressions.md`, Skeptic verification rule. Symmetric to the Skeptic-side `regression-test-obligation.md` |
+| **Doc-sync obligation** | a change alters a count, list, path, convention, or behavior an intent-layer doc asserts | `~/DinoStack/.claude/skills/agentic-engineering/references/doc-sync-obligation.md` - trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, tiered Skeptic verification rule |
+| **Capability preflight** | before every Agent spawn | `content/sections/06-capability-preflight.md` - when preflight runs, advisory vs blocking mode, absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, cache schema: `content/references/capability-preflight.md` |
+| **QA gate** | Skeptic sign-off is granted on a UI-visible change | `content/sections/05-qa-gate.md` - QA-fires invariant, skip enums, diff-read rule, re-route limits. Full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, dev-server boot pattern: `content/references/qa-gate.md` |
+| **Events log schema** | full V1 telemetry event-type field shapes and operational notes | `content/references/events-log.md` - `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, consumer notes. Writer scope and base schema: `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.) |
+| **Worktree lifecycle commands** | cleanup command blocks for isolation and feature worktrees, session-start prune script | `content/references/worktree-lifecycle.md` - full bash command blocks. Isolation mandate, two-class summary, session-start prune rule: `content/sections/11-worktree-lifecycle.md` |
+| **Cross-session loop resume** | `/ds-implement-ticket` loop state must be resumed | `content/references/cross-session-loop-resume.md` §Cross-session loop resume - disk-write discipline, resumable phases, Brief/Plan path recording, batch-state coexistence |
+| **Task-state file** | managing multi-unit plan orchestration state | `content/references/task-state-file.md` §Task-state file - schema, file-absent/present behavior, orphan detection, task-state fold, `author_model` field semantics |
+| **Code standards detail** | implementing or modifying code in a specific language | `content/references/code-standards-detail.md` §Per-Language Strict Defaults - TypeScript/JS/Python/Go/Rust/Next.js linter and typecheck configs; §Browser Verification - `agent-browser` usage patterns |
+| **Conventions detail** | consulting the intent layer, context economy, or external comment rules | `content/references/conventions-detail.md` §The Intent Layer - artifact list, Project Config toggle catalog; §Context Economy - context-window discipline; §External Comment Discipline - PR/review comment rules |
+| **Capture classification** | deciding whether to write a learning entry at a mandatory trigger | `content/references/capture-classification.md` - guardrail-first precedence chain, two-gate MUST/SHOULD/SKIP table, per-trigger declaration format. Mandatory triggers and the `Capture:` block format: `content/references/conductor-operating-rules.md §learnings-agent` |
+| **Outcome rubric** | authoring or reviewing a Brief for Elevated work | `content/references/planning-artifacts.md` - line schema (`{id, line, verification_type: deterministic \| judgment}`), field guidance (distinct from Verification gate commands - the operator's semantic definition of done), verification-gate `Rubric lines resolved` subsection. Co-authored via `product-discovery` step 5b (staged to `docs/overview/_proposed/outcome-rubric.md`) and confirmed before Brief authoring; `/ds-brief` Section 3 copies the staged draft or elicits rubric lines inline. Independent Skeptic grades judgment lines adversarially (step 3.5 in `content/agents/skeptic.md`); absence on Elevated is a Critical finding |
+| **Trigger catalog and open-goal loops** | setting up an action-triggered workflow or declaring a measured goal condition rather than a fixed unit list | `content/references/trigger-catalog.md` - three trigger types (manual / scheduled / action-triggered), open-goal loop contract (trigger / action / measured condition / hard-stop), yolo-guard: a trigger fires the conductor (never a worker-spawn bypass), risk classification plus a fresh Skeptic apply on every iteration regardless of how the loop was started |
 
 ---
 
@@ -2653,6 +2597,19 @@ standard Skeptic and QA gates unchanged:
 No new gate, no bypass, no special case for cross-harness origin. The harness
 boundary is transparent to the Skeptic/QA layer.
 
+## Conductor Dispatch Contract
+
+**Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor - regardless of which CLI harness it is running on (Claude Code, Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) - follows the same four-step dispatch contract for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves to a harness other than its own:
+
+1. **Discover** - run `bin/agentic-team discover` to confirm the target harness binary is installed and its native sandbox flag (if any). Missing binary -> fall back to native delegation unchanged, no error, no prompt.
+2. **Dispatch** - run `bin/agentic-team dispatch --role <role> --brief <path>` to spawn the worker in its own throwaway workdir (worktree or directory copy). The conductor never runs git inside the worker's workdir; the conductor remains sole git owner of the live repo.
+3. **Status poll** - run `bin/agentic-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block synchronously past the configured `dispatch.timeout_seconds` watchdog.
+4. **Collect** - run `bin/agentic-team collect <run-id>` to demux the harness-specific output shape and extract the final message text.
+
+Once `collect` returns, its output re-enters the Skeptic/QA gates exactly as described above under "How collected worker output re-enters the Skeptic/QA gates" - same adversarial review, same `qa_criteria` triggers, same re-route limits, no new gate or bypass for cross-harness origin.
+
+**Routing enforcement differs by harness.** Only Claude Code has a mechanical `PreToolUse` deny hook (`hooks/enforce-background-spawn.py`, wired by `.claude/install.sh`) that enforces background-by-default on legacy `Task` spawns and suppresses native `Task`/`Agent` spawns and `oh-my-claudecode:*` Skill calls while a cross-harness run's sentinel (`.agentic/teamrun/.active`) is live. A future enhancement will also proactively block a native spawn for a dispatchable role whose resolved `team.yml` harness is not `claude`, but that check is not yet merged. On every other harness (Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) this is a **binding prose contract, not a mechanically enforced hook** - the conductor on those harnesses must self-apply the discover -> dispatch -> status -> collect sequence and must not silently fall back to a native spawn just because no hook stops it.
+
 ---
 
 ### cross-session-loop-resume
@@ -2750,11 +2707,14 @@ Purpose: Detailed delegation-model reference blocks extracted from
          Absence-claim scope axes (calibration worked example, both
          directions, for the four search-narrowness axes); Investigator-
          before-Architect rules (incl shared-utility-MANDATORY and Parallel
-         Investigators); Learnings pipeline; Worker preamble + execution
-         contract template; AskUserQuestion and Operator Decisions
-         enforcement mechanics (hook wiring, detection limits, kill switch);
-         Operator Decisions block rationale (marker necessity, placement
-         discipline); Digest-return discipline.
+         Investigators); Harness-Injected Instruction Conflicts (notice
+         template, operator remedies, harness-vs-model diagnostic);
+         Learnings pipeline; Worker preamble + execution contract template;
+         AskUserQuestion and Operator Decisions enforcement mechanics (hook
+         wiring, detection limits, kill switch); Operator Decisions block
+         rationale (marker necessity, placement discipline); Digest-return
+         discipline; Orchestration enforcement hooks + fan-out
+         `skeptic_strategy` detail; Background-spawn enforcement detail.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
@@ -2916,7 +2876,7 @@ For `learnings-agent` session-tracking semantics, see `content/references/conduc
 
 **Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
 
-**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, in-flight planning artifacts, loop-state files). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
+**Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, loop-state files - NOT in-flight planning artifacts, which are committed and pushed per `content/references/planning-artifacts.md` §Gate semantics as soon as they are authored, subject to the per-repo gitignore eligibility gate). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
 
 There is no in-place exception. The Trivial-path solo `engineer` spawn is also `isolation: "worktree"`: the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. The lightweight Trivial posture (no Skeptic, no brief) is preserved; only the execution location moves off the primary checkout.
 
@@ -2933,8 +2893,8 @@ Execution contract template:
 - verification: [how this unit will be verified after it lands - existing test path that exercises it, new test the Worker must add, manual QA trigger pattern, or "self-evident review" if no test path is feasible]
 - output_paths: [specific file paths the Worker is expected to write or modify, or "conductor-directed" if paths emerge during implementation]
 - task_id: [unique task identifier for multi-unit correlation, or omit for single-unit]
-- brief_path: [path to the Brief governing this unit, or "n/a" if architect plan is the sole artifact]
-- plan_path: [path to the Plan directory governing this unit, or "n/a" if Brief-tier or below]
+- brief_path: [path to the Brief governing this unit, or "n/a" if architect plan is the sole artifact - arrives already absolute in the engineer's contract, normalized at spawn construction]
+- plan_path: [path to the Plan directory governing this unit, or "n/a" if Brief-tier or below - arrives already absolute in the engineer's contract, normalized at spawn construction]
 
 When `brief_path` or `plan_path` is populated, the engineer reads it before starting. Success criteria, non-goals, and the verification gate supersede any informal interpretation of the ticket. If the engineer discovers a conflict between the Brief and the architect plan, it returns BLOCKED so the conductor can resolve.
 
@@ -2971,6 +2931,26 @@ Detail for the "Operator decisions go last in the turn" kernel rule (`content/se
 ## Digest-Return Discipline
 
 **Digest-return discipline.** When a loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns from the background, the conductor reads the terminal status, sign-off, falsifiable-claims evidence, residual risk, not-done list, and the optional `learnings_candidate[]` field - then acts. It does not re-read the worker's internal transcript or re-derive findings. This is how the conductor's context stays flat across many parallel loops. When `learnings_candidate[]` is non-empty, the conductor routes each entry through the guardrail-first gate (capture-classification.md) before forwarding `Capture: MUST` entries to `learnings-agent`; see `content/references/conductor-operating-rules.md` §learnings-agent for the routing algorithm. See `content/references/digest-return-pattern.md` for the full digest field list and conductor consumption rules.
+
+## Orchestration Enforcement Hooks and Fan-out Detail
+
+This section holds the mechanical hook detail behind the "Named agents" rule in `content/sections/02-delegation.md` - the acting rules (prefer orchestration-planner, skip-planner conditions, the simple/targeted-unit carve-out, mid-task reclassification, the `general-purpose` fallback, shell/git routing, no-subagent-spawns-subagents, and the Trivial-path worktree-isolated engineer rule) stay inline in the kernel; only the hook mechanics live here.
+
+**Singularity hook.** On Claude Code this is enforced by a `PreToolUse` hook (`hooks/enforce-orchestrator-singularity.py`, wired by `.claude/install.sh`) that denies any `Agent` spawn issued from a subagent context (detected via the `agent_id` field); set `AE_SINGULARITY_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule.
+
+**Tier-3 escalation hook.** The Mandatory Tier-3 review escalation rule (Risk Classification) is mechanically backstopped on Claude Code by a `PreToolUse` hook (`hooks/enforce-tier.py`, wired by `.claude/install.sh`) that denies an explicit sub-Opus `model` param on a `security-auditor` spawn (always) or a `skeptic` spawn whose brief matches a Tier-3 escalation signal; escalate-only and fail-open, it never blocks the omit-the-param role-default path and does not catch the novel-architecture signal (not keyword-detectable - the conductor and frontmatter default remain the controls there). The hook also backstops the authoring-role escalation (architect / adr-generator / product-discovery on Plan+ADR-tier units, per risk-config-and-tiers.md): it denies an explicit sub-Opus `model` param on those spawns when the brief matches an authoring escalation signal, but the structural Plan+ADR trigger is conductor-computed and invisible to the hook, so the conductor's explicit `model: opus` remains the primary control. Set `AE_TIER_GUARD_DISABLE=1` to disable. Other adapters rely on the prose rule.
+
+**Planning-artifact hook.** The Brief/Plan authoring gate is backed by an advisory PreToolUse(Write/Edit) hook (`hooks/enforce-planning-artifact-spawn.py`) that warns when a `docs/planning/**` artifact is written without a recent architect spawn on record; warn-only, never blocks; set `AE_PLANNING_GUARD_DISABLE=1` to silence.
+
+**Fan-out `skeptic_strategy` block.** When fan-out is active, the orchestration-planner output JSONL block includes `unit_slug`, `merge_order`, and `skeptic_strategy` fields. Per-unit Skeptic spawning is a valid conductor behavior for parallel fan-out of independent units (complementing the existing "independent elevated units get their own Skeptic" rule in Task Decomposition). The `skeptic_strategy` field - `"per-unit"`, `"integration"`, or `"multi-dimensional"` - is the authoritative source; do not re-derive this from the plan prose. `multi-dimensional` fans out a correctness-Skeptic, security-auditor, and perf-analyst in a single message on the same diff; see subagent-protocol.md for full definition.
+
+## Background-Spawn Enforcement Detail
+
+This section holds the forensic/mechanical detail behind the background-by-default rule in `content/sections/02-delegation.md` - the acting rules (background-by-default itself, the "omit `run_in_background`, never pass `false`" conductor norm, and the `wrap-ticket` synchronous carve-out) stay inline in the kernel; only the payload-capture history and the asymmetric allow/deny mechanics live here.
+
+**Payload capture (2026-07-07).** The harness DOES pass `run_in_background` through to the PreToolUse hook payload for `Agent` spawns (confirmed by live payload capture 2026-07-07 - hook tool_input keys for an Agent spawn observed as `description`/`prompt`/`run_in_background`/`subagent_type`, correcting the earlier assumption that the field was stripped).
+
+**Asymmetric allow/deny mechanics.** `hooks/enforce-background-spawn.py` enforces background-by-default on both `Task` and `Agent`, with an asymmetric rule per tool: on `Agent`, only an explicit `run_in_background: false` is denied - an absent field allows (Agent already backgrounds by default at the harness level, so omitting it is the correct norm) and `true` also allows; on `Task` (legacy), only `run_in_background: true` allows - absent, `false`, or any non-boolean value denies. The hook retains two active responsibilities: (a) `run_in_background` enforcement for both `Task` and `Agent` per the asymmetric rule above, and (b) cross-harness teamrun-sentinel suppression for both `Task` and `Agent` when `.agentic/teamrun/.active` is live.
 
 ---
 
@@ -3219,7 +3199,9 @@ Purpose: Full reference for the events log V1 telemetry event-type schemas and
          tool_failure_workaround) plus the deprecated conductor_direct block kept
          for historical reference, append discipline, atomicity, retention, and
          consumer notes. Also documents the per-developer session log
-         (.agentic/session-log/) written by the Stop hook.
+         (.agentic/session-log/) written by the Stop hook, and the enforcement
+         fire log (.agentic/.enforcement-fires.jsonl) written by
+         hooks/lib/enforcement_log.py.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/09-events-log.md (pointer after Schema block),
@@ -3241,7 +3223,8 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       the SessionEnd hook, for the once-per-session terminal
                       loop-state/batch-state mark - AND writes per-developer session
                       log to .agentic/session-log/);
-                      /ds-wrap command (reads events.jsonl for structural session skeleton);
+                      /ds-wrap command (reads events.jsonl for structural session skeleton,
+                      and .agentic/.enforcement-fires.jsonl for Part D.5 signal 3(b));
                       bin/agentic-cost team (reads .agentic/session-log/ for team rollup).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
@@ -3324,6 +3307,29 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 **No identity:** The session-log write is skipped only when the 4-tier resolution yields no effective identity - i.e. neither the project-local `<repo>/.agentic/identity.yml` nor the global `~/.agentic/identity.yml` resolves a usable handle (both absent, or only provisional handles present such that telemetry is buffered rather than written directly). A developer whose identity is confirmed at any tier (project-confirmed or global-confirmed) receives a normal session-log write; a developer with only provisional identities has telemetry buffered to `~/.agentic/session-log/.pending/` until `agentic-identity confirm` is run. When no tier resolves at all, the Stop hook appends a one-time nudge to this session's `.agentic/context.d/<session_id>.md` shard - from which the derived `.agentic/context.md` rollup carries it - directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
 
 **Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files on the local checkout and renders a per-developer rollup table sorted by total tokens. Because session-logs are committed via Phase 8 telemetry commits, the rollup reflects sessions from all developers whose telemetry has landed on the branch via pull after merge - enabling cross-developer team visibility without a separate aggregation service.
+
+## Enforcement fire log (`.agentic/.enforcement-fires.jsonl`)
+
+Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from inside the action branch, never at module scope) by six of the seven `hooks/enforce-*.py` PreToolUse hooks whenever they take a non-passthrough action - a deny, or an allow-with-advisory-reason. A silent allow (the overwhelming majority of invocations) never calls it, so the file stays small. `enforce-no-abdication.py` is the one exception: it keeps its own separate `.agentic/.abdication-guard-fire-count` counter, unchanged by this mechanism (see `hooks/AGENTS.md`).
+
+**Canonical line schema (4 fields, one JSON object per line):**
+
+```json
+{"ts": "2026-07-27T12:00:00.000Z", "hook": "enforce-tier", "decision": "deny", "reason": "Agent spawn blocked: security-auditor was spawned with model='sonnet'..."}
+```
+
+- `ts`: ISO8601 UTC with millisecond precision (matches the `events.jsonl` convention).
+- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the six consumer hooks named above.
+- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (five hooks) and `"allow_advisory"` (`enforce-planning-artifact-spawn.py`).
+- `reason`: human-readable reason string, truncated to 800 chars (the same text fed back to the model via `permissionDecisionReason`).
+
+**No session correlation.** Unlike `events.jsonl`, this file carries no `session_uuid` or equivalent field - `log_fire()` writes only `cwd`-scoped, not session-scoped. A tally over this file is therefore a REPO-WIDE cumulative count across every session that has ever run since the file was created (or last rotated/deleted away), never a single-session count. Any consumer reporting this file's contents (e.g. `/ds-wrap` Part D.5 signal 3(b)) must state this scope explicitly.
+
+**Atomicity:** each line is a single `os.write()` to an `O_APPEND`-opened file descriptor. The atomicity guarantee is POSIX's `O_APPEND` seek-to-end-plus-write semantics, not `PIPE_BUF` (which governs pipes/FIFOs, not regular files); this does not hold over NFS. Project-local `.agentic/` writes are the only current use, so the NFS caveat is noted but not a practical concern today.
+
+**Retention:** not auto-rotated. Same operating posture as `events.jsonl` above - manual `mv` if it grows past concern. Project-local; gitignored.
+
+**Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") reads only the last ~500 lines and tallies occurrences per `hook` value as a `guardrail-fire` feedback candidate.
 
 ---
 
@@ -3704,7 +3710,9 @@ Downstream consumers: Conductor flows: Brief authoring (Gate semantics step 6),
                       Plan authoring (Plan tier authoring sequence), cross-session
                       resume (promotion_tier field); /ds-brief command (rubric synthesis
                       in Section 3 and PRD extraction in Section 5); /ds-implement-ticket
-                      Phase 3b cross-artifact alignment check; skeptic agent (rubric
+                      Phase 3b cross-artifact alignment check; /ds-implement-ticket
+                      Phase 4 "Commit and push the planning artifact" subsection (Gate
+                      semantics steps 10/Plan-tier bullet); skeptic agent (rubric
                       check step 3.5); product-discovery agent (rubric drafting step 5b).
 
 Failure modes: Prose; does not execute. Drift between this file and the parent
@@ -3780,9 +3788,12 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 7. **Cross-artifact alignment check (conductor-direct).** When a Brief exists and the orchestration-planner returned at least one unit with a non-empty `acceptance_criteria` array, the conductor mechanically maps every Brief success criterion to at least one unit's `acceptance_criteria`. Any UNCOVERED criterion is resolved (re-spawn planner with the gap called out, or surface a descope/expand decision to the operator) before the Skeptic-on-Brief runs. When no unit has non-empty `acceptance_criteria`, emit `[phase: cross-artifact-check-skipped | no criteria to map]` and proceed. Full procedure in `/ds-implement-ticket` Phase 3b "Cross-artifact alignment check". This mechanical check complements - does not replace - the adversarial Skeptic-on-Brief.
 8. Spawn Skeptic on the Brief. When the Brief is pre-existing and operator-confirmed (`brief_source: operator`), use the operator-confirmed Skeptic variant (completeness-only review - see `content/commands/ds-brief.md` Section 6 for the exact brief text). When the Brief was conductor-authored, use the standard "Document synthesis, architecture, and planning" adversarial brief; the verification field is part of the Skeptic's review surface in both cases. The `QA criteria` field is also part of the Skeptic's review surface: for Elevated tickets, the Skeptic must validate that the field is present, that `qa_skip` is one of the 5 valid enum values or null, that `qa_skip_rationale` is populated when `qa_skip != null`, and that `scenarios[]` is non-empty when `qa_skip == null`. Absence on Elevated is a Critical finding; an invalid `qa_skip` enum is a Major finding. This spawn also requires the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5): field 2 (Brief/Plan artifact) is `n/a - Skeptic-on-Brief (Brief is the artifact under review)`; field 4 (per-consumer impact table) is `n/a - Brief tier (per-consumer lives in architect plan path above)`; field 6 (diff under review) lists the paths the Brief proposes to touch, since this is a pre-implementation review and no diff exists yet.
 9. On Brief sign-off (and after any Open Questions in the Brief are resolved per the Open Questions hard gate in METHODOLOGY.md §Delegation), engineer(s) spawn with `brief_path` populated in their execution contract.
+10. **Commit and push (mandatory, per-repo eligibility-gated, gaps 1/2 only - DS-124 covers gap 3).** Runs at the unconditional start of Phase 4 (`content/commands/ds-implement-ticket.md`, anchor `` Commit and push the planning artifact `` - see step 3), whenever `brief_path` or `plan_path` is populated. Checks `git check-ignore -q -- docs/planning/<slug>` first; if ignored, no-op. Otherwise commits (no checkout, DCO-trailered) and pushes by explicit SHA immediately, with the conductor-side retry-on-rejection from API item 1.
 
 **Authoring sequence (Plan tier):** identical to Brief tier through step 6, plus:
-- Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory.
+- Conductor authors `risk-register.md`, `rollback.md`, and `verification-gate.md`, and assembles the Plan directory. Set `plan_path = docs/planning/<slug>/` (repo-relative, mirroring `brief_path`'s existing assignment convention) immediately upon assembling the Plan directory.
+- **Commit and push (mandatory, per-repo eligibility-gated, gaps 1/2 only - DS-124 covers gap 3).** Runs at the unconditional start of Phase 4 (`content/commands/ds-implement-ticket.md`, anchor `` Commit and push the planning artifact `` - see step 3), whenever `brief_path` or `plan_path` is populated. Checks `git check-ignore -q -- docs/planning/<slug>` first; if ignored, no-op. Otherwise commits (no checkout, DCO-trailered) and pushes by explicit SHA immediately, with the conductor-side retry-on-rejection from API item 1.
+- **Gap 3 is explicitly out of scope for this authoring sequence - see DS-124.** A later revision to an already-committed Plan (mid-flight escalation, 3rd-resume auto-promotion, a late Skeptic-round fix) has no automatic re-invocation of this step under this ticket.
 - A second Skeptic pass reviews the assembled Plan as a whole (not the components individually - they were already reviewed). Scope: integration coherence, missing rollback for any high-blast-radius unit, risk register completeness, and verification gate completeness (no "cannot specify" entries). This spawn also requires the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5): field 1 (architect plan) is `n/a - assembled Plan review (per-unit plans listed inline)`; field 6 (diff under review) lists the paths the assembled Plan proposes to touch. When the combined Global-context input set exceeds 60K tokens, apply the "Plan-tier second-pass overflow fallback" in Section 4.5 instead of assembling one oversized prompt: one Skeptic per unit (each with that unit's Global-context subset) plus a lightweight integration Skeptic receiving only the combined findings list.
 - Workers spawn only after assembled-Plan sign-off, with both `brief_path` and `plan_path` in their execution contract.
 
@@ -3790,7 +3801,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 
 ## Brief template
 
-**Canonical path:** `docs/planning/<slug>.md` (slug = kebab-case feature name, prefixed with priority tag if the project uses one, e.g. `p2-foo.md`).
+**Canonical path:** `docs/planning/<slug>.md` (slug = kebab-case feature name, prefixed with priority tag if the project uses one, e.g. `p2-foo.md`). (this is the on-disk / git-operations path, always repo-relative; the execution-contract `brief_path`/`plan_path` handed to an isolated engineer is a separate, absolute-path value normalized at spawn construction.)
 
 **Template (must fit on one screen; ~15-20 lines):**
 
@@ -6435,6 +6446,8 @@ WORKTREE_PATH=$(resolve_branch_worktree "$REPO_DIR" "$BRANCH_NAME")
 git -C "$REPO_DIR" branch -D "$BRANCH_NAME" 2>/dev/null || true
 ```
 
+This is the self-scoped inline pattern; it does not need the general disposition model in `bin/tests/worktree_model.py` (`disposition_for` / `disposition_for_orphan_branch`) because it only ever operates on the branch the current session just pushed in the same phase.
+
 If the worktree is still locked by a running agent, `git worktree remove` will
 refuse until the agent finishes. That is expected and safe; the session-start
 prune script below remains a backstop.
@@ -6474,7 +6487,18 @@ git worktree prune
 # (not just `*` for the current one) - the sed must strip both, or the guard below
 # silently misparses the name and the liveness check/delete operate on a malformed string:
 git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" || git branch -D "$b"
+  git worktree list | grep -qF "[$b]" && continue
+  # Gate the delete via disposition_for_orphan_branch's evidence order
+  # (bin/tests/worktree_model.py) rather than deleting unconditionally -
+  # `merge_evidence` (ancestry) first, then `pr_state`, then
+  # `ls_remote_status` last, mirroring §Branch prune bullets 1/2 below.
+  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
+    git branch -D "$b"
+  elif command -v gh >/dev/null 2>&1 && [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+    git branch -D "$b"
+  else
+    echo "SKIP (unproven merge): $b - needs manual review" >&2
+  fi
 done
 ```
 
@@ -6484,23 +6508,38 @@ No cleanup or prune path in this document may call `git worktree remove -f -f` (
 
 ## Branch prune (stale local branches)
 
-Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged:
+Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged.
+
+Bullets 1/2's existing selection filters below are pre-model guards, confirmed sound and left unchanged by this ticket - each is already equivalent to the `merge_evidence`/`ls_remote_status` signal `disposition_for_orphan_branch()` (`bin/tests/worktree_model.py`) would compute from the same underlying facts, so no command change was needed to bring them into agreement with the model.
+
+**Bullet 3 targets the identical `worktree-agent-*`-with-no-live-worktree population as the session-start prune script above, at the same session-start phase - it now runs the same merge-evidence gate, not a separate unconditional delete.** An earlier revision of this ticket left bullet 3 ungated on the claim that "no genuine merge-evidence source exists for a bare branch name here" - that claim was false the moment the session-start prune script above gained exactly that source (ancestry, then PR state); shipping the gate in one script and not the other produced zero behavior change (bullet 3 unconditionally deleted whatever the gate above had just skipped) plus new stderr noise. Both scripts now apply the identical check, so a branch either survives both or is deleted by whichever runs first - never gated by one and swept unconditionally by the other.
 
 ```bash
 # Prune stale LOCAL branches. Safe signals only; never force-delete unproven work.
 git fetch origin --prune                       # drop stale remote-tracking refs
 
 # 1. Branches whose upstream is gone (merged + remote deleted via squash + --delete-branch):
+#    - equivalent to disposition_for_orphan_branch's ls_remote_status="not_pushed"-adjacent
+#      signal (the remote ref is gone because it WAS pushed and then merged+deleted).
 git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
   | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
 
-# 2. Branches fully merged into origin/main:
+# 2. Branches fully merged into origin/main, excluding main/master themselves:
+#    - equivalent to disposition_for_orphan_branch's merge_evidence="merged" resolution,
+#      with the main/master exclusion mirroring DEFAULT_BASE_BRANCHES / SKIP_BASE_BRANCH.
 git branch --merged origin/main | grep -vE '^[*+]|(^| )(main|master)$' | xargs -r -n1 git branch -d
 
-# 3. worktree-agent-* branches whose worktree no longer exists:
+# 3. worktree-agent-* branches whose worktree no longer exists - same merge-evidence
+#    gate as the session-start prune script above (ancestry, then PR state):
 #    (a branch checked out in a live worktree is protected by git and will be skipped)
 for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
-  git branch -D "$b" 2>/dev/null || true
+  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
+    git branch -D "$b" 2>/dev/null || true
+  elif command -v gh >/dev/null 2>&1 && [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+    git branch -D "$b" 2>/dev/null || true
+  else
+    echo "SKIP (unproven merge): $b - needs manual review" >&2
+  fi
 done
 ```
 
@@ -6511,6 +6550,12 @@ done
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
 DinoStack's mandatory-isolation rule (every `engineer`/`qa-engineer`/`release-orchestrator` spawn runs in its own worktree) depends on a Claude Code fix that lets an isolated subagent read and edit files inside its OWN worktree. On builds predating that fix, an isolated engineer self-denies on its own files and deadlocks - it cannot edit the very tree it was spawned to change. Treat the fix as a hard floor for the delegation model. Keep the aggressive per-session worktree prune above regardless of Claude Code's own 30-day orphan sweep: the sweep cleans Claude Code's isolation worktrees on a monthly cadence and is a backstop, not a replacement; stale worktrees accumulate between sweeps.
+
+## Project-override policy
+
+Worktree lifecycle rules - classification (`classify_entry`) and disposition (`disposition_for` / `disposition_for_orphan_branch`, all in `bin/tests/worktree_model.py`) - are methodology-owned and NOT overridable by a project `AGENTS.md`. A project may add non-conflicting project-specific conventions (e.g. pruning its own generated artifacts) but may NOT redefine which path prefixes mean ISOLATION/CONDUCTOR_CREATED, change the disposition gate order, or otherwise contradict the classification or trigger rules in this document.
+
+This is a deliberate absence from the small set of items a project MAY declare - e.g. `BASE_BRANCH:` per `content/rules/conventions.md` §Git Workflow. Unlike the base branch, worktree lifecycle touches cross-session safety: the harness's own lock-while-running behavior, branch-rename mapping across sessions, and another session's live work. A per-project override could not safely account for any of those, so none is offered and no declaration form is defined for it.
 
 ## Pre-spawn stash fallback
 
@@ -7779,7 +7824,7 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 ---
 name: engineer
 model: sonnet
-description: General-purpose implementation agent. Spawn for any code change: new features, bug fixes, refactors, configuration changes, or script writing. Reads the codebase to understand conventions, implements the change, runs quality gates, and returns a clear summary of what was done. This is the standard Worker for all Elevated-risk implementation tasks.
+description: "General-purpose implementation agent. Spawn for any code change: new features, bug fixes, refactors, configuration changes, or script writing. Reads the codebase to understand conventions, implements the change, runs quality gates, and returns a clear summary of what was done. This is the standard Worker for all Elevated-risk implementation tasks."
 tools: Read, Glob, Grep, Bash, Write, Edit
 ---
 
@@ -7961,7 +8006,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
 - **No suppression.** Never use `// @ts-ignore`, `# noqa`, `eslint-disable`, or similar to silence errors. Fix the code.
 - **Match conventions.** Read before you write. Use the same naming style, file structure, and patterns as the surrounding code.
 - **If context is missing** - no file paths, no task description, or the task requires an architecture decision you were not given - say so at the top of your output before attempting anything. Do not invent assumptions to fill the gap.
-- **Do not initiate commit or push yourself.** In the `/ds-implement-ticket` flow, commit and push are orchestrated by the conductor via the `git_finalization` contract; the engineer's job is to implement, run quality gates, and report. For non-`/ds-implement-ticket` spawns where the contract does not include `git_finalization`, implement and report only and leave VCS operations to the caller.
+- **Do not initiate commit or push yourself.** In the `/ds-implement-ticket` flow, commit and push are orchestrated by the conductor via the `git_finalization` contract; the engineer's job is to implement, run quality gates, and report. For non-`/ds-implement-ticket` spawns where the contract does not include `git_finalization`, implement and report only and leave VCS operations to the caller. The one exception is the specified non-fast-forward recovery documented in `git_finalization`'s contract - running a pre-authored recovery sequence on a named trigger condition is not "initiating" anything; it is executing a literal instruction, the same category as `worktree_setup`'s create-commands.
 - **Verify before claiming done.** Run lint, typecheck, and tests in the same message as your status report. Paste the output. Do not report `Status: DONE` based on a check you ran earlier in the session.
 - **Diff format.** Emit all changes in a single ````diff` fenced code block using standard unified diff format with `--- a/<path>` and `+++ b/<path>` headers for every file. Do not split multi-file changes into separate code blocks and do not use markdown headings as file path markers. Keep context lines minimal - 3 lines per hunk is sufficient.
 - **Regression tests for Skeptic findings.** When fixing a Critical or Major Skeptic finding, add a regression test that would have caught the failure mode. Before claiming it as a regression test, run it against the unfixed code and confirm it fails - a test that passes without the fix does not count. Reference it in the fix summary, including that pre-fix attestation: `[finding ID] → fixed by [description]. Regression test: [file, test name]. Confirmed failing pre-fix: [what was observed when run against the unfixed code].` If a regression test is genuinely not possible, state the reason explicitly — absence without explanation is a Major finding in the next Skeptic round. See `~/DinoStack/.claude/skills/agentic-engineering/references/regression-test-obligation.md` for what counts as a valid regression test.
@@ -7993,7 +8038,7 @@ See `content/references/frontend-discipline.md` for full rules and canonical vio
 ---
 name: goal-condition-evaluator
 model: haiku
-description: Cheap per-turn stop-condition check for open-goal loops. Spawned by the conductor ONLY after an Elevated iteration produces a clean Skeptic sign-off, to evaluate the operator-declared goal_condition and return continue-vs-stop only - never for a Low/Trivial iteration (no Skeptic sign-off exists to run after; the conductor evaluates goal_condition directly there instead). Tier 1 (haiku) leaf agent - read-only, no subagent spawning, never runs in place of, before, or concurrently with a Skeptic review. Does NOT review correctness or safety and does NOT raise, waive, or comment on Skeptic findings. Returns BLOCKED only as a structural guard when spawned without a confirmed Skeptic sign-off; the conductor handles this BLOCKED as a fallback to direct evaluation, NOT as the generic Worker-BLOCKED-means-cap_reached-escalation semantics in content/references/subagent-protocol.md - a BLOCKED return here never halts the loop. On any other failure (unavailable, errored, timeout, malformed output) the conductor falls back identically to evaluating goal_condition itself - the pre-existing (pre-DS-64) behavior. Haiku-by-default applies on Claude Code; other harnesses resolve tier per content/references/risk-config-and-tiers.md. Wired as of DS-75 (newly wired, low field mileage): the conductor spawns this agent at content/commands/ds-implement-ticket.md Phase 6 clean exit, scoped to open-goal iterations whose risk_declared is elevated and which just received a clean Skeptic sign-off - see content/references/trigger-catalog.md §Risk and review discipline (e).
+description: "Cheap per-turn stop-condition check for open-goal loops. Spawned by the conductor ONLY after an Elevated iteration produces a clean Skeptic sign-off, to evaluate the operator-declared goal_condition and return continue-vs-stop only - never for a Low/Trivial iteration (no Skeptic sign-off exists to run after; the conductor evaluates goal_condition directly there instead). Tier 1 (haiku) leaf agent - read-only, no subagent spawning, never runs in place of, before, or concurrently with a Skeptic review. Does NOT review correctness or safety and does NOT raise, waive, or comment on Skeptic findings. Returns BLOCKED only as a structural guard when spawned without a confirmed Skeptic sign-off; the conductor handles this BLOCKED as a fallback to direct evaluation, NOT as the generic Worker-BLOCKED-means-cap_reached-escalation semantics in content/references/subagent-protocol.md - a BLOCKED return here never halts the loop. On any other failure (unavailable, errored, timeout, malformed output) the conductor falls back identically to evaluating goal_condition itself - the pre-existing (pre-DS-64) behavior. Haiku-by-default applies on Claude Code; other harnesses resolve tier per content/references/risk-config-and-tiers.md. Wired as of DS-75 (newly wired, low field mileage): the conductor spawns this agent at content/commands/ds-implement-ticket.md Phase 6 clean exit, scoped to open-goal iterations whose risk_declared is elevated and which just received a clean Skeptic sign-off - see content/references/trigger-catalog.md §Risk and review discipline (e)."
 tools: Read, Grep, Glob, Bash
 disallowedTools: [Edit, Write, Agent]
 ---
@@ -9329,7 +9374,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 ---
 name: qa-engineer
 model: sonnet
-description: Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says "run QA", "verify in the browser", "check the feature works", "test the acceptance criteria", or "does it work". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs.
+description: "Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says \"run QA\", \"verify in the browser\", \"check the feature works\", \"test the acceptance criteria\", or \"does it work\". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs."
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
 ---
@@ -10659,7 +10704,7 @@ Use this exact structure. Do not paraphrase the section headers.
 ---
 name: skeptic
 model: opus
-description: Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a "## Global-context inputs" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format.
+description: "Adversarial code reviewer. Spawn when conducting Skeptic Protocol review of Worker output. Evaluates implementation against an adversarial brief, classifies findings as Critical/Major/Minor, and produces a structured sign-off. The spawn prompt must contain four things: (1) the adversarial brief defining the attack surface to probe, (2) Worker output as inline text or file paths, (3) a resolved-issues preflight listing findings addressed in prior rounds, and (4) a Global-context input set (a \"## Global-context inputs\" block containing the architect plan path, Brief/Plan artifact path, qa_criteria block, per-consumer impact table, related files list, and diff under review). See content/references/skeptic-protocol.md Section 4.5 for the canonical block format."
 tools: Read, Grep, Glob, Bash
 disallowedTools: [Edit, Write, Agent]
 ---
@@ -11567,7 +11612,7 @@ git worktree prune
 
 ---
 
-## Step 2: List active worktrees
+## Step 2: List and classify active worktrees
 
 ```bash
 git worktree list
@@ -11575,17 +11620,19 @@ git worktree list
 
 The **first entry** is always the main worktree - the repo root directory. Skip it unconditionally regardless of what branch it is on.
 
-Categorize each remaining entry by its branch name:
+Classify every remaining entry by **path relative to the repo root, never by branch name** - this is what `classify_entry()` in `bin/tests/worktree_model.py` does, and it is the single normative definition of the four classes below (DS-118 defect 1: a `feature/*`/`fix/*`/`chore/*`-named branch can and does live inside a `.claude/worktrees/` isolation directory once renamed post-creation, which a branch-name-only heuristic cannot disambiguate). Where this prose and `classify_entry` disagree, `classify_entry` wins.
 
-- **Isolation worktrees** - branch matches `worktree-agent-*`. Temporary agent sandboxes. Go to Step 3.
-- **Feature worktrees** - branch matches `feature/*`, `fix/*`, or `chore/*`. Long-lived task branches. Go to Step 4.
-- **Anything else** - report it to the user and skip removal.
+- **Isolation worktrees** - path starts with `.claude/worktrees/` -> `WorktreeClass.ISOLATION`. Temporary agent sandboxes. Go to Step 3.
+- **Feature (conductor-created) worktrees** - path starts with `.agentic/worktrees/` -> `WorktreeClass.CONDUCTOR_CREATED`. Long-lived task branches. Go to Step 4.
+- **Anything else** - `WorktreeClass.UNMANAGED` (a bare-repo entry, a path outside this repo's own host, or a path under neither admin directory, e.g. `evals/.worktrees/wt-*`). Report it to the user and skip removal.
 
 ---
 
 ## Step 3: Remove isolation worktrees
 
-For each isolation worktree, resolve its path from the branch name and check its status before touching it:
+For each ISOLATION-classified entry, apply `disposition_for()`'s gate order - locked, dirty, then merge-evidence-independent-of-push (`bin/tests/worktree_model.py`; where this prose and `disposition_for` disagree, `disposition_for` wins). (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around - `SKIP_LOCKED`.)
+
+Resolve its path from the branch name and check its status before touching it:
 
 ```bash
 source "${REPO_DIR:-.}/scripts/lib/worktree.sh" 2>/dev/null || true
@@ -11595,8 +11642,6 @@ git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 
 where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
-There are three cases. (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around.)
-
 **Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
 
 ```bash
@@ -11605,20 +11650,41 @@ git worktree prune
 git branch -D "$b"
 ```
 
-**Directory exists, clean (no output):** Remove the worktree and delete the branch:
+**Directory exists, dirty (output present)** (`SKIP_DIRTY`): List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
+
+**Directory exists, clean (no output):** resolve merge evidence in `disposition_for`'s order - `merge_evidence` (ancestry) first, then `pr_state`, then `ls_remote_status` last, since push status alone is never sufficient proof of merge:
+
+```bash
+HEAD_SHA=$(git -C "$WORKTREE_PATH" rev-parse HEAD)
+git merge-base --is-ancestor "$HEAD_SHA" origin/main 2>/dev/null && MERGE_EVIDENCE=merged || MERGE_EVIDENCE=unmerged
+```
+
+- `MERGE_EVIDENCE=merged` (`ELIGIBLE`): remove the worktree and delete the branch:
 
 ```bash
 git worktree remove "$WORKTREE_PATH"
 git branch -D "$b"
 ```
 
-**Directory exists, dirty (output present):** List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
+- `MERGE_EVIDENCE=unmerged`: fall back to PR state, if `gh` is available - `gh pr view "$b" --json state -q .state`. `OPEN` skips (`SKIP_PR_OPEN`, report to the user); `MERGED` is `ELIGIBLE` (remove as above - covers a squash-merge ancestry missed). `CLOSED`/no PR/`gh` unavailable falls through to push status: `git ls-remote --exit-code --heads origin "$b"` - absent -> `SKIP_NOT_PUSHED`, command error -> `SKIP_LS_REMOTE_ERROR`, present -> `SKIP_AMBIGUOUS_NO_PR`. Every skip outcome here reports the branch to the user for manual review - never delete on an inconclusive read.
 
 ---
 
-## Step 4: Remove feature worktrees with merged PRs
+## Step 4: Remove feature (conductor-created) worktrees with merged PRs
 
-For each feature worktree, check whether its PR has been merged:
+For each CONDUCTOR_CREATED-classified entry, apply `disposition_for()`'s gate order - locked, **dirty (this check was previously missing here - closing that gap)**, then merge-evidence-independent-of-push:
+
+**Locked** (`SKIP_LOCKED`): as in Step 3.
+
+**Dirty** (`SKIP_DIRTY`):
+
+```bash
+git -C <worktree-path> status --porcelain
+```
+
+Any output: skip removal, list the dirty files, and report to the user.
+
+**Clean only - merge evidence.** Check whether the branch's PR has been merged:
 
 ```bash
 gh pr list --state all --head <branch-name> --json number,state,title
@@ -11631,11 +11697,11 @@ git worktree remove <worktree-path>
 git branch -D <branch-name>
 ```
 
-**If state is `OPEN` or `CLOSED` (not merged):** skip removal. Report the branch name, PR number, and state to the user so they can decide.
+**If state is `OPEN` or `CLOSED` (not merged):** skip removal (`SKIP_PR_OPEN` / inconclusive). Report the branch name, PR number, and state to the user so they can decide.
 
-**If no PR exists:** skip removal. Report the branch as having no PR and needing manual review.
+**If no PR exists:** fall back to ancestry (`git merge-base --is-ancestor <head> origin/main`). Merged -> `ELIGIBLE`, remove as above. Still unmerged -> `SKIP_AMBIGUOUS_NO_PR`. Report the branch as needing manual review.
 
-**If `gh` is not available:** skip the PR check for all feature worktrees. Report each feature worktree as "needs manual review - gh CLI not available". Do not block or error.
+**If `gh` is not available:** skip the PR check for all feature worktrees; fall back to the ancestry check alone. Report each feature worktree still unmerged as "needs manual review - gh CLI not available". Do not block or error.
 
 ---
 
@@ -14161,6 +14227,82 @@ See `content/references/planning-artifacts.md` §Gate semantics for where this s
 
 **Branch naming:** use the branch naming convention from AGENTS.md. Derive the short title from the ticket title: lowercase, hyphens, ~4-5 words max. The conductor resolves `BRANCH_NAME` here regardless of path.
 
+### Commit and push the planning artifact
+
+Runs exactly once per ticket, on every ticket path, immediately after `BRANCH_NAME` is resolved above and before any engineer spawns. Run only when `brief_path` or `plan_path` is populated - no-op otherwise, and `PLAN_PRESEEDED` is always assigned (`true`/`false`) either way.
+
+1. Run the **stale remote branch preflight** (see Phase 5, "Stale remote branch preflight") here, once, for every spawn class this ticket will use (Elevated single-engineer AND fan-out alike) - **before** step 2's push, not after. Step 2 pushes to `$BRANCH_NAME` unconditionally; running the preflight after that push would let the conductor's own just-landed plan commit look like a foreign stale branch to a later `ls-remote` check and trigger a spurious `-v2` rename, orphaning the plan commit on the un-renamed ref. See the scoping note in Phase 5 for the corresponding exemption on both spawn classes.
+2. Run the commit-and-push procedure below (no checkout, DCO-trailered, pushed by explicit SHA, with conductor-side retry-on-rejection):
+
+```bash
+ARTIFACT_REL="${plan_path:-$brief_path}"   # repo-relative; both fields are
+# guaranteed populated by this procedure's own gate condition ("run only when
+# brief_path or plan_path is populated") - no separate SLUG variable exists
+# anywhere in content/, so ARTIFACT_REL is derived directly from the field that
+# is actually defined, never from an undeclared symbol.
+
+if git -C "${REPO}" check-ignore -q -- "${ARTIFACT_REL}"; then
+  echo "[phase: plan-commit-skipped | docs/planning/ is gitignored in this repo (repo policy: plans stay local) - not committing or pushing.]"
+else
+  git -C "${REPO}" fetch -q origin
+
+  if git -C "${REPO}" ls-remote --exit-code --heads origin "${BRANCH_NAME}" >/dev/null 2>&1; then
+    BASE_REF="origin/${BRANCH_NAME}"
+    VERB="revise"
+  else
+    BASE_REF="origin/${BASE_BRANCH}"
+    VERB="add"
+  fi
+
+  GIT_DIR_ABS="$(git -C "${REPO}" rev-parse --absolute-git-dir)"
+  TMP_INDEX="${GIT_DIR_ABS}/plan-commit-index-$$"
+  export GIT_INDEX_FILE="${TMP_INDEX}"
+  git -C "${REPO}" read-tree "${BASE_REF}"
+  git -C "${REPO}" add -- "${ARTIFACT_REL}"
+  ADD_RC=$?
+  if [ "${ADD_RC}" -ne 0 ]; then
+    echo "WARNING: git add failed (rc=${ADD_RC}) for ${ARTIFACT_REL} - skipping plan commit."
+    unset GIT_INDEX_FILE
+    rm -f "${TMP_INDEX}"
+  else
+    NEW_TREE=$(git -C "${REPO}" write-tree)
+    unset GIT_INDEX_FILE
+    rm -f "${TMP_INDEX}"
+
+    SO_NAME="$(git -C "${REPO}" config user.name)"
+    SO_EMAIL="$(git -C "${REPO}" config user.email)"
+    if [ -z "${SO_NAME}" ] || [ -z "${SO_EMAIL}" ]; then
+      echo "WARNING: git config user.name or user.email is empty - skipping plan commit (DCO trailer cannot be populated)."
+    else
+      COMMIT_MSG="$(printf 'docs(plan): %s %s\n\nSigned-off-by: %s <%s>' "${VERB}" "${ARTIFACT_REL}" "${SO_NAME}" "${SO_EMAIL}")"
+      NEW_COMMIT=$(git -C "${REPO}" commit-tree "${NEW_TREE}" -p "${BASE_REF}" -m "${COMMIT_MSG}")
+
+      if ! git -C "${REPO}" push origin "${NEW_COMMIT}:refs/heads/${BRANCH_NAME}"; then
+        echo "Conductor push rejected (non-fast-forward) - retrying the entire procedure from the top."
+        # Re-run is: fetch again, recompute BASE_REF against the now-current tip, rebuild
+        # the tree and commit, push again. Idempotent and stateless (never reads its own
+        # prior local state - only the current remote tip), so a bare retry is always
+        # correct and requires no special-casing.
+        : # (conductor re-invokes this entire procedure block once; no new logic needed)
+      fi
+    fi
+  fi
+fi
+```
+
+**Known limitation:** the conductor-side retry-from-scratch path has not been executed under a genuine concurrent-write race in any round's testing - reasoned as correct from git's own atomicity guarantees on ref updates, not empirically confirmed under contention.
+
+**Known limitation:** `git check-ignore -q` is a per-path check, run against the actual `ARTIFACT_REL` (`docs/planning/<slug>.md` at Brief tier, `docs/planning/<slug>/` at Plan tier) specifically, so a repo that ignores only some slugs is handled correctly per-slug rather than at the whole-tree level.
+
+**Known limitation:** repeated invocation of this procedure with unchanged artifact content produces an additional, empty (no tree-content-change) commit each time - the procedure does not diff `NEW_TREE` against the prior tip before committing. Harmless (DCO-trailered, does not affect the artifact's own history) but not guarded against.
+
+**Documented, not fixed:** `commit-tree` bypasses the pre-commit hook, not only the commit-msg hook - benign for this docs-only artifact.
+
+3. When the artifact is a Plan directory, `plan_path` was already set to `docs/planning/<slug>/` (repo-relative) when the Plan directory was assembled (`content/references/planning-artifacts.md` §Gate semantics); this subsection consumes that value, it does not set it.
+4. Set `PLAN_PRESEEDED` (`true`/`false`) based on whether this subsection actually committed and pushed (i.e. did not hit the gitignore no-op branch above).
+
+This subsection is reached exactly once per ticket, on every ticket path, before any engineer spawns - it is the fix for gaps 1 and 2 (Plan-tier directories and the promotion-gate path had no commit step), not for gap 3 (re-commit on revision - see DS-124).
+
 **Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands.
 
 **Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH` command. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
@@ -14184,7 +14326,7 @@ Read the orchestration-planner's output to make the routing determination below 
 ### If work is a single logical unit (or units must be sequential):
 
 Spawn one `engineer` agent per unit in sequence. Each agent prompt should include:
-- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit
+- The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, filling in fields from the architect's plan / orchestration-planner output for this unit. `brief_path`/`plan_path` in this block are normalized to absolute paths per the "`brief_path`/`plan_path` normalization" formula given under the parallel fan-out path below - this is the single-engineer construction site the formula's own text names as co-equal to the fan-out one.
 - The plan for this unit: if Phase 3b ran, use the orchestration-planner's output for this unit; if Phase 3b was skipped, use the architect's plan for this unit
 - The branch name to work on
 - The repo path: `$REPO`
@@ -14231,11 +14373,29 @@ Decision table:
 
 The engineer is never asked to handle a rename mid-implementation. The conductor resolves uniqueness once, before the spawn. Log the resolution to `resolution_notes` (one line: `branch_collision: <original> → <renamed> (remote SHA <sha>)`) so the operator can audit later. This preflight runs on every engineer spawn that creates a branch (Elevated single-engineer, fan-out per-unit, Phase 7 fix engineer, and the Trivial-path solo worktree engineer - branch creation on the Trivial path is performed by that engineer in its worktree, see Phase 4).
 
+**Scoping note for the Brief/Plan case only:** when a Brief or Plan governs this ticket, this preflight moves to run exactly once, inside Phase 4's "Commit and push the planning artifact" subsection, BEFORE the plan commit is pushed - for both the Elevated single-engineer AND fan-out per-unit spawn classes on that ticket - not again at this Phase 5 location. Running it here a second time for a Brief/Plan-governed ticket would misread the conductor's own just-pushed plan commit as a foreign stale branch (the decision table below has no row for "SHA present because we pushed it ourselves this phase," so a literal read falls to the stale-branch row and appends a uniqueness suffix, orphaning the plan commit on the un-renamed ref). The Phase 7 fix engineer and the Trivial-path solo worktree engineer are unaffected (Trivial tickets never carry a Brief/Plan and so never reach the Phase 4 planning-artifact subsection; the Phase 7 fix engineer runs after the ticket's branch already exists) and continue running this preflight at its existing location, unchanged.
+
 **Elevated-path engineer-contract extensions.** On the Elevated path, the engineer brief MUST include three additional contract fields (in addition to the standard `outputs`, `tool_scope`, `completion_conditions`, etc.):
 
 - `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
+
+  **`PLAN_PRESEEDED` gates which literal form `create_commands` uses (Elevated single-engineer path only - fan-out per-unit sub-branches are always freshly cut from `origin/$BASE_BRANCH` regardless of this flag, see "Create one worktree per unit" below).** `PLAN_PRESEEDED` is set in Phase 4's "Commit and push the planning artifact" subsection (step 4 there).
+  - `PLAN_PRESEEDED == false` (no Brief/Plan, or the commit-and-push hit the gitignore no-op branch): `create_commands` is the standard create-from-base form: `git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH`.
+  - `PLAN_PRESEEDED == true` (the Phase 4 procedure already pushed a plan commit to `$BRANCH_NAME`): `create_commands` tracks the existing remote branch instead of creating it from base: `git -C $REPO worktree add $WORKTREE_PATH $BRANCH_NAME` (no `-b`, no base ref - the branch already exists on origin, seeded with the plan commit). Using the create-from-base form here would either fail (branch already exists) or silently orphan the plan commit depending on git version; tracking the existing ref is the only correct form once `PLAN_PRESEEDED` is true.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
 - `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
+
+  **Non-fast-forward recovery.** On a rejected (non-fast-forward) push, the engineer runs this specified recovery once:
+
+  ```
+  git -C <worktree> fetch origin $BRANCH_NAME
+  git -C <worktree> rebase origin/$BRANCH_NAME
+  git -C <worktree> push origin HEAD:refs/heads/$BRANCH_NAME
+  ```
+
+  Rebase conflict -> `git -C <worktree> rebase --abort`, return BLOCKED with the conflict output. Retried push ALSO rejected -> return BLOCKED, do not loop.
+
+  **What BLOCKED means for cleanup.** When the retry is exhausted and the engineer returns BLOCKED, its isolation worktree holds an **unpushed commit** - the engineer's actual deliverable, not yet on any ref the PR flow can see. The conductor **must not** run its normal worktree cleanup in this specific BLOCKED state - that cleanup path assumes the branch has already been pushed to origin, and running it here is the exact mechanism by which the ticket's real deliverable would be lost. The worktree must be preserved until a human resolves the underlying rejection.
 
 Extend `completion_conditions` to include: "quality_gates.command exits 0", "commit and push completed per git_finalization", and "quality_gate_results captured in return".
 
@@ -14259,6 +14419,8 @@ After the Skeptic/QA loop resolves: append a partial transition setting the task
 
 **N=1 degenerate case:** If the orchestration-planner returned exactly 1 unit, do NOT invoke the fan-out primitive. Fall through to the standard single-engineer path above.
 
+When this ticket has a Brief or Plan (Phase 4's "Commit and push the planning artifact" subsection ran and did not hit the gitignore no-op branch), `FEATURE_BRANCH` **is** the exact `BRANCH_NAME` value resolved there. Tickets with no Brief/Plan are unaffected; `FEATURE_BRANCH`'s origin for them remains as underspecified as before this ticket (Known limitations).
+
 Use git worktrees to give each engineer an isolated copy. The orchestration-planner's JSONL block provides `unit_slug`, `merge_order`, and `skeptic_strategy` for each unit - read these fields to drive worktree naming, merge ordering, and Skeptic strategy. Before creating worktrees, prune stale state from any prior fan-out:
 
 ```bash
@@ -14281,6 +14443,14 @@ Spawn one `engineer` agent per worktree in a single message (parallel, backgroun
 - The execution contract block from `METHODOLOGY.md §Delegation > Worker preamble`, with fields filled in from the per-unit scope in the planner's JSONL block
 - The unit's `task_id`, acceptance criteria, `files_in_scope`, `quality_cmd`, and worktree path
 - The per-unit scope: extracted from the orchestration-planner's JSONL block for that unit
+- `brief_path_for_engineer`/`plan_path_for_engineer` (see "`brief_path`/`plan_path` normalization" below) are **ticket-level** values, identical across every unit in this fan-out - they are NOT part of the per-unit JSONL scope and must be included in every unit's contract explicitly, not derived from it. This is the fix for Plan tier's own visibility gap: fan-out unit sub-branches are cut from `origin/$BASE_BRANCH`, never `FEATURE_BRANCH` (see "Create one worktree per unit, each rooted from `BASE_BRANCH`" above), so absolute-path delivery here is not optional belt-and-suspenders the way it is on the single-engineer path - it is the *only* visibility mechanism available to a fan-out unit engineer, since no git-native path exists for it at all.
+
+**`brief_path`/`plan_path` normalization.** Applied at TWO construction sites - Phase 5's single-engineer contract construction, and this fan-out per-unit spawn construction - both using the identical, ticket-level (not per-unit) values:
+
+```
+brief_path_for_engineer = brief_path if brief_path.startswith("/") else f"{REPO}/{brief_path}"
+plan_path_for_engineer  = plan_path  if plan_path.startswith("/")  else f"{REPO}/{plan_path}"
+```
 
 **Join condition.** The conductor spawns all N engineers in a single message and waits for all N to return. After all N engineers return, apply the **task-state fold** to each unit's `task_id` and evaluate the join against the folded status - never a raw last-line read:
 
@@ -20421,7 +20591,9 @@ Skip Part D.5 on the **zero-substance path** (already skipped Steps 1-3; no sess
 
 1. **Tool-friction signal.** If `.agentic/events.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file). Filter to lines where `event == "tool_failure_workaround"` AND `data.session_uuid == $CLAUDE_CODE_SESSION_ID`. Each match is a candidate: `category = tool-friction`, evidence `"tool_failure_workaround: <tool> (<domain_tag>) - <note>"`.
 2. **Skeptic-loop-stall signal.** If any `.agentic/loop-state-*.json` (or the legacy `.agentic/loop-state.json`) exists AND its `session_id == $CLAUDE_CODE_SESSION_ID` AND `status == "stalled"`: one candidate per such file, `category = process-escalation`, `scope` defaults to `methodology`, evidence citing `loop_state.termination_reason` (`cap_reached` | `convergence_failure` | `blocked`) plus the `last_phase` and `ticket_id` at time of stall.
-3. **Guardrail-fire signal.** If `.agentic/.abdication-guard-fire-count` exists and its `count >= 1` at wrap time: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`. **Honesty note:** this counter resets to 0 on every genuine new user turn (see `hooks/enforce-no-abdication.py`), so a nonzero count at wrap time reflects only "an abdication-guard loop was present in the session's final turn" — it is NOT a whole-session tally of guardrail fires. State this narrowly in the evidence text; do not describe it as a session-wide count.
+3. **Guardrail-fire signal.** Two independent sub-sources, evaluated separately (a fire in one is not double-counted against the other — they read different files with different scopes):
+   - **(a) Abdication-guard counter.** If `.agentic/.abdication-guard-fire-count` exists and its `count >= 1` at wrap time: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`. **Honesty note:** this counter resets to 0 on every genuine new user turn (see `hooks/enforce-no-abdication.py`), so a nonzero count at wrap time reflects only "an abdication-guard loop was present in the session's final turn" — it is NOT a whole-session tally of guardrail fires. State this narrowly in the evidence text; do not describe it as a session-wide count.
+   - **(b) Enforcement fire-log.** If `.agentic/.enforcement-fires.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file; schema: `{ts, hook, decision, reason}`, see `hooks/lib/enforcement_log.py`) and tally occurrences per `hook` value. If the tally is non-empty: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`, evidence citing the per-hook counts (e.g. `"enforcement-fires: enforce-tier=3, enforce-shippable-edit=1"`). **Honesty note:** this file has no session-correlation field, so the tally is a REPO-WIDE cumulative count across every session that has ever run since the file was created (or last rotated/deleted), not a count scoped to the current session. State this narrowly in the evidence text; do not describe it as this-session-only. `enforce-no-abdication.py` never writes to this file (it keeps its own separate counter per (a) above) — a fire from that hook only ever shows up in signal (a), never here.
 4. **Operator-correction signal.** Using the same session reflection Part D already surveys (no new mechanism — inline LLM reasoning over the transcript), identify up to 5 turns where the operator explicitly corrected, rejected, or expressed frustration with a conductor action this session. Each is a candidate: `category = operator-correction`, evidence = the operator's verbatim correction, trimmed to the relevant sentence(s).
 
 If the combined candidate set across all four signals is empty: emit `[]` and STOP here — no temp file write, no `agentic-feedback` invocation (mirrors Part D's "output `[]` if nothing qualifies"). This keeps Part D.5 latency-free on light and zero-substance sessions where nothing fired.
