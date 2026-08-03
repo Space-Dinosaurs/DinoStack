@@ -1,5 +1,5 @@
 ---
-description: <!--
+description: "/ds-ticket-triage"
 agent: build
 ---
 <!--

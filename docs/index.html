@@ -2185,8 +2185,8 @@
       <div class="rel-card">
         <h4>Worktree Types</h4>
         <ul>
-          <li><strong>Subagent worktrees</strong> (<code>feature/*</code>, <code>fix/*</code>) - one per parallel subagent, branched from the conductor's current branch, created at <code>.agentic/worktrees/&lt;branch-name&gt;</code>. The conductor merges and removes them after sign-off.</li>
-          <li><strong>Isolation worktrees</strong> (<code>worktree-agent-*</code>) - created by the Agent tool when <code>isolation: "worktree"</code> is set. Removed after the conductor confirms no PR is needed.</li>
+          <li><strong>Feature worktrees</strong> (path <code>.agentic/worktrees/&lt;branch-name&gt;</code>) - one per parallel subagent, branched from the conductor's current branch. The conductor merges and removes them after sign-off.</li>
+          <li><strong>Isolation worktrees</strong> (path <code>.claude/worktrees/*</code>) - created by the Agent tool when <code>isolation: "worktree"</code> is set. Removed after the conductor confirms no PR is needed. Classification is by path, never branch name (<code>bin/tests/worktree_model.py</code>'s <code>classify_entry</code> is normative).</li>
           <li><strong>Conductor delegates shippable edits; it does not edit the shippable tree itself.</strong> Every shippable change runs in a subagent worktree branched from origin/main. The conductor edits only exempt artifacts directly.</li>
         </ul>
       </div>

@@ -1,5 +1,5 @@
 ---
-description: /ds-brief
+description: "/ds-brief"
 agent: build
 ---
 # /ds-brief

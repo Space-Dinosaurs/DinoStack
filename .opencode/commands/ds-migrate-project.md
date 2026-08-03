@@ -1,5 +1,5 @@
 ---
-description: /ds-migrate-project
+description: "/ds-migrate-project"
 agent: build
 ---
 # /ds-migrate-project

@@ -168,11 +168,26 @@ for src in "$CONTENT/commands/"*.md; do
   done < "$src"
 
   # Extract description: first non-empty line of the body that is not a
-  # markdown header (does not start with #). Strip leading # chars if the
-  # only non-empty lines are headers (fall back to "<name> command").
+  # markdown header (does not start with #) and not inside a leading HTML
+  # comment block (<!-- ... -->) - several command sources open with a
+  # "Purpose:" comment block before the heading, and without this skip the
+  # description degrades to the literal "<!--" opening marker.
   description=""
+  in_html_comment=0
   for bline in "${body_lines[@]}"; do
     trimmed="${bline#"${bline%%[![:space:]]*}"}"  # ltrim
+    if [[ $in_html_comment -eq 1 ]]; then
+      if [[ "$trimmed" == *"-->"* ]]; then
+        in_html_comment=0
+      fi
+      continue
+    fi
+    if [[ "$trimmed" == "<!--"* ]]; then
+      if [[ "$trimmed" != *"-->"* ]]; then
+        in_html_comment=1
+      fi
+      continue
+    fi
     if [[ -n "$trimmed" ]] && [[ "$trimmed" != \#* ]]; then
       description="$trimmed"
       break

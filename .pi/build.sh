@@ -124,9 +124,12 @@ for src in "$CONTENT/commands/"*.md; do
   if [[ -z "$title" ]]; then
     title="$name"
   fi
+  # Escape backslash first, then double-quote, for a YAML double-quoted scalar
+  title_escaped="${title//\\/\\\\}"
+  title_escaped="${title_escaped//\"/\\\"}"
   cat > "$dst" <<PROMPT_EOF
 ---
-description: Run agentic-engineering command $title
+description: "Run agentic-engineering command $title_escaped"
 argument-hint: "[arguments]"
 ---
 Use the /skill:agentic-engineering skill. Load /skill:agentic-engineering, then read commands/$name.md from the loaded agentic-engineering skill directory. Execute that command with these arguments:

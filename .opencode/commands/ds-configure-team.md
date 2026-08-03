@@ -1,5 +1,5 @@
 ---
-description: /ds-configure-team - Cross-Harness Team Setup
+description: "/ds-configure-team - Cross-Harness Team Setup"
 agent: build
 ---
 # /ds-configure-team - Cross-Harness Team Setup

@@ -129,6 +129,45 @@ Performance: < 5 ms per call on typical transcripts (one file read for config,
              regardless of transcript evidence) or no stall-commitment marker
              is present in it (classifier 2 cannot fire without one) - see
              main().
+
+Regression corpus: hooks/tests/test-corpus-abdication.py is the permanent
+             regression corpus for this hook. FOUR change attempts were each
+             measured unsafe and dropped - do not re-attempt any of them
+             without first passing that corpus:
+               1. Widening _PERMISSION_PHRASES: measured 11/17 then 7/8 false
+                  blocks on genuine hard-stop questions.
+               2. Narrowing the design-fork negative gate to co-occurrence:
+                  composes with (1) to strip hard-stop protection.
+               3. A flat whole-block "(recommended)" substring test, no
+                  per-item split, routed through _ABDICATION_REASON: rejected
+                  on Skeptic findings against the plan proposing it - never
+                  built, never reached a measurable shape. Hard-gate/surface-
+                  and-proceed suppression and code-fence/blockquote exclusion
+                  must be present from first authoring, not bolted on after
+                  review. None of the corpus's 34 rows contain an
+                  "## Operator decisions" heading or a "(recommended)"/
+                  "Recommendation:" marker, so none exercise a ballot
+                  classifier's path, leaving Groups 3/5/7 as the floor for
+                  the OTHER rejected attempts only; a revival must add a
+                  compliant ALLOW row and a genuine co-equal-ballot BLOCK
+                  row, and must route through a dedicated reason constant
+                  that does not carry an unconditional "proceed now"
+                  directive. A per-item, fence-masking design with a
+                  dedicated non-"proceed now" reason exists at
+                  feat/prose-ballot-guard (PR #519) - per its PR body, 0
+                  Critical findings across three Skeptic rounds, and it
+                  passes this corpus - but it deliberately exempts its
+                  ballot check from the negative gate and does not handle
+                  ">"-blockquote headings, so it does not itself satisfy the
+                  two requirements above; that tension is unresolved.
+               4. Widening the destructive gate with
+                  drop/alter table|column|index|database|schema: measured
+                  13/13 false suppressions.
+             Any NEW classifier added here should route its injected
+             directive through _STALL_REASON's two-exit pattern (proceed now
+             OR explicitly wait for authorization), not _ABDICATION_REASON's
+             unconditional "proceed now" - a false positive on the latter is
+             unrecoverable.
 """
 
 import json
