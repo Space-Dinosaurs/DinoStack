@@ -122,67 +122,16 @@ Do NOT offer a Y/N prompt. Do NOT proceed.
 
 **2c - Dirty tree check:**
 
-DinoStack is the one repo where the `/ds-pull-and-install` target is also the maintainer's own dev clone, and the methodology's memory pipeline continuously rewrites the *tracked* root `MEMORY.md` as a curated artifact. A generic consumer repo should never have a dirty tracked `MEMORY.md` at pull time, so this carve-out is gated to fire only when this repo IS the methodology itself - firing it unconditionally in a consumer repo would MASK a real problem instead of surfacing it.
-
-Scope guards:
-- This entire carve-out applies to UPDATE-FLOW only (this step is skipped entirely for FRESH-CLONE-FLOW, which has no dirty tree to check).
-- Consumer repos (the `.gitignore` self-marker absent) are completely unchanged - `CHURN_ALLOWLIST_ENABLED=0` routes them through the exact same stop-and-report behavior that exists today.
-- Matching is exact repo-root path only (no globs), so a genuine mid-authored `MEMORY.md` edit by the maintainer is stashed and popped safely too - the only failure mode in that case is a pop conflict in Step 4a-1, which is surfaced to the user rather than silently resolved.
-
-Define the churn allowlist and the gate:
-
-```bash
-# Exact repo-root paths (NOT globs) that the memory pipeline rewrites locally.
-# Extensible - add more exact paths here if other tracked files develop the
-# same locally-churned-but-curated-in-git pattern.
-CHURN_ALLOWLIST=("MEMORY.md")
-
-# Churn-allowlist behavior is ENABLED only when this repo is DinoStack itself,
-# detected via the self-marker comment in .gitignore.
-if grep -q "# DinoStack IS the methodology" "$AE_REPO_DIR/.gitignore" 2>/dev/null; then
-  CHURN_ALLOWLIST_ENABLED=1
-else
-  CHURN_ALLOWLIST_ENABLED=0
-fi
-```
-
 ```bash
 DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
 ```
+If non-empty, **stop** (no auto-stash) with:
 
-- If `DIRTY` is empty, proceed to Step 2d as today.
-- If `DIRTY` is non-empty, partition the dirty paths into allowlisted vs other. Match exact repo-root paths against `CHURN_ALLOWLIST` (no globs) - illustrative partition (handles the common ` M MEMORY.md` porcelain line):
-  ```bash
-  OTHER_DIRTY=""
-  CHURN_ONLY_DIRTY=0
-  CHURN_PATHS=()
-  while IFS= read -r line; do
-    [[ -z "$line" ]] && continue
-    path="${line:3}"
-    matched=0
-    for allowed in "${CHURN_ALLOWLIST[@]}"; do
-      if [[ "$path" == "$allowed" ]]; then
-        matched=1
-        CHURN_PATHS+=("$path")
-        break
-      fi
-    done
-    if [[ "$matched" -eq 0 ]]; then
-      OTHER_DIRTY+="$line"$'\n'
-    fi
-  done <<< "$DIRTY"
-  ```
-  - If `CHURN_ALLOWLIST_ENABLED=0`: **stop** (no auto-stash), unchanged behavior for consumer repos, with:
+> "Cannot pull: the repo at `<AE_REPO_DIR>` has uncommitted changes. Commit, stash, or discard them first, then re-run."
 
-    > "Cannot pull: the repo at `<AE_REPO_DIR>` has uncommitted changes. Commit, stash, or discard them first, then re-run."
+Show the `git status --porcelain` output.
 
-    Show the `git status --porcelain` output.
-  - Else if `OTHER_DIRTY` is non-empty (any non-allowlisted path is dirty): **stop** (no auto-stash) with the same message and `git status --porcelain` output as above. Do NOT stash even the churn-only paths in this case - the presence of other dirty files means the tree needs manual attention.
-  - Else (all dirty paths are in `CHURN_ALLOWLIST`): do NOT stop. Set `CHURN_ONLY_DIRTY=1` (the `CHURN_PATHS` array is already populated above) and inform the user verbatim:
-
-    > "MEMORY.md has local maintainer churn; auto-stashing it around the pull (this repo curates MEMORY.md by hand)."
-
-    Then proceed to Step 2d. **Do NOT stash here.** The actual `git pull --ff-only` runs in Step 4a, after the Step 3 user-confirm gate - and `git pull --ff-only` refuses to overwrite a dirty tracked file, so the stash must bracket the real pull in 4a, not sit across the confirm gate (where a Step 3 cancel would otherwise orphan an already-created stash).
+(A `CHURN_ALLOWLIST` carve-out lived here between #390 and DS-129, allow-listing a tracked root `MEMORY.md` that DinoStack's memory pipeline rewrote locally. DS-129 untracked root `MEMORY.md` in this repo, so the file the carve-out existed for can no longer appear in `git status --porcelain` - it was removed wholesale rather than left dead. If another tracked file develops the same locally-churned-but-curated-in-git pattern, reintroduce the mechanism then rather than resurrecting this dead code speculatively.)
 
 **2d - Divergence check:**
 ```bash
@@ -225,45 +174,14 @@ This explicit confirmation is what authorizes the side-effecting Step 4 as a con
 
 **4a - Pull:**
 
-If `CHURN_ONLY_DIRTY=1` (set in Step 2c), bracket the pull with a stash push/pop so `git pull --ff-only` does not refuse to run against the dirty `CHURN_PATHS`:
-
 ```bash
-if [[ "${CHURN_ONLY_DIRTY:-0}" -eq 1 ]]; then
-  git -C "$AE_REPO_DIR" stash push -m "pull-and-install: maintainer churn" -- "${CHURN_PATHS[@]}"
-fi
-
 OLD_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
 git -C "$AE_REPO_DIR" pull --ff-only origin main
 PULL_STATUS=$?
 NEW_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
-
-# Pop ONLY on a successful pull. On a failed pull the stash is left in place (see below).
-if [[ "${CHURN_ONLY_DIRTY:-0}" -eq 1 && "$PULL_STATUS" -eq 0 ]]; then
-  git -C "$AE_REPO_DIR" stash pop
-fi
 ```
 
-On non-zero `PULL_STATUS`: stop and show the error verbatim. Do not proceed to adapter installs. (If a stash was pushed before a failed pull, leave the stash in place and tell the user it is retained at `stash@{0}` for manual recovery - do not attempt an automatic pop after a failed pull.)
-
-**4a-1 - Pop-conflict handling:** upstream may also have edited `MEMORY.md` - this is common. If `git stash pop` reports a conflict, do NOT auto-resolve. Surface both sides to the user and offer the standard three options:
-
-1. Resolve-and-continue (user edits `MEMORY.md` to reconcile, then confirms).
-2. Abort the pop, keeping the stash (`git -C "$AE_REPO_DIR" checkout HEAD -- MEMORY.md` to discard the conflicted merge and restore the post-pull HEAD content; the stash entry stays intact for later manual recovery).
-3. Discard local (drop the local churn entirely and keep upstream's version).
-
-The stash is RETAINED on conflict - git keeps a conflicting stash rather than dropping it - so nothing is lost regardless of which option the user picks. Never blind-resolve, and never silently `stash drop` on conflict.
-
-After a resolved conflict, clear the unmerged index entry without committing (this repo does not commit `MEMORY.md` churn through this flow):
-```bash
-git -C "$AE_REPO_DIR" add MEMORY.md
-git -C "$AE_REPO_DIR" restore --staged MEMORY.md
-git -C "$AE_REPO_DIR" stash drop
-```
-This returns `MEMORY.md` to its ` M` (modified, unstaged) working-tree state. The `stash drop` removes the conflict-retained stash entry now that the local churn has been reconciled into the working tree - this only applies on the resolve path; the abort path in option 2 above intentionally keeps the stash.
-
-On a CLEAN pop (no conflict), git drops the stash automatically - no further action needed.
-
-When `CHURN_ONLY_DIRTY` is unset or `0`, Step 4a behaves exactly as today (no stash push/pop, no conflict handling).
+On non-zero `PULL_STATUS`: stop and show the error verbatim. Do not proceed to adapter installs.
 
 **4a-2 - Hook-change note:**
 ```bash
