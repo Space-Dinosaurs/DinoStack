@@ -22,6 +22,8 @@ A portable package of the agentic engineering protocol for AI-assisted software 
 
 - Resident-set budget ratchet (DS-68 redo, #532): `scripts/check-resident-budget.sh`, workflow `.github/workflows/resident-budget.yml`, regression suite `bin/tests/test_check_resident_budget.sh`. `check-resident-budget` is a required status check on `main` (ruleset `14778332`, 15 checks total). Operating rules - what ratchets when, and why a busted budget is never fixed by raising THRESHOLD - live in `MEMORY.md`, not here.
 
+- Root `MEMORY.md` is intentionally untracked here (DS-129), same rationale as `/decisions.md` and `/.agentic/*` above: it's the methodology's own self-improvement scratch, not a shippable artifact for consumer projects to inherit. `MEMORY-archive.md` is deleted and the archive pattern retired (DS-130, merged) - an archived entry stopped being enforced the moment it left the always-loaded file. Consequently a fresh clone and every worktree-isolated engineer have no `MEMORY.md`; any fact an engineer needs belongs in `AGENTS.md` or the spawn brief, not an assumed local memory file.
+
 ## Tools
 - GitHub operations: use `gh` CLI - do not use GitHub MCP
 - `gh pr create` requires an authenticated `gh` session (`gh auth status`). Run `gh auth login` if needed, then `gh pr create`.

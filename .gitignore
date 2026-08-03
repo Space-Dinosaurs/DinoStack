@@ -38,6 +38,9 @@ node_modules/
 # use to track this file do not apply to this repo.
 /decisions.md
 
+# DinoStack's own durable-facts store stays local, same as /decisions.md above.
+/MEMORY.md
+
 # Local harness config for this checkout. settings.local.json above is
 # already ignored; this covers the non-local variant, which is also
 # machine-local here.
