@@ -769,20 +769,29 @@ def test_toggle_doc_sync_full_eight_site_checklist():
 
 # The log_fire() enforcer-caller subcount ("N of the M enforce-*.py hooks
 # call lib/enforcement_log.py") is restated across hooks/AGENTS.md and
-# content/references/events-log.md in THREE different grammatical forms -
-# "six of the seven", the bare cardinal "the six enforce-*.py hooks", and
-# "one of the six consumer hooks" - none of which a single-phrasing sweep
-# catches as a set. This is why sites kept surviving prior sweeps: a check
-# keyed to one exact string finds only the sites written in that exact form.
+# content/references/events-log.md in at least FOUR different grammatical
+# forms - "six of the seven", the bare cardinal "the six enforce-*.py
+# hooks", "one of the six consumer hooks", and a decomposed enumeration
+# ("(five hooks) ... (`enforce-planning-artifact-spawn.py`)" that sums to
+# the same total without using the word "six" or "seven" at all - none of
+# which a single-phrasing sweep catches as a set. This is why sites kept
+# surviving prior sweeps: a check keyed to one exact string, or even one
+# regex shape, finds only the sites written in that exact form.
 #
-# Site inventory (all reference the same fact: 7 enforce-*.py hooks on
-# origin/main today, 6 of them call log_fire; the sibling turn-shape-hook
-# unit adds the 8th enforcer and makes it 7-of-8 post-merge):
+# Site inventory (all reference the same fact: 8 enforce-*.py hooks post-
+# merge with the sibling turn-shape-hook unit, 7 of them call log_fire,
+# split 5 deny + 2 allow_advisory - `enforce-planning-artifact-spawn.py`
+# and `enforce-turn-shape.py`):
 #   hooks/AGENTS.md:43  - "N of the M enforce-*.py hooks" (table cell)
 #   hooks/AGENTS.md:48  - bare cardinal "the N enforce-*.py hooks'"
 #   hooks/AGENTS.md:81  - "N of the M enforce-*.py hooks" (prose)
 #   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
-#   events-log.md:129   - "one of the N consumer hooks named above"
+#   events-log.md:129   - "one of the N consumer hooks enumerated below"
+#   events-log.md:130   - decomposed enumeration: 5 deny + 2 allow_advisory,
+#                         pinned by NAMED MEMBERS rather than a number so
+#                         it does not go stale again when the total changes
+#                         (e.g. a ninth enforcer added later that also
+#                         denies does not require touching this pin).
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
@@ -802,17 +811,32 @@ _ENFORCER_SUBCOUNT_SITES = [
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        'one of the seven consumer hooks named above',
+        "one of the seven consumer hooks enumerated below",
+    ),
+    (
+        REPO_ROOT / "content" / "references" / "events-log.md",
+        '`"deny"` (five hooks - `enforce-askuserquestion-default.py`, '
+        "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
+        "`enforce-shippable-edit.py`, `enforce-tier.py`) and `\"allow_advisory\"` "
+        "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
     ),
 ]
 
-# Bidirectional: "six" followed by "enforce" within one sentence (catches
-# "six of the seven enforce-*.py" and "the six enforce-*.py hooks"), OR
+# Bidirectional and case-insensitive: "six" followed by "enforce" within one
+# sentence (catches "six of the seven enforce-*.py", "the six enforce-*.py
+# hooks", and the capitalized "Six of the seven enforce-*.py hooks"), OR
 # "enforce" followed by "six" within one sentence (catches "...enforce-
 # shippable-edit" - one of the six consumer hooks"). The `[^.]{0,80}` bound
 # stops the match from crossing a sentence boundary into an unrelated "six".
+# Known limitation (tracked as a follow-up, not fixed here): this sweep is
+# lowercase/capitalized-word-form and value-keyed to "six" - it goes silent
+# once the live count moves past seven (when "seven" itself becomes stale),
+# and it does not catch numeral ("6 of the 7") or decomposed-enumeration
+# forms (the events-log.md:130 defect this pass fixed is pinned by exact
+# membership text above, not by this regex).
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
-    r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b"
+    r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b",
+    re.IGNORECASE,
 )
 
 

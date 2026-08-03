@@ -126,8 +126,8 @@ Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from in
 ```
 
 - `ts`: ISO8601 UTC with millisecond precision (matches the `events.jsonl` convention).
-- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the seven consumer hooks named above.
-- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (five hooks) and `"allow_advisory"` (`enforce-planning-artifact-spawn.py`).
+- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the seven consumer hooks enumerated below.
+- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (five hooks - `enforce-askuserquestion-default.py`, `enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, `enforce-shippable-edit.py`, `enforce-tier.py`) and `"allow_advisory"` (two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`).
 - `reason`: human-readable reason string, truncated to 800 chars (the same text fed back to the model via `permissionDecisionReason`).
 
 **No session correlation.** Unlike `events.jsonl`, this file carries no `session_uuid` or equivalent field - `log_fire()` writes only `cwd`-scoped, not session-scoped. A tally over this file is therefore a REPO-WIDE cumulative count across every session that has ever run since the file was created (or last rotated/deleted away), never a single-session count. Any consumer reporting this file's contents (e.g. `/ds-wrap` Part D.5 signal 3(b)) must state this scope explicitly.
