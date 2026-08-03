@@ -788,10 +788,15 @@ def test_toggle_doc_sync_full_eight_site_checklist():
 #   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
 #   events-log.md:129   - "one of the N consumer hooks enumerated below"
 #   events-log.md:130   - decomposed enumeration: 5 deny + 2 allow_advisory,
-#                         pinned by NAMED MEMBERS rather than a number so
-#                         it does not go stale again when the total changes
-#                         (e.g. a ninth enforcer added later that also
-#                         denies does not require touching this pin).
+#                         pinned by the FULL LITERAL - cardinals ("five
+#                         hooks", "two hooks") AND named members together.
+#                         This is deliberately count- AND membership-bound:
+#                         a ninth enforcer added later (denying or advisory)
+#                         changes either the cardinal or the member list, so
+#                         either change breaks this exact-substring pin and
+#                         forces the enumeration to be revisited by hand -
+#                         it is not a count-agnostic pin that tolerates a
+#                         stale number as long as names are unchanged.
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
