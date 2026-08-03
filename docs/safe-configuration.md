@@ -100,6 +100,16 @@ hook installed separately:
   (absent/malformed config = guard does not run; the shipped template and
   `/ds-init-project` set it); set to `false` to opt out once enabled;
   disable via `AE_ABDICATION_GUARD_DISABLE=1`.
+- [`enforce-turn-shape.py`](../hooks/enforce-turn-shape.py) - Stop hook;
+  advisory only - it never blocks the stop, it only checks the conductor's
+  final turn against the fixed-shape/warranted-turn rule and logs a finding;
+  controlled by `turn_shape_guard_enabled` in `.agentic/config.json`, default
+  `true` (absent key resolves to on - the inverse of the abdication guard's
+  fail-open-to-inactive, because this hook never blocks); set to `false` to
+  opt out; disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Unlike its
+  sibling enforcers, its `~/.claude/settings.json` registration is **guarded**
+  (`test -f ... && python3 ... || exit 0`), so a reverted PR removing the
+  script cannot leave a dangling blocking Stop entry.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 

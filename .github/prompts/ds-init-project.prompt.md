@@ -897,7 +897,8 @@ Seed with these documented defaults exactly:
   "ticket_driven": "offer",
   "rework_detection": true,
   "pending_merge_sweep": true,
-  "tracker_state_diagnostic": true
+  "tracker_state_diagnostic": true,
+  "turn_shape_guard_enabled": true
 }
 ```
 
@@ -923,6 +924,7 @@ Seed with these documented defaults exactly:
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. See `content/references/ticket-rework.md` §Config toggle for full semantics.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper` for full semantics.
+- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive, because this hook never blocks). When active, an advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule and logs a finding; it never blocks the stop. Set to `false` to opt out. Disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. See `content/references/conductor-turn-format.md` for full semantics.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)

@@ -71,7 +71,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/ds-init-project`. Nineteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/ds-init-project`. Twenty toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -92,6 +92,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
+- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive, because this hook never blocks). When active, a Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule and logs an advisory finding; it never blocks the stop. Set to `false` to opt out; disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Canonical reference: `content/references/conductor-turn-format.md`.
 
 **Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
 

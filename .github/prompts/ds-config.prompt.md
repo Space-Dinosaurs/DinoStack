@@ -31,7 +31,7 @@ No subcommands or flags. Selection is done interactively.
      or AGENTS.md marker, depending on scope prompt.
    - Project toggles from `.agentic/config.json`: `auto_merge_on_ci_green`,
      `commit_telemetry`, `capability_preflight_mode`, `abdication_guard_enabled`,
-     `ticket_driven`, `pending_merge_sweep`, `tracker_state_diagnostic`, and any additional config-file toggles.
+     `ticket_driven`, `pending_merge_sweep`, `tracker_state_diagnostic`, `turn_shape_guard_enabled`, and any additional config-file toggles.
 
 3. **Value selection prompt.** Lists valid values for the chosen setting, with the
    current default marked. For boolean toggles: `true / false`. For enumerated
@@ -71,6 +71,7 @@ No subcommands or flags. Selection is done interactively.
 | Ticket-driven | `ticket_driven` | `.agentic/config.json` |
 | Pending-merge sweep | `pending_merge_sweep` | `.agentic/config.json` |
 | Tracker state diagnostic | `tracker_state_diagnostic` | `.agentic/config.json` |
+| Turn-shape guard | `turn_shape_guard_enabled` | `.agentic/config.json` |
 
 **Env kill-switches (print-only, not applied to running session):**
 `AE_SINGULARITY_GUARD_DISABLE`, `AE_TIER_GUARD_DISABLE`, `AGENTIC_QUIET`.

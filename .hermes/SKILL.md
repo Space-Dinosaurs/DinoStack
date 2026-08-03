@@ -152,6 +152,8 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Operator decisions go last in the turn.** When a conductor turn surfaces anything requiring an operator choice, it appears at the very end, under the literal heading `## Operator decisions` - not `## Decisions`. Nothing follows the heading: no status line, no next steps, no caveats, no phase breadcrumb, no "meanwhile", and the turn ends there: no further tool calls. Only genuine choices belong in the block - each item must already have passed the five-source default derivation above and be either a hard-stop item or a surface-and-proceed item with no derivable default; the ban on co-equal ballots above applies identically to prose asks. Mark the recommended action in each item with the same `(Recommended)` suffix (or an equivalent `Recommendation:` lead-in) the AskUserQuestion precondition above requires for the tool path - the token that lets both paths be mechanically distinguished from a ballot. Order items most-blocking first; do not impose a numeric cap. When a turn has nothing to decide, omit the heading entirely. Read `content/references/delegation-detail.md` §Operator Decisions Block Rationale for the full worked rationale on marker necessity, item content, and placement discipline.
 
+**Fixed-shape, warranted turns.** When authoring or reviewing a conductor status turn: read `content/references/conductor-turn-format.md` §Purpose for the fixed slot order (identity line first, then `State`/`Running`/`Blocked` one line each - 1-3 status lines per turn, the forced-yield shape the sole exception; `## Operator decisions`, when present, is additional and goes last) and the four firing warrants (decision, stoppage, completion, answer) that justify writing anything at all - everything else is a silent continue.
+
 **Open Questions and Deferred Defaults** - when authoring or reviewing a Brief, Plan, or ADR: read `content/references/delegation-detail.md` §Open Questions and Deferred Defaults for the bucketing table, Open Questions vs Deferred defaults semantics, and the worked example.
 
 **Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s `BASE_BRANCH` stop-and-ask, which fires when the project declares no base branch (no `BASE_BRANCH:` line in `AGENTS.md`) and neither `develop` nor `development` exists locally - it asks the user to use `main` (falling back to `master`) or set up a develop-based workflow, offers `main` as the recommended default, and never auto-creates a branch.
@@ -367,7 +369,7 @@ If a task initially classified as Low reveals Elevated signals during execution,
 
 After completing a Low-risk change, re-read it in full. Verify intent, edge cases, and side effects. If any concern arises, reclassify as Elevated.
 
-The conductor reads `.agentic/config.json` to resolve nineteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
+The conductor reads `.agentic/config.json` to resolve twenty project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). Read `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral) for the full toggle list.
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
@@ -2072,6 +2074,122 @@ and proceeds (soft-fail).
 
 ---
 
+### conductor-turn-format
+
+# Conductor Turn Format
+
+## Purpose
+
+The conductor's default output is noise. Every operator turn read is attention spent; a status-only turn spends that attention for no return, and an unstructured turn forces the operator to rebuild context on every check-in - a cost multiplied across many concurrent sessions. This file exists to guard that attention. North Star pillar 1 states the requirement directly (`docs/overview/vision.md:19`):
+
+> "Guard operator attention. Surface decisions and work-stoppages, not status."
+
+Two mechanisms enforce this: a fixed slot order for any turn that IS written (Rule A, §4), and an emission gate that decides whether a turn should be written at all (Rule B, §2). Neither rule replaces judgment - both are the mechanical form of the same North Star sentence.
+
+## The four warrants (Rule B)
+
+A conductor turn is warranted only when at least one of these four conditions holds. Each has a one-line test:
+
+1. **Decision** - a `## Operator decisions` heading is present in the turn.
+2. **Stoppage** - a `Waiting:` line is present in the turn (see §7, forced yield).
+3. **Completion** - the turn contains `[phase: complete]` or an explicit terminal-completion phrase. A bare `done`, `shipped`, or `merged` deliberately does **not** count - those words commonly appear in ordinary status prose ("unit 2 merged", "PR merged, pulling main") and are too weak a signal on their own to carry the completion warrant.
+4. **Answer** - the turn contains a quoted fragment responding to the operator's immediately-preceding message. This is the weakest of the four and best-effort only; it exists so a direct question never goes unanswered, not as a loophole for narration.
+
+Everything else - agent spawned, agent returned, phase advanced, unit merged, CI green - is a silent continue. No turn is written for it.
+
+## Scope filter
+
+A conductor turn reports on **this session's work only**. Do not mention other concurrent sessions, other tickets, or unrelated in-flight work - the operator is tracking those elsewhere and a cross-session mention adds cost without adding a decision. Do not include rationale unless a decision surfaced in the *same* turn depends on it; rationale for past decisions belongs in the PR body, the plan artifact, or a memory file (see §5, bullet 3).
+
+## The fixed slot template (Rule A)
+
+When a turn is warranted, it follows this fixed order:
+
+1. **Identity line first**: `ticket · branch · [phase: x]`. The `[phase: label]` breadcrumb itself is governed by `content/references/subagent-protocol.md` Rule 6 - read it there for firing points and the crash-recovery rationale; it is not restated here to avoid two copies drifting.
+2. **Status slots**: `State`, `Running`, `Blocked` - one line each, omitted when empty. Capped at **1-3 status lines per turn**, with the forced-yield shape (§7) as the sole exception to the cap itself, not merely to its line contents: a forced-yield turn drops `State`/`Running`/`Blocked` entirely and instead carries one `Waiting:` line per agent, however many that is - the count is unbounded, not re-capped at 1-3.
+3. **`## Operator decisions`, last.** Placement and internal formatting are governed by `content/sections/02-delegation.md` - read it there rather than here.
+
+**The 1-3 line cap applies to the status slots only.** `## Operator decisions`, when present, is **additional** to that cap, not counted against it. This is a deliberate asymmetry, not an oversight: the kernel paragraph in `content/sections/02-delegation.md` that governs the Operator decisions block mandates a multi-line format per decision item - "the recommended action, one line of why, and the reversal offer" - and explicitly forbids imposing a numeric cap on the number of items, because a cap with no overflow rule would mechanically force the conductor to hide a decision. Reading the 1-3 line cap here as applying to the whole turn, decisions block included, would put this file in direct contradiction with that kernel paragraph. It does not: the cap governs `State`/`Running`/`Blocked` only.
+
+## Length discipline
+
+This section supersedes and absorbs `.agentic/memory/keep-conductor-updates-short.md` into the always-loaded reference tier. It carries forward all six "How to apply" bullets from that memory entry, each with an explicit disposition note against this file's rules.
+
+- *"Default to 1-3 lines per turn. Result first. No preamble, no recap of what I just did."* - the line-count half of this bullet is **relocated** to Rule A above (§4) and now applies specifically to the status slots. The "Result first. No preamble, no recap" half is reproduced here verbatim and stands independently of the cap: lead with the outcome, never with a restatement of the work already visible in the transcript.
+- *"Progress pings while agents run: one line, or say nothing."* - verbatim; unchanged.
+- *"Do NOT explain reasoning, trade-offs, or rejected alternatives unless asked - those belong in the PR body, the plan artifact, or a memory file, not the chat turn."* - reproduced in full, including the routing-destination clause. That clause matters: it is the part that says where the excluded content goes, not just that it is excluded.
+- *"Surface a finding only when it changes what the operator would do. 'Worth knowing about' is usually not."* - verbatim; unchanged.
+- *"`## Operator decisions`: the recommended action and one line of why. Nothing else."* - **not restated here.** `content/sections/02-delegation.md` and `content/references/delegation-detail.md` §Operator Decisions Block Rationale both already cover this in fuller form (the recommendation-plus-confirmation shape, the "(Recommended)" label convention, the ban on co-equal ballots). A third copy here would be a third place to drift.
+- *"Final completion: what shipped, where it landed, what is left. Not how it was built."* - verbatim; unchanged.
+
+Closing line, verbatim: *"Length is the default failure mode here, not brevity. When unsure, cut."*
+
+## Worked example - a normal turn
+
+```
+DS-123 · fix/foo · [phase: skeptic-review]
+State: 2 of 3 units merged, unit 3 in review
+Running: skeptic on unit 3 (~4 min)
+Blocked: nothing
+
+## Operator decisions
+1. <action> - <one line why>. Reply STOP to skip.
+```
+
+## Worked example - forced yield
+
+When all work is with background agents and the conductor must end its turn - no decision, no completion, no answer pending, only a stoppage on background work - the turn collapses to a `Waiting:` list:
+
+```
+DS-123 · fix/foo · [phase: skeptic-review]
+Waiting: skeptic - unit 3 correctness review
+Waiting: qa-engineer - unit 3 browser scenarios
+```
+
+One `Waiting:` line per agent, naming the agent and what it is waiting for. Nothing else. No state recap, no phase narration, no next-steps, no "meanwhile" commentary, no restating what was already reported in a prior turn. The operator's requirement, as recorded in ticket DS-122: *"It should list the agents it's waiting on and why and that's it. Not a whole bunch of extra stuff, only the important and necessary information always."*
+
+## Worked non-example - the silent continue
+
+**REJECTED (INVALID - no warrant):**
+
+```
+DS-123 · fix/foo · [phase: engineer-spawned]
+State: engineer returned unit 2, spawning skeptic now
+```
+
+This carries no decision, no `Waiting:` line, no completion phrase, and answers no operator question. It is a status ping, and per Rule B it should not have been written at all.
+
+**CORRECT behavior for the same moment:** say nothing. Spawn the skeptic and keep working. The next turn written is whichever of the four warrants fires next - most likely the skeptic's findings surfacing a decision, or a forced-yield `Waiting:` turn if the conductor's own work is now exhausted and only background agents remain.
+
+## Edge case: interaction with the abdication guard
+
+This section documents an **interaction**, not a "no conflict" - the honest claim is that the two hooks never contradict, not that they are unrelated. `hooks/enforce-no-abdication.py` runs three classifiers OR-gated together: `_is_abdication` (the classic permission-seeking interrogative), `_is_stalled_surface_and_proceed` (an announced-then-unexecuted default), and `_is_prose_ballot` (a co-equal ballot lacking a `(Recommended)`/`Recommendation:` marker). The turn-shape hook described in §10 below is a separate mechanism. Three points establish how they relate:
+
+1. **Severity is asymmetric by design.** The turn-shape hook is advisory-only: it always exits 0 and never blocks the current stop; its finding surfaces as additional context on the *next* turn. The abdication guard can exit 2 and block the current stop outright. Only one of the two mechanisms can ever actually block a turn.
+2. **The axes are disjoint.** The turn-shape hook inspects structural shape and *warrant presence* - whether a `## Operator decisions` heading exists at all, a boolean. It never inspects whether individual decision items carry a `(Recommended)`/`Recommendation:` marker; that inspection belongs exclusively to `_is_prose_ballot`. Because the two hooks check different properties of the text, they cannot contradict each other - at most both fire additively on the same turn ("fix your identity line" from one, "fix your ballot markers" from the other), and those two findings are never mutually exclusive.
+3. **Convergent steady state.** A spec-compliant turn - correct fixed-slot shape, and any `## Operator decisions` items carrying a `(Recommended)` marker - suppresses `_is_abdication` (a documented negative-gate coupling: the marker is one of the tokens `_is_abdication` inspects) and suppresses `_is_prose_ballot` (no unmarked items to flag). The turn-shape hook's own forced-yield shape check is separately gated off in this case because the `decision` warrant is present. All three mechanisms independently agree there is nothing to flag on a correctly-shaped turn - arrived at by two unrelated code paths, not by one hook deferring to the other.
+
+State plainly: **a silent continue is the opposite of abdication.** The abdication guard fires on permission-seeking language and on an announced-then-unexecuted default. It never fires on silently continuing work with no turn written at all - that is exactly the behavior Rule B (§2) mandates for the non-warranted case, and the two mechanisms agree on it.
+
+## Hook contract
+
+`hooks/enforce-turn-shape.py` implements the checks in §2 and §4 mechanically.
+
+- **Output.** Non-blocking. On a finding, emits `{"hookSpecificOutput": {"hookEventName": "Stop", "additionalContext": "TURN-SHAPE: <finding>"}}` and exits 0. Exit is 0 unconditionally - this hook can never block a stop.
+- **Config toggle.** `turn_shape_guard_enabled` in `.agentic/config.json`, **default ON when the key is absent.** This is deliberately inverted from `abdication_guard_enabled` (which defaults OFF when absent and requires explicit opt-in): because this hook never blocks, there is no downside symmetric to the abdication guard's block-by-default risk, so the safer default here is to run.
+- **Kill switch.** `AE_TURN_SHAPE_GUARD_DISABLE=1` disables per-session, matching the convention used by the abdication guard's own kill switch (`hooks/enforce-no-abdication.py`).
+- **Classification order.** Warrant classification (§2) runs first and is authoritative. The forced-yield shape check (§4, §7) is strictly subordinate: it fires only when `stoppage` is the sole warrant present on the turn - a turn that also carries a decision, completion, or answer warrant is exempt from the forced-yield shape requirement even if it also contains a `Waiting:` line.
+- **Registration is guarded**, unlike its sibling hooks: `test -f <script> && python3 <script> || exit 0`. This is deliberate - a missing script under the unguarded pattern used by other hooks would exit 2 (the blocking code) after a revert or partial checkout, which is exactly the failure this hook must never cause given its advisory-only contract.
+- **Fail-open.** A top-level exception guard wraps the hook body; any unexpected error exits 0 rather than surfacing as a block.
+- **Enforcement log.** Participates in `hooks/lib/enforcement_log.py` via `log_fire(..., "allow_advisory", ...)`, called only on the finding branch (no log entry on a clean turn).
+
+**Two documented residual false positives** - accepted trade-offs, not defects to fix:
+
+1. A stoppage-only turn that adds a separate explanatory sentence beside the `Waiting:` line is flagged, because the hook expects the `Waiting:` line to be self-contained. Fold the reason into the line itself instead of appending prose: `Waiting: engineer - unit 3, blocks merge` rather than a `Waiting:` line followed by a sentence explaining why.
+2. A `Waiting:` turn that also answers the operator's preceding question can be misclassified. The `answer` warrant detector (§2, warrant 4) is deliberately weak - best-effort quoted-fragment matching - and can miss a genuine answer folded into a `Waiting:` turn, causing the turn to collapse to the sole-stoppage forced-yield shape and get flagged even though it also carried a real answer.
+
+---
+
 ### conventions-detail
 
 <!--
@@ -2147,7 +2265,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Config (`.agentic/config.json`)
 
-`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/ds-init-project`. Nineteen toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
+`.agentic/config.json` holds project-level methodology toggles the conductor reads to adjust orchestration behavior. It is **committed, not gitignored** - like `qa.md` and `deploy.md`, it is portable project intent that travels with the repo (the `.agentic/` umbrella ignore must carve it out; see `.gitignore`). It is seeded with defaults by `/ds-init-project`. Twenty toggles (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior):
 
 - `debugger_on_failure` - boolean, default `false`. When `true`, the Elevated-path quality gate in `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass. Opt-in; the default preserves existing behavior. A Trivial-path ticket never invokes the Debugger regardless of this toggle.
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior. **Canonical definition lives in `content/references/planning-artifacts.md` §`qa_default_skip` (canonical definition)** - this entry is a cross-reference only and does not restate the semantics.
@@ -2168,6 +2286,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
+- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive, because this hook never blocks). When active, a Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule and logs an advisory finding; it never blocks the stop. Set to `false` to opt out; disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Canonical reference: `content/references/conductor-turn-format.md`.
 
 **Related config keys (not toggles):** these are tuning params that travel with the same file but are not boolean/enum methodology switches:
 
@@ -3315,7 +3434,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 
 ## Enforcement fire log (`.agentic/.enforcement-fires.jsonl`)
 
-Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from inside the action branch, never at module scope) by six of the seven `hooks/enforce-*.py` PreToolUse hooks whenever they take a non-passthrough action - a deny, or an allow-with-advisory-reason. A silent allow (the overwhelming majority of invocations) never calls it, so the file stays small. `enforce-no-abdication.py` is the one exception: it keeps its own separate `.agentic/.abdication-guard-fire-count` counter, unchanged by this mechanism (see `hooks/AGENTS.md`).
+Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from inside the action branch, never at module scope) by seven of the eight `hooks/enforce-*.py` PreToolUse/Stop hooks whenever they take a non-passthrough action - a deny, or an allow-with-advisory-reason. A silent allow (the overwhelming majority of invocations) never calls it, so the file stays small. `enforce-no-abdication.py` is the one exception: it keeps its own separate `.agentic/.abdication-guard-fire-count` counter, unchanged by this mechanism (see `hooks/AGENTS.md`).
 
 **Canonical line schema (4 fields, one JSON object per line):**
 
@@ -3324,8 +3443,8 @@ Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from in
 ```
 
 - `ts`: ISO8601 UTC with millisecond precision (matches the `events.jsonl` convention).
-- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the six consumer hooks named above.
-- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (five hooks) and `"allow_advisory"` (`enforce-planning-artifact-spawn.py`).
+- `hook`: short hook identifier, e.g. `"enforce-tier"`, `"enforce-shippable-edit"` - one of the seven consumer hooks enumerated below.
+- `decision`: the action taken - free-form by design, not validated against an enum, so a future action shape never needs a lib change to be logged. Currently observed values: `"deny"` (five hooks - `enforce-askuserquestion-default.py`, `enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, `enforce-shippable-edit.py`, `enforce-tier.py`) and `"allow_advisory"` (two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`).
 - `reason`: human-readable reason string, truncated to 800 chars (the same text fed back to the model via `permissionDecisionReason`).
 
 **No session correlation.** Unlike `events.jsonl`, this file carries no `session_uuid` or equivalent field - `log_fire()` writes only `cwd`-scoped, not session-scoped. A tally over this file is therefore a REPO-WIDE cumulative count across every session that has ever run since the file was created (or last rotated/deleted away), never a single-session count. Any consumer reporting this file's contents (e.g. `/ds-wrap` Part D.5 signal 3(b)) must state this scope explicitly.
@@ -4218,7 +4337,7 @@ A test that passes even without the fix does not count. The Worker should confir
 <!--
 Purpose: Detailed risk-classification reference blocks extracted from
          content/sections/04-risk-classification.md. Contains: the
-         nineteen-toggle project config catalog (behavioral toggles only);
+         twenty-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
          tier table, model-param mapping, mandatory Tier-3 escalation (with
@@ -4254,7 +4373,7 @@ Performance: Standard.
 
 ### Project config (`.agentic/config.json`)
 
-The conductor reads `.agentic/config.json` to resolve nineteen project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
+The conductor reads `.agentic/config.json` to resolve twenty project-level orchestration toggles before classifying and spawning (one, `qa_default_skip`, is reserved/inert - documented for schema completeness but does not currently alter behavior). The file is **committed, not gitignored** (like `qa.md` / `deploy.md`), is seeded with defaults by `/ds-init-project`, and is optional - if absent, every toggle takes its default and behavior is unchanged.
 
 - `debugger_on_failure` - boolean, default `false`. When `true` AND the path is Elevated, `/ds-implement-ticket` Phase 7 interposes a Debugger diagnosis step before each engineer fix pass on a quality-gate failure. A Trivial-path ticket never invokes the Debugger regardless of this toggle (the gate is `debugger_on_failure == true` AND Elevated; both must hold).
 - `qa_default_skip` - reserved; documented for schema completeness; does not currently alter QA-gate behavior - canonical definition in `content/references/planning-artifacts.md` §`qa_default_skip (canonical definition)`. This entry is a cross-reference only; conventions.md likewise cross-references and neither redefines it.
@@ -4275,6 +4394,7 @@ The conductor reads `.agentic/config.json` to resolve nineteen project-level orc
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. Canonical reference: `content/references/ticket-rework.md` §Config toggle.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
+- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive, because this hook never blocks). Controls the advisory Stop hook (`hooks/enforce-turn-shape.py`) that checks the conductor's final turn against the fixed-shape/warranted-turn rule. It is advisory only - it never blocks the stop, it only logs. Set to `false` to opt out; also disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Canonical reference: `content/references/conductor-turn-format.md`.
 
 #### Graph-derived risk signal
 
@@ -11772,7 +11892,7 @@ No subcommands or flags. Selection is done interactively.
      or AGENTS.md marker, depending on scope prompt.
    - Project toggles from `.agentic/config.json`: `auto_merge_on_ci_green`,
      `commit_telemetry`, `capability_preflight_mode`, `abdication_guard_enabled`,
-     `ticket_driven`, `pending_merge_sweep`, `tracker_state_diagnostic`, and any additional config-file toggles.
+     `ticket_driven`, `pending_merge_sweep`, `tracker_state_diagnostic`, `turn_shape_guard_enabled`, and any additional config-file toggles.
 
 3. **Value selection prompt.** Lists valid values for the chosen setting, with the
    current default marked. For boolean toggles: `true / false`. For enumerated
@@ -11812,6 +11932,7 @@ No subcommands or flags. Selection is done interactively.
 | Ticket-driven | `ticket_driven` | `.agentic/config.json` |
 | Pending-merge sweep | `pending_merge_sweep` | `.agentic/config.json` |
 | Tracker state diagnostic | `tracker_state_diagnostic` | `.agentic/config.json` |
+| Turn-shape guard | `turn_shape_guard_enabled` | `.agentic/config.json` |
 
 **Env kill-switches (print-only, not applied to running session):**
 `AE_SINGULARITY_GUARD_DISABLE`, `AE_TIER_GUARD_DISABLE`, `AGENTIC_QUIET`.
@@ -17004,7 +17125,8 @@ Seed with these documented defaults exactly:
   "ticket_driven": "offer",
   "rework_detection": true,
   "pending_merge_sweep": true,
-  "tracker_state_diagnostic": true
+  "tracker_state_diagnostic": true,
+  "turn_shape_guard_enabled": true
 }
 ```
 
@@ -17030,6 +17152,7 @@ Seed with these documented defaults exactly:
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. See `content/references/ticket-rework.md` §Config toggle for full semantics.
 - `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper` for full semantics.
+- `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive, because this hook never blocks). When active, an advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule and logs a finding; it never blocks the stop. Set to `false` to opt out. Disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. See `content/references/conductor-turn-format.md` for full semantics.
 
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)

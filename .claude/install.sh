@@ -649,6 +649,31 @@ upsert_hook(
     "Stop hook enforce-no-abdication.py",
 )
 
+# Turn-shape guard (DS-122): advisory-only, never blocks. Checks the shape
+# of the conductor's final assistant message (identity line, warrant
+# classification, forced-yield shape) and surfaces findings via
+# additionalContext. Registered AFTER enforce-no-abdication.py.
+# Default ON (turn_shape_guard_enabled must be explicitly false in
+# .agentic/config.json to disable). Disable via:
+# AE_TURN_SHAPE_GUARD_DISABLE=1 in the environment.
+#
+# Uses a GUARDED command string, unlike its siblings' bare `python3 {path}`
+# form: `python3 <missing path>` exits 2 (the BLOCKING Stop code), so if
+# this file were ever removed while the registration survives in the
+# operator's settings.json, every stop would silently block until
+# hand-fixed. The `test -f ... && ... || exit 0` guard prevents that.
+ENFORCE_TURN_SHAPE_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-turn-shape.py && "
+    f"python3 {hooks_root}/hooks/enforce-turn-shape.py || exit 0"
+)
+
+upsert_hook(
+    stop_star["hooks"],
+    "enforce-turn-shape.py",
+    {"type": "command", "command": ENFORCE_TURN_SHAPE_CMD, "timeout": 10},
+    "Stop hook enforce-turn-shape.py",
+)
+
 # ---- SessionEnd hook (deferred-wrap finalize) -------------------------------
 # Finalizes a cleanly-ended session's pending marker to `ready` so the daemon
 # can drain it. Find-or-create; re-running install must NOT duplicate it.
