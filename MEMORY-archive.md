@@ -113,3 +113,9 @@ This is the historical tier for DinoStack: entries moved verbatim from `MEMORY.m
 ## Bulk Operations & Adapter Sync
 
 - **2026-07-24:** The 6 `agentic-*` to `ds-*` command rename operates by REPLACING the prefix, not prepending - a naive prepend-style "ds-"+oldname produces wrong names like `ds-agentic-identity` instead of `ds-identity`; caught by engineer pre-gate diff review but silent in post-merge verification (ticket: DS-26).
+
+## Archived 2026-08-02 (from MEMORY.md, always-loaded-tier pruning)
+
+- **2026-07-27 (FIXED in #506, `416aa7ad`): `test_hooks_snapshot.sh`'s idempotency assertion had two defects at once - a 12% CI flake AND a 100% vacuous pass on macOS.** It byte-compared every file under the snapshot root including `.snapshot-meta.json`, whose `snapshotted_at` is second-resolution and re-stamped every sync, so a sync pair straddling a second boundary failed legitimately. Separately, its `xargs -I{} sh -c 'echo {}; cat {}' 2>/dev/null` comparator blew BSD's ~255-byte `-I` budget on real paths, returned rc=1, emitted nothing, and compared empty-to-empty - so locally on macOS it asserted **nothing** while CI exercised the real comparison. The durable lesson outlives the fix: a green local loop proves nothing when the comparator may be silently empty, and `2>/dev/null` on a comparison step converts a tooling failure into a false pass. See `.agentic/learnings.md` KNW-20260727-004/006.
+
+- **2026-07-26:** Isolation worktrees are now cleaned up inline after the branch is pushed to origin, not after PR open or session-start prune. This fixes the branch-rename mapping problem that caused stale worktrees to accumulate, implemented via `scripts/lib/worktree.sh` (`resolve_branch_worktree`) and `bin/agentic-resolve-worktree`.
