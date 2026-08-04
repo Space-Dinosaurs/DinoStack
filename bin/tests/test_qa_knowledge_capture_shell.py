@@ -5,16 +5,21 @@ Purpose: Executes the QA knowledge capture shell block
          extraction/dedup/append behavior that replaces qa-engineer's former
          (broken, isolation-worktree-scoped) direct write is verified against
          real filesystem state instead of only ever being read as prose.
-         Covers 14 required cases: happy-path append, dedup (case/whitespace,
+         Covers 15 required cases: happy-path append, dedup (case/whitespace,
          legacy no-date bullet, `*`-bulleted line, cross-section false
          positive), malformed input, absent qa.md (both locations), legacy
          `.claude/qa.md` fallback, CRLF / no-trailing-newline heading
          placement, invalid-date fallback + idempotent re-run, special
          characters round-tripping through the heredoc/JSON layer, multiple
          `## Knowledge` headings, the reproduced BSD-mktemp-suffix squat
-         defect, non-UTF-8 input, and an unwritable qa.md.
+         defect (dynamic, plus a static mktemp-template assertion that pins
+         the suffix property on any platform), non-UTF-8 input, an
+         unwritable qa.md, and a forced mktemp failure (unwritable TMPDIR).
 
-Public API: none (pytest test module; 14 cases x {bash, zsh, sh} = 42 tests).
+Public API: none (pytest test module; 18 test functions - 17 parametrized
+            x {bash, zsh, sh} (51) plus 1 static, shell-independent
+            assertion (1) = 52 collected tests - see the collected-count
+            floor in .github/workflows/bin-tests.yml).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py, bin/tests/lib/git_fixture.py,
                content/references/qa-gate.md (file under test).
@@ -34,6 +39,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -423,6 +429,17 @@ def test_case11_dedup_across_multiple_knowledge_headings(tmp_path, shell):
 # Case 12. Squat test - a literal pre-existing "qa-knowledge-XXXXXX" file
 # must survive untouched, and mktemp must still produce a fresh randomized
 # path (BSD/macOS non-trailing-X non-randomization regression guard).
+#
+# NOTE ON WHAT THIS DYNAMIC CASE ACTUALLY DETECTS: GNU mktemp (Linux) rejects
+# a template whose `X`s are not the trailing characters, so a mutation that
+# appends a suffix after the `X` run (e.g. "...XXXXXX.json") only collides
+# with the pre-created squat file - and is therefore only caught by this
+# case - on BSD/macOS mktemp, which silently ignores the non-trailing-X rule
+# and would happily reuse the literal name. On Linux CI this case cannot
+# observe the suffix defect at all: GNU mktemp fails closed on the malformed
+# template regardless of whether a squat file is present. The STATIC
+# assertion immediately below (test_case12b_...) is what pins the "no
+# suffix after the X run" property platform-independently; keep both.
 # ---------------------------------------------------------------------------
 
 
@@ -455,6 +472,30 @@ def test_case12_squat_pre_created_literal_mktemp_name(tmp_path, shell):
 
 
 # ---------------------------------------------------------------------------
+# Case 12b. Static regression guard for the mktemp-suffix defect - pins the
+# property directly against the block text, independent of platform mktemp
+# semantics. This is what actually catches "...XXXXXX.json"-style mutations;
+# see the NOTE above test_case12_... for why the dynamic squat test alone
+# cannot detect that mutation on GNU/Linux mktemp.
+# ---------------------------------------------------------------------------
+
+
+def test_case12b_static_mktemp_template_has_no_suffix():
+    block = _raw_block()
+    mktemp_line = mse.line_containing(block, "QA_KNOWLEDGE_TMP=$(mktemp ")
+    match = re.search(r'mktemp\s+"([^"]*)"', mktemp_line)
+    assert match, f"expected a quoted mktemp template in line: {mktemp_line!r}"
+    template = match.group(1)
+    assert re.fullmatch(r".*X{6,}", template), (
+        f"mktemp template {template!r} must end in a run of 6+ literal 'X' "
+        f"characters with NOTHING after them (no suffix, e.g. no trailing "
+        f"'.json') - BSD/macOS mktemp only randomizes a trailing run of X's, "
+        f"so any suffix after the X run collides with itself instead of "
+        f"getting a fresh random path."
+    )
+
+
+# ---------------------------------------------------------------------------
 # Case 13. Non-UTF-8 qa.md -> WARNING naming the read failure, no write,
 # exit 0, no traceback on stderr.
 # ---------------------------------------------------------------------------
@@ -474,6 +515,7 @@ def test_case13_non_utf8_qa_md_warns_cleanly(tmp_path, shell):
     _assert_completed(result)
     assert result.returncode == 0
     assert "WARNING" in result.stdout
+    assert "could not read" in result.stdout
     assert "Traceback" not in result.stderr
     assert path.read_bytes() == original
     assert not _leftover_temp_files(env), _leftover_temp_files(env)
@@ -510,8 +552,57 @@ def test_case14_unwritable_qa_md_warns_cleanly(tmp_path, shell):
         _assert_completed(result)
         assert result.returncode == 0
         assert "WARNING" in result.stdout
+        assert "could not write" in result.stdout
         assert "Traceback" not in result.stderr
         assert path.read_bytes() == original
         assert not _leftover_temp_files(env), _leftover_temp_files(env)
     finally:
         path.chmod(0o644)
+
+
+# ---------------------------------------------------------------------------
+# Case 15. mktemp itself fails (unwritable TMPDIR) -> the
+# `[ -z "$QA_KNOWLEDGE_TMP" ]` guard branch fires: WARNING naming the mktemp
+# failure, exit 0, no traceback, no write to qa.md, no temp file created.
+# Nothing else in this suite ever makes mktemp fail, so absent this case the
+# entire guard/else/fi around QA_KNOWLEDGE_TMP is untested dead code -
+# deleting it leaves every other case passing. Skipped gracefully when
+# permission bits are unenforceable (e.g. running as root in a container).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("shell", SHELLS)
+def test_case15_mktemp_failure_forces_guard_branch(tmp_path, shell):
+    shell = _shell_or_skip(shell)
+    fixture = git_fixture.build_consumer_shape(tmp_path)
+    original = "# QA Config\n"
+    _write_qa_md(fixture.repo_dir, original)
+    path = _qa_md_path(fixture.repo_dir)
+
+    unwritable_tmpdir = tmp_path / "unwritable-tmpdir"
+    unwritable_tmpdir.mkdir(parents=True, exist_ok=True)
+    unwritable_tmpdir.chmod(0o500)
+    try:
+        # Permission bits are unenforceable for the root user (e.g. inside
+        # an unprivileged-by-default CI container running as root) - skip
+        # the assertion gracefully in that case rather than false-failing.
+        if os.access(unwritable_tmpdir, os.W_OK):
+            pytest.skip(
+                "permission bits unenforceable for the current user "
+                "(likely running as root) - cannot exercise the mktemp-"
+                "failure path"
+            )
+        env = dict(fixture.env)
+        env["TMPDIR"] = str(unwritable_tmpdir)
+        entries = [{"tag": "timing", "description": "irrelevant", "date": "2026-08-01"}]
+        result = _run(_entries_json(entries), fixture, env, shell)
+        _assert_completed(result)
+        assert result.returncode == 0
+        assert "WARNING" in result.stdout
+        assert "could not create a temp file" in result.stdout
+        assert "mktemp failed" in result.stdout
+        assert "Traceback" not in result.stderr
+        assert path.read_text(encoding="utf-8") == original
+        assert not list(unwritable_tmpdir.glob("qa-knowledge-*"))
+    finally:
+        unwritable_tmpdir.chmod(0o700)
