@@ -681,7 +681,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 **Session context.** **The read contract is unchanged: read `.agentic/context.md` as the first action of every session.** How it is produced changed: the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn, and `.agentic/context.md` is then recomposed as a DERIVED ROLLUP of `.agentic/_wrap.md` (the curated region) plus the shard set. Nothing writes `context.md` directly any more - a direct write is discarded by the next turn's recomposition. Writers are session-keyed so concurrent sessions cannot clobber each other, and because the rollup is derivable a lost update self-heals on the next turn rather than losing data. (Legacy fallback: `~/.claude/projects/[hash]/context.md` - used only when `.agentic/context.md` does not exist.) `/ds-wrap` is available for richer on-demand summarization; it writes `_wrap.md`. Update `MEMORY.md` (root `<cwd>/MEMORY.md`) at the end of any session where stable facts were learned. Close the session cleanly so the Stop hook can finish writing `context.md`: in the terminal CLI, use `/exit` rather than ctrl+c; in the desktop or web app, just close the window or tab normally rather than force-quitting.
 
 **Knowledge-file routing (three distinct stores):**
-- `<cwd>/MEMORY.md` - canonical durable facts; committed; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`); written by `/ds-wrap`, wrap-ticket, `/ds-memory-update`.
+- `<cwd>/MEMORY.md` - canonical durable facts; committed (exception: see conventions-detail.md); loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`); written by `/ds-wrap`, wrap-ticket, `/ds-memory-update`.
 - `.agentic/memory.md` - `/ds-wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
 - `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (mandatory triggers, conductor-spawned).
 
@@ -2258,7 +2258,7 @@ A project's intent is encoded across a small set of artifacts. Treat them as a c
 - `docs/overview/vision.md` - product vision and purpose; operator-owned, agents read but never write
 - `docs/overview/requirements.md` - scoped functional and non-functional requirements; operator-owned, agents read but never write
 - `AGENTS.md` - project-level decisions and conventions (tool-agnostic).
-- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`). Written by `/ds-wrap`, wrap-ticket, and `/ds-memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/ds-wrap`-internal rolling scratch, gitignored).
+- `MEMORY.md` - stable facts learned about the project, with rationale. Canonical durable-facts store; loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md` (added by `/ds-init-project`). Written by `/ds-wrap`, wrap-ticket, and `/ds-memory-update`. Root `<cwd>/MEMORY.md` only - NOT `.agentic/memory.md` (that is `/ds-wrap`-internal rolling scratch, gitignored). Committed by default for consumer projects scaffolded by `/ds-init-project`. Exception: in the DinoStack repo itself, root `MEMORY.md` is intentionally gitignored (DS-129) - it is the methodology's own self-improvement scratch, not a shippable artifact for consumers to inherit, so writes from `/ds-wrap`, wrap-ticket, and `/ds-memory-update` here are local-only and never reach a PR.
 - `.agentic/learnings.md` - structured fix-pattern learnings from resolved Skeptic cycles; committed (not gitignored). Written by `learning-extractor` at `/ds-implement-ticket` Phase 6 clean exit (mechanically wired) and by `learnings-agent` (spawned on the mandatory capture triggers).
 - `decisions.md` - the project's decision log, where used.
 - `.agentic/findings.md` - curated Skeptic-finding patterns; gitignored/machine-local. Written by `findings-curator` at Phase 6 loop exit.
@@ -11254,6 +11254,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - Append under the `# Memory` heading (create the heading if absent).
 - **Dedup before each append:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): <one-line summary>"` in `writer_actions[]`.
 - **Cap at 3 appends per run.** If more candidates exist, prioritize by likely future-ticket impact and drop the rest.
+- **DinoStack-repo exception:** root `MEMORY.md` is committed for consumer projects scaffolded by `/ds-init-project`, but in the DinoStack repo itself it is intentionally gitignored (DS-129). The append still happens exactly as above - it is local to this operator's checkout and never reaches a PR, so it stays durable across this operator's own sessions but is never shared with other operators or machines when running inside this repo.
 
 #### decisions.md (max 2 entries)
 
@@ -17597,7 +17598,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 **Immediately** spawn a background `general-purpose` Worker via the `Agent` tool. Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
-**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`). Pass this path to the Worker as `$MEMORY_PATH`.
+**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`). Pass this path to the Worker as `$MEMORY_PATH`. `<cwd>/MEMORY.md` is committed by default for consumer projects scaffolded by `/ds-init-project`; in the DinoStack repo itself it is intentionally gitignored (DS-129), so this write is local-only here and never reaches a PR.
 
 **Orphan data warning:** If `<cwd>/.agentic/memory/MEMORY.md` exists, it was written by a prior buggy version of this command. Its content is NOT auto-injected by Claude Code. Surface this to the operator before spawning:
 

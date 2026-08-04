@@ -11,7 +11,7 @@ When a project-affecting decision has been confirmed in conversation, the main a
 
 **Immediately** spawn a background `general-purpose` Worker via the `Agent` tool. Return to the conversation instantly. Do not report completion to the user unless there is an escalation.
 
-**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`). Pass this path to the Worker as `$MEMORY_PATH`.
+**Before spawning:** The canonical MEMORY.md path is `<cwd>/MEMORY.md` (loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`). Pass this path to the Worker as `$MEMORY_PATH`. `<cwd>/MEMORY.md` is committed by default for consumer projects scaffolded by `/ds-init-project`; in the DinoStack repo itself it is intentionally gitignored (DS-129), so this write is local-only here and never reaches a PR.
 
 **Orphan data warning:** If `<cwd>/.agentic/memory/MEMORY.md` exists, it was written by a prior buggy version of this command. Its content is NOT auto-injected by Claude Code. Surface this to the operator before spawning:
 
