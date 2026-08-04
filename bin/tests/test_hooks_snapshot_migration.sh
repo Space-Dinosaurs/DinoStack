@@ -20,16 +20,26 @@
 #                ~/.agentic/hooks-snapshot are never touched. Each adapter's
 #                install.sh/uninstall.sh still builds/runs against the REAL
 #                checkout (like bin/tests/test_kimi_install_symlink.sh) -
-#                only $HOME is sandboxed. The one exception: the .claude
-#                section's uninstall.sh run (below) also calls
-#                uninstall_precommit_hook, which resolves the git hooks
-#                directory via `git rev-parse --git-path hooks` relative to
-#                the REAL REPO_DIR, independent of $HOME faking - left
-#                unguarded it would remove this checkout's real
-#                <repo>/.git/hooks/pre-commit. That single call is saved
-#                before and restored immediately after via
+#                only $HOME is sandboxed, and these real-tree effects are
+#                NOT limited to the .claude uninstall.sh call: EVERY
+#                install.sh run in this file (.claude, .gemini, .codex,
+#                .kimi - each invoked twice, first run and idempotent
+#                second run) calls install_precommit_hook (writes
+#                <repo>/.git/hooks/pre-commit) and runs .claude/build.sh +
+#                .cursor/build.sh (regenerates adapter build artifacts in
+#                the live tree) - same three effects documented in
+#                bin/tests/test_local_bin_ds_prefix_install.sh; empirically
+#                idempotent, but none of these runs are read-only. On top
+#                of that, the .claude section's uninstall.sh run (below)
+#                also calls uninstall_precommit_hook, which resolves the
+#                git hooks directory via `git rev-parse --git-path hooks`
+#                relative to the REAL REPO_DIR, independent of $HOME faking
+#                - left unguarded it would remove this checkout's real
+#                <repo>/.git/hooks/pre-commit. That call is saved before
+#                and restored immediately after via
 #                bin/tests/lib/precommit-hook-guard.sh (same guard used by
-#                bin/tests/test_uninstall_ds_prefix.sh).
+#                bin/tests/test_uninstall_ds_prefix.sh); the guard does not
+#                cover the earlier install.sh pre-commit-hook writes above.
 #
 # Performance: ~20-40 s wall time (4 adapters x 2 install.sh runs each,
 #              each run includes a real build.sh pass).

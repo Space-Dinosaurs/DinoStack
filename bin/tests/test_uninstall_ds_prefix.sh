@@ -164,7 +164,13 @@ _resolve_precommit_state() {
   if [[ -L "$hook" ]]; then
     readlink "$hook"
   elif [[ -e "$hook" ]]; then
-    echo "(regular file)"
+    # Hash the content, not just presence - a regular-file hook that changed
+    # content but stayed a regular file must not read as "unchanged".
+    if command -v sha256sum >/dev/null 2>&1; then
+      echo "(regular file: $(sha256sum "$hook" | awk '{print $1}'))"
+    else
+      echo "(regular file: $(shasum -a 256 "$hook" | awk '{print $1}'))"
+    fi
   else
     echo "(absent)"
   fi

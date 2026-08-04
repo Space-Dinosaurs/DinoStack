@@ -94,3 +94,13 @@ __pycache__/
 # repo's own tooling writes atomically (e.g. bin/agentic-config writing
 # AGENTS.md) - unpredictable exact name, but the <pid> suffix shape is fixed.
 *.tmp.[0-9]*
+
+# SIGKILL residue backstop for bin/tests/test_uninstall_ds_prefix.sh Test 2's
+# untracked fixture file, created directly under the real repo's bin/
+# (FIXTURE_NAME=ds-<epoch>-<pid>-<rand>-test-fixture). The EXIT/INT/TERM trap
+# already removes it on every catchable signal; this only covers the
+# uncatchable SIGKILL case so a stray fixture never gets swept into a
+# `git add -A`. The literal "-test-fixture" suffix keeps this from ever
+# masking a real future bin/ds-* tool: no shipped tool name ends in that
+# suffix, so this pattern can only ever match the test's own residue.
+bin/ds-*-test-fixture
