@@ -105,7 +105,10 @@ push_ahead_commit() {
 
 # invoke_updater: run agentic-update with AGENTIC_CONFIG_PATH pointing at
 # the temp config. HOME is also overridden so version-check-cache writes
-# go to TEMP_HOME rather than the real user home.
+# go to TEMP_HOME rather than the real user home. If INSTALL_ARGS_LOG is set
+# in the calling shell, it is forwarded so a fixture's install.sh can record
+# the exact argv it received (used by the --mode/--profile/--identity
+# forwarding tests below).
 invoke_updater() {
   local config_path="$TEMP_HOME/.agentic/agentic-engineering-config.json"
   (
@@ -113,9 +116,41 @@ invoke_updater() {
     export HOME
     AGENTIC_CONFIG_PATH="$config_path"
     export AGENTIC_CONFIG_PATH
+    if [[ -n "${INSTALL_ARGS_LOG:-}" ]]; then
+      export INSTALL_ARGS_LOG
+    fi
     python3 "$UPDATER" "$@"
   ) > "$TEMP_HOME/.out" 2>&1
   echo $? > "$TEMP_HOME/.exit"
+}
+
+# push_ahead_flags_commit: like push_ahead_commit, but the pushed
+# .claude/install.sh records its received argv (one arg per line) to
+# $INSTALL_ARGS_LOG instead of being a pure no-op. Used to verify
+# --mode/--profile/--identity/--no-identity are forwarded verbatim.
+push_ahead_flags_commit() {
+  local pusher_dir="$TEMP_HOME/pusher"
+  git clone --quiet "$FAKE_REMOTE" "$pusher_dir" 2>/dev/null
+  (
+    cd "$pusher_dir"
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p .claude
+    cat > .claude/install.sh <<'INSTALLEOF'
+#!/usr/bin/env bash
+if [[ -n "${INSTALL_ARGS_LOG:-}" ]]; then
+  for arg in "$@"; do
+    echo "$arg" >> "$INSTALL_ARGS_LOG"
+  done
+fi
+exit 0
+INSTALLEOF
+    chmod +x .claude/install.sh
+    git add .claude/install.sh
+    git commit -m "add argv-recording .claude/install.sh" -q
+    git push -q origin main 2>/dev/null
+  )
+  rm -rf "$pusher_dir"
 }
 
 # ---------------------------------------------------------------------------
@@ -641,6 +676,130 @@ if echo "$OUT" | grep -q "this update changed files under hooks/"; then
   _fail "T11d no-op pull: warning present but should be ABSENT (already up to date)"
 else
   _pass "T11d no-op pull: warning ABSENT (no-op / already up to date)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 12: --mode/--profile/--identity are forwarded verbatim to install.sh
+#
+# Regression coverage for the new passthrough flags added when
+# content/commands/ds-update.md's UPDATE-FLOW was rewritten to delegate its
+# adapter loop to agentic-update instead of reimplementing it. Before this
+# option existed, agentic-update always invoked install.sh with zero flags -
+# ds-update.md could not delegate without losing the user's chosen
+# mode/profile/identity.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_flags_commit
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --mode=opt-out --profile=strict --identity=octocat
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T12 flag forwarding: exits 0"
+else
+  _fail "T12 flag forwarding: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--mode=opt-out"; then
+  _pass "T12 flag forwarding: --mode=opt-out forwarded"
+else
+  _fail "T12 flag forwarding: --mode=opt-out NOT forwarded (recorded: $ARGS_RECORDED)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--profile=strict"; then
+  _pass "T12 flag forwarding: --profile=strict forwarded"
+else
+  _fail "T12 flag forwarding: --profile=strict NOT forwarded (recorded: $ARGS_RECORDED)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--identity=octocat"; then
+  _pass "T12 flag forwarding: --identity=octocat forwarded"
+else
+  _fail "T12 flag forwarding: --identity=octocat NOT forwarded (recorded: $ARGS_RECORDED)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 13: --no-identity is forwarded verbatim, and is mutually exclusive
+# with --identity (argparse-enforced).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_flags_commit
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --no-identity
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T13 --no-identity forwarding: exits 0"
+else
+  _fail "T13 --no-identity forwarding: expected exit 0, got $RC"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--no-identity"; then
+  _pass "T13 --no-identity forwarding: --no-identity forwarded"
+else
+  _fail "T13 --no-identity forwarding: --no-identity NOT forwarded (recorded: $ARGS_RECORDED)"
+fi
+
+# Mutual exclusion: --identity and --no-identity together must be rejected
+# by argparse before any git/adapter work happens.
+(
+  HOME="$TEMP_HOME"
+  export HOME
+  AGENTIC_CONFIG_PATH="$TEMP_HOME/.agentic/agentic-engineering-config.json"
+  export AGENTIC_CONFIG_PATH
+  python3 "$UPDATER" --check --identity=foo --no-identity
+) > "$TEMP_HOME/.mutex_out" 2>&1
+MUTEX_RC=$?
+
+if [[ "$MUTEX_RC" != "0" ]]; then
+  _pass "T13 mutual exclusion: --identity + --no-identity together exits non-zero"
+else
+  _fail "T13 mutual exclusion: --identity + --no-identity together should be rejected, got exit 0"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 14: no flags supplied -> install.sh receives zero args, matching
+# pre-existing behavior exactly (non-regression for the default/omitted
+# case introduced alongside the new flags).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_flags_commit
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T14 no flags: exits 0"
+else
+  _fail "T14 no flags: expected exit 0, got $RC"
+fi
+
+if [[ -z "$ARGS_RECORDED" ]]; then
+  _pass "T14 no flags: install.sh received zero args (default-omitted behavior preserved)"
+else
+  _fail "T14 no flags: install.sh unexpectedly received args: $ARGS_RECORDED"
 fi
 
 rm -rf "$TEMP_HOME"

@@ -74,7 +74,7 @@ Display names use the same `DISPLAY_NAMES` map as `update.js`:
 
 ```
 { claude: "Claude", codex: "Codex", cursor: "Cursor", gemini: "Gemini",
-  opencode: "OpenCode", kimi: "Kimi", omp: "Pi" }
+  openclaw: "OpenClaw", opencode: "OpenCode", kimi: "Kimi", omp: "Pi" }
 ```
 
 For adapter names not in the map, apply the generic capitalizer: strip the leading `.`, then capitalize the first character and lowercase the rest (e.g. `.hermes` -> `Hermes`, `.pi` -> `Pi`).
@@ -102,9 +102,11 @@ Run `agentic-identity show --scope effective` to check the current identity stat
 
 Resolve to either a handle (pass `--identity=<handle>` to install.sh in Step 4) or skip (pass `--no-identity`).
 
-## Step 2 - Git safety (UPDATE-FLOW only)
+## Step 2 - Git preview (UPDATE-FLOW only, informational)
 
 Skip this step for FRESH-CLONE-FLOW.
+
+This step is read-only: it only gathers what Step 3's confirmation display needs to show. **Enforcement of the branch/dirty-tree/divergence safety checks happens inside `agentic-update` at Step 4**, not here - `agentic-update` already implements the branch check, the dirty-tree check, and fails closed on a non-fast-forward (diverged) pull. Reimplementing that enforcement in prose here would be exactly the drift this command collapsed (see PR history: four independent copies of "get the latest methodology" had already diverged before this section was rewritten to delegate).
 
 **2a - Fetch:**
 ```bash
@@ -112,39 +114,15 @@ git -C "$AE_REPO_DIR" fetch origin
 ```
 If fetch fails, stop and report the error. Network issues are surfaced verbatim.
 
-**2b - Branch check (hard block):**
+**2b - Preview info (for the Step 3 display only):**
 ```bash
 CURRENT_BRANCH="$(git -C "$AE_REPO_DIR" rev-parse --abbrev-ref HEAD)"
-```
-If `CURRENT_BRANCH != "main"`, **hard-block** with:
-
-> "Cannot pull: the repo at `<AE_REPO_DIR>` is on branch `<CURRENT_BRANCH>`, not `main`. Running `git pull --ff-only origin main` on a non-main branch can silently fast-forward it into a broken state. Check out `main` and re-run: `git -C \"<AE_REPO_DIR>\" checkout main`"
-
-Do NOT offer a Y/N prompt. Do NOT proceed.
-
-**2c - Dirty tree check:**
-
-```bash
-DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
-```
-If non-empty, **stop** (no auto-stash) with:
-
-> "Cannot pull: the repo at `<AE_REPO_DIR>` has uncommitted changes. Commit, stash, or discard them first, then re-run."
-
-Show the `git status --porcelain` output.
-
-(A `CHURN_ALLOWLIST` carve-out lived here between #390 and DS-129, allow-listing a tracked root `MEMORY.md` that DinoStack's memory pipeline rewrote locally. DS-129 untracked root `MEMORY.md` in this repo, so the file the carve-out existed for can no longer appear in `git status --porcelain` - it was removed wholesale rather than left dead. If another tracked file develops the same locally-churned-but-curated-in-git pattern, reintroduce the mechanism then rather than resurrecting this dead code speculatively.)
-
-**2d - Divergence check:**
-```bash
 COUNTS="$(git -C "$AE_REPO_DIR" rev-list --left-right --count HEAD...origin/main)"
 LOCAL_AHEAD="$(echo "$COUNTS" | awk '{print $1}')"
 REMOTE_AHEAD="$(echo "$COUNTS" | awk '{print $2}')"
+DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
 ```
-- Local ahead only: note it ("local has N commits not on origin") but proceed.
-- Remote ahead only: expected; proceed.
-- Both ahead (diverged): stop. "Local and origin have diverged (N local commits, M origin commits). Resolve manually before re-running."
-- Neither ahead: note "already up to date" and proceed (will still re-run adapters).
+Use these only to populate the Step 3 "Plan:" display (branch name, "clean"/"has local changes", "origin/main is N commit(s) ahead", and a note when both are ahead - "local and origin have diverged; the update will fail at Step 4 until resolved"). None of these conditions block Step 3 from being shown; `agentic-update` is the actual gate.
 
 ## Step 3 - Confirm plan
 
@@ -174,28 +152,9 @@ This explicit confirmation is what authorizes the side-effecting Step 4 as a con
 
 ### UPDATE-FLOW
 
-**4a - Pull:**
+Delegate the mechanical steps - branch/dirty-tree/divergence enforcement, the pull, the hooks-change note, and the adapter loop - to `agentic-update` in a single call rather than reimplementing them here. This is what actually collapses the drift: before this rewrite, this section duplicated `bin/agentic-update`'s branch check, dirty-tree check, pull, and per-adapter install loop line-for-line in prose, and the two copies had already started to diverge.
 
-```bash
-OLD_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
-git -C "$AE_REPO_DIR" pull --ff-only origin main
-PULL_STATUS=$?
-NEW_HEAD="$(git -C "$AE_REPO_DIR" rev-parse HEAD)"
-```
-
-On non-zero `PULL_STATUS`: stop and show the error verbatim. Do not proceed to adapter installs.
-
-**4a-2 - Hook-change note:**
-```bash
-HOOK_CHANGES="$(git -C "$AE_REPO_DIR" diff --name-only "$OLD_HEAD" "$NEW_HEAD" -- hooks/)"
-```
-If `HOOK_CHANGES` is non-empty, print the following informational note (substituting `HOOK_CHANGES` as a comma-joined list into `Changed:`) before continuing to 4b. This is informational only, not an actionable warning - Step 4c below re-runs `install.sh` for every selected adapter, which refreshes this machine's local hook snapshot as part of this flow.
-
-> note: this update changed files under hooks/. A bare git pull no longer changes a running session's hooks (they load from a session-stable snapshot, not the checkout) - but this flow also runs the install step, which refreshes this checkout's SHARED hook snapshot in place. So any OTHER Claude Code session already open against this checkout will pick up the changed hooks on its next tool call. If that matters, have those sessions /exit and restart once this update finishes. Changed: `<comma-joined HOOK_CHANGES>`
-
-If `HOOK_CHANGES` is empty, skip silently and continue to 4b.
-
-**4b - Detect `--identity` flag support** (after pull, not before, so the check reflects the newly pulled install.sh):
+**4a - Detect `--identity` flag support** (before delegating, so the flag is only passed when the pulled install.sh - as of the START of this step - is known to support it; `agentic-update` re-checks this per-adapter internally as it runs each install.sh after its own pull):
 ```bash
 INSTALL_SH="$AE_REPO_DIR/.claude/install.sh"
 if grep -q -- '--identity' "$INSTALL_SH" 2>/dev/null; then
@@ -206,15 +165,28 @@ fi
 ```
 If `IDENTITY_SUPPORTED=0`, skip identity flags and note: "This install.sh version does not support `--identity`. Re-run after a future update to configure identity."
 
-Note: `.claude/install.sh` is used as a proxy for all adapters in this repo - all adapters track the same install.sh template, so the flag presence in `.claude/install.sh` is a reliable indicator for the full set. If a selected non-Claude adapter's installer predates the flag (e.g., an older pinned fork), that single install invocation may warn or fail but will not corrupt other adapters' state.
+**4b - Delegate to `agentic-update`:**
 
-**4c - Run adapters (fail-fast):**
-
-For each selected adapter in the resolved list:
 ```bash
-bash "$AE_REPO_DIR/<adapter>/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
+# ADAPTERS_CSV: comma-joined SELECTED_ADAPTERS from Step 1a.
+# Only pass --identity/--no-identity when IDENTITY_SUPPORTED=1 (from 4a).
+agentic-update --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity] --adapters=<ADAPTERS_CSV> --no-doctor
+UPDATE_STATUS=$?
 ```
-On non-zero exit from any adapter: stop immediately, report which adapter failed and its exit code. Do not run remaining adapters.
+
+`--no-doctor` is passed deliberately: this command's own Step 5 runs a diagnostic-only `agentic-doctor` (no `--fix`) so findings are reported, not silently auto-applied - `agentic-update`'s built-in doctor step defaults to `--fix`, which would change that contract if left enabled here.
+
+On non-zero `UPDATE_STATUS`: stop and show `agentic-update`'s stdout/stderr verbatim. `agentic-update` already produces actionable messages for every case this section used to check by hand: non-main branch, dirty tree (lists the dirty files), a failed or diverged (non-fast-forward) pull, and a failed adapter install (names which adapter and its exit code, fail-fast - remaining adapters do not run). It also prints the hooks-change note to stderr internally when the pull touched `hooks/`, using the same wording this section used to duplicate - that note surfaces automatically as part of the verbatim output, nothing further to do here.
+
+If `agentic-update` is not found on PATH (e.g. this is the very first `/ds-update` run in a fresh shell before `~/.local/bin` was picked up), fall back to running the pull and the per-adapter install loop directly:
+```bash
+git -C "$AE_REPO_DIR" pull --ff-only origin main
+for adapter in "${SELECTED_ADAPTERS[@]}"; do
+  bash "$AE_REPO_DIR/${adapter}/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
+  # On non-zero exit: stop immediately, report which adapter failed and its exit code.
+done
+```
+Note "agentic-update not found on PATH; ran the fallback sequence directly. Open a new shell so `agentic-update` is available next time."
 
 ### FRESH-CLONE-FLOW
 
@@ -246,7 +218,7 @@ Do NOT use anonymous `curl | bash` of bootstrap.sh (fails for private repos) and
 
 **4c - Run adapters (same loop as UPDATE-FLOW):**
 
-After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW Step 4c. Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed.
+After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW's `agentic-update`-not-found fallback (Step 4). Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed. Do NOT delegate this loop to `agentic-update` either: it errors out when `repo_dir` does not yet exist rather than cloning, and even after the clone lands it would misfire - `agentic-update`'s rebuild-skip logic treats `old_head == new_head` (true immediately after a fresh clone, before any pull) as "nothing changed, skip the adapter loop", which would silently skip every adapter on a brand-new install.
 
 bootstrap.sh may be invoked for global PATH wiring / config-dir setup if needed, but adapter installation must use the loop below:
 

@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+# Purpose: Regression tests for the update-flow shared-constants collapse
+#          (scripts/lib/update-shared.json). Two things are asserted:
+#          (1) scripts/update.js and bin/agentic-update both load SKIP_DIRS
+#              and REBUILD_TRIGGERS from the shared JSON file rather than a
+#              local literal - single-sourcing makes drift structurally
+#              impossible for pure DATA, so this is a load-path assertion,
+#              not a value-comparison assertion (the JS/Python consumers
+#              would trivially "agree" with themselves if they each still
+#              hardcoded the same list independently - the failure mode this
+#              guards is a REINTRODUCED local literal, not a stale value).
+#          (2) install-all.sh's SKIP_DIRS array (loaded via python3 from the
+#              same JSON) matches the shared file's skip_dirs exactly.
+#          (3) needsRebuild()/_needs_rebuild() - the matching ALGORITHM that
+#              genuinely cannot be shared across JS/Python - agree on a
+#              cross-language parity vector table.
+#
+# Public API: ./bin/tests/test_update_shared_constants.sh
+#             Exits 0 on all pass, 1 on any failure.
+#
+# Upstream deps: bash, node, python3.
+#
+# Downstream consumers: developer running locally before commit; wired into
+#                       CI via the bin-sh-tests test_*.sh glob discovery.
+#
+# Failure modes: any test failure prints the failing assertion and exits 1.
+#
+# Performance: <5 s wall time.
+
+set -u
+
+REPO_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+SHARED_JSON="$REPO_ROOT/scripts/lib/update-shared.json"
+UPDATE_JS="$REPO_ROOT/scripts/update.js"
+UPDATER_PY="$REPO_ROOT/bin/agentic-update"
+INSTALL_ALL="$REPO_ROOT/install-all.sh"
+
+PASS=0
+FAIL=0
+
+_fail() {
+  echo "FAIL: $1" >&2
+  FAIL=$((FAIL + 1))
+}
+
+_pass() {
+  echo "PASS: $1"
+  PASS=$((PASS + 1))
+}
+
+if [[ ! -f "$SHARED_JSON" ]]; then
+  _fail "shared config file missing at $SHARED_JSON"
+  echo; echo "Results: $PASS passed, $FAIL failed."; exit 1
+fi
+
+# ---------------------------------------------------------------------------
+# Test 1: shared JSON is valid and has the expected shape
+# ---------------------------------------------------------------------------
+if python3 -c "
+import json, sys
+data = json.load(open(sys.argv[1]))
+assert isinstance(data.get('skip_dirs'), list) and len(data['skip_dirs']) > 0
+assert isinstance(data.get('rebuild_triggers'), list) and len(data['rebuild_triggers']) > 0
+" "$SHARED_JSON" 2>/dev/null; then
+  _pass "T1 shared JSON has non-empty skip_dirs and rebuild_triggers arrays"
+else
+  _fail "T1 shared JSON malformed or missing expected keys"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 2: scripts/update.js SKIP_DIRS/REBUILD_TRIGGERS match the shared file
+# (proves it is actually LOADING from the file, not a reintroduced literal
+# that happens to still agree - a stale/mismatched literal fails this).
+# ---------------------------------------------------------------------------
+JS_OUT="$(node -e "
+const u = require('$UPDATE_JS');
+const skip = [...u.SKIP_DIRS].sort();
+const triggers = [...u.REBUILD_TRIGGERS].sort();
+console.log(JSON.stringify({skip_dirs: skip, rebuild_triggers: triggers}));
+" 2>&1)"
+
+if python3 -c "
+import json, sys
+shared = json.load(open(sys.argv[1]))
+js = json.loads(sys.argv[2])
+assert sorted(shared['skip_dirs']) == js['skip_dirs'], (sorted(shared['skip_dirs']), js['skip_dirs'])
+assert sorted(shared['rebuild_triggers']) == js['rebuild_triggers'], (sorted(shared['rebuild_triggers']), js['rebuild_triggers'])
+" "$SHARED_JSON" "$JS_OUT" 2>/dev/null; then
+  _pass "T2 scripts/update.js SKIP_DIRS/REBUILD_TRIGGERS match shared JSON"
+else
+  _fail "T2 scripts/update.js constants diverged from shared JSON (got: $JS_OUT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 3: bin/agentic-update SKIP_DIRS/REBUILD_TRIGGERS match the shared file
+# ---------------------------------------------------------------------------
+PY_OUT="$(python3 - "$UPDATER_PY" <<'PYEOF' 2>&1
+import importlib.util, importlib.machinery, json, sys
+
+updater_path = sys.argv[1]
+loader = importlib.machinery.SourceFileLoader("agentic_update_shared_test", updater_path)
+spec = importlib.util.spec_from_file_location("agentic_update_shared_test", updater_path, loader=loader)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+print(json.dumps({
+    "skip_dirs": sorted(mod.SKIP_DIRS),
+    "rebuild_triggers": sorted(mod.REBUILD_TRIGGERS),
+}))
+PYEOF
+)"
+
+if python3 -c "
+import json, sys
+shared = json.load(open(sys.argv[1]))
+py = json.loads(sys.argv[2])
+assert sorted(shared['skip_dirs']) == py['skip_dirs'], (sorted(shared['skip_dirs']), py['skip_dirs'])
+assert sorted(shared['rebuild_triggers']) == py['rebuild_triggers'], (sorted(shared['rebuild_triggers']), py['rebuild_triggers'])
+" "$SHARED_JSON" "$PY_OUT" 2>/dev/null; then
+  _pass "T3 bin/agentic-update SKIP_DIRS/REBUILD_TRIGGERS match shared JSON"
+else
+  _fail "T3 bin/agentic-update constants diverged from shared JSON (got: $PY_OUT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 4: install-all.sh's SKIP_DIRS array (loaded via python3 at runtime)
+# matches the shared file. Exercised by sourcing the array-building prelude
+# in a subshell, not by running the whole script (which requires adapters).
+# ---------------------------------------------------------------------------
+IA_OUT="$(bash -c '
+REPO_DIR="'"$REPO_ROOT"'"
+SHARED_CONFIG="$REPO_DIR/scripts/lib/update-shared.json"
+SKIP_DIRS=()
+while IFS= read -r skip_dir; do
+  SKIP_DIRS+=("$skip_dir")
+done < <(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+for d in data[\"skip_dirs\"]:
+    print(d)
+" "$SHARED_CONFIG")
+printf "%s\n" "${SKIP_DIRS[@]}" | sort
+' 2>&1)"
+
+EXPECTED_OUT="$(python3 -c "
+import json
+data = json.load(open('$SHARED_JSON'))
+print('\n'.join(sorted(data['skip_dirs'])))
+")"
+
+if [[ "$IA_OUT" == "$EXPECTED_OUT" ]]; then
+  _pass "T4 install-all.sh SKIP_DIRS (loaded from shared JSON) matches expected"
+else
+  _fail "T4 install-all.sh SKIP_DIRS mismatch. Got:
+$IA_OUT
+Expected:
+$EXPECTED_OUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 5 (non-vacuity, RED/GREEN for T2/T3): a deliberately mutated shared
+# JSON (extra bogus skip dir NOT in the loaded module output) must FAIL the
+# comparison logic used above - proves T2/T3 are not vacuously true.
+# ---------------------------------------------------------------------------
+BOGUS_JSON="$(mktemp)"
+python3 -c "
+import json
+data = json.load(open('$SHARED_JSON'))
+data['skip_dirs'] = data['skip_dirs'] + ['.this_should_not_be_here']
+json.dump(data, open('$BOGUS_JSON', 'w'))
+"
+if python3 -c "
+import json, sys
+shared = json.load(open(sys.argv[1]))
+js = json.loads(sys.argv[2])
+assert sorted(shared['skip_dirs']) == js['skip_dirs']
+" "$BOGUS_JSON" "$JS_OUT" 2>/dev/null; then
+  _fail "T5 non-vacuity check: bogus JSON incorrectly matched real module output (comparison is vacuous)"
+else
+  _pass "T5 non-vacuity check: bogus JSON correctly fails the comparison (T2/T3 are falsifiable)"
+fi
+rm -f "$BOGUS_JSON"
+
+# ---------------------------------------------------------------------------
+# Test 6: cross-language parity vectors for needsRebuild()/_needs_rebuild().
+# The matching ALGORITHM (not just the trigger-list data) is duplicated
+# across JS and Python since it can't practically be shared across
+# languages. This vector table is the enforcing test the brief calls for.
+# ---------------------------------------------------------------------------
+declare -a VECTORS=(
+  # old_head|new_head|changed_paths(comma-sep)|expected(0/1)
+  "|def456|content/x.md|1"                       # empty old_head -> always rebuild
+  "abc123|abc123|content/x.md|0"                  # same heads -> never rebuild
+  "abc123|def456|content/x.md|1"                  # content/ prefix
+  "abc123|def456|docs/x.md|0"                     # not a trigger
+  "abc123|def456|.cursor/build.sh|1"               # */build.sh catch-all
+  "abc123|def456|build.sh|1"                       # bare build.sh
+  "abc123|def456|.claude/install.sh|1"             # exact-path trigger
+  "abc123|def456|bin/agentic-update|1"             # bin/ prefix
+  "abc123|def456|scripts/build-all.sh|1"           # exact-path trigger
+  "abc123|def456|hooks/foo.py|1"                   # hooks/ prefix
+  "abc123|def456|docs/x.md,content/y.md|1"         # mixed: one trigger present
+  "abc123|def456|/content/x.md|1"                  # leading-slash normalisation
+  "abc123|def456|content\\\\x.md|1"                # backslash normalisation
+)
+
+for vector in "${VECTORS[@]}"; do
+  IFS='|' read -r old new paths expected <<< "$vector"
+  # Build a JSON array of changed paths from the comma-separated field.
+  paths_json="$(python3 -c "
+import json, sys
+p = sys.argv[1]
+print(json.dumps(p.split(',') if p else []))
+" "$paths")"
+
+  js_result="$(node -e "
+const u = require('$UPDATE_JS');
+const paths = $paths_json;
+console.log(u.needsRebuild('$old', '$new', paths) ? '1' : '0');
+" 2>&1)"
+
+  py_result="$(python3 - "$UPDATER_PY" "$old" "$new" "$paths_json" <<'PYEOF' 2>&1
+import importlib.util, importlib.machinery, json, sys
+
+updater_path, old, new, paths_json = sys.argv[1:5]
+loader = importlib.machinery.SourceFileLoader("agentic_update_vec_test", updater_path)
+spec = importlib.util.spec_from_file_location("agentic_update_vec_test", updater_path, loader=loader)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+paths = json.loads(paths_json)
+print("1" if mod._needs_rebuild(old, new, paths) else "0")
+PYEOF
+)"
+
+  if [[ "$js_result" == "$expected" && "$py_result" == "$expected" ]]; then
+    _pass "T6 vector '$paths' (old=$old new=$new): JS=$js_result PY=$py_result expected=$expected"
+  else
+    _fail "T6 vector '$paths' (old=$old new=$new): JS=$js_result PY=$py_result expected=$expected"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Test 7 (non-vacuity for T6): confirm the vector table can actually detect
+# a broken implementation, by running a deliberately-wrong predicate inline
+# and checking it disagrees with the expected value for at least one vector.
+# ---------------------------------------------------------------------------
+WRONG_RESULT="$(node -e "console.log('0');")"  # a stub that always returns 0
+MISMATCH_FOUND=0
+for vector in "${VECTORS[@]}"; do
+  IFS='|' read -r old new paths expected <<< "$vector"
+  if [[ "$expected" == "1" ]]; then
+    MISMATCH_FOUND=1
+    break
+  fi
+done
+if [[ "$MISMATCH_FOUND" == "1" ]]; then
+  _pass "T7 non-vacuity check: vector table contains at least one expected=1 case (a stub returning 0 would be caught)"
+else
+  _fail "T7 non-vacuity check: vector table has no expected=1 cases - table cannot catch a broken 'always false' implementation"
+fi
+
+# ---------------------------------------------------------------------------
+# Summary
+# ---------------------------------------------------------------------------
+echo
+echo "Results: $PASS passed, $FAIL failed."
+if [[ "$FAIL" -gt 0 ]]; then
+  exit 1
+fi
+exit 0

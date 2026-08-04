@@ -30,9 +30,12 @@ set -euo pipefail
 #              (symlinks, python3 config writes, optional builds).
 #
 # Notes: Adapter discovery mirrors scripts/update.js discoverAdapters() and its
-#        SKIP_DIRS set exactly. .claude runs first unconditionally so its
-#        agentic-* binaries (incl. agentic-identity) are on PATH before other
-#        adapters' identity steps run.
+#        SKIP_DIRS set exactly (loaded from scripts/lib/update-shared.json -
+#        the single source of truth shared with scripts/update.js and
+#        bin/agentic-update; do not reintroduce a local literal here). .claude
+#        runs first unconditionally so its agentic-* binaries (incl.
+#        agentic-identity) are on PATH before other adapters' identity steps
+#        run.
 # =============================================================================
 
 # ---------------------------------------------------------------------------
@@ -41,9 +44,30 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
-# Skip-list - mirrors SKIP_DIRS in scripts/update.js exactly.
+# Skip-list - loaded from scripts/lib/update-shared.json (single source of
+# truth shared with scripts/update.js and bin/agentic-update). python3 is
+# already a hard dependency of this repo's install/update flow (bootstrap.sh
+# preflights it), so shelling out is safe here.
 # ---------------------------------------------------------------------------
-SKIP_DIRS=(. .. .git .github .vscode .idea .cache .venv .mypy_cache .pytest_cache .ruff_cache)
+SHARED_CONFIG="$REPO_DIR/scripts/lib/update-shared.json"
+if [[ ! -f "$SHARED_CONFIG" ]]; then
+  echo "error: shared config not found at $SHARED_CONFIG" >&2
+  exit 1
+fi
+SKIP_DIRS=()
+while IFS= read -r skip_dir; do
+  SKIP_DIRS+=("$skip_dir")
+done < <(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    data = json.load(f)
+for d in data['skip_dirs']:
+    print(d)
+" "$SHARED_CONFIG")
+if [[ ${#SKIP_DIRS[@]} -eq 0 ]]; then
+  echo "error: failed to load skip_dirs from $SHARED_CONFIG" >&2
+  exit 1
+fi
 
 is_skipped() {
   local candidate="$1"
