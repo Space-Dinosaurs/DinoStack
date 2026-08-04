@@ -26,7 +26,7 @@ Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
               OK <kind>: <detail>
               FAIL <kind>: <detail>
               FIX symlink: <dst> : <old/broken target> -> <new target>
-              FIX symlink: <dst> : <old> -> (removed, stale)
+              FIX symlink: <dst> : <old/broken target> -> (removed, stale)
               SKIP <kind>: <dst> (reason)
             Exits 0 (all pass / --fix resolved all), 1 (findings in read-only
             or dry-run mode), 2 (--fix ran but one or more items could not be
@@ -909,6 +909,7 @@ def main() -> int:
         description=(
             "Inspect global agentic-engineering install health. "
             "With --fix, re-points drifted symlinks toward the canonical repo_dir "
+            "(removing them when the expected in-repo target no longer exists) "
             "and repairs hook paths in ~/.claude/settings.json. "
             "NEVER invokes install.sh or rebuilds adapters. "
             "Note: with two DinoStack clones, --fix re-points links toward the "
@@ -919,7 +920,7 @@ def main() -> int:
     parser.add_argument(
         "--fix",
         action="store_true",
-        help="Re-point ours-to-own drifted symlinks and repair hook paths in settings.json.",
+        help="Re-point ours-to-own drifted symlinks (or remove them if the expected target is gone) and repair hook paths in settings.json.",
     )
     parser.add_argument(
         "--dry-run",
