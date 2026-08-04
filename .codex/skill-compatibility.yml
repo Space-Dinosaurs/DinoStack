@@ -212,6 +212,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "content/references/delegation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "1859736206c556d3ba4ebda6d0f4016ed63353ec2c90ee84650e89e05780111e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/delegation-detail.md"
+    },
+    {
       "expected_target": "agentic-engineering",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -562,16 +572,6 @@
       "source_token": "content/sections/02-delegation.md"
     },
     {
-      "expected_target": "$HOME/.claude",
-      "generated_token": "$AE_SHARED_CONFIG_DIR",
-      "kind": "operational",
-      "occurrence_hash": "48f0326822e0e90164e2008bf6c45a0857c64ac594fd36127bda389869081421",
-      "resolution_mode": "shared-config-path",
-      "scope": "shared-user-config",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "~/.claude"
-    },
-    {
       "expected_target": "content/SKILL.md",
       "generated_token": "$AE_REPO_DIR",
       "kind": "operational",
@@ -590,6 +590,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "hooks/enforce-tier.py"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "4d4214e8bcb0c97114029f5965cbf2965c3ae38efd6e4dad799d8690b8164e2c",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
     },
     {
       "expected_target": ".agentic/config.json",
@@ -1162,16 +1172,6 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "908341794903a57bec52ebe096a824e4cfa8c220a9fc8f5e519a3de7b3bff002",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -1342,16 +1342,6 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "content/references/delegation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "a213e0f89f6ea0da04dd5bb0afc30bd242e43eaf98d75955bba3b62e1ca9a831",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/delegation-detail.md"
-    },
-    {
       "expected_target": "agentic-engineering",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -1400,6 +1390,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "a7a048140d81f61ca218f6f728180bdb3e6c5a752926290b8f9a14b8431d8c18",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "filesystem read",
