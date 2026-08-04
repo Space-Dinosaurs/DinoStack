@@ -195,7 +195,7 @@ Once the path is resolved, all decisions for this ticket go to that path. Do not
 - Append under the `# Memory` heading (create the heading if absent).
 - **Dedup before each append:** read the existing file, lowercase + collapse whitespace runs to single space + substring match. If any existing entry contains the candidate's case-insensitive whitespace-collapsed text as a substring, skip the append and record `"skipped (duplicate): <one-line summary>"` in `writer_actions[]`.
 - **Cap at 3 appends per run.** If more candidates exist, prioritize by likely future-ticket impact and drop the rest.
-- **DinoStack-repo exception:** root `MEMORY.md` is committed for consumer projects scaffolded by `/ds-init-project`, but in the DinoStack repo itself it is intentionally gitignored (DS-129). The append still happens exactly as above - it is local-only here and never reaches a PR, so treat it as scratch, not a durable cross-session record, when running inside this repo.
+- **DinoStack-repo exception:** root `MEMORY.md` is committed for consumer projects scaffolded by `/ds-init-project`, but in the DinoStack repo itself it is intentionally gitignored (DS-129). The append still happens exactly as above - it is local to this operator's checkout and never reaches a PR, so it stays durable across this operator's own sessions but is never shared with other operators or machines when running inside this repo.
 
 #### decisions.md (max 2 entries)
 
