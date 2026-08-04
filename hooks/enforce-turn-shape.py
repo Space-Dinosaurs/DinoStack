@@ -425,7 +425,11 @@ def main() -> None:
         # 1. Identity-line check.
         identity_line = _first_nonblank_line(msg_text)
         if not identity_line or not _IDENTITY_LINE_RE.match(identity_line.strip()):
-            findings.append("identity line missing or malformed")
+            findings.append(
+                "identity line missing or malformed - expected "
+                "`DS-123 · fix/foo · [phase: skeptic-review]` "
+                "(two `·`-separated tokens then a bracketed [phase: ...] tag)"
+            )
 
         # 2. Warrant classification (authoritative).
         warrants = _classify_warrants(msg_text)
