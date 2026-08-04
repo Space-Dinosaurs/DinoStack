@@ -558,6 +558,42 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 11: --help describes removal behavior for --fix and --dry-run.
+#
+# Regression guard for the closed-enumeration pattern where --fix/--dry-run
+# help text described only "re-points" and silently dropped the delete
+# path (a stale link with no repo-side target). This pins two literal
+# strings; it does not prove no fourth surface with the same gap exists.
+# ---------------------------------------------------------------------------
+HELP_OUT="$(python3 "$DOCTOR" --help 2>&1)"
+HELP_NORM="$(echo "$HELP_OUT" | tr '\n' ' ' | tr -s ' ')"
+HELP_OPTS="${HELP_NORM#*options: }"
+
+FIX_HELP="${HELP_OPTS#*--fix }"
+FIX_HELP="${FIX_HELP%%--dry-run*}"
+
+DRYRUN_HELP="${HELP_OPTS#*--dry-run }"
+DRYRUN_HELP="${DRYRUN_HELP%%--cross-harness*}"
+
+if echo "$FIX_HELP" | grep -q "remove"; then
+  _pass "T11 --help: --fix text mentions removal"
+else
+  _fail "T11 --help: --fix text does not mention removal\n$FIX_HELP"
+fi
+
+if echo "$DRYRUN_HELP" | grep -q "repairs"; then
+  _pass "T11 --help: --dry-run text uses the open 'repairs' wording"
+else
+  _fail "T11 --help: --dry-run text missing 'repairs' wording\n$DRYRUN_HELP"
+fi
+
+if echo "$DRYRUN_HELP" | grep -q "re-points"; then
+  _fail "T11 --help: --dry-run text reverted to closed 're-points' enumeration\n$DRYRUN_HELP"
+else
+  _pass "T11 --help: --dry-run text does not use the stale 're-points' enumeration"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

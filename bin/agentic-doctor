@@ -927,7 +927,7 @@ def main() -> int:
         action="store_true",
         dest="dry_run",
         help=(
-            "Enumerate findings and planned re-points without changing anything. "
+            "Enumerate findings and planned repairs without changing anything. "
             "Same as no-flag mode (read-only scan)."
         ),
     )
