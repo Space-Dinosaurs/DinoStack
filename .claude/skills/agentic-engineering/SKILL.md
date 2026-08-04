@@ -34,7 +34,7 @@ files on every session and the reference docs on the triggers described in METHO
 - `/ds-help` - static, zero-token command reference; lists every slash command with a one-line description.
 - `/ds-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
 - `/ds-brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/ds-brief --from <path>` to extract a Brief from an existing PRD.
-- `/ds-pull-and-install` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
+- `/ds-update` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
 
 Run `/ds-help` for the full command inventory.
 

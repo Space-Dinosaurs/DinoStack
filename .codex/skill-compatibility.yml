@@ -2182,16 +2182,6 @@
       "source_token": "`/ds-help`"
     },
     {
-      "expected_target": "content/commands/ds-pull-and-install.md",
-      "generated_token": "manual workflow 'ds-pull-and-install' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-pull-and-install`",
-      "kind": "operational",
-      "occurrence_hash": "8ffe7e773862e6f54d756da43ccf9135edc41292060cf644f7a49a3b1d060716",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/SKILL.md",
-      "source_token": "`/ds-pull-and-install`"
-    },
-    {
       "expected_target": "content/commands/ds-help.md",
       "generated_token": "manual workflow 'ds-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-help`",
       "kind": "operational",
@@ -2240,6 +2230,16 @@
       "scope": "dinostack-repository",
       "source": "content/SKILL.md",
       "source_token": ".claude/build.sh"
+    },
+    {
+      "expected_target": "content/commands/ds-update.md",
+      "generated_token": "manual workflow 'ds-update' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-update`",
+      "kind": "operational",
+      "occurrence_hash": "af8f60f4e1b3b86acd12e767fb41a16a0b51ef82d6367acbbe61119f54f18421",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/SKILL.md",
+      "source_token": "`/ds-update`"
     },
     {
       "expected_target": "$HOME/.claude",

@@ -982,7 +982,7 @@
       </tr>
       <tr style="border-bottom: 1px solid var(--border-faint);">
         <td style="padding: 10px 12px; vertical-align: top;">In-session</td>
-        <td style="padding: 10px 12px; vertical-align: top;"><code>/ds-pull-and-install</code></td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>/ds-update</code></td>
         <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Inside Claude Code, any project</td>
       </tr>
       <tr style="border-bottom: 1px solid var(--border-faint);">
@@ -1831,7 +1831,7 @@
           <li><strong>/ds-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
           <li><strong>/ds-config</strong> - interactive command to view and change agentic-engineering settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>
           <li><strong>/ds-configure-team</strong> - set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments. Independent of the Pi role-model routing layer.</li>
-          <li><strong>/ds-pull-and-install</strong> - pull the latest DinoStack release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Distinct from <code>/ds-update-agentic-engineering</code> (which pushes upstream edits); this command pulls changes down.</li>
+          <li><strong>/ds-update</strong> - pull the latest DinoStack release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Distinct from <code>/ds-update-agentic-engineering</code> (which pushes upstream edits); this command pulls changes down.</li>
           <li><strong>/ds-skill-candidates</strong> - read-only view of the skill-candidate backlog. Displays open and dismissed candidates detected from recurring workflow friction — each with its domain, count, suggested artifact type, and example note. Writes nothing; always exits 0.</li>
         </ul>
       </div>
