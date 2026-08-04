@@ -242,6 +242,19 @@ def _normalize_pipeline_order(value: str) -> str | None:
     return ", ".join(tokens)
 
 
+def _pipeline_order_warning(field_label: str, value: str) -> str:
+    """Shared warning literal for a malformed pipeline-order declaration.
+
+    field_label is spelled per surface (overlay: 'pipeline_order', Jira
+    AGENTS.md: 'JIRA_PIPELINE_ORDER', Linear-shaped AGENTS.md: 'Pipeline
+    order') - the message body is otherwise identical across all three.
+    """
+    return (
+        f"WARNING: {field_label} '{value}' is not a valid ordering of "
+        "IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE - using the default order."
+    )
+
+
 # ---------------------------------------------------------------------------
 # .agentic/tracker.yml parsing (normative parse boundary)
 # ---------------------------------------------------------------------------
@@ -368,11 +381,7 @@ def _translate_overlay_fields(fields: dict, tracker: str, warnings: list[str]) -
     if "pipeline_order" in fields:
         normalized = _normalize_pipeline_order(fields["pipeline_order"])
         if normalized is None:
-            warnings.append(
-                f"WARNING: pipeline_order '{fields['pipeline_order']}' is not a valid "
-                "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE - "
-                "using the default order."
-            )
+            warnings.append(_pipeline_order_warning("pipeline_order", fields["pipeline_order"]))
         else:
             resolved["TRACKER_PIPELINE_ORDER"] = normalized
 
@@ -407,7 +416,7 @@ def _field(section: str, label: str) -> str | None:
     return val or None
 
 
-def _parse_jira_section(section: str) -> dict:
+def _parse_jira_section(section: str, warnings: list[str]) -> dict:
     fields = {"TRACKER": "jira"}
     for src, dst in (
         ("TICKET_PREFIX", "TICKET_PREFIX"),
@@ -429,11 +438,13 @@ def _parse_jira_section(section: str) -> dict:
         normalized = _normalize_pipeline_order(order)
         if normalized:
             fields["TRACKER_PIPELINE_ORDER"] = normalized
+        else:
+            warnings.append(_pipeline_order_warning("JIRA_PIPELINE_ORDER", order))
     return fields
 
 
 def _parse_linear_shaped(
-    section: str, prefix_label: str, workspace_label: str, qa_label: str
+    section: str, prefix_label: str, workspace_label: str, qa_label: str, warnings: list[str]
 ) -> tuple[dict, str | None]:
     """Shared parser for '## Linear' and '## Tracker' (TRACKER: linear) shapes."""
     fields: dict = {"TRACKER": "linear"}
@@ -462,49 +473,59 @@ def _parse_linear_shaped(
         normalized = _normalize_pipeline_order(order)
         if normalized:
             fields["TRACKER_PIPELINE_ORDER"] = normalized
+        else:
+            warnings.append(_pipeline_order_warning("Pipeline order", order))
     return fields, workspace
 
 
-def _read_agents_md(path: Path) -> tuple[dict, str | None]:
+def _read_agents_md(path: Path) -> tuple[dict, str | None, list[str]]:
     """Mirror the live AGENTS.md fallback chain steps 1-3 (step 4 = caller default).
 
-    Returns (fields, guard_error). guard_error is non-None exactly when the
-    live legacy `## Linear` shape guard condition holds - the section
-    resolved to TRACKER=linear but is missing the required Workspace field.
+    Returns (fields, guard_error, warnings). guard_error is non-None exactly
+    when the live legacy `## Linear` shape guard condition holds - the
+    section resolved to TRACKER=linear but is missing the required
+    Workspace field. warnings collects any malformed-declaration warnings
+    (e.g. an unparseable pipeline order) surfaced during parsing.
     """
+    warnings: list[str] = []
+
     if not path.is_file():
-        return {}, None
+        return {}, None, warnings
 
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         # Fail-safe: an unreadable AGENTS.md must never raise here - it
         # degrades to "no AGENTS.md section resolved", the same as absent.
-        return {}, None
+        return {}, None, warnings
 
     tracker_section = _extract_section(text, "## Tracker")
     if tracker_section is not None:
         t = _field(tracker_section, "TRACKER")
         if t and t.strip().lower() == "jira":
-            return _parse_jira_section(tracker_section), None
+            return _parse_jira_section(tracker_section, warnings), None, warnings
         if t and t.strip().lower() == "linear":
             fields, workspace = _parse_linear_shaped(
-                tracker_section, "TICKET_PREFIX", "LINEAR_WORKSPACE", "LINEAR_QA_ASSIGNEE_ID"
+                tracker_section,
+                "TICKET_PREFIX",
+                "LINEAR_WORKSPACE",
+                "LINEAR_QA_ASSIGNEE_ID",
+                warnings,
             )
             if not workspace:
-                return {}, LEGACY_LINEAR_GUARD_MESSAGE
-            return fields, None
+                return {}, LEGACY_LINEAR_GUARD_MESSAGE, warnings
+            return fields, None, warnings
 
     linear_section = _extract_section(text, "## Linear")
     if linear_section is not None:
         fields, workspace = _parse_linear_shaped(
-            linear_section, "Team", "Workspace", "QA assignee ID"
+            linear_section, "Team", "Workspace", "QA assignee ID", warnings
         )
         if not workspace:
-            return {}, LEGACY_LINEAR_GUARD_MESSAGE
-        return fields, None
+            return {}, LEGACY_LINEAR_GUARD_MESSAGE, warnings
+        return fields, None, warnings
 
-    return {}, None
+    return {}, None, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -661,8 +682,8 @@ def _base_result(base: dict) -> dict:
 def _resolve_tracker(cwd: Path) -> dict:
     """Fail-safe: never raises, never exits/signals non-zero for a file-state reason."""
     agents_path = cwd / "AGENTS.md"
-    base, guard_error = _read_agents_md(agents_path)
-    warnings: list[str] = []
+    base, guard_error, agents_warnings = _read_agents_md(agents_path)
+    warnings: list[str] = list(agents_warnings)
 
     if guard_error is not None:
         result = _base_result(base)
