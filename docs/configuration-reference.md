@@ -82,7 +82,7 @@ it manually.
 | `skill_candidate_nudge` | `false` | bool | In-session nudge when a domain crosses the candidate threshold (requires `skill_candidate_detection: true`) |
 | `ticket_driven` | absent-key: `offer` if tracker connected, `off` if not | `"off"`, `"offer"`, `"require"` | Controls ticket-creation gate before first implementer spawn; **absent key resolves based on tracker connection, not to a fixed default** |
 | `rework_detection` | `true` | bool | Disables the Phase 9 ledger write, Phase 1 detection, the notice, the `/ds-ticket-triage` badge, and the escalation with a single flag when `false` |
-| `pending_merge_sweep` | `true` | bool | Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable |
+| `pending_merge_sweep` | `true` | bool | Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable |
 | `tracker_state_diagnostic` | `true` | bool | Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable |
 | `turn_shape_guard_enabled` | `true` | bool | Advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule; never blocks the stop, only logs; absent key resolves to on; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1` |
 
@@ -187,8 +187,8 @@ Project-local, gitignored, pure data (never executes). Merged field-by-field, ov
 | `workspace` | when sole source + linear | `LINEAR_WORKSPACE` | |
 | `qa_assignee` | no | `JIRA_QA_ASSIGNEE_ACCOUNT_ID` / `LINEAR_QA_ASSIGNEE_ID` | |
 | `jira_qa_transition` | no | `JIRA_QA_TRANSITION` | jira only |
-| `state_in_progress` / `state_in_review` / `state_qa` / `state_blocked` / `state_done` | no | `TRACKER_STATE_*` | defaults match the live step-4 chain |
-| `pipeline_order` | no | `TRACKER_PIPELINE_ORDER` | comma permutation of `IN_PROGRESS, IN_REVIEW, QA`; warns and defaults on malformed |
+| `state_in_progress` / `state_in_review` / `state_qa` / `state_dev_complete` / `state_blocked` / `state_done` | no | `TRACKER_STATE_*` | defaults match the live step-4 chain, except `state_dev_complete`, which defaults to the RESOLVED `state_done` value rather than a literal; `state_dev_complete` is the automatic merge target, `state_done` is terminal and never written automatically |
+| `pipeline_order` | no | `TRACKER_PIPELINE_ORDER` | comma ordering of `IN_PROGRESS, IN_REVIEW, QA` with optional `DEV_COMPLETE` (implied trailing when omitted); warns and defaults on malformed |
 
 Any key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`) rejects the **entire file** - this is not a secret scanner, only a key-name guard; a short token pasted under an allowlisted key is still accepted.
 
