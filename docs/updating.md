@@ -48,7 +48,7 @@ bash .claude/install.sh
 
 ```bash
 agentic-doctor          # read-only scan; exit 0 = healthy, 1 = findings
-agentic-doctor --fix    # re-point drifted symlinks and repair hook paths; exit 0 = all fixed, 2 = some unfixable
+agentic-doctor --fix    # re-point drifted symlinks (or remove stale ones) and repair hook paths; exit 0 = all fixed, 2 = some unfixable
 agentic-doctor --dry-run  # same as the default scan - enumerate findings without changing anything
 ```
 
@@ -62,7 +62,7 @@ What it checks:
 
 Real files (not symlinks) and symlinks pointing outside any DinoStack repo are skipped rather than flagged.
 
-`--fix` repairs only links and paths that belong to DinoStack. It never runs `install.sh` or rebuilds adapters. Reach for it after moving the repo or if a partial install left something dangling.
+`--fix` repairs only links and paths that belong to DinoStack. It never runs `install.sh` or rebuilds adapters. Reach for it after moving the repo or if a partial install left something dangling. If a managed symlink's expected in-repo target no longer exists (e.g. a renamed command), `--fix` deletes the stale symlink rather than re-pointing it.
 
 ## Safeguards
 

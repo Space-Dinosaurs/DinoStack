@@ -8,10 +8,13 @@ Purpose: Inspect global agentic-engineering install health and (with --fix)
          settings.json actually exists on disk (orphaned-hook detection),
          and that the repo_dir pre-commit hook is wired. With --fix,
          re-points ours-to-own broken/stale symlinks and rewrites hook paths
-         in settings.json (atomic read-merge-write); the orphaned-hook check
-         is read-only (FAIL only, no --fix repair - the fix is restoring the
-         script or re-running install.sh). Never invokes install.sh, never
-         touches real files or foreign symlinks.
+         in settings.json (atomic read-merge-write); when the expected
+         in-repo target for an ours-to-own symlink no longer exists at all
+         (e.g. a renamed command), --fix DELETES the stale symlink from
+         ~/.claude/{agents,commands,skills} instead of re-pointing it. The
+         orphaned-hook check is read-only (FAIL only, no --fix repair - the
+         fix is restoring the script or re-running install.sh). Never
+         invokes install.sh, never touches real files or foreign symlinks.
 
 Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
             --cross-harness: also validate the cross-harness team stack
@@ -23,6 +26,7 @@ Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
               OK <kind>: <detail>
               FAIL <kind>: <detail>
               FIX symlink: <dst> : <old/broken target> -> <new target>
+              FIX symlink: <dst> : <old> -> (removed, stale)
               SKIP <kind>: <dst> (reason)
             Exits 0 (all pass / --fix resolved all), 1 (findings in read-only
             or dry-run mode), 2 (--fix ran but one or more items could not be
