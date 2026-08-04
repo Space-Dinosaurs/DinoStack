@@ -7,7 +7,11 @@ Purpose: Regression tests for bin/agentic-tracker - the .agentic/tracker.yml
 Public API: none (test module; not imported by other code).
 
 Test letter set (mirrors the plan's test plan table): A, A2, B, C, D, E, F,
-G, H, H2, I, J, K, L, M, O, P, Q, Q2, R, S(a-e). N is permanently vacant.
+G, H, H2, I, J, K, L, L2, L3, L4, L5, L6, L7, M, O, P, Q, Q2, R, S(a-e), T, U,
+V, V2, W, X, Y, Z. N is permanently vacant. L2-Z cover DS-117 (dev-complete
+splits from terminal Done). L6/L7 cover the DS-117 QA-4 fix: a malformed
+AGENTS.md-declared pipeline_order (Jira and Linear-shaped) now warns on
+stderr, matching the overlay path.
 
 Upstream deps: bin/agentic-tracker (module under test, loaded via
                SourceFileLoader since it has no .py extension); Python 3
@@ -57,6 +61,8 @@ _resolve_tracker = _mod._resolve_tracker
 _git_state = _mod._git_state
 _check_ignored = _mod._check_ignored
 _validate_write_key = _mod._validate_write_key
+_base_result = _mod._base_result
+_apply_dev_complete_default = _mod._apply_dev_complete_default
 TRACKED_READ_WARNING = _mod.TRACKED_READ_WARNING
 
 
@@ -116,6 +122,35 @@ AGENTS_MD_LINEAR_FULL = """## Linear
 
 AGENTS_MD_LINEAR_NO_WORKSPACE = """## Linear
 - Team: FRM
+"""
+
+# DS-117: dev-complete fixtures.
+AGENTS_MD_JIRA_DEV_COMPLETE_AND_DONE = """## Tracker
+TRACKER: jira
+TICKET_PREFIX: DS
+JIRA_BASE_URL: https://solara6.atlassian.net
+JIRA_STATE_DEV_COMPLETE: Ready for QA
+JIRA_STATE_DONE: Shipped
+"""
+
+AGENTS_MD_LINEAR_DEV_COMPLETE_AND_DONE = """## Linear
+- Team: FRM
+- Workspace: acme
+- State Dev Complete: Merged
+- State Done: Shipped
+"""
+
+AGENTS_MD_JIRA_DONE_OVERRIDE_ONLY = """## Tracker
+TRACKER: jira
+TICKET_PREFIX: DS
+JIRA_BASE_URL: https://solara6.atlassian.net
+JIRA_STATE_DONE: Ready for QA
+"""
+
+AGENTS_MD_LINEAR_DONE_OVERRIDE_ONLY = """## Linear
+- Team: FRM
+- Workspace: acme
+- State Done: Ready for QA
 """
 
 
@@ -353,6 +388,14 @@ def test_J_oversized_value_dropped_then_unusable():
 def test_K_defaults_qa_differ_by_tracker():
     assert _defaults_for("jira")["TRACKER_STATE_QA"] == "QA"
     assert _defaults_for("linear")["TRACKER_STATE_QA"] == "Testing"
+    # DS-117: dev-complete defaults identically on BOTH trackers (unlike QA)
+    # because it inherits the resolved TRACKER_STATE_DONE, which does not
+    # vary by tracker.
+    assert (
+        _defaults_for("jira")["TRACKER_STATE_DEV_COMPLETE"]
+        == _defaults_for("linear")["TRACKER_STATE_DEV_COMPLETE"]
+        == "Done"
+    )
     print("PASS test_K_defaults_qa_differ_by_tracker")
 
 
@@ -373,9 +416,330 @@ def test_L_malformed_pipeline_order_defaults():
         assert status == "ok"
         assert "TRACKER_PIPELINE_ORDER" not in fields  # malformed -> dropped, default fills in later
         assert any("pipeline_order" in w for w in warnings)
+        assert any(
+            "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE" in w
+            for w in warnings
+        ), warnings
         result = _resolve_tracker(cwd)
         assert result["TRACKER_PIPELINE_ORDER"] == "IN_PROGRESS, IN_REVIEW, QA"
         print("PASS test_L_malformed_pipeline_order_defaults")
+
+
+# ---------------------------------------------------------------------------
+# L2-L5: DEV_COMPLETE as an optional 4th pipeline_order token (Decision 1)
+# ---------------------------------------------------------------------------
+
+def test_L2_pipeline_order_accepts_optional_dev_complete():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "pipeline_order: IN_PROGRESS, IN_REVIEW, DEV_COMPLETE, QA\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok", reason
+        assert fields["TRACKER_PIPELINE_ORDER"] == "IN_PROGRESS, IN_REVIEW, DEV_COMPLETE, QA"
+        assert not any("pipeline_order" in w for w in warnings)
+        print("PASS test_L2_pipeline_order_accepts_optional_dev_complete")
+
+
+def test_L3_pipeline_order_rejects_missing_required_token():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "pipeline_order: IN_PROGRESS, DEV_COMPLETE, QA\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok", reason
+        assert "TRACKER_PIPELINE_ORDER" not in fields
+        assert any("pipeline_order" in w for w in warnings)
+        print("PASS test_L3_pipeline_order_rejects_missing_required_token")
+
+
+def test_L4_pipeline_order_rejects_five_tokens_and_unknown_token():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "pipeline_order: IN_PROGRESS, IN_REVIEW, QA, DEV_COMPLETE, BOGUS\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok", reason
+        assert "TRACKER_PIPELINE_ORDER" not in fields
+        assert any("pipeline_order" in w for w in warnings)
+        print("PASS test_L4_pipeline_order_rejects_five_tokens_and_unknown_token")
+
+
+def test_L5_pipeline_order_three_token_form_still_valid():
+    # SC2/R6 regression: a 3-token declaration stays valid with no warning.
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "pipeline_order: IN_REVIEW, IN_PROGRESS, QA\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok", reason
+        assert fields["TRACKER_PIPELINE_ORDER"] == "IN_REVIEW, IN_PROGRESS, QA"
+        assert not any("pipeline_order" in w for w in warnings)
+        print("PASS test_L5_pipeline_order_three_token_form_still_valid")
+
+
+# ---------------------------------------------------------------------------
+# L6/L7: DS-117 QA fix - AGENTS.md-declared malformed pipeline_order must
+# warn on stderr (both Jira and Linear-shaped surfaces), same as the
+# overlay path already does. Regression coverage for the QA-4 gap where
+# _parse_jira_section / _parse_linear_shaped silently dropped a None
+# _normalize_pipeline_order() result instead of collecting a warning.
+# ---------------------------------------------------------------------------
+
+AGENTS_MD_JIRA_MALFORMED_PIPELINE_ORDER = """## Tracker
+TRACKER: jira
+TICKET_PREFIX: DS
+JIRA_BASE_URL: https://solara6.atlassian.net
+JIRA_PIPELINE_ORDER: IN_PROGRESS, DEV_COMPLETE
+"""
+
+AGENTS_MD_LINEAR_MALFORMED_PIPELINE_ORDER = """## Linear
+- Team: FRM
+- Workspace: acme
+- Pipeline order: IN_PROGRESS, DEV_COMPLETE
+"""
+
+
+def test_L6_agents_md_jira_malformed_pipeline_order_warns():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_MALFORMED_PIPELINE_ORDER)
+
+        fields, guard_error, warnings = _read_agents_md(cwd / "AGENTS.md")
+        assert guard_error is None
+        assert "TRACKER_PIPELINE_ORDER" not in fields
+        assert any(
+            "JIRA_PIPELINE_ORDER" in w
+            and "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE" in w
+            for w in warnings
+        ), warnings
+
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_PIPELINE_ORDER"] == "IN_PROGRESS, IN_REVIEW, QA"
+
+        r = _run_cli(["resolve", "--json"], cwd, dict(os.environ))
+        assert r.returncode == 0, r.stderr
+        assert (
+            "WARNING: JIRA_PIPELINE_ORDER 'IN_PROGRESS, DEV_COMPLETE' is not a valid "
+            "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE - "
+            "using the default order." in r.stderr
+        ), r.stderr
+        print("PASS test_L6_agents_md_jira_malformed_pipeline_order_warns")
+
+
+def test_L7_agents_md_linear_malformed_pipeline_order_warns():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_LINEAR_MALFORMED_PIPELINE_ORDER)
+
+        fields, guard_error, warnings = _read_agents_md(cwd / "AGENTS.md")
+        assert guard_error is None
+        assert "TRACKER_PIPELINE_ORDER" not in fields
+        assert any(
+            "Pipeline order" in w
+            and "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE" in w
+            for w in warnings
+        ), warnings
+
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_PIPELINE_ORDER"] == "IN_PROGRESS, IN_REVIEW, QA"
+
+        r = _run_cli(["resolve", "--json"], cwd, dict(os.environ))
+        assert r.returncode == 0, r.stderr
+        assert (
+            "WARNING: Pipeline order 'IN_PROGRESS, DEV_COMPLETE' is not a valid "
+            "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE - "
+            "using the default order." in r.stderr
+        ), r.stderr
+        print("PASS test_L7_agents_md_linear_malformed_pipeline_order_warns")
+
+
+# ---------------------------------------------------------------------------
+# T: overlay accepts state_dev_complete as a key
+# ---------------------------------------------------------------------------
+
+def test_T_overlay_state_dev_complete_key_accepted():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        overlay = cwd / ".agentic" / "tracker.yml"
+        _write(
+            overlay,
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "state_dev_complete: Ready for QA\n",
+        )
+        fields, status, warnings, reason = _read_overlay(overlay)
+        assert status == "ok", reason
+        assert fields["TRACKER_STATE_DEV_COMPLETE"] == "Ready for QA"
+
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_STATE_DEV_COMPLETE"] == "Ready for QA"
+        assert result["TRACKER_DEV_COMPLETE_DECLARED"] == "true"
+        print("PASS test_T_overlay_state_dev_complete_key_accepted")
+
+
+# ---------------------------------------------------------------------------
+# U: JIRA_STATE_DEV_COMPLETE / State Dev Complete: never shadow Done, in
+# either direction (label-shadowing guard, both trackers)
+# ---------------------------------------------------------------------------
+
+def test_U_agents_md_dev_complete_field_both_trackers():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_DEV_COMPLETE_AND_DONE)
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_STATE_DEV_COMPLETE"] == "Ready for QA"
+        assert result["TRACKER_STATE_DONE"] == "Shipped"
+        assert result["TRACKER_DEV_COMPLETE_DECLARED"] == "true"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_LINEAR_DEV_COMPLETE_AND_DONE)
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_STATE_DEV_COMPLETE"] == "Merged"
+        assert result["TRACKER_STATE_DONE"] == "Shipped"
+        assert result["TRACKER_DEV_COMPLETE_DECLARED"] == "true"
+    print("PASS test_U_agents_md_dev_complete_field_both_trackers")
+
+
+# ---------------------------------------------------------------------------
+# V: the round-1 Critical pin - dev-complete inherits the RESOLVED Done
+# value, never the literal "Done".
+# ---------------------------------------------------------------------------
+
+def test_V_dev_complete_inherits_resolved_done_not_literal():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_DONE_OVERRIDE_ONLY)
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_STATE_DEV_COMPLETE"] == "Ready for QA"
+        assert result["TRACKER_STATE_DEV_COMPLETE"] != "Done"
+        assert result["TRACKER_DEV_COMPLETE_DECLARED"] == "false"
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_LINEAR_DONE_OVERRIDE_ONLY)
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_STATE_DEV_COMPLETE"] == "Ready for QA"
+        assert result["TRACKER_STATE_DEV_COMPLETE"] != "Done"
+        assert result["TRACKER_DEV_COMPLETE_DECLARED"] == "false"
+    print("PASS test_V_dev_complete_inherits_resolved_done_not_literal")
+
+
+# ---------------------------------------------------------------------------
+# W: inheritance also flows through an overlay-declared state_done, when
+# AGENTS.md declares no Done field.
+# ---------------------------------------------------------------------------
+
+def test_W_dev_complete_inheritance_via_overlay_done():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        # Fixture requirement: the overlay must also carry tracker: plus
+        # that tracker's REQUIRED_KEYS (prefix + base_url for jira).
+        # Without them the sole-source branch hits the missing-required
+        # check and falls back to _base_result(base), yielding "Done" for a
+        # fixture reason unrelated to what this test pins.
+        _write(
+            cwd / ".agentic" / "tracker.yml",
+            "tracker: jira\nprefix: DS\nbase_url: https://x.atlassian.net\n"
+            "state_done: Shipped\n",
+        )
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_STATE_DONE"] == "Shipped"
+        assert result["TRACKER_STATE_DEV_COMPLETE"] == "Shipped"
+        assert result["TRACKER_DEV_COMPLETE_DECLARED"] == "false"
+        print("PASS test_W_dev_complete_inheritance_via_overlay_done")
+
+
+# ---------------------------------------------------------------------------
+# V2: the round-2 Major pin, part 1 - TRACKER_DEV_COMPLETE_DECLARED is the
+# string "true"/"false", never a JSON boolean.
+# ---------------------------------------------------------------------------
+
+def test_V2_declared_dev_complete_sets_the_declared_flag():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_DEV_COMPLETE_AND_DONE)
+        result = _resolve_tracker(cwd)
+        v = result["TRACKER_DEV_COMPLETE_DECLARED"]
+        assert v == "true"
+        assert isinstance(v, str)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_DONE_OVERRIDE_ONLY)
+        result = _resolve_tracker(cwd)
+        v2 = result["TRACKER_DEV_COMPLETE_DECLARED"]
+        assert v2 == "false"
+        assert isinstance(v2, str)
+    print("PASS test_V2_declared_dev_complete_sets_the_declared_flag")
+
+
+# ---------------------------------------------------------------------------
+# X: a declared dev-complete wins over the inherited default.
+# ---------------------------------------------------------------------------
+
+def test_X_declared_dev_complete_wins_over_inheritance():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_DEV_COMPLETE_AND_DONE)
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_STATE_DEV_COMPLETE"] == "Ready for QA"
+        assert result["TRACKER_STATE_DEV_COMPLETE"] != result["TRACKER_STATE_DONE"]
+        print("PASS test_X_declared_dev_complete_wins_over_inheritance")
+
+
+# ---------------------------------------------------------------------------
+# Y: an inherited dev-complete must never be reported as an operator
+# override, even on the merge path.
+# ---------------------------------------------------------------------------
+
+def test_Y_inherited_dev_complete_is_not_reported_as_override():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_FULL)  # tracker: jira, no dev-complete field
+        _write(
+            cwd / ".agentic" / "tracker.yml",
+            "tracker: jira\nprefix: MYDS\n",
+        )
+        result = _resolve_tracker(cwd)
+        assert result["_source"] == "merged"
+        assert "TRACKER_STATE_DEV_COMPLETE" not in result["_overridden"]
+        assert "TRACKER_DEV_COMPLETE_DECLARED" not in result["_overridden"]
+        assert result["TRACKER_DEV_COMPLETE_DECLARED"] == "false"
+        print("PASS test_Y_inherited_dev_complete_is_not_reported_as_override")
+
+
+# ---------------------------------------------------------------------------
+# Z: TRACKER=none still reports _source == "none" after inheritance -
+# guards the copy-not-mutate obligation on _base_result's caller-owned dict.
+# ---------------------------------------------------------------------------
+
+def test_Z_base_result_source_unaffected_by_inheritance():
+    base: dict = {}
+    result = _base_result(base)
+    assert result["_source"] == "none"
+    assert base == {}, base  # caller's dict must not be mutated in place
+    assert "TRACKER_STATE_DEV_COMPLETE" not in base
+
+    result2 = _base_result(None)
+    assert result2["_source"] == "none"
+    print("PASS test_Z_base_result_source_unaffected_by_inheritance")
 
 
 # ---------------------------------------------------------------------------
@@ -463,6 +827,11 @@ def test_P_defaults_for_none():
     d = _defaults_for(None)
     assert d["TRACKER_STATE_QA"] == "Testing"
     assert d["TRACKER_PIPELINE_ORDER"] == "IN_PROGRESS, IN_REVIEW, QA"
+    # DS-117: dev-complete defaults to the resolved Done value, pinning the
+    # relationship (not just the literal), plus the declared flag default.
+    assert d["TRACKER_STATE_DEV_COMPLETE"] == "Done"
+    assert d["TRACKER_STATE_DEV_COMPLETE"] == d["TRACKER_STATE_DONE"]
+    assert d["TRACKER_DEV_COMPLETE_DECLARED"] == "false"
     print("PASS test_P_defaults_for_none")
 
 
@@ -721,6 +1090,20 @@ if __name__ == "__main__":
     test_J_oversized_value_dropped_then_unusable()
     test_K_defaults_qa_differ_by_tracker()
     test_L_malformed_pipeline_order_defaults()
+    test_L2_pipeline_order_accepts_optional_dev_complete()
+    test_L3_pipeline_order_rejects_missing_required_token()
+    test_L4_pipeline_order_rejects_five_tokens_and_unknown_token()
+    test_L5_pipeline_order_three_token_form_still_valid()
+    test_L6_agents_md_jira_malformed_pipeline_order_warns()
+    test_L7_agents_md_linear_malformed_pipeline_order_warns()
+    test_T_overlay_state_dev_complete_key_accepted()
+    test_U_agents_md_dev_complete_field_both_trackers()
+    test_V_dev_complete_inherits_resolved_done_not_literal()
+    test_W_dev_complete_inheritance_via_overlay_done()
+    test_V2_declared_dev_complete_sets_the_declared_flag()
+    test_X_declared_dev_complete_wins_over_inheritance()
+    test_Y_inherited_dev_complete_is_not_reported_as_override()
+    test_Z_base_result_source_unaffected_by_inheritance()
     test_M_write_side_key_validation_exit_4()
     test_M2_set_unreadable_existing_overlay_degrades_no_traceback()
     test_O_comment_skip_before_parsing()

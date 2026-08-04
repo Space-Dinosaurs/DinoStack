@@ -78,6 +78,20 @@ Covers:
         pass pipeline_order; and ds-init-project.md's two AGENTS.md
         templates show the commented-out override line under its own
         heading.
+  - (h) DS-117 (split dev-complete from terminal Done): the canonical block's
+    pipeline sequence is extended with `DEV_COMPLETE` (rank 3); the pass-list
+    scope check for `pipeline_order` still holds after the insertion; the
+    Setup Jira/Linear pipeline-order sentences state the new warning text
+    naming DEV_COMPLETE as an optional token; step 4.d.iv's rank-source line
+    still names `pipeline_order` (not a hardcoded literal) and now also
+    covers the implied-trailing-DEV_COMPLETE rule; `ds-wrap.md`'s Part F
+    Gate line resolves `TRACKER_STATE_DEV_COMPLETE` alongside the other 5
+    values; and the `ds-init-project.md` AGENTS.md templates show both the
+    Dev Complete override line and the pipeline-order override line together
+    under one anchored window per template. The remaining DS-117 pins (the
+    bare-`TRACKER_STATE_` prefix trap, the AC-3 target-shape scan, the
+    inherited-carries-no-rank guard, and the tracker_state_values
+    byte-identity check) live in the new bin/tests/test_tracker_dev_complete_spec.py.
 
 Run with: python3 -m pytest bin/tests/test_tracker_writeback_ranking_spec.py -q
 """
@@ -155,6 +169,7 @@ def test_canonical_block_contains_fixed_pipeline_ranks(canonical_block):
     assert "IN_PROGRESS" in canonical_block and "rank 0" in canonical_block
     assert "IN_REVIEW" in canonical_block and "rank 1" in canonical_block
     assert "QA" in canonical_block and "rank 2" in canonical_block
+    assert "DEV_COMPLETE" in canonical_block and "rank 3" in canonical_block
 
 
 def test_canonical_block_permits_blocked_both_directions(canonical_block):
@@ -313,12 +328,12 @@ def test_canonical_block_pipeline_sequence_is_ordered_literal(canonical_block):
     # Gap 2 (declarable pipeline order): the wording changed from "the fixed
     # pipeline sequence" to "the ordered sequence" since the sequence is now
     # only the DEFAULT (a project may override it via JIRA_PIPELINE_ORDER /
-    # Pipeline order:), not a hardcoded constant. The ordered literal itself
-    # (IN_PROGRESS(0) < IN_REVIEW(1) < QA(2)) is unchanged.
+    # Pipeline order:), not a hardcoded constant. DS-117 extends the ordered
+    # literal itself with a fourth, optional DEV_COMPLETE token at rank 3.
     assert (
-        "the ordered sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2)"
+        "the ordered sequence `IN_PROGRESS` (rank 0) < `IN_REVIEW` (rank 1) < `QA` (rank 2) < `DEV_COMPLETE` (rank 3)"
         in canonical_block
-    ), "the pipeline sequence must be the literal ordered IN_PROGRESS(0) < IN_REVIEW(1) < QA(2) clause"
+    ), "the pipeline sequence must be the literal ordered IN_PROGRESS(0) < IN_REVIEW(1) < QA(2) < DEV_COMPLETE(3) clause"
 
 
 def test_canonical_block_category_rank_sequence_is_ordered_literal(canonical_block):
@@ -500,6 +515,9 @@ def test_wrap_part_f_gate_resolves_tracker_state_values():
     assert gate_lines, "Part F Gate line not found in ds-wrap.md"
     assert any("TRACKER_STATE_IN_PROGRESS" in l for l in gate_lines), (
         "Part F Gate line no longer resolves TRACKER_STATE_IN_PROGRESS"
+    )
+    assert any("TRACKER_STATE_DEV_COMPLETE" in l for l in gate_lines), (
+        "Part F Gate line no longer resolves TRACKER_STATE_DEV_COMPLETE"
     )
 
 
@@ -914,10 +932,11 @@ def test_agentic_config_settings_registers_tracker_state_diagnostic():
 
 
 def test_canonical_block_never_substitutes_a_different_write_target(canonical_block):
-    """Outcome rubric R4: 'the mechanism never writes a tracker state outside
-    the 5 configured TRACKER_STATE_* values - no substitution, no guessing,
-    ever, on either tracker.' Two prior review rounds' Criticals were about
-    exactly this invariant. This is a genuine guard, not a bare
+    """Guards the invariant behind outcome rubric R4: the mechanism never
+    writes a tracker state outside the 6 configured TRACKER_STATE_* values -
+    no substitution, no guessing, ever, on either tracker. Two prior review
+    rounds' Criticals were about exactly this invariant. This is a genuine
+    guard, not a bare
     keyword-presence check, but its coverage is bounded and stated honestly
     here rather than overclaimed: it pins BOTH write call sites to their
     single literal form (so swapping `target_state` for a derived/nearest/
@@ -1026,9 +1045,16 @@ def test_setup_resolves_tracker_pipeline_order_with_default():
     # Both the Jira item-1 sentence and the Linear item-3 sentence must state
     # the default and the malformed-value fallback.
     jira_idx = text.index("Also extract an optional pipeline-order override: `JIRA_PIPELINE_ORDER`")
-    jira_window = text[jira_idx:jira_idx + 500]
+    # Widened from 500 to 1200: DS-117's warning literal names the optional
+    # DEV_COMPLETE token, pushing the anchor's tail (through "using the
+    # default order.") to about 710 chars - the 500-char window truncated it.
+    jira_window = text[jira_idx:jira_idx + 1200]
     assert "default `IN_PROGRESS, IN_REVIEW, QA` when absent" in jira_window
-    assert "not a valid permutation of IN_PROGRESS/IN_REVIEW/QA - using the default order" in jira_window
+    assert (
+        "is not a valid ordering of IN_PROGRESS/IN_REVIEW/QA with optional "
+        "DEV_COMPLETE - using the default order"
+        in jira_window
+    )
 
     linear_idx = text.index("Also extract an optional pipeline-order override: `Pipeline order:`")
     linear_window = text[linear_idx:linear_idx + 300]
@@ -1094,6 +1120,12 @@ def test_step_4d_iv_uses_pipeline_order_as_rank_source(canonical_block):
         "step 4.d.iv must not still claim the order is fixed/unconfigurable - that is the exact "
         "claim Gap 2 makes false"
     )
+    # DS-117: DEV_COMPLETE is now the fourth pipeline token, and a declared
+    # order may omit it (implied trailing position, appended before ranking).
+    assert "DEV_COMPLETE" in line
+    assert "IN_PROGRESS`/`IN_REVIEW`/`QA`/`DEV_COMPLETE`" in line
+    assert "may omit `DEV_COMPLETE`" in line
+    assert "appended at the trailing position" in line
 
     # The two sibling bullets that follow are unchanged verbatim per the
     # spec - confirm they are still present and still resolve to their
@@ -1194,12 +1226,19 @@ def test_init_project_templates_show_pipeline_order_under_own_heading():
     path = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
     text = path.read_text(encoding="utf-8")
 
-    linear_idx = text.index("# State Done: Done")
-    linear_window = text[linear_idx:linear_idx + 200]
+    # Anchored on the FIRST state line of each block, not on the Done line:
+    # `# State Dev Complete:` precedes `# State Done:`, so a window opened at
+    # Done can never contain it. Both anchors below are unique in the file.
+    linear_idx = text.index("# State In Progress: In Progress")
+    linear_window = text[linear_idx:linear_idx + 400]
+    assert "# State Dev Complete: Done" in linear_window
+    assert "# State Done: Done" in linear_window
     assert "# Optional pipeline-order override (default shown; uncomment to override):" in linear_window
     assert "# Pipeline order: IN_PROGRESS, IN_REVIEW, QA" in linear_window
 
-    jira_idx = text.index("# JIRA_STATE_DONE: Done")
-    jira_window = text[jira_idx:jira_idx + 200]
+    jira_idx = text.index("# JIRA_STATE_IN_PROGRESS: In Progress")
+    jira_window = text[jira_idx:jira_idx + 400]
+    assert "# JIRA_STATE_DEV_COMPLETE: Done" in jira_window
+    assert "# JIRA_STATE_DONE: Done" in jira_window
     assert "# Optional pipeline-order override (default shown; uncomment to override):" in jira_window
     assert "# JIRA_PIPELINE_ORDER: IN_PROGRESS, IN_REVIEW, QA" in jira_window

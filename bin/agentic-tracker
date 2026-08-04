@@ -21,14 +21,16 @@ Public API:
 
   Helpers: _project_tracker_path(cwd=None), _read_overlay(path),
            _read_agents_md(path), _defaults_for(tracker),
+           _apply_dev_complete_default(declared, defaults),
            _git_state(path), _check_ignored(path, force_unignored=False),
            _resolve_tracker(cwd), _validate_write_key(key, value).
 
 Data model: `<repo>/.agentic/tracker.yml` - project-local, gitignored,
   pure data (never executes). Closed key allowlist (ALLOWED_KEYS): tracker,
   prefix, base_url, workspace, qa_assignee, jira_qa_transition,
-  state_in_progress, state_in_review, state_qa, state_blocked, state_done,
-  pipeline_order, created_at. Unlike `.agentic/phase0-classifiers.yml`
+  state_in_progress, state_in_review, state_qa, state_dev_complete,
+  state_blocked, state_done, pipeline_order, created_at. Unlike
+  `.agentic/phase0-classifiers.yml`
   (which runs with full conductor privileges), this file is data-only.
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, re, subprocess,
@@ -91,12 +93,12 @@ Performance: Standard. File I/O plus, on the read path, up to three
 from __future__ import annotations
 
 import argparse
+import importlib.machinery as _ilm
+import importlib.util as _ilu
 import json
 import re
 import subprocess
 import sys
-from datetime import datetime, timezone
-from pathlib import Path
 
 # Shared helpers from bin/_lib (same directory; bin/ is on sys.path at
 # runtime). .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-tracker
@@ -105,8 +107,8 @@ from pathlib import Path
 # The bare `.parent` form (no `.resolve()`) is the live DS-66 bug - it
 # resolves to a missing ~/.local/bin/_lib.py and soft-fails silently.
 import sys as _sys
-import importlib.util as _ilu
-import importlib.machinery as _ilm
+from datetime import datetime, timezone
+from pathlib import Path
 
 _LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
 if "_lib" in _sys.modules:
@@ -133,6 +135,7 @@ ALLOWED_KEYS: set[str] = {
     "state_in_progress",
     "state_in_review",
     "state_qa",
+    "state_dev_complete",
     "state_blocked",
     "state_done",
     "pipeline_order",
@@ -155,7 +158,9 @@ MAX_VALUE_LEN = 256
 # unbounded. Parsing itself is unaffected; only warning collection is capped.
 MAX_WARNINGS = 50
 
-PIPELINE_TOKENS = ("IN_PROGRESS", "IN_REVIEW", "QA")
+PIPELINE_REQUIRED_TOKENS = ("IN_PROGRESS", "IN_REVIEW", "QA")
+PIPELINE_OPTIONAL_TOKENS = ("DEV_COMPLETE",)
+PIPELINE_TOKENS = PIPELINE_REQUIRED_TOKENS + PIPELINE_OPTIONAL_TOKENS
 
 # Live guard text quoted verbatim from content/commands/ds-implement-ticket.md
 # "Legacy `## Linear` shape guard" (the em dash is quoted live text, not
@@ -219,10 +224,35 @@ def _append_warning(warnings: list[str], msg: str) -> None:
 
 
 def _normalize_pipeline_order(value: str) -> str | None:
+    """Validate and normalize a declared pipeline order.
+
+    Valid: distinct, case-insensitive tokens drawn from PIPELINE_TOKENS,
+    containing every PIPELINE_REQUIRED_TOKENS member. DEV_COMPLETE is
+    optional; when omitted the guard appends it at the trailing position,
+    so the normalized string is returned exactly as declared (3 or 4
+    tokens) and the default string stays the historical 3-token form.
+    """
     tokens = [t.strip().upper() for t in value.split(",")]
-    if len(tokens) == 3 and len(set(tokens)) == 3 and sorted(tokens) == sorted(PIPELINE_TOKENS):
-        return ", ".join(tokens)
-    return None
+    if len(tokens) != len(set(tokens)):
+        return None
+    if not set(tokens) <= set(PIPELINE_TOKENS):
+        return None
+    if not set(PIPELINE_REQUIRED_TOKENS) <= set(tokens):
+        return None
+    return ", ".join(tokens)
+
+
+def _pipeline_order_warning(field_label: str, value: str) -> str:
+    """Shared warning literal for a malformed pipeline-order declaration.
+
+    field_label is spelled per surface (overlay: 'pipeline_order', Jira
+    AGENTS.md: 'JIRA_PIPELINE_ORDER', Linear-shaped AGENTS.md: 'Pipeline
+    order') - the message body is otherwise identical across all three.
+    """
+    return (
+        f"WARNING: {field_label} '{value}' is not a valid ordering of "
+        "IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE - using the default order."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -341,6 +371,7 @@ def _translate_overlay_fields(fields: dict, tracker: str, warnings: list[str]) -
         ("state_in_progress", "TRACKER_STATE_IN_PROGRESS"),
         ("state_in_review", "TRACKER_STATE_IN_REVIEW"),
         ("state_qa", "TRACKER_STATE_QA"),
+        ("state_dev_complete", "TRACKER_STATE_DEV_COMPLETE"),
         ("state_blocked", "TRACKER_STATE_BLOCKED"),
         ("state_done", "TRACKER_STATE_DONE"),
     ):
@@ -350,10 +381,7 @@ def _translate_overlay_fields(fields: dict, tracker: str, warnings: list[str]) -
     if "pipeline_order" in fields:
         normalized = _normalize_pipeline_order(fields["pipeline_order"])
         if normalized is None:
-            warnings.append(
-                f"WARNING: pipeline_order '{fields['pipeline_order']}' is not a valid "
-                "permutation of IN_PROGRESS/IN_REVIEW/QA - using the default order."
-            )
+            warnings.append(_pipeline_order_warning("pipeline_order", fields["pipeline_order"]))
         else:
             resolved["TRACKER_PIPELINE_ORDER"] = normalized
 
@@ -388,7 +416,7 @@ def _field(section: str, label: str) -> str | None:
     return val or None
 
 
-def _parse_jira_section(section: str) -> dict:
+def _parse_jira_section(section: str, warnings: list[str]) -> dict:
     fields = {"TRACKER": "jira"}
     for src, dst in (
         ("TICKET_PREFIX", "TICKET_PREFIX"),
@@ -398,6 +426,7 @@ def _parse_jira_section(section: str) -> dict:
         ("JIRA_STATE_IN_PROGRESS", "TRACKER_STATE_IN_PROGRESS"),
         ("JIRA_STATE_IN_REVIEW", "TRACKER_STATE_IN_REVIEW"),
         ("JIRA_STATE_QA", "TRACKER_STATE_QA"),
+        ("JIRA_STATE_DEV_COMPLETE", "TRACKER_STATE_DEV_COMPLETE"),
         ("JIRA_STATE_BLOCKED", "TRACKER_STATE_BLOCKED"),
         ("JIRA_STATE_DONE", "TRACKER_STATE_DONE"),
     ):
@@ -409,11 +438,13 @@ def _parse_jira_section(section: str) -> dict:
         normalized = _normalize_pipeline_order(order)
         if normalized:
             fields["TRACKER_PIPELINE_ORDER"] = normalized
+        else:
+            warnings.append(_pipeline_order_warning("JIRA_PIPELINE_ORDER", order))
     return fields
 
 
 def _parse_linear_shaped(
-    section: str, prefix_label: str, workspace_label: str, qa_label: str
+    section: str, prefix_label: str, workspace_label: str, qa_label: str, warnings: list[str]
 ) -> tuple[dict, str | None]:
     """Shared parser for '## Linear' and '## Tracker' (TRACKER: linear) shapes."""
     fields: dict = {"TRACKER": "linear"}
@@ -430,6 +461,7 @@ def _parse_linear_shaped(
         ("State In Progress", "TRACKER_STATE_IN_PROGRESS"),
         ("State In Review", "TRACKER_STATE_IN_REVIEW"),
         ("State QA", "TRACKER_STATE_QA"),
+        ("State Dev Complete", "TRACKER_STATE_DEV_COMPLETE"),
         ("State Blocked", "TRACKER_STATE_BLOCKED"),
         ("State Done", "TRACKER_STATE_DONE"),
     ):
@@ -441,49 +473,59 @@ def _parse_linear_shaped(
         normalized = _normalize_pipeline_order(order)
         if normalized:
             fields["TRACKER_PIPELINE_ORDER"] = normalized
+        else:
+            warnings.append(_pipeline_order_warning("Pipeline order", order))
     return fields, workspace
 
 
-def _read_agents_md(path: Path) -> tuple[dict, str | None]:
+def _read_agents_md(path: Path) -> tuple[dict, str | None, list[str]]:
     """Mirror the live AGENTS.md fallback chain steps 1-3 (step 4 = caller default).
 
-    Returns (fields, guard_error). guard_error is non-None exactly when the
-    live legacy `## Linear` shape guard condition holds - the section
-    resolved to TRACKER=linear but is missing the required Workspace field.
+    Returns (fields, guard_error, warnings). guard_error is non-None exactly
+    when the live legacy `## Linear` shape guard condition holds - the
+    section resolved to TRACKER=linear but is missing the required
+    Workspace field. warnings collects any malformed-declaration warnings
+    (e.g. an unparseable pipeline order) surfaced during parsing.
     """
+    warnings: list[str] = []
+
     if not path.is_file():
-        return {}, None
+        return {}, None, warnings
 
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         # Fail-safe: an unreadable AGENTS.md must never raise here - it
         # degrades to "no AGENTS.md section resolved", the same as absent.
-        return {}, None
+        return {}, None, warnings
 
     tracker_section = _extract_section(text, "## Tracker")
     if tracker_section is not None:
         t = _field(tracker_section, "TRACKER")
         if t and t.strip().lower() == "jira":
-            return _parse_jira_section(tracker_section), None
+            return _parse_jira_section(tracker_section, warnings), None, warnings
         if t and t.strip().lower() == "linear":
             fields, workspace = _parse_linear_shaped(
-                tracker_section, "TICKET_PREFIX", "LINEAR_WORKSPACE", "LINEAR_QA_ASSIGNEE_ID"
+                tracker_section,
+                "TICKET_PREFIX",
+                "LINEAR_WORKSPACE",
+                "LINEAR_QA_ASSIGNEE_ID",
+                warnings,
             )
             if not workspace:
-                return {}, LEGACY_LINEAR_GUARD_MESSAGE
-            return fields, None
+                return {}, LEGACY_LINEAR_GUARD_MESSAGE, warnings
+            return fields, None, warnings
 
     linear_section = _extract_section(text, "## Linear")
     if linear_section is not None:
         fields, workspace = _parse_linear_shaped(
-            linear_section, "Team", "Workspace", "QA assignee ID"
+            linear_section, "Team", "Workspace", "QA assignee ID", warnings
         )
         if not workspace:
-            return {}, LEGACY_LINEAR_GUARD_MESSAGE
-        return fields, None
+            return {}, LEGACY_LINEAR_GUARD_MESSAGE, warnings
+        return fields, None, warnings
 
-    return {}, None
+    return {}, None, warnings
 
 
 # ---------------------------------------------------------------------------
@@ -492,14 +534,49 @@ def _read_agents_md(path: Path) -> tuple[dict, str | None]:
 
 def _defaults_for(tracker: str | None) -> dict:
     is_jira = tracker == "jira"
+    done = "Done"
     return {
         "TRACKER_STATE_IN_PROGRESS": "In Progress",
         "TRACKER_STATE_IN_REVIEW": "In Review",
         "TRACKER_STATE_QA": "QA" if is_jira else "Testing",
+        "TRACKER_STATE_DEV_COMPLETE": done,
         "TRACKER_STATE_BLOCKED": "Blocked",
-        "TRACKER_STATE_DONE": "Done",
+        "TRACKER_STATE_DONE": done,
+        "TRACKER_DEV_COMPLETE_DECLARED": "false",
         "TRACKER_PIPELINE_ORDER": "IN_PROGRESS, IN_REVIEW, QA",
     }
+
+
+def _apply_dev_complete_default(declared: dict, defaults: dict) -> None:
+    """Default TRACKER_STATE_DEV_COMPLETE to the RESOLVED Done value and
+    record whether it was declared or inherited.
+
+    DS-117: dev-complete inherits whatever Done resolves to for this
+    project, NOT the literal "Done". A project using the pre-DS-117
+    workaround (pointing JIRA_STATE_DONE / State Done: at a non-terminal
+    lane such as "Ready for QA") declares no dev-complete field, so a
+    literal default would make every automatic merge writeback start
+    targeting a "Done" column the operator deliberately did not name.
+
+    TRACKER_DEV_COMPLETE_DECLARED is the discriminator the forward-only
+    guard's inherited-no-rank rule keys on. It is derived from the SAME
+    presence test as the value default, evaluated FIRST, because filling
+    the value in makes the key present unconditionally. Values are the
+    strings "true"/"false" so every resolved field stays a str.
+
+    Mutates `declared` in place. Two caller obligations:
+      1. `declared` MUST be a dict the caller owns (a copy), never the
+         caller's own `base`/`overlay_fields` - `_base_result` keys its
+         `_source` off `base`'s truthiness.
+      2. The call MUST come AFTER any `_overridden` computation, so an
+         inherited value is never reported as an operator override.
+    """
+    was_declared = "TRACKER_STATE_DEV_COMPLETE" in declared
+    declared["TRACKER_DEV_COMPLETE_DECLARED"] = "true" if was_declared else "false"
+    if not was_declared:
+        declared["TRACKER_STATE_DEV_COMPLETE"] = declared.get(
+            "TRACKER_STATE_DONE", defaults["TRACKER_STATE_DONE"]
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -594,7 +671,9 @@ def _validate_write_key(key: str, value: str) -> tuple[bool, str | None]:
 
 def _base_result(base: dict) -> dict:
     defaults = _defaults_for(base.get("TRACKER") if base else None)
-    result = {**defaults, **(base or {})}
+    declared = dict(base or {})
+    _apply_dev_complete_default(declared, defaults)
+    result = {**defaults, **declared}
     result["TRACKER"] = result.get("TRACKER", "none")
     result["_source"] = "agents-md" if base else "none"
     return result
@@ -603,8 +682,8 @@ def _base_result(base: dict) -> dict:
 def _resolve_tracker(cwd: Path) -> dict:
     """Fail-safe: never raises, never exits/signals non-zero for a file-state reason."""
     agents_path = cwd / "AGENTS.md"
-    base, guard_error = _read_agents_md(agents_path)
-    warnings: list[str] = []
+    base, guard_error, agents_warnings = _read_agents_md(agents_path)
+    warnings: list[str] = list(agents_warnings)
 
     if guard_error is not None:
         result = _base_result(base)
@@ -659,6 +738,7 @@ def _resolve_tracker(cwd: Path) -> dict:
         source = "merged"
 
     defaults = _defaults_for(merged.get("TRACKER"))
+    _apply_dev_complete_default(merged, defaults)
     resolved_fields = {**defaults, **merged}
 
     if sole_source:
