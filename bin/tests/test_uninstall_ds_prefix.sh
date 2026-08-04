@@ -17,15 +17,27 @@
 #
 # Failure modes: any assertion failure prints the failing assertion and
 #                exits 1. Test 2 creates one temporary untracked file under
-#                the real repo's bin/ (bin/ds-<random>-test-fixture) and
+#                the real repo's bin/ (bin/ds-<unique>-test-fixture) and
 #                removes it via an EXIT trap - never leaves a residual file
 #                itself, but it runs the REAL .claude/uninstall.sh against
 #                the live repo tree with only HOME faked: that uninstaller
-#                also touches $HOME/.claude/settings.json,
-#                $HOME/.claude/CLAUDE.md, and $HOME/.agentic/hooks-snapshot -
-#                all scoped under the faked HOME, never the real one. Test
-#                2 is NOT read-only with respect to the faked HOME; Test 1
-#                is read-only.
+#                touches $HOME/.claude/settings.json, $HOME/.claude/CLAUDE.md,
+#                and $HOME/.agentic/hooks-snapshot, all scoped under the
+#                faked HOME - but it ALSO calls uninstall_precommit_hook,
+#                which resolves the git hooks directory via
+#                `git rev-parse --git-path hooks` relative to the REAL
+#                REPO_DIR, entirely independent of $HOME faking. Left
+#                unguarded, that call would remove THIS checkout's real
+#                <repo>/.git/hooks/pre-commit (or, from inside a linked
+#                worktree, the common repo's hooks dir) and never restore
+#                it. Test 2 saves the real pre-commit hook via
+#                bin/tests/lib/precommit-hook-guard.sh before invoking
+#                uninstall.sh and restores it unconditionally in the EXIT
+#                trap, so this is the one real effect outside the faked
+#                HOME and it is undone on every exit path (normal, failure,
+#                or signal). Test 2 is NOT read-only with respect to the
+#                faked HOME or the live pre-commit hook slot (both are
+#                exercised and restored); Test 1 is read-only.
 #
 # Performance: ~3 s wall time on a developer machine (one real uninstall.sh
 #              run).
@@ -39,12 +51,17 @@
 #   - Test 2 (functional): .claude/uninstall.sh, run end-to-end against a
 #     fake HOME but the REAL repo bin/, actually removes a ds-*-named
 #     fixture symlink from ~/.local/bin alongside a real agentic-* tool's
-#     symlink, and leaves a foreign (non-repo) symlink untouched.
+#     symlink, and leaves a foreign (non-repo) symlink untouched - and the
+#     real pre-commit hook this run touches along the way survives byte-
+#     for-byte (or symlink-target-for-symlink-target) unchanged afterward.
 
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 BIN_DIR="$REPO_DIR/bin"
+
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
 
 PASS=0
 FAIL=0
@@ -98,17 +115,26 @@ done
 # tool's symlink, an agentic-*-prefixed tool's symlink, and leaves a foreign
 # (non-repo) symlink alone. Uses the REAL repo bin/ (so REPO_DIR resolution
 # inside uninstall.sh needs no faking) with one temporary untracked fixture
-# file, cleaned up on exit regardless of outcome.
+# file, cleaned up on exit regardless of outcome. The real pre-commit hook
+# slot this run also touches (see header) is saved before the run and
+# restored in the same EXIT trap - see bin/tests/lib/precommit-hook-guard.sh.
 # ---------------------------------------------------------------------------
-FIXTURE_NAME="ds-$(date +%s)-test-fixture"
+# FIXTURE_NAME must be genuinely unique, not just second-resolution: two
+# runs starting in the same wall-clock second (e.g. two developer machines,
+# or a fast CI matrix) would otherwise collide on the same bin/ file, and
+# each run's EXIT trap would then delete the OTHER run's still-in-use
+# fixture from the real repo's bin/. $$ (this process's PID) plus a
+# mktemp-derived suffix rules that out.
+FIXTURE_NAME="ds-$(date +%s)-$$-$(mktemp -u XXXXXX)-test-fixture"
 FIXTURE_PATH="$BIN_DIR/$FIXTURE_NAME"
 FAKE_HOME=""
 
 _cleanup() {
   [[ -n "$FIXTURE_PATH" && -f "$FIXTURE_PATH" ]] && rm -f "$FIXTURE_PATH"
   [[ -n "$FAKE_HOME" && -d "$FAKE_HOME" ]] && rm -rf "$FAKE_HOME"
+  precommit_hook_guard_restore
 }
-trap _cleanup EXIT
+trap _cleanup EXIT INT TERM
 
 cat > "$FIXTURE_PATH" <<'EOF'
 #!/usr/bin/env bash
@@ -118,6 +144,34 @@ chmod +x "$FIXTURE_PATH"
 
 FAKE_HOME="$(mktemp -d)"
 mkdir -p "$FAKE_HOME/.agentic" "$FAKE_HOME/.local/bin" "$FAKE_HOME/external"
+
+# Read-only snapshot of the real pre-commit hook slot's current state, used
+# only to assert (below, after uninstall.sh runs and the guard restores it)
+# that it survives this test byte-for-byte / target-for-target. Independent
+# of precommit_hook_guard_save's own internal state - this is the assertion
+# side, the guard call below is the protection side.
+_resolve_precommit_state() {
+  local hooks_dir
+  if ! hooks_dir="$(git -C "$REPO_DIR" rev-parse --git-path hooks 2>/dev/null)" || [[ -z "$hooks_dir" ]]; then
+    echo "(unresolved)"
+    return
+  fi
+  case "$hooks_dir" in
+    /*) : ;;
+    *) hooks_dir="$REPO_DIR/$hooks_dir" ;;
+  esac
+  local hook="$hooks_dir/pre-commit"
+  if [[ -L "$hook" ]]; then
+    readlink "$hook"
+  elif [[ -e "$hook" ]]; then
+    echo "(regular file)"
+  else
+    echo "(absent)"
+  fi
+}
+
+EXPECTED_PRECOMMIT_STATE="$(_resolve_precommit_state)"
+precommit_hook_guard_save "$REPO_DIR"
 
 # Case A: ds-*-prefixed symlink pointing into the real repo bin/ - MUST be removed.
 ln -sfn "$FIXTURE_PATH" "$FAKE_HOME/.local/bin/$FIXTURE_NAME"
@@ -137,6 +191,20 @@ RC=$?
 if [[ $RC -ne 0 ]]; then
   _fail "T2: .claude/uninstall.sh exited $RC"
   cat "$FAKE_HOME/.uninstall_out" >&2
+fi
+
+# Restore the real pre-commit hook slot NOW (not just in the EXIT trap) so
+# the assertion below runs with the live checkout already back to normal,
+# and so the window during which the real hook is absent/altered is as
+# short as possible. precommit_hook_guard_restore is idempotent, so the
+# EXIT trap's later call is a harmless no-op.
+precommit_hook_guard_restore
+
+ACTUAL_PRECOMMIT_STATE="$(_resolve_precommit_state)"
+if [[ "$ACTUAL_PRECOMMIT_STATE" == "$EXPECTED_PRECOMMIT_STATE" ]]; then
+  _pass "T2: real pre-commit hook slot restored to its pre-test state ($EXPECTED_PRECOMMIT_STATE)"
+else
+  _fail "T2: real pre-commit hook slot NOT restored - expected '$EXPECTED_PRECOMMIT_STATE', got '$ACTUAL_PRECOMMIT_STATE'"
 fi
 
 if [[ ! -e "$FAKE_HOME/.local/bin/$FIXTURE_NAME" && ! -L "$FAKE_HOME/.local/bin/$FIXTURE_NAME" ]]; then

@@ -18,9 +18,18 @@
 #                1. A temporary fake HOME is used per adapter; the real
 #                ~/.claude, ~/.codex, ~/.gemini, ~/.kimi, and
 #                ~/.agentic/hooks-snapshot are never touched. Each adapter's
-#                install.sh still builds against the REAL checkout (like
-#                bin/tests/test_kimi_install_symlink.sh) - only $HOME is
-#                sandboxed.
+#                install.sh/uninstall.sh still builds/runs against the REAL
+#                checkout (like bin/tests/test_kimi_install_symlink.sh) -
+#                only $HOME is sandboxed. The one exception: the .claude
+#                section's uninstall.sh run (below) also calls
+#                uninstall_precommit_hook, which resolves the git hooks
+#                directory via `git rev-parse --git-path hooks` relative to
+#                the REAL REPO_DIR, independent of $HOME faking - left
+#                unguarded it would remove this checkout's real
+#                <repo>/.git/hooks/pre-commit. That single call is saved
+#                before and restored immediately after via
+#                bin/tests/lib/precommit-hook-guard.sh (same guard used by
+#                bin/tests/test_uninstall_ds_prefix.sh).
 #
 # Performance: ~20-40 s wall time (4 adapters x 2 install.sh runs each,
 #              each run includes a real build.sh pass).
@@ -28,6 +37,9 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
 
 PASS=0
 FAIL=0
@@ -43,8 +55,11 @@ _pass() {
 }
 
 TMP_ROOT="$(mktemp -d)"
-_cleanup() { rm -rf "$TMP_ROOT"; }
-trap _cleanup EXIT
+_cleanup() {
+  rm -rf "$TMP_ROOT"
+  precommit_hook_guard_restore
+}
+trap _cleanup EXIT INT TERM
 
 _run_install() {
   local install_sh="$1"
@@ -175,9 +190,16 @@ cat > "$HOME_CLAUDE_UNINSTALL/.claude/settings.json" <<'EOF'
 }
 EOF
 
+# uninstall_precommit_hook (called by .claude/uninstall.sh) resolves the
+# git hooks dir independent of $HOME - save/restore the real checkout's
+# pre-commit hook around this one call (see header and
+# bin/tests/lib/precommit-hook-guard.sh).
+precommit_hook_guard_save "$REPO_DIR"
 if HOME="$HOME_CLAUDE_UNINSTALL" bash "$REPO_DIR/.claude/uninstall.sh" > "$HOME_CLAUDE_UNINSTALL/.uninstall_out" 2>&1; then
+  precommit_hook_guard_restore
   _pass "claude: uninstall.sh run succeeds"
 else
+  precommit_hook_guard_restore
   _fail "claude: uninstall.sh exited non-zero"
   cat "$HOME_CLAUDE_UNINSTALL/.uninstall_out" >&2
 fi
