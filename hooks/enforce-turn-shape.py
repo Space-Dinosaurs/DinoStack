@@ -73,6 +73,33 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
          running in the background" - only the shape of the message text
          itself can.
 
+         A two-layer loop guard bounds how often an advisory can re-invoke
+         the model, mirroring the sibling enforce-no-abdication.py. On the
+         Claude Code harness, a Stop hook's `additionalContext` re-invokes
+         the model immediately (it does not wait for a user turn); when the
+         conductor is blocked on a user decision it has nothing substantive
+         to say, so it writes a short status turn, the hook flags it, the
+         advisory re-invokes the model, and the pair loops until the
+         harness's own 9-consecutive-block override fires. Layer 1: the
+         `stop_hook_active` payload flag - set by CC when this Stop event
+         itself was triggered by a prior Stop-hook action - exits silently
+         right after stdin parse. Layer 2: a counter-cap backstop for CC bug
+         #54360 (stop_hook_active can fail to propagate when a
+         UserPromptSubmit hook interleaves system reminders), state at
+         <cwd>/.agentic/.turn-shape-guard-fire-count; the counter increments
+         and persists BEFORE each advisory (an advisory whose count cannot
+         be persisted is NOT emitted - it would lose its loop bound) and
+         resets on a clean turn and on a genuine new user message, so a
+         blocked conductor gets at most CONSECUTIVE_BLOCK_CAP advisories
+         before this hook goes silent. The counter + user-message-counting
+         machinery lives in the shared module hooks/lib/loop_guard.py,
+         loaded lazily via _load_loop_guard(); when cwd is absent (synthetic
+         payloads only - the CC Stop payload always carries cwd) the counter
+         cannot be scoped, so this hook falls through to its legacy
+         advisory-only behavior rather than silently swallowing findings.
+         This hook NEVER blocks - the guard only suppresses advisories; every
+         exit stays 0.
+
 Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             stdin. ALWAYS exits 0. On a clean turn (no findings), emits
             nothing on stdout. On a flagged turn, emits exactly one JSON
@@ -84,10 +111,12 @@ Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             giving the conductor a chance to self-correct, whereas
             `systemMessage` is operator-only and invisible to the model.
 
-Upstream deps: Python 3 stdlib only (json, os, re, sys). Lazily imports the
-               shared fire-logging helper hooks/lib/enforcement_log.py
-               (log_fire) only on the branch that emits a finding - see
-               _load_log_fire().
+Upstream deps: Python 3 stdlib only (json, os, re, sys) plus the shared
+               hooks/lib/loop_guard.py module (counter + user-message-
+               counting machinery for the loop guard), loaded lazily via
+               _load_loop_guard(). Lazily imports the shared fire-logging
+               helper hooks/lib/enforcement_log.py (log_fire) only on the
+               branch that emits a finding - see _load_log_fire().
 
 Downstream consumers: Claude Code hook runner (Stop event, matcher "*").
                       Wired via ~/.claude/settings.json by
@@ -123,6 +152,22 @@ Failure modes:
     - Any exception anywhere in main(): fail-open via an outer
       try/except wrapping the entire body (exit 0), matching
       enforce-no-abdication.py's defense-in-depth pattern.
+    - stop_hook_active=true: exit 0 silently (Layer 1 primary re-entrancy
+      guard) - a re-invocation must never re-flag the same turn.
+    - Counter >= CONSECUTIVE_BLOCK_CAP: exit 0 silently, no advisory
+      (Layer 2 backstop for CC bug #54360) - the loop is bounded.
+    - Counter write fails (unwritable .agentic/, full disk, corrupt tmp,
+      etc.): exit 0 silently, no advisory. Rationale: an advisory whose
+      count cannot be recorded loses its loop bound; the safe degradation
+      is "don't flag" (never an unbounded advisory loop). Only advisories
+      after the incremented count has been successfully persisted are
+      emitted.
+    - hooks/lib/loop_guard.py cannot be loaded, or cwd is absent so the
+      counter cannot be scoped: when cwd is absent this hook falls through
+      to its legacy advisory-only behavior (synthetic payloads only); when
+      cwd is present but the module cannot load, exit 0 silently (same
+      rationale as a failed counter write - never emit an advisory without
+      a loop bound).
     - This hook can NEVER return a blocking decision - there is no code
       path that emits {"decision": "block", ...}. Every exit is exit 0
       with either no stdout or an advisory `additionalContext` object.
@@ -140,6 +185,18 @@ import sys
 
 # Kill-switch: set this env var to 1 to disable enforcement entirely.
 KILL_SWITCH_ENV = "AE_TURN_SHAPE_GUARD_DISABLE"
+
+# Max consecutive advisories since the last new user message before this hook
+# goes silent. Keeps the loop guard reachable even when CC bug #54360
+# prevents stop_hook_active from propagating. This hook NEVER blocks - the
+# cap only bounds how many times the advisory can re-invoke the model.
+CONSECUTIVE_BLOCK_CAP = 2
+
+# Counter state file (under .agentic/ which is gitignored). Distinct from the
+# abdication hook's .abdication-guard-fire-count so the two guards never
+# share state.
+COUNTER_FILENAME = ".turn-shape-guard-fire-count"
+# State file format: single JSON object {"count": N, "last_user_msg_count": M}
 
 # ---------------------------------------------------------------------------
 # Classifier patterns
@@ -334,6 +391,37 @@ def _last_assistant_text_from_transcript(transcript_path: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Loop-guard loader (counter + user-message counting live in loop_guard.py)
+# ---------------------------------------------------------------------------
+
+
+def _load_loop_guard():
+    """Best-effort dynamic import of the shared loop-guard module.
+
+    Returns None when the module cannot be loaded (missing file, syntax
+    error, snapshot copy drift). main() treats a None load as "exit 0
+    silently when a cwd is present" (never emit an advisory without a loop
+    bound) and as "fall through to legacy advisory behavior when no cwd is
+    present" (synthetic payloads only). Loaded once at module scope; every
+    invocation reuses the loaded module.
+    """
+    try:
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "loop_guard.py")
+        spec = _ilu.spec_from_file_location("loop_guard", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+_LOOP_GUARD = _load_loop_guard()
+
+
+# ---------------------------------------------------------------------------
 # Fire-log integration
 # ---------------------------------------------------------------------------
 
@@ -383,6 +471,12 @@ def main() -> None:
         if not isinstance(data, dict):
             sys.exit(0)
 
+        # Layer 1 (primary re-entrancy guard): stop_hook_active is set by CC
+        # when this Stop event itself was triggered by a prior Stop-hook
+        # action. A re-invocation must never re-flag the same turn.
+        if data.get("stop_hook_active") is True:
+            sys.exit(0)
+
         cwd = data.get("cwd", "")
         if not isinstance(cwd, str):
             cwd = ""
@@ -404,6 +498,47 @@ def main() -> None:
                 config = {}
         if config.get("turn_shape_guard_enabled") is False:
             sys.exit(0)
+
+        # Layer 2 (counter cap backstop for CC bug #54360): read the current
+        # advisory count and the user-message count at the last advisory. If
+        # a new genuine user message has arrived since, reset the counter
+        # (genuine new turn). When count >= CONSECUTIVE_BLOCK_CAP, exit 0
+        # silently - a blocked conductor gets at most CAP advisories before
+        # this hook goes silent. The counter is only engaged when a cwd is
+        # available to scope it; the CC Stop payload always carries cwd, so
+        # the absent-cwd case is synthetic payloads only, where this hook
+        # falls through to its legacy advisory-only behavior rather than
+        # silently swallowing findings.
+        lg = _LOOP_GUARD
+        loop_guard_engaged = False
+        current_user_msg_count = 0
+        state = {"count": 0, "last_user_msg_count": 0}
+        if cwd:
+            if lg is None:
+                # Loop-guard machinery unavailable - cannot bound an advisory.
+                # Fail open (never emit an advisory without a loop bound).
+                sys.exit(0)
+            loop_guard_engaged = True
+            transcript_path = data.get("transcript_path", "")
+            if not isinstance(transcript_path, str):
+                # A non-string value (e.g. a number) would reach open() in
+                # loop_guard.count_user_messages, which Python treats as a raw
+                # file descriptor - guard it here, mirroring the sibling hook.
+                transcript_path = ""
+            if transcript_path:
+                current_user_msg_count = lg.count_user_messages(transcript_path)
+
+            state = lg.read_counter(cwd, COUNTER_FILENAME)
+            # If the user has sent a new message since the last advisory,
+            # reset.
+            if current_user_msg_count > state["last_user_msg_count"]:
+                lg.reset_counter(cwd, COUNTER_FILENAME, current_user_msg_count)
+                state = {"count": 0, "last_user_msg_count": current_user_msg_count}
+
+            if state["count"] >= CONSECUTIVE_BLOCK_CAP:
+                # CAP reached - no more advisories this turn. Prevents the
+                # re-invocation loop when stop_hook_active fails to propagate.
+                sys.exit(0)
 
         # Resolve message text: prefer the pre-extracted field, fall back to
         # a transcript scan.
@@ -446,10 +581,23 @@ def main() -> None:
             findings.append(forced_yield_finding)
 
         if not findings:
-            # Clean turn - silent allow, no telemetry.
+            # Clean turn - reset the advisory counter (when engaged) and
+            # silent allow, no telemetry.
+            if loop_guard_engaged:
+                lg.reset_counter(cwd, COUNTER_FILENAME, current_user_msg_count)
             sys.exit(0)
 
         reason = "; ".join(findings)
+        # Only emit the advisory if the loop bound can be persisted. When the
+        # counter is engaged, persist count+1 BEFORE emitting; if persistence
+        # fails (unwritable .agentic/, full disk, etc.), exit 0 silently - an
+        # advisory whose count cannot be recorded loses its loop bound and
+        # can cause an unbounded advisory loop when stop_hook_active also
+        # fails (CC bug #54360).
+        if loop_guard_engaged:
+            new_count = state["count"] + 1
+            if not lg.write_counter(cwd, COUNTER_FILENAME, new_count, current_user_msg_count):
+                sys.exit(0)
         # Decision print comes FIRST, unconditionally. Telemetry is loaded
         # and called only after the decision has reached stdout, wrapped in
         # its own try/except so a raising log_fire can never suppress or
