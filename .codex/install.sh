@@ -330,7 +330,7 @@ for skill_name in "${SKILL_NAMES[@]}"; do
     )
   fi
 done
-for src_file in "$REPO_DIR"/bin/agentic-*; do
+for src_file in "$REPO_DIR"/bin/agentic-* "$REPO_DIR"/bin/ds-*; do
   [[ -f "$src_file" ]] || continue
   AE_FINAL_DESTINATIONS+=(
     $'link\t'"$HOME/.local/bin/$(basename "$src_file")"$'\t'"$src_file"
@@ -848,7 +848,7 @@ ae_install_bins() {
     mkdir -p "$bin_dst"
     path_created=true
   fi
-  for src_file in "$bin_src"/agentic-*; do
+  for src_file in "$bin_src"/agentic-* "$bin_src"/ds-*; do
     [[ -f "$src_file" ]] || continue
     local name
     name="$(basename "$src_file")"

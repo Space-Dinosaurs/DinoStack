@@ -577,7 +577,7 @@ ae_install_bins() {
     mkdir -p "$bin_dst"
     path_created=true
   fi
-  for src_file in "$bin_src"/agentic-*; do
+  for src_file in "$bin_src"/agentic-* "$bin_src"/ds-*; do
     [[ -f "$src_file" ]] || continue
     local name
     name="$(basename "$src_file")"
