@@ -7,9 +7,11 @@ Purpose: Regression tests for bin/agentic-tracker - the .agentic/tracker.yml
 Public API: none (test module; not imported by other code).
 
 Test letter set (mirrors the plan's test plan table): A, A2, B, C, D, E, F,
-G, H, H2, I, J, K, L, L2, L3, L4, L5, M, O, P, Q, Q2, R, S(a-e), T, U, V, V2,
-W, X, Y, Z. N is permanently vacant. L2-Z cover DS-117 (dev-complete
-splits from terminal Done).
+G, H, H2, I, J, K, L, L2, L3, L4, L5, L6, L7, M, O, P, Q, Q2, R, S(a-e), T, U,
+V, V2, W, X, Y, Z. N is permanently vacant. L2-Z cover DS-117 (dev-complete
+splits from terminal Done). L6/L7 cover the DS-117 QA-4 fix: a malformed
+AGENTS.md-declared pipeline_order (Jira and Linear-shaped) now warns on
+stderr, matching the overlay path.
 
 Upstream deps: bin/agentic-tracker (module under test, loaded via
                SourceFileLoader since it has no .py extension); Python 3
@@ -490,6 +492,82 @@ def test_L5_pipeline_order_three_token_form_still_valid():
         assert fields["TRACKER_PIPELINE_ORDER"] == "IN_REVIEW, IN_PROGRESS, QA"
         assert not any("pipeline_order" in w for w in warnings)
         print("PASS test_L5_pipeline_order_three_token_form_still_valid")
+
+
+# ---------------------------------------------------------------------------
+# L6/L7: DS-117 QA fix - AGENTS.md-declared malformed pipeline_order must
+# warn on stderr (both Jira and Linear-shaped surfaces), same as the
+# overlay path already does. Regression coverage for the QA-4 gap where
+# _parse_jira_section / _parse_linear_shaped silently dropped a None
+# _normalize_pipeline_order() result instead of collecting a warning.
+# ---------------------------------------------------------------------------
+
+AGENTS_MD_JIRA_MALFORMED_PIPELINE_ORDER = """## Tracker
+TRACKER: jira
+TICKET_PREFIX: DS
+JIRA_BASE_URL: https://solara6.atlassian.net
+JIRA_PIPELINE_ORDER: IN_PROGRESS, DEV_COMPLETE
+"""
+
+AGENTS_MD_LINEAR_MALFORMED_PIPELINE_ORDER = """## Linear
+- Team: FRM
+- Workspace: acme
+- Pipeline order: IN_PROGRESS, DEV_COMPLETE
+"""
+
+
+def test_L6_agents_md_jira_malformed_pipeline_order_warns():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_JIRA_MALFORMED_PIPELINE_ORDER)
+
+        fields, guard_error, warnings = _read_agents_md(cwd / "AGENTS.md")
+        assert guard_error is None
+        assert "TRACKER_PIPELINE_ORDER" not in fields
+        assert any(
+            "JIRA_PIPELINE_ORDER" in w
+            and "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE" in w
+            for w in warnings
+        ), warnings
+
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_PIPELINE_ORDER"] == "IN_PROGRESS, IN_REVIEW, QA"
+
+        r = _run_cli(["resolve", "--json"], cwd, dict(os.environ))
+        assert r.returncode == 0, r.stderr
+        assert (
+            "WARNING: JIRA_PIPELINE_ORDER 'IN_PROGRESS, DEV_COMPLETE' is not a valid "
+            "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE - "
+            "using the default order." in r.stderr
+        ), r.stderr
+        print("PASS test_L6_agents_md_jira_malformed_pipeline_order_warns")
+
+
+def test_L7_agents_md_linear_malformed_pipeline_order_warns():
+    with tempfile.TemporaryDirectory() as tmp:
+        cwd = Path(tmp)
+        _write(cwd / "AGENTS.md", AGENTS_MD_LINEAR_MALFORMED_PIPELINE_ORDER)
+
+        fields, guard_error, warnings = _read_agents_md(cwd / "AGENTS.md")
+        assert guard_error is None
+        assert "TRACKER_PIPELINE_ORDER" not in fields
+        assert any(
+            "Pipeline order" in w
+            and "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE" in w
+            for w in warnings
+        ), warnings
+
+        result = _resolve_tracker(cwd)
+        assert result["TRACKER_PIPELINE_ORDER"] == "IN_PROGRESS, IN_REVIEW, QA"
+
+        r = _run_cli(["resolve", "--json"], cwd, dict(os.environ))
+        assert r.returncode == 0, r.stderr
+        assert (
+            "WARNING: Pipeline order 'IN_PROGRESS, DEV_COMPLETE' is not a valid "
+            "ordering of IN_PROGRESS/IN_REVIEW/QA with optional DEV_COMPLETE - "
+            "using the default order." in r.stderr
+        ), r.stderr
+        print("PASS test_L7_agents_md_linear_malformed_pipeline_order_warns")
 
 
 # ---------------------------------------------------------------------------
@@ -1016,6 +1094,8 @@ if __name__ == "__main__":
     test_L3_pipeline_order_rejects_missing_required_token()
     test_L4_pipeline_order_rejects_five_tokens_and_unknown_token()
     test_L5_pipeline_order_three_token_form_still_valid()
+    test_L6_agents_md_jira_malformed_pipeline_order_warns()
+    test_L7_agents_md_linear_malformed_pipeline_order_warns()
     test_T_overlay_state_dev_complete_key_accepted()
     test_U_agents_md_dev_complete_field_both_trackers()
     test_V_dev_complete_inherits_resolved_done_not_literal()
