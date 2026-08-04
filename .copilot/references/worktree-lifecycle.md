@@ -2,7 +2,10 @@
 Purpose: Full reference for worktree and branch lifecycle command blocks
          extracted from METHODOLOGY.md §Worktree Lifecycle. Contains the
          isolation worktree cleanup commands, feature worktree cleanup commands,
-         the session-start prune script, and the local-branch prune block.
+         the session-start prune script, the Standing authorizations section
+         (the enumerated set of routine-hygiene operations pre-authorized for
+         every session, satisfying a harness confirm-first carve-out), and the
+         local-branch prune block.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -117,6 +120,33 @@ done
 ## Guardrail: never force-override the harness lock
 
 No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+
+## Standing authorizations
+
+These are authorized once, for every session, and are never an operator choice:
+
+- Deleting a local branch on any merge signal already defined in §Branch prune
+  below - the `[gone]` upstream marker, ancestry into `origin/main`, or a MERGED
+  PR state. `[gone]` is an inferred rather than proven merge signal and is
+  authorized anyway, exactly as §Branch prune bullet 1 already treats it. (A
+  remote branch deleted without merging also reads `[gone]`; this is a known and
+  accepted property, not an oversight.)
+- Deleting the corresponding remote branch as part of `gh pr merge --delete-branch`.
+- Removing an isolation or feature worktree per §Isolation worktree cleanup
+  commands / §Feature worktree cleanup commands above.
+- Running the session-start worktree prune, branch prune, and `git fetch --prune`.
+
+The boundary is unchanged and is not restated here - see §Guardrail: never
+force-override the harness lock above and the Safe boundary paragraph in
+§Branch prune below.
+
+These authorizations are methodology-owned and not project-overridable,
+consistent with §Project-override policy below, and are the durable-authorization
+form which **satisfies** a harness confirm-first carve-out rather than overriding
+it - a harness default of "confirm first unless durably authorized" is met on its
+own terms by this section, not superseded by it.
+
+Parent clause: `content/sections/02-delegation.md` §Standing authorizations.
 
 ## Branch prune (stale local branches)
 
