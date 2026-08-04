@@ -53,6 +53,7 @@ class TestRouteEnumAndPredicateCounts(unittest.TestCase):
         self.assertNotIn(rm.Route.R_ZS_FAST, rm.ROUTE_PREDICATES)
         # These four facts make route_evaluations derivable rather than
         # pinned: len(ROUTE_PREDICATES) * len(all_states()) == 4 * 128 == 512.
+        self.assertEqual(len(rm.ROUTE_PREDICATES) * len(rm.all_states()), 512)
 
 
 class TestReachR1StagingAlwaysDrains(unittest.TestCase):

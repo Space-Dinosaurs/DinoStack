@@ -46,8 +46,10 @@ Purpose: (a) Executable reference implementation of `/ds-wrap`'s route x
 Public API:
   SessionState(L, f, a, g, v, s, e) -> frozen dataclass, the seven booleans
                                         a routing decision is derived from
-  all_states()                       -> all 128 SessionState values, in
-                                         deterministic dataclass-field order
+  all_states()                       -> list of all 128 SessionState values,
+                                         in deterministic dataclass-field
+                                         order (a list, not a generator - may
+                                         be iterated more than once)
   Route                              -> enum, exactly 6 members
   ROUTE_PREDICATES                   -> the 4-entry route partition (dict);
                                          R_ABORT_WORKERS and R_ZS_FAST are
@@ -91,7 +93,7 @@ from __future__ import annotations
 import itertools
 from dataclasses import dataclass, fields
 from enum import Enum, auto
-from typing import Dict, Iterator, Tuple
+from typing import Dict, List, Tuple
 
 
 # --------------------------------------------------------------------------
@@ -126,13 +128,16 @@ class SessionState:
     e: bool
 
 
-def all_states() -> Iterator[SessionState]:
+def all_states() -> List[SessionState]:
     """All 128 (2^7) SessionState values, in deterministic order: itertools
     .product over the dataclass's own field order (L, f, a, g, v, s, e), each
-    axis False-before-True. Exhaustive - no sampling, no seed."""
+    axis False-before-True. Exhaustive - no sampling, no seed. Returns a
+    list (not a generator) - callers may iterate it more than once."""
     field_names = [fld.name for fld in fields(SessionState)]
-    for combo in itertools.product((False, True), repeat=len(field_names)):
-        yield SessionState(**dict(zip(field_names, combo)))
+    return [
+        SessionState(**dict(zip(field_names, combo)))
+        for combo in itertools.product((False, True), repeat=len(field_names))
+    ]
 
 
 # --------------------------------------------------------------------------

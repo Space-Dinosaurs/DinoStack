@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
 Purpose: Property tests for `drain_model.py`'s staging-drain invariants
-         D1-D5, asserted over an exhaustive tier-1 sweep (every size <= 3
-         entries, every one of the 9 Outcome values per entry) plus a
-         seeded-random tier-2 sweep (sizes up to 8, multi-run simulation).
+         D1-D5, asserted over an exhaustive tier-1 sweep (every size
+         <= CAP + 2 entries, every one of the 7 PRESENTABLE Outcome values
+         per entry - the two UNPRESENTED labels are drain()'s own and
+         rejected fail-closed as input) plus a seeded-random tier-2 sweep
+         (sizes up to 8, multi-run simulation).
 
 Public API: unittest TestCases. Run with
               python3 -m pytest bin/tests/test_drain_invariants.py -q
@@ -21,8 +23,8 @@ Downstream consumers: PR 2's edit to content/commands/ds-wrap.md, which this
 Failure modes: DETERMINISTIC. Tier 2 is seeded from SEED below; no unseeded
                RNG, no wall-clock, no filesystem, no network.
 
-Performance: 3178 tier-1 assignments + 14200 tier-2 schedules; well under a
-             few seconds.
+Performance: 114381 tier-1 assignments + 14200 tier-2 schedules; a few
+             seconds.
 """
 
 from __future__ import annotations
@@ -48,7 +50,16 @@ COVERAGE = {
     "zero_fresh_schedules": 0,
     "cap_deferred_reentries": 0,
     "single_entry_mode_entered": 0,
+    "d1_correspondence_checks": 0,
+    "tier2_d1_results_checked": 0,
 }
+
+#: The presentable outcomes a random adjudicator draws from (never one of
+#: the two UNPRESENTED categories - a real adjudicator never self-assigns
+#: "dropped by cap"). Defined here (not in the tier-2 section below) because
+#: tier 1 now needs it too - drain() rejects an UNPRESENTED-category
+#: disposition fail-closed, so tier 1's own sweep must draw from this set.
+_PRESENTABLE = sorted(dmod.PRESENTED_OUTCOMES, key=lambda o: o.name)
 
 
 def _mk_entries(prefix, n, start=0):
@@ -83,32 +94,47 @@ def _check_d1(tc, result):
     if result.reject_disposition != "retained":
         tc.assertEqual(len(pres_sids) + len(ret_sids), len(order_sids),
                         "D1: not disjoint under default reject_disposition")
+    # D1 SEMANTIC HALF - the partition AXIS, not just the split. The two
+    # assertions above derive both operands from `presented_sids` and are
+    # true by construction; this one is the falsifiable half.
+    for sid in order_sids:
+        tc.assertEqual(
+            result.outcomes[sid] in dmod.PRESENTED_OUTCOMES,
+            sid in result.presented_sids,
+            f"D1: {sid} outcome {result.outcomes[sid]} disagrees with "
+            f"presented-ness ({sid in result.presented_sids})",
+        )
+        COVERAGE["d1_correspondence_checks"] += 1
 
 
 class TestD1TierOne(unittest.TestCase):
     """Tier 1: exhaustive over every (n_staged, n_fresh) pair summing to
-    <= 3, and every one of the 9^n disposition assignments for that size.
-    For n <= 3 the #presented <= CAP(3) filter is NON-BINDING (drain()
-    never truncates a group this small), so the assignment count collapses
-    to 9^n exactly.
+    <= CAP + 2, and every assignment of the 7 PRESENTABLE outcomes.
 
-    COVERAGE["tier1_assignments"] must equal 3178, derived as follows.
-    For n entries, assignments with #presented <= 3 = sum_{k=0}^{min(n,3)}
-    C(n,k) * 7^k * 2^(n-k) (choose which k of n entries are "presented"-
-    outcome-tagged, 7 presentable outcomes each, 2 unpresented outcomes for
-    the rest). For n <= 3 the binomial filter never excludes anything,
-    collapsing the sum to 9^n. Summing over the 10 size pairs (n+1 pairs at
-    each total n, for n = 0..3, i.e. (n_staged, n_fresh) with n_staged +
-    n_fresh == n):
+    Base is 7, not 9: outcomes 8-9 are drain()'s OWN labels for entries it
+    did not present. No adjudicator can emit them, so drain() now rejects
+    them fail-closed and they have no place in the input enumeration.
 
-        sum_{n=0}^{3} (n+1) * 9^n = 1*1 + 2*9 + 3*81 + 4*729
-                                   = 1 + 18 + 243 + 2916 = 3178
+    The size domain is CAP + 2, not CAP: with CAP = 3, no entry is ever
+    retained at n <= 3, so the RETAINED half of the partition is never
+    constructed and the correspondence assertion CANNOT FAIL there
+    (measured: 0 violations at n <= 3 under the break-7 mutant, 36015 at
+    n <= CAP + 2). n = CAP + 1 is the first size where the cap binds;
+    n = CAP + 2 is the first size where both UNPRESENTED labels co-occur
+    in a single result.
+
+        tier1_size_pairs  = sum_{n=0}^{CAP+2} (n+1)
+                          = 1+2+3+4+5+6 = 21
+        tier1_assignments = sum_{n=0}^{CAP+2} (n+1) * 7^n
+                          = 1*1 + 2*7 + 3*49 + 4*343 + 5*2401 + 6*16807
+                          = 1 + 14 + 147 + 1372 + 12005 + 100842
+                          = 114381
     """
 
     def test_d1_partition_total_and_disjoint(self):
-        values = list(dmod.Outcome)
-        self.assertEqual(len(values), 9)
-        for total in range(4):  # 0, 1, 2, 3
+        values = _PRESENTABLE
+        self.assertEqual(len(values), 7)
+        for total in range(dmod.CAP + 3):   # n <= CAP + 2; NOT a literal 5
             for n_staged in range(total + 1):
                 n_fresh = total - n_staged
                 COVERAGE["tier1_size_pairs"] += 1
@@ -119,8 +145,8 @@ class TestD1TierOne(unittest.TestCase):
                     COVERAGE["tier1_assignments"] += 1
                     result = dmod.drain(staged, fresh, disp)
                     _check_d1(self, result)
-        self.assertEqual(COVERAGE["tier1_size_pairs"], 10)
-        self.assertEqual(COVERAGE["tier1_assignments"], 3178)
+        self.assertEqual(COVERAGE["tier1_size_pairs"], 21)
+        self.assertEqual(COVERAGE["tier1_assignments"], 114381)
 
     def test_d1_outcome_enum_is_exhaustively_bucketed(self):
         self.assertEqual(
@@ -138,10 +164,11 @@ class TestD1TierOne(unittest.TestCase):
 # Tier 2 - seeded random, multi-run simulation
 # ==========================================================================
 
-#: The presentable outcomes a random adjudicator draws from (never one of
-#: the two UNPRESENTED categories - a real adjudicator never self-assigns
-#: "dropped by cap").
-_PRESENTABLE = sorted(dmod.PRESENTED_OUTCOMES, key=lambda o: o.name)
+#: TestCase instance used to run D1's correspondence assertion against every
+#: tier-2 result (see _run_schedule below) - tier 2 must not be a D1 blind
+#: spot just because it iterates DrainResult objects rather than unittest
+#: test methods.
+_TC = unittest.TestCase()
 
 
 def _run_schedule(rng, n_staged, n_fresh, n_runs=6, fresh_every_run=True,
@@ -179,6 +206,8 @@ def _run_schedule(rng, n_staged, n_fresh, n_runs=6, fresh_every_run=True,
         if n_fresh == 0:
             COVERAGE["zero_fresh_schedules"] += 1
         result = dmod.drain(staged, fresh, disp, **switches)
+        _check_d1(_TC, result)
+        COVERAGE["tier2_d1_results_checked"] += 1
         for e in dmod.presented(result):
             presented_at_run.setdefault(e["sid"], run_idx)
         results.append(result)
@@ -403,6 +432,18 @@ class TestMutationReserveRuleNoneIsRed(unittest.TestCase):
         self.assertIn("f0", default_result.presented_sids)
 
 
+class TestUnpresentableDispositionAborts(unittest.TestCase):
+    def test_unpresentable_disposition_aborts(self):
+        """Outcomes 8-9 are drain()'s own labels, never adjudicator input."""
+        for bad in (dmod.Outcome.DROPPED_BY_CAP, dmod.Outcome.NEVER_ADJUDICATED):
+            with self.assertRaises(ValueError):
+                dmod.drain([{"sid": "a", "quote": "q"}], [], {"a": bad})
+        # A presentable outcome does not raise.
+        r = dmod.drain([{"sid": "a", "quote": "q"}], [],
+                       {"a": dmod.Outcome.APPENDED})
+        self.assertIn("a", r.presented_sids)
+
+
 class TestNoSkipGuardSwitchExists(unittest.TestCase):
     def test_no_skip_guard_switch_exists(self):
         """drain_model must NOT expose a SKIP_GUARD attribute - route-level
@@ -417,21 +458,36 @@ class TestZReport(unittest.TestCase):
             "\ndrain coverage: tier1_size_pairs=%(tier1_size_pairs)d "
             "tier1_assignments=%(tier1_assignments)d "
             "tier2_size_pairs=%(tier2_size_pairs)d "
-            "tier2_schedules=%(tier2_schedules)d\n"
+            "tier2_schedules=%(tier2_schedules)d "
+            "tier2_d1_results_checked=%(tier2_d1_results_checked)d\n"
             "incidental: rejected_outcomes_exercised=%(rejected_outcomes_exercised)d "
             "zero_fresh_schedules=%(zero_fresh_schedules)d "
             "cap_deferred_reentries=%(cap_deferred_reentries)d "
-            "single_entry_mode_entered=%(single_entry_mode_entered)d"
+            "single_entry_mode_entered=%(single_entry_mode_entered)d "
+            "d1_correspondence_checks=%(d1_correspondence_checks)d"
             % COVERAGE
         )
-        self.assertEqual(COVERAGE["tier1_size_pairs"], 10)
-        self.assertEqual(COVERAGE["tier1_assignments"], 3178)
+        self.assertEqual(COVERAGE["tier1_size_pairs"], 21)
+        self.assertEqual(COVERAGE["tier1_assignments"], 114381)
         self.assertEqual(COVERAGE["tier2_size_pairs"], 71)
         self.assertEqual(COVERAGE["tier2_schedules"], 14200)
         self.assertGreater(COVERAGE["rejected_outcomes_exercised"], 0)
         self.assertGreater(COVERAGE["zero_fresh_schedules"], 0)
         self.assertGreater(COVERAGE["cap_deferred_reentries"], 0)
         self.assertGreater(COVERAGE["single_entry_mode_entered"], 0)
+        # tier2_d1_results_checked: every _run_schedule() call runs _check_d1
+        # once per drain() call. Only D2 and D5 route through _run_schedule
+        # (D3 and the mutation tests call drain() directly, uncounted here):
+        #   D2: 71 size pairs * N_PER_SIZE(200) * n_runs(8) = 113600
+        #   D5: 100 iterations * n_runs(8)                  =    800
+        #   total                                           = 114400
+        self.assertEqual(COVERAGE["tier2_d1_results_checked"], 114400)
+        # No closed form for this one - it is a per-entry-per-result count
+        # across a random simulation, not a derivable arithmetic sum. A
+        # floor (>0) is the honest assertion; inventing a pinned value
+        # would be an uninvestigated pin, exactly what this revision exists
+        # to eliminate.
+        self.assertGreater(COVERAGE["d1_correspondence_checks"], 0)
 
 
 if __name__ == "__main__":

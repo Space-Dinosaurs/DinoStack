@@ -25,7 +25,10 @@ Public API:
                               by retained())
   drain(staged, fresh, dispositions, *, cap=CAP, reserve=RESERVE,
         order_mode=None, reject_disposition=None, reserve_rule=None)
-                           -> DrainResult
+                           -> DrainResult (dispositions values, when given,
+                              MUST be drawn from PRESENTED_OUTCOMES - an
+                              UNPRESENTED-category value is rejected
+                              fail-closed, not honoured)
   presented(result)        -> arrival-ordered list of DRAINED entries
                               (presented to the adjudicator this run)
   retained(result)         -> arrival-ordered list of RETAINED entries (not
@@ -47,10 +50,14 @@ Downstream consumers: test_drain_invariants.py (D1-D5 property tests, tier 1
                       which implements the drain step this file specifies.
 
 Failure modes: `drain()` raises `ValueError` on a missing or duplicate `sid`
-               across the combined staged+fresh set, or on an entry whose
-               disposition requires quote verification but whose `quote`
-               field is missing/empty - FAIL-CLOSED ATOMICITY (D4): on
-               either error, drain() raises BEFORE computing any partial
+               across the combined staged+fresh set, on an entry whose
+               disposition is not a member of PRESENTED_OUTCOMES (an
+               adjudicator cannot emit an UNPRESENTED-category verdict -
+               those two labels are drain()'s own, applied only to entries
+               it did not present), or on an entry whose disposition
+               requires quote verification but whose `quote` field is
+               missing/empty - FAIL-CLOSED ATOMICITY (D4): on any of these
+               errors, drain() raises BEFORE computing any partial
                DrainResult; it never returns a half-formed result. Otherwise
                pure - no I/O, no filesystem, no network, no wall-clock.
 
@@ -226,6 +233,15 @@ def _validate(combined: List[Dict[str, Any]], dispositions: Dict[str, Any]) -> N
     for e in combined:
         sid = e["sid"]
         disp = dispositions.get(sid)
+        #: An adjudicator can only emit a PRESENTED-category verdict. The two
+        #: UNPRESENTED categories are drain()'s OWN labels for entries it did
+        #: not present; a caller supplying one is a malformed adjudication
+        #: table, rejected fail-closed (D4) rather than honoured.
+        if disp is not None and disp not in PRESENTED_OUTCOMES:
+            raise ValueError(
+                f"entry {sid!r} carries an UNPRESENTED-category disposition "
+                f"({disp}); dispositions must come from PRESENTED_OUTCOMES"
+            )
         #: A disposition claiming duplication against an existing structured
         #: learning must be backed by a verbatim, non-empty quote - an
         #: unverifiable "trust me" duplicate claim is exactly the failure
@@ -322,13 +338,8 @@ def drain(
     for e in ordered:
         sid = e["sid"]
         if sid in presented_sids:
-            #: Honored verbatim, including a caller-supplied UNPRESENTED-
-            #: category value (an odd but harmless input - `presented_sids`
-            #: membership, not the recorded Outcome, is what `presented()`/
-            #: `retained()` key off; this keeps the exhaustive tier-1 sweep
-            #: in test_drain_invariants.py - which iterates the FULL 9-member
-            #: Outcome universe per entry, not just the 7 presentable ones -
-            #: well-defined rather than raising on 2/9 of its own domain).
+            #: Validated above to be a PRESENTED-category outcome, so the
+            #: DRAINED <=> PRESENTED correspondence holds by construction.
             outcomes[sid] = dispositions.get(sid, Outcome.REJECTED_ON_THE_MERITS)
         elif sid in plain_sids:
             # Would have fit under plain FIFO-cap ordering, but the reserve
