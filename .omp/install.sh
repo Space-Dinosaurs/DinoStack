@@ -302,7 +302,7 @@ ae_install_bins() {
   local linked=0
   local refreshed=0
   local skipped=0
-  for src_file in "$bin_src"/agentic-*; do
+  for src_file in "$bin_src"/agentic-* "$bin_src"/ds-*; do
     [[ -e "$src_file" ]] || continue
     [[ -f "$src_file" ]] || continue
     local name

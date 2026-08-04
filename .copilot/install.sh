@@ -5,7 +5,7 @@
 # Outputs: symlinks at ~/.copilot/agents -> .github/agents,
 #          ~/.copilot/prompts -> .github/prompts;
 #          writes shared ~/.claude/agentic-engineering.json activation config;
-#          links bin/agentic-* to ~/.local/bin;
+#          links bin/{agentic-,ds-}* to ~/.local/bin;
 #          prints the chat.hookFilesLocations VS Code setting snippet (user must add manually)
 # Side-effects: creates ~/.copilot/ if absent; writes activation config
 # Consumers: user runs manually; re-run after repo move to update absolute hook paths
@@ -248,7 +248,7 @@ ae_install_bins() {
     mkdir -p "$bin_dst"
     path_created=true
   fi
-  for src_file in "$bin_src"/agentic-*; do
+  for src_file in "$bin_src"/agentic-* "$bin_src"/ds-*; do
     [[ -f "$src_file" ]] || continue
     local name
     name="$(basename "$src_file")"

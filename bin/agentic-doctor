@@ -3,7 +3,9 @@
 Purpose: Inspect global agentic-engineering install health and (with --fix)
          converge drift. Checks that managed symlinks under ~/.claude resolve
          into the canonical repo_dir, that ~/.local/bin/ wrappers exist for
-         each bin/agentic-* script, that hook commands in ~/.claude/settings.json
+         each bin/{agentic-,ds-}* script (BIN_TOOL_PREFIXES), that no stale
+         ~/.local/bin symlink points at a since-removed repo_dir/bin script
+         (reverse direction), that hook commands in ~/.claude/settings.json
          point into repo_dir, that every managed hook script referenced in
          settings.json actually exists on disk (orphaned-hook detection),
          and that the repo_dir pre-commit hook is wired. With --fix,
@@ -11,10 +13,17 @@ Purpose: Inspect global agentic-engineering install health and (with --fix)
          in settings.json (atomic read-merge-write); when the expected
          in-repo target for an ours-to-own symlink no longer exists at all
          (e.g. a renamed command), --fix DELETES the stale symlink from
-         ~/.claude/{agents,commands,skills} instead of re-pointing it. The
-         orphaned-hook check is read-only (FAIL only, no --fix repair - the
-         fix is restoring the script or re-running install.sh). Never
-         invokes install.sh, never touches real files or foreign symlinks.
+         ~/.claude/{agents,commands,skills} or ~/.local/bin instead of
+         re-pointing it. The orphaned-hook check is read-only (FAIL only, no
+         --fix repair - the fix is restoring the script or re-running
+         install.sh). Never invokes install.sh, never touches real files or
+         foreign symlinks. NOTE: the reverse ~/.local/bin stale-link check
+         (check_local_bin_stale) is checked-out-tree-relative, not just
+         rename-relative - on an older commit or a feature branch where a
+         given bin/ tool does not yet exist, --fix will remove the user's
+         PATH wrapper for it too. This is bounded and self-healing: the
+         wrapper is recreated by the forward check the next time --fix runs
+         against a checkout where the tool exists again.
 
 Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
             --cross-harness: also validate the cross-harness team stack
@@ -36,7 +45,7 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, sys, tempfile)
                Reads ~/.agentic/agentic-engineering-config.json (repo_dir source),
                ~/.claude/settings.json (hook inspection/repair),
                ~/.claude/agents/, ~/.claude/commands/, ~/.claude/skills/.
-               Reads <repo_dir>/bin/agentic-* (bin wrapper check).
+               Reads <repo_dir>/bin/{agentic-,ds-}* (bin wrapper check).
                Reads <repo_dir>/.git/hooks/pre-commit (pre-commit check).
 
 Downstream consumers: developers diagnosing broken installs after cloning to a
@@ -92,6 +101,11 @@ def _managed_link_dirs() -> list[Path]:
         h / ".claude" / "commands",
         h / ".claude" / "skills" / "agentic-engineering",
     ]
+
+# Recognized bin/ tool basename prefixes. Both are checked so that a future
+# rename of the agentic-* family to ds-* (tracked separately - not done in
+# this change) does not silently drop tools from the local_bin checks below.
+BIN_TOOL_PREFIXES: tuple[str, ...] = ("agentic-", "ds-")
 
 # Basenames of hook scripts that live in <repo_dir>/hooks/.
 MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
@@ -604,14 +618,14 @@ def check_local_bin_symlinks(doc: Doctor) -> None:
     try:
         scripts = sorted(
             p for p in bin_dir.iterdir()
-            if p.name.startswith("agentic-") and p.is_file()
+            if p.name.startswith(BIN_TOOL_PREFIXES) and p.is_file()
         )
     except Exception:
         doc.skip("local_bin", bin_dir, "could not read bin/")
         return
 
     if not scripts:
-        doc.skip("local_bin", bin_dir, "no agentic-* scripts found in repo_dir/bin")
+        doc.skip("local_bin", bin_dir, "no agentic-*/ds-* scripts found in repo_dir/bin")
         return
 
     local_bin = _local_bin()
@@ -644,6 +658,119 @@ def _check_bin_link(doc: Doctor, link: Path, expected_target: Path) -> None:
     else:
         t = str(resolved) if resolved else f"{raw} (broken)"
         doc.skip("local_bin", link, f"not ours - target {t} exists outside repo_dir")
+
+
+# ---------------------------------------------------------------------------
+# Check (d2): reverse direction - a ~/.local/bin symlink whose raw target is
+# rooted at <repo_dir>/bin but that target no longer exists (e.g. a tool
+# renamed or removed upstream, such as a future agentic-* -> ds-* rename).
+# The scan above (check_local_bin_symlinks) only walks repo/bin -> expected
+# link, so it can never notice a link left behind for a tool that vanished
+# from repo/bin entirely; this is the missing reverse direction.
+# ---------------------------------------------------------------------------
+
+
+def _stale_repo_bin_link_target(dst: Path, repo_dir: Path) -> str | None:
+    """Return the raw (unresolved) target string if dst is a stale link into
+    this repo's bin/ tree, else None.
+
+    Deliberately narrower than _is_ours(): _is_ours() treats ANY broken
+    symlink located under ~/.local/bin as reclaimable, which would be unsafe
+    here (a user's own broken symlink that happens to live in ~/.local/bin,
+    unrelated to this repo, must never be removed). This predicate instead
+    requires the symlink's own (unresolved) target text to be lexically
+    rooted at <repo_dir>/bin - i.e. it must have been created BY this repo's
+    install machinery pointing INTO this repo's bin/ - before it is
+    considered stale. It therefore cannot fire on:
+      - a real file (the os.path.islink guard)
+      - a live symlink whose target still exists (resolved is not None)
+      - a symlink pointing anywhere outside <repo_dir>/bin, broken or not
+        (including another DinoStack clone's bin/, or a wholly unrelated
+        broken symlink an operator created themselves)
+    Comparison is done against the realpath of <repo_dir>/bin (not the raw
+    target's directory, which does not exist for a stale link) so a
+    symlinked repo_dir still compares correctly.
+
+    Undocumented-until-now behavior this predicate drives: staleness is
+    relative to the CURRENT checkout state of repo_dir/bin, not solely to a
+    rename. On an older commit or a feature branch where a given tool does
+    not yet exist in bin/, a link to it reads as stale here and --fix will
+    remove the user's ~/.local/bin wrapper for it. This is bounded and
+    self-healing - check_local_bin_symlinks recreates the wrapper on a
+    later --fix run once the checkout is back on a commit where the tool
+    exists.
+    """
+    if not os.path.islink(str(dst)):
+        return None
+    raw, resolved = _readlink_resolved(dst)
+    if resolved is not None:
+        return None  # target exists - not stale
+    if raw == "(unreadable)":
+        return None
+    candidate = Path(raw) if Path(raw).is_absolute() else dst.parent / raw
+    candidate_dir_r = Path(os.path.realpath(str(candidate.parent)))
+    bin_dir_r = Path(os.path.realpath(str(repo_dir / "bin")))
+    if candidate_dir_r != bin_dir_r:
+        return None
+    return raw
+
+
+def check_local_bin_stale(doc: Doctor) -> None:
+    """Detect (and with --fix, remove) ~/.local/bin symlinks that point at a
+    now-missing <repo_dir>/bin script. See _stale_repo_bin_link_target for
+    the exact ownership predicate and why it cannot touch operator-owned
+    files.
+
+    Entries whose name matches a script CURRENTLY present in repo_dir/bin
+    (matching BIN_TOOL_PREFIXES) are skipped here even when their existing
+    target is broken - check_local_bin_symlinks (the forward check, run
+    immediately before this one) already owns repointing that link. Without
+    this skip, read-only/--dry-run mode reports two contradictory
+    recommendations for the same link (a forward repoint AND a reverse
+    removal); in live --fix mode the forward check has already re-pointed
+    the link by the time this function reads it, so it would silently
+    no-op here anyway - this skip only fixes the read-only/--dry-run report.
+    """
+    local_bin = _local_bin()
+    if not local_bin.is_dir():
+        doc.skip("local_bin_stale", local_bin, "~/.local/bin does not exist")
+        return
+
+    bin_dir = doc.repo_dir / "bin"
+    if not bin_dir.is_dir():
+        # repo_dir/bin itself is absent (e.g. mid-checkout or bad repo_dir) -
+        # do not treat every local_bin link as stale just because we cannot
+        # currently see the source tree.
+        doc.skip("local_bin_stale", bin_dir, "repo_dir/bin does not exist")
+        return
+
+    try:
+        current_names = {
+            p.name for p in bin_dir.iterdir()
+            if p.name.startswith(BIN_TOOL_PREFIXES) and p.is_file()
+        }
+    except Exception:
+        current_names = set()
+
+    try:
+        entries = sorted(local_bin.iterdir())
+    except Exception:
+        doc.skip("local_bin_stale", local_bin, "could not read ~/.local/bin")
+        return
+
+    found_stale = False
+    for entry in entries:
+        if entry.name in current_names:
+            # Owned by check_local_bin_symlinks - see docstring above.
+            continue
+        raw = _stale_repo_bin_link_target(entry, doc.repo_dir)
+        if raw is None:
+            continue
+        found_stale = True
+        doc.remove_stale_symlink("local_bin_stale", entry, f"{raw} (broken)")
+
+    if not found_stale:
+        doc.ok("local_bin_stale", f"{local_bin}: no stale repo-bin symlinks")
 
 
 # ---------------------------------------------------------------------------
@@ -966,6 +1093,10 @@ def main() -> int:
 
     # (e) ~/.local/bin wrappers
     check_local_bin_symlinks(doc)
+
+    # (e2) reverse direction: stale ~/.local/bin symlinks into a now-missing
+    # repo_dir/bin script
+    check_local_bin_stale(doc)
 
     # (f) git pre-commit hook
     check_git_precommit(doc)
