@@ -255,6 +255,28 @@ Mandatory phrasing for surface-and-proceed: <em>"Proceeding with approach A (mat
 
 ---
 
+## Standing authorizations and host-harness conflicts
+
+<style scoped>
+  .columns { gap: 1em; margin-bottom: 0.5em; }
+  .columns .card { font-size: 0.78em; line-height: 1.35; padding: 0.75em 1em; }
+  .columns .card strong { font-size: 1.0em; }
+  .callout { font-size: 0.78em; padding: 0.4em 1em; margin-top: 0.35em; }
+</style>
+
+<div class="columns">
+<div class="card" style="border-left-color: #3ad99a;">
+<strong>Standing authorizations</strong><br/>
+Routine repo hygiene - branch cleanup once the merge signal is satisfied, worktree removal, session-start prune - is <strong>durably pre-authorized and never an operator choice</strong>. It never reaches the hard-stop branch, because it was never a per-instance decision to begin with.
+</div>
+<div class="card" style="border-left-color: #18E0FF;">
+<strong>Host-harness instruction conflicts</strong><br/>
+When a host harness injects its own session-level instruction that collides with the methodology (e.g. a no-subagent directive), that is a defect to recognize and surface - never a decision to obey quietly. Covers four collision shapes; see the collision catalog and delegation-suppression rule for the notice template and remedies.
+</div>
+</div>
+
+---
+
 ## Carve-outs
 
 <style scoped>
@@ -340,7 +362,7 @@ Not conductor-direct and not default-and-proceed. Worker returns BLOCKED; conduc
 <div class="card" style="border-left-color: #ff5d73;">
 <strong>Stop and ask the user</strong>
 <ul>
-<li>Destructive or irreversible action not pre-authorized</li>
+<li>Destructive or irreversible action not pre-authorized - routine repo hygiene named in Standing authorizations is durably pre-authorized and never reaches this branch</li>
 <li>Credential, external API key, product judgment only the user can make</li>
 <li>A name only the user knows</li>
 <li>Architect-declared Open Question</li>
