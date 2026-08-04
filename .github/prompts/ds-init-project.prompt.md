@@ -922,7 +922,7 @@ Seed with these documented defaults exactly:
 - `skill_candidate_nudge` - boolean, default `false` (opt-in). Layer-2 in-session nudge via `PostToolUse(Task)`. Fires only when both this toggle and `skill_candidate_detection` are `true`. See `content/rules/conventions.md` §Project Config for semantics.
 - `ticket_driven` - enum (`off` | `offer` | `require`), seeded as `"offer"` when a tracker is confirmed in Step 1; `"off"` otherwise. Controls whether the conductor creates a tracker ticket before spawning the first implementer on net-new work. Absent-key resolution: effective `offer` when `TRACKER != none`, effective `off` when `TRACKER == none`; explicit value always wins. See `content/sections/02-delegation.md` §Ticket-offer gate for the full gate semantics.
 - `rework_detection` - boolean, default `true`. Absent key resolves to `true`. When `false`, disables the Phase 9 ledger write, the Phase 1 detection read, the operator notice, the `/ds-ticket-triage` badge, and the escalation (risk floor and Tier-3 bump) - the feature goes fully dark with one flag. See `content/references/ticket-rework.md` §Config toggle for full semantics.
-- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the Done transition to the tracker once a ticket's PR merges; set `false` to disable.
+- `pending_merge_sweep` - boolean, default `true`. Absent key resolves to `true`. Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable. See `content/commands/ds-implement-ticket.md` `## Tracker Writeback Helper` for full semantics.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on - the inverse of the abdication guard's fail-open-to-inactive, because this hook never blocks). When active, an advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule and logs a finding; it never blocks the stop. Set to `false` to opt out. Disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. See `content/references/conductor-turn-format.md` for full semantics.
 
@@ -1160,6 +1160,7 @@ If `lc` was already installed, run `lc doctor` to verify the connection. If it f
 # State In Progress: In Progress
 # State In Review: In Review
 # State QA: Testing
+# State Dev Complete: Done
 # State Blocked: Blocked
 # State Done: Done
 # Optional pipeline-order override (default shown; uncomment to override):
@@ -1205,6 +1206,7 @@ JIRA_QA_TRANSITION: [transition name — optional, omit line if not provided]
 # JIRA_STATE_IN_PROGRESS: In Progress
 # JIRA_STATE_IN_REVIEW: In Review
 # JIRA_STATE_QA: QA
+# JIRA_STATE_DEV_COMPLETE: Done
 # JIRA_STATE_BLOCKED: Blocked
 # JIRA_STATE_DONE: Done
 # Optional pipeline-order override (default shown; uncomment to override):
