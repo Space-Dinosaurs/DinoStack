@@ -2185,6 +2185,7 @@ The following failures were identified and fix attempts were made in earlier ite
 - Each failure gets a short slug `id`, `description`, `first_raised: <iteration>`, `status: open`.
 - If a failure carries `[PREV: <id>]`, set `re_raised: true` on the matching `qa_failures_log` entry.
 - Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.
+- Run the QA knowledge capture procedure (`$AE_REPO_DIR/content/references/qa-gate.md` §"QA knowledge capture (canonical procedure)") against this iteration's qa-engineer return, regardless of verdict, before proceeding to Step 3.
 
 **Step 3. Termination check:**
 - If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section) and `QA_STATUS="PASS"` (in-context variable used by the Phase 9 ticket-rework ledger write). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.

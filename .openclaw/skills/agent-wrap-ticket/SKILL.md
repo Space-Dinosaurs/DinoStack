@@ -90,7 +90,7 @@ Your spawn prompt provides the following inputs (all required unless noted):
 4. **`architect_plan_path`** - absolute path to the architect's plan output (or "n/a" for Trivial path - but Trivial path skips Phase 11b entirely, so this should never be "n/a" in practice).
 5. **`brief_path`** - absolute path to the Brief governing this ticket, or "n/a" if no Brief.
 6. **`findings_log`** - the final-iteration `findings_log` from the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (legacy checkouts: `.agentic/loop-state.json`), read by the conductor BEFORE Phase 12 cleanup. May be empty.
-7. **`qa_md_diff`** - the diff of `.agentic/qa.md` between the snapshot taken at Phase 0b (`.agentic/qa.md.snapshot-<ticket_id>`) and the current working-tree contents. May be empty if qa.md was unchanged or the project has no qa.md.
+7. **`qa_md_diff`** - the diff of `.agentic/qa.md` between the snapshot taken at Phase 0b (`.agentic/qa.md.snapshot-<ticket_id>`) and the current working-tree contents. Non-empty whenever the QA knowledge capture procedure appended entries during this ticket; still empty if the project has no qa.md, or no qualifying entries were captured.
 8. **`merged_diff`** - the full merged diff of the ticket's changes (`git diff origin/$BASE_BRANCH..HEAD`).
 9. **`pr_url`** - the PR URL.
 10. **`conversation_summary`** - a brief recap of the conductor's session covering this ticket. Optional but recommended.

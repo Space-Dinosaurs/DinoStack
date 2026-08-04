@@ -711,7 +711,7 @@ prefer: local
 # For capability requirements (axe-core/playwright install): see content/references/capability-preflight.md
 ```
 
-The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The agent also appends a `## Knowledge` section over time as it discovers project-specific quirks - do not remove it.
+The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The conductor appends to a `## Knowledge` section over time, from entries qa-engineer returns via its qa-knowledge-json payload - do not remove it.
 
 **Multi-track projects.** If two or more tracks have detected web UIs (distinct ports / dev scripts), create a per-track qa.md at `<track>/.agentic/qa.md` for EACH track with its own command/port/URL, AND create a root `.agentic/qa.md` that is an index listing the tracks with pointers. Example root:
 

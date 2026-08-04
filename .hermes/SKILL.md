@@ -4139,7 +4139,7 @@ Performance: Standard.
 
 1. Worker returns. Conductor confirms `qa_criteria` indicates QA fires for this unit (`qa_skip == null` and scenarios non-empty).
 2. If yes: spawn Skeptic AND `qa-engineer` in a single message (parallel, background). Both receive the diff and the unit's `qa_criteria`. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
-3. Wait for both to return.
+3. Wait for both to return. After qa-engineer returns, run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" below) before routing on the verdict.
 4. If both pass: unit is complete.
 5. If Skeptic raises Critical/Major: enter standard Skeptic fix loop. QA re-runs after Skeptic sign-off is achieved.
 6. If QA fails (Skeptic already signed off): spawn fix engineer, then re-run QA only. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`.
@@ -4151,7 +4151,7 @@ Performance: Standard.
 1. Skeptic grants sign-off (minor fixes applied if any)
 2. Conductor inspects the unit's `qa_criteria` (from Brief or architect plan).
 3. If `qa_criteria` is present AND `qa_skip == null` AND scenarios non-empty: spawn `qa-engineer` with the unit's `qa_criteria` and ticket context. qa-engineer auto-detects qa.md trigger matches at spawn time and pulls supplemental context from any matched entries.
-4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report.
+4. QA engineer opens the dev server in a browser (or invokes API/runtime checks per the scenarios' `method`), verifies functionality, returns pass/fail report. Run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" below) before proceeding to the next step.
 5. On PASS: unit is complete.
 6. On FAIL: spawn fix engineer for each bug, then re-run QA. The fix engineer's brief MUST cite `content/references/qa-regression-obligation.md`. After Phase 6b clean-exit, if any iteration involved a QA FAIL, the conductor emits the qa-regressions curator to append to `.agentic/qa-regressions.md` (see `/ds-implement-ticket` Phase 6b §"QA regressions curator").
 
@@ -4185,6 +4185,143 @@ Static-only QA on an Elevated UI-visible change is approximately zero signal. St
 
 When the qa-engineer cannot reach a runtime path - preview deploy is blocked AND local-env runtime is unavailable - the unit's QA result is **INCONCLUSIVE** with `qa_unverified=true`, NOT a pass. The conductor surfaces this state to the operator with the same three options as `qa_blocked` above (provide env / accept the unverified state / abandon). The conductor MUST NOT auto-promote INCONCLUSIVE to PASS, and MUST NOT silently proceed to Phase 7 with `qa_unverified=true` set; the operator must explicitly accept that state before merge.
 
+## QA knowledge capture (canonical procedure)
+
+`qa-engineer` has no write access (`disallowedTools: [Edit, Write, Agent]`) and always runs `isolation: "worktree"`, so it cannot append to `.agentic/qa.md` itself - a write from inside an isolation worktree lands in that throwaway worktree and is never seen again. Instead, `qa-engineer` returns a `qa-knowledge-json` fenced block in its report text, and the invoker (the conductor, or `/ds-implement-ticket`) is responsible for extracting it and appending the entries to the resolved qa.md in its own checkout. This section is the canonical procedure every call site below points at.
+
+**Step 1 - extract.** Parse the `qa-knowledge-json` fenced block from the qa-engineer return text, the same way the `qa-screenshots-json` block is parsed (match by info string, either fence character, backticks or tildes). If the block is absent or the JSON fails to parse, treat it as an empty array and continue without error - this is not a failure condition. Filter the parsed array to entries whose `tag` is one of `server`, `timing`, `port`, `auth`, `noise`, `retry`, `tool` and whose `description` is a non-empty string; drop anything else.
+
+**Step 2 - append.** Issue ONE Bash tool call containing the block below, with the filtered array's literal JSON pasted into the heredoc body in place of `[...the extracted array...]`. Do not split this into two tool calls - shell state does not persist across separate Bash invocations, and the temp file this block creates must be written and consumed within the same shell.
+
+**Heredoc-transport invariant.** The pasted text must be standard JSON-array serialization, so no line of it can ever be the bare token `EOF` (JSON scalars are `true`/`false`/`null`, numbers, or quoted strings, and a quoted string cannot contain a raw unescaped newline). Do not hand-edit the pasted array into a non-JSON form.
+
+```bash
+# @harness:qa-knowledge-capture
+REPO="${REPO:-$(git rev-parse --show-toplevel 2>/dev/null)}"
+QA_KNOWLEDGE_TMP=$(mktemp "${TMPDIR:-/tmp}/qa-knowledge-XXXXXX" 2>/dev/null)
+
+if [ -z "$QA_KNOWLEDGE_TMP" ]; then
+  echo "WARNING: qa knowledge capture skipped - could not create a temp file (mktemp failed)"
+else
+cat > "$QA_KNOWLEDGE_TMP" << 'EOF'
+[...the extracted array...]
+EOF
+
+QA_MD=""
+if [ -n "$REPO" ] && [ -f "$REPO/.agentic/qa.md" ]; then
+  QA_MD="$REPO/.agentic/qa.md"
+elif [ -n "$REPO" ] && [ -f "$REPO/.claude/qa.md" ]; then
+  QA_MD="$REPO/.claude/qa.md"
+fi
+
+if [ -z "$REPO" ]; then
+  echo "WARNING: qa knowledge capture skipped - could not resolve repo root (not inside a git repo?)"
+elif [ -z "$QA_MD" ]; then
+  echo "WARNING: qa knowledge capture skipped - neither .agentic/qa.md nor .claude/qa.md exists at $REPO"
+elif ! command -v python3 >/dev/null 2>&1; then
+  echo "WARNING: qa knowledge capture skipped - python3 unavailable"
+else
+python3 - "$QA_MD" "$QA_KNOWLEDGE_TMP" <<'PY'
+import sys, json, re, datetime
+
+qa_md_path, entries_path = sys.argv[1], sys.argv[2]
+
+entries = None
+try:
+    with open(entries_path, "r", encoding="utf-8") as f:
+        raw = f.read()
+    entries = json.loads(raw)
+except (OSError, ValueError, TypeError) as exc:
+    print(f"WARNING: qa knowledge capture skipped - could not parse {entries_path}: {exc}")
+
+if entries is not None and not isinstance(entries, list):
+    print(f"WARNING: qa knowledge capture skipped - expected a JSON array, got {type(entries).__name__}")
+    entries = None
+
+text = None
+if entries is not None:
+    try:
+        with open(qa_md_path, "r", encoding="utf-8") as f:
+            text = f.read()
+    except (OSError, UnicodeDecodeError) as exc:
+        print(f"WARNING: qa knowledge capture skipped - could not read {qa_md_path}: {exc}")
+
+if text is not None:
+    text = text.replace("\r\n", "\n")
+    if not text.endswith("\n"):
+        text += "\n"
+
+    ALLOWED_TAGS = {"server", "timing", "port", "auth", "noise", "retry", "tool"}
+    DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+    def normalize(s):
+        return re.sub(r"\s+", " ", s.strip().lower())
+
+    def strip_bullet_prefix(line):
+        s = line.strip()
+        s = re.sub(r"^[-*]\s*", "", s)
+        s = re.sub(r"^\[\d{4}-\d{2}-\d{2}\]\s*", "", s)
+        return s
+
+    sections = list(re.finditer(r"^## Knowledge\n(.*?)(?=^## |\Z)", text, re.DOTALL | re.MULTILINE))
+    normalized_haystack = set()
+    for sec in sections:
+        for line in sec.group(1).splitlines():
+            if line.strip():
+                normalized_haystack.add(normalize(strip_bullet_prefix(line)))
+
+    new_lines = []
+    for e in entries:
+        if not isinstance(e, dict):
+            continue
+        tag = e.get("tag", "")
+        desc = e.get("description", "")
+        if not isinstance(tag, str) or not isinstance(desc, str):
+            continue
+        if tag not in ALLOWED_TAGS or not desc.strip():
+            continue
+        needle = normalize(f"{tag}: {desc}")
+        if needle in normalized_haystack:
+            continue
+        date_val = e.get("date")
+        date = date_val if isinstance(date_val, str) and DATE_RE.match(date_val) else datetime.date.today().isoformat()
+        new_lines.append(f"- [{date}] {tag}: {desc}")
+        normalized_haystack.add(needle)
+
+    if not new_lines:
+        print("no new knowledge entries")
+    elif not sections:
+        new_text = text.rstrip("\n") + "\n\n## Knowledge\n" + "\n".join(new_lines) + "\n"
+        try:
+            with open(qa_md_path, "w", encoding="utf-8") as f:
+                f.write(new_text)
+            print(f"appended {len(new_lines)} knowledge entry(ies); created ## Knowledge section")
+        except OSError as exc:
+            print(f"WARNING: qa knowledge capture skipped - could not write {qa_md_path}: {exc}")
+    else:
+        m = sections[0]
+        section_body = m.group(1)
+        stripped_body = section_body.rstrip("\n")
+        trailing_newlines = section_body[len(stripped_body):] or "\n"
+        insertion = stripped_body + ("\n" if stripped_body else "") + "\n".join(new_lines) + trailing_newlines
+        new_text = text[: m.start(1)] + insertion + text[m.end(1):]
+        try:
+            with open(qa_md_path, "w", encoding="utf-8") as f:
+                f.write(new_text)
+            print(f"appended {len(new_lines)} knowledge entry(ies)")
+        except OSError as exc:
+            print(f"WARNING: qa knowledge capture skipped - could not write {qa_md_path}: {exc}")
+PY
+fi
+
+rm -f "$QA_KNOWLEDGE_TMP" 2>/dev/null || true
+fi
+```
+
+**Structural properties that MUST hold** (all verified by execution - do not "improve" them): column 0 throughout including both `EOF` and `PY` heredoc terminators; the `# @harness:` marker is the first non-blank line inside the fence; zero shell-level `exit` statements (required by `bin/tests/lib/md_shell_extract.py`'s `COMPLETION_MARKER` precondition); `mktemp` uses trailing `X`s with NO suffix (BSD/macOS does not randomize non-trailing `X`s); every skip path prints a `WARNING:` and falls through; `rm -f` fires on every path where a temp file was created.
+
+**Call sites.** This procedure runs after every qa-engineer return, regardless of verdict, at these four points: the concurrent UI-visible QA gate flow (above), the `/ds-implement-ticket` Phase 6b loop's "Receive QA output" step (every iteration), the non-UI post-sign-off QA gate flow (below), and the multi-PR fan-out (below, before worktree removal). It deliberately does NOT run for `release-orchestrator`'s Phase 8 post-deploy QA (a subagent context needing its own contract) or fully ad-hoc "run QA" spawns - knowledge from those paths continues to be dropped.
+
 ## Multi-PR / multi-ticket parallel-by-worktree
 
 When more than one PR (or unit) is awaiting QA, the conductor defaults to parallel verification - one qa-engineer per PR, each in its own worktree, each on a unique port. Single-message fan-out:
@@ -4195,10 +4332,16 @@ git worktree add .agentic/worktrees/qa-<branch> <branch>
 # Spawn qa-engineer with isolation: "worktree" and PORT=$((3000 + N)) injected into the brief.
 ```
 
-All qa-engineers run concurrently (background, single message). After each returns, remove its worktree:
+All qa-engineers run concurrently (background, single message). After each returns, run the QA knowledge capture procedure (see §"QA knowledge capture (canonical procedure)" above) against that PR's return, then evaluate the worktree for removal.
+
+This worktree is distinct from the harness-created isolation worktree (`.claude/worktrees/agent-<agentId>`) the qa-engineer's own tool calls execute inside; removing this worktree does not affect the isolation worktree's lifecycle.
 
 ```bash
-git worktree remove .agentic/worktrees/qa-<branch>
+if [ -z "$(git -C .agentic/worktrees/qa-<branch> status --porcelain 2>/dev/null)" ]; then
+  git worktree remove .agentic/worktrees/qa-<branch>
+else
+  echo "WARNING: worktree .agentic/worktrees/qa-<branch> has uncommitted changes; skipping cleanup"
+fi
 ```
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
@@ -9568,7 +9711,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 ---
 name: qa-engineer
 model: sonnet
-description: "Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says \"run QA\", \"verify in the browser\", \"check the feature works\", \"test the acceptance criteria\", or \"does it work\". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Appends learned project-specific quirks to .agentic/qa.md for future runs."
+description: "Dynamic verification agent for runtime testing. Spawn after Skeptic review, before merge, for any change with visible UI or behavioral output. Also invoked when the user says \"run QA\", \"verify in the browser\", \"check the feature works\", \"test the acceptance criteria\", or \"does it work\". Verifies changes work in a real browser, runs test suites, validates against acceptance criteria and design specs. Supports scenario methods: browser, api, runtime-required, visual_conformance, accessibility (WCAG via axe-core), perceptual_diff (pixel regression via pixelmatch), and motion (prefers-reduced-motion via Playwright CDP). Iterates all applicable scenarios across each declared viewport. Returns a structured pass/fail report with evidence. Does not fix issues. Returns learned project-specific quirks as a structured payload for the invoker to append via the canonical QA knowledge capture procedure."
 tools: Read, Glob, Grep, Bash
 disallowedTools: [Edit, Write, Agent]
 ---
@@ -9616,7 +9759,7 @@ You verify by interacting with real running applications in a browser, executing
 
 You report what you find with enough detail that an engineer can act on failures without re-investigating.
 
-You do not fix issues. You do not modify application files. You do not spawn subagents. The sole exception to file modification is appending knowledge entries to the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback for reads; writes always go to `.agentic/qa.md`) - this is QA infrastructure you own, not application code.
+You do not fix issues. You do not modify application files. You do not spawn subagents. You perform no file writes - the qa-knowledge-json return payload (see below) is the sole mechanism for surfacing learned project-specific quirks; the invoker appends them via the canonical QA knowledge capture procedure (`content/references/qa-gate.md`), targeting whichever of `.agentic/qa.md` / legacy `.claude/qa.md` the resolver identifies.
 
 ## Reading your spawn prompt
 
@@ -9864,29 +10007,27 @@ Skip if auth blocks everything - note why.
 
 ## Knowledge capture
 
-After the QA run is complete and the report is written, review what you discovered during this run. Append a knowledge entry for any finding that meets ALL of these criteria:
+After the QA run is complete and the report is written, review what you discovered during this run. Emit a knowledge entry in the `qa-knowledge-json` payload (see below) for any finding that meets ALL of these criteria:
 
 - It is a project-specific quirk, not general browser or tool behavior
 - It is likely to recur on every future QA run of this project
 - It required non-obvious handling (a flag, a delay, a retry, a workaround)
 - It is not already captured in an existing `## Knowledge` entry
 
-Do NOT write entries for:
+Do NOT emit entries for:
 - Bugs found in the application (those belong in the QA report, not in knowledge)
 - One-off environment issues (server crashed, test data was stale)
 - Things the engineer should fix rather than QA should work around
 
-**Prerequisites - only append if both are true:**
-1. qa.md exists at the resolved path (init-project owns file creation - never create it yourself). Resolve via: `QA_MD=.agentic/qa.md; [ -f "$QA_MD" ] || QA_MD=.claude/qa.md` (prefer `.agentic/`, fall back to legacy `.claude/`).
-2. You have at least one finding that meets all four criteria above
+You do not write to qa.md yourself - you have no write access. Instead, emit a fenced `qa-knowledge-json` block at the end of your report, populated from the same 4-criteria filter above. Emit it on every return, regardless of verdict (PASS/FAIL/BLOCKED/INCONCLUSIVE); emit `[]` when nothing qualifies.
 
-**To append an entry:** (all writes target the resolved `$QA_MD` path; the resolver preserves the legacy location if a project still uses it so appends remain colocated with the existing file)
-1. Check whether the resolved `$QA_MD` has a `## Knowledge` section:
-   `grep -q "^## Knowledge" "$QA_MD"`
-2. If the section is absent, append it:
-   `printf "\n## Knowledge\n" >> "$QA_MD"`
-3. Append the entry using one of the tags: `server`, `timing`, `port`, `auth`, `noise`, `retry`, `tool`
-   `printf -- "- [%s] %s: %s\n" "$(date +%F)" "<tag>" "<description>" >> "$QA_MD"`
+~~~qa-knowledge-json
+[
+  {"tag": "timing", "description": "Wait 2s after navigation to /dashboard - React Query refetch completes async", "date": "2026-08-03"}
+]
+~~~
+
+`tag` is required, one of: `server`, `timing`, `port`, `auth`, `noise`, `retry`, `tool`. `description` is required and must be a single factual line. `date` is optional (defaults to today when omitted by the consumer). The invoker (conductor or `/ds-implement-ticket`) extracts this block and appends the filtered entries to the resolved qa.md via the canonical QA knowledge capture procedure in `content/references/qa-gate.md`.
 
 Keep entries factual and one line. Prefer concrete details over vague descriptions:
 - Good: `- [2026-03-30] timing: Wait 2s after navigation to /dashboard - React Query refetch completes async`
@@ -10469,7 +10610,7 @@ fs.writeFileSync(diff_image, PNG.sync.write(diff));
 - **Quote what you see.** Include actual text content or class names, not paraphrased descriptions.
 - **Maximize coverage where it is honest.** When auth blocks some routes, check public routes and fall back to source for STATIC criteria of the feature under test. Do not pad PARTIAL with trivial checks (login page renders, unrelated public pages) when the feature itself is runtime-gated and unverified - that is BLOCKED.
 - **Never fix, only report.** If you find a failure, describe it precisely and move on. Fixing is the engineer's job.
-- **Note-taking is not fixing.** Appending knowledge entries to the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) is the sole exception to the no-modification rule. This file is QA infrastructure you own, not application code. Recording what you learned helps future runs.
+- **Note-taking is not fixing.** Emitting the `qa-knowledge-json` payload for the invoker to append to the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) is how you surface what you learned. This is QA infrastructure you inform, not application code you touch. Recording what you learned helps future runs.
 
 ---
 
@@ -11151,7 +11292,7 @@ Your spawn prompt provides the following inputs (all required unless noted):
 4. **`architect_plan_path`** - absolute path to the architect's plan output (or "n/a" for Trivial path - but Trivial path skips Phase 11b entirely, so this should never be "n/a" in practice).
 5. **`brief_path`** - absolute path to the Brief governing this ticket, or "n/a" if no Brief.
 6. **`findings_log`** - the final-iteration `findings_log` from the ticket's own `.agentic/loop-state-<LOOP_KEY>.json` (legacy checkouts: `.agentic/loop-state.json`), read by the conductor BEFORE Phase 12 cleanup. May be empty.
-7. **`qa_md_diff`** - the diff of `.agentic/qa.md` between the snapshot taken at Phase 0b (`.agentic/qa.md.snapshot-<ticket_id>`) and the current working-tree contents. May be empty if qa.md was unchanged or the project has no qa.md.
+7. **`qa_md_diff`** - the diff of `.agentic/qa.md` between the snapshot taken at Phase 0b (`.agentic/qa.md.snapshot-<ticket_id>`) and the current working-tree contents. Non-empty whenever the QA knowledge capture procedure appended entries during this ticket; still empty if the project has no qa.md, or no qualifying entries were captured.
 8. **`merged_diff`** - the full merged diff of the ticket's changes (`git diff origin/$BASE_BRANCH..HEAD`).
 9. **`pr_url`** - the PR URL.
 10. **`conversation_summary`** - a brief recap of the conductor's session covering this ticket. Optional but recommended.
@@ -15090,6 +15231,7 @@ The following failures were identified and fix attempts were made in earlier ite
 - Each failure gets a short slug `id`, `description`, `first_raised: <iteration>`, `status: open`.
 - If a failure carries `[PREV: <id>]`, set `re_raised: true` on the matching `qa_failures_log` entry.
 - Overwrite `.agentic/loop-state-$LOOP_KEY.json` with the updated LOOP_STATE.
+- Run the QA knowledge capture procedure (`content/references/qa-gate.md` §"QA knowledge capture (canonical procedure)") against this iteration's qa-engineer return, regardless of verdict, before proceeding to Step 3.
 
 **Step 3. Termination check:**
 - If PASS (all acceptance criteria met): auto-close all `qa_failures_log` entries. Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `QA_RAN_AND_PASSED="true"` (in-context variable used by Phase 9 QA Evidence section) and `QA_STATUS="PASS"` (in-context variable used by the Phase 9 ticket-rework ledger write). **Parse QA screenshot evidence (see below).** Exit loop cleanly. Proceed to Phase 7.
@@ -17023,7 +17165,7 @@ prefer: local
 # For capability requirements (axe-core/playwright install): see content/references/capability-preflight.md
 ```
 
-The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The agent also appends a `## Knowledge` section over time as it discovers project-specific quirks - do not remove it.
+The `qa-engineer` agent reads this file to know how to start the dev server and which URL to test against. Fill in `staging` if the project has a staging environment. Change `prefer` to `staging` to make qa-engineer default to the staging URL when both are available. The conductor appends to a `## Knowledge` section over time, from entries qa-engineer returns via its qa-knowledge-json payload - do not remove it.
 
 **Multi-track projects.** If two or more tracks have detected web UIs (distinct ports / dev scripts), create a per-track qa.md at `<track>/.agentic/qa.md` for EACH track with its own command/port/URL, AND create a root `.agentic/qa.md` that is an index listing the tracks with pointers. Example root:
 

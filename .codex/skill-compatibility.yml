@@ -3512,6 +3512,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/references/qa-gate.md",
+      "generated_token": "$AE_REPO_DIR/content/references/qa-gate.md",
+      "kind": "operational",
+      "occurrence_hash": "1315a3ada6e9fdfe34ffad5c6e1a497318f8d6a5bb1f8b06cae43cd624818843",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/qa-gate.md"
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
