@@ -70,8 +70,13 @@ def _mk_entries(prefix, n, start=0):
 
 
 def _all_dispositions(sids, values):
-    """itertools.product over `values` (the full 9-member Outcome universe),
-    one choice per sid, in sid order - the literal tier-1 enumeration."""
+    """itertools.product over `values` (a caller-supplied set of Outcome
+    values - not a fixed universe), one choice per sid, in sid order - the
+    literal tier-1 enumeration. Tier 1 calls this with the 7 PRESENTABLE
+    outcomes: the 2 UNPRESENTED labels are drain()'s own output for entries
+    it did not present, not adjudicator inputs, so they have no place in
+    this enumeration. See TestD1TierOne's docstring for the closed-form
+    derivation of the resulting assignment count."""
     for combo in itertools.product(values, repeat=len(sids)):
         yield dict(zip(sids, combo))
 

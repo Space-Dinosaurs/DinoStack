@@ -51,8 +51,10 @@ class TestRouteEnumAndPredicateCounts(unittest.TestCase):
         self.assertEqual(len(rm.ROUTE_PREDICATES), 4)
         self.assertNotIn(rm.Route.R_ABORT_WORKERS, rm.ROUTE_PREDICATES)
         self.assertNotIn(rm.Route.R_ZS_FAST, rm.ROUTE_PREDICATES)
-        # These four facts make route_evaluations derivable rather than
-        # pinned: len(ROUTE_PREDICATES) * len(all_states()) == 4 * 128 == 512.
+        # The four facts above establish that route_evaluations is
+        # derivable rather than pinned; the assertion below is the fifth
+        # in this test and checks the derived value directly:
+        # len(ROUTE_PREDICATES) * len(all_states()) == 4 * 128 == 512.
         self.assertEqual(len(rm.ROUTE_PREDICATES) * len(rm.all_states()), 512)
 
 
