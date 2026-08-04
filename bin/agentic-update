@@ -30,7 +30,12 @@ Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
             All four --mode/--profile/--identity/--no-identity flags are
             optional passthroughs: when omitted, install.sh runs with no
             corresponding flag and falls back to its own defaults, exactly
-            as before this option existed.
+            as before this option existed. When any of the four IS supplied,
+            the adapter install loop always runs, even if old_head==new_head
+            (already up to date) or _needs_rebuild() is False (no adapter
+            source changed) - a confirmed configuration change must reach
+            install.sh, never silently no-op behind a rebuild-skip early
+            return. See the forced_install check in main().
             Environment:
              AGENTIC_CONFIG_PATH  Override path to agentic-engineering-config.json
                                   (useful for tests; default ~/.agentic/...).
@@ -535,7 +540,21 @@ def main() -> int:
 
     old_short = old_head[:8] if old_head else "unknown"
 
+    # A non-empty install_flags means the caller confirmed a configuration
+    # change (--mode/--profile/--identity/--no-identity) that must actually
+    # reach install.sh. Neither rebuild-skip early return below is allowed
+    # to exit 0 without running the adapter loop when that is true - see
+    # bin/tests/test_agentic_update.sh T15/T16 for the regression coverage
+    # (both early-return paths: already-up-to-date and no-rebuild-needed).
+    forced_install = bool(install_flags)
+
     if old_head and new_head and old_head == new_head:
+        if forced_install:
+            print(
+                f"Already up to date ({old_short}), but forcing adapter install "
+                f"because a config change was requested: {' '.join(install_flags)}."
+            )
+            return _run_adapter_installs(repo_dir, args, install_flags)
         print(f"Already up to date ({old_short}).")
         _reset_version_check_cache()
         # Skip to doctor
@@ -576,6 +595,13 @@ def main() -> int:
     rebuild = _needs_rebuild(old_head, new_head, changed_paths)
 
     if not rebuild:
+        if forced_install:
+            print(
+                f"Updated {old_short}..{new_short} ({commits_pulled} commit(s)). "
+                f"No adapter source changed, but forcing adapter install because "
+                f"a config change was requested: {' '.join(install_flags)}."
+            )
+            return _run_adapter_installs(repo_dir, args, install_flags)
         print("No rebuild needed (no adapter source changed).")
         _reset_version_check_cache()
         if not args.no_doctor:
@@ -595,6 +621,22 @@ def main() -> int:
         f"Rebuild triggered by: {', '.join(triggering_paths) or '(unknown)'}."
     )
 
+    return _run_adapter_installs(repo_dir, args, install_flags)
+
+
+def _run_adapter_installs(
+    repo_dir: Path,
+    args: argparse.Namespace,
+    install_flags: list[str],
+) -> int:
+    """Step 12-14: adapter selection + install + cache reset + doctor.
+
+    Shared by all three callers that must actually run the adapter loop:
+    the normal rebuild-triggered path, and the two forced-install paths
+    (old_head==new_head and not-rebuild) that fire when install_flags is
+    non-empty - see the Critical-fix comment at the forced_install check
+    above main(). Extracted so none of the three call sites can drift.
+    """
     # ------------------------------------------------------------------
     # Step 12: adapter selection + install
     # ------------------------------------------------------------------

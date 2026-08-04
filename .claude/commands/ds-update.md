@@ -180,14 +180,30 @@ UPDATE_STATUS=$?
 
 On non-zero `UPDATE_STATUS`: stop and show `agentic-update`'s stdout/stderr verbatim. `agentic-update` already produces actionable messages for every case this section used to check by hand: non-main branch, dirty tree (lists the dirty files), a failed or diverged (non-fast-forward) pull, and a failed adapter install (names which adapter and its exit code, fail-fast - remaining adapters do not run). It also prints the hooks-change note to stderr internally when the pull touched `hooks/`, using the same wording this section used to duplicate - that note surfaces automatically as part of the verbatim output, nothing further to do here.
 
-If `agentic-update` is not found on PATH (e.g. this is the very first `/ds-update` run in a fresh shell before `~/.local/bin` was picked up), fall back to running the pull and the per-adapter install loop directly:
+If `agentic-update` is not found on PATH (e.g. this is the very first `/ds-update` run in a fresh shell before `~/.local/bin` was picked up), fall back to running the branch/dirty-tree checks, the pull, and the per-adapter install loop directly. This fallback has no other gate - `agentic-update`'s own branch and dirty-tree checks are unreachable when it isn't found - so both hard blocks below are mandatory here, not optional preview info as in Step 2b:
+
 ```bash
+CURRENT_BRANCH="$(git -C "$AE_REPO_DIR" rev-parse --abbrev-ref HEAD)"
+if [[ "$CURRENT_BRANCH" != "main" ]]; then
+  echo "error: must be on 'main' to update (currently on '$CURRENT_BRANCH'). Run: git -C $AE_REPO_DIR checkout main"
+  # STOP - do not proceed
+fi
+
+DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
+if [[ -n "$DIRTY" ]]; then
+  echo "error: working tree has uncommitted changes; commit or stash first:"
+  echo "$DIRTY"
+  # STOP - do not proceed
+fi
+
 git -C "$AE_REPO_DIR" pull --ff-only origin main
 for adapter in "${SELECTED_ADAPTERS[@]}"; do
   bash "$AE_REPO_DIR/${adapter}/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
   # On non-zero exit: stop immediately, report which adapter failed and its exit code.
 done
 ```
+A non-main branch or a dirty tree can silently fast-forward the branch into a broken state (the same reason `agentic-update` enforces both internally) - never skip these two checks on the fallback path.
+
 Note "agentic-update not found on PATH; ran the fallback sequence directly. Open a new shell so `agentic-update` is available next time."
 
 ### FRESH-CLONE-FLOW

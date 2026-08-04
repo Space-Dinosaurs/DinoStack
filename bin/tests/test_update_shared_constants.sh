@@ -34,6 +34,7 @@ SHARED_JSON="$REPO_ROOT/scripts/lib/update-shared.json"
 UPDATE_JS="$REPO_ROOT/scripts/update.js"
 UPDATER_PY="$REPO_ROOT/bin/agentic-update"
 INSTALL_ALL="$REPO_ROOT/install-all.sh"
+DS_UPDATE_MD="$REPO_ROOT/content/commands/ds-update.md"
 
 PASS=0
 FAIL=0
@@ -240,23 +241,169 @@ PYEOF
 done
 
 # ---------------------------------------------------------------------------
-# Test 7 (non-vacuity for T6): confirm the vector table can actually detect
-# a broken implementation, by running a deliberately-wrong predicate inline
-# and checking it disagrees with the expected value for at least one vector.
+# Test 7 (non-vacuity for T6): confirm the vector table can actually catch a
+# broken implementation, by simulating a deliberately-wrong "always false"
+# predicate (stub_result is always "0", never queries the real modules) and
+# checking it DISAGREES with the table's own expected value for at least one
+# vector - i.e. the T6 comparison `[[ "$js_result" == "$expected" ]]` would
+# genuinely fail against this stub, proving T6 is falsifiable and not merely
+# a property of the table's shape.
 # ---------------------------------------------------------------------------
-WRONG_RESULT="$(node -e "console.log('0');")"  # a stub that always returns 0
 MISMATCH_FOUND=0
 for vector in "${VECTORS[@]}"; do
   IFS='|' read -r old new paths expected <<< "$vector"
-  if [[ "$expected" == "1" ]]; then
+  stub_result="0"  # simulates an always-false needsRebuild/_needs_rebuild
+  if [[ "$stub_result" != "$expected" ]]; then
     MISMATCH_FOUND=1
     break
   fi
 done
 if [[ "$MISMATCH_FOUND" == "1" ]]; then
-  _pass "T7 non-vacuity check: vector table contains at least one expected=1 case (a stub returning 0 would be caught)"
+  _pass "T7 non-vacuity check: an always-false stub disagrees with the vector table (T6 is falsifiable)"
 else
-  _fail "T7 non-vacuity check: vector table has no expected=1 cases - table cannot catch a broken 'always false' implementation"
+  _fail "T7 non-vacuity check: vector table cannot distinguish an always-false stub from a correct implementation"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 7b (MINOR fix): scripts/update.js DISPLAY_NAMES matches the shared
+# JSON (single-sourced - see the loadSharedConfig()/DISPLAY_NAMES comment
+# in scripts/update.js).
+# ---------------------------------------------------------------------------
+DN_JS_OUT="$(node -e "
+const u = require('$UPDATE_JS');
+console.log(JSON.stringify(u.DISPLAY_NAMES));
+" 2>&1)"
+
+if python3 -c "
+import json, sys
+shared = json.load(open(sys.argv[1]))
+js = json.loads(sys.argv[2])
+assert shared['display_names'] == js, (shared['display_names'], js)
+" "$SHARED_JSON" "$DN_JS_OUT" 2>/dev/null; then
+  _pass "T7b scripts/update.js DISPLAY_NAMES matches shared JSON"
+else
+  _fail "T7b scripts/update.js DISPLAY_NAMES diverged from shared JSON (got: $DN_JS_OUT)"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 7c (MINOR fix): content/commands/ds-update.md's prose DISPLAY_NAMES
+# copy is parity-gated against the shared JSON. Markdown cannot load JSON at
+# doc-render time, so this prose copy cannot be single-sourced the way the
+# JS copy above was - this gate is the alternative the brief calls for: a
+# real CI failure on drift, not a "keep in sync manually" comment.
+#
+# Extracts the `{ claude: "Claude", codex: "Codex", ... }` block from the
+# doc (the one immediately following the "Display names use the same
+# `DISPLAY_NAMES` map" sentence) and parses it as a permissive key:value
+# list, tolerant of the doc's unquoted-key JS-object-literal style.
+# ---------------------------------------------------------------------------
+if [[ -f "$DS_UPDATE_MD" ]]; then
+  DOC_PARITY_RESULT="$(python3 -c "
+import json, re, sys
+
+doc_path = sys.argv[1]
+shared_path = sys.argv[2]
+
+text = open(doc_path, encoding='utf-8').read()
+m = re.search(r'DISPLAY_NAMES.*?\n\n\`\`\`\n(\{.*?\})\n\`\`\`', text, re.DOTALL)
+if not m:
+    print('EXTRACT_FAILED')
+    sys.exit(0)
+
+body = m.group(1)
+# Pull out bare-key: \"Value\" pairs - tolerant of the doc's unquoted-key
+# JS-object-literal style (not valid JSON as-is).
+pairs = re.findall(r'(\w+):\s*\"([^\"]+)\"', body)
+doc_map = dict(pairs)
+
+shared = json.load(open(shared_path))
+if doc_map == shared['display_names']:
+    print('MATCH')
+else:
+    print('MISMATCH: doc=' + json.dumps(doc_map) + ' shared=' + json.dumps(shared['display_names']))
+" "$DS_UPDATE_MD" "$SHARED_JSON" 2>&1)"
+
+  if [[ "$DOC_PARITY_RESULT" == "MATCH" ]]; then
+    _pass "T7c content/commands/ds-update.md DISPLAY_NAMES prose copy matches shared JSON"
+  elif [[ "$DOC_PARITY_RESULT" == "EXTRACT_FAILED" ]]; then
+    _fail "T7c could not extract the DISPLAY_NAMES block from $DS_UPDATE_MD - doc structure changed; update the extraction regex"
+  else
+    _fail "T7c content/commands/ds-update.md DISPLAY_NAMES prose copy diverged from shared JSON ($DOC_PARITY_RESULT)"
+  fi
+else
+  _fail "T7c $DS_UPDATE_MD not found"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 8: cross-language parity vectors for hooksTouched()/_hooks_touched().
+# Mirrors the same case table as scripts/test/update-hookstouched.test.js
+# (which is not wired to any CI workflow - grep confirms no .github/workflows
+# reference), so this is the only CI-enforced parity coverage for the
+# predicate. Same non-vacuity pattern as T6/T7 below.
+# ---------------------------------------------------------------------------
+declare -a HOOKS_VECTORS=(
+  # changed_paths(comma-sep)|expected(0/1)
+  "hooks/enforce-background-spawn.py|1"      # hooks/-prefixed -> touched
+  "hooks/stop-context.js|1"                  # hooks/-prefixed -> touched
+  "README.md|0"                              # non-hooks -> not touched
+  "content/agents/engineer.md|0"             # non-hooks -> not touched
+  "README.md,hooks/x.sh|1"                   # mixed: one hooks/ present -> touched
+  "|0"                                       # empty changed_paths -> not touched
+  "hooks\\\\foo.py|1"                        # backslash-normalized -> touched
+  "/hooks/foo.py|1"                          # leading-slash -> touched
+)
+
+for vector in "${HOOKS_VECTORS[@]}"; do
+  IFS='|' read -r paths expected <<< "$vector"
+  paths_json="$(python3 -c "
+import json, sys
+p = sys.argv[1]
+print(json.dumps(p.split(',') if p else []))
+" "$paths")"
+
+  js_result="$(node -e "
+const u = require('$UPDATE_JS');
+const paths = $paths_json;
+console.log(u.hooksTouched(paths) ? '1' : '0');
+" 2>&1)"
+
+  py_result="$(python3 - "$UPDATER_PY" "$paths_json" <<'PYEOF' 2>&1
+import importlib.util, importlib.machinery, json, sys
+
+updater_path, paths_json = sys.argv[1:3]
+loader = importlib.machinery.SourceFileLoader("agentic_update_hooks_test", updater_path)
+spec = importlib.util.spec_from_file_location("agentic_update_hooks_test", updater_path, loader=loader)
+mod = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(mod)
+paths = json.loads(paths_json)
+print("1" if mod._hooks_touched(paths) else "0")
+PYEOF
+)"
+
+  if [[ "$js_result" == "$expected" && "$py_result" == "$expected" ]]; then
+    _pass "T8 hooksTouched vector '$paths': JS=$js_result PY=$py_result expected=$expected"
+  else
+    _fail "T8 hooksTouched vector '$paths': JS=$js_result PY=$py_result expected=$expected"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Test 9 (non-vacuity for T8): an always-false stub must disagree with the
+# HOOKS_VECTORS table for at least one vector.
+# ---------------------------------------------------------------------------
+HOOKS_MISMATCH_FOUND=0
+for vector in "${HOOKS_VECTORS[@]}"; do
+  IFS='|' read -r paths expected <<< "$vector"
+  stub_result="0"  # simulates an always-false hooksTouched/_hooks_touched
+  if [[ "$stub_result" != "$expected" ]]; then
+    HOOKS_MISMATCH_FOUND=1
+    break
+  fi
+done
+if [[ "$HOOKS_MISMATCH_FOUND" == "1" ]]; then
+  _pass "T9 non-vacuity check: an always-false stub disagrees with the hooksTouched vector table (T8 is falsifiable)"
+else
+  _fail "T9 non-vacuity check: hooksTouched vector table cannot distinguish an always-false stub from a correct implementation"
 fi
 
 # ---------------------------------------------------------------------------

@@ -35,7 +35,7 @@ Full details: [docs/updating.md](docs/updating.md).
 curl -fsSL https://docs.dinostack.ai/install.sh | bash
 ```
 
-This clones the repo into `DinoStack/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/ds-update-agentic-engineering` command know where to find it.
+This clones the repo into `DinoStack/` inside your current directory, runs the installer, and writes the install path to `~/.agentic/agentic-engineering-config.json` so `./update.sh` and the `/ds-update` command know where to find it.
 
 > **Note:** if the one-liner clone fails (e.g. network or auth issue), the script automatically falls back to SSH.
 

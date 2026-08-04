@@ -804,6 +804,149 @@ fi
 
 rm -rf "$TEMP_HOME"
 
+# setup_git_fixture_with_argv_install: like setup_git_fixture, but commits
+# an argv-recording .claude/install.sh directly to FAKE_REPO and pushes it,
+# so local and remote HEAD stay identical (still "up to date") after this
+# call - unlike push_ahead_flags_commit, which deliberately leaves the
+# pushed commit unpulled so a subsequent update has something to pull.
+# Must be called after setup_git_fixture.
+setup_git_fixture_with_argv_install() {
+  (
+    cd "$FAKE_REPO"
+    mkdir -p .claude
+    cat > .claude/install.sh <<'INSTALLEOF'
+#!/usr/bin/env bash
+if [[ -n "${INSTALL_ARGS_LOG:-}" ]]; then
+  for arg in "$@"; do
+    echo "$arg" >> "$INSTALL_ARGS_LOG"
+  done
+fi
+exit 0
+INSTALLEOF
+    chmod +x .claude/install.sh
+    git add .claude/install.sh
+    git commit -m "add argv-recording .claude/install.sh" -q
+    git push -q origin main 2>/dev/null
+  )
+}
+
+# push_ahead_docs_commit: like push_ahead_commit, but the pushed commit adds
+# a doc-only file that does NOT match any REBUILD_TRIGGER, so _needs_rebuild
+# returns False for it (unlike push_ahead_commit's .claude/install.sh, which
+# is itself an exact-path trigger). Used to exercise the "no adapter source
+# changed" (not-rebuild) early-return path with a real pulled commit.
+push_ahead_docs_commit() {
+  local pusher_dir="$TEMP_HOME/pusher"
+  git clone --quiet "$FAKE_REMOTE" "$pusher_dir" 2>/dev/null
+  (
+    cd "$pusher_dir"
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    mkdir -p docs
+    echo "docs-only change" > docs/somefile.md
+    git add docs/somefile.md
+    git commit -m "docs-only change" -q
+    git push -q origin main 2>/dev/null
+  )
+  rm -rf "$pusher_dir"
+}
+
+# ---------------------------------------------------------------------------
+# Test 15 (CRITICAL fix): a confirmed config change (--mode/--profile/
+# --identity) must force the adapter install loop even on the
+# old_head==new_head ("Already up to date") early-return path.
+#
+# Before the fix, this path printed "Already up to date" and returned 0
+# WITHOUT ever invoking install.sh - so an operator who ran /ds-update
+# specifically to flip profile=strict (or set an identity) got exit 0
+# having silently applied nothing.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE
+# (setup_git_fixture_with_argv_install committed+pushed directly to both).
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --mode=opt-out --profile=strict --identity=octocat
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T15 already-up-to-date + config change: exits 0"
+else
+  _fail "T15 already-up-to-date + config change: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qiE "Already up to date"; then
+  _pass "T15 already-up-to-date + config change: still reports 'Already up to date'"
+else
+  _fail "T15 already-up-to-date + config change: missing 'Already up to date' (got: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _pass "T15 already-up-to-date + config change: reports forced install"
+else
+  _fail "T15 already-up-to-date + config change: missing forced-install message (got: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--mode=opt-out" && \
+   echo "$ARGS_RECORDED" | grep -qx -- "--profile=strict" && \
+   echo "$ARGS_RECORDED" | grep -qx -- "--identity=octocat"; then
+  _pass "T15 already-up-to-date + config change: install.sh actually ran with the confirmed flags"
+else
+  _fail "T15 already-up-to-date + config change: install.sh did NOT run with confirmed flags (recorded: $ARGS_RECORDED) - the Critical bug reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 16 (CRITICAL fix): a confirmed config change must also force the
+# adapter install loop on the "no adapter source changed" (not-rebuild)
+# early-return path, when a real pull DID happen but touched no
+# REBUILD_TRIGGER path.
+#
+# Before the fix, this path printed "No rebuild needed" and returned 0
+# WITHOUT ever invoking install.sh, identical failure shape to T15 but on
+# the second of the two early-return sites.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+push_ahead_docs_commit   # remote 1 ahead; docs-only, not a REBUILD_TRIGGER
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --mode=opt-out --profile=strict
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T16 no-rebuild-needed + config change: exits 0"
+else
+  _fail "T16 no-rebuild-needed + config change: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _pass "T16 no-rebuild-needed + config change: reports forced install"
+else
+  _fail "T16 no-rebuild-needed + config change: missing forced-install message (got: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "--mode=opt-out" && \
+   echo "$ARGS_RECORDED" | grep -qx -- "--profile=strict"; then
+  _pass "T16 no-rebuild-needed + config change: install.sh actually ran with the confirmed flags"
+else
+  _fail "T16 no-rebuild-needed + config change: install.sh did NOT run with confirmed flags (recorded: $ARGS_RECORDED) - the Critical bug reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

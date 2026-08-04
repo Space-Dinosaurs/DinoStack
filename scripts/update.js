@@ -29,9 +29,17 @@
  *
  * Upstream deps: Node built-ins (fs, path, child_process, readline). No
  *                external packages. Reads scripts/lib/update-shared.json for
- *                SKIP_DIRS and REBUILD_TRIGGERS - the single source of truth
- *                shared with bin/agentic-update and install-all.sh. Do not
- *                reintroduce a local literal for either list.
+ *                SKIP_DIRS, REBUILD_TRIGGERS, and DISPLAY_NAMES - the single
+ *                source of truth shared with bin/agentic-update and
+ *                install-all.sh (DISPLAY_NAMES has no Python consumer, but
+ *                is still single-sourced here rather than duplicated as a
+ *                local literal). Do not reintroduce a local literal for any
+ *                of the three. content/commands/ds-update.md carries a
+ *                necessary prose copy of DISPLAY_NAMES for the agent flow
+ *                (markdown cannot load JSON at doc-render time) - that copy
+ *                is gated for parity against this file by
+ *                bin/tests/test_update_shared_constants.sh, not single-
+ *                sourced.
  *
  * Downstream consumers: update.sh (shell shim that delegates here).
  *
@@ -176,20 +184,14 @@ function discoverAdapters(repoDir) {
 // Display names
 // ---------------------------------------------------------------------------
 
-// Kept alongside this file (not shared-config-driven) since it is a display
-// concern rather than an update-flow behavioral constant. The prose copy in
-// content/commands/ds-update.md must be kept in sync manually - see PR
-// history for the recurring drift this list has already had once.
-const DISPLAY_NAMES = {
-  claude:   'Claude',
-  codex:    'Codex',
-  cursor:   'Cursor',
-  gemini:   'Gemini',
-  openclaw: 'OpenClaw',
-  opencode: 'OpenCode',
-  kimi:     'Kimi',
-  omp:      'Pi',
-};
+// Loaded from scripts/lib/update-shared.json - single source of truth for
+// the JS/prose split (see the loadSharedConfig() comment above main()).
+// content/commands/ds-update.md's prose copy is NOT loaded from this file
+// (markdown cannot load JSON at doc-render time); it is instead gated for
+// parity against SHARED_CONFIG.display_names by
+// bin/tests/test_update_shared_constants.sh, which fails the build (not
+// just a comment) if the two drift.
+const DISPLAY_NAMES = SHARED_CONFIG.display_names;
 
 function displayName(raw) {
   const stripped = raw.replace(/^\./, '');
@@ -843,5 +845,5 @@ if (require.main === module) {
     process.exit(1);
   });
 } else {
-  module.exports = { needsRebuild, hooksTouched, SKIP_DIRS, REBUILD_TRIGGERS };
+  module.exports = { needsRebuild, hooksTouched, SKIP_DIRS, REBUILD_TRIGGERS, DISPLAY_NAMES };
 }
