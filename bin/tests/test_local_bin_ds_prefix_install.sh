@@ -17,15 +17,23 @@
 # Failure modes: any assertion failure prints the failing assertion and
 #                exits 1. Test 2 creates one temporary untracked file under
 #                the real repo's bin/ (bin/ds-<random>-test-fixture) and
-#                removes it via an EXIT trap - never leaves a residual file,
-#                never modifies a tracked file. Test 1/3 are read-only.
+#                removes it via an EXIT trap - never leaves a residual file
+#                itself, but it runs the REAL .claude/install.sh against the
+#                live repo tree with only HOME faked: that installer calls
+#                install_precommit_hook (writes <repo>/.git/hooks/pre-commit)
+#                and runs .claude/build.sh + .cursor/build.sh (regenerates
+#                adapter build artifacts in the live tree). These three
+#                effects are outside the faked HOME and land on the real
+#                checkout; empirically idempotent, but Test 2 is NOT
+#                read-only. Test 1/3 are read-only.
 #
 # Performance: ~3 s wall time on a developer machine (one real install.sh run).
 #
 # Regression coverage:
-#   - Test 1 (structural): each of the 12 known glob sites across the 11
-#     adapter install.sh scripts (10 single-loop adapters + .cursor + the
-#     TWO loops in .codex/install.sh) matches both "agentic-*" and "ds-*".
+#   - Test 1 (structural): each of the 11 known glob sites across the 10
+#     adapter install.sh scripts that manage bin/ symlinks (9 single-loop
+#     adapters + the TWO loops in .codex/install.sh; .hermes/install.sh
+#     manages no bins and is excluded) matches both "agentic-*" and "ds-*".
 #     Catches a site left un-updated by name/line, not just aggregate count.
 #   - Test 2 (functional): .claude/install.sh, run end-to-end against a fake
 #     HOME but the REAL repo bin/, actually symlinks a ds-*-named fixture

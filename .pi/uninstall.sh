@@ -77,7 +77,7 @@ if [[ -d "$EXT_DST" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Remove ~/.local/bin/agentic-* symlinks
+# Remove ~/.local/bin/agentic-* and ds-* symlinks
 # ---------------------------------------------------------------------------
 
 echo "Removing bin symlinks from ~/.local/bin..."
@@ -88,7 +88,7 @@ if [[ ! -d "$BIN_DST" ]]; then
   echo "  [skip] ~/.local/bin not found"
 else
   _found_any=false
-  for dst_file in "$BIN_DST"/agentic-*; do
+  for dst_file in "$BIN_DST"/agentic-* "$BIN_DST"/ds-*; do
     [[ -e "$dst_file" || -L "$dst_file" ]] || continue
     _found_any=true
     name="$(basename "$dst_file")"
@@ -106,7 +106,7 @@ else
     fi
   done
   if [[ "$_found_any" == false ]]; then
-    echo "  = no agentic-* entries found in ~/.local/bin"
+    echo "  = no agentic-*/ds-* entries found in ~/.local/bin"
   fi
 fi
 

@@ -17,7 +17,13 @@ Purpose: Inspect global agentic-engineering install health and (with --fix)
          re-pointing it. The orphaned-hook check is read-only (FAIL only, no
          --fix repair - the fix is restoring the script or re-running
          install.sh). Never invokes install.sh, never touches real files or
-         foreign symlinks.
+         foreign symlinks. NOTE: the reverse ~/.local/bin stale-link check
+         (check_local_bin_stale) is checked-out-tree-relative, not just
+         rename-relative - on an older commit or a feature branch where a
+         given bin/ tool does not yet exist, --fix will remove the user's
+         PATH wrapper for it too. This is bounded and self-healing: the
+         wrapper is recreated by the forward check the next time --fix runs
+         against a checkout where the tool exists again.
 
 Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
             --cross-harness: also validate the cross-harness team stack
@@ -684,6 +690,15 @@ def _stale_repo_bin_link_target(dst: Path, repo_dir: Path) -> str | None:
     Comparison is done against the realpath of <repo_dir>/bin (not the raw
     target's directory, which does not exist for a stale link) so a
     symlinked repo_dir still compares correctly.
+
+    Undocumented-until-now behavior this predicate drives: staleness is
+    relative to the CURRENT checkout state of repo_dir/bin, not solely to a
+    rename. On an older commit or a feature branch where a given tool does
+    not yet exist in bin/, a link to it reads as stale here and --fix will
+    remove the user's ~/.local/bin wrapper for it. This is bounded and
+    self-healing - check_local_bin_symlinks recreates the wrapper on a
+    later --fix run once the checkout is back on a commit where the tool
+    exists.
     """
     if not os.path.islink(str(dst)):
         return None
@@ -705,6 +720,16 @@ def check_local_bin_stale(doc: Doctor) -> None:
     now-missing <repo_dir>/bin script. See _stale_repo_bin_link_target for
     the exact ownership predicate and why it cannot touch operator-owned
     files.
+
+    Entries whose name matches a script CURRENTLY present in repo_dir/bin
+    (matching BIN_TOOL_PREFIXES) are skipped here even when their existing
+    target is broken - check_local_bin_symlinks (the forward check, run
+    immediately before this one) already owns repointing that link. Without
+    this skip, read-only/--dry-run mode reports two contradictory
+    recommendations for the same link (a forward repoint AND a reverse
+    removal); in live --fix mode the forward check has already re-pointed
+    the link by the time this function reads it, so it would silently
+    no-op here anyway - this skip only fixes the read-only/--dry-run report.
     """
     local_bin = _local_bin()
     if not local_bin.is_dir():
@@ -720,6 +745,14 @@ def check_local_bin_stale(doc: Doctor) -> None:
         return
 
     try:
+        current_names = {
+            p.name for p in bin_dir.iterdir()
+            if p.name.startswith(BIN_TOOL_PREFIXES) and p.is_file()
+        }
+    except Exception:
+        current_names = set()
+
+    try:
         entries = sorted(local_bin.iterdir())
     except Exception:
         doc.skip("local_bin_stale", local_bin, "could not read ~/.local/bin")
@@ -727,6 +760,9 @@ def check_local_bin_stale(doc: Doctor) -> None:
 
     found_stale = False
     for entry in entries:
+        if entry.name in current_names:
+            # Owned by check_local_bin_symlinks - see docstring above.
+            continue
         raw = _stale_repo_bin_link_target(entry, doc.repo_dir)
         if raw is None:
             continue
