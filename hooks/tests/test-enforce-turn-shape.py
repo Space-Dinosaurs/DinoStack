@@ -29,6 +29,8 @@ Test coverage (mirrors the 14-case spec in the DS-122 spawn brief):
      Waiting: line IS flagged
   n. log_fire() is called exactly once when a finding is emitted, and NOT
      called on a clean turn (patches _load_log_fire directly)
+  r. the worked example embedded in the identity-line advisory matches
+     _IDENTITY_LINE_RE itself (DS-132)
 """
 
 from __future__ import annotations
@@ -37,6 +39,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -124,6 +127,20 @@ def check(label: str, condition: bool):
 
 rc, out, err = run_hook(make_payload("Done."))
 check("a. missing identity line -> ADVISORY (identity finding)", is_advisory(rc, out, "identity"))
+
+# ---------------------------------------------------------------------------
+# a2. REGRESSION: the advisory must carry a worked example, not just the
+#     word "identity" - a middle dot and a bracketed [phase: ...] tag must
+#     both be present in the additionalContext so the conductor can copy
+#     the shape instead of guessing it.
+# ---------------------------------------------------------------------------
+
+rc, out, err = run_hook(make_payload("Done."))
+_ctx = parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", "")
+check(
+    "a2. missing identity line -> advisory includes a `·` and a `[phase:` example",
+    "·" in _ctx and "[phase:" in _ctx,
+)
 
 # ---------------------------------------------------------------------------
 # b. identity check passes on a well-formed one
@@ -428,6 +445,22 @@ _calls_clean: list = []
 _out_clean = _run_main_with_stdin(make_payload(IDENTITY_COMPLETE), _calls_clean)
 check("n2. log_fire NOT called on a clean turn", len(_calls_clean) == 0)
 
+
+# ---------------------------------------------------------------------------
+# r. REGRESSION: the worked example embedded in the identity-line advisory
+#    finding must itself satisfy _IDENTITY_LINE_RE - an example that fails
+#    the regex it is teaching is worse than no example at all. Extracted
+#    from the live advisory output (not re-typed here) so this pins against
+#    source drift instead of just re-asserting a copy of the literal.
+# ---------------------------------------------------------------------------
+
+_r_match = re.search(r"`([^`]*)`", _ctx)
+check("r. advisory contains a backtick-quoted example", _r_match is not None)
+_r_example = _r_match.group(1) if _r_match else ""
+check(
+    "r. embedded advisory example matches _IDENTITY_LINE_RE",
+    bool(_mod._IDENTITY_LINE_RE.match(_r_example)),
+)
 
 # ---------------------------------------------------------------------------
 # o. transcript_path fallback (_last_assistant_text_from_transcript), used
