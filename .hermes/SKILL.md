@@ -2983,7 +2983,7 @@ Parent clause: `content/sections/02-delegation.md` §Skeptic absence-or-critical
 
 Parent clause: `content/sections/02-delegation.md` §Host-harness instruction conflicts.
 
-## Collision catalog
+### Collision catalog
 
 | Collision | Harness default (paraphrase) | AE locus | Resolution |
 |---|---|---|---|
@@ -2998,7 +2998,7 @@ Do not attempt to condition such a guard on whether spawning is available. **The
 
 The rule stays prose-enforced, as it already is on ten of the eleven adapters. Mechanically, only non-blocking shapes are admissible: a warn-only PostToolUse nudge, or after-the-fact detection at a reflection point (the Stop hook already reads the transcript and runs the capture-gap backstop) that surfaces conductor-investigating *after* a turn instead of blocking it in advance. Calibrate any such threshold against measured session data before shipping it - a nudge that fires on a session of mandated preflight reads is the same defect as the deny-guard, only cheaper.
 
-## Delegation suppression (Collision 2)
+### Delegation suppression (Collision 2)
 
 Where the directive is conditional ("unless the user requested it"), the condition is already met whenever this methodology is active, because the operator installed it into their own instruction layer and its first delegation rule is that the conductor delegates rather than implements - a standing instruction that predates the session. The conductor treats the condition as satisfied and spawns normally, and this authorizes only delegation the methodology mandates, never anything the methodology itself gates.
 
@@ -6561,7 +6561,9 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
             each bash block),
             content/sections/12-protocol-details.md (Worktree lifecycle Protocol
-            Details entry).
+            Details entry),
+            content/sections/02-delegation.md §Standing authorizations,
+            content/references/conductor-operating-rules.md:20.
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,

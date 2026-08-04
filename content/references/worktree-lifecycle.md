@@ -11,7 +11,9 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
             each bash block),
             content/sections/12-protocol-details.md (Worktree lifecycle Protocol
-            Details entry).
+            Details entry),
+            content/sections/02-delegation.md §Standing authorizations,
+            content/references/conductor-operating-rules.md:20.
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
