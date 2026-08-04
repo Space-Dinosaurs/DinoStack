@@ -222,7 +222,7 @@ prefer: local
 **2. Knowledge** - project-specific quirks learned from past runs
 
 <div class="callout">
-qa.md is the only file the qa-engineer is allowed to write to. It is QA infrastructure, not application code.
+qa-engineer writes no files - it returns entries via a JSON payload, and the conductor appends them to qa.md. It is QA infrastructure, not application code.
 </div>
 
 ---
@@ -281,7 +281,7 @@ Every knowledge entry is tagged. The tag tells the qa-engineer exactly how to us
   .callout { font-size: 0.9em; padding: 0.5em 1em; margin-top: 0.4em; }
 </style>
 
-After each run the qa-engineer reviews what it discovered and appends up to 3 knowledge entries, only if **all** of these hold:
+After each run the qa-engineer reviews what it discovered and returns knowledge entries for the conductor to append (no numeric cap), only if **all** of these hold:
 
 - Project-specific quirk, not generic browser behavior
 - Likely to recur on every future QA run

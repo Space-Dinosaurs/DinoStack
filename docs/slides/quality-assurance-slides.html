@@ -644,7 +644,7 @@ prefer: local
 </code></pre>
 <p><strong>2. Knowledge</strong> - project-specific quirks learned from past runs</p>
 <div class="callout">
-qa.md is the only file the qa-engineer is allowed to write to. It is QA infrastructure, not application code.
+qa-engineer writes no files - it returns entries via a JSON payload, and the conductor appends them to qa.md. It is QA infrastructure, not application code.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-marpit-scope-s004="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
@@ -1152,7 +1152,7 @@ hr {
 ;" data-marpit-pagination-total="12">
 <h2 id="the-write-back-loop---qa-runs-get-smarter">The write-back loop - qa runs get smarter</h2>
 
-<p>After each run the qa-engineer reviews what it discovered and appends up to 3 knowledge entries, only if <strong>all</strong> of these hold:</p>
+<p>After each run the qa-engineer reviews what it discovered and returns knowledge entries for the conductor to append (no numeric cap), only if <strong>all</strong> of these hold:</p>
 <ul>
 <li>Project-specific quirk, not generic browser behavior</li>
 <li>Likely to recur on every future QA run</li>
