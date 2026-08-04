@@ -204,7 +204,7 @@ These are rarely needed outside of custom deployment or cross-harness tuning:
 
 - **`~/.agentic/agentic-engineering-config.json`** (`AE_CONFIG`) - holds
   `repo_dir` (path to the AE checkout); used by the version-check and
-  `pull-and-install` commands.
+  `/ds-update` commands.
 - **`~/.agentic/tier-map.yml`** or **`.agentic/tier-map.yml`** - Codex/Gemini
   tier routing overrides. See `content/references/tier-map-example.yml`.
 - **`~/.agentic/role-models.yml`** or **`.agentic/role-models.yml`** - Pi/omp

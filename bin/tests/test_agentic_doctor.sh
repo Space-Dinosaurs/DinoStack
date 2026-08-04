@@ -469,6 +469,131 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 9/10: renamed-upstream-artifact regression (DS-133).
+#
+# repoint_symlink previously recreated a dangling link whenever the computed
+# expected target did not exist in the repo (e.g. a command that was renamed
+# upstream, not merely relocated). Reproduced pre-fix: read-only reports a
+# finding, --fix "resolves" it by recreating the SAME dangling link, and a
+# second read-only run still exits 1. The fix (remove_stale_symlink) must
+# instead remove the link, and a subsequent read-only run must exit 0.
+# ---------------------------------------------------------------------------
+setup_fixture_stale() {
+  TEMP_HOME="$(mktemp -d)"
+  FAKE_REPO="$TEMP_HOME/fake-DinoStack"
+  OLD_REPO="$TEMP_HOME/old-DinoStack"
+
+  mkdir -p "$FAKE_REPO/.git" "$FAKE_REPO/.claude/commands"
+  mkdir -p "$OLD_REPO/.git"
+
+  # The old command's content still exists somewhere under a DinoStack path
+  # (so the "ours" heuristic fires), but the repo no longer ships it under
+  # .claude/commands/renamed-away.md - it was renamed to a different basename.
+  echo "old content" > "$OLD_REPO/renamed-away-target.md"
+
+  mkdir -p "$TEMP_HOME/.agentic"
+  cat > "$TEMP_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$FAKE_REPO"
+}
+EOF
+
+  mkdir -p "$TEMP_HOME/.claude/commands"
+  ln -s "$OLD_REPO/renamed-away-target.md" "$TEMP_HOME/.claude/commands/renamed-away.md"
+
+  # Deliberately do NOT create $FAKE_REPO/.claude/commands/renamed-away.md -
+  # this is the renamed-upstream-artifact case under test.
+}
+
+setup_fixture_stale
+invoke_doctor  # read-only
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "1" ]]; then
+  _pass "T9 read-only: renamed-away link is a finding (exits 1)"
+else
+  _fail "T9 read-only: expected exit 1, got $RC\n$OUT"
+fi
+
+if echo "$OUT" | grep -q "^FIX symlink:.*renamed-away.md.*(removed, stale)"; then
+  _pass "T9 read-only: renamed-away link reported as stale removal candidate"
+else
+  _fail "T9 read-only: expected a '(removed, stale)' FIX line for renamed-away.md\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+setup_fixture_stale
+invoke_doctor --fix
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T10 --fix: renamed-away link resolved, exits 0"
+else
+  _fail "T10 --fix: expected exit 0, got $RC\n$OUT"
+fi
+
+if [[ -L "$TEMP_HOME/.claude/commands/renamed-away.md" || -e "$TEMP_HOME/.claude/commands/renamed-away.md" ]]; then
+  _fail "T10 --fix: renamed-away.md should have been removed, but still exists"
+else
+  _pass "T10 --fix: renamed-away.md was removed (not recreated as a dangling link)"
+fi
+
+# Idempotency: a second read-only run after --fix must exit 0 (DS-133's
+# core regression - the pre-fix code recreated the dangling link here).
+invoke_doctor
+RC2=$(cat "$TEMP_HOME/.exit")
+OUT2=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC2" == "0" ]]; then
+  _pass "T10 idempotent: second read-only run after --fix exits 0"
+else
+  _fail "T10 idempotent: second read-only run exited $RC2, expected 0 (link was recreated?)\n$OUT2"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 11: --help describes removal behavior for --fix and --dry-run.
+#
+# Regression guard for the closed-enumeration pattern where --fix/--dry-run
+# help text described only "re-points" and silently dropped the delete
+# path (a stale link with no repo-side target). This pins two literal
+# strings; it does not prove no fourth surface with the same gap exists.
+# ---------------------------------------------------------------------------
+HELP_OUT="$(python3 "$DOCTOR" --help 2>&1)"
+HELP_NORM="$(echo "$HELP_OUT" | tr '\n' ' ' | tr -s ' ')"
+HELP_OPTS="${HELP_NORM#*options: }"
+
+FIX_HELP="${HELP_OPTS#*--fix }"
+FIX_HELP="${FIX_HELP%%--dry-run*}"
+
+DRYRUN_HELP="${HELP_OPTS#*--dry-run }"
+DRYRUN_HELP="${DRYRUN_HELP%%--cross-harness*}"
+
+if echo "$FIX_HELP" | grep -q "remove"; then
+  _pass "T11 --help: --fix text mentions removal"
+else
+  _fail "T11 --help: --fix text does not mention removal\n$FIX_HELP"
+fi
+
+if echo "$DRYRUN_HELP" | grep -q "repairs"; then
+  _pass "T11 --help: --dry-run text uses the open 'repairs' wording"
+else
+  _fail "T11 --help: --dry-run text missing 'repairs' wording\n$DRYRUN_HELP"
+fi
+
+if echo "$DRYRUN_HELP" | grep -q "re-points"; then
+  _fail "T11 --help: --dry-run text reverted to closed 're-points' enumeration\n$DRYRUN_HELP"
+else
+  _pass "T11 --help: --dry-run text does not use the stale 're-points' enumeration"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

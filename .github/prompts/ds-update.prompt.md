@@ -1,14 +1,15 @@
 ---
 description: "Pull the latest agentic-engineering (DinoStack) release and reinstall selected adapters, or perform a fresh clone-and-in"
 ---
-# /ds-pull-and-install
+# /ds-update
 
 > Run the Activation preflight from `METHODOLOGY.md` before proceeding. If inactive, no-op and exit.
 
 Pull the latest agentic-engineering (DinoStack) release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Use this when you want to update an existing install to the current `main`, or when setting up agentic-engineering for the first time inside a Claude Code session.
 
+**Distinct from `/ds-update-agentic-engineering`** (shared prefix, opposite direction): `/ds-update` pulls the methodology *down* from upstream and reinstalls; `/ds-update-agentic-engineering` pushes methodology *edits up* to upstream.
+
 **Distinct from related commands:**
-- `/ds-update-agentic-engineering` - edits methodology source files and pushes them upstream; this command pulls changes *down* from upstream.
 - `/ds-init-project` - scaffolds a project's `AGENTS.md` hierarchy; this command installs or updates the agentic-engineering tool itself.
 - `update.sh` (shell TUI) - the non-agent interactive updater; this command provides the same capability through a guided agent flow.
 

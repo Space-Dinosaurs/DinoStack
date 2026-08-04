@@ -1,1 +1,0 @@
-../../content/commands/ds-pull-and-install.md

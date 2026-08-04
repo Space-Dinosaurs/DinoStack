@@ -8,10 +8,13 @@ Purpose: Inspect global agentic-engineering install health and (with --fix)
          settings.json actually exists on disk (orphaned-hook detection),
          and that the repo_dir pre-commit hook is wired. With --fix,
          re-points ours-to-own broken/stale symlinks and rewrites hook paths
-         in settings.json (atomic read-merge-write); the orphaned-hook check
-         is read-only (FAIL only, no --fix repair - the fix is restoring the
-         script or re-running install.sh). Never invokes install.sh, never
-         touches real files or foreign symlinks.
+         in settings.json (atomic read-merge-write); when the expected
+         in-repo target for an ours-to-own symlink no longer exists at all
+         (e.g. a renamed command), --fix DELETES the stale symlink from
+         ~/.claude/{agents,commands,skills} instead of re-pointing it. The
+         orphaned-hook check is read-only (FAIL only, no --fix repair - the
+         fix is restoring the script or re-running install.sh). Never
+         invokes install.sh, never touches real files or foreign symlinks.
 
 Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
             --cross-harness: also validate the cross-harness team stack
@@ -23,6 +26,7 @@ Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
               OK <kind>: <detail>
               FAIL <kind>: <detail>
               FIX symlink: <dst> : <old/broken target> -> <new target>
+              FIX symlink: <dst> : <old/broken target> -> (removed, stale)
               SKIP <kind>: <dst> (reason)
             Exits 0 (all pass / --fix resolved all), 1 (findings in read-only
             or dry-run mode), 2 (--fix ran but one or more items could not be
@@ -280,6 +284,27 @@ class Doctor:
                 self.fail(kind, f"could not re-point {dst}: {exc}")
                 self.mark_unfixable(dst)
 
+    def remove_stale_symlink(self, kind: str, dst: Path, old: str) -> None:
+        """Announce and (if fix mode) remove a symlink whose computed expected
+        target does not exist in the repo (the upstream artifact was renamed
+        or deleted, not merely moved). Removing - not recreating - is the
+        correct repair here: recreating would just re-point the link at a
+        target that still doesn't exist, reproducing the dangling link on
+        the very next run.
+
+        Prints: FIX symlink: <dst> : <old/broken target> -> (removed, stale)
+        In read-only/dry-run mode, the FIX line is informational only and
+        counts as a finding (exit 1). In live fix mode, removes the symlink.
+        """
+        self._emit("FIX", f"symlink: {dst} : {old} -> (removed, stale)")
+        if self.fix:
+            try:
+                if os.path.islink(str(dst)):
+                    os.remove(str(dst))
+            except Exception as exc:
+                self.fail(kind, f"could not remove stale {dst}: {exc}")
+                self.mark_unfixable(dst)
+
     def has_unresolved_findings(self) -> bool:
         """Return True if there are FAIL or FIX lines in the output.
 
@@ -375,8 +400,13 @@ def _check_one_link(doc: Doctor, dst: Path, kind: str) -> None:
     # Broken or wrong target - we own it
     old_display = f"{raw} (broken)" if resolved is None else raw
 
-    if expected is not None:
+    if expected is not None and expected.exists():
         doc.repoint_symlink(kind, dst, old_display, expected)
+    elif expected is not None:
+        # Path arithmetic resolved a location, but nothing exists there in
+        # the repo - the artifact was renamed or removed upstream, not just
+        # moved. Repointing here would recreate a dangling link; remove it.
+        doc.remove_stale_symlink(kind, dst, old_display)
     else:
         doc.fail(kind, f"{dst}: target {old_display} is wrong; could not determine repair target")
         doc.mark_unfixable(dst)
@@ -879,6 +909,7 @@ def main() -> int:
         description=(
             "Inspect global agentic-engineering install health. "
             "With --fix, re-points drifted symlinks toward the canonical repo_dir "
+            "(removing them when the expected in-repo target no longer exists) "
             "and repairs hook paths in ~/.claude/settings.json. "
             "NEVER invokes install.sh or rebuilds adapters. "
             "Note: with two DinoStack clones, --fix re-points links toward the "
@@ -889,14 +920,14 @@ def main() -> int:
     parser.add_argument(
         "--fix",
         action="store_true",
-        help="Re-point ours-to-own drifted symlinks and repair hook paths in settings.json.",
+        help="Re-point ours-to-own drifted symlinks (or remove them if the expected target is gone) and repair hook paths in settings.json.",
     )
     parser.add_argument(
         "--dry-run",
         action="store_true",
         dest="dry_run",
         help=(
-            "Enumerate findings and planned re-points without changing anything. "
+            "Enumerate findings and planned repairs without changing anything. "
             "Same as no-flag mode (read-only scan)."
         ),
     )
