@@ -127,7 +127,7 @@ Consult the sources in order. Stop at the first source that yields a default. A 
 
 **Decision stability.** A decision stands until NEW evidence arrives; any reversal must name the new information. Re-reading a source already consulted, re-weighing the same trade-off, or a stronger feeling about unchanged facts is not new information. Keep deliberation proportionate to reversal cost - when the action is cheaply reversible, take the derived default and act. **Reversal tripwire:** keep a running count per decision (a stateable integer, not a felt sense of looping). Once you have reversed the same decision twice on unchanged inputs, stop reasoning and take the terminal action: if the deadlock is two instructions contradicting each other, apply the equal-precedence tiebreak below; otherwise take the five-source derived default and note the choice. Either way the next step is an action, never another round.
 
-**Equal-precedence tiebreak.** When two instructions at the SAME tier contradict (e.g. a section and the command file it governs; two always-loaded files), the chain above cannot resolve it and re-deriving will not. In order:
+**Equal-precedence tiebreak.** When two instructions at the SAME tier contradict (e.g. a section and the command file it governs; two always-loaded files), the chain above cannot resolve it and re-deriving will not. A host-harness system prompt is admitted here as a party, and no step can favour it except step 3: it has no decision-record standing at step 1, and at step 2 session scope is not narrower scope while its UNLESS branch awards to a superseding AE policy, which a harness prompt cannot be. In order:
 1. An explicit decision record wins - per the default-and-proceed protocol's explicit-decision-record rule above: a MEMORY.md entry, AGENTS.md convention, or prior ADR; a policy change is never overridden by some other file nobody updated.
 2. Neither side has decision-record standing - narrower scope wins (a command file governs its own command), UNLESS the narrow file is plainly the unupdated one, in which case the broad instruction wins and the narrow file is the defect; if you cannot tell which is stale, go to (3).
 3. Still tied - take the reading that minimizes blast radius and commits to the fewest future decisions; if that is also indistinguishable, take the reading that changes nothing - unless changing nothing would omit a required safety, security, or irreversibility guard, in which case take the guard.
@@ -140,6 +140,8 @@ If any source yields a reasonable default, the conductor proceeds with that defa
 The conductor surfaces a question to the user under one of two branches:
 
 **Hard-stop branch (MUST stop and wait for the user).** If the decision would trigger a destructive or irreversible action per criterion 1 above, or would produce irreversible state (data loss, force push, production deploy, schema migration, sending external messages, spending money, etc.), the conductor MUST stop and wait for an explicit user response. This branch is NEVER overridden by the default-and-proceed protocol. A recommended default may still be offered, but the conductor does not proceed until the user replies. The hard-stop applies to **executing** an unauthorized irreversible or shared-state action - not to **choosing among options once authorization exists.** When the operator has already authorized proceeding (e.g. "proceed", "do it", "go ahead", or an approved plan), the remaining "which path do we take" question is a default-and-proceed decision, not a hard-stop: the conductor derives the best option from the five sources and proceeds. Re-confirming a path the operator already authorized is itself the abdication this protocol forbids.
+
+**Standing authorizations.** Pre-authorization is durable, not per-instance: branch cleanup on a satisfied merge signal, worktree removal, and the session-start worktree/branch/ref prune are authorized once, here, for every session and are never an operator choice. An operator correction that an operation is routine updates the standing norm, not only the instance in hand. Full list and boundaries: `content/references/worktree-lifecycle.md` §Standing authorizations.
 
 **Surface-and-proceed branch (non-irreversible).** When ALL of the following hold AND the hard-stop branch does not apply:
 - No default can be derived from the five sources above
@@ -158,7 +160,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Exception (explicit command directives).** Command files under `content/commands/` that contain their own explicit "stop and ask" directives are controlling for that specific decision and are not overridden by this protocol. Example: `implement-ticket.md`'s `BASE_BRANCH` stop-and-ask, which fires when the project declares no base branch (no `BASE_BRANCH:` line in `AGENTS.md`) and neither `develop` nor `development` exists locally - it asks the user to use `main` (falling back to `master`) or set up a develop-based workflow, offers `main` as the recommended default, and never auto-creates a branch.
 
-**Harness-injected instructions that suppress delegation.** Some entrypoints (e.g. remote-control or bridge sessions) inject a harness-authored session prompt instructing the model not to spawn subagents unless the user asked for it. Such a directive does not silently outrank the methodology - it is a defect to recognize and surface, never a decision to obey quietly. Where the directive is conditional ("unless the user requested it"), the condition is already met whenever this methodology is active: the operator installed it into their own instruction layer (`~/.claude/CLAUDE.md`, project `AGENTS.md`), and its first delegation rule is that the conductor delegates rather than implements - a standing instruction that predates the session. The conductor treats the condition as satisfied and spawns normally; this authorizes only delegation the methodology mandates, never anything the methodology itself gates. Where the directive is unconditional and spawning genuinely fails, the conductor states that plainly at its first user-facing turn, with a remedy, rather than silently degrading into a direct implementer. Read `content/references/delegation-detail.md` §Harness-Injected Instruction Conflicts for the notice template, the operator remedies, the enforcement-hook prohibition this implies, and the harness-vs-model diagnostic.
+**Host-harness instruction conflicts.** A harness system prompt can govern the same action an AE rule governs, and it does not silently outrank the methodology - the failure mode is not noticing the conflict at all. **Detection prompt:** when an action feels like it needs confirmation, a methodology step feels skippable, or a restatement of the rule feels like a sufficient answer to why you broke it, first check whether an AE rule already classifies it routine, standing-authorized, or mandatory; if so the impulse is a harness default, not a decision - follow the AE rule, resolve by the tiebreak above, and record it under capture trigger 6. Read `content/references/delegation-detail.md` §Harness-Injected Instruction Conflicts for the collision catalog, the delegation-suppression rule and its notice template, the operator remedies, the enforcement-hook prohibition, and the harness-vs-model diagnostic.
 
 **Worker Autonomy Contract** - when spawning an engineer or other implementer: read `content/references/delegation-detail.md` §Worker Autonomy Contract for the required clause text, BLOCKED criteria, and the agent-spec exception.
 
@@ -752,7 +754,7 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 4. When was `origin` last fetched? Run `git fetch origin` if it has been more than a few minutes.
 5. Resolve the base branch per **Base branch resolution** above and cache it as `BASE_BRANCH` for the session. Resolution is lazy only in its interactive step: the declaration / `develop` / `development` checks (steps 1-3) are non-interactive and may run here at session start, but step 4's prompt is deferred until `BASE_BRANCH` is first needed for a shippable operation (spawning an engineer, creating a worktree, opening a PR, or starting fresh from the base branch per step 2). A purely read-only session therefore never triggers the prompt. The prompt is a sanctioned stop-and-ask (an explicit command directive per the delegation Exception clause) exempt from the default-and-proceed protocol; surface it with `main` as the recommended default per the AskUserQuestion precondition.
 6. **When step 5 resolved `BASE_BRANCH` non-interactively**, run `agentic-base-sync "$REPO" "$BASE_BRANCH"` (PATH-guarded, non-blocking on any exit). Skip silently otherwise. See `content/references/base-branch-sync.md` §Call sites.
-7. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start. The branch prune clears stale local branches with safe signals: `[gone]`-upstream branches (squash-merged and remote-deleted), branches fully merged into `origin/main`, and orphaned `worktree-agent-*` branches whose worktree no longer exists.
+7. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start.
 
 **Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
 
@@ -1844,9 +1846,14 @@ Public API: Read-only reference. Load on trigger when conductor encounters a
             or any mandatory-capture trigger (see §learnings-agent).
 
 Upstream deps: content/sections/02-delegation.md (parent section; gate rules,
-               spawn threshold, and stop-frequency table live there).
+               spawn threshold, stop-frequency table, and §Standing authorizations
+               live there).
                content/references/capture-classification.md (guardrail-first
                precedence chain and two-gate MUST/SHOULD/SKIP table).
+               content/references/worktree-lifecycle.md §Standing authorizations
+               (worked example of trigger 6's detection-not-tiebreak-execution
+               clause: a harness conflict resolved by an existing standing
+               authorization, with no tiebreak step run).
                content/agents/wrap-ticket.md, content/agents/learnings-agent.md.
                content/commands/ds-wrap.md (authoritative `/ds-wrap` write paths and
                wrap/lock scope) and content/commands/ds-wrap-deferred.md (the
@@ -1995,6 +2002,18 @@ The conductor MUST evaluate capture at each of these 7 events and emit a
    follow-up unit or ticket: do NOT open a shippable edit mid-decision to satisfy this
    trigger. Never SKIP on the grounds that the tiebreak already resolved it; an
    unrecorded contradiction is re-litigated by every later session at full cost.
+
+   **A host-harness instruction conflict counts as an instruction-layer contradiction
+   for this trigger's purposes** - a harness system prompt that contradicts a
+   standing AE rule is the same class of event as two same-tier AE instructions
+   conflicting, and is evaluated on the same terms. This trigger fires on
+   **detection**, not on tiebreak execution: it applies equally when a standing
+   authorization or an existing AE rule resolved the conflict outright and no
+   tiebreak step actually ran (see `content/references/worktree-lifecycle.md`
+   §Standing authorizations and `content/sections/02-delegation.md` §Standing
+   authorizations for a worked example). Because the harness prompt carries no
+   `file:line` of its own, the entry must name the harness clause (quoted or
+   closely paraphrased) alongside the AE locus by `file:line` that resolved it.
 
 7. **End-of-task or end-of-session capture sweep.** Before declaring a task
    complete or closing a session, sweep for any trigger 1-6 events that occurred
@@ -2831,8 +2850,9 @@ Purpose: Detailed delegation-model reference blocks extracted from
          Absence-claim scope axes (calibration worked example, both
          directions, for the four search-narrowness axes); Investigator-
          before-Architect rules (incl shared-utility-MANDATORY and Parallel
-         Investigators); Harness-Injected Instruction Conflicts (notice
-         template, operator remedies, harness-vs-model diagnostic);
+         Investigators); Harness-Injected Instruction Conflicts (collision
+         catalog, delegation-suppression subsection, notice template,
+         operator remedies, harness-vs-model diagnostic);
          Learnings pipeline; Worker preamble + execution contract template;
          AskUserQuestion and Operator Decisions enforcement mechanics (hook
          wiring, detection limits, kill switch); Operator Decisions block
@@ -2961,13 +2981,30 @@ Parent clause: `content/sections/02-delegation.md` §Skeptic absence-or-critical
 
 ## Harness-Injected Instruction Conflicts
 
-Parent clause: `content/sections/02-delegation.md` §Harness-injected instructions that suppress delegation.
+Parent clause: `content/sections/02-delegation.md` §Host-harness instruction conflicts.
+
+### Collision catalog
+
+| Collision | Harness default (paraphrase) | AE locus | Resolution |
+|---|---|---|---|
+| **Approval scope** | "approval in one context doesn't extend to the next" | `content/sections/02-delegation.md` §Standing authorizations; `content/rules/conventions.md` §Git Workflow, Conductor preflight step 7 | The listed hygiene operations are durably authorized, so the harness carve-out is satisfied rather than overridden. An operator correction that an operation is routine updates the standing norm and is not instance-scoped. |
+| **Delegation suppression** | "do not call the AgentTool unless the user requested it" | `content/sections/02-delegation.md` §Delegation | See the Delegation suppression (Collision 2) subsection below. Remediation beyond the existing rule is out of scope for DS-132 and tracked separately as DS-133. |
+| **Act vs ask** | "confirm first for outward-facing or hard-to-reverse actions" | `content/sections/02-delegation.md` Hard-stop branch and Surface-and-proceed branch | Already arbitrated - the two branches partition the space by irreversibility. What was missing was the detection prompt and a definition of "pre-authorized", both now supplied. No new arbitration rule is added. |
+| **Self-correction depth** | "avoid excessive self-correction; don't ruminate or give a detailed account of the mistake" | `content/references/conductor-operating-rules.md` §learnings-agent; `content/references/capture-classification.md` | When the operator *asks* why a rule was not followed, a causal account of the mechanism is the requested answer. The defect is the wrong kind of answer, not merely a short one - a rule restatement in place of a cause is a non-answer at any length. A written LRN/KNW entry is not conversational rumination, so capture classification is unaffected. Cross-reference the third disjunct of the new kernel detection prompt (`or a restatement of the rule feels like a sufficient answer to why you broke it`), which is phrased to fire on exactly this substitution. |
 
 **Enforcement-hook prohibition (do not build the exploration guard).** No AE hook may deny conductor-side Read/Grep/Glob in order to force delegation. This is a flat prohibition, not a conditional one, and the reason is not the bridge-session deadlock: conductor-direct reads are methodology-*mandated* and precede the first spawn by construction - reading `.agentic/context.md` as the first action of every session, the meta-divergence and skill-candidate sweeps of `.agentic/events.jsonl` and `.agentic/skill-candidates.md`, `.agentic/config.json` toggle resolution before risk classification, and the target agent's `capabilities:` block at capability preflight. A call-count guard denies a fully compliant session before it denies a non-compliant one. Mandated conductor reads continue throughout the session too - the spot-check of a Skeptic absence-claim is post-spawn by construction - but the pre-spawn set alone settles it. Two further reasons close the door: the read carries no intent signal, so "confirming a known fact" (permitted) and "investigating an unfamiliar area" (must delegate) are the same payload; and in a session whose harness prompt already suppresses spawning, denying reads too leaves no permitted action at all.
 
 Do not attempt to condition such a guard on whether spawning is available. **There is no such signal.** Session capability at runtime - which tools the harness will actually honour, what an injected system prompt forbids - has no payload representation and is not derivable from an on-disk artifact: a settings file states the operator's configured permission rules, which is not the same fact as what this session's harness will honour. An entrypoint marker may correlate with an injecting harness, but correlation with an entrypoint is not the capability, and gating on it requires the payload-capture discipline in `hooks/AGENTS.md` §Fail-open on absent tool_input fields first. `.agentic/events.jsonl` `spawn_start` records prove spawning *has* worked and can never prove it is unavailable. See `hooks/AGENTS.md` §No gating on inferred session capability for the hook-side rule; do not restate fail-open discipline here.
 
 The rule stays prose-enforced, as it already is on ten of the eleven adapters. Mechanically, only non-blocking shapes are admissible: a warn-only PostToolUse nudge, or after-the-fact detection at a reflection point (the Stop hook already reads the transcript and runs the capture-gap backstop) that surfaces conductor-investigating *after* a turn instead of blocking it in advance. Calibrate any such threshold against measured session data before shipping it - a nudge that fires on a session of mandated preflight reads is the same defect as the deny-guard, only cheaper.
+
+### Delegation suppression (Collision 2)
+
+Where the directive is conditional ("unless the user requested it"), the condition is already met whenever this methodology is active, because the operator installed it into their own instruction layer and its first delegation rule is that the conductor delegates rather than implements - a standing instruction that predates the session. The conductor treats the condition as satisfied and spawns normally, and this authorizes only delegation the methodology mandates, never anything the methodology itself gates.
+
+Where the directive is unconditional and spawning genuinely fails, the conductor states that plainly at its first user-facing turn, with a remedy, rather than silently degrading into a direct implementer.
+
+Remediation beyond this rule - activation-preflight detection of the suppression, and any documented degraded mode - is deliberately out of scope here and is tracked separately as DS-133.
 
 **Notice template (unconditional branch).** When the directive is unconditional and spawning genuinely fails, emit at the first user-facing turn:
 
@@ -6515,13 +6552,18 @@ jobs:
 Purpose: Full reference for worktree and branch lifecycle command blocks
          extracted from METHODOLOGY.md §Worktree Lifecycle. Contains the
          isolation worktree cleanup commands, feature worktree cleanup commands,
-         the session-start prune script, and the local-branch prune block.
+         the session-start prune script, the Standing authorizations section
+         (the enumerated set of routine-hygiene operations pre-authorized for
+         every session, satisfying a harness confirm-first carve-out), and the
+         local-branch prune block.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
             each bash block),
             content/sections/12-protocol-details.md (Worktree lifecycle Protocol
-            Details entry).
+            Details entry),
+            content/sections/02-delegation.md §Standing authorizations,
+            content/references/conductor-operating-rules.md:20.
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -6630,6 +6672,33 @@ done
 ## Guardrail: never force-override the harness lock
 
 No cleanup or prune path in this document may call `git worktree remove -f -f` (double force, which overrides a lock). `git worktree unlock` may be used ONLY on a worktree whose directory is already gone - at that point its agent cannot still be running, so there is nothing left to protect (this is exactly what the isolation-cleanup and session-start-prune steps do to reclaim a stale locked admin entry). Never unlock, or double-force-remove, a worktree whose directory still exists: the harness's lock (set on every isolation worktree while its agent runs) is load-bearing cross-session protection - it is the reason a concurrent session's cleanup cannot delete another session's live worktree, and overriding it reintroduces exactly the mid-task-deletion risk. No path in this document currently does this; the note is a guardrail against future regression.
+
+## Standing authorizations
+
+These are authorized once, for every session, and are never an operator choice:
+
+- Deleting a local branch on any merge signal already defined in §Branch prune
+  below - the `[gone]` upstream marker, ancestry into `origin/main`, or a MERGED
+  PR state. `[gone]` is an inferred rather than proven merge signal and is
+  authorized anyway, exactly as §Branch prune bullet 1 already treats it. (A
+  remote branch deleted without merging also reads `[gone]`; this is a known and
+  accepted property, not an oversight.)
+- Deleting the corresponding remote branch as part of `gh pr merge --delete-branch`.
+- Removing an isolation or feature worktree per §Isolation worktree cleanup
+  commands / §Feature worktree cleanup commands above.
+- Running the session-start worktree prune, branch prune, and `git fetch --prune`.
+
+The boundary is unchanged and is not restated here - see §Guardrail: never
+force-override the harness lock above and the Safe boundary paragraph in
+§Branch prune below.
+
+These authorizations are methodology-owned and not project-overridable,
+consistent with §Project-override policy below, and are the durable-authorization
+form which **satisfies** a harness confirm-first carve-out rather than overriding
+it - a harness default of "confirm first unless durably authorized" is met on its
+own terms by this section, not superseded by it.
+
+Parent clause: `content/sections/02-delegation.md` §Standing authorizations.
 
 ## Branch prune (stale local branches)
 

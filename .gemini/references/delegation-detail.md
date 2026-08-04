@@ -9,8 +9,9 @@ Purpose: Detailed delegation-model reference blocks extracted from
          Absence-claim scope axes (calibration worked example, both
          directions, for the four search-narrowness axes); Investigator-
          before-Architect rules (incl shared-utility-MANDATORY and Parallel
-         Investigators); Harness-Injected Instruction Conflicts (notice
-         template, operator remedies, harness-vs-model diagnostic);
+         Investigators); Harness-Injected Instruction Conflicts (collision
+         catalog, delegation-suppression subsection, notice template,
+         operator remedies, harness-vs-model diagnostic);
          Learnings pipeline; Worker preamble + execution contract template;
          AskUserQuestion and Operator Decisions enforcement mechanics (hook
          wiring, detection limits, kill switch); Operator Decisions block
@@ -139,13 +140,30 @@ Parent clause: `content/sections/02-delegation.md` §Skeptic absence-or-critical
 
 ## Harness-Injected Instruction Conflicts
 
-Parent clause: `content/sections/02-delegation.md` §Harness-injected instructions that suppress delegation.
+Parent clause: `content/sections/02-delegation.md` §Host-harness instruction conflicts.
+
+### Collision catalog
+
+| Collision | Harness default (paraphrase) | AE locus | Resolution |
+|---|---|---|---|
+| **Approval scope** | "approval in one context doesn't extend to the next" | `content/sections/02-delegation.md` §Standing authorizations; `content/rules/conventions.md` §Git Workflow, Conductor preflight step 7 | The listed hygiene operations are durably authorized, so the harness carve-out is satisfied rather than overridden. An operator correction that an operation is routine updates the standing norm and is not instance-scoped. |
+| **Delegation suppression** | "do not call the AgentTool unless the user requested it" | `content/sections/02-delegation.md` §Delegation | See the Delegation suppression (Collision 2) subsection below. Remediation beyond the existing rule is out of scope for DS-132 and tracked separately as DS-133. |
+| **Act vs ask** | "confirm first for outward-facing or hard-to-reverse actions" | `content/sections/02-delegation.md` Hard-stop branch and Surface-and-proceed branch | Already arbitrated - the two branches partition the space by irreversibility. What was missing was the detection prompt and a definition of "pre-authorized", both now supplied. No new arbitration rule is added. |
+| **Self-correction depth** | "avoid excessive self-correction; don't ruminate or give a detailed account of the mistake" | `content/references/conductor-operating-rules.md` §learnings-agent; `content/references/capture-classification.md` | When the operator *asks* why a rule was not followed, a causal account of the mechanism is the requested answer. The defect is the wrong kind of answer, not merely a short one - a rule restatement in place of a cause is a non-answer at any length. A written LRN/KNW entry is not conversational rumination, so capture classification is unaffected. Cross-reference the third disjunct of the new kernel detection prompt (`or a restatement of the rule feels like a sufficient answer to why you broke it`), which is phrased to fire on exactly this substitution. |
 
 **Enforcement-hook prohibition (do not build the exploration guard).** No AE hook may deny conductor-side Read/Grep/Glob in order to force delegation. This is a flat prohibition, not a conditional one, and the reason is not the bridge-session deadlock: conductor-direct reads are methodology-*mandated* and precede the first spawn by construction - reading `.agentic/context.md` as the first action of every session, the meta-divergence and skill-candidate sweeps of `.agentic/events.jsonl` and `.agentic/skill-candidates.md`, `.agentic/config.json` toggle resolution before risk classification, and the target agent's `capabilities:` block at capability preflight. A call-count guard denies a fully compliant session before it denies a non-compliant one. Mandated conductor reads continue throughout the session too - the spot-check of a Skeptic absence-claim is post-spawn by construction - but the pre-spawn set alone settles it. Two further reasons close the door: the read carries no intent signal, so "confirming a known fact" (permitted) and "investigating an unfamiliar area" (must delegate) are the same payload; and in a session whose harness prompt already suppresses spawning, denying reads too leaves no permitted action at all.
 
 Do not attempt to condition such a guard on whether spawning is available. **There is no such signal.** Session capability at runtime - which tools the harness will actually honour, what an injected system prompt forbids - has no payload representation and is not derivable from an on-disk artifact: a settings file states the operator's configured permission rules, which is not the same fact as what this session's harness will honour. An entrypoint marker may correlate with an injecting harness, but correlation with an entrypoint is not the capability, and gating on it requires the payload-capture discipline in `hooks/AGENTS.md` §Fail-open on absent tool_input fields first. `.agentic/events.jsonl` `spawn_start` records prove spawning *has* worked and can never prove it is unavailable. See `hooks/AGENTS.md` §No gating on inferred session capability for the hook-side rule; do not restate fail-open discipline here.
 
 The rule stays prose-enforced, as it already is on ten of the eleven adapters. Mechanically, only non-blocking shapes are admissible: a warn-only PostToolUse nudge, or after-the-fact detection at a reflection point (the Stop hook already reads the transcript and runs the capture-gap backstop) that surfaces conductor-investigating *after* a turn instead of blocking it in advance. Calibrate any such threshold against measured session data before shipping it - a nudge that fires on a session of mandated preflight reads is the same defect as the deny-guard, only cheaper.
+
+### Delegation suppression (Collision 2)
+
+Where the directive is conditional ("unless the user requested it"), the condition is already met whenever this methodology is active, because the operator installed it into their own instruction layer and its first delegation rule is that the conductor delegates rather than implements - a standing instruction that predates the session. The conductor treats the condition as satisfied and spawns normally, and this authorizes only delegation the methodology mandates, never anything the methodology itself gates.
+
+Where the directive is unconditional and spawning genuinely fails, the conductor states that plainly at its first user-facing turn, with a remedy, rather than silently degrading into a direct implementer.
+
+Remediation beyond this rule - activation-preflight detection of the suppression, and any documented degraded mode - is deliberately out of scope here and is tracked separately as DS-133.
 
 **Notice template (unconditional branch).** When the directive is unconditional and spawning genuinely fails, emit at the first user-facing turn:
 

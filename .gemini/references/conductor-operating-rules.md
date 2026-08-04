@@ -13,9 +13,14 @@ Public API: Read-only reference. Load on trigger when conductor encounters a
             or any mandatory-capture trigger (see §learnings-agent).
 
 Upstream deps: content/sections/02-delegation.md (parent section; gate rules,
-               spawn threshold, and stop-frequency table live there).
+               spawn threshold, stop-frequency table, and §Standing authorizations
+               live there).
                content/references/capture-classification.md (guardrail-first
                precedence chain and two-gate MUST/SHOULD/SKIP table).
+               content/references/worktree-lifecycle.md §Standing authorizations
+               (worked example of trigger 6's detection-not-tiebreak-execution
+               clause: a harness conflict resolved by an existing standing
+               authorization, with no tiebreak step run).
                content/agents/wrap-ticket.md, content/agents/learnings-agent.md.
                content/commands/ds-wrap.md (authoritative `/ds-wrap` write paths and
                wrap/lock scope) and content/commands/ds-wrap-deferred.md (the
@@ -164,6 +169,18 @@ The conductor MUST evaluate capture at each of these 7 events and emit a
    follow-up unit or ticket: do NOT open a shippable edit mid-decision to satisfy this
    trigger. Never SKIP on the grounds that the tiebreak already resolved it; an
    unrecorded contradiction is re-litigated by every later session at full cost.
+
+   **A host-harness instruction conflict counts as an instruction-layer contradiction
+   for this trigger's purposes** - a harness system prompt that contradicts a
+   standing AE rule is the same class of event as two same-tier AE instructions
+   conflicting, and is evaluated on the same terms. This trigger fires on
+   **detection**, not on tiebreak execution: it applies equally when a standing
+   authorization or an existing AE rule resolved the conflict outright and no
+   tiebreak step actually ran (see `content/references/worktree-lifecycle.md`
+   §Standing authorizations and `content/sections/02-delegation.md` §Standing
+   authorizations for a worked example). Because the harness prompt carries no
+   `file:line` of its own, the entry must name the harness clause (quoted or
+   closely paraphrased) alongside the AE locus by `file:line` that resolved it.
 
 7. **End-of-task or end-of-session capture sweep.** Before declaring a task
    complete or closing a session, sweep for any trigger 1-6 events that occurred
