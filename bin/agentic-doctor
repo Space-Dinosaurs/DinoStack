@@ -280,6 +280,27 @@ class Doctor:
                 self.fail(kind, f"could not re-point {dst}: {exc}")
                 self.mark_unfixable(dst)
 
+    def remove_stale_symlink(self, kind: str, dst: Path, old: str) -> None:
+        """Announce and (if fix mode) remove a symlink whose computed expected
+        target does not exist in the repo (the upstream artifact was renamed
+        or deleted, not merely moved). Removing - not recreating - is the
+        correct repair here: recreating would just re-point the link at a
+        target that still doesn't exist, reproducing the dangling link on
+        the very next run.
+
+        Prints: FIX symlink: <dst> : <old/broken target> -> (removed, stale)
+        In read-only/dry-run mode, the FIX line is informational only and
+        counts as a finding (exit 1). In live fix mode, removes the symlink.
+        """
+        self._emit("FIX", f"symlink: {dst} : {old} -> (removed, stale)")
+        if self.fix:
+            try:
+                if os.path.islink(str(dst)):
+                    os.remove(str(dst))
+            except Exception as exc:
+                self.fail(kind, f"could not remove stale {dst}: {exc}")
+                self.mark_unfixable(dst)
+
     def has_unresolved_findings(self) -> bool:
         """Return True if there are FAIL or FIX lines in the output.
 
@@ -375,8 +396,13 @@ def _check_one_link(doc: Doctor, dst: Path, kind: str) -> None:
     # Broken or wrong target - we own it
     old_display = f"{raw} (broken)" if resolved is None else raw
 
-    if expected is not None:
+    if expected is not None and expected.exists():
         doc.repoint_symlink(kind, dst, old_display, expected)
+    elif expected is not None:
+        # Path arithmetic resolved a location, but nothing exists there in
+        # the repo - the artifact was renamed or removed upstream, not just
+        # moved. Repointing here would recreate a dangling link; remove it.
+        doc.remove_stale_symlink(kind, dst, old_display)
     else:
         doc.fail(kind, f"{dst}: target {old_display} is wrong; could not determine repair target")
         doc.mark_unfixable(dst)

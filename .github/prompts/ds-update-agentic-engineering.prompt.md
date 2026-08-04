@@ -7,6 +7,8 @@ description: "Handles the full edit-sync-build-commit-push cycle for methodology
 
 Handles the full edit-sync-build-commit-push cycle for methodology and tooling files under your agentic-engineering install (resolved at runtime from `~/.agentic/agentic-engineering-config.json` `repo_dir`, default `~/DinoStack`).
 
+**Distinct from `/ds-update`** (opposite direction): this pushes methodology edits *up* to upstream; `/ds-update` pulls the methodology *down* and reinstalls.
+
 **In-repo only.** This command edits files inside the agentic-engineering/DinoStack repo and spawns Workers that run in isolation worktrees. Isolation worktrees are created from the current session's git repo, not from `AE_REPO_DIR` - so running this from a different project corrupts both repos' worktree state and cleanup. Step 0a enforces that the session is rooted in the AE repo; otherwise it writes a handoff doc and stops without editing.
 
 **When to use - use whenever ANY of these hold:**

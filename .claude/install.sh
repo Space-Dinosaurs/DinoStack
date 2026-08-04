@@ -403,6 +403,30 @@ for _ae_old_name in "${_ae_stale_pre_ds26_commands[@]}"; do
 done
 
 # ---------------------------------------------------------------------------
+# Remove stale post-DS-26 command symlinks (renamed commands)
+#
+# A command can also be renamed after DS-26 (its own ds- prefix stays, only
+# the basename changes). Same allowlist discipline as above: literal old
+# names only, never a glob or set-difference against $COMMANDS_DST.
+# ---------------------------------------------------------------------------
+
+echo "Removing stale post-DS-26 command symlinks..."
+_ae_stale_renamed_commands=(
+  ds-pull-and-install.md
+)
+for _ae_old_name in "${_ae_stale_renamed_commands[@]}"; do
+  _ae_old_dst="$COMMANDS_DST/$_ae_old_name"
+  if _ae_is_ours "$_ae_old_dst"; then
+    if [[ "$AE_DRY_RUN" == "true" ]]; then
+      echo "  ~ $_ae_old_name (would remove: stale renamed command symlink)"
+    else
+      rm -f "$_ae_old_dst"
+      echo "  - removed $_ae_old_name (stale renamed command symlink)"
+    fi
+  fi
+done
+
+# ---------------------------------------------------------------------------
 # Symlink skill
 # ---------------------------------------------------------------------------
 

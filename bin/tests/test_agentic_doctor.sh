@@ -469,6 +469,95 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 9/10: renamed-upstream-artifact regression (DS-133).
+#
+# repoint_symlink previously recreated a dangling link whenever the computed
+# expected target did not exist in the repo (e.g. a command that was renamed
+# upstream, not merely relocated). Reproduced pre-fix: read-only reports a
+# finding, --fix "resolves" it by recreating the SAME dangling link, and a
+# second read-only run still exits 1. The fix (remove_stale_symlink) must
+# instead remove the link, and a subsequent read-only run must exit 0.
+# ---------------------------------------------------------------------------
+setup_fixture_stale() {
+  TEMP_HOME="$(mktemp -d)"
+  FAKE_REPO="$TEMP_HOME/fake-DinoStack"
+  OLD_REPO="$TEMP_HOME/old-DinoStack"
+
+  mkdir -p "$FAKE_REPO/.git" "$FAKE_REPO/.claude/commands"
+  mkdir -p "$OLD_REPO/.git"
+
+  # The old command's content still exists somewhere under a DinoStack path
+  # (so the "ours" heuristic fires), but the repo no longer ships it under
+  # .claude/commands/renamed-away.md - it was renamed to a different basename.
+  echo "old content" > "$OLD_REPO/renamed-away-target.md"
+
+  mkdir -p "$TEMP_HOME/.agentic"
+  cat > "$TEMP_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$FAKE_REPO"
+}
+EOF
+
+  mkdir -p "$TEMP_HOME/.claude/commands"
+  ln -s "$OLD_REPO/renamed-away-target.md" "$TEMP_HOME/.claude/commands/renamed-away.md"
+
+  # Deliberately do NOT create $FAKE_REPO/.claude/commands/renamed-away.md -
+  # this is the renamed-upstream-artifact case under test.
+}
+
+setup_fixture_stale
+invoke_doctor  # read-only
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "1" ]]; then
+  _pass "T9 read-only: renamed-away link is a finding (exits 1)"
+else
+  _fail "T9 read-only: expected exit 1, got $RC\n$OUT"
+fi
+
+if echo "$OUT" | grep -q "^FIX symlink:.*renamed-away.md.*(removed, stale)"; then
+  _pass "T9 read-only: renamed-away link reported as stale removal candidate"
+else
+  _fail "T9 read-only: expected a '(removed, stale)' FIX line for renamed-away.md\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+setup_fixture_stale
+invoke_doctor --fix
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T10 --fix: renamed-away link resolved, exits 0"
+else
+  _fail "T10 --fix: expected exit 0, got $RC\n$OUT"
+fi
+
+if [[ -L "$TEMP_HOME/.claude/commands/renamed-away.md" || -e "$TEMP_HOME/.claude/commands/renamed-away.md" ]]; then
+  _fail "T10 --fix: renamed-away.md should have been removed, but still exists"
+else
+  _pass "T10 --fix: renamed-away.md was removed (not recreated as a dangling link)"
+fi
+
+# Idempotency: a second read-only run after --fix must exit 0 (DS-133's
+# core regression - the pre-fix code recreated the dangling link here).
+invoke_doctor
+RC2=$(cat "$TEMP_HOME/.exit")
+OUT2=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC2" == "0" ]]; then
+  _pass "T10 idempotent: second read-only run after --fix exits 0"
+else
+  _fail "T10 idempotent: second read-only run exited $RC2, expected 0 (link was recreated?)\n$OUT2"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo
