@@ -282,6 +282,74 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 5: the "owned by the forward check" skip in check_local_bin_stale
+# (bin/agentic-doctor ~lines 724-732) must suppress the DUPLICATE reverse
+# recommendation for a link whose name matches a script still present in
+# repo_dir/bin, while leaving the forward check's own repoint recommendation
+# and repair intact.
+#
+# Fixture: ~/.local/bin/agentic-kept exists as a symlink whose raw target is
+# a DIFFERENT, missing path under repo_dir/bin (agentic-kept-old, never
+# created) - not the live repo_dir/bin/agentic-kept from setup_fixture. This
+# is the only shape that reaches BOTH checks: the forward check
+# (check_local_bin_symlinks) sees agentic-kept resolved != expected and
+# recommends a repoint; the reverse check (check_local_bin_stale), absent
+# its skip, would ALSO see a broken symlink whose raw target is lexically
+# rooted at repo_dir/bin and recommend a removal for the very same link.
+# ---------------------------------------------------------------------------
+setup_fixture
+mkdir -p "$TEMP_HOME/.local/bin"
+ln -s "$FAKE_REPO/bin/agentic-kept-old" "$TEMP_HOME/.local/bin/agentic-kept"
+# Deliberately do NOT create $FAKE_REPO/bin/agentic-kept-old.
+
+invoke_doctor
+OUT=$(cat "$TEMP_HOME/.out")
+
+AGENTIC_KEPT_FIX_COUNT=$(echo "$OUT" | grep -c "FIX symlink:.*/agentic-kept ")
+if [[ "$AGENTIC_KEPT_FIX_COUNT" == "1" ]]; then
+  _pass "T5 read-only: exactly one FIX recommendation for agentic-kept (no duplicate)"
+else
+  _fail "T5 read-only: expected exactly 1 FIX recommendation for agentic-kept, got $AGENTIC_KEPT_FIX_COUNT\n$OUT"
+fi
+
+if echo "$OUT" | grep -qE "FIX symlink:.*/agentic-kept .*-> ($FAKE_REPO|$REAL_FAKE_REPO)/bin/agentic-kept$"; then
+  _pass "T5 read-only: the one recommendation is the forward repoint, not a removal"
+else
+  _fail "T5 read-only: expected a forward repoint FIX line for agentic-kept\n$OUT"
+fi
+
+if echo "$OUT" | grep -q "FIX symlink:.*/agentic-kept .*(removed, stale)"; then
+  _fail "T5 read-only: reverse check emitted a duplicate '(removed, stale)' recommendation for agentic-kept - the owned-by-forward-check skip is missing or broken\n$OUT"
+else
+  _pass "T5 read-only: no duplicate '(removed, stale)' recommendation for agentic-kept"
+fi
+
+rm -rf "$TEMP_HOME"
+
+setup_fixture
+mkdir -p "$TEMP_HOME/.local/bin"
+ln -s "$FAKE_REPO/bin/agentic-kept-old" "$TEMP_HOME/.local/bin/agentic-kept"
+
+invoke_doctor --fix
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "0" || "$RC" == "2" ]]; then
+  _pass "T5 --fix: exits 0 or 2 (fix ran)"
+else
+  _fail "T5 --fix: expected exit 0 or 2, got $RC\n$OUT"
+fi
+
+AGENTIC_KEPT_TARGET="$(readlink "$TEMP_HOME/.local/bin/agentic-kept" 2>/dev/null || echo "(removed)")"
+if [[ "$AGENTIC_KEPT_TARGET" == "$FAKE_REPO/bin/agentic-kept" || "$AGENTIC_KEPT_TARGET" == "$REAL_FAKE_REPO/bin/agentic-kept" ]]; then
+  _pass "T5 --fix: agentic-kept end state is REPOINTED at the live script (not removed)"
+else
+  _fail "T5 --fix: agentic-kept end state is '$AGENTIC_KEPT_TARGET' - expected a repoint to $FAKE_REPO/bin/agentic-kept, not a removal. If this failed, --fix removed a link that should have been repointed - the reverse check ran ahead of, or instead of, the forward check's repair."
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Results
 # ---------------------------------------------------------------------------
 echo
