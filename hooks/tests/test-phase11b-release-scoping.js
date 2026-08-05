@@ -231,9 +231,11 @@ const GOLDEN_LOCK_RELEASE_TEXT = normalize(
   'branch above - the conductor runs `agentic-wrap-release-lock` ' +
   '(PATH-wired helper) unconditionally on every `wrap-ticket` outcome in ' +
   'that branch (success, non-JSON return, timeout, soft-fail) before ' +
-  'advancing to Phase 12. The two skip-conditions paths and the ' +
-  'lock-held-by-another-session path never acquired the lock in this ' +
-  'session and must NOT call the release helper.'
+  'advancing to Phase 12. The two skip-conditions paths and every ' +
+  'lock-acquisition-failed path (the first attempt\'s non-0/non-5 exit ' +
+  'code, and the bounded-wait attempt\'s 45s timeout or non-0/non-2 exit ' +
+  'code) never acquired the lock in this session and must NOT call the ' +
+  'release helper.'
 );
 
 // ---------------------------------------------------------------------------
