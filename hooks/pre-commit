@@ -1,15 +1,21 @@
 #!/usr/bin/env bash
-# Purpose: Enforce staged static-analysis, Codex native-skill drift, and adapter build gates.
+# Purpose: Enforce staged static-analysis, Codex native-skill drift, agentic-engineering
+#          skill symlink absolutization, and adapter build gates.
 #
 # Public API: Git pre-commit hook invoked with no arguments from a DinoStack checkout.
 #
 # Upstream deps: the staged Git index, project lint/type tools when installed,
-#                scripts/check-codex-skill-sync.sh, and all adapter build scripts.
+#                scripts/check-codex-skill-sync.sh, scripts/check-symlinks-relative.sh
+#                (run in --staged mode against the staged blob, not the working-tree
+#                copy), and all adapter build scripts.
 #
 # Downstream consumers: local Git commits and worktree-isolated engineer commits.
 #
-# Failure modes: exits non-zero on lint, type, native-skill drift, or adapter build
-#                failures; skips unavailable optional linters and worktree builds.
+# Failure modes: exits non-zero on lint, type, native-skill drift, symlink
+#                absolutization (staged skill symlink resolves to an absolute
+#                path), or adapter build failures; skips unavailable optional
+#                linters and worktree builds. The symlink-absolutization gate
+#                runs in every worktree, not just the primary checkout.
 #
 # Performance: staged-path scoped until canonical content requires full adapter builds.
 
@@ -148,7 +154,15 @@ fi
 # worktree, not just the primary checkout.
 # ---------------------------------------------------------------------------
 
-if ! git show :scripts/check-symlinks-relative.sh 2>/dev/null | bash -s -- --staged; then
+CHECK_SYMLINKS_STAGED_SRC="$(git show :scripts/check-symlinks-relative.sh 2>/dev/null)"
+if [[ -z "$CHECK_SYMLINKS_STAGED_SRC" ]]; then
+  echo "[pre-commit] ERROR: unable to read the staged scripts/check-symlinks-relative.sh (missing from the index, e.g. staged for deletion) - commit blocked. Restore or unstage it." >&2
+  exit 1
+fi
+# Success path is quiet: the checker's per-link "(relative, OK)" line goes to
+# stdout, which is silenced here on every passing commit. Failures still
+# surface - the checker writes all error/absolutization detail to stderr.
+if ! echo "$CHECK_SYMLINKS_STAGED_SRC" | bash -s -- --staged >/dev/null; then
   echo "[pre-commit] ERROR: one or more agentic-engineering skill symlinks are staged as absolute paths (expected relative) - commit blocked. Run 'git status' and re-link with a relative target." >&2
   exit 1
 fi

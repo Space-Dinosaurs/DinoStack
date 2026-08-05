@@ -12,14 +12,13 @@
 #
 # Failure modes: tests 1-8 increment $FAILS on any failing assertion; if
 #                $FAILS > 0 after test 8 the script prints a summary and
-#                exits 1 (line ~105). The later run_security_tests block
-#                (PR #416, CWE-94/CWE-22/symlink regressions) runs AFTER
-#                that exit-1 check and uses the same fail()/pass() helpers,
-#                but nothing re-checks $FAILS once it returns - a failing
-#                security assertion prints "FAIL: ..." to stderr but does
-#                NOT make the script exit nonzero. Treat a green exit code
-#                from this file as confirming tests 1-8 only; grep the
-#                output for "FAIL:" to catch a security-test regression.
+#                exits 1. The later run_security_tests block (PR #416,
+#                CWE-94/CWE-22/symlink regressions) reuses the same $FAILS
+#                counter and fail()/pass() helpers; $FAILS is re-checked
+#                after run_security_tests returns, so a failing security
+#                assertion now also makes the script exit nonzero (fixed
+#                DS-136 - previously it only printed "FAIL: ..." to stderr
+#                and the script still exited 0).
 #
 # Performance: ~64 s in CI run 30968643749, driven by 5 indirect
 #              .codex/install.sh calls (via scripts/install-profiles.sh);
@@ -187,3 +186,9 @@ run_security_tests() {
   rm -rf "$sb"
 }
 run_security_tests
+
+if [[ "$FAILS" -gt 0 ]]; then
+	echo "FAILED: $FAILS assertion(s) (including security regression tests)"
+	exit 1
+fi
+echo "All install-profiles tests (including security regressions) passed."

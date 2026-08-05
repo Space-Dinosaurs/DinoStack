@@ -11,7 +11,11 @@
 #             ref defaults to HEAD when omitted. --staged checks the git
 #             index instead of a ref (used by the hooks/pre-commit gate to
 #             catch an absolutized symlink before it is committed); --staged
-#             and [ref] are mutually exclusive (exit 2 if both given).
+#             and [ref] are mutually exclusive (exit 2 if both given). At
+#             most one positional [ref] argument is accepted in either mode
+#             - a second positional arg now exits 2 ("too many arguments"),
+#             strictened by DS-136: previously any extra positional args
+#             (e.g. `origin/main extra`) were silently ignored.
 #             Exits 0 when all four symlinks are relative (leading char !=
 #             "/") or staged for deletion, 1 when any is absolute or
 #             missing, 2 on usage/environment error.

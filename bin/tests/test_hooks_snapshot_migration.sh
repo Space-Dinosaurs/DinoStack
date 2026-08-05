@@ -43,8 +43,16 @@
 #                This test previously could block on /dev/tty under
 #                ae_confirm when run with a real controlling terminal (not
 #                reproducible in GitHub-hosted CI, which has none), because
-#                it omitted --no-identity from the install.sh invocation;
-#                fixed by adding the flag.
+#                the install.sh invocation exercised TWO separate /dev/tty
+#                prompt sites: ae_write_config's skill_auto_load prompt
+#                (gated on the key being absent from
+#                $fake_home/.claude/agentic-engineering.json - true on every
+#                run here) and _ae_setup_identity's identity prompt. Fixed by
+#                (1) seeding {"skill_auto_load": false} into that config
+#                file before every install.sh invocation in _run_install, so
+#                the key is never absent, and (2) passing --no-identity to
+#                suppress the identity block. Both fixes are required; either
+#                alone leaves the other /dev/tty site live.
 #
 # Performance: ~71 s wall time as measured in CI run 30968643749 (2026-08-05,
 #              job bin-sh-tests) - 4 adapters x 2 install.sh runs each, each
@@ -83,6 +91,16 @@ _run_install() {
   local install_sh="$1"
   local fake_home="$2"
   shift 2
+  # Seed 1: skill_auto_load key present -> suppresses the ae_write_config
+  # /dev/tty prompt (gated `if "skill_auto_load" not in config:`). All four
+  # in-scope adapters default AE_CONFIG_PATH to $fake_home/.claude/
+  # agentic-engineering.json (see bin/tests/test_install_stop_cadence.sh for
+  # the same pattern on .claude/install.sh alone). --no-identity below
+  # suppresses the SEPARATE _ae_setup_identity /dev/tty block.
+  mkdir -p "$fake_home/.claude"
+  cat > "$fake_home/.claude/agentic-engineering.json" <<'EOF'
+{"skill_auto_load": false}
+EOF
   HOME="$fake_home" bash "$install_sh" --mode=opt-out --profile=default --no-identity "$@" \
     < /dev/null > "$fake_home/.install_out" 2>&1
   local rc=$?
