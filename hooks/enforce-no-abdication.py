@@ -72,6 +72,11 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          flag (primary). Layer 2: counter-based cap (backstop) that counts
          consecutive blocks since the last new user message and halts at CAP.
          All three classifiers below share this same loop-guard machinery.
+         The counter + user-message-counting machinery lives in the shared
+         module hooks/lib/loop_guard.py (COUNTER_FILENAME = ".abdication-guard-
+         fire-count", CONSECUTIVE_BLOCK_CAP = 2); this hook loads it lazily via
+         _load_loop_guard() and exits 0 silently if it cannot be loaded - never
+         emitting a block without the loop bound that module provides.
 
          Detection is precision-biased (false-negative-biased): a missed
          abdication leaves the conductor as-is (status quo); a false positive
@@ -133,7 +138,10 @@ Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             garbage stdout (guarded per CC issue #55754 which causes infinite
             loops on invalid Stop hook output).
 
-Upstream deps: Python 3 stdlib only (json, os, re, sys). No external dependencies.
+Upstream deps: Python 3 stdlib only (json, os, re, sys) plus the shared
+               hooks/lib/loop_guard.py module (counter + user-message-counting
+               machinery), loaded lazily via _load_loop_guard(). No external
+               dependencies.
 
 Downstream consumers: Claude Code hook runner (Stop event, matcher "*"). Wired
                       via ~/.claude/settings.json by .claude/install.sh AFTER
@@ -167,6 +175,11 @@ Failure modes:
       count cannot be recorded loses its loop bound; the safe degradation is
       "don't block" (status quo, never an infinite loop). Only blocks after the
       incremented count has been successfully persisted.
+    - hooks/lib/loop_guard.py cannot be loaded (missing file, syntax error,
+      snapshot copy drift): exit 0 and ALLOW the stop on that invocation -
+      same rationale as a failed counter write: a block emitted without the
+      loop-guard machinery loses its loop bound. The machinery is a hard
+      dependency of every block this hook emits, not optional telemetry.
     - Invalid/garbage stdout: guarded via atomic print-then-exit pattern;
       any exception before the print results in no stdout = allow.
 
@@ -462,41 +475,11 @@ def _negative_gate_hit(tail: str) -> bool:
 # cause a false negative or false positive here.
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.?!])\s+")
 
-# Harness-injected `type:"user"` lines that are NOT a genuine human turn even
-# though they carry real text content and no isMeta flag. Confirmed against
-# live transcripts under ~/.claude/projects/: a completed background-task
-# notification arrives as {"type":"user","message":{"content":"<task-
-# notification>...</task-notification>"}} with isMeta ABSENT (not True) - a
-# single busy session can carry dozens of these against a handful of genuine
-# human turns (re-measured over the 120 most recent local transcripts: the
-# highest per-session count of <task-notification> occurrences found was 37;
-# this figure is corpus-snapshot-dependent and will drift as new transcripts
-# accrue - re-measure before relying on an exact number). Counting it as a
-# human-turn boundary breaks the reverse scan in _scan_transcript_tail: it
-# stops at the notification and never reaches the tool_use the conductor
-# issued earlier in the SAME human turn, turning the single most common
-# compliant conductor shape (spawn -> notification -> "Unit N returned;
-# proceeding with unit N+1 unless you say otherwise") into a false BLOCK.
-# ALL FOUR markers below are load-bearing - none is a mere backstop.
-# <system-reminder> and <command-name> lines were also checked directly
-# against real transcripts and FREQUENTLY arrive WITHOUT isMeta:true - this
-# is common, not a rare edge case. Removing any entry from this tuple
-# reclassifies real harness-injected lines as genuine human turns and
-# reintroduces the original Critical this classifier exists to prevent
-# (harness notifications treated as human turns, blocking the dominant
-# conductor turn shape for any session containing a slash-command
-# invocation) - do not prune this tuple without re-verifying against a
-# fresh transcript sample first.
-_HARNESS_INJECTED_MARKERS = (
-    "<task-notification>",
-    "[SYSTEM NOTIFICATION",
-    "<system-reminder>",
-    "<command-name>",
-)
-
-
-def _is_harness_injected_text(text: str) -> bool:
-    return any(marker in text for marker in _HARNESS_INJECTED_MARKERS)
+# The harness-injected-marker tuple and _is_harness_injected_text() now live in
+# hooks/lib/loop_guard.py (see is_harness_injected_text) - shared with
+# enforce-turn-shape.py. The markers are load-bearing for the #54360 backstop;
+# do not prune them from loop_guard.py without re-verifying against a fresh
+# transcript sample first (see the block comment there).
 
 
 def _is_abdication(text: str) -> bool:
@@ -789,155 +772,39 @@ def _is_prose_ballot(text: str) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Counter file helpers
+# Loop-guard loader (counter + user-message counting live in loop_guard.py)
 # ---------------------------------------------------------------------------
 
 
-def _counter_path(cwd: str) -> str:
-    return os.path.join(cwd, ".agentic", COUNTER_FILENAME)
+def _load_loop_guard():
+    """Best-effort dynamic import of the shared loop-guard module.
 
-
-def _read_counter(cwd: str) -> dict:
-    """Read {"count": N, "last_user_msg_count": M}. Returns zeros on any error."""
-    try:
-        path = _counter_path(cwd)
-        if not os.path.exists(path):
-            return {"count": 0, "last_user_msg_count": 0}
-        with open(path, "r") as f:
-            data = json.load(f)
-        if not isinstance(data, dict):
-            return {"count": 0, "last_user_msg_count": 0}
-        return {
-            "count": int(data.get("count", 0)),
-            "last_user_msg_count": int(data.get("last_user_msg_count", 0)),
-        }
-    except Exception:
-        return {"count": 0, "last_user_msg_count": 0}
-
-
-def _write_counter(cwd: str, count: int, last_user_msg_count: int) -> bool:
-    """Write counter state. Returns True on success, False on any failure.
-
-    The caller MUST check the return value when deciding whether to block:
-    a block emitted without a successful counter write loses its loop bound
-    and can cause an infinite block loop when stop_hook_active also fails
-    (CC bug #54360). Fail toward allow-stop on any write failure.
+    Returns None when the module cannot be loaded (missing file, syntax
+    error, snapshot copy drift) - main() treats None as "do not block": a
+    block emitted without the loop-guard machinery loses its loop bound
+    (same rationale as a failed counter write). Loaded once at module scope;
+    every invocation that reaches the loop-guard section reuses the loaded
+    module.
     """
     try:
-        agentic_dir = os.path.join(cwd, ".agentic")
-        os.makedirs(agentic_dir, exist_ok=True)
-        path = _counter_path(cwd)
-        # Per-process tmp suffix: two concurrent hook invocations must never
-        # share a staging path (a fixed name would let one process's write
-        # clobber or race the other's os.replace).
-        tmp = path + ".tmp." + str(os.getpid())
-        with open(tmp, "w") as f:
-            json.dump({"count": count, "last_user_msg_count": last_user_msg_count}, f)
-        os.replace(tmp, path)
-        return True
+        import importlib.util as _ilu
+
+        here = os.path.dirname(os.path.abspath(__file__))
+        mod_path = os.path.join(here, "lib", "loop_guard.py")
+        spec = _ilu.spec_from_file_location("loop_guard", mod_path)
+        mod = _ilu.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
     except Exception:
-        return False
+        return None
 
 
-def _reset_counter(cwd: str, current_user_msg_count: int) -> None:
-    """Reset consecutive block count (new user turn detected). Best-effort."""
-    _write_counter(cwd, 0, current_user_msg_count)  # return value intentionally ignored
+_LOOP_GUARD = _load_loop_guard()
 
 
 # ---------------------------------------------------------------------------
 # Transcript helpers
 # ---------------------------------------------------------------------------
-
-
-def _is_genuine_user_turn(obj: dict) -> bool:
-    """Return True only for a GENUINE human turn line in a CC transcript.
-
-    Critical loop-safety constraint: in real Claude Code transcripts EVERY
-    tool_result is recorded as a `type:"user"` line (the model running a tool
-    while "proceeding" produces tool_result lines with type=="user"). If those
-    counted as user turns, the #54360 backstop counter would reset on every
-    re-entry that ran a tool, pinning count at 1 and never reaching the cap -
-    an infinite block loop. So a genuine human turn is a `type:"user"` line
-    that carries real text content and is NEITHER a tool_result NOR a meta line
-    NOR a harness-injected notification (see _HARNESS_INJECTED_MARKERS) -
-    background task-completion notifications arrive as exactly this shape
-    (type:"user", isMeta absent, plain-string content) and must not be
-    mistaken for a human turn boundary.
-    """
-    if not isinstance(obj, dict):
-        return False
-    # Top-level role in CC transcripts is typically absent for user lines;
-    # the discriminator is `type`. Accept either shape defensively.
-    role = obj.get("role") or obj.get("type", "")
-    if role != "user":
-        return False
-    # Exclude meta/system-injected lines (e.g. interleaved system reminders).
-    if obj.get("isMeta") is True:
-        return False
-
-    # Locate the message content. CC shape: {"type":"user","message":{"content":...}}
-    msg = obj.get("message")
-    content = None
-    if isinstance(msg, dict):
-        content = msg.get("content")
-    if content is None:
-        content = obj.get("content")
-
-    # A tool_result line is NOT a human turn. content may be:
-    #   - a list of blocks, any of which has type=="tool_result"
-    #   - (defensively) a single dict block with type=="tool_result"
-    if isinstance(content, list):
-        has_tool_result = any(isinstance(b, dict) and b.get("type") == "tool_result" for b in content)
-        if has_tool_result:
-            return False
-        # Genuine turn requires at least one real text block with text that
-        # is NOT a harness-injected marker (see _HARNESS_INJECTED_MARKERS).
-        for b in content:
-            if isinstance(b, dict) and b.get("type") == "text":
-                t = b.get("text", "")
-                if t.strip() and not _is_harness_injected_text(t):
-                    return True
-            elif isinstance(b, str) and b.strip() and not _is_harness_injected_text(b):
-                return True
-        return False
-    if isinstance(content, dict):
-        if content.get("type") == "tool_result":
-            return False
-        if content.get("type") == "text":
-            t = content.get("text", "")
-            return bool(t.strip()) and not _is_harness_injected_text(t)
-        return False
-    if isinstance(content, str):
-        # Real transcripts show harness task-notifications delivered as a
-        # bare string here (type:"user", isMeta absent) - see
-        # _HARNESS_INJECTED_MARKERS. These are not genuine human turns.
-        return bool(content.strip()) and not _is_harness_injected_text(content)
-    return False
-
-
-def _count_user_messages(transcript_path: str) -> int:
-    """Count GENUINE human turns in the transcript. Returns 0 on error.
-
-    Counts only real human messages - NOT tool_result lines (which CC records
-    as type:"user") and NOT meta lines. See _is_genuine_user_turn for the
-    rationale: counting tool_results here would break the #54360 loop backstop.
-    """
-    try:
-        count = 0
-        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    obj = json.loads(line)
-                except Exception:
-                    continue
-                if _is_genuine_user_turn(obj):
-                    count += 1
-        return count
-    except Exception:
-        return 0
 
 
 def _scan_transcript_tail(transcript_path: str) -> dict:
@@ -962,10 +829,10 @@ def _scan_transcript_tail(transcript_path: str) -> dict:
       type=="tool_use" content block in a RECOGNIZED shape - evidence the
       conductor actually acted this turn, not merely announced intent.
     - boundary_found: True iff the reverse scan actually located a genuine
-      human-turn line and stopped there (see _is_genuine_user_turn). False
-      means the window is NOT provably scoped to "since the current human
-      turn" - e.g. the file has no human turn at all (a compacted window),
-      is empty, or every line failed to parse.
+      human-turn line and stopped there (see loop_guard.is_genuine_user_turn).
+      False means the window is NOT provably scoped to "since the current
+      human turn" - e.g. the file has no human turn at all (a compacted
+      window), is empty, or every line failed to parse.
     - shape_unrecognized: True iff at least one assistant entry INSIDE the
       scanned window had a content shape that is neither a list of blocks, a
       plain string, nor absent/None (e.g. a bare dict) - such a shape cannot
@@ -1026,7 +893,7 @@ def _scan_transcript_tail(transcript_path: str) -> dict:
             # Shape 2: {"type": "assistant"/"user", "message": {"content": [...]}}
             role = obj.get("role") or obj.get("type", "")
 
-            if role == "user" and _is_genuine_user_turn(obj):
+            if role == "user" and _LOOP_GUARD.is_genuine_user_turn(obj):
                 # Reached the boundary of the current turn - stop scanning.
                 boundary_found = True
                 break
@@ -1162,6 +1029,13 @@ def main() -> None:
         if not cwd:
             sys.exit(0)
 
+        lg = _LOOP_GUARD
+        if lg is None:
+            # Loop-guard machinery unavailable (missing/corrupt
+            # hooks/lib/loop_guard.py) - cannot bound a block. Fail open
+            # toward allow-stop (never emit a block without a loop bound).
+            sys.exit(0)
+
         # Runs only when abdication_guard_enabled is exactly `true`. Absent
         # config, a missing key, or any parse error means it does not run.
         config_path = os.path.join(cwd, ".agentic", "config.json")
@@ -1184,12 +1058,12 @@ def main() -> None:
             transcript_path = ""
         current_user_msg_count = 0
         if transcript_path:
-            current_user_msg_count = _count_user_messages(transcript_path)
+            current_user_msg_count = lg.count_user_messages(transcript_path)
 
-        state = _read_counter(cwd)
+        state = lg.read_counter(cwd, COUNTER_FILENAME)
         # If the user has sent a new message since the last block, reset.
         if current_user_msg_count > state["last_user_msg_count"]:
-            _reset_counter(cwd, current_user_msg_count)
+            lg.reset_counter(cwd, COUNTER_FILENAME, current_user_msg_count)
             state = {"count": 0, "last_user_msg_count": current_user_msg_count}
 
         if state["count"] >= CONSECUTIVE_BLOCK_CAP:
@@ -1261,7 +1135,7 @@ def main() -> None:
 
         if not is_stall and not is_classic_abdication and not is_ballot:
             # No classifier fired - reset counter (clean turn) and allow.
-            _reset_counter(cwd, current_user_msg_count)
+            lg.reset_counter(cwd, COUNTER_FILENAME, current_user_msg_count)
             sys.exit(0)
 
         # Abdication, stall, or ballot detected. Only block if we can persist
@@ -1271,7 +1145,7 @@ def main() -> None:
         # also fails (CC bug #54360). All three classifiers share this same
         # counter/cap.
         new_count = state["count"] + 1
-        if not _write_counter(cwd, new_count, current_user_msg_count):
+        if not lg.write_counter(cwd, COUNTER_FILENAME, new_count, current_user_msg_count):
             sys.exit(0)
 
         if is_ballot:

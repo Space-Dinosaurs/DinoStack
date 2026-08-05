@@ -260,33 +260,46 @@ check("h. kill-switch set -> QUIET even on a flagged message", is_quiet(rc, out)
 # ---------------------------------------------------------------------------
 # i. config toggle absent/false/true - absent means ON
 # ---------------------------------------------------------------------------
+# NOTE: each sub-case gets its OWN fresh cwd. The loop guard (DS-122 fix)
+# caps consecutive advisories at CONSECUTIVE_BLOCK_CAP=2 per cwd (see the
+# counter-cap tests below), so four ADVISORY-expecting invocations sharing
+# one cwd would trip the cap on i4. Isolating each sub-case preserves each
+# assertion while keeping the loop-guard counter out of the config-toggle
+# path - mirroring how test-enforce-no-abdication.py isolates each
+# counter-sensitive case in its own subdirectory.
 
 with tempfile.TemporaryDirectory() as tmp_dir:
     real_tmp = os.path.realpath(tmp_dir)
-    agentic_dir = os.path.join(real_tmp, ".agentic")
-    os.makedirs(agentic_dir, exist_ok=True)
-    config_path = os.path.join(agentic_dir, "config.json")
+
+    def _fresh_cwd(name: str) -> str:
+        d = os.path.join(real_tmp, name)
+        os.makedirs(os.path.join(d, ".agentic"), exist_ok=True)
+        return d
 
     # i1. config.json absent entirely -> guard stays ON.
-    rc, out, err = run_hook(make_payload("Done.", cwd=real_tmp))
+    i1_cwd = _fresh_cwd("i1")
+    rc, out, err = run_hook(make_payload("Done.", cwd=i1_cwd))
     check("i1. config.json absent -> guard ON (ADVISORY on flagged message)", is_advisory(rc, out, "identity"))
 
     # i2. config.json present, key explicitly false -> guard OFF.
-    with open(config_path, "w") as f:
+    i2_cwd = _fresh_cwd("i2")
+    with open(os.path.join(i2_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"turn_shape_guard_enabled": False}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=real_tmp))
+    rc, out, err = run_hook(make_payload("Done.", cwd=i2_cwd))
     check("i2. turn_shape_guard_enabled=false -> QUIET (guard disabled)", is_quiet(rc, out))
 
     # i3. config.json present, key explicitly true -> guard ON.
-    with open(config_path, "w") as f:
+    i3_cwd = _fresh_cwd("i3")
+    with open(os.path.join(i3_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"turn_shape_guard_enabled": True}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=real_tmp))
+    rc, out, err = run_hook(make_payload("Done.", cwd=i3_cwd))
     check("i3. turn_shape_guard_enabled=true -> ADVISORY (guard on)", is_advisory(rc, out, "identity"))
 
     # i4. config.json present but key absent -> guard stays ON.
-    with open(config_path, "w") as f:
+    i4_cwd = _fresh_cwd("i4")
+    with open(os.path.join(i4_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"some_other_key": True}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=real_tmp))
+    rc, out, err = run_hook(make_payload("Done.", cwd=i4_cwd))
     check("i4. config.json present, key absent -> guard ON", is_advisory(rc, out, "identity"))
 
 # ---------------------------------------------------------------------------
@@ -529,6 +542,117 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     check(
         "o2. transcript fallback, two-block content joined with newline -> ADVISORY (forced-yield)",
         is_advisory(rc, out, "forced-yield"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Loop-guard tests (DS-122 fix: two-layer loop guard on the advisory)
+# ---------------------------------------------------------------------------
+# Mirrors test-enforce-no-abdication.py's counter-test patterns. The loop
+# guard bounds how many times a flagged turn can re-invoke the model: Layer 1
+# is the stop_hook_active flag (primary re-entrancy guard); Layer 2 is a
+# per-cwd counter capped at CONSECUTIVE_BLOCK_CAP (backstop for CC bug
+# #54360). All cases below include a cwd in the payload so the counter is
+# engaged.
+
+# Fixed contract value, mirrors CONSECUTIVE_BLOCK_CAP in enforce-turn-shape.py.
+# The hook runs as a subprocess so we cannot import the constant.
+CONSECUTIVE_BLOCK_CAP = 2
+_COUNTER_BASENAME = ".turn-shape-guard-fire-count"
+
+
+def _make_counter_state(cwd: str, count: int, last_user_msg_count: int) -> str:
+    """Write the loop-guard counter file and return its path."""
+    agentic_dir = os.path.join(cwd, ".agentic")
+    os.makedirs(agentic_dir, exist_ok=True)
+    counter_path = os.path.join(agentic_dir, _COUNTER_BASENAME)
+    with open(counter_path, "w") as f:
+        json.dump({"count": count, "last_user_msg_count": last_user_msg_count}, f)
+    return counter_path
+
+
+def _read_counter_state(cwd: str) -> dict:
+    with open(os.path.join(cwd, ".agentic", _COUNTER_BASENAME)) as f:
+        return json.load(f)
+
+
+with tempfile.TemporaryDirectory() as lg_tmp_dir:
+    lg_real = os.path.realpath(lg_tmp_dir)
+    flagged_msg = "Done."
+
+    # L1. Layer 1: stop_hook_active=true on a flagged message -> QUIET.
+    rc, out, err = run_hook(
+        make_payload(flagged_msg, cwd=lg_real, extra={"stop_hook_active": True})
+    )
+    check("L1. stop_hook_active=true on a flagged message -> QUIET (no advisory)", is_quiet(rc, out))
+
+    # L2. Layer 2: consecutive flagged turns in the same cwd -> advisory,
+    # advisory, then QUIET once count reaches CAP.
+    cap_dir = os.path.join(lg_real, "cap_cwd")
+    os.makedirs(os.path.join(cap_dir, ".agentic"), exist_ok=True)
+    _make_counter_state(cap_dir, CONSECUTIVE_BLOCK_CAP - 1, 0)
+    rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
+    check("L2a. counter at 1/2 -> ADVISORY (fires, increments to 2)", is_advisory(rc, out, "identity"))
+    check("L2b. counter incremented to 2", _read_counter_state(cap_dir)["count"] == 2)
+    rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
+    check("L2c. counter at CAP=2 -> QUIET (advisory halted)", is_quiet(rc, out))
+
+    # L3. A new genuine user message resets the counter -> advisory fires again.
+    reset_dir = os.path.join(lg_real, "reset_cwd")
+    os.makedirs(os.path.join(reset_dir, ".agentic"), exist_ok=True)
+    _make_counter_state(reset_dir, CONSECUTIVE_BLOCK_CAP, 1)  # at CAP, last_user_msg_count=1
+    reset_transcript_path = _write_transcript(
+        reset_dir,
+        [
+            {"role": "user", "content": [{"type": "text", "text": "Hello"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": IDENTITY_COMPLETE}]},
+            {"role": "user", "content": [{"type": "text", "text": "Now proceed"}]},
+            {"role": "assistant", "content": [{"type": "text", "text": flagged_msg}]},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "cwd": reset_dir,
+                "last_assistant_message": flagged_msg,
+                "transcript_path": reset_transcript_path,
+            }
+        )
+    )
+    check("L3. new genuine user message (2>1) resets counter -> ADVISORY again", is_advisory(rc, out, "identity"))
+
+    # L4. A clean turn resets the counter -> next flagged turn advisories
+    # again. Seeded at CAP-1 (below the cap) so the clean turn is classifiable
+    # and reaches the clean-turn reset; a clean turn at CAP would exit at the
+    # CAP check before classification (the sibling hook's order), which is the
+    # blocked-loop scenario, not the re-arming scenario this case pins.
+    clean_reset_dir = os.path.join(lg_real, "clean_reset_cwd")
+    os.makedirs(os.path.join(clean_reset_dir, ".agentic"), exist_ok=True)
+    _make_counter_state(clean_reset_dir, CONSECUTIVE_BLOCK_CAP - 1, 0)  # count=1
+    rc, out, err = run_hook(make_payload(IDENTITY_COMPLETE, cwd=clean_reset_dir))
+    check("L4a. clean turn -> QUIET (no advisory)", is_quiet(rc, out))
+    check("L4b. clean turn resets counter to 0", _read_counter_state(clean_reset_dir)["count"] == 0)
+    rc, out, err = run_hook(make_payload(flagged_msg, cwd=clean_reset_dir))
+    check("L4c. after clean-turn reset -> ADVISORY again", is_advisory(rc, out, "identity"))
+
+    # L5. Counter write failure (unwritable .agentic/) -> QUIET, fail-open.
+    unwrite_dir = os.path.join(lg_real, "unwritable_cwd")
+    os.makedirs(unwrite_dir, exist_ok=True)
+    unwrite_agentic = os.path.join(unwrite_dir, ".agentic")
+    os.makedirs(unwrite_agentic, exist_ok=True)
+    os.chmod(unwrite_agentic, 0o555)
+    try:
+        rc, out, err = run_hook(make_payload(flagged_msg, cwd=unwrite_dir))
+        check("L5. unwritable .agentic/ (counter write fails) -> QUIET, fail-open", is_quiet(rc, out))
+    finally:
+        os.chmod(unwrite_agentic, 0o755)
+
+    # L6. Never-block invariant under the loop guard: whatever the guard does,
+    # it never emits a blocking decision (there is no such code path).
+    rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
+    check(
+        "L6. loop-guard path never blocks (exit 0, no block decision)",
+        rc == 0 and parse_output(out).get("decision") != "block",
     )
 
 
