@@ -23,7 +23,8 @@ Purpose: Detailed delegation-model reference blocks extracted from
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/02-delegation.md (inline pointers replacing
-            each verbose block).
+            each verbose block); hooks/AGENTS.md (two inbound pointers into
+            the Harness-Injected Instruction Conflicts section).
 
 Upstream deps: content/sections/02-delegation.md (parent section; read
                that section first for the full delegation model overview,
@@ -165,7 +166,7 @@ Where the directive is conditional ("unless the user requested it"), the conditi
 
 Where the directive is unconditional and spawning genuinely fails, the conductor states that plainly at its first user-facing turn, with a remedy, rather than silently degrading into a direct implementer.
 
-**Policy: unsupported configuration, not a degraded mode (DS-133).** Detection of the suppression is not implemented. AE does not refuse to activate, does not offer a degraded-mode switch, and does not claim to notice suppression. An affected session is an unsupported configuration, and the remedies listed with the notice template above are the fix, applied by the operator.
+**Policy: unsupported configuration, not a degraded mode (DS-133).** Detection of the suppression is not implemented. AE does not refuse to activate, does not offer a degraded-mode switch, and does not claim to notice suppression. An affected session is an unsupported configuration, and the remedies listed with the notice template below are the fix, applied by the operator.
 
 Three reasons stand behind that, and any future proposal to detect suppression has to answer all three rather than route around them. First, the activation preflight is bound to three file reads with no LLM reasoning (`content/sections/01-activation-preflight.md`, opening paragraph of §Activation preflight), and an injected directive has no file to read. Second, the capability has no payload representation and is not derivable from an on-disk artifact - the enforcement-hook prohibition above states this for hooks, and while that sentence is hook-scoped, the absence of a signal it relies on is a fact about the session rather than about hooks, so relocating the same inference to another layer does not create the signal. Third, the observed failure is *soft*: the model is discouraged and complies, so no spawn is attempted and no error exists to classify. A hard spawn failure is a different case, already handled by the unconditional branch above.
 
