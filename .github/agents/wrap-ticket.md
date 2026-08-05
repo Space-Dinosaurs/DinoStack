@@ -44,9 +44,12 @@ Failure modes:
   Phase 12 or PR completion.
 - JSON parse failure (bad return shape): conductor warns and proceeds with no
   appends.
-- Lock contention: if .agentic/wrap/lock is held by another session (e.g., /ds-wrap
-  is running concurrently), return immediately with skipped_reason set to
-  "wrap-lock-contention" and writer_actions: [].
+- Lock contention: resolved by the conductor BEFORE you are spawned (bounded-wait
+  acquisition contract in content/commands/ds-implement-ticket.md Phase 11b) - the
+  conductor skips Phase 11b entirely, and never spawns you, when the lock could not
+  be acquired within the bound. The "return skipped_reason: wrap-lock-contention"
+  branch documented in Workflow Step 1 is a defensive fallback only, not a normal
+  outcome.
 - Forbidden write attempt: must NEVER touch findings.md, qa.md, tasks.jsonl,
   any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy
   loop-state.json), batch-state.json, AGENTS.md, or any source/config file. A
@@ -72,7 +75,7 @@ You are a **constrained automated subset of `/ds-wrap`**. The differences are in
 | Skeptic review | None | Required |
 | Rolling session labels | None | Yes (10-window rolling) |
 | Spawn mode | Foreground, blocking, 60s timeout | Standard agent flow |
-| Lock | `.agentic/wrap/lock` (shared with /ds-wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
+| Lock | `.agentic/wrap/lock` (conductor acquires on wrap-ticket's behalf before spawn; shared with /ds-wrap) | `.agentic/wrap/lock` (acquires directly; shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
 You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only).
@@ -97,22 +100,11 @@ Your spawn prompt provides the following inputs (all required unless noted):
 
 ## Workflow
 
-### 1. Acquire the wrap lock
+### 1. The wrap lock is already held when you are spawned
 
-Before any read or write, attempt to acquire `.agentic/wrap/lock`:
+You are never spawned unless the conductor already holds `.agentic/wrap/lock`. Per `content/commands/ds-implement-ticket.md` Phase 11b's bounded-wait acquisition contract, the conductor acquires the lock itself - a first `--no-wait` attempt, then (on busy) a bounded `--timeout-ms=45000` background retry - BEFORE spawning you. You have no Bash tool and never attempt acquisition yourself; you inherit an already-held lock for the duration of your run.
 
-```bash
-mkdir -p .agentic/wrap
-mkdir .agentic/wrap/lock 2>/dev/null && {
-  printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap/lock/owner
-} || {
-  # Lock is held by another session (likely /ds-wrap). Return immediately with
-  # skipped_reason: "wrap-lock-contention" and writer_actions: [].
-  exit 0
-}
-```
-
-If lock acquisition fails, return immediately with the JSON return shape populated as:
+**Defensive fallback (should not normally trigger).** If you are ever invoked without a currently-held lock - a conductor bookkeeping regression, not a normal outcome of the bounded-wait contract above - return immediately with the JSON return shape populated as:
 
 ```json
 {
@@ -122,7 +114,9 @@ If lock acquisition fails, return immediately with the JSON return shape populat
   "operator_summary": "Phase 11b skipped: wrap-lock-contention (likely /ds-wrap running concurrently).",
   "writer_actions": [],
   "skipped_reason": "wrap-lock-contention",
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": [],
+  "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
 ```
 

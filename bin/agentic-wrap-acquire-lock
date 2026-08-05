@@ -138,6 +138,10 @@
  *   returned in the completion notification. --role/--print-token let a caller
  *   (daemon, commit hook) tag and later release its own hold distinctly from an
  *   interactive agent's.
+ *   content/commands/ds-implement-ticket.md's Phase 11b Lock acquisition step is a
+ *   second consumer: same --no-wait-then-bounded-retry shape, but with a fixed
+ *   --timeout-ms=45000 (not the 20-minute default) since Phase 11b is inline in an
+ *   already-long ticket loop.
  *
  * Failure modes: exit 1 on lib load failure or an invalid --role; exit 2 on
  *   timeout; exit 5 on --no-wait finding the lock held. A genuine fs failure

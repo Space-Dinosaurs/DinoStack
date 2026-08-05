@@ -1918,7 +1918,7 @@ When investigation spans multiple independent surfaces (e.g., backend data layer
 
 ## wrap-ticket writer carve-out
 
-wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/_wrap.md` (append-merge under `## Recent Focus` only - **not** `.agentic/context.md`, which is now a derived rollup that would discard the write on the next turn; see the writer contract below). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (both acquire the same lock; concurrent runs are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (conductor owns - qa-engineer performs no file writes and returns entries as a payload instead), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer across agents - not across sessions for `tasks.jsonl`; see `content/references/task-state-file.md`), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
+wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions.md` (resolver: AGENTS.md convention -> ./decisions.md -> docs/decisions.md -> docs/adr/ -> create at cwd), and `.agentic/_wrap.md` (append-merge under `## Recent Focus` only - **not** `.agentic/context.md`, which is now a derived rollup that would discard the write on the next turn; see the writer contract below). Operators retain manual write rights for these files. `/ds-wrap` retains its own write paths and serializes with wrap-ticket via `.agentic/wrap/lock` (the conductor acquires this lock on wrap-ticket's behalf before every Phase 11b spawn - see `content/commands/ds-implement-ticket.md` Phase 11b's bounded-wait acquisition contract; wrap-ticket itself has no Bash tool and never acquires the lock. `/ds-wrap` acquires it directly for its own pre-flight; concurrent holds are not permitted). wrap-ticket MUST NOT touch `.agentic/findings.md` (findings-curator owns), `.agentic/qa.md` (conductor owns - qa-engineer performs no file writes and returns entries as a payload instead), `.agentic/tasks.jsonl` / any loop-state file - the per-ticket `.agentic/loop-state-<LOOP_KEY>.json` and the legacy `.agentic/loop-state.json` alike - / `.agentic/batch-state.json` (conductor sole-writer across agents - not across sessions for `tasks.jsonl`; see `content/references/task-state-file.md`), or any `AGENTS.md` (`/ds-wrap` owns). wrap-ticket failure is soft-fail and NEVER blocks Phase 12 cleanup or PR completion.
 
 **`.agentic/context.md` writer contract: a DERIVED rollup, deliberately lock-free.**
 
@@ -11255,9 +11255,12 @@ Failure modes:
   Phase 12 or PR completion.
 - JSON parse failure (bad return shape): conductor warns and proceeds with no
   appends.
-- Lock contention: if .agentic/wrap/lock is held by another session (e.g., /ds-wrap
-  is running concurrently), return immediately with skipped_reason set to
-  "wrap-lock-contention" and writer_actions: [].
+- Lock contention: resolved by the conductor BEFORE you are spawned (bounded-wait
+  acquisition contract in content/commands/ds-implement-ticket.md Phase 11b) - the
+  conductor skips Phase 11b entirely, and never spawns you, when the lock could not
+  be acquired within the bound. The "return skipped_reason: wrap-lock-contention"
+  branch documented in Workflow Step 1 is a defensive fallback only, not a normal
+  outcome.
 - Forbidden write attempt: must NEVER touch findings.md, qa.md, tasks.jsonl,
   any loop-state file (keyed loop-state-<LOOP_KEY>.json or legacy
   loop-state.json), batch-state.json, AGENTS.md, or any source/config file. A
@@ -11283,7 +11286,7 @@ You are a **constrained automated subset of `/ds-wrap`**. The differences are in
 | Skeptic review | None | Required |
 | Rolling session labels | None | Yes (10-window rolling) |
 | Spawn mode | Foreground, blocking, 60s timeout | Standard agent flow |
-| Lock | `.agentic/wrap/lock` (shared with /ds-wrap) | `.agentic/wrap/lock` (shared with wrap-ticket) |
+| Lock | `.agentic/wrap/lock` (conductor acquires on wrap-ticket's behalf before spawn; shared with /ds-wrap) | `.agentic/wrap/lock` (acquires directly; shared with wrap-ticket) |
 | Failure semantics | Soft-fail; never blocks PR | May escalate |
 
 You do not write code. You do not modify application files. You do not spawn subagents. You write only to MEMORY.md, decisions.md, and .agentic/_wrap.md (Recent Focus only).
@@ -11308,22 +11311,11 @@ Your spawn prompt provides the following inputs (all required unless noted):
 
 ## Workflow
 
-### 1. Acquire the wrap lock
+### 1. The wrap lock is already held when you are spawned
 
-Before any read or write, attempt to acquire `.agentic/wrap/lock`:
+You are never spawned unless the conductor already holds `.agentic/wrap/lock`. Per `content/commands/ds-implement-ticket.md` Phase 11b's bounded-wait acquisition contract, the conductor acquires the lock itself - a first `--no-wait` attempt, then (on busy) a bounded `--timeout-ms=45000` background retry - BEFORE spawning you. You have no Bash tool and never attempt acquisition yourself; you inherit an already-held lock for the duration of your run.
 
-```bash
-mkdir -p .agentic/wrap
-mkdir .agentic/wrap/lock 2>/dev/null && {
-  printf '%s\n%s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > .agentic/wrap/lock/owner
-} || {
-  # Lock is held by another session (likely /ds-wrap). Return immediately with
-  # skipped_reason: "wrap-lock-contention" and writer_actions: [].
-  exit 0
-}
-```
-
-If lock acquisition fails, return immediately with the JSON return shape populated as:
+**Defensive fallback (should not normally trigger).** If you are ever invoked without a currently-held lock - a conductor bookkeeping regression, not a normal outcome of the bounded-wait contract above - return immediately with the JSON return shape populated as:
 
 ```json
 {
@@ -11333,7 +11325,9 @@ If lock acquisition fails, return immediately with the JSON return shape populat
   "operator_summary": "Phase 11b skipped: wrap-lock-contention (likely /ds-wrap running concurrently).",
   "writer_actions": [],
   "skipped_reason": "wrap-lock-contention",
-  "size_advisory": null
+  "size_advisory": null,
+  "cluster_results": [],
+  "resolved_paths": { "memory_md": null, "decisions_md": null }
 }
 ```
 
@@ -16129,9 +16123,17 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
-**Lock acquisition:** before spawning, attempt to acquire `.agentic/wrap/lock` (atomic `mkdir`). The lock is shared with `/ds-wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/_wrap.md` - each a genuine read-modify-write of a curated file. It is NOT and never was mutual exclusion for `.agentic/context.md`: that file is now a derived rollup, deliberately written WITHOUT the lock, because it is recomposed from `_wrap.md` plus the per-session shards and a lost update self-heals on the next turn. (Naming `context.md` here was a false claim even before that change - the two hooks that "protected" it CHECKED the lock and neither ACQUIRED it, so it gave them no exclusion against each other. See `content/references/conductor-operating-rules.md` under "`.agentic/context.md` writer contract".)
+**Lock acquisition (bounded wait):** before spawning, acquire `.agentic/wrap/lock` via `agentic-wrap-acquire-lock` - never a manual `mkdir`, which would produce a lock directory with no `owner.json` and forfeit the daemon-side live-lock protection this design depends on. The lock is shared with `/ds-wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/_wrap.md` - each a genuine read-modify-write of a curated file. It is NOT and never was mutual exclusion for `.agentic/context.md`: that file is now a derived rollup, deliberately written WITHOUT the lock, because it is recomposed from `_wrap.md` plus the per-session shards and a lost update self-heals on the next turn. (Naming `context.md` here was a false claim even before that change - the two hooks that "protected" it CHECKED the lock and neither ACQUIRED it, so it gave them no exclusion against each other. See `content/references/conductor-operating-rules.md` under "`.agentic/context.md` writer contract".)
 
-- **If the lock is held by another session** (e.g., `/ds-wrap` is running concurrently in another session): skip Phase 11b with the operator note: `"Phase 11b skipped: /ds-wrap is running in another session."` Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
+1. **First attempt (foreground, no wait):** `agentic-wrap-acquire-lock "$REPO" --role=agent --no-wait --session-id="$CLAUDE_CODE_SESSION_ID"`. Branch on exit code:
+   - **0** - acquired. Go to "If the lock is acquired" below.
+   - **5** - busy (lock held by another session, e.g. `/ds-wrap` running concurrently). Go to step 2.
+   - **1** - fatal (lib load failure or an invalid `--role`). Surface the WARNING line verbatim, then skip Phase 11b with `skipped_reason: "wrap-lock-contention"`. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
+   - **any other exit code, including PATH-not-found** - if the command is not found on PATH at all, do NOT fall back to a manual `mkdir` (see rationale above); instead skip Phase 11b with `skipped_reason: "wrap-lock-contention"` and the operator note naming the missing install step: `"Phase 11b skipped: agentic-wrap-acquire-lock not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH."` For any other unrecognized code, surface it verbatim and skip the same way. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
+2. **On busy, re-invoke bounded (background):** `agentic-wrap-acquire-lock "$REPO" --role=agent --timeout-ms=45000 --session-id="$CLAUDE_CODE_SESSION_ID"` with `run_in_background: true`. **The conductor holds at this step: it MUST NOT advance to Phase 11d, Phase 12, or any step that clears `findings_log` while this background attempt is outstanding.** `findings_log` is read from `.agentic/loop-state-$LOOP_KEY.json` by the conductor at spawn time, and Phase 12 is its only clearer (see the Phase 11b trigger note above) - advancing past this step before the background attempt resolves would let Phase 12 clear `findings_log` out from under a `wrap-ticket` spawn that is still pending, which is the exact data-loss failure mode this ticket exists to prevent. 45000ms (45s) is a **chosen bound, not derived from any shared phase-level budget**: `wrap-ticket`'s own 60s spawn timeout (see `**Spawn:**` above) is a SEPARATE, sequential budget for the spawn itself, so a worst-case contended run now takes up to ~105s total (45s wait + 60s spawn) rather than the ~60s of an uncontended run. 45s is chosen to be comfortably shorter than `wrap-ticket`'s own spawn timeout and dramatically shorter than `/ds-wrap`'s own 20-minute default wait (`content/commands/ds-wrap.md` Pre-flight lock acquisition step 3) - long enough that ordinary `/ds-wrap` write-phase contention resolves within the bound, short enough that Phase 11b (already inline in a long ticket loop) does not stall indefinitely. On the completion notification, branch on exit code:
+   - **0** - acquired. Go to "If the lock is acquired" below.
+   - **2** - timeout (45s elapsed, lock still held). Skip Phase 11b with `skipped_reason: "wrap-lock-contention"` and the operator note: `"Phase 11b skipped: wrap-lock-contention (lock still held after 45s bounded wait)."`, printing the helper's final `timeout ...` line verbatim. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
+   - **1 / any other exit code** - surface the helper's printed line verbatim (WARNING line on exit 1) and skip Phase 11b with `skipped_reason: "wrap-lock-contention"`. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
 - **If the lock is acquired:** spawn `wrap-ticket` with the inputs below. The conductor releases the lock on every exit path (success, timeout, soft-fail) before proceeding to Phase 12.
 
 **`wrap-ticket` spawn brief inputs:**
@@ -16156,7 +16158,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
-Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `agentic-wrap-release-lock` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The two skip-conditions paths and the lock-held-by-another-session path never acquired the lock in this session and must NOT call the release helper.
+Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `agentic-wrap-release-lock "$REPO"` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The release root MUST match the root passed to the acquire calls in step 1 and step 2 above - a bare `agentic-wrap-release-lock` resolves against the conductor's cwd instead, and if cwd differs from `$REPO` the release is a silent no-op that leaks the lock for the rest of the session. The two skip-conditions paths and every lock-acquisition-failed path (the first attempt's non-0/non-5 exit code, and the bounded-wait attempt's 45s timeout or non-0/non-2 exit code) never acquired the lock in this session and must NOT call the release helper.
 
 **Post-return skill-candidate merge (conductor-side, runs AFTER lock release, soft-fail):**
 
@@ -20331,7 +20333,7 @@ Use when you want a richer context file than the auto-hook provides — e.g. bef
 
 The Stop hook writes this session's `<cwd>/.agentic/context.d/<session_id>.md` activity shard after every turn with raw session data, then recomposes the derived `<cwd>/.agentic/context.md` rollup from it. `/ds-wrap` merges a structured, human-curated version into `<cwd>/.agentic/_wrap.md` - the curated half of that rollup - when detail matters. Neither writes `context.md` directly. It is also the ongoing counterpart to `/ds-init-project`: where `/ds-init-project` scaffolds the AGENTS.md hierarchy, `/ds-wrap` populates it — filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions.
 
-**Relationship to `wrap-ticket`.** `/ds-wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `.agentic/_wrap.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `/ds-implement-ticket` — it appends to MEMORY.md, decisions.md, and `.agentic/_wrap.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, `_wrap.md`) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `/ds-wrap` MUST NOT run concurrently — both acquire `.agentic/wrap/lock`. If `/ds-wrap` is invoked while `wrap-ticket` holds the lock, `/ds-wrap` waits per the standard lock-wait protocol below; if `wrap-ticket` is invoked while `/ds-wrap` holds the lock, `wrap-ticket` skips with `skipped_reason: "wrap-lock-contention"` and proceeds without learnings capture (Phase 11b is non-blocking).
+**Relationship to `wrap-ticket`.** `/ds-wrap` is the on-demand richer session-summarization tool that targets AGENTS.md, MEMORY.md, and `.agentic/_wrap.md` across an entire session and uses Skeptic review. The per-ticket Phase 11b `wrap-ticket` agent (see `content/agents/wrap-ticket.md`) is a constrained automated subset that fires on every PR opened by `/ds-implement-ticket` — it appends to MEMORY.md, decisions.md, and `.agentic/_wrap.md` only, never touches AGENTS.md, and runs without Skeptic. They write to overlapping files (MEMORY.md, `_wrap.md`) but at non-overlapping cadences (per-ticket vs per-session); both follow append-discipline so the concurrent-write hazard is bounded. `wrap-ticket` and `/ds-wrap` MUST NOT hold `.agentic/wrap/lock` concurrently - `/ds-wrap` acquires it directly for its own pre-flight; the CONDUCTOR acquires it on `wrap-ticket`'s behalf before every Phase 11b spawn (wrap-ticket itself has no Bash tool and never acquires the lock). If `/ds-wrap` is invoked while the conductor holds the lock for a Phase 11b `wrap-ticket` spawn, `/ds-wrap` waits per the standard lock-wait protocol below; if the conductor's Phase 11b bounded-wait acquisition attempt (`content/commands/ds-implement-ticket.md` Phase 11b) cannot acquire the lock because `/ds-wrap` holds it, the conductor skips Phase 11b with `skipped_reason: "wrap-lock-contention"` WITHOUT ever spawning `wrap-ticket`, and proceeds without learnings capture (Phase 11b is non-blocking).
 
 ## Deferred background enrichment (daemon)
 
