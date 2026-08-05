@@ -287,7 +287,7 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 
 **Standard path** - triggers when neither of the above applies (i.e. at least one of Outputs 2/3 has real content, OR a specialist agent ran with session-scoped issues). Proceed to Step 1 unchanged.
 
-**Step 1 — Spawn a draft Worker** (background, general-purpose):
+**Step 1 — Spawn a draft Worker** (background, general-purpose, model: "haiku"):
 
 ---
 You are a Worker agent. Format the raw session data below into three outputs. Replace all placeholders with real content from the data provided. If a section genuinely has nothing to say, write the word "None" — never leave brackets or template text.
@@ -419,7 +419,7 @@ Return all three outputs clearly labeled. Do not write to disk.
 
 ---
 
-**Step 2 — When the draft Worker returns, spawn a fresh Skeptic** (background, general-purpose, never resumed).
+**Step 2 — When the draft Worker returns, spawn a fresh Skeptic** (background, general-purpose, never resumed, model: "haiku"). This Skeptic is Tier 1 by design: it reviews the markdown accuracy of a scaffolding artifact, not an application code diff - its Global-context input set fixes fields 1-4 to `n/a` (no code diff, no architect plan/Brief, no per-consumer impact table).
 
 Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites - never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
 
@@ -622,7 +622,7 @@ Otherwise skip that target silently.
 
 **For each target that passes the gate:**
 
-1. Spawn a dedicated background Worker (general-purpose) with this brief verbatim:
+1. Spawn a dedicated background Worker (general-purpose, model: "haiku") with this brief verbatim:
 
    > You are a compression Worker. Rewrite the file content below into a token-dense form suitable for an LLM to read on every session start. Hard constraints, no exceptions:
    > - Preserve every technical fact, decision, gotcha, and rationale. If you are not certain a phrase is filler, keep it.
@@ -635,7 +635,7 @@ Otherwise skip that target silently.
    > File content:
    > [paste full file content]
 
-2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed draft), then the original file content and the compressed draft:
+2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed, model: "haiku") with this adversarial brief verbatim. This Skeptic is Tier 1 by design: it reviews the markdown accuracy of a compressed scaffolding artifact against its original, not an application code diff - its Global-context input set fixes fields 1-4 to `n/a` (no code diff, no architect plan/Brief, no per-consumer impact table). Follow the brief with the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed draft), then the original file content and the compressed draft:
 
    > You are reviewing a memory-file compression for fact loss. The original file is the source of truth. The compressed file must preserve every technical fact, decision, path, command, date, version, URL, and rationale from the original. Stylistic compression of prose is allowed; semantic loss is not.
    >

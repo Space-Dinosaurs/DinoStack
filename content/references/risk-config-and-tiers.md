@@ -4,10 +4,11 @@ Purpose: Detailed risk-classification reference blocks extracted from
          twenty-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
-         tier table, model-param mapping, mandatory Tier-3 escalation (with
-         enforce-tier.py hook note), frontmatter defaults, enforcement, and
-         adapter-specific routing (Codex/Gemini, Pi/oh-my-pi, cross-harness
-         teams).
+         tier table (three Tier-1 default-role owners: goal-condition-evaluator,
+         learning-extractor, wrap-ticket), model-param mapping, mandatory
+         Tier-3 escalation (with enforce-tier.py hook note), frontmatter
+         defaults, enforcement, and adapter-specific routing (Codex/Gemini,
+         Pi/oh-my-pi, cross-harness teams).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/04-risk-classification.md (inline pointers
@@ -137,12 +138,12 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | product-discovery | 2 | sonnet | Requirements synthesis; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | adr-generator | 2 | sonnet | ADR authoring; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | adr-drift-detector | 2 | sonnet | Compliance audit |
-| learning-extractor | 2 | sonnet | Pattern extraction |
+| learning-extractor | 1 | haiku | Append-only leaf agent, hard caps + dedup, no code-review judgment; matches shipped frontmatter (content/agents/learning-extractor.md). |
 | learnings-agent | 2 | sonnet | Mandatory-trigger capture |
-| wrap-ticket | 2 | sonnet | Session wrap |
+| wrap-ticket | 1 | haiku | Append-only leaf agent, hard caps + dedup, no code-review judgment; matches shipped frontmatter (content/agents/wrap-ticket.md). |
 | goal-condition-evaluator | 1 | haiku | Cheap per-turn stop-condition check for open-goal loops; gates continuation only, never correctness/safety (see trigger-catalog.md yolo-guard) |
 
-Tier 1 (haiku) has exactly one default-role owner: `goal-condition-evaluator` (see the Role-default tier table above). For every other role, Tier 1 remains opt-in per spawn for shallow mechanical tasks with no default-role owner.
+Tier 1 (haiku) has three default-role owners: `goal-condition-evaluator`, `learning-extractor`, and `wrap-ticket` (see the Role-default tier table above). Each is a leaf agent (no subagent spawning) that runs in a lane with no Skeptic step of its own to substitute for - none of the three ever runs in place of, before, or concurrently with a Skeptic review of the artifact it touches. For every other role, Tier 1 remains opt-in per spawn for shallow mechanical tasks with no default-role owner.
 
 **Small-unit Tier-2 Skeptic carve-out.** When a unit meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) AND matches none of the 5 Mandatory Tier-3 signal categories above, the conductor MAY declare `Tier: 2 (small-unit nudge)` for the reviewing Skeptic instead of accepting the unconditional Opus role default. The declaration stays visible in the `Tier:` line at spawn time, same as any other tier declaration. This is a loop-cost lever only - it never widens what classifies as Low or Trivial, and the Skeptic still runs.
 

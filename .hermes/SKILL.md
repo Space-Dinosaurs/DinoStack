@@ -4528,10 +4528,11 @@ Purpose: Detailed risk-classification reference blocks extracted from
          twenty-toggle project config catalog (behavioral toggles only);
          the Graph-derived risk signal mechanism + freshness + autonomous
          refresh; and the full Tier declaration detail including role-default
-         tier table, model-param mapping, mandatory Tier-3 escalation (with
-         enforce-tier.py hook note), frontmatter defaults, enforcement, and
-         adapter-specific routing (Codex/Gemini, Pi/oh-my-pi, cross-harness
-         teams).
+         tier table (three Tier-1 default-role owners: goal-condition-evaluator,
+         learning-extractor, wrap-ticket), model-param mapping, mandatory
+         Tier-3 escalation (with enforce-tier.py hook note), frontmatter
+         defaults, enforcement, and adapter-specific routing (Codex/Gemini,
+         Pi/oh-my-pi, cross-harness teams).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/04-risk-classification.md (inline pointers
@@ -4661,12 +4662,12 @@ This reuses the Elevated risk-signal vocabulary above. The conductor passes `mod
 | product-discovery | 2 | sonnet | Requirements synthesis; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | adr-generator | 2 | sonnet | ADR authoring; upgrade to Tier 3 per the authoring-escalation rule for Plan+ADR-tier units |
 | adr-drift-detector | 2 | sonnet | Compliance audit |
-| learning-extractor | 2 | sonnet | Pattern extraction |
+| learning-extractor | 1 | haiku | Append-only leaf agent, hard caps + dedup, no code-review judgment; matches shipped frontmatter (content/agents/learning-extractor.md). |
 | learnings-agent | 2 | sonnet | Mandatory-trigger capture |
-| wrap-ticket | 2 | sonnet | Session wrap |
+| wrap-ticket | 1 | haiku | Append-only leaf agent, hard caps + dedup, no code-review judgment; matches shipped frontmatter (content/agents/wrap-ticket.md). |
 | goal-condition-evaluator | 1 | haiku | Cheap per-turn stop-condition check for open-goal loops; gates continuation only, never correctness/safety (see trigger-catalog.md yolo-guard) |
 
-Tier 1 (haiku) has exactly one default-role owner: `goal-condition-evaluator` (see the Role-default tier table above). For every other role, Tier 1 remains opt-in per spawn for shallow mechanical tasks with no default-role owner.
+Tier 1 (haiku) has three default-role owners: `goal-condition-evaluator`, `learning-extractor`, and `wrap-ticket` (see the Role-default tier table above). Each is a leaf agent (no subagent spawning) that runs in a lane with no Skeptic step of its own to substitute for - none of the three ever runs in place of, before, or concurrently with a Skeptic review of the artifact it touches. For every other role, Tier 1 remains opt-in per spawn for shallow mechanical tasks with no default-role owner.
 
 **Small-unit Tier-2 Skeptic carve-out.** When a unit meets the simple/targeted-unit mechanical metric (`content/sections/04-risk-classification.md` §Simple/targeted unit (mechanical metric)) AND matches none of the 5 Mandatory Tier-3 signal categories above, the conductor MAY declare `Tier: 2 (small-unit nudge)` for the reviewing Skeptic instead of accepting the unconditional Opus role default. The declaration stays visible in the `Tier:` line at spawn time, same as any other tier declaration. This is a loop-cost lever only - it never widens what classifies as Low or Trivial, and the Skeptic still runs.
 
@@ -20611,7 +20612,7 @@ Light path procedure (replaces Steps 1-3; preserves parts of Step 4):
 
 **Standard path** - triggers when neither of the above applies (i.e. at least one of Outputs 2/3 has real content, OR a specialist agent ran with session-scoped issues). Proceed to Step 1 unchanged.
 
-**Step 1 — Spawn a draft Worker** (background, general-purpose):
+**Step 1 — Spawn a draft Worker** (background, general-purpose, model: "haiku"):
 
 ---
 You are a Worker agent. Format the raw session data below into three outputs. Replace all placeholders with real content from the data provided. If a section genuinely has nothing to say, write the word "None" — never leave brackets or template text.
@@ -20743,7 +20744,7 @@ Return all three outputs clearly labeled. Do not write to disk.
 
 ---
 
-**Step 2 — When the draft Worker returns, spawn a fresh Skeptic** (background, general-purpose, never resumed).
+**Step 2 — When the draft Worker returns, spawn a fresh Skeptic** (background, general-purpose, never resumed, model: "haiku"). This Skeptic is Tier 1 by design: it reviews the markdown accuracy of a scaffolding artifact, not an application code diff - its Global-context input set fixes fields 1-4 to `n/a` (no code diff, no architect plan/Brief, no per-consumer impact table).
 
 Scope constraint: the Skeptic reviews only the accuracy and completeness of the context file and the AGENTS.md updates. Its findings must only trigger context file or AGENTS.md rewrites - never code changes, bug fixes, or any development work. If the Skeptic notes that the context file describes pending work that is already complete (or vice versa), the fix is to update the wording to reflect reality accurately.
 
@@ -20946,7 +20947,7 @@ Otherwise skip that target silently.
 
 **For each target that passes the gate:**
 
-1. Spawn a dedicated background Worker (general-purpose) with this brief verbatim:
+1. Spawn a dedicated background Worker (general-purpose, model: "haiku") with this brief verbatim:
 
    > You are a compression Worker. Rewrite the file content below into a token-dense form suitable for an LLM to read on every session start. Hard constraints, no exceptions:
    > - Preserve every technical fact, decision, gotcha, and rationale. If you are not certain a phrase is filler, keep it.
@@ -20959,7 +20960,7 @@ Otherwise skip that target silently.
    > File content:
    > [paste full file content]
 
-2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed) with this adversarial brief verbatim, followed by the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed draft), then the original file content and the compressed draft:
+2. When the compression Worker returns, spawn a fresh Skeptic (background, general-purpose, never resumed, model: "haiku") with this adversarial brief verbatim. This Skeptic is Tier 1 by design: it reviews the markdown accuracy of a compressed scaffolding artifact against its original, not an application code diff - its Global-context input set fixes fields 1-4 to `n/a` (no code diff, no architect plan/Brief, no per-consumer impact table). Follow the brief with the Global-context input set (`## Global-context inputs` block per `content/references/skeptic-protocol.md` Section 4.5 - fields 1-3 are `n/a - internal scaffolding artifact review (no code diff, no architect plan/Brief/qa_criteria applies)`; field 4 (per-consumer impact table) is `n/a - internal scaffolding artifact (not a shared-utility surface, no per-consumer impact table applies)`; field 5 is the target file's path; field 6 is the original file content and the compressed draft), then the original file content and the compressed draft:
 
    > You are reviewing a memory-file compression for fact loss. The original file is the source of truth. The compressed file must preserve every technical fact, decision, path, command, date, version, URL, and rationale from the original. Stylistic compression of prose is allowed; semantic loss is not.
    >
