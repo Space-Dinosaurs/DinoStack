@@ -228,14 +228,18 @@ function normalize(text) {
 // ---------------------------------------------------------------------------
 const GOLDEN_LOCK_RELEASE_TEXT = normalize(
   'Lock release: this applies ONLY within the "If the lock is acquired" ' +
-  'branch above - the conductor runs `agentic-wrap-release-lock` ' +
+  'branch above - the conductor runs `agentic-wrap-release-lock "$REPO"` ' +
   '(PATH-wired helper) unconditionally on every `wrap-ticket` outcome in ' +
   'that branch (success, non-JSON return, timeout, soft-fail) before ' +
-  'advancing to Phase 12. The two skip-conditions paths and every ' +
-  'lock-acquisition-failed path (the first attempt\'s non-0/non-5 exit ' +
-  'code, and the bounded-wait attempt\'s 45s timeout or non-0/non-2 exit ' +
-  'code) never acquired the lock in this session and must NOT call the ' +
-  'release helper.'
+  'advancing to Phase 12. The release root MUST match the root passed to ' +
+  'the acquire calls in step 1 and step 2 above - a bare ' +
+  '`agentic-wrap-release-lock` resolves against the conductor\'s cwd ' +
+  'instead, and if cwd differs from `$REPO` the release is a silent ' +
+  'no-op that leaks the lock for the rest of the session. The two ' +
+  'skip-conditions paths and every lock-acquisition-failed path (the ' +
+  'first attempt\'s non-0/non-5 exit code, and the bounded-wait ' +
+  'attempt\'s 45s timeout or non-0/non-2 exit code) never acquired the ' +
+  'lock in this session and must NOT call the release helper.'
 );
 
 // ---------------------------------------------------------------------------
