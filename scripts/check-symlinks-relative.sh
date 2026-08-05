@@ -14,7 +14,7 @@
 #             and [ref] are mutually exclusive (exit 2 if both given). At
 #             most one positional [ref] argument is accepted in either mode
 #             - a second positional arg now exits 2 ("too many arguments"),
-#             strictened by DS-136: previously any extra positional args
+#             tightened by DS-136: previously any extra positional args
 #             (e.g. `origin/main extra`) were silently ignored.
 #             Exits 0 when all four symlinks are relative (leading char !=
 #             "/") or staged for deletion, 1 when any is absolute or
