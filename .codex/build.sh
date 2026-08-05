@@ -267,6 +267,8 @@ declare -a generated_tomls=()
 for src in "$CONTENT/agents/"*.md; do
   [ -f "$src" ] || continue
 
+  echo "  building $(basename "$src" .md).toml"
+
   # --- Parse frontmatter ---
   # Extract the YAML block between the first pair of --- delimiters.
   fm_name=""
@@ -375,17 +377,14 @@ PYEOF
   # quotes are allowed as long as three consecutive ones are not present.
   # We escape backslash as \\ and replace any run of 3+ double-quotes with
   # escaped variants to be safe.
-  body_content=""
-  first_body=1
-  for bline in "${body_lines[@]}"; do
-    if [[ $first_body -eq 1 ]]; then
-      body_content="$bline"
-      first_body=0
-    else
-      body_content="$body_content
-$bline"
-    fi
-  done
+  if [[ ${#body_lines[@]} -gt 0 ]]; then
+    OLD_IFS="$IFS"
+    IFS=$'\n'
+    body_content="${body_lines[*]}"
+    IFS="$OLD_IFS"
+  else
+    body_content=""
+  fi
 
   # Escape backslashes for TOML multi-line basic string
   body_escaped="${body_content//\\/\\\\}"

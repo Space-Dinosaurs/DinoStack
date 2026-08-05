@@ -134,6 +134,7 @@ for src in "$CONTENT/commands/"*.md; do
   [ -f "$src" ] || continue
 
   base="$(basename "$src" .md)"
+  echo "  building ${base}.toml"
   dst="$COMMANDS_DST/${base}.toml"
   generated_tomls+=("${base}.toml")
 
@@ -216,17 +217,14 @@ for src in "$CONTENT/commands/"*.md; do
   fi
 
   # Build body string from accumulated lines
-  body_content=""
-  first_body=1
-  for bline in "${body_lines[@]}"; do
-    if [[ $first_body -eq 1 ]]; then
-      body_content="$bline"
-      first_body=0
-    else
-      body_content="$body_content
-$bline"
-    fi
-  done
+  if [[ ${#body_lines[@]} -gt 0 ]]; then
+    OLD_IFS="$IFS"
+    IFS=$'\n'
+    body_content="${body_lines[*]}"
+    IFS="$OLD_IFS"
+  else
+    body_content=""
+  fi
 
   # Escape backslashes for TOML multi-line basic string
   body_escaped="${body_content//\\/\\\\}"
