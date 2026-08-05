@@ -139,6 +139,21 @@ if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Agentic-engineering skill symlink absolutization gate (DS-104/DS-136)
+#
+# Runs the STAGED version of scripts/check-symlinks-relative.sh (via `git
+# show :path | bash -s --`) rather than the working-tree copy, so a locally
+# modified-but-unstaged checker cannot silently weaken this gate. Runs
+# before the worktree build-skip exit below so it fires in every linked
+# worktree, not just the primary checkout.
+# ---------------------------------------------------------------------------
+
+if ! git show :scripts/check-symlinks-relative.sh 2>/dev/null | bash -s -- --staged; then
+  echo "[pre-commit] ERROR: one or more agentic-engineering skill symlinks are staged as absolute paths (expected relative) - commit blocked. Run 'git status' and re-link with a relative target." >&2
+  exit 1
+fi
+
+# ---------------------------------------------------------------------------
 # Adapter builds and staging (skipped in worktrees - build scripts assume
 # primary checkout; worktree engineers commit bin/hooks changes only)
 # ---------------------------------------------------------------------------

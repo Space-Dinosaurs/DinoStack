@@ -1789,23 +1789,24 @@ def build(repo: Path, output: Path) -> None:
             assert isinstance(nonce, str)
             set_registry_binding(repo, output, nonce)
         sync_tree(staging, output, ownership_marker)
-    check(repo, output)
+    _check(repo, output, revalidate_render=False)
 
 
-def check(repo: Path, output: Path) -> None:
+def _check(repo: Path, output: Path, *, revalidate_render: bool) -> None:
     load_compatibility(repo)
     validate_adapter_mirrors(repo)
     ownership_marker, _ = prepare_root_ownership(repo, output, required=True)
-    with tempfile.TemporaryDirectory(prefix="codex-skills-check-") as temp:
-        expected_root = Path(temp)
-        render_tree(repo, output, expected_root, ownership_marker)
-        expected = scan_tree(expected_root)
-        actual = scan_tree(output)
-        if expected != actual:
-            missing = sorted(set(expected) - set(actual))
-            unexpected = sorted(set(actual) - set(expected))
-            changed = sorted(rel for rel in set(actual) & set(expected) if actual[rel] != expected[rel])
-            raise SkillError(f"generated skill drift: missing={missing}, unexpected={unexpected}, changed={changed}")
+    if revalidate_render:
+        with tempfile.TemporaryDirectory(prefix="codex-skills-check-") as temp:
+            expected_root = Path(temp)
+            render_tree(repo, output, expected_root, ownership_marker)
+            expected = scan_tree(expected_root)
+            actual = scan_tree(output)
+            if expected != actual:
+                missing = sorted(set(expected) - set(actual))
+                unexpected = sorted(set(actual) - set(expected))
+                changed = sorted(rel for rel in set(actual) & set(expected) if actual[rel] != expected[rel])
+                raise SkillError(f"generated skill drift: missing={missing}, unexpected={unexpected}, changed={changed}")
     validate_resources(output)
     with tempfile.TemporaryDirectory(prefix="codex-skill-home-") as home, tempfile.TemporaryDirectory(prefix="codex-skill-cwd-") as cwd:
         install = Path(home) / ".agents/skills"
@@ -1818,6 +1819,10 @@ def check(repo: Path, output: Path) -> None:
             validate_resources(install)
         finally:
             os.chdir(previous)
+
+
+def check(repo: Path, output: Path) -> None:
+    _check(repo, output, revalidate_render=True)
 
 
 def main(argv: list[str] | None = None) -> int:

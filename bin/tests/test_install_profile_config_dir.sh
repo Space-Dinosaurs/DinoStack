@@ -16,6 +16,15 @@
 #
 # Failure modes: any failing assertion prints and exits 1. Fully hermetic:
 #                all writes land under a throwaway HOME.
+#
+# Performance: ~77 s in CI run 30968643749. 5 call sites reach
+#              .codex/install.sh (currently :107, :108, :144, :172, :233 -
+#              re-grep `install.sh` if this file is edited again), each a
+#              distinct scenario (two-tenant isolation, direct symlink
+#              refusal, hostile-symlink-with-plant-detection, deep-
+#              nonexistent-path creation) - not collapsible without a
+#              coverage cut. Re-measure with
+#              `time bash bin/tests/test_install_profile_config_dir.sh`.
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"

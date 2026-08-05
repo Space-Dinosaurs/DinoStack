@@ -40,9 +40,17 @@
 #                bin/tests/lib/precommit-hook-guard.sh (same guard used by
 #                bin/tests/test_uninstall_ds_prefix.sh); the guard does not
 #                cover the earlier install.sh pre-commit-hook writes above.
+#                This test previously could block on /dev/tty under
+#                ae_confirm when run with a real controlling terminal (not
+#                reproducible in GitHub-hosted CI, which has none), because
+#                it omitted --no-identity from the install.sh invocation;
+#                fixed by adding the flag.
 #
-# Performance: ~20-40 s wall time (4 adapters x 2 install.sh runs each,
-#              each run includes a real build.sh pass).
+# Performance: ~71 s wall time as measured in CI run 30968643749 (2026-08-05,
+#              job bin-sh-tests) - 4 adapters x 2 install.sh runs each, each
+#              run includes a real build.sh pass. This figure is stale by
+#              ~2x versus a prior estimate; re-measure if Unit 2's cut to
+#              scripts/codex-skills.py changes it.
 
 set -uo pipefail
 
@@ -75,7 +83,7 @@ _run_install() {
   local install_sh="$1"
   local fake_home="$2"
   shift 2
-  HOME="$fake_home" bash "$install_sh" --mode=opt-out --profile=default "$@" \
+  HOME="$fake_home" bash "$install_sh" --mode=opt-out --profile=default --no-identity "$@" \
     < /dev/null > "$fake_home/.install_out" 2>&1
   local rc=$?
   if [[ $rc -ne 0 ]]; then
