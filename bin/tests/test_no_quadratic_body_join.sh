@@ -23,12 +23,24 @@
 #
 # Failure modes: `.gemini/build.sh` or `.codex/build.sh` reintroduces the
 #                `body_content="$body_content` concatenation pattern -> FAIL
-#                naming the offending file(s).
+#                naming the offending file(s). A target file that is missing
+#                or unreadable is also a FAIL (not a silent pass) - a grep
+#                whose failure is swallowed cannot distinguish "pattern
+#                absent" from "file absent", which would make this tripwire
+#                vacuous.
 set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 
 FAIL=0
 for f in .gemini/build.sh .codex/build.sh; do
-  if grep -n 'body_content="\$body_content' "$f" >/dev/null 2>&1; then
+  if [[ ! -r "$f" ]]; then
+    echo "FAIL: $f missing or unreadable" >&2
+    FAIL=1
+    continue
+  fi
+  if grep -q 'body_content="\$body_content' "$f"; then
     echo "FAIL: $f contains the O(n^2) accumulate-in-loop pattern" >&2
     FAIL=1
   fi

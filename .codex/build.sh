@@ -386,10 +386,26 @@ PYEOF
     body_content=""
   fi
 
-  # Escape backslashes for TOML multi-line basic string
-  body_escaped="${body_content//\\/\\\\}"
-  # Escape sequences of 3+ double-quotes so they don't terminate the TOML string
-  body_escaped="${body_escaped//\"\"\"/\\\"\\\"\\\"}"
+  # Escape backslashes, then sequences of 3+ double-quotes, for the TOML
+  # multi-line basic string. Bash's own `${var//pattern/repl}` parameter
+  # substitution is prohibitively slow on large bodies (DS-135 follow-up) -
+  # a single backslash-escape pass alone did not complete in 200s on a
+  # ~335KB body under bash 3.2.57 (the default macOS /bin/bash). Route both
+  # passes through python3 (already a repo dependency) instead. A trailing
+  # sentinel byte guards the two escape passes' output against command
+  # substitution's trailing-newline stripping, since a body that ends in a
+  # blank line would otherwise silently lose that trailing newline.
+  body_escaped="$(
+    printf '%s' "$body_content" | python3 -c '
+import sys
+s = sys.stdin.read()
+s = s.replace("\\", "\\\\")
+s = s.replace("\"\"\"", "\\\"\\\"\\\"")
+sys.stdout.write(s)
+'
+    printf '\x01'
+  )"
+  body_escaped="${body_escaped%$'\x01'}"
 
   # Escape description for a TOML basic string (escape backslash then double-quote)
   desc_escaped="${fm_description//\\/\\\\}"
