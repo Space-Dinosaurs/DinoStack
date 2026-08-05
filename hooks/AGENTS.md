@@ -130,3 +130,5 @@ permitted action class is a deadlock, not stricter enforcement. The worked
 instance - why no hook may deny conductor Read/Grep/Glob to force delegation -
 is `content/references/delegation-detail.md` §Harness-Injected Instruction
 Conflicts.
+
+The non-hook layers were settled separately: see `content/references/delegation-detail.md` §Delegation suppression (Collision 2).

@@ -2852,7 +2852,9 @@ Purpose: Detailed delegation-model reference blocks extracted from
          before-Architect rules (incl shared-utility-MANDATORY and Parallel
          Investigators); Harness-Injected Instruction Conflicts (collision
          catalog, delegation-suppression subsection, notice template,
-         operator remedies, harness-vs-model diagnostic);
+         operator remedies, harness-vs-model diagnostic, DS-133
+         unsupported-configuration policy and rejected consequence-detector
+         record);
          Learnings pipeline; Worker preamble + execution contract template;
          AskUserQuestion and Operator Decisions enforcement mechanics (hook
          wiring, detection limits, kill switch); Operator Decisions block
@@ -2988,7 +2990,7 @@ Parent clause: `content/sections/02-delegation.md` §Host-harness instruction co
 | Collision | Harness default (paraphrase) | AE locus | Resolution |
 |---|---|---|---|
 | **Approval scope** | "approval in one context doesn't extend to the next" | `content/sections/02-delegation.md` §Standing authorizations; `content/rules/conventions.md` §Git Workflow, Conductor preflight step 7 | The listed hygiene operations are durably authorized, so the harness carve-out is satisfied rather than overridden. An operator correction that an operation is routine updates the standing norm and is not instance-scoped. |
-| **Delegation suppression** | "do not call the AgentTool unless the user requested it" | `content/sections/02-delegation.md` §Delegation | See the Delegation suppression (Collision 2) subsection below. Remediation beyond the existing rule is out of scope for DS-132 and tracked separately as DS-133. |
+| **Delegation suppression** | "do not call the AgentTool unless the user requested it" | `content/sections/02-delegation.md` §Delegation | See the Delegation suppression (Collision 2) subsection below. Remediation was settled in DS-133: unsupported configuration, no detection, no degraded mode. |
 | **Act vs ask** | "confirm first for outward-facing or hard-to-reverse actions" | `content/sections/02-delegation.md` Hard-stop branch and Surface-and-proceed branch | Already arbitrated - the two branches partition the space by irreversibility. What was missing was the detection prompt and a definition of "pre-authorized", both now supplied. No new arbitration rule is added. |
 | **Self-correction depth** | "avoid excessive self-correction; don't ruminate or give a detailed account of the mistake" | `content/references/conductor-operating-rules.md` §learnings-agent; `content/references/capture-classification.md` | When the operator *asks* why a rule was not followed, a causal account of the mechanism is the requested answer. The defect is the wrong kind of answer, not merely a short one - a rule restatement in place of a cause is a non-answer at any length. A written LRN/KNW entry is not conversational rumination, so capture classification is unaffected. Cross-reference the third disjunct of the new kernel detection prompt (`or a restatement of the rule feels like a sufficient answer to why you broke it`), which is phrased to fire on exactly this substitution. |
 
@@ -3004,7 +3006,11 @@ Where the directive is conditional ("unless the user requested it"), the conditi
 
 Where the directive is unconditional and spawning genuinely fails, the conductor states that plainly at its first user-facing turn, with a remedy, rather than silently degrading into a direct implementer.
 
-Remediation beyond this rule - activation-preflight detection of the suppression, and any documented degraded mode - is deliberately out of scope here and is tracked separately as DS-133.
+**Policy: unsupported configuration, not a degraded mode (DS-133).** Detection of the suppression is not implemented. AE does not refuse to activate, does not offer a degraded-mode switch, and does not claim to notice suppression. An affected session is an unsupported configuration, and the remedies listed with the notice template above are the fix, applied by the operator.
+
+Three reasons stand behind that, and any future proposal to detect suppression has to answer all three rather than route around them. First, the activation preflight is bound to three file reads with no LLM reasoning (`content/sections/01-activation-preflight.md`, opening paragraph of §Activation preflight), and an injected directive has no file to read. Second, the capability has no payload representation and is not derivable from an on-disk artifact - the enforcement-hook prohibition above states this for hooks, and while that sentence is hook-scoped, the absence of a signal it relies on is a fact about the session rather than about hooks, so relocating the same inference to another layer does not create the signal. Third, the observed failure is *soft*: the model is discouraged and complies, so no spawn is attempted and no error exists to classify. A hard spawn failure is a different case, already handled by the unconditional branch above.
+
+**A consequence-detector was specified and rejected; the reason is recorded so it need not be re-derived.** The idea was to stop asking "is spawning suppressed?" and instead report when a session committed shippable files with zero `spawn_start` events on record - a cause-agnostic fact about the session's own artifacts, emitted by hook code so that a compromised conductor's own judgment is not load-bearing. It fails on attribution rather than on capability inference: `spawn_start` events are keyed by `session_uuid`, git commits carry no session identity, and every proxy bridging the two is confounded. Three fully compliant shapes satisfy the predicate. A session doing nothing but its mandated base-sync and `git pull --ff-only` picks up a teammate's freshly merged commits. A cross-session loop resuming at a later phase squash-merges work whose engineer and Skeptic ran under a prior session's identifier, and the base-sync fast-forward at that phase's tail lands the resulting commit locally - the merge is the mechanism, not authorship. The landed squash commit is dated at merge time yet contains work reviewed under a prior session's identifier: fresh by date, foreign by authorship. A mandated `gh pr update-branch --rebase` rewrites committer dates and pulls an entire prior branch into any time window. So the detector would fire on mandated hygiene and on resumed reviewed work, which is the outcome the enforcement-hook prohibition above already names, at lower cost and with the same effect on operator attention. Surviving a compromised conductor is necessary but not sufficient: the surviving code still has to evaluate something it can compute. If a per-session commit-attribution signal is ever established, this analysis is the starting point rather than a settled bar.
 
 **Notice template (unconditional branch).** When the directive is unconditional and spawning genuinely fails, emit at the first user-facing turn:
 
@@ -3020,7 +3026,7 @@ unreviewed.
 [phase: delegation-suppressed]
 ```
 
-This notice is condition-scoped, not a session-start notice: it fires only on an affected entrypoint, whereas every notice in the stacked tally at `content/rules/conventions.md:80` has a trigger computed at preflight on every session. It is **not** one of those four and must not be added to that count.
+This notice is condition-scoped, not a session-start notice: it fires only on an affected entrypoint, whereas every notice in the stacked tally at `content/rules/conventions.md` §Session Context and Memory, the "stacked first-user-turn notices" line, has a trigger computed at preflight on every session. It is **not** one of those five and must not be added to that count.
 
 **Harness-vs-model diagnostic.** Before attributing a compliance regression (the model ignoring delegation rules) to a model-version change, distinguish harness-cause from model-cause: run the identical prompt in a plain local terminal session versus the suspect entrypoint. Only a local-complies / other-fails split implicates the harness (an injected system prompt outranking the methodology); if both fail identically, the regression is model-side and should be investigated as such.
 
