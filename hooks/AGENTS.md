@@ -133,3 +133,11 @@ is `content/references/delegation-detail.md` §Harness-Injected Instruction
 Conflicts.
 
 The non-hook layers were settled separately: see `content/references/delegation-detail.md` §Delegation suppression (Collision 2).
+
+## Worktree isolation scope
+
+Worktree isolation is enforced only on Bash git operations aimed at the shared checkout, not on reads. A plain `Read` of an absolute path into the conductor's checkout succeeds from inside an isolation worktree, including for files absent from that worktree (`.agentic/`, `docs/planning/`, `evals/`). Verified empirically. Isolation constrains where an agent can write and run git, not what it can see - so "the worktree cannot see it" is false for `Read` and true for `git`.
+
+## Spawn payload mechanics
+
+PreToolUse hook mechanics for Agent/Task spawns: `tool_input` on a spawn call exposes `subagent_type`, `prompt`, `description`, and `model` (absent - not null - when the spawner omitted it). To deny a spawn, print `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"..."}}` and exit 0. To warn without blocking (an advisory nudge), use `"permissionDecision":"allow"` with a `permissionDecisionReason` - this surfaces text to the model without a human prompt and without denying; it is the mechanism behind the planning-artifact advisory hook.
