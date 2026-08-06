@@ -7134,6 +7134,25 @@ This is what the **second-line** discriminator tests - in step 3 of the merge al
 
 "Second line" means the literal second line of the file. A `/ds-wrap`-produced file always starts with `# Session Context` on line 1 and `*Written by /ds-wrap on ...` on line 2.
 
+## Atomic write discipline (NORMATIVE)
+
+Every write site cited below follows this mechanism, regardless of target file:
+
+1. Compose the full new file content in-memory (the merge/edit/append work described at the citing site).
+2. Write it to a temp path via the Write tool: `<target>.tmp.<token>` - **never** the fixed literal `.tmp` suffix, because a fixed suffix lets a second concurrent write collide on the same staging file (mirrors `tmpPathFor` in `hooks/lib/context-rollup.js`). `<token>` is `$CLAUDE_CODE_SESSION_ID` when available, otherwise the current UTC time as `HHMMSS` plus a random 4-hex suffix. Where the target's documented name is itself a placeholder (`FILE.md`, `FILE.original.md`, `FILE.pre-YYYY-MM-DD-HHMMSS.md`), reproduce the placeholder verbatim in the temp path (`FILE.original.md.tmp.<token>`), rather than inventing a concrete filename the source prose never commits to.
+3. Publish via Bash, using the variant the citing site specifies:
+   - **Conditional publish** - when the site's prose conditions creation of the target file itself ("create X if missing", "never overwrite X"), i.e. the whole write is skipped when the target already exists:
+     `if [ -e <target> ]; then rm -f <target>.tmp.<token>; else mv <target>.tmp.<token> <target>; fi`
+   - **Unconditional publish** - when the prose conditions only content within a file that may already exist (read-modify-write: read current content if present, compute the new full content, always write it back):
+     `mv <target>.tmp.<token> <target>`
+
+   The conditional check-then-act is not independently atomic against a concurrent writer, but `/ds-wrap`'s writes are already serialized by `.agentic/wrap/lock`; concurrency beyond that lock is out of scope.
+4. On failure at step 2 or 3: `rm -f <target>.tmp.<token>`, print a one-line warning naming the target and the error, and treat the write as failed. No retry; the caller's soft-fail contract applies.
+
+**Marker requirement.** Each citing site includes, as part of its citation sentence, the literal compound substring `Atomic write discipline <!-- aw-site: <id> -->` - the phrase, one space, then an HTML comment carrying that site's marker id (e.g. `Atomic write discipline <!-- aw-site: <id> -->`, with `<id>` replaced by the site's own id). It renders invisibly in markdown but is a greppable literal, and is the sole cross-reference the regression test uses to verify each site independently.
+
+Consumers (17 sites, each carrying a unique marker id): 3 in this reference's own rolling-session-label merge algorithm below (`wrap-md-fresh`, `wrap-md-nonauthored`, `wrap-md-merge`), and 14 in `content/commands/ds-wrap.md` (`claude-md-root`, `memory-md-seed`, `claude-md-track`, `stub-creation`, `settings-json`, `gitignore`, `memory-pending`, `memory-md-fresh`, `memory-md-merge`, `agents-md-pending`, `agents-md-write`, `original-md`, `rolling-snapshot`, `compressed-overwrite`).
+
 ## `.agentic/wrap/last-wrap` write contract (NORMATIVE)
 
 A single line containing the `session_id` of the session whose `/ds-wrap` (sync, background enrichment, or `/ds-wrap-deferred`) last successfully wrote `_wrap.md`. Atomic write (tmp + rename). This sentinel fully replaces any header-date parsing - no site parses the `_wrap.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `_wrap.md` write - never staged early (writing it during marker-staging would suppress that very session's own recovery marker). Note: a same-session `done` tombstone stamped `wrapped_at` ALSO suppresses `stagePending` (covering the case where `last-wrap` has rolled to a different session), so `last-wrap` is not the sole staging-suppression mechanism - the retained tombstone is the durable backstop when `last-wrap` no longer names this session.
@@ -7162,9 +7181,9 @@ The merged write always begins with the pinned header prefix above (the matcher 
 
 1. Read the file at the `_wrap.md` output path (`.agentic/_wrap.md`).
 
-2. **If the file does not exist**: write the new draft content directly to the output path. Result: "Wrote fresh context to [path] (no existing file)."
+2. **If the file does not exist**: write the new draft content directly to the output path, per Atomic write discipline <!-- aw-site: wrap-md-fresh --> (unconditional publish). Result: "Wrote fresh context to [path] (no existing file)."
 
-3. **If the file exists but is empty, or its second line does not begin with `*Written by /ds-wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file. Result: "Wrote fresh context to [path] (replaced non-/ds-wrap file)."
+3. **If the file exists but is empty, or its second line does not begin with `*Written by /ds-wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file, per Atomic write discipline <!-- aw-site: wrap-md-nonauthored --> (unconditional publish). Result: "Wrote fresh context to [path] (replaced non-/ds-wrap file)."
 
 4. **If the file exists and its second line begins with `*Written by /ds-wrap`** (i.e. it was produced by a previous `/ds-wrap` run): proceed to the merge step below.
 
@@ -7203,7 +7222,7 @@ First, check how many session labels are already present in the existing file's 
 - **Watch Out For**: union both lists. Remove exact duplicate lines. If one had "None" and the other has real entries, use only the real entries.
 - **Tools Used**: combine both comma-separated lists, split by comma, trim whitespace, deduplicate, re-join as a single comma-separated list.
 
-Write the merged result to disk. Result: "Merged context written to [path] (combined sessions)."
+Write the merged result to disk, per Atomic write discipline <!-- aw-site: wrap-md-merge --> (unconditional publish). Result: "Merged context written to [path] (combined sessions)."
 
 ---
 
@@ -20609,8 +20628,8 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
 
 1. **CLAUDE.md → AGENTS.md migration** (per-file, recursive through tracks). For each `CLAUDE.md` in the project (root + every track directory) where a sibling `AGENTS.md` does not already exist:
    - `cp <dir>/CLAUDE.md <dir>/AGENTS.md` to preserve content.
-   - **Root directory:** overwrite `<dir>/CLAUDE.md` with two import lines, `@AGENTS.md` then `@MEMORY.md`, so Claude Code transparently loads both the migrated file and the durable-facts store. Apply the dangling-import guard: if root `MEMORY.md` does not exist, seed it with the `/ds-init-project` Step 8 stub before writing the import (consistent with this preflight's existing silent-stub-creation pattern in item 4); never overwrite an existing `MEMORY.md`.
-   - **Track directories:** overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` only - tracks do not have their own `MEMORY.md`, so no `@MEMORY.md` import is added.
+   - **Root directory:** overwrite `<dir>/CLAUDE.md` with two import lines, `@AGENTS.md` then `@MEMORY.md`, so Claude Code transparently loads both the migrated file and the durable-facts store, per Atomic write discipline <!-- aw-site: claude-md-root --> (unconditional publish). Apply the dangling-import guard: if root `MEMORY.md` does not exist, seed it with the `/ds-init-project` Step 8 stub before writing the import (consistent with this preflight's existing silent-stub-creation pattern in item 4), per Atomic write discipline <!-- aw-site: memory-md-seed --> (conditional publish - never overwrite an existing `MEMORY.md`).
+   - **Track directories:** overwrite `<dir>/CLAUDE.md` with the single line `@AGENTS.md` only - tracks do not have their own `MEMORY.md`, so no `@MEMORY.md` import is added, per Atomic write discipline <!-- aw-site: claude-md-track --> (unconditional publish).
    - Skip directories where `AGENTS.md` already exists (leave `CLAUDE.md` untouched).
 
 2. **`.claude/` → `.agentic/` session state migration.** If `<cwd>/.claude/context.md` exists and `<cwd>/.agentic/context.md` does not:
@@ -20625,13 +20644,13 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
    - **Only `.agentic/<name>.md` exists**: no action.
    - **Neither exists**: no action at this step - the missing-stub creation below handles creation.
 
-4. **Missing-stub creation.** If any of `.agentic/tracking.md`, `.agentic/deploy.md` (only when release signals detected), or `.agentic/learnings.md` is missing (checked via resolver: `.agentic/<name>.md` preferred, legacy `.claude/<name>.md` fallback), create a stub at `.agentic/<name>.md` per the template in `/ds-init-project` Steps 6a-6d. For `.agentic/learnings.md`, use the template from `/ds-init-project` Step 8 (unconditional — always create). **The `.agentic/deploy.md` release-signal check runs every `/ds-wrap`, even when the sentinel short-circuit skips the rest of this item and items 1-3/5-6** — see the "Scope exclusion" note above.
+4. **Missing-stub creation.** If any of `.agentic/tracking.md`, `.agentic/deploy.md` (only when release signals detected), or `.agentic/learnings.md` is missing (checked via resolver: `.agentic/<name>.md` preferred, legacy `.claude/<name>.md` fallback), create a stub at `.agentic/<name>.md` per the template in `/ds-init-project` Steps 6a-6d, per Atomic write discipline <!-- aw-site: stub-creation --> (conditional publish - skip if the stub already exists). For `.agentic/learnings.md`, use the template from `/ds-init-project` Step 8 (unconditional — always create). **The `.agentic/deploy.md` release-signal check runs every `/ds-wrap`, even when the sentinel short-circuit skips the rest of this item and items 1-3/5-6** — see the "Scope exclusion" note above.
 
 5. **Silent auto-fix for remaining drift.** /ds-wrap is silent and hands-off. For any drift /ds-wrap can fix without user input, fix it inline:
    - Create `docs/overview/`, `docs/technical/`, `docs/planning/`, `docs/research/` (with `.gitkeep`) if missing.
-   - Create `.claude/settings.json` (`{}`) if missing.
+   - Create `.claude/settings.json` (`{}`) if missing, per Atomic write discipline <!-- aw-site: settings-json --> (conditional publish).
    - Create `.claude/settings.local.json` with `autoMemoryDirectory` set to `<cwd>/.agentic/memory` if missing or if the key is not yet present (merge rule: never overwrite an existing value). **Scope note:** `autoMemoryDirectory: <cwd>/.agentic/memory` is intentional - it routes Claude Code's native auto-memory writes to a local gitignored scratch area. The canonical conductor-managed, human-reviewed durable-facts store remains `<cwd>/MEMORY.md` (see the **Memory path (memory.md)** note below).
-   - Create `.gitignore` entries for `.claude/settings.local.json` and the `.agentic/` runtime-artifact block (per `/ds-init-project` Step 9) if missing.
+   - Create `.gitignore` entries for `.claude/settings.local.json` and the `.agentic/` runtime-artifact block (per `/ds-init-project` Step 9) if missing, per Atomic write discipline <!-- aw-site: gitignore --> (unconditional publish - the file itself normally exists; only the entries are conditional, so read current content, add any missing entries, and always write the result back).
    - **Pre-AGENTS.md layout detection (DO NOT auto-split inline).** If root `AGENTS.md` is absent AND root `CLAUDE.md` exists with more than the `@AGENTS.md` and/or `@MEMORY.md` import pointer lines, do NOT attempt the Worker+Skeptic three-way split inline — that migration requires user confirmation of the proposed split, and /ds-wrap's silent contract cannot provide one. Instead, add a "Watch Out For" entry in `_wrap.md`: `Pre-AGENTS.md layout detected (CLAUDE.md has real content, no root AGENTS.md). Run /ds-init-project to run the Worker+Skeptic split and migrate.`
 
 6. **Drift that cannot be auto-fixed.** If any drift requires user input (e.g. Linear workspace slug, Jira base URL, confirmation of release commands, selection among multiple detected web UIs), do NOT prompt during /ds-wrap. Instead, record a bullet under "Watch Out For" in the `_wrap.md` output noting which scaffolding items are still incomplete. The user can address these later by running `/ds-init-project` interactively. Specific drift kinds that always require user input and must be listed here:
@@ -21053,19 +21072,19 @@ The net behavior of Part A is unchanged by this extraction: the cited reference 
 
 Skip Part B entirely if the memory entries input above is "None".
 
-**Open-PR deferral pass (run BEFORE the read/merge steps below).** For each proposed memory entry, cross-reference the file paths, directory paths, and feature keys cited in the entry against the Open-PR overlap set captured in Step 0. An entry is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the entry with `[defer-pr: <pr_number>]`. Strip the marker from the entry text and route the entry to `<cwd>/.agentic/memory-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>)`. Non-deferred entries continue to the steps below. The pending file is plain markdown — a follow-up doc PR after the source PRs merge can move entries from `.agentic/memory-pending.md` into `.agentic/memory.md`. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, memory.md describes paths or keys that do not yet exist on the target branch.
+**Open-PR deferral pass (run BEFORE the read/merge steps below).** For each proposed memory entry, cross-reference the file paths, directory paths, and feature keys cited in the entry against the Open-PR overlap set captured in Step 0. An entry is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the entry with `[defer-pr: <pr_number>]`. Strip the marker from the entry text and route the entry to `<cwd>/.agentic/memory-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>)`, per Atomic write discipline <!-- aw-site: memory-pending --> (unconditional publish - read current content if present, append, write back). Non-deferred entries continue to the steps below. The pending file is plain markdown — a follow-up doc PR after the source PRs merge can move entries from `.agentic/memory-pending.md` into `.agentic/memory.md`. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, memory.md describes paths or keys that do not yet exist on the target branch.
 
 1. Use the Read tool to attempt to read the file at the memory.md path.
 
-2. **If the file does not exist**: write all non-deferred entries directly as a markdown list. Return: "Wrote fresh memory to [path] (N entries written, M deferred to memory-pending.md)."
+2. **If the file does not exist**: write all non-deferred entries directly as a markdown list, per Atomic write discipline <!-- aw-site: memory-md-fresh --> (unconditional publish). Return: "Wrote fresh memory to [path] (N entries written, M deferred to memory-pending.md)."
 
-3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured — not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `.agentic/learnings.md` (read in Step 0): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result. Return: "Updated memory at [path] (N entries added, M entries superseded, K deferred to memory-pending.md)."
+3. **If the file exists**: read its content. For each non-deferred entry, check whether the same fact is already captured — not just as an exact string match, but semantically (same architectural decision, same gotcha, same command). Also check `.agentic/learnings.md` (read in Step 0): if the same fact is captured as a structured learning entry, skip the new memory entry. If an existing entry covers the same fact, skip the new entry. If the new entry supersedes an existing one (same topic but updated or corrected), replace the existing entry in place with the new one. Otherwise append the new entry. Write the merged result, per Atomic write discipline <!-- aw-site: memory-md-merge --> (unconditional publish). Return: "Updated memory at [path] (N entries added, M entries superseded, K deferred to memory-pending.md)."
 
 **Part C — Write AGENTS.md updates**
 
 Skip Part C entirely if the AGENTS.md updates input above is "None" or all files within it are marked "None".
 
-**Open-PR deferral pass (run BEFORE iterating files).** For each proposed `Add:`, `New section:`, `New file: true`, and `Update:` block, cross-reference the file paths, directory paths, and feature keys cited in the proposed content against the Open-PR overlap set captured in Step 0. A block is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the block with `[defer-pr: <pr_number>]`. Strip the marker from the block content and route the deferred block to `<cwd>/.agentic/agents-md-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>) — <target AGENTS.md path>`. Non-deferred blocks continue through the per-file write below. A follow-up doc PR after the source PRs merge can move entries from `.agentic/agents-md-pending.md` into the actual AGENTS.md files. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, AGENTS.md describes paths or keys that do not yet exist on the target branch — exactly the failure mode that historically produced Critical findings during /ds-wrap Skeptic review.
+**Open-PR deferral pass (run BEFORE iterating files).** For each proposed `Add:`, `New section:`, `New file: true`, and `Update:` block, cross-reference the file paths, directory paths, and feature keys cited in the proposed content against the Open-PR overlap set captured in Step 0. A block is **post-merge-deferred** if any cited path or key appears in the `modified_files[]` list of any open PR, OR the Worker tagged the block with `[defer-pr: <pr_number>]`. Strip the marker from the block content and route the deferred block to `<cwd>/.agentic/agents-md-pending.md` (append-only; create the file if missing) under a heading `## Pending PR #<pr_number> (<head_branch>) — <target AGENTS.md path>`, per Atomic write discipline <!-- aw-site: agents-md-pending --> (unconditional publish - read current content if present, append, write back). Non-deferred blocks continue through the per-file write below. A follow-up doc PR after the source PRs merge can move entries from `.agentic/agents-md-pending.md` into the actual AGENTS.md files. Rationale: docs land on the conductor's branch (typically `main`) before source PRs merge; without deferral, AGENTS.md describes paths or keys that do not yet exist on the target branch — exactly the failure mode that historically produced Critical findings during /ds-wrap Skeptic review.
 
 For each file with non-deferred updates:
 
@@ -21083,7 +21102,7 @@ For each file with non-deferred updates:
 
 5. For each `Update:` update: find the existing text and replace it with the replacement text.
 
-6. Write the updated file to disk.
+6. Write the updated file to disk, per Atomic write discipline <!-- aw-site: agents-md-write --> (unconditional publish).
 
 Return: "Updated AGENTS.md at [path] (N additions, M updates)" for each file written, or "Skipped [path] (nothing to add)" if all proposed additions were already present.
 
@@ -21234,10 +21253,10 @@ Otherwise skip that target silently.
    If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
 
 4. On sign-off, the main agent (not a subagent - same rationale as the rest of Step 4) writes in this order:
-   - (a) If `FILE.original.md` does not already exist, create it from the current (pre-compression) file content. Never overwrite an existing `.original.md` - it is the canonical first-ever backup.
-   - (b) Write a rolling snapshot `FILE.pre-YYYY-MM-DD-HHMMSS.md` (using the current UTC timestamp at write time) from the current (pre-compression) file content. Always write; never skip.
+   - (a) If `FILE.original.md` does not already exist, create it from the current (pre-compression) file content, per Atomic write discipline <!-- aw-site: original-md --> (conditional publish). Never overwrite an existing `.original.md` - it is the canonical first-ever backup.
+   - (b) Write a rolling snapshot `FILE.pre-YYYY-MM-DD-HHMMSS.md` (using the current UTC timestamp at write time) from the current (pre-compression) file content, per Atomic write discipline <!-- aw-site: rolling-snapshot --> (unconditional publish). Always write; never skip.
    - (c) Prune rolling snapshots: keep only the 3 most recent `FILE.pre-*.md` snapshots for this target (by timestamp in filename). Delete older ones.
-   - (d) Overwrite `FILE.md` with the compressed content.
+   - (d) Overwrite `FILE.md` with the compressed content, per Atomic write discipline <!-- aw-site: compressed-overwrite --> (unconditional publish).
    - (e) Update `[cwd]/.agentic/compression-state.json` with `last_compressed_size_bytes` set to the byte count of the compressed output, `last_compressed_at` set to today's date, `original_backup_path` set to the absolute path of the `.original.md` file, and `rolling_snapshots` set to the sorted list of absolute paths of the retained rolling snapshots for this target. Create the file if it does not exist (the `.agentic/` directory is already created by the lock acquisition step).
 
 **Step 5 — Worktree cleanup.**
