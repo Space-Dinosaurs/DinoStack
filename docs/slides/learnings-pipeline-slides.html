@@ -661,7 +661,7 @@ Knowledge learning. Fields:<br />
 No Severity field. Used for env facts, dead-ends, architectural rationale, tool-failure workarounds, and cross-component gotchas. Emitted by <code>learnings-agent</code> only.
 </div>
 </div>
-<p>LRN and KNW maintain <strong>independent per-day counters</strong>. KNW entries are promoted to <code>MEMORY.md</code> at <code>/ds-wrap</code>.</p>
+<p>LRN and KNW maintain <strong>independent per-day counters</strong>. learnings-agent may also append at most one entry directly to <code>MEMORY.md</code>, in the same invocation, for project-affecting events.</p>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="5" data-marpit-scope-s004="" data-paginate="true" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');
 section {
@@ -1173,12 +1173,13 @@ hr {
 <p>Three distinct knowledge stores - each with a different writer and lifecycle:</p>
 <ul>
 <li><strong><code>.agentic/learnings.md</code></strong> - primary destination. Committed to git. Written by <code>learning-extractor</code> (LRN) and <code>learnings-agent</code> (LRN + KNW). Teammates inherit it on pull after merge.</li>
-<li><strong><code>MEMORY.md</code></strong> (root <code>&lt;cwd&gt;/MEMORY.md</code>) - canonical durable facts. Committed. Loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. KNW entries are promoted here at <code>/ds-wrap</code> when they stabilize.</li>
+<li><strong><code>MEMORY.md</code></strong> (root <code>&lt;cwd&gt;/MEMORY.md</code>) - canonical durable facts. Committed. Loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. learnings-agent appends at most one entry directly, in the same invocation, when the event is project-affecting - not a later promotion, and not <code>/ds-wrap</code>.</li>
 <li><strong><code>.agentic/memory.md</code></strong> - <code>/ds-wrap</code>-internal rolling scratch only. Gitignored. NOT auto-injected. NOT the same as root <code>MEMORY.md</code>.</li>
 </ul>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code>learning-extractor ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
 learnings-agent    ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
-learnings-agent    ──&gt; KNW entry ──&gt; .agentic/learnings.md ──&gt; MEMORY.md (at /ds-wrap)
+learnings-agent    ──&gt; KNW/LRN entry ──&gt; .agentic/learnings.md (always)
+learnings-agent    ──&gt; project-affecting? ──&gt; MEMORY.md (same invocation, at most 1 entry)
 </code></pre>
 <div class="callout">
 Three stores, three writers, three audiences. Mixing them corrupts the `@MEMORY.md` import contract that keeps MEMORY.md clean for every session start.
