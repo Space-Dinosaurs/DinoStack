@@ -35,10 +35,9 @@ Purpose: Permanent regression corpus for hooks/enforce-no-abdication.py. This
               attempts; Group 8 below now carries the compliant ALLOW row
               and the genuine co-equal-ballot BLOCK row this revival
               required, closing that gap. Two limitations remain, both
-              deliberate and documented at _is_prose_ballot's own
-              docstring: it deliberately exempts its ballot check from the
-              negative gate, and it does not recognize ">"-blockquote
-              headings.
+              deliberate and known: the negative-gate exemption
+              (self-documented at _is_prose_ballot's own docstring) and
+              the absent ">"-blockquote heading handling.
            4. Widening the destructive negative gate with
               `drop/alter table|column|index|database|schema`: measured
               13/13 FALSE SUPPRESSIONS - it stops catching real abdication on
