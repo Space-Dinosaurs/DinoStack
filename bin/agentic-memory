@@ -8,8 +8,14 @@ Public API: agentic-memory query [keyword] [--since YYYY-MM-DD]
                       [--until YYYY-MM-DD] [--type event_type]
                       [--agent agent_name] [--last N]
                       [--source MEMORY.md|events.jsonl|context.md]
-                      [--topic topic]
-            agentic-memory turns --last N
+                      [--topic topic] [--max-items N] [--max-chars N]
+            agentic-memory turns --last N   (N must be <= 200)
+
+Retrieval caps: query output is bounded per source to at most 20 matched
+               items and 8000 rendered characters by default. When a cap
+               bites, a non-silent "... truncated:" marker line is appended
+               to that source block. --max-items 0 or --max-chars 0 (or a
+               negative value) disables the respective cap.
 
 Upstream deps: Python 3 stdlib only (argparse, datetime, json, re, sys,
                pathlib). No external dependencies.
@@ -19,7 +25,8 @@ Downstream consumers: content/commands/ds-memory-update.md (command spec);
 
 Failure modes: missing source files -> warning to stderr, skipped;
                malformed JSONL -> line skipped, warning to stderr;
-               no matches -> "No results found" to stdout, exit 0.
+               no matches -> "No results found" to stdout, exit 0;
+               turns --last N > 200 -> error to stderr, exit 2.
                Never raises to the caller.
 
 Performance: O(file size). Linear scan of each source file.
@@ -41,6 +48,10 @@ MEMORY_PATHS = [
     Path(".agentic/memory/MEMORY.md"),
 ]
 CONTEXT_PATH = Path(".agentic/context.md")
+
+DEFAULT_MAX_ITEMS = 20
+DEFAULT_MAX_CHARS = 8000
+MAX_TURNS_CEILING = 200
 
 
 def _parse_iso_date(s: str) -> date:
@@ -311,6 +322,52 @@ def _format_turns(turns: list[tuple[str, str]]) -> str:
     return "\n".join(lines)
 
 
+def _cap_source(
+    matched: list,
+    formatter,
+    *,
+    max_items: int,
+    max_chars: int,
+) -> tuple[str, str | None]:
+    """Bound a rendered source block by per-source item and char caps.
+
+    Applies the item cap to the matched items first, renders the kept items
+    with ``formatter``, then bounds the rendered markdown by the char cap.
+    Returns ``(bounded_markdown, marker)`` where ``marker`` is None when no
+    cap bit. A non-silent ``... truncated:`` marker line is returned whenever
+    items or characters were dropped, so bounded recall is never silent.
+    ``max_items``/``max_chars`` <= 0 disable the respective cap.
+    """
+    kept = matched
+    if max_items > 0 and len(matched) > max_items:
+        kept = matched[:max_items]
+
+    rendered = formatter(kept)
+
+    truncated_items = len(matched) - len(kept)
+    truncated_chars = 0
+    bounded = rendered
+    if max_chars > 0 and len(rendered) > max_chars:
+        bounded = rendered[:max_chars]
+        truncated_chars = len(rendered) - max_chars
+
+    if not truncated_items and not truncated_chars:
+        return rendered, None
+
+    parts = []
+    if truncated_items:
+        item_label = "item" if truncated_items == 1 else "items"
+        parts.append(f"{truncated_items} more {item_label}")
+    if truncated_chars:
+        char_label = "char" if truncated_chars == 1 else "chars"
+        parts.append(f"{truncated_chars} more {char_label}")
+    marker = (
+        f"... truncated: {'; '.join(parts)}; "
+        "narrow your query or raise --max-items / --max-chars"
+    )
+    return bounded, marker
+
+
 def cmd_query(args: argparse.Namespace) -> int:
     keyword: str | None = args.keyword
     since = _parse_iso_date(args.since) if args.since else None
@@ -320,6 +377,8 @@ def cmd_query(args: argparse.Namespace) -> int:
     last: int | None = args.last
     source: str | None = args.source
     topic: str | None = args.topic
+    max_items: int = args.max_items
+    max_chars: int = args.max_chars
 
     outputs: list[str] = []
     has_error = False
@@ -346,7 +405,10 @@ def cmd_query(args: argparse.Namespace) -> int:
             print(err, file=sys.stderr)
             has_error = True
         elif results:
-            outputs.append(_format_events(results))
+            block, marker = _cap_source(
+                results, _format_events, max_items=max_items, max_chars=max_chars
+            )
+            outputs.append(block + ("\n" + marker if marker else ""))
 
     if "memory" in sources:
         results, err = _read_memory(MEMORY_PATHS, keyword=keyword, topic=topic)
@@ -354,7 +416,10 @@ def cmd_query(args: argparse.Namespace) -> int:
             print(err, file=sys.stderr)
             has_error = True
         elif results:
-            outputs.append(_format_memory(results))
+            block, marker = _cap_source(
+                results, _format_memory, max_items=max_items, max_chars=max_chars
+            )
+            outputs.append(block + ("\n" + marker if marker else ""))
 
     if "context" in sources:
         results, err = _read_context(CONTEXT_PATH, keyword=keyword, last=last)
@@ -362,7 +427,10 @@ def cmd_query(args: argparse.Namespace) -> int:
             print(err, file=sys.stderr)
             has_error = True
         elif results:
-            outputs.append(_format_context(results))
+            block, marker = _cap_source(
+                results, _format_context, max_items=max_items, max_chars=max_chars
+            )
+            outputs.append(block + ("\n" + marker if marker else ""))
 
     if not outputs:
         print("No results found")
@@ -374,6 +442,12 @@ def cmd_query(args: argparse.Namespace) -> int:
 
 def cmd_turns(args: argparse.Namespace) -> int:
     last: int = args.last
+    if last > MAX_TURNS_CEILING:
+        print(
+            f"Error: --last must be <= {MAX_TURNS_CEILING} (got {last})",
+            file=sys.stderr,
+        )
+        return 2
     turns, err = _read_context(CONTEXT_PATH, last=last)
     if err:
         print(err, file=sys.stderr)
@@ -410,10 +484,31 @@ def main(argv: list[str]) -> int:
     query_parser.add_argument(
         "--topic", help="Topic filter for MEMORY.md section headings"
     )
+    query_parser.add_argument(
+        "--max-items",
+        type=int,
+        default=DEFAULT_MAX_ITEMS,
+        help=(
+            f"Max matched items returned per source (default {DEFAULT_MAX_ITEMS}; "
+            "0 or a negative value disables the cap)"
+        ),
+    )
+    query_parser.add_argument(
+        "--max-chars",
+        type=int,
+        default=DEFAULT_MAX_CHARS,
+        help=(
+            f"Max rendered chars emitted per source (default {DEFAULT_MAX_CHARS}; "
+            "0 or a negative value disables the cap)"
+        ),
+    )
 
     turns_parser = subparsers.add_parser("turns", help="Show recent turns from context.md")
     turns_parser.add_argument(
-        "--last", type=int, default=5, help="Number of recent turns to show"
+        "--last",
+        type=int,
+        default=5,
+        help=f"Number of recent turns to show (max {MAX_TURNS_CEILING})",
     )
 
     args = parser.parse_args(argv[1:])
