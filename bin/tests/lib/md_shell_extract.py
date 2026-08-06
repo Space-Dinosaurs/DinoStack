@@ -167,11 +167,17 @@ def render(block_text: str) -> str:
         if count != 1:
             raise HarnessExtractionError(
                 f"placeholder '{key}' occurs {count} times in the extracted "
-                f"block (expected exactly 1). Remedy: update "
-                f"PLACEHOLDER_WHITELIST in bin/tests/lib/md_shell_extract.py "
-                f"to match content/commands/ds-implement-ticket.md; this "
-                f"harness tests Phase 8's telemetry-commit shell, see "
-                f"bin/tests/test_phase8_telemetry_shell.py."
+                f"block (expected exactly 1). render() is for the Phase 8 "
+                f"block ONLY - PLACEHOLDER_WHITELIST is global, not "
+                f"per-marker. If this is another block, do NOT add keys to "
+                f"the whitelist (that would break Phase 8's render call "
+                f"sites): bypass render() and do your own substitution on top "
+                f"of extract_marked_block(), as "
+                f"bin/tests/test_qa_knowledge_capture_shell.py._script() and "
+                f"bin/tests/test_knowledge_harness_smoke.py do. If this IS "
+                f"the Phase 8 block, update PLACEHOLDER_WHITELIST in "
+                f"bin/tests/lib/md_shell_extract.py to match "
+                f"content/commands/ds-implement-ticket.md."
             )
 
     rendered = block_text
