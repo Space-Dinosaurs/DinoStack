@@ -48,3 +48,7 @@ errors are swallowed and surfaced via non-zero exit codes or stderr lines,
 never uncaught exceptions. Exit-code conventions are per-command in each
 binary's `Public API` block. Conductors must not treat a non-zero exit as a
 session-fatal error.
+
+## Why polling belongs in a binary, not conductor prose
+
+An LLM cannot reliably run a long foreground poll loop (foreground `sleep` is blocked in the harness). `/ds-wrap`'s lock-wait was once prose the conductor hand-ran ("poll every 5s for 20min") and reliably gave up after one or two checks. Fix pattern: move the poll loop into a small binary invoked as a background spawn (`run_in_background: true`) so the conductor stays available and gets notified with an exit code on completion - a background spawn on this harness does deliver a synchronous exit code on completion. This is why `agentic-wrap-acquire-lock` exists as a binary rather than as conductor prose.
