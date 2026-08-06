@@ -3043,7 +3043,7 @@ For `learnings-agent` session-tracking semantics, see `content/references/conduc
 
 ## Worker Preamble and Execution Contract Template
 
-**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block.
+**Worker preamble (when using engineer):** When spawning an `engineer` on an Elevated-risk task, include both the preamble sentence and the execution contract block below. Fill in all required fields (outputs, tool_scope, completion_conditions) before spawning; budget is optional (advisory, not enforced); output_paths is conditional (required when the architect plan pre-specifies paths, otherwise set to "conductor-directed"). The contract applies to Elevated-path engineer spawns only - Trivial-path solo spawns (see Risk Classification) keep the lightweight preamble with no contract block. For large tool outputs, see `content/references/evidence-on-disk.md` (spill/sketch/rehydrate protocol) - advisory.
 
 **Worktree isolation is MANDATORY.** Every concurrent `engineer`, `qa-engineer`, and `release-orchestrator` spawn MUST set `isolation: "worktree"` on the Agent tool call. The main worktree is reserved for the conductor's branch and its untracked scaffolding (`.agentic/`, loop-state files - NOT in-flight planning artifacts, which are committed and pushed per `content/references/planning-artifacts.md` §Gate semantics as soon as they are authored, subject to the per-repo gitignore eligibility gate). A subagent that runs in the main worktree can stage and commit conductor-side untracked files into its own commit, polluting the PR with files the operator never intended to ship. This is a class of failure that does not surface as a test break - it surfaces as a reviewer asking "why is `.agentic/loop-state.json` in this PR?" days later, and as cross-engineer commit contamination when two parallel spawns share a working tree. Isolation is the primary mechanism that prevents both.
 
@@ -3499,6 +3499,187 @@ Written by `hooks/lib/enforcement_log.py`'s `log_fire()`, called lazily (from in
 **Retention:** not auto-rotated. Same operating posture as `events.jsonl` above - manual `mv` if it grows past concern. Project-local; gitignored.
 
 **Consumer:** `/ds-wrap` Part D.5 signal 3(b) (Session-feedback capture signal, "Enforcement fire-log") reads only the last ~500 lines and tallies occurrences per `hook` value as a `guardrail-fire` feedback candidate.
+
+---
+
+### evidence-on-disk
+
+<!--
+Purpose: Defines the evidence-on-disk spill/sketch/rehydrate protocol for
+         write-capable worker subagents (engineer, release-orchestrator,
+         general-purpose). Workers compress large tool outputs into compact
+         in-context sketch lines with node IDs and rehydrate raw text on
+         demand.
+
+Public API: Referenced by content/agents/engineer.md (## Implementation process,
+            "Context economy: evidence-on-disk" step) and by
+            content/references/delegation-detail.md (§Worker Preamble and
+            Execution Contract Template). The sketch line format is a shared
+            binding contract with bin/agentic-evidence - the worked example
+            below must match the CLI's emitted sketch lines byte-for-byte.
+
+Upstream deps: bin/agentic-evidence (spill/sketch/get/prune CLI). Correctness
+               of the CLI is gated by bin/tests/test_agentic_evidence.py
+               (required bin-tests CI check).
+
+Downstream consumers: content/agents/engineer.md (Context economy step),
+                      content/references/delegation-detail.md (advisory pointer),
+                      content/SKILL.md (Reference Docs list).
+
+Failure modes: If the sketch line format in the worked example drifts from the
+               CLI's emitted format, node-ID citations stop matching raw nodes.
+               The worked example's sketch lines are the binding contract -
+               rename fields or change separators only in lock-step with the CLI.
+
+Performance: N/A - methodology document consumed by LLMs at spawn time.
+-->
+# Evidence-On-Disk Reference
+
+The evidence-on-disk protocol is a repo-shipped, universality-safe,
+dependency-free primitive for write-capable worker subagents. It compresses
+large tool output - search results, stack traces, file dumps, test logs - into
+a compact in-context sketch with node IDs, rehydrating raw text on demand.
+
+---
+
+## Purpose
+
+A worker's context window is a scarce resource, and raw tool output is its
+biggest consumer. A single `grep -rn` over a large tree or a full test log can
+return tens of thousands of characters that the worker needs exactly once, then
+never again. Pasting the full output into context burns the window; discarding
+it loses the evidence.
+
+Evidence-on-disk borrows the TencentDB-Agent-Memory operational pattern:
+"compress, but never lose the road back to the evidence." The worker spills the
+raw output to the live worktree's `.agentic/evidence/` store, keeps a one-line
+sketch (node ID plus metadata) in context, and rehydrates the raw text on demand
+with a single `get <node-id>` call. The in-context cost drops from the full
+output to one line per node; the evidence is never lost until teardown.
+
+The protocol does NOT rely on the operator-local context-mode `ctx_*` MCP
+plugin (`ctx_execute`, `ctx_batch_execute`, `ctx_search`). That plugin is an
+operator-local convenience, not a universality-safe primitive - a consumer
+project on another harness, or a worktree without the plugin configured, does
+not have it. Evidence-on-disk ships in the repo and works everywhere git does.
+The universality pillar requires shared behavior that resolves per-operator at
+runtime; a dependency on an operator-local plugin violates that pillar.
+
+## When to Spill (Trigger Thresholds)
+
+Spill any tool output that exceeds ~20 lines OR ~8k chars AND that the worker
+expects to need again. Both thresholds are advisory guides, not hard limits.
+
+Pressure is graduated by run phase:
+
+- **Early in a run (mild):** spill only outputs larger than ~8k chars. Fresh
+  context is cheap; the worker can afford to keep moderate outputs inline.
+- **Late in a heavy run (aggressive):** spill anything larger than ~1-2k chars
+  the worker might need, and re-paste a fresh sketch so the in-context map stays
+  accurate as nodes accumulate.
+
+**Sketch cap.** Keep the pasted sketch under ~40 lines (one line per node). The
+CLI warns on stderr past 40 nodes - at that point the worker should prune stale
+nodes (`prune --older-than HOURS`) and re-paste a trimmed sketch rather than let
+the map itself become a context burden.
+
+## The Three-Step Loop
+
+1. **Spill** the output to the evidence store: `agentic-evidence spill`.
+2. **Keep the printed sketch line in your context.** Each spill prints one line
+   of the form `- n<seq> | label: <label> | tool: <tool> | chars: <N> | ts: <ts> | status: <status>`.
+   That line is the permanent in-context pointer to the node.
+3. **`get <node-id>` on demand** when the raw text is needed again. The raw text
+   is rehydrated into the tool result exactly as spilled.
+
+Re-run `agentic-evidence sketch` to refresh the map as nodes accumulate. The
+sketch command lists every live node; replacing the in-context sketch with a
+fresh one keeps the node-ID map accurate.
+
+## Teardown
+
+Run `agentic-evidence prune --all` at worker end. This mirrors the
+temp-file-ownership rule in `content/rules/conventions.md` - agents that write
+temp files are responsible for deleting them in teardown, and
+`.agentic/evidence/` is a temp store in exactly that sense.
+
+Use `agentic-evidence prune --older-than HOURS` for mid-run housekeeping - for
+example, pruning nodes older than the current phase before re-pasting a fresh
+sketch under the ~40-line cap.
+
+## Lifecycle and Ephemerality (Critical)
+
+**Evidence lives ONLY in the live worktree and DIES at cleanup.** The evidence
+store is written to the worktree's `.agentic/evidence/` directory, which is
+untracked scratch. When the worktree is removed at push or merge, the evidence
+is gone with it.
+
+Consequences:
+
+- **Node-ID citations in a worker return are useful during the run itself** -
+  the conductor or a follow-up worker in the same worktree can `get` the raw
+  text while the store still exists.
+- **They are also useful for PRE-cleanup conductor access** via
+  `bin/agentic-resolve-worktree`, which locates the live worktree so the
+  conductor can read evidence before it is torn down.
+- **There is NO post-merge evidence retrieval.** Once the branch is pushed or
+  merged and the worktree is removed, node IDs point at nothing. Do not cite
+  node IDs in a return expecting the conductor to retrieve evidence after
+  cleanup.
+- **Raw tool output may contain absolute paths or secrets.** Evidence is NEVER
+  committed. The `.agentic/` directory is gitignored by the shared scaffold
+  (`content/commands/ds-init-project.md`), and `.agentic/evidence/` is added to
+  that denylist as runtime scratch. A worker must never stage or commit evidence
+  content.
+
+## Enforcement Posture
+
+Advisory, not a hard gate. Spill judgment is context-dependent - what counts as
+"egregious" varies by run, tool, and how much context remains. There is no
+mechanical enforcement and no new required execution-contract field.
+
+- The CLI's correctness is gated by `bin/tests/test_agentic_evidence.py`, part
+  of the required `bin-tests` CI check. The protocol's machinery is tested; the
+  worker's judgment in applying it is not.
+- A Skeptic may raise a Minor advisory finding for egregious verbatim tool dumps
+  that clearly should have been spilled - for example, a multi-thousand-char
+  raw output pasted wholesale into a return or into the in-context record when
+  the worker plainly expected to use it again. This is advisory because the
+  line is a judgment call, not a hard violation.
+
+## Reader Restriction
+
+Read-only agents - architect, investigator, skeptic, qa-engineer,
+orchestration-planner - cannot write evidence. Their tool grants omit Edit and
+Write, so they have no mechanism to spill. This pattern targets write-capable
+workers only: engineer, release-orchestrator, and general-purpose. A read-only
+agent that encounters a large output should rely on its own judgment
+(summarize, cite paths, or return a pointer) rather than the evidence store.
+
+## Worked Example
+
+A worker runs a route search across the codebase, collects a failing test's
+stack trace, and dumps a source file. All three outputs are large and the worker
+will need them again while patching. It spills each to the evidence store, keeps
+the printed sketch in context, and rehydrates the stack trace on demand.
+
+```
+$ agentic-evidence spill /tmp/route-search.txt --label "route-search" --tool Bash
+$ agentic-evidence spill /tmp/stack-trace.txt --label "stack-trace" --tool Bash
+$ agentic-evidence spill /tmp/file-dump.txt --label "file-dump" --tool Bash
+
+$ agentic-evidence sketch
+- n1 | label: route-search | tool: Bash | chars: 45230 | ts: 2026-08-05T09:14:02Z | status: ok
+- n2 | label: stack-trace | tool: Bash | chars: 8341 | ts: 2026-08-05T09:15:47Z | status: ok
+- n3 | label: file-dump | tool: Bash | chars: 2110 | ts: 2026-08-05T09:16:11Z | status: ok
+
+$ agentic-evidence get n2
+<the raw stack-trace text rehydrated verbatim, 8,341 chars>
+```
+
+The three sketch lines are the shared binding contract - byte-identical to the
+CLI's emitted sketch format. The worker keeps exactly these lines in context
+(not the raw outputs) and calls `get n2` when the stack trace is needed.
 
 ---
 
@@ -8229,8 +8410,9 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
    - **Existing helpers** — grep the codebase for functions that already do what you just wrote. Prefer calling an existing utility over reimplementing it.
    - **Pattern violations** — if the codebase already has an established pattern for this class of problem (e.g., a shared validation schema, a common React hook, a standard error wrapper), use it.
    This check is mandatory. If you find duplication and choose not to extract it, state the reason explicitly in your output (e.g., "Intentionally not extracted: the two paths diverge in the next ticket").
-5. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
-6. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
+5. **Context economy: evidence-on-disk.** When a tool output exceeds ~20 lines / ~8k chars and you will need it again, spill it with `agentic-evidence spill`, keep the sketch line in context, and `get <node-id>` on demand. Full protocol: `content/references/evidence-on-disk.md`.
+6. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
+7. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
 
 ## Quality gates
 
@@ -17477,6 +17659,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 .agentic/events.jsonl
 .agentic/context.md
 .agentic/context.d/
+.agentic/evidence/
 .agentic/_wrap.md
 .agentic/_foreign.md
 .agentic/memory/
@@ -17512,7 +17695,7 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 !.agentic/skill-candidates.md
 ```
 
-The targeted list covers runtime artifacts and operator-local configuration only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout), and `tracker.yml` (per-operator local tracker config; never committed - it may carry an operator's own account ID). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `config.json`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config, and each carries a matching `!.agentic/<file>` negation in the block above. `.agentic/learnings.md` IS tracked, also with a matching negation, so per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out negates the same way, so per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull. `.agentic/team.yml` (cross-harness team topology) and `.agentic/skill-candidates.md` (skill-candidate backlog) are also tracked, each with a matching negation in the block above, for the same reason. None of these negations do any work against this block itself, since none of the sixteen lines above them ignore these files - they are future-proofing against a project later adding a broad `.agentic/*` umbrella (see the in-block comment for why ordering matters there).
+The targeted list covers runtime artifacts and operator-local configuration only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `evidence/` (worker evidence scratch for the evidence-on-disk spill/sketch/rehydrate protocol - raw tool output that may contain absolute paths or secrets; never committed), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout), and `tracker.yml` (per-operator local tracker config; never committed - it may carry an operator's own account ID). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `config.json`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config, and each carries a matching `!.agentic/<file>` negation in the block above. `.agentic/learnings.md` IS tracked, also with a matching negation, so per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out negates the same way, so per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull. `.agentic/team.yml` (cross-harness team topology) and `.agentic/skill-candidates.md` (skill-candidate backlog) are also tracked, each with a matching negation in the block above, for the same reason. None of these negations do any work against this block itself, since none of the seventeen lines above them ignore these files - they are future-proofing against a project later adding a broad `.agentic/*` umbrella (see the in-block comment for why ordering matters there).
 
 ### 10. Create `docs/` structure
 
