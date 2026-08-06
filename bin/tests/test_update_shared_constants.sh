@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Regression tests for the update-flow shared-constants collapse
-#          (scripts/lib/update-shared.json). Two things are asserted:
+#          (scripts/lib/update-shared.json). Seven things are asserted:
 #          (1) scripts/update.js and bin/agentic-update both load SKIP_DIRS
 #              and REBUILD_TRIGGERS from the shared JSON file rather than a
 #              local literal - single-sourcing makes drift structurally
@@ -14,6 +14,22 @@
 #          (3) needsRebuild()/_needs_rebuild() - the matching ALGORITHM that
 #              genuinely cannot be shared across JS/Python - agree on a
 #              cross-language parity vector table.
+#          (4) DISPLAY_NAMES matches across scripts/update.js and the prose
+#              copy in content/commands/ds-update.md.
+#          (5) hooksTouched()/_hooks_touched() cross-language parity vector
+#              table.
+#          (6) the UPDATE-FLOW fallback fence in content/commands/ds-update.md
+#              (used when `agentic-update` is not on PATH) is extracted and
+#              RUN with a fake `git`, proving its non-main-branch and
+#              dirty-tree guards actually STOP execution before `pull` - a
+#              prose-only guard (an echoed error with no `exit`) is invisible
+#              to a text-only assertion but not to this one.
+#          (7) that same fallback fence's per-adapter install loop is
+#              fail-soft (both a failing and a later adapter run, all
+#              failures are named with their exit codes, overall exit is
+#              non-zero) AND its own in-fence comment's declared fail-soft/
+#              fail-fast label matches that measured behavior - so an edit to
+#              either the loop body or its label reds the gate independently.
 #
 # Public API: ./bin/tests/test_update_shared_constants.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -530,6 +546,112 @@ FAKEGIT
       _pass "T10c non-vacuity: clean main branch reaches pull (harness can detect a reached pull)"
     else
       _fail "T10c non-vacuity: clean main branch never reached pull - the fake git harness itself is broken, T10a/T10b prove nothing"
+    fi
+
+    # -------------------------------------------------------------------
+    # Test 11: the fallback fence's per-adapter install loop must be
+    # fail-soft - a failing adapter must not stop the loop, every failing
+    # adapter must be named with its exit code, and the overall exit must
+    # be non-zero. Two fake adapters, both failing with distinct exit
+    # codes; each writes a marker file on invocation so "did the loop
+    # continue past the first failure" is directly observable, not
+    # inferred from output text alone.
+    # -------------------------------------------------------------------
+    AGG_TMPDIR="$FALLBACK_TMPDIR/agg-repo"
+    mkdir -p "$AGG_TMPDIR/adapterA" "$AGG_TMPDIR/adapterB"
+    cat > "$AGG_TMPDIR/adapterA/install.sh" <<EOF
+#!/usr/bin/env bash
+touch "$FALLBACK_TMPDIR/adapterA-ran"
+exit 3
+EOF
+    chmod +x "$AGG_TMPDIR/adapterA/install.sh"
+    cat > "$AGG_TMPDIR/adapterB/install.sh" <<EOF
+#!/usr/bin/env bash
+touch "$FALLBACK_TMPDIR/adapterB-ran"
+exit 5
+EOF
+    chmod +x "$AGG_TMPDIR/adapterB/install.sh"
+
+    # The doc's fence uses illustrative angle-bracket placeholders
+    # (--mode=<mode>, --profile=<profile>, [--identity=<handle>|--no-identity])
+    # that are not meant to be executed literally - `<mode>` etc. parse as
+    # shell redirections, not text, and would break every adapter
+    # invocation before this test could observe fail-soft behavior at all.
+    # Substitute them with harmless literal values for this execution only;
+    # T10's guard tests never reach this line so they are unaffected, and
+    # T12's label extraction reads FALLBACK_SCRIPT's comment text, not this
+    # substituted copy.
+    AGG_SCRIPT="$(printf '%s\n' "$FALLBACK_SCRIPT" | sed -E \
+      -e 's/--mode=<mode>/--mode=test-mode/g' \
+      -e 's/--profile=<profile>/--profile=test-profile/g' \
+      -e 's/\[--identity=<handle>\|--no-identity\]//g')"
+
+    rm -f "$FALLBACK_TMPDIR/adapterA-ran" "$FALLBACK_TMPDIR/adapterB-ran"
+    AGG_OUTPUT="$(
+      (
+        PATH="$FAKE_BIN_DIR:$PATH"
+        export PATH
+        FAKE_GIT_LOG="$FAKE_GIT_LOG"
+        export FAKE_GIT_LOG
+        FAKE_BRANCH="main"
+        export FAKE_BRANCH
+        FAKE_DIRTY=""
+        export FAKE_DIRTY
+        AE_REPO_DIR="$AGG_TMPDIR"
+        export AE_REPO_DIR
+        # SELECTED_ADAPTERS is a bash array and arrays cannot be exported to
+        # a child process, so the assignment is prepended to the script text
+        # passed to `bash -c` rather than set in this subshell's own
+        # environment (which the child bash -c process would not inherit).
+        bash -c 'SELECTED_ADAPTERS=(adapterA adapterB)
+'"$AGG_SCRIPT"
+      ) 2>&1
+    )"
+    AGG_RC=$?
+
+    if [[ "$AGG_RC" -ne 0 ]]; then
+      _pass "T11a aggregation: overall exit is non-zero when adapters fail"
+    else
+      _fail "T11a aggregation: overall exit was 0 despite two adapter failures"
+    fi
+
+    if [[ -f "$FALLBACK_TMPDIR/adapterA-ran" && -f "$FALLBACK_TMPDIR/adapterB-ran" ]]; then
+      _pass "T11b aggregation: loop continues past the first failure (both adapters ran)"
+      AGG_BOTH_RAN=1
+    else
+      _fail "T11b aggregation: loop stopped after the first failure - not fail-soft"
+      AGG_BOTH_RAN=0
+    fi
+
+    if [[ "$AGG_OUTPUT" == *"adapterA/install.sh (exit 3)"* && "$AGG_OUTPUT" == *"adapterB/install.sh (exit 5)"* ]]; then
+      _pass "T11c aggregation: both failing adapters are named with their exit codes"
+    else
+      _fail "T11c aggregation: output does not name both failures with exit codes. Got:
+$AGG_OUTPUT"
+    fi
+
+    # -------------------------------------------------------------------
+    # Test 12: doc-vs-code parity for the fallback loop's fail-soft/
+    # fail-fast label. The in-fence comment immediately preceding the loop
+    # (extracted as part of FALLBACK_SCRIPT, same text T10 already ran)
+    # declares which behavior the loop has; T11 just measured which
+    # behavior it ACTUALLY has. This assertion ties the two together so
+    # either side drifting independently reds the gate - a code edit that
+    # makes the loop stop on first failure fails T11b already, and a prose
+    # edit that relabels the comment without touching the loop body fails
+    # only here.
+    # -------------------------------------------------------------------
+    FENCE_LABEL="$(printf '%s\n' "$FALLBACK_SCRIPT" | grep -A5 "Run each selected adapter" | grep -oE 'fail-(soft|fast)' | head -1)"
+    if [[ "$AGG_BOTH_RAN" -eq 1 ]]; then
+      ACTUAL_BEHAVIOR="fail-soft"
+    else
+      ACTUAL_BEHAVIOR="fail-fast"
+    fi
+
+    if [[ -n "$FENCE_LABEL" && "$FENCE_LABEL" == "$ACTUAL_BEHAVIOR" ]]; then
+      _pass "T12 doc-vs-code parity: fallback loop's declared behavior ($FENCE_LABEL) matches its measured behavior ($ACTUAL_BEHAVIOR)"
+    else
+      _fail "T12 doc-vs-code parity: fallback loop declares '${FENCE_LABEL:-<none found>}' but measured behavior is '$ACTUAL_BEHAVIOR' - content/commands/ds-update.md's fallback-loop comment has diverged from the loop's actual behavior"
     fi
 
     rm -rf "$FALLBACK_TMPDIR"

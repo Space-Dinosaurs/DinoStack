@@ -195,6 +195,12 @@ fi
 
 git -C "$AE_REPO_DIR" pull --ff-only origin main
 FAILED_ADAPTERS=()
+# Run each selected adapter's install.sh (fail-soft: every adapter is
+# attempted even after an earlier one fails, and all failures are reported
+# together below). Deliberately asymmetric with the FRESH-CLONE-FLOW loop
+# below, which is fail-fast: a partially-installed brand-new clone is worse
+# than a partially-refreshed existing install, so a fresh clone stops on the
+# first failure instead of leaving some adapters wired and others not.
 for adapter in "${SELECTED_ADAPTERS[@]}"; do
   bash "$AE_REPO_DIR/${adapter}/install.sh" --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity]
   ADAPTER_STATUS=$?

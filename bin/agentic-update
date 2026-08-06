@@ -35,7 +35,12 @@ Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
             (already up to date) or _needs_rebuild() is False (no adapter
             source changed) - a confirmed configuration change must reach
             install.sh, never silently no-op behind a rebuild-skip early
-            return. See the forced_install check in main().
+            return. An explicit --adapters selection is the same kind of
+            forcing signal even with no --mode/--profile/--identity flag
+            present: it also forces the adapter install loop on both
+            rebuild-skip early returns, since a caller who named a specific
+            adapter set must not have that request silently skipped. See
+            the forced_install check in main().
             Environment:
              AGENTIC_CONFIG_PATH  Override path to agentic-engineering-config.json
                                   (useful for tests; default ~/.agentic/...).
@@ -554,17 +559,22 @@ def main() -> int:
     # Human-readable reason for the "forcing adapter install" messages below.
     # install_flags can be empty when the only forcing signal is an explicit
     # --adapters selection - fall back to describing that instead of joining
-    # an empty list into a blank reason.
+    # an empty list into a blank reason. forced_reason_label names the actual
+    # trigger (a --mode/--profile/--identity config change vs a bare adapter
+    # selection) so the printed message never calls an --adapters-only run
+    # a "config change" when no config flag was supplied.
     if install_flags:
         forced_reason = ' '.join(install_flags)
+        forced_reason_label = "a config change was requested"
     else:
         forced_reason = f"--adapters={args.adapters.strip()}"
+        forced_reason_label = "an adapter selection was requested"
 
     if old_head and new_head and old_head == new_head:
         if forced_install:
             print(
                 f"Already up to date ({old_short}), but forcing adapter install "
-                f"because a config change was requested: {forced_reason}."
+                f"because {forced_reason_label}: {forced_reason}."
             )
             return _run_adapter_installs(repo_dir, args, install_flags)
         print(f"Already up to date ({old_short}).")
@@ -611,7 +621,7 @@ def main() -> int:
             print(
                 f"Updated {old_short}..{new_short} ({commits_pulled} commit(s)). "
                 f"No adapter source changed, but forcing adapter install because "
-                f"a config change was requested: {forced_reason}."
+                f"{forced_reason_label}: {forced_reason}."
             )
             return _run_adapter_installs(repo_dir, args, install_flags)
         print("No rebuild needed (no adapter source changed).")
@@ -646,8 +656,10 @@ def _run_adapter_installs(
     Shared by all three callers that must actually run the adapter loop:
     the normal rebuild-triggered path, and the two forced-install paths
     (old_head==new_head and not-rebuild) that fire when install_flags is
-    non-empty - see the Critical-fix comment at the forced_install check
-    above main(). Extracted so none of the three call sites can drift.
+    non-empty OR args.adapters is non-empty (an explicit --adapters
+    selection alone also forces the loop, even with no --mode/--profile/
+    --identity flag) - see the Critical-fix comment at the forced_install
+    check above main(). Extracted so none of the three call sites can drift.
     """
     # ------------------------------------------------------------------
     # Step 12: adapter selection + install
