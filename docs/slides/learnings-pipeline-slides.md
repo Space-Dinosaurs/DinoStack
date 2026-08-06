@@ -242,7 +242,7 @@ No Severity field. Used for env facts, dead-ends, architectural rationale, tool-
 </div>
 </div>
 
-LRN and KNW maintain **independent per-day counters**. KNW entries are promoted to `MEMORY.md` at `/ds-wrap`.
+LRN and KNW maintain **independent per-day counters**. learnings-agent may also append at most one entry directly to `MEMORY.md`, in the same invocation, for project-affecting events.
 
 ---
 
@@ -315,13 +315,14 @@ If either gate fails, drop to SHOULD or SKIP. MUST is genuinely rare.
 Three distinct knowledge stores - each with a different writer and lifecycle:
 
 - **`.agentic/learnings.md`** - primary destination. Committed to git. Written by `learning-extractor` (LRN) and `learnings-agent` (LRN + KNW). Teammates inherit it on pull after merge.
-- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. KNW entries are promoted here at `/ds-wrap` when they stabilize.
+- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. learnings-agent appends at most one entry directly, in the same invocation, when the event is project-affecting - not a later promotion, and not `/ds-wrap`.
 - **`.agentic/memory.md`** - `/ds-wrap`-internal rolling scratch only. Gitignored. NOT auto-injected. NOT the same as root `MEMORY.md`.
 
 ```
 learning-extractor ──> LRN entry ──> .agentic/learnings.md (committed)
 learnings-agent    ──> LRN entry ──> .agentic/learnings.md (committed)
-learnings-agent    ──> KNW entry ──> .agentic/learnings.md ──> MEMORY.md (at /ds-wrap)
+learnings-agent    ──> KNW/LRN entry ──> .agentic/learnings.md (always)
+learnings-agent    ──> project-affecting? ──> MEMORY.md (same invocation, at most 1 entry)
 ```
 
 <div class="callout">

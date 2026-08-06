@@ -14792,6 +14792,26 @@
       "source_token": "rm"
     },
     {
+      "expected_target": "content/references/wrap-context-format.md",
+      "generated_token": "$AE_REPO_DIR/content/references/wrap-context-format.md",
+      "kind": "operational",
+      "occurrence_hash": "0a675e1391d7604b7adfe40bb26f64b02ea86a4975446477cd768c69380b1b87",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/wrap-context-format.md"
+    },
+    {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "**Pre-flight lock acquisition.** `$wrap` writes several shared project-local files (`_wrap.md`, memory.md, AGENTS.md, compression-state.json, rolling snapshots). It does not write `$AE_PROJECT_DIR/.agentic/context.md`. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md`; automatic project-local rollup integration is deferred to `context-writer-migration`. Concurrent `$wrap` runs in the same project would clobber the files `$wrap` does own. Acquire a project-local lock before proceeding:",
+      "kind": "operational",
+      "occurrence_hash": "0aa0dfe9b9704b2b843b524030c4153e9d190b7d5e22d5bf629c8691f96cdefa",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "**Pre-flight lock acquisition.** /ds-wrap writes to several shared project-local files. See the Consumers list under the Atomic write discipline (NORMATIVE) section in content/references/wrap-context-format.md: the 17 sites - 3 in the merge algorithm, 14 in ds-wrap.md. It does NOT write `context.md` - that file is a derived rollup and is deliberately lock-free. Concurrent /ds-wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:"
+    },
+    {
       "expected_target": "cat",
       "generated_token": "cat",
       "kind": "operational",
@@ -15542,16 +15562,6 @@
       "source_token": ".agentic/loop-state.json"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "4951cf9e4e5e774b30959e97d2aab9bec021a16cac787440dfe139ce94e90f69",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": ".agentic/loop-state-*.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-*.json",
       "kind": "operational",
@@ -16272,6 +16282,16 @@
       "source_token": ".claude/<name>.md"
     },
     {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "754706ad2505ae0b721e1edd9dfc8ff6570739d5852fad5576de80096e6236a1",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": ".agentic/wrap/pending-<session_id>.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/pending-<session_id>.json",
       "kind": "operational",
@@ -16440,16 +16460,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.agentic/wrap/lock"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "84d6e63a110ae10a6bf046f80ec35ff47ae465ee6774a3be150c80df34e25049",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "wrap",
@@ -16680,6 +16690,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.agentic/wrap"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "937c8785a4dcb8050733f67f9be7a6486dda7ec6ab2585b167bacc32810c1d08",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "wrap",
@@ -17772,6 +17792,16 @@
       "source_token": ".claude/"
     },
     {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "dfd68665bd73db475c9cfd7276d77f4951dc5d5e2d8846f1d158fe51c19313e7",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": ".agentic/agents-md-pending.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/agents-md-pending.md",
       "kind": "operational",
@@ -17836,16 +17866,6 @@
       "generated_token": "$wrap",
       "kind": "operational",
       "occurrence_hash": "e428a9adbd7b195e6d2113413fb2ae509fcd85d0c386d816700579715132d3d3",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "e45b34e7eb5de1795905cf54357e416670fdad392ac0c010ce61c90541ecb828",
       "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
@@ -18110,16 +18130,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/learnings.md"
-    },
-    {
-      "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Pre-flight lock acquisition.** `$wrap` writes several shared project-local files (`_wrap.md`, memory.md, AGENTS.md, compression-state.json, rolling snapshots). It does not write `$AE_PROJECT_DIR/.agentic/context.md`. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md`; automatic project-local rollup integration is deferred to `context-writer-migration`. Concurrent `$wrap` runs in the same project would clobber the files `$wrap` does own. Acquire a project-local lock before proceeding:",
-      "kind": "operational",
-      "occurrence_hash": "f592ef192ffd5a76790d83dc4ee85abf225b087e831a4746a8ce551289af6b11",
-      "resolution_mode": "codex-stop-hook-runtime",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "**Pre-flight lock acquisition.** /ds-wrap writes to several shared project-local files (`_wrap.md`, memory.md, AGENTS.md, compression-state.json, rolling snapshots). It does NOT write `context.md` - that file is a derived rollup and is deliberately lock-free. Concurrent /ds-wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:"
     },
     {
       "expected_target": ".agentic/findings.md",
