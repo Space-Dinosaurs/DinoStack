@@ -35,7 +35,11 @@ from datetime import date, datetime
 from pathlib import Path
 
 EVENTS_PATH = Path(".agentic/events.jsonl")
-MEMORY_PATHS = [Path("MEMORY.md"), Path(".agentic/memory.md")]
+MEMORY_PATHS = [
+    Path("MEMORY.md"),
+    Path(".agentic/memory.md"),
+    Path(".agentic/memory/MEMORY.md"),
+]
 CONTEXT_PATH = Path(".agentic/context.md")
 
 

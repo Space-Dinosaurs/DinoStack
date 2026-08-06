@@ -258,6 +258,47 @@ def test_query_memory_md_topic():
     print("PASS test_query_memory_md_topic")
 
 
+def test_query_memory_auto_memory_fallback():
+    """When root MEMORY.md is absent, memory query falls back to the auto-memory index."""
+    with tempfile.TemporaryDirectory() as tmp:
+        auto_memory = Path(tmp) / ".agentic" / "memory"
+        auto_memory.mkdir(parents=True)
+        (auto_memory / "MEMORY.md").write_text(
+            "## Auto-memory\nHarness-injected index.\n\n"
+            "## Decisions\nFallback works.\n"
+        )
+
+        # Uses the real MEMORY_PATHS (relative paths resolved against tmp cwd),
+        # with root MEMORY.md and .agentic/memory.md absent.
+        rc, out, _ = _capture_query(
+            _make_query_args(keyword="fallback", source="MEMORY.md"),
+            tmp,
+        )
+
+        assert rc == 0
+        assert "Decisions" in out, f"Expected auto-memory section in output: {out!r}"
+    print("PASS test_query_memory_auto_memory_fallback")
+
+
+def test_query_memory_root_wins_precedence():
+    """Root MEMORY.md outranks the auto-memory index (first-match-wins preserved)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        (Path(tmp) / "MEMORY.md").write_text("## Root\nCurated project memory.\n")
+        auto_memory = Path(tmp) / ".agentic" / "memory"
+        auto_memory.mkdir(parents=True)
+        (auto_memory / "MEMORY.md").write_text("## Auto\nShould not win.\n")
+
+        rc, out, _ = _capture_query(
+            _make_query_args(keyword="root", source="MEMORY.md"),
+            tmp,
+        )
+
+        assert rc == 0
+        assert "Root" in out, f"Expected root MEMORY.md section in output: {out!r}"
+        assert "Auto" not in out, f"Auto-memory index should not outrank root MEMORY.md: {out!r}"
+    print("PASS test_query_memory_root_wins_precedence")
+
+
 def test_query_missing_source_warning_on_stderr():
     """Missing source files produce a warning on stderr, not a crash."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -390,6 +431,8 @@ if __name__ == "__main__":
     test_query_events_last_filter()
     test_query_memory_md_keyword()
     test_query_memory_md_topic()
+    test_query_memory_auto_memory_fallback()
+    test_query_memory_root_wins_precedence()
     test_query_missing_source_warning_on_stderr()
     test_query_malformed_jsonl_skipped()
     test_turns_no_context_returns_zero()
