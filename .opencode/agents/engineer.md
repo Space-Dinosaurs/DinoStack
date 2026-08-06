@@ -61,8 +61,9 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
    - **Existing helpers** — grep the codebase for functions that already do what you just wrote. Prefer calling an existing utility over reimplementing it.
    - **Pattern violations** — if the codebase already has an established pattern for this class of problem (e.g., a shared validation schema, a common React hook, a standard error wrapper), use it.
    This check is mandatory. If you find duplication and choose not to extract it, state the reason explicitly in your output (e.g., "Intentionally not extracted: the two paths diverge in the next ticket").
-5. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
-6. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
+5. **Context economy: evidence-on-disk.** When a tool output exceeds ~20 lines / ~8k chars and you will need it again, spill it with `agentic-evidence spill`, keep the sketch line in context, and `get <node-id>` on demand. Full protocol: `content/references/evidence-on-disk.md`.
+6. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
+7. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
 
 ## Quality gates
 
