@@ -503,6 +503,7 @@ def test_version_and_help():
     assert "spill" in result.stdout
     assert "sketch" in result.stdout
     assert "prune" in result.stdout
+    assert "get" in result.stdout
     print("PASS test_version_and_help")
 
 

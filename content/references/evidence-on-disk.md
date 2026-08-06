@@ -158,9 +158,9 @@ will need them again while patching. It spills each to the evidence store, keeps
 the printed sketch in context, and rehydrates the stack trace on demand.
 
 ```
-$ agentic-evidence spill < /tmp/route-search.txt
-$ agentic-evidence spill < /tmp/stack-trace.txt
-$ agentic-evidence spill < /tmp/file-dump.txt
+$ agentic-evidence spill /tmp/route-search.txt --label "route-search" --tool Bash
+$ agentic-evidence spill /tmp/stack-trace.txt --label "stack-trace" --tool Bash
+$ agentic-evidence spill /tmp/file-dump.txt --label "file-dump" --tool Bash
 
 $ agentic-evidence sketch
 - n1 | label: route-search | tool: Bash | chars: 45230 | ts: 2026-08-05T09:14:02Z | status: ok
