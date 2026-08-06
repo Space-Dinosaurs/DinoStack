@@ -30,11 +30,11 @@ A portable methodology for AI-assisted software development. Provides structured
 
 ## Activation preflight
 
-Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to three file reads with no subagent spawn and no LLM reasoning. **Exception:** Step 6 (Scaffolding-sync check) is the single authorized side-effecting exception to this invariant. It calls `bin/agentic-migrate` as a bounded shell-out; the binary is methodology-owned, failure is swallowed, and it never blocks activation.
+Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `agentic-identity resolve-hook --cwd <cwd>` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `bin/agentic-migrate` scaffolding sync.
 
 1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default` (see the deprecated legacy preset subsection below for the fallback path when `profile` is genuinely absent rather than merely invalid).
 
-   Also read the **effective identity** for this session. Check `<cwd>/.agentic/identity.yml` first, then fall back to `~/.agentic/identity.yml`. Use the first file that exists, resolving by the 4-tier confirmation ordering: project-confirmed > global-confirmed > project-provisional > global-provisional > none. In practice this is a two-file read: if the project file exists and is confirmed (no `provisional: true`), use it. If the project file is provisional, also read the global file; if the global is confirmed, prefer the global. Otherwise use the project file. Record `developer_id` and `provisional` from whichever file wins. Absent file or absent `provisional` field = confirmed identity (Python `.get('provisional', False)`; JS `provisional === true`). **This is a read-only field parse - no prompt, no shell-out, no LLM reasoning. The "fast, silent" preflight invariant is preserved.** When `provisional: true` is recorded on the effective identity, the conductor surfaces a non-blocking confirmation notice at its first user-facing turn (see §Session Context and Memory in `content/rules/conventions.md`).
+   Also invoke that resolver and record only validated JSON `null` or `{developer_id, provisional, identity_scope, config_dir?}`. It safely discovers project/profile/global candidates and applies confirmation-first ordering: project > profile > global, then provisional project > profile > global. Do not re-read identity files. A provisional winner triggers the scoped first-turn notice. Full resolver and routing contract: `content/commands/ds-identity.md`.
 
    **Deprecated legacy preset (read-only compat).** Older configs may still carry a session-wide `preset` field (`lean` | `standard` | `strict`) at either scope. It is a read-only fallback used ONLY when `profile` is genuinely ABSENT at that scope - check key presence, not truthiness. An invalid `profile` value is treated identically to absent for this purpose (a valid legacy `preset` may then apply); if nothing validates anywhere, terminate at `default`.
 
@@ -687,18 +687,18 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - per-developer session rollup written by the Stop hook. Committed to git via the `.agentic/session-log/` carve-out in `.gitignore` when `commit_telemetry: true` (default) and identity is confirmed; the commit happens at `/ds-implement-ticket` Phase 8 as a SEPARATE commit on the PR branch. Teammates receive it on pull after squash merge. See `content/references/events-log.md` "Per-developer session log". Aggregated via `agentic-cost team`.
 
-**Identity setup - auto-derive + confirm-once.** Run `agentic-identity auto` once to derive a provisional handle from your GitHub login (`gh api user`). The identity is written to `~/.agentic/identity.yml` with `provisional: true`. Manual setup remains available via `agentic-identity init <handle>`. To use a per-repo handle, pass `--scope project`: this writes `<cwd>/.agentic/identity.yml` (gitignored, covered by the existing `.agentic/*` umbrella). A confirmed project identity takes precedence over the global file for sessions in that repo. A provisional project file does NOT suppress a confirmed global - see "Scope / effective identity resolution" in the `agentic-identity` command doc.
+**Identity setup.** `agentic-identity auto` derives a provisional global GitHub handle; `init <handle>` sets one manually. `--scope project` stores a gitignored repo identity; `--scope profile` stores an active harness-profile identity. Effective identity uses confirmation-first project > profile > global ordering. Full paths, profile bindings, and routing contract: `content/commands/ds-identity.md`.
 
-**Conductor first-user-turn provisional-confirm.** When the preflight resolves a `provisional: true` effective identity (Step 1 in `content/sections/01-activation-preflight.md` - project file checked first, then global), the conductor surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
+**Conductor first-user-turn provisional-confirm.** When the preflight resolves a `provisional: true` effective identity, the conductor substitutes the winning scope (`global`, `profile`, or `project`) and surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
 
 ```
 IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
 Telemetry is buffered (not lost) until confirmed.
-  Confirm: agentic-identity confirm
-  Correct: agentic-identity init <handle> --force
+  Confirm: agentic-identity confirm --scope <scope>
+  Correct: agentic-identity init <handle> --force --scope <scope>
 ```
 
-The notice re-surfaces next session if ignored. CI/headless sessions never reach a user turn - telemetry stays buffered until a TTY session confirms. `agentic-identity confirm` strips the `provisional` flag and flushes the pending buffer into both the global and per-project session logs.
+Profile commands use the active config binding; add `--profile-dir <dir>` only when absent. The notice re-surfaces until confirmation. Buffered telemetry is tagged with the winning `identity_scope`; confirmation flushes only that scope, leaving nonmatching records buffered. See `content/commands/ds-identity.md`.
 
 **Deprecated-preset first-user-turn notice.** When the preflight (Step 1 in `content/sections/01-activation-preflight.md`) finds a legacy session-wide `preset` key present at either scope - `~/.claude/agentic-engineering.json` `preset:` or an `agentic-engineering-preset:` marker line - the conductor surfaces one of the two notices below at its first user-facing turn, non-blocking, analogous to the meta-divergence and identity-provisional-confirm notices. Fire on PRESENCE of the key regardless of whether it wins resolution; use the first template when the legacy preset won at that scope, the second when it was present but overridden by a `profile` elsewhere in the precedence chain:
 
@@ -3465,7 +3465,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 ```
 
 **Fields:**
-- `developer_id`: handle from the effective identity (`<cwd>/.agentic/identity.yml` if present and wins the 4-tier resolution, else `~/.agentic/identity.yml`). Never inferred from git config.
+- `developer_id`: handle from the 6-tier effective identity: project-confirmed > profile-confirmed > global-confirmed > project-provisional > profile-provisional > global-provisional. Profile identity is read from `<active-config-dir>/identity.yml`, with the config dir resolved from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or `PI_CODING_AGENT_DIR`. Never inferred from git config.
 - `session_uuid`: the Stop hook payload `session_id` field.
 - `project_slug`: `path.basename(cwd)` - the directory name of the project root.
 - `branch`: from `git symbolic-ref --short HEAD` (best-effort; empty string on failure).
@@ -3473,7 +3473,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 
 **PII boundary:** Only the fields above are written. Excluded: prompt content, file paths, tool I/O, user messages, finding text, task descriptions, commit messages, environment variable values.
 
-**No identity:** The session-log write is skipped only when the 4-tier resolution yields no effective identity - i.e. neither the project-local `<repo>/.agentic/identity.yml` nor the global `~/.agentic/identity.yml` resolves a usable handle (both absent, or only provisional handles present such that telemetry is buffered rather than written directly). A developer whose identity is confirmed at any tier (project-confirmed or global-confirmed) receives a normal session-log write; a developer with only provisional identities has telemetry buffered to `~/.agentic/session-log/.pending/` until `agentic-identity confirm` is run. When no tier resolves at all, the Stop hook appends a one-time nudge to this session's `.agentic/context.d/<session_id>.md` shard - from which the derived `.agentic/context.md` rollup carries it - directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
+**No confirmed identity:** Direct session-log writes are skipped when the 6-tier resolution yields no confirmed identity. Project, active-profile, and global identity files are all considered. When only provisional identities exist, telemetry is buffered at `~/.agentic/session-log/.pending/`; each record carries canonical `identity_scope` from the winning provisional identity, and profile winners also carry `config_dir`. `agentic-identity confirm --scope <winning-scope>` flushes only records whose `identity_scope` matches: profile confirmation additionally matches `config_dir`, project confirmation matches `repo_root`, and global confirmation accepts global-scope records even when a profile config dir is active. Nonmatching records remain buffered and cannot be reattributed by a later identity in another scope. When no tier resolves at all, the Stop hook appends a one-time nudge to this session's `.agentic/context.d/<session_id>.md` shard, from which the derived `.agentic/context.md` rollup carries it, directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
 
 **Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files on the local checkout and renders a per-developer rollup table sorted by total tokens. Because session-logs are committed via Phase 8 telemetry commits, the rollup reflects sessions from all developers whose telemetry has landed on the branch via pull after merge - enabling cross-developer team visibility without a separate aggregation service.
 
@@ -12554,11 +12554,11 @@ It is the third dimension in the cost-visibility hierarchy:
 | `operator` | All projects, all developers | `~/.agentic/session-log/*.jsonl` (global mirror) |
 | `project` | One project, all sessions | `.agentic/events.jsonl` (local telemetry) |
 
-**Per-repo handle attribution:** A developer who uses `agentic-identity init --scope project`
-with a handle different from their global handle will appear as two separate rows in both
-`team` and `operator` output - one row per distinct `developer_id`. This is expected behavior;
-each handle is an independent identity. Manual cross-handle aggregation is required if a
-unified view is needed.
+**Multi-scope handle attribution:** A developer who uses project, profile, and
+global handles can appear as separate rows in both `team` and `operator`
+output - one row per distinct `developer_id`. This is expected behavior; each
+handle is an independent identity. Manual cross-handle aggregation is required
+if a unified view is needed.
 
 The `.pending/` staging directory is never globbed - only fully-attributed
 lines from `*.jsonl` files are included. If no global logs exist (directory absent or
@@ -12992,10 +12992,10 @@ Implementation: `bin/agentic-identity` (Python 3 stdlib + optional pyyaml).
 ## Usage
 
 ```
-agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,project}]
-agentic-identity show [--scope {global,project,effective}]
-agentic-identity auto [--force] [--scope {global,project}]
-agentic-identity confirm [--scope {global,project}]
+agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+agentic-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
+agentic-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 ## Subcommands
@@ -13003,13 +13003,19 @@ agentic-identity confirm [--scope {global,project}]
 ### init
 
 ```
-agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,project}]
+agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Set a developer identity manually. `<handle>` must match `^[a-z0-9._-]{1,64}$`.
 
-- `--scope` defaults to `global`, preserving all existing behavior byte-for-byte.
+- `--scope` defaults to `global`, preserving the existing default target path.
 - `--scope global` writes `~/.agentic/identity.yml` (atomic tmp+rename).
+- `--scope profile` writes `<active-config-dir>/identity.yml`. The active config
+  dir is detected from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`,
+  `CODEX_HOME`, then `PI_CODING_AGENT_DIR`. `--profile-dir <dir>` overrides
+  env detection. The resolved
+  target must remain lexically under `$HOME`; symlinked parent components and
+  outside-home paths are rejected.
 - `--scope project` writes `<cwd>/.agentic/identity.yml` (the current repo root;
   exits `1` if `cwd` is not inside a git repo). The project file is gitignored
   by the existing `.agentic/*` umbrella - it is per-developer only and never
@@ -13018,29 +13024,35 @@ Set a developer identity manually. `<handle>` must match `^[a-z0-9._-]{1,64}$`.
   required to overwrite.
 - If the existing identity is provisional, overwrites silently (no `--force`
   needed).
-- After writing, flushes any pending buffer (see "Provisional model" below)
-  onto the new handle. For `--scope project`, only pending records whose
-  `repo_root` matches the current repo are flushed to the project handle;
-  other repos' buffered sessions remain in the buffer.
+- After writing, flushes routed pending records (see "Provisional model"
+  below) onto the new handle. The canonical `identity_scope` tag must match
+  the confirmed target. Profile scope additionally matches `config_dir`;
+  project scope matches `repo_root`. Other scopes' buffered sessions remain
+  in the buffer.
 - `--display-name` sets an optional human-readable name stored as
   `display_name` in the target identity file.
 
-Exit codes: `0` success; `1` invalid handle, missing handle, flush error, or
-not in a git repo (project scope); `2` confirmed identity exists without `--force`.
+Exit codes: `0` success; `1` invalid handle, missing handle, rejected or
+undetectable profile dir, flush error, or not in a git repo (project scope);
+`2` confirmed identity exists without `--force`.
 
 ### show
 
 ```
-agentic-identity show [--scope {global,project,effective}]
+agentic-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
 ```
 
-Print identity information. No writes, always exits `0`.
+Print identity information without writing. A valid query exits `0`, including
+an absent identity or an env-undetectable profile scope. A rejected explicit
+`--profile-dir` returns exit `1`.
 
 - `--scope global` (default): prints `~/.agentic/identity.yml`.
+- `--scope profile`: prints `<active-config-dir>/identity.yml`;
+  `--profile-dir <dir>` overrides env detection.
 - `--scope project`: prints `<cwd>/.agentic/identity.yml`.
-- `--scope effective`: resolves and prints the effective identity per the 4-tier
+- `--scope effective`: resolves and prints the effective identity per the 6-tier
   ordering (see "Scope / effective identity resolution" below). Also prints a
-  `scope:` field indicating which file won (`global` or `project`).
+  `scope:` field indicating which file won (`global`, `profile`, or `project`).
 
 `--scope effective` is available on `show` only; it is rejected with exit `1`
 on `init`, `auto`, and `confirm` (structural rejection; those subcommands write
@@ -13076,23 +13088,26 @@ created_at:    2026-06-04T10:00:00Z
 "No identity set. Run: agentic-identity init <handle>" when no file exists
 at the requested scope.
 
-Exit codes: `0` always.
+Exit codes: `0` for a valid scope, including an absent identity; `1` when an
+explicit `--profile-dir` is rejected.
 
 ### auto
 
 ```
-agentic-identity auto [--force] [--scope {global,project}]
+agentic-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Derive a handle automatically from the GitHub CLI and write it as provisional.
-`--scope` defaults to `global`. `--scope project` writes to `<cwd>/.agentic/identity.yml`
-(exits `1` if not in a git repo).
+`--scope` defaults to `global`. Project scope writes
+`<cwd>/.agentic/identity.yml` and exits `1` outside a git repo. Profile scope
+writes `<active-config-dir>/identity.yml`; `--profile-dir <dir>` overrides env
+detection and must resolve under `$HOME`.
 
 Steps:
 1. Calls `gh api user --jq .login` with a 5-second timeout.
 2. Lowercases the result and validates against `^[a-z0-9._-]{1,64}$`.
-3. Writes `provisional: true` and `derived_from: gh` to
-   `~/.agentic/identity.yml` (atomic tmp+rename).
+3. Writes `provisional: true` and `derived_from: gh` to the selected scope's
+   identity file (atomic tmp+rename).
 
 Behavior on edge cases:
 - `gh` unavailable or unauthenticated: exits `1` with a hint to run
@@ -13110,33 +13125,38 @@ A provisional identity does NOT activate telemetry writes. Session data is
 instead buffered at `~/.agentic/session-log/.pending/` until confirmed (see
 "Provisional model" below).
 
-Exit codes: `0` success; `1` gh unavailable or invalid handle; `2` confirmed
-identity exists without `--force`.
+Exit codes: `0` success; `1` gh unavailable, invalid handle, invalid project
+scope, or rejected/undetectable profile dir; `2` confirmed identity exists
+without `--force`.
 
 ### confirm
 
 ```
-agentic-identity confirm [--scope {global,project}]
+agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Confirm a provisional identity and activate telemetry. `--scope` defaults to
-`global`. `--scope project` confirms `<cwd>/.agentic/identity.yml` (exits `1`
-if not in a git repo or if no project identity file exists).
+`global`. Project scope confirms `<cwd>/.agentic/identity.yml`. Profile scope
+confirms `<active-config-dir>/identity.yml`; `--profile-dir <dir>` overrides
+env detection.
 
 Steps:
 1. Strips `provisional:` and `derived_from:` from the target identity file
    (atomic tmp+rename). The identity is now confirmed.
-2. Calls `flushPendingBuffer` - moves buffered pending sessions into the
-   per-project and global session logs under the confirmed handle (see
-   "Pending buffer" below). For `--scope project`, only records whose
-   `repo_root` matches the current repo are attributed to the project handle.
+2. Calls `flushPendingBuffer` - moves only the selected scope's buffered
+   sessions into the per-project and global session logs under the confirmed
+   handle. The record's `identity_scope` must equal the confirmed scope.
+   Profile confirmation additionally matches `config_dir`; project confirmation
+   matches `repo_root`.
 3. Prints "Flushed N pending session(s)".
 
-If the identity is already confirmed, `confirm` is a no-op (exits `0`).
-If no identity file exists at the target scope, exits `1`.
+If the identity is already confirmed, the identity file remains unchanged,
+but pending routing and flush still run for the selected scope; the command
+then exits `0`. If no identity file exists at the target scope, exits `1`.
 
-Exit codes: `0` success or already confirmed; `1` no identity file or
-flush error.
+Exit codes: `0` confirmation completed or the identity was already confirmed
+after the scope's pending flush ran; `1` no identity file, invalid project
+scope, rejected/undetectable profile dir, or identity-file write error.
 
 ## Provisional model
 
@@ -13148,8 +13168,14 @@ to any log. This eliminates the one-session gap that existed before V1.
 
 Location: `~/.agentic/session-log/.pending/<session-uuid>.json`
 
-Each session produces one file, written atomically (tmp+rename) by the Stop
-hook when the identity is provisional or absent. Format:
+Each session has one file. Repeated Stop turns atomically replace its safe
+existing record with the latest cumulative totals through an exclusive,
+unpredictable sibling temporary. Unsafe or substituted destinations are never
+followed or modified. Concurrent writers serialize on the pinned pending
+directory and an older timestamp cannot replace a newer record. The Stop hook
+delegates this write to the bundled
+`agentic-identity write-hook` helper when identity is provisional or absent.
+Format:
 
 ```json
 {
@@ -13159,6 +13185,8 @@ hook when the identity is provisional or absent. Format:
   "project_slug": "<basename>",
   "repo_root": "<abs cwd>",
   "branch": "<branch>",
+  "identity_scope": "<global|profile|project; winning provisional scope>",
+  "config_dir": "<winning profile config dir; profile scope only>",
   "data": {
     "wall_seconds": 0,
     "tokens": { "input": 0, "output": 0, "cache_creation": 0, "cache_read": 0 },
@@ -13169,32 +13197,47 @@ hook when the identity is provisional or absent. Format:
 ```
 
 No `developer_id` field - sessions are unattributed until flushed.
+`identity_scope` is the canonical routing tag and comes from the effective
+provisional identity, never merely from the active config directory.
+`config_dir` is present only for a profile-scope winner. Both routing fields
+are removed from the canonical attributed log line.
 `agentic-cost` does NOT read `.pending/` (the glob `*.jsonl` never reaches
 the `.pending/` subdirectory).
 
-Buffer cap: 100 files. When the cap is exceeded, the oldest file (by `ts`)
-is dropped and a one-line notice is printed to stderr.
+Buffer cap: 100 files. Enumeration and processing are streamed and stop after
+101 directory entries. When a safe oldest file is pruned, stderr reports
+`agentic-identity: pending buffer cap exceeded; pruned <N> oldest session(s).`
 
 ### Flush (`flushPendingBuffer`)
 
 Called by both `confirm` and `init`. Race-safe: acquires an exclusive
 `fcntl.flock` on `~/.agentic/session-log/.flush.lock` for the entire flush
-loop (blocking acquire, 30-second timeout; on timeout prints a stderr warning
-and exits cleanly with the buffer intact for the next run).
+loop. The lock is opened descriptor-relatively with `O_NOFOLLOW | O_NONBLOCK`
+and must be a bounded, singly-linked, current-user-owned regular file without
+group/world write bits before `flock` is attempted. Unsafe locks fail
+immediately; contention has a 30-second timeout and exits cleanly with the
+buffer intact for the next run.
 
 For each `.pending/*.json` record:
-1. **Dedup** - scans the global `<dev>.jsonl` for a matching `session_uuid`.
+1. **Scope routing** - requires canonical `identity_scope` to match the
+   confirmed target before attribution. Profile confirmation additionally
+   requires matching `config_dir`; project confirmation requires matching
+   `repo_root`. Non-matching records stay buffered and cannot be reattributed
+   by a later identity in another scope. Legacy records without
+   `identity_scope` retain their historical filter behavior.
+2. **Dedup** - scans the global `<dev>.jsonl` for a matching `session_uuid`.
    If found, unlinks the pending file and skips.
-2. **Attribution** - builds an attributed log line (all pending fields plus
-   `developer_id`; original `ts` preserved).
-3. **Per-project write** - validates `repo_root` via
+3. **Attribution** - builds an attributed log line (canonical pending fields
+   plus `developer_id`; routing-only `config_dir` is omitted; original `ts`
+   preserved).
+4. **Per-project write** - validates `repo_root` via
    `git -C <repo_root> rev-parse --show-toplevel` (3-second timeout) and
    checks that `basename(toplevel) == project_slug`. On success, appends to
    `<repo_root>/.agentic/session-log/<dev>.jsonl` (mkdir -p). On mismatch or
    failure, skips per-project with a one-line stderr warning.
-4. **Global write** - always appends to
+5. **Global write** - always appends to
    `~/.agentic/session-log/<dev>.jsonl` (mkdir -p).
-5. **Cleanup** - unlinks the pending file only after all attempted appends
+6. **Cleanup** - unlinks the pending file only after all attempted appends
    succeed. A global-write failure leaves the file for a future retry.
 
 ### First-session confirmation prompt
@@ -13204,10 +13247,14 @@ notice when a provisional identity is detected:
 
 ```
 Tracking handle '<handle>' was auto-derived (provisional). Telemetry is
-paused until you confirm. To confirm: agentic-identity confirm
-To use a different handle: agentic-identity init <handle> --force
+paused until you confirm.
+To confirm: agentic-identity confirm --scope <scope>
+To use a different handle:
+  agentic-identity init <handle> --force --scope <scope>
 ```
 
+The conductor substitutes the winning scope. Profile scope uses the active
+config-dir env automatically; append `--profile-dir <dir>` only when needed.
 Telemetry continues to buffer (not lost). The prompt re-surfaces each session
 until confirmed. CI/headless sessions never reach a user turn, so they stay
 deferred and buffered automatically.
@@ -13215,11 +13262,39 @@ deferred and buffered automatically.
 ## Scope / effective identity resolution
 
 A project-local identity file at `<repo>/.agentic/identity.yml` lets a developer
-use a different handle for sessions in that repo without changing their global
-default. The file is gitignored by the existing `.agentic/*` umbrella; it is
-per-developer and never lands in the repo by default.
+use a different handle for sessions in that repo. A profile identity at
+`<active-config-dir>/identity.yml` applies to one harness profile or tenant.
+The project file is gitignored by the existing `.agentic/*` umbrella; both
+overrides are per-developer.
 
-### 4-tier ordering
+### Profile config-dir resolution
+
+The active config dir is the first non-empty qualifying environment value in
+this order:
+
+1. `AGENTIC_CONFIG_DIR`
+2. `CLAUDE_CONFIG_DIR`
+3. `CODEX_HOME`
+4. `PI_CODING_AGENT_DIR`
+
+A leading `~` is expanded. Paths are normalized lexically, nonexistent suffixes
+are preserved, and only paths under `$HOME` qualify. Existing symlinked
+components are rejected rather than followed. Use
+`--profile-dir <dir>` on `init`, `show --scope profile`, `auto`, or `confirm`
+to override env detection. The explicit path must pass the same containment
+check.
+
+All identity reads open final targets with `O_NONBLOCK | O_NOFOLLOW` before
+`fstat` and reject non-regular, multiply-linked, wrong-owner, oversized, or
+invalid UTF-8 files. Display names containing any Unicode `Cc` control
+character, including C1 controls U+0080 through U+009F, are rejected. Global,
+profile, and project parent components are opened or validated without
+following symlinks; writes use the same protected parent descriptor so
+`--force` cannot rewrite an outside target. Stop-hook session logs use the same
+descriptor-relative final-target checks and additionally reject unsafe modes
+and oversized targets before append.
+
+### 6-tier ordering
 
 When the preflight, Stop hook, or `show --scope effective` resolves identity,
 it applies this total ordering (higher tier wins):
@@ -13227,29 +13302,33 @@ it applies this total ordering (higher tier wins):
 | Tier | File | State |
 |---|---|---|
 | 1 (highest) | `<cwd>/.agentic/identity.yml` | confirmed (no `provisional: true`) |
-| 2 | `~/.agentic/identity.yml` | confirmed |
-| 3 | `<cwd>/.agentic/identity.yml` | provisional |
-| 4 (lowest) | `~/.agentic/identity.yml` | provisional |
-| none | neither file exists | - |
+| 2 | `<active-config-dir>/identity.yml` | confirmed |
+| 3 | `~/.agentic/identity.yml` | confirmed |
+| 4 | `<cwd>/.agentic/identity.yml` | provisional |
+| 5 | `<active-config-dir>/identity.yml` | provisional |
+| 6 (lowest) | `~/.agentic/identity.yml` | provisional |
+| none | no usable identity file exists | - |
 
 Key rules:
-- A **confirmed global identity is not suppressed** by a provisional project
-  file. Tier 2 beats Tier 3.
-- A confirmed project identity beats a confirmed global (Tier 1 > Tier 2).
+- A confirmed global identity is not suppressed by a provisional project or
+  profile file. Tier 3 beats Tiers 4 and 5.
+- A confirmed project identity beats confirmed profile and global identities.
+- A confirmed profile identity beats a confirmed global identity.
 - `--scope project` requires the `cwd` to be inside a git repo; exits `1` if not.
 
-### `agentic-cost` and two-handle attribution
+### `agentic-cost` and multi-handle attribution
 
-A developer who uses a `--scope project` handle in repo A and their global handle
-everywhere else will appear as **two separate rows** in `agentic-cost team` and
-`agentic-cost operator` output - one row per distinct `developer_id`. This is
-intentional: each handle is an independent identity. Cross-handle rollup is not
-provided automatically; aggregate manually if needed.
+A developer who uses project, profile, and global handles can appear as separate
+rows in `agentic-cost team` and `agentic-cost operator` output - one row per
+distinct `developer_id`. This is intentional: each handle is an independent
+identity. Cross-handle rollup is not provided automatically.
 
 ## Identity schema
 
-Files: `~/.agentic/identity.yml` (global) and optionally `<cwd>/.agentic/identity.yml`
-(project-local, gitignored). Both files use the same schema.
+Files: `~/.agentic/identity.yml` (global), optionally
+`<active-config-dir>/identity.yml` (profile), and optionally
+`<cwd>/.agentic/identity.yml` (project-local, gitignored). All files use the
+same schema.
 
 | Field | Required | Notes |
 |---|---|---|
@@ -13283,7 +13362,7 @@ migration and continue to work without change.
 | Code | Meaning |
 |---|---|
 | `0` | Success |
-| `1` | Error: invalid/missing handle, `gh` unavailable, no identity file, flush error |
+| `1` | Error: invalid/missing handle, `gh` unavailable, invalid scope target, rejected/undetectable profile dir, no identity file, or flush error |
 | `2` | A confirmed identity already exists; re-run with `--force` to overwrite |
 
 ---
@@ -20418,7 +20497,7 @@ Done.
 
 Next steps:
   - Run /ds-status to verify the install is active in this project.
-  - Run agentic-identity show to confirm your developer identity.
+  - Run agentic-identity show --scope effective to confirm your developer identity.
   - Open a new shell if adapters added shell integrations.
 ```
 

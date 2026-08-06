@@ -16,7 +16,8 @@
  *          this script directly without the flag. Writes
  *          per-developer session telemetry via a three-branch identity gate:
  *          confirmed identity -> per-project log + global mirror; provisional
- *          identity or no identity -> pending buffer (~/.agentic/session-log/.pending/);
+ *          identity or no identity -> pending buffer (~/.agentic/session-log/.pending/).
+ *          Provisional records carry identity_scope from the winning identity;
  *          no identity also appends a one-time nudge to this session's shard.
  *          Runs a capture-gap backstop that detects learning-worthy sessions with
  *          no captured learnings and appends a nudge to the shard. ALWAYS creates
@@ -29,9 +30,8 @@
  *             Claude Code Stop hook. Internal helpers:
  *             scanSessionAggregate(eventsPath, sessionId[, cachedRaw]),
  *             writeSessionTotal(cwd, sessionId[, cachedRaw]), computeSessionTotals(cwd, sessionId[, cachedRaw]),
- *             getIdentity(cwd), writeSessionLog(cwd, identity, sessionId[, cachedRaw]),
- *             writeSessionLogGlobal(identity, sessionId, data),
- *             writePendingBuffer(cwd, sessionId[, cachedRaw]),
+ *             getIdentity(cwd),
+ *             writeTelemetrySafely(cwd, identity, sessionId[, cachedRaw]),
  *             appendIdentityNudgeToContextMd(repoRoot, sessionId),
  *             appendCaptureGapNoticeToContextMd(cwd, residualOnly, sessionId),
  *             writeContextShardAndRollup(cwd, sessionId, shardBody) — replaces the
@@ -48,7 +48,9 @@
  *             liveMarkerExists - stagePending, touchHeartbeat, etc.) now live in
  *             hooks/lib/wrap-marker.js, the single source of truth.
  *
- * Upstream deps: Node built-ins only (fs, path, os, child_process) plus five
+ * Upstream deps: Node built-ins (fs, path, os, child_process), the bounded
+ *                descriptor-safe bin/agentic-identity resolve-hook/write-hook
+ *                helper, plus six
  *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/ds-wrap
  *                marker single source of truth - lock gate, per-session staging,
  *                heartbeat), hooks/lib/capture-gap.js (the shared capture-gap
@@ -85,8 +87,12 @@
  *                ~/.agentic/session-log/<developer_id>.jsonl (global mirror),
  *                ~/.agentic/session-log/.pending/<session_uuid>.json (pending buffer),
  *                ~/.agentic/identity.yml (read-only, global),
+ *                <config-dir>/identity.yml (read-only, profile scope; config dir
+ *                env-detected via AGENTIC_CONFIG_DIR/CLAUDE_CONFIG_DIR/
+ *                CODEX_HOME/PI_CODING_AGENT_DIR),
  *                [cwd]/.agentic/identity.yml (read-only, project-local; takes precedence
- *                over global when confirmed, per 4-tier resolution in getIdentity(cwd)),
+ *                over profile and global when confirmed, per 6-tier resolution in
+ *                getIdentity(cwd)),
  *                [cwd]/.agentic/config.json (read-only, deferred_wrap_daemon +
  *                skill_candidate_detection toggles),
  *                [cwd]/.agentic/events.jsonl (read-only for capture-gap backstop and
@@ -120,7 +126,17 @@
  *                readStdinGuarded(), which never rejects and resolves via one
  *                of three paths - parse-success, EOF, or timeout - all feeding
  *                the same downstream write paths below, so a spawning process
- *                that never closes stdin cannot hang this hook's exit. Twelve
+ *                that never closes stdin cannot hang this hook's exit.
+ *                Identity reads run through the bounded descriptor-relative
+ *                Python helper because Node lacks openat-style component
+ *                traversal. Invalid handles/UTF-8, symlinks, special files,
+ *                multiply-linked files, wrong-owner files, and oversized files
+ *                are absent/corrupt. Profile config candidates use the same
+ *                component validation before selection; unsafe candidates are
+ *                skipped so a safe lower-precedence env candidate can qualify.
+ *                A root-owned top-level platform alias
+ *                (for example macOS /var -> /private/var) is normalized before
+ *                the nofollow walk; later components are never resolved. Twelve
  *                independent write paths (plus the health-flush observability
  *                layer described below): (1) context.md write is best-effort; any fs error
  *                is swallowed and the file may not be written. (2) loop-state.json
@@ -147,21 +163,24 @@
  *                silently on a positively-differing session_id, on missing
  *                file, or on parse error. Best-effort silent-fail; failure of
  *                this path does not block writeSessionTotal.
- *                (5) writeSessionLog appends to .agentic/session-log/<dev>.jsonl;
- *                any fs error is swallowed independently of all other paths.
+ *                (5) writeTelemetrySafely asks the bundled helper to append to
+ *                .agentic/session-log/<dev>.jsonl through validated directory
+ *                and file descriptors; refusal is swallowed independently.
  *                (6) appendIdentityNudgeToContextMd appends to THIS SESSION'S
  *                shard; any fs error is swallowed independently. It is no longer
  *                deferred behind the wrap lock - the target is session-private,
  *                so there is nothing to serialize against, and deferring behind
  *                a lock let an ORPHANED lock suppress the one-time notice
  *                indefinitely.
- *                (7) writeSessionLogGlobal appends to ~/.agentic/session-log/<dev>.jsonl;
- *                any fs error is swallowed independently of the per-project write
- *                (path 5) - a global failure never affects the per-project write.
- *                (8) writePendingBuffer writes atomically (tmp+rename) to
- *                ~/.agentic/session-log/.pending/<uuid>.json; enforces cap-100
- *                (drops oldest by ts with one stderr notice); any fs error swallowed
- *                independently of all other paths.
+ *                (7) the same helper independently appends to
+ *                ~/.agentic/session-log/<dev>.jsonl through a bounded, owned,
+ *                singly-linked regular-file descriptor; a global refusal never
+ *                affects path 5.
+ *                (8) for provisional or absent identity, the same helper
+ *                publishes ~/.agentic/session-log/.pending/<uuid>.json through
+ *                an exclusive unpredictable sibling and no-clobber link;
+ *                validates cap-100 candidates before pruning. Any refusal is
+ *                swallowed independently of all other paths.
  *                (9) appendCaptureGapNoticeToContextMd appends to THIS SESSION'S
  *                shard; any fs error is swallowed independently. The
  *                .capture-gap-last-sweep cursor update is also best-effort and
@@ -240,13 +259,14 @@
  *                activity, or under the AGENTIC_WRAP_DAEMON loop-guard. Staging is
  *                fail-open and never blocks exit.
  *
- * Performance: ~5-20 ms typical; one git status subprocess call (5 s timeout)
+ * Performance: ~150-400 ms typical including bounded identity-helper process
+ *              launches; one git status subprocess call (5 s timeout)
  *              plus one git diff subprocess call for the capture-gap backstop
  *              (5 s timeout, soft-fail). Synchronous I/O throughout; runs as a
  *              short-lived CLI process. events.jsonl is read ONCE at the top of
  *              run() and the raw string is threaded to all consumers
  *              (scanSessionAggregate, computeSessionTotals, writeSessionTotal,
- *              writeSessionLog, writePendingBuffer, detectCaptureGap) so no
+ *              writeTelemetrySafely, detectCaptureGap) so no
  *              consumer re-reads the file. On large projects (5-10 MB events
  *              files) this eliminates 3-4 redundant full-file reads per exit.
  */
@@ -260,7 +280,7 @@
  *
  * Design goals:
  *  - Silent failure: any error exits 0, nothing written to stderr
- *  - No external dependencies: only Node built-ins
+ *  - No npm dependencies: Node built-ins plus the bundled Python identity helper
  *  - Fast: no LLM call, pure text extraction
  *  - /ds-wrap coexistence, partitioned at the `## Session Activity` sentinel:
  *    `.agentic/_wrap.md` owns everything up to the sentinel (including
@@ -279,7 +299,7 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
-const { execSync } = require('child_process');
+const { execSync, spawnSync } = require('child_process');
 
 // Single source of truth for the deferred-/ds-wrap marker state machine, lock,
 // heartbeat, and sentinel. The local helpers that previously lived in this file
@@ -672,57 +692,52 @@ function removeLearningsAgentSession(cwd, sessionId) {
   }
 }
 
-/**
- * Parse a YAML identity file at filePath. Returns {developer_id, provisional} or null.
- * Silent on ENOENT or any parse error.
- *
- * @param {string} filePath - Absolute path to the identity.yml file.
- * @returns {{developer_id: string, provisional: boolean}|null}
- */
-function _parseIdentityFile(filePath) {
-  try {
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, 'utf8');
-    const m = raw.match(/^developer_id:\s*(\S+)\s*$/m);
-    if (!m) return null;
-    const pm = raw.match(/^provisional:\s*(true|false)\s*$/m);
-    const provisional = pm ? pm[1] === 'true' : false;
-    return { developer_id: m[1], provisional };
-  } catch (_) {
-    return null;
-  }
-}
+const IDENTITY_SCOPE_FIELD = 'identity_scope';
+const HANDLE_RE = /^[a-z0-9._-]{1,64}$/;
 
 /**
- * Resolve effective identity via 4-tier total ordering:
- *   project-confirmed > global-confirmed > project-provisional > global-provisional > null
+ * Resolve effective identity via 6-tier total ordering:
+ *   project-confirmed > profile-confirmed > global-confirmed >
+ *   project-provisional > profile-provisional > global-provisional > null
  *
- * Reads project file (<cwd>/.agentic/identity.yml) and global file
- * (~/.agentic/identity.yml) using two synchronous existsSync+readFileSync calls
- * (~1ms, Node built-ins only, no subprocess).
+ * Delegates identity file traversal to the Python CLI's descriptor-relative
+ * resolver because Node does not expose openat-style component traversal.
+ * The helper is repo-relative, shell-free, time-bounded, and output-bounded.
  *
  * The existing three-branch write-vs-buffer gate (identity && !identity.provisional)
- * remains valid: confirmed at either scope -> direct write; provisional -> pending buffer.
+ * remains valid: confirmed at any scope -> direct write; provisional -> pending buffer.
  *
  * @param {string} cwd - The repo working directory (already validated by run()).
  * @returns {{developer_id: string, provisional: boolean}|null}
  */
 function getIdentity(cwd) {
-  const projectPath = path.join(cwd, '.agentic', 'identity.yml');
-  const globalPath = path.join(os.homedir(), '.agentic', 'identity.yml');
-
-  const projId = _parseIdentityFile(projectPath);
-  const globId = _parseIdentityFile(globalPath);
-
-  // Pass 1: first confirmed candidate in [project, global] order
-  if (projId && !projId.provisional) return projId;
-  if (globId && !globId.provisional) return globId;
-
-  // Pass 2: first provisional candidate in [project, global] order
-  if (projId) return projId;
-  if (globId) return globId;
-
-  return null;
+  try {
+    const helper = path.resolve(__dirname, '..', 'bin', 'agentic-identity');
+    const result = spawnSync(helper, ['resolve-hook', '--cwd', cwd], {
+      encoding: 'utf8',
+      timeout: 2000,
+      maxBuffer: 64 * 1024,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      env: process.env,
+    });
+    if (result.error || result.status !== 0 || typeof result.stdout !== 'string') {
+      return null;
+    }
+    const identity = JSON.parse(result.stdout);
+    if (!identity || typeof identity !== 'object' || Array.isArray(identity)) return null;
+    if (!HANDLE_RE.test(identity.developer_id || '')) return null;
+    if (!['global', 'profile', 'project'].includes(identity[IDENTITY_SCOPE_FIELD])) {
+      return null;
+    }
+    if (identity.provisional !== true && identity.provisional !== false) return null;
+    if (
+      identity[IDENTITY_SCOPE_FIELD] === 'profile'
+      && typeof identity.config_dir !== 'string'
+    ) return null;
+    return identity;
+  } catch (_) {
+    return null;
+  }
 }
 
 /**
@@ -799,103 +814,6 @@ function computeSessionTotals(cwd, sessionId, cachedRaw) {
 }
 
 /**
- * Write a session-log line to .agentic/session-log/<developer_id>.jsonl.
- * Creates the directory if needed. Silent failure on any fs error.
- *
- * @param {string} cwd - Verified project directory.
- * @param {{developer_id: string}} identity - Identity from getIdentity().
- * @param {string|null} sessionId - Current session uuid.
- * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
- *   single read. When provided (non-undefined), no additional file read occurs.
- *   null means file was absent/unreadable; undefined triggers back-compat read.
- */
-function writeSessionLog(cwd, identity, sessionId, cachedRaw) {
-  try {
-    // Resolve project slug and branch best-effort
-    const projectSlug = path.basename(cwd);
-    let branch = '';
-    try {
-      const { execSync: _exec } = require('child_process');
-      branch = _exec('git symbolic-ref --short HEAD', {
-        cwd, timeout: 3000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-      }).trim();
-    } catch (_) {
-      // Not a git repo or detached HEAD - leave branch as empty string
-    }
-
-    const totals = computeSessionTotals(cwd, sessionId, cachedRaw);
-    const data = totals || {
-      wall_seconds: 0,
-      tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-      spawn_count: 0,
-      by_agent: {},
-    };
-
-    const logLine = JSON.stringify({
-      ts: new Date().toISOString(),
-      phase: 'session_end',
-      event: 'session_total',
-      agent: null,
-      task_id: null,
-      developer_id: identity.developer_id,
-      session_uuid: sessionId || null,
-      project_slug: projectSlug,
-      branch,
-      data,
-    });
-
-    const sessionLogDir = path.join(cwd, '.agentic', 'session-log');
-    fs.mkdirSync(sessionLogDir, { recursive: true });
-    const logFile = path.join(sessionLogDir, `${identity.developer_id}.jsonl`);
-    fs.appendFileSync(logFile, logLine + '\n', 'utf8');
-    recordHealth('writeSessionLog', true, null);
-  } catch (_) {
-    recordHealth('writeSessionLog', false, _ && _.message);
-    // Silent failure - consistent with all other write paths
-  }
-}
-
-/**
- * Write the same session-log line that writeSessionLog writes per-project,
- * but to the global operator mirror: ~/.agentic/session-log/<dev>.jsonl.
- * Independent of the per-project write - a failure here never affects it.
- * Creates the directory if needed. Silent failure on any fs error.
- *
- * @param {{developer_id: string, provisional: boolean}} identity - From getIdentity().
- * @param {string|null} sessionId - Current session uuid.
- * @param {{wall_seconds: number, tokens: object, spawn_count: number, by_agent: object}} data - Telemetry.
- */
-function writeSessionLogGlobal(identity, sessionId, data) {
-  try {
-    const globalLogDir = path.join(os.homedir(), '.agentic', 'session-log');
-    fs.mkdirSync(globalLogDir, { recursive: true });
-    const logLine = JSON.stringify({
-      ts: new Date().toISOString(),
-      phase: 'session_end',
-      event: 'session_total',
-      agent: null,
-      task_id: null,
-      developer_id: identity.developer_id,
-      session_uuid: sessionId || null,
-      project_slug: data.project_slug || null,
-      branch: data.branch || '',
-      data: {
-        wall_seconds: data.wall_seconds,
-        tokens: data.tokens,
-        spawn_count: data.spawn_count,
-        by_agent: data.by_agent,
-      },
-    });
-    const logFile = path.join(globalLogDir, `${identity.developer_id}.jsonl`);
-    fs.appendFileSync(logFile, logLine + '\n', 'utf8');
-    recordHealth('writeSessionLogGlobal', true, null);
-  } catch (_) {
-    recordHealth('writeSessionLogGlobal', false, _ && _.message);
-    // Silent failure - independent of per-project write
-  }
-}
-
-/**
  * Generate a UUID v4 using crypto.randomUUID when available (Node 14.17+),
  * falling back to a Math.random-based implementation for older runtimes.
  *
@@ -917,54 +835,14 @@ function generateUuid() {
 }
 
 /**
- * Write unattributed session telemetry to the pending buffer.
- * Used when identity is null (no identity) or provisional (not yet confirmed).
- * Writes atomically via tmp+rename to ~/.agentic/session-log/.pending/<uuid>.json.
- * Enforces a cap of 100 pending files: when at or above cap, deletes the single
- * oldest file by `ts` field and emits one stderr notice before writing.
- * No developer_id field in the pending record - it is unattributed until flush.
- * Silent failure on any fs error.
- *
- * @param {string} cwd - Verified project directory.
- * @param {string|null} sessionId - Current session uuid (uuid v4 generated if null).
- * @param {string|null} [cachedRaw] - Pre-read events.jsonl contents from run()'s
- *   single read. When provided (non-undefined), no additional file read occurs.
- *   null means file was absent/unreadable; undefined triggers back-compat read.
+ * Persist one telemetry record through the descriptor-safe Python helper.
+ * Identity resolution is compared again in the helper before any write, so an
+ * identity swap between resolution and persistence fails closed. The helper
+ * independently reports project/global/pending outcomes for health telemetry.
  */
-function writePendingBuffer(cwd, sessionId, cachedRaw) {
-  let pendingTmpFile = null;
+function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
+  const confirmed = Boolean(identity && !identity.provisional);
   try {
-    const pendingDir = path.join(os.homedir(), '.agentic', 'session-log', '.pending');
-    fs.mkdirSync(pendingDir, { recursive: true });
-
-    // Enforce cap-100: count existing pending files
-    let existingFiles = [];
-    try {
-      existingFiles = fs.readdirSync(pendingDir).filter((f) => f.endsWith('.json'));
-    } catch (_) { /* silent */ }
-
-    if (existingFiles.length >= 100) {
-      // Parse ts from each file, find oldest, delete it
-      let oldestTs = null;
-      let oldestFile = null;
-      for (const fname of existingFiles) {
-        try {
-          const raw = fs.readFileSync(path.join(pendingDir, fname), 'utf8');
-          const obj = JSON.parse(raw);
-          const ts = obj.ts || '';
-          if (oldestTs === null || ts < oldestTs) {
-            oldestTs = ts;
-            oldestFile = fname;
-          }
-        } catch (_) { /* skip unreadable files */ }
-      }
-      if (oldestFile) {
-        try { fs.unlinkSync(path.join(pendingDir, oldestFile)); } catch (_) { /* silent */ }
-        process.stderr.write('agentic-engineering: pending buffer at cap (100); oldest session dropped\n');
-      }
-    }
-
-    // Compute telemetry
     const totals = computeSessionTotals(cwd, sessionId, cachedRaw);
     const data = totals || {
       wall_seconds: 0,
@@ -972,10 +850,6 @@ function writePendingBuffer(cwd, sessionId, cachedRaw) {
       spawn_count: 0,
       by_agent: {},
     };
-
-    // Resolve metadata
-    const projectSlug = path.basename(cwd);
-    const repoRoot = cwd;
     let branch = '';
     try {
       branch = execSync('git symbolic-ref --short HEAD', {
@@ -983,33 +857,40 @@ function writePendingBuffer(cwd, sessionId, cachedRaw) {
       }).trim();
     } catch (_) { /* detached HEAD or non-git dir */ }
 
-    const sessionUuid = sessionId || generateUuid();
-    const record = {
-      schema_version: 1,
-      session_uuid: sessionUuid,
-      ts: new Date().toISOString(),
-      project_slug: projectSlug,
-      repo_root: repoRoot,
+    const helper = path.resolve(__dirname, '..', 'bin', 'agentic-identity');
+    const request = JSON.stringify({
+      identity,
+      session_uuid: sessionId || generateUuid(),
       branch,
-      data: {
-        wall_seconds: data.wall_seconds,
-        tokens: data.tokens,
-        spawn_count: data.spawn_count,
-        by_agent: data.by_agent,
-      },
-    };
-
-    // Atomic write: tmp + rename
-    const outFile = path.join(pendingDir, `${sessionUuid}.json`);
-    pendingTmpFile = outFile + '.tmp';
-    fs.writeFileSync(pendingTmpFile, JSON.stringify(record, null, 2), 'utf8');
-    fs.renameSync(pendingTmpFile, outFile);
-    recordHealth('writePendingBuffer', true, null);
+      data,
+    });
+    const result = spawnSync(helper, ['write-hook', '--cwd', cwd], {
+      encoding: 'utf8',
+      timeout: 3000,
+      maxBuffer: 64 * 1024,
+      stdio: ['pipe', 'pipe', 'ignore'],
+      input: request,
+      env: process.env,
+    });
+    if (result.error || result.status !== 0 || typeof result.stdout !== 'string') {
+      throw result.error || new Error('safe telemetry helper failed');
+    }
+    const status = JSON.parse(result.stdout);
+    if (!status || typeof status !== 'object' || Array.isArray(status)) {
+      throw new Error('safe telemetry helper returned invalid status');
+    }
+    if (confirmed) {
+      recordHealth('writeSessionLog', status.project === true, status.project === true ? null : 'safe helper refused project log');
+      recordHealth('writeSessionLogGlobal', status.global === true, status.global === true ? null : 'safe helper refused global log');
+    } else {
+      recordHealth('writePendingBuffer', status.pending === true, status.pending === true ? null : 'safe helper refused pending record');
+    }
   } catch (_) {
-    recordHealth('writePendingBuffer', false, _ && _.message);
-    // Silent failure - consistent with all other write paths
-    if (pendingTmpFile) {
-      try { fs.unlinkSync(pendingTmpFile); } catch (_e) { /* tmp absent or never created */ }
+    if (confirmed) {
+      recordHealth('writeSessionLog', false, _ && _.message);
+      recordHealth('writeSessionLogGlobal', false, _ && _.message);
+    } else {
+      recordHealth('writePendingBuffer', false, _ && _.message);
     }
   }
 }
@@ -1435,29 +1316,11 @@ ${toolsLine}
   try {
     const identity = getIdentity(cwd);
     if (identity && !identity.provisional) {
-      // Confirmed identity: per-project write + global mirror
-      writeSessionLog(cwd, identity, sessionId, cachedEventsRaw);
-      // Build shared metadata for global mirror
-      const totals = computeSessionTotals(cwd, sessionId, cachedEventsRaw);
-      const globalData = Object.assign(
-        {
-          wall_seconds: 0,
-          tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
-          spawn_count: 0,
-          by_agent: {},
-        },
-        totals,
-        { project_slug: path.basename(cwd), branch: '' }
-      );
-      try {
-        globalData.branch = execSync('git symbolic-ref --short HEAD', {
-          cwd, timeout: 3000, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'],
-        }).trim();
-      } catch (_) { /* detached HEAD or non-git dir */ }
-      writeSessionLogGlobal(identity, sessionId, globalData);
+      // Confirmed identity: descriptor-safe project log + global mirror.
+      writeTelemetrySafely(cwd, identity, sessionId, cachedEventsRaw);
     } else {
-      // Provisional or no identity: pending buffer
-      writePendingBuffer(cwd, sessionId, cachedEventsRaw);
+      // Provisional or no identity: descriptor-safe pending buffer.
+      writeTelemetrySafely(cwd, identity, sessionId, cachedEventsRaw);
       // The `!wrapLockHeld(cwd)` gate that used to guard this nudge is REMOVED.
       // Its target is now a session-private shard, so there is nothing to
       // serialize against - and because the sentinel is consumed atomically with

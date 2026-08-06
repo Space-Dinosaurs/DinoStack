@@ -17,11 +17,43 @@ Or set a handle manually:
 agentic-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
 ```
 
-Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes the buffer and starts writing attributed logs.
+Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes only pending records matching the confirmed effective scope and retains nonmatching records. Matching records start writing attributed logs; nonmatching records remain buffered for their own scope.
 
-Run `agentic-identity show` at any time to see your current identity.
+Pending records use `identity_scope` from the effective provisional identity.
+An active profile cannot retag a global or project winner, so later profile
+confirmation cannot reattribute that session. Identity reads and writes reject
+symlinked parents and special, multiply-linked, wrong-owner, unsafe-mode, or
+oversized target files. Display names containing Unicode control characters
+are rejected. Stop-hook telemetry is persisted through the bundled
+`agentic-identity` helper, which applies the same descriptor-relative checks to
+project and global logs. Pending records use exclusive unpredictable
+temporaries and no-clobber publication. The flush lock is validated as a safe
+regular file before bounded `flock` acquisition.
 
-## Per-project override
+Run `agentic-identity show --scope effective` at any time to see the identity
+that wins for the current project and profile.
+
+## Per-profile and per-project overrides
+
+For separate harness tenants or config profiles, store the identity beside
+that profile's configuration:
+
+```bash
+AGENTIC_CONFIG_DIR=~/.claude-client-a agentic-identity auto --scope profile
+AGENTIC_CONFIG_DIR=~/.claude-client-a agentic-identity confirm --scope profile
+```
+
+Profile config-dir detection uses `AGENTIC_CONFIG_DIR`, then
+`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, then `PI_CODING_AGENT_DIR`. You can instead pass
+`--profile-dir <dir>`. Profile dirs must remain lexically under `$HOME` and
+must not contain symlinked components.
+
+Pi exposes `PI_CODING_AGENT_DIR` at runtime, so Pi profile identity follows
+that binding. OMP has no native runtime config-dir binding; a flag-only
+`.omp/install.sh --config-dir=...` install therefore keeps identity global
+instead of creating an unreachable profile identity. Set
+`AGENTIC_CONFIG_DIR` for both install and runtime when OMP profile identity is
+required.
 
 If you use a different handle for specific repos, set a project-scoped identity from inside that repo:
 
@@ -34,11 +66,12 @@ The project file is covered by the existing `.agentic/*` gitignore umbrella - it
 
 ## Precedence
 
-When both files exist, the most-confirmed identity wins:
+When multiple identity files exist, confirmation wins before scope:
 
-**project-confirmed > global-confirmed > project-provisional > global-provisional > none**
+**project-confirmed > profile-confirmed > global-confirmed > project-provisional > profile-provisional > global-provisional > none**
 
-A provisional project file never suppresses a working confirmed-global handle. To see which handle is active in the current repo:
+A provisional project or profile file never suppresses a working confirmed
+identity. To see which handle is active in the current repo and profile:
 
 ```bash
 agentic-identity show --scope effective

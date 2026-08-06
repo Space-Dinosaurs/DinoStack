@@ -32,6 +32,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "02970ff3f55ce89962ae49abdcf9aad3e6ce68c0b4852f9af45725c80d86b1eb",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": ".agentic/worktrees/*",
       "generated_token": "$AE_PROJECT_DIR/.agentic/worktrees/*",
       "kind": "operational",
@@ -240,6 +250,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
+    },
+    {
+      "expected_target": "bin/agentic-migrate",
+      "generated_token": "$AE_REPO_DIR/bin/agentic-migrate",
+      "kind": "operational",
+      "occurrence_hash": "1e0bbd2c49b327cb1ab0d2f6c5e54a1d339961a502f629f5f39a1606a1664739",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/agentic-migrate"
     },
     {
       "expected_target": "Agent",
@@ -552,6 +572,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "AE_CODEX_CONFIG_DIR",
+      "generated_token": "AGENTIC_CONFIG_DIR=\"$AE_CODEX_CONFIG_DIR\" agentic-identity resolve-hook --cwd \"$AE_PROJECT_DIR\"",
+      "kind": "operational",
+      "occurrence_hash": "4820d81844ed4be0a1b1ce3ffbc6151b3309a22926ff96c6d55e0268b0a4b7e2",
+      "resolution_mode": "validated-config-path",
+      "scope": "codex-config-directory",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "agentic-identity resolve-hook --cwd <cwd>"
+    },
+    {
       "expected_target": "content/references/activation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
       "kind": "operational",
@@ -860,16 +890,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/qa-gate.md"
-    },
-    {
-      "expected_target": "bin/agentic-migrate",
-      "generated_token": "$AE_REPO_DIR/bin/agentic-migrate",
-      "kind": "operational",
-      "occurrence_hash": "684c1b92f2a81529cdec49c65e565d7614e40b030fa101f20b81e68511be2893",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/agentic-migrate"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -1772,6 +1792,16 @@
       "source_token": ".agentic/config.json"
     },
     {
+      "expected_target": "content/commands/ds-identity.md",
+      "generated_token": "$AE_REPO_DIR/content/commands/ds-identity.md",
+      "kind": "operational",
+      "occurrence_hash": "d101751947a65d200743356e853e7cb10821c1c2d4f1250c6a467f24b08e52f3",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/commands/ds-identity.md"
+    },
+    {
       "expected_target": "content/sections/11-worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/sections/11-worktree-lifecycle.md",
       "kind": "operational",
@@ -1790,16 +1820,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
-    },
-    {
-      "expected_target": ".agentic/identity.yml",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/identity.yml",
-      "kind": "operational",
-      "occurrence_hash": "d43988421ec3a7e9270d5cee877ca4860ca410cca575ca0eff9d7524f12ff1a8",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "<cwd>/.agentic/identity.yml"
     },
     {
       "expected_target": ".agentic/",
@@ -1990,16 +2010,6 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/loop-state.json"
-    },
-    {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "f16628a8d5a6fcf02295fad3f76579253df27b0336902b7d1031097eeab535c7",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "filesystem read",

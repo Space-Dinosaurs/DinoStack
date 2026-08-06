@@ -1014,6 +1014,94 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         )
 
     literal_rules = [
+        (
+            r"agentic-identity resolve-hook --cwd <cwd>",
+            "codex-profile-identity-command",
+            'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" agentic-identity '
+            'resolve-hook --cwd "$AE_PROJECT_DIR"',
+            "validated-config-path",
+            "profile-identity-command",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"The active profile config dir is the first non-empty qualifying value "
+            r"from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, then `CODEX_HOME`; "
+            r"expand a leading `~`, normalize lexically, accept only a path under "
+            r"`\$HOME`, and reject symlinked components\.",
+            "codex-config-binding",
+            "For Codex, use only the already-validated `$AE_CODEX_CONFIG_DIR` "
+            "runtime binding as the active profile config dir; do not re-resolve "
+            "it from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, or `CODEX_HOME`.",
+            "validated-config-path",
+            "runtime-binding",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"it selects the first qualifying profile binding from "
+            r"`AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, `CODEX_HOME`, or "
+            r"`PI_CODING_AGENT_DIR`",
+            "codex-config-binding",
+            "it must use only the already-validated `$AE_CODEX_CONFIG_DIR` "
+            "runtime binding",
+            "validated-config-path",
+            "runtime-binding",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"<active-config-dir>/identity\.yml",
+            "codex-config-path",
+            "$AE_CODEX_CONFIG_DIR/identity.yml",
+            "validated-config-path",
+            "identity-file",
+            "identity.yml",
+            "codex-config-directory",
+        ),
+        (
+            r"pass `--profile-dir <dir>` when the active config dir cannot be "
+            r"derived from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`, "
+            r"`CODEX_HOME`, or `PI_CODING_AGENT_DIR`",
+            "codex-profile-identity-command",
+            "always pass `--profile-dir \"$AE_CODEX_CONFIG_DIR\"` for profile "
+            "identity operations",
+            "validated-config-path",
+            "profile-identity-command",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"  Confirm: agentic-identity confirm --scope <scope>\n"
+            r"  Correct: agentic-identity init <handle> --force --scope <scope>",
+            "codex-profile-identity-command",
+            "  Confirm (global/project): agentic-identity confirm --scope "
+            "<global|project>\n"
+            "  Correct (global/project): agentic-identity init <handle> --force "
+            "--scope <global|project>\n"
+            "  Show (profile): agentic-identity show --scope profile --profile-dir "
+            "\"$AE_CODEX_CONFIG_DIR\"\n"
+            "  Confirm (profile): agentic-identity confirm --scope profile "
+            "--profile-dir \"$AE_CODEX_CONFIG_DIR\"\n"
+            "  Correct (profile): agentic-identity init <handle> --force --scope "
+            "profile --profile-dir \"$AE_CODEX_CONFIG_DIR\"",
+            "validated-config-path",
+            "profile-identity-command",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
+        (
+            r"For profile scope, the command uses the active config-dir "
+            r"environment automatically; append `--profile-dir <dir>` only when "
+            r"no profile env is available\.",
+            "codex-profile-identity-command",
+            "For profile scope, always pass `--profile-dir "
+            "\"$AE_CODEX_CONFIG_DIR\"` to `show`, `confirm`, `init`, and `auto`.",
+            "validated-config-path",
+            "profile-identity-command",
+            "AE_CODEX_CONFIG_DIR",
+            "codex-config-directory",
+        ),
         (r"~/DinoStack/\.claude/skills/agentic-engineering", "dinostack-home", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "agentic-engineering", "dinostack-repository"),
         (r"~/DinoStack", "dinostack-home", "$AE_REPO_DIR", "validated-repository", "repository-root", "content/SKILL.md", "dinostack-repository"),
         (r"~?/??\.claude/skills/agentic-engineering", "claude-path", "$AE_CORE_SKILL_ROOT", "mapped-resource", "skill-root", "agentic-engineering", "dinostack-repository"),

@@ -100,6 +100,13 @@ done
 # Only the per-harness config dir is redirected; shared user state
 # (~/.agentic, ~/.local/bin, ~/.claude.json) always stays in the real $HOME.
 AE_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.claude}}"
+if declare -f _ae_identity_bind_config_dir >/dev/null; then
+  if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-}}" ]]; then
+    _ae_identity_bind_config_dir "$AE_CONFIG_DIR" true
+  else
+    _ae_identity_bind_config_dir "$AE_CONFIG_DIR" false
+  fi
+fi
 
 AE_CONFIG_PATH="$AE_CONFIG_DIR/agentic-engineering.json"
 # Symlink guard: refuse to traverse through a symlinked config dir. mkdir -p
@@ -1236,7 +1243,7 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
 fi
 
 # chrome-devtools MCP
@@ -1577,7 +1584,7 @@ echo "Install complete."
 echo ""
 echo "  agentic-engineering is installed. Open a new Claude Code session in any project,"
 echo "  add 'agentic-engineering: opt-in' to its AGENTS.md, and the methodology activates."
-echo "  Run 'agentic-identity show' to confirm your identity was saved."
+_ae_identity_guidance
 echo ""
 echo "Next steps (for the agent running this installer):"
 echo ""

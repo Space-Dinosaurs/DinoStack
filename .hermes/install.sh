@@ -200,7 +200,7 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
   echo "  (agentic-identity binaries are wired by other adapters e.g. .claude or .codex."
   echo "   If not on PATH, run 'agentic-identity init <handle>' after installing another adapter.)"
 fi

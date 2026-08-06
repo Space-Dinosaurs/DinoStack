@@ -57,6 +57,15 @@ done
 OMP_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-$HOME/.omp/agent}}"
 # Public API note: --config-dir=<dir> / AGENTIC_CONFIG_DIR redirects this
 # harness config dir for per-profile installs; shared state stays in $HOME.
+if declare -f _ae_identity_bind_config_dir >/dev/null; then
+  if [[ -n "${AGENTIC_CONFIG_DIR:-}" ]]; then
+    _ae_identity_bind_config_dir "$OMP_CONFIG_DIR" true
+  else
+    # OMP exposes no native runtime config-dir environment binding.
+    # --config-dir alone must not create an unreachable profile identity.
+    _ae_identity_bind_config_dir "$OMP_CONFIG_DIR" false
+  fi
+fi
 
 # Activation config path defaults to the shared $HOME location but is also
 # redirectable via --config-dir so multi-tenant installs do not clobber each
@@ -354,7 +363,7 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
 fi
 
 echo ""

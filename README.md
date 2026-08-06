@@ -292,11 +292,30 @@ Or set a handle manually:
 agentic-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
 ```
 
-Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes the buffer and starts writing attributed logs.
+Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes only pending records matching the confirmed effective scope and retains nonmatching records. Matching records start writing attributed logs; nonmatching records remain buffered for their own scope.
 
-Run `agentic-identity show` at any time to see your current identity.
+The pending record's canonical `identity_scope` comes from the effective
+provisional identity, not merely the active profile. Identity targets and
+parent directories are opened without following symlinks; special,
+multiply-linked, and wrong-owner identity files are rejected.
 
-### Per-project override
+Run `agentic-identity show --scope effective` at any time to see the identity
+that wins for the current project and profile.
+
+### Per-profile and per-project overrides
+
+For separate harness tenants or config profiles, store the identity beside
+that profile's configuration:
+
+```bash
+AGENTIC_CONFIG_DIR=~/.claude-client-a agentic-identity auto --scope profile
+AGENTIC_CONFIG_DIR=~/.claude-client-a agentic-identity confirm --scope profile
+```
+
+Profile config-dir detection uses `AGENTIC_CONFIG_DIR`, then
+`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, then `PI_CODING_AGENT_DIR`. You can instead pass
+`--profile-dir <dir>`. Profile dirs must remain lexically under `$HOME` and
+must not contain symlinked components.
 
 If you use a different handle for specific repos, set a project-scoped identity from inside that repo:
 
@@ -309,11 +328,12 @@ The project file is covered by the existing `.agentic/*` gitignore umbrella - it
 
 ### Precedence
 
-When both files exist, the most-confirmed identity wins:
+When multiple identity files exist, confirmation wins before scope:
 
-**project-confirmed > global-confirmed > project-provisional > global-provisional > none**
+**project-confirmed > profile-confirmed > global-confirmed > project-provisional > profile-provisional > global-provisional > none**
 
-A provisional project file never suppresses a working confirmed-global handle. To see which handle is active in the current repo:
+A provisional project or profile file never suppresses a working confirmed
+identity. To see which handle is active in the current repo and profile:
 
 ```bash
 agentic-identity show --scope effective

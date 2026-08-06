@@ -92,7 +92,9 @@ Before following any operational instruction below, establish these bindings in 
 2. Select the active Codex config directory from the first non-empty runtime source in this order:
    `AGENTIC_CONFIG_DIR`, then `CODEX_HOME`, then the standard Codex config directory beneath a
    validated absolute `HOME`. Require the selected path to resolve to a real current-user-owned
-   directory that is not group/world writable, then bind `AE_CODEX_CONFIG_DIR` to it.
+   directory that is not group/world writable, then bind `AE_CODEX_CONFIG_DIR` to it. Profile
+   identity operations use only the already-validated `$AE_CODEX_CONFIG_DIR` runtime binding;
+   the active profile identity file is `$AE_CODEX_CONFIG_DIR/identity.yml`.
 3. Inspect `AGENTS.md` beneath that selected config directory without following an unchecked final
    path. Require the installed entry to be a symlink whose physical target is the regular
    `.codex/AGENTS.md` file beneath a repository candidate whose `content/SKILL.md`, `.codex/`

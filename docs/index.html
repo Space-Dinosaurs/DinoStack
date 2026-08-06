@@ -1167,9 +1167,9 @@
   <!-- Identity -->
   <div class="rel-card" style="margin-bottom: 16px;">
     <h4>Identity handle</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">The developer handle used to attribute per-session telemetry logs.</p>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">The developer handle used to attribute per-session telemetry logs. Identity can be global, profile-scoped at <code>&lt;active-config-dir&gt;/identity.yml</code>, or project-scoped at <code>.agentic/identity.yml</code>. Effective identity uses six-tier confirmation-first precedence.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> none (absent file = no attribution; run <code>agentic-identity auto</code> to derive from GitHub login)</p>
-    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-identity auto</code> / <code>agentic-identity init &lt;handle&gt;</code> / <code>agentic-identity confirm</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-identity auto</code> / <code>agentic-identity init &lt;handle&gt;</code> / <code>agentic-identity confirm</code>; add <code>--scope profile|project</code> for an override and <code>--profile-dir &lt;dir&gt;</code> when profile env detection is unavailable.</p>
   </div>
 
   <!-- Tracker config -->
@@ -1827,7 +1827,7 @@
         <ul>
           <li><strong>/ds-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
           <li><strong>/ds-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
-          <li><strong>/ds-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), then confirm once to flush buffered session logs. Supports global and per-project scope.</li>
+          <li><strong>/ds-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), tags buffered sessions with the winning <code>identity_scope</code>, then confirms only that scope. Supports global, harness-profile, and per-project scope with six-tier confirmation-first precedence and nofollow identity-file safety.</li>
           <li><strong>/ds-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
           <li><strong>/ds-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
           <li><strong>/ds-config</strong> - interactive command to view and change agentic-engineering settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>

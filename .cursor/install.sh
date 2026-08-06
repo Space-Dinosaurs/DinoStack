@@ -626,7 +626,7 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
 fi
 
 # ---------------------------------------------------------------------------

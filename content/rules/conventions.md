@@ -53,18 +53,18 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - per-developer session rollup written by the Stop hook. Committed to git via the `.agentic/session-log/` carve-out in `.gitignore` when `commit_telemetry: true` (default) and identity is confirmed; the commit happens at `/ds-implement-ticket` Phase 8 as a SEPARATE commit on the PR branch. Teammates receive it on pull after squash merge. See `content/references/events-log.md` "Per-developer session log". Aggregated via `agentic-cost team`.
 
-**Identity setup - auto-derive + confirm-once.** Run `agentic-identity auto` once to derive a provisional handle from your GitHub login (`gh api user`). The identity is written to `~/.agentic/identity.yml` with `provisional: true`. Manual setup remains available via `agentic-identity init <handle>`. To use a per-repo handle, pass `--scope project`: this writes `<cwd>/.agentic/identity.yml` (gitignored, covered by the existing `.agentic/*` umbrella). A confirmed project identity takes precedence over the global file for sessions in that repo. A provisional project file does NOT suppress a confirmed global - see "Scope / effective identity resolution" in the `agentic-identity` command doc.
+**Identity setup.** `agentic-identity auto` derives a provisional global GitHub handle; `init <handle>` sets one manually. `--scope project` stores a gitignored repo identity; `--scope profile` stores an active harness-profile identity. Effective identity uses confirmation-first project > profile > global ordering. Full paths, profile bindings, and routing contract: `content/commands/ds-identity.md`.
 
-**Conductor first-user-turn provisional-confirm.** When the preflight resolves a `provisional: true` effective identity (Step 1 in `content/sections/01-activation-preflight.md` - project file checked first, then global), the conductor surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
+**Conductor first-user-turn provisional-confirm.** When the preflight resolves a `provisional: true` effective identity, the conductor substitutes the winning scope (`global`, `profile`, or `project`) and surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
 
 ```
 IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
 Telemetry is buffered (not lost) until confirmed.
-  Confirm: agentic-identity confirm
-  Correct: agentic-identity init <handle> --force
+  Confirm: agentic-identity confirm --scope <scope>
+  Correct: agentic-identity init <handle> --force --scope <scope>
 ```
 
-The notice re-surfaces next session if ignored. CI/headless sessions never reach a user turn - telemetry stays buffered until a TTY session confirms. `agentic-identity confirm` strips the `provisional` flag and flushes the pending buffer into both the global and per-project session logs.
+Profile commands use the active config binding; add `--profile-dir <dir>` only when absent. The notice re-surfaces until confirmation. Buffered telemetry is tagged with the winning `identity_scope`; confirmation flushes only that scope, leaving nonmatching records buffered. See `content/commands/ds-identity.md`.
 
 **Deprecated-preset first-user-turn notice.** When the preflight (Step 1 in `content/sections/01-activation-preflight.md`) finds a legacy session-wide `preset` key present at either scope - `~/.claude/agentic-engineering.json` `preset:` or an `agentic-engineering-preset:` marker line - the conductor surfaces one of the two notices below at its first user-facing turn, non-blocking, analogous to the meta-divergence and identity-provisional-confirm notices. Fire on PRESENCE of the key regardless of whether it wins resolution; use the first template when the legacy preset won at that scope, the second when it was present but overridden by a `profile` elsewhere in the precedence chain:
 

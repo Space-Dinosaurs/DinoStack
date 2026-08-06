@@ -1614,6 +1614,60 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertNotIn("$skeptic", installed_agents)
         self.assertNotRegex(installed_agents, r"(?<![\w./-])/ds-[a-z0-9-]+\b")
 
+        generated_guidance = {
+            ".codex/AGENTS.md": (self.repo / ".codex/AGENTS.md").read_text(
+                encoding="utf-8"
+            ),
+        }
+        generated_guidance.update(
+            {
+                str(path.relative_to(self.repo)): path.read_text(encoding="utf-8")
+                for path in sorted((self.repo / ".codex/skills").rglob("*.md"))
+            }
+        )
+        generic_profile_guidance = (
+            r"(?:profile|identity)[^\n]{0,240}"
+            r"(?:--profile-dir <dir>|active config-dir environment|"
+            r"cannot be derived from `AGENTIC_CONFIG_DIR`|--scope <scope>)"
+        )
+        for generated_path, content in generated_guidance.items():
+            self.assertNotRegex(
+                content,
+                generic_profile_guidance,
+                f"generic profile identity guidance survived in {generated_path}",
+            )
+            for command in re.findall(
+                r"agentic-identity (?:show|confirm)[^\n`]*--scope profile[^\n`]*",
+                content,
+            ):
+                self.assertIn(
+                    '--profile-dir "$AE_CODEX_CONFIG_DIR"',
+                    command,
+                    f"unpinned Codex profile identity command in {generated_path}",
+                )
+        self.assertIn(
+            'agentic-identity show --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"',
+            installed_agents,
+        )
+        self.assertIn(
+            'agentic-identity confirm --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"',
+            installed_agents,
+        )
+        self.assertIn("$AE_CODEX_CONFIG_DIR/identity.yml", installed_agents)
+        self.assertNotIn("<active-config-dir>/identity.yml", installed_agents)
+        self.assertIn(
+            "use only the already-validated `$AE_CODEX_CONFIG_DIR` runtime binding",
+            installed_agents,
+        )
+        self.assertNotIn(
+            "active profile config dir is the first non-empty qualifying value",
+            installed_agents,
+        )
+        self.assertIn(
+            "$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings",
+            installed_agents,
+        )
+
         project = Path(self.temporary.name) / "runtime-guidance-project"
         project.mkdir()
         node = shutil.which("node")
