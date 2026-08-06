@@ -1,24 +1,39 @@
 """
-Purpose: Extracts and mutates fenced ```bash blocks out of a markdown command
-         file (specifically content/commands/ds-implement-ticket.md) so their
-         shell can be executed against real git fixtures in a pytest suite,
-         instead of only ever being read as prose. Built for
-         bin/tests/test_phase8_telemetry_shell.py, which exercises the Phase 8
-         commit-and-telemetry block.
+Purpose: Extracts and mutates fenced ```bash blocks out of a markdown file
+         (content/commands/ds-implement-ticket.md,
+         content/references/qa-gate.md, and test-local fixture markdown) so
+         their shell can be executed against real git fixtures in a pytest
+         suite, instead of only ever being read as prose. Originally built for
+         bin/tests/test_phase8_telemetry_shell.py (the Phase 8
+         commit-and-telemetry block); now shared by every `@harness:`-marked
+         block.
 
 Public API: extract_marked_block(md_path, marker) -> str
-            render(block_text) -> str
+            render(block_text) -> str          [Phase 8 ONLY - see below]
             apply_transform(block_text, anchor, transform_fn) -> str
             with_completion_marker(rendered_script) -> str
+            with_shell_assignments(script, assignments) -> str
             syntax_check(rendered_script, shell) -> subprocess.CompletedProcess
             line_containing(text, substr) -> str
             PLACEHOLDER_WHITELIST: dict[str, str]
             COMPLETION_MARKER: str
             HarnessExtractionError, HarnessTransformError
 
+render() IS NOT GENERIC. PLACEHOLDER_WHITELIST is global, not per-marker, and
+         holds three Phase-8-specific keys; render() is fail-closed PRE-render
+         (each key must appear exactly once in the block) so it RAISES
+         HarnessExtractionError on any block that does not contain all three -
+         including a block with zero placeholders. A new consumer must NOT
+         call render(); use extract_marked_block() plus its own single-token
+         substitution, then with_shell_assignments() /
+         with_completion_marker(). Precedent:
+         bin/tests/test_qa_knowledge_capture_shell.py._script().
+
 Upstream deps: stdlib only (re, subprocess, tempfile, os).
 
-Downstream consumers: bin/tests/test_phase8_telemetry_shell.py
+Downstream consumers: bin/tests/test_phase8_telemetry_shell.py (the only
+            render() caller), bin/tests/test_qa_knowledge_capture_shell.py,
+            bin/tests/test_knowledge_harness_smoke.py
 
 Failure modes: every extraction/render/transform step is fail-closed - 0 or
                >1 matches raises rather than silently picking one. This
@@ -123,18 +138,17 @@ def extract_marked_block(md_path: str, marker: str) -> str:
     if len(matches) == 0:
         raise HarnessExtractionError(
             f"marker '{target}' not found in any ```bash block in {md_path} "
-            f"(expected exactly 1 match, got 0). Remedy: update the anchor in "
-            f"bin/tests/lib/md_shell_extract.py to match the new prose; this "
-            f"harness tests Phase 8's telemetry-commit shell, see "
-            f"bin/tests/test_phase8_telemetry_shell.py."
+            f"(expected exactly 1 match, got 0). Remedy: restore the "
+            f"'{target}' comment as the first non-blank line of the block "
+            f"under test, or update the marker in the test module that "
+            f"requested it."
         )
     if len(matches) > 1:
         raise HarnessExtractionError(
             f"marker '{target}' matched {len(matches)} ```bash blocks in "
-            f"{md_path} (expected exactly 1). Remedy: update the anchor in "
-            f"bin/tests/lib/md_shell_extract.py to match the new prose; this "
-            f"harness tests Phase 8's telemetry-commit shell, see "
-            f"bin/tests/test_phase8_telemetry_shell.py."
+            f"{md_path} (expected exactly 1). Remedy: markers must be unique "
+            f"per file - rename one of the duplicates and update the test "
+            f"module that requested it."
         )
     return matches[0]
 
@@ -153,11 +167,17 @@ def render(block_text: str) -> str:
         if count != 1:
             raise HarnessExtractionError(
                 f"placeholder '{key}' occurs {count} times in the extracted "
-                f"block (expected exactly 1). Remedy: update "
-                f"PLACEHOLDER_WHITELIST in bin/tests/lib/md_shell_extract.py "
-                f"to match content/commands/ds-implement-ticket.md; this "
-                f"harness tests Phase 8's telemetry-commit shell, see "
-                f"bin/tests/test_phase8_telemetry_shell.py."
+                f"block (expected exactly 1). render() is for the Phase 8 "
+                f"block ONLY - PLACEHOLDER_WHITELIST is global, not "
+                f"per-marker. If this is another block, do NOT add keys to "
+                f"the whitelist (that would break Phase 8's render call "
+                f"sites): bypass render() and do your own substitution on top "
+                f"of extract_marked_block(), as "
+                f"bin/tests/test_qa_knowledge_capture_shell.py._script() and "
+                f"bin/tests/test_knowledge_harness_smoke.py do. If this IS "
+                f"the Phase 8 block, update PLACEHOLDER_WHITELIST in "
+                f"bin/tests/lib/md_shell_extract.py to match "
+                f"content/commands/ds-implement-ticket.md."
             )
 
     rendered = block_text
@@ -234,6 +254,40 @@ def with_completion_marker(rendered_script: str) -> str:
     return script + f'echo "{COMPLETION_MARKER}"\n'
 
 
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def with_shell_assignments(script: str, assignments: dict[str, str]) -> str:
+    """Prepend `NAME='value'` lines to script - a plain shell ASSIGNMENT, not
+    an `export`, and not an entry in the subprocess environment.
+
+    This distinction is load-bearing, not cosmetic. In production the
+    conductor substitutes values like $BRANCH_NAME into these blocks as bare
+    assignments, so an `awk 'BEGIN{print ENVIRON["BRANCH_NAME"]}'` lookup
+    inside the block resolves EMPTY. A test that instead passes BRANCH_NAME
+    via subprocess.run(env=...) exports it, so that same lookup resolves - and
+    the test passes over a production path that is broken. Injecting here
+    reproduces the production shape exactly; the value must be absent from the
+    subprocess env for the reproduction to hold.
+
+    Values are single-quoted with the standard POSIX '"'"' escape, so any
+    value is safe.
+    """
+    lines: list[str] = []
+    for name, value in assignments.items():
+        if not _IDENTIFIER_RE.match(name):
+            raise HarnessTransformError(
+                f"{name!r} is not a valid shell variable name - refusing to "
+                f"build an assignment that would be a syntax error"
+            )
+        quoted = "'" + str(value).replace("'", "'\"'\"'") + "'"
+        lines.append(f"{name}={quoted}")
+    prefix = "\n".join(lines)
+    if prefix:
+        prefix += "\n"
+    return prefix + script
+
+
 def syntax_check(rendered_script: str, shell: str) -> subprocess.CompletedProcess:
     """Run `<shell> -n` against rendered_script via a temp file. Returns the
     CompletedProcess (caller inspects .returncode / .stderr)."""
@@ -241,10 +295,15 @@ def syntax_check(rendered_script: str, shell: str) -> subprocess.CompletedProces
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(rendered_script)
+        # Bounded and stdin-closed for the same reason as every subprocess in
+        # bin/tests/lib/git_fixture.py: an unbounded stall becomes a killed CI
+        # job with no log, and pytest's fd-0 capture disappears under `-s`.
         return subprocess.run(
             [shell, "-n", path],
             capture_output=True,
             text=True,
+            timeout=30,
+            stdin=subprocess.DEVNULL,
         )
     finally:
         os.remove(path)

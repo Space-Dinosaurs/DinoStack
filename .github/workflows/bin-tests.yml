@@ -6,23 +6,45 @@ on:
       - main
 permissions:
   contents: read
+# TIMEOUT POLICY (all three jobs below).
+#
+# A job's `started_at` is stamped at RUNNER ASSIGNMENT, not at first-step
+# execution, so a job-level `timeout-minutes` can be consumed entirely by queue
+# wait. That is not hypothetical here: python-bin-tests was cancelled on this
+# repo having recorded `steps: []` - no step ever ran - and bin-sh-tests was
+# cancelled the same way on main (run 31115638748, sha f81b63c0). The suites
+# themselves finish in well under a minute.
+#
+# So: job-level `timeout-minutes` is a BACKSTOP ONLY (20), and every real work
+# step carries its own `timeout-minutes`, which starts when the step starts and
+# is therefore immune to acquisition delay. Do not "fix" a queue-starvation
+# cancellation by raising the job timeout alone - that trades a fast silent
+# failure for a slow one and leaves the steps unbounded.
 jobs:
   python-bin-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      # Keep partial output if the job is force-killed anyway.
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
-      - run: pip install pytest pyyaml
+      # pytest-timeout converts an unbounded subprocess stall anywhere in
+      # bin/tests/ into ONE failing test with a stack trace at the exact call,
+      # instead of a killed job with no usable log.
+      - run: pip install pytest pytest-timeout pyyaml
       - name: install zsh (required for the bash/zsh parity matrix in test_phase8_telemetry_shell.py)
         run: sudo apt-get update && sudo apt-get install -y zsh
-      - run: python3 -m pytest bin/tests/ -q
+      - run: python3 -m pytest bin/tests/ -q --timeout=60 --timeout-method=thread
+        timeout-minutes: 5
       - name: floor collected test_phase8_telemetry_shell.py count at 18
         # 9 test functions x 2 shells (bash, zsh) = 18 collected IDs. Adding or
         # removing a test function in bin/tests/test_phase8_telemetry_shell.py
         # obliges updating the floor below in the same PR.
+        timeout-minutes: 2
         run: |
           python3 -m pytest bin/tests/test_phase8_telemetry_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 18) { print "expected >= 18 collected tests (9 functions x 2 shells), got " $1; exit 1 } }'
       - name: floor collected test_qa_knowledge_capture_shell.py count at 52
@@ -31,19 +53,32 @@ jobs:
         # or removing a test function in
         # bin/tests/test_qa_knowledge_capture_shell.py obliges updating the
         # floor below in the same PR.
+        timeout-minutes: 2
         run: |
           python3 -m pytest bin/tests/test_qa_knowledge_capture_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 52) { print "expected >= 52 collected tests (17 functions x 3 shells + 1 static), got " $1; exit 1 } }'
+      - name: floor collected test_knowledge_harness_smoke.py count at 30
+        # 17 test functions - 13 parametrized x {bash, zsh} (26) plus 4 static,
+        # shell-independent assertions (4) = 30 collected IDs. Adding or
+        # removing a test function in
+        # bin/tests/test_knowledge_harness_smoke.py obliges updating the floor
+        # below in the same PR.
+        timeout-minutes: 2
+        run: |
+          python3 -m pytest bin/tests/test_knowledge_harness_smoke.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 30) { print "expected >= 30 collected tests (13 functions x 2 shells + 4 static), got " $1; exit 1 } }'
   # Python hook tests live here (shared python toolchain with bin-tests); JS/sh
   # hook tests live in hooks-tests.yml.
   hooks-python-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: '3.11'
       - name: run Python hook tests
+        timeout-minutes: 5
         run: |
           set -e
           count=0
@@ -63,7 +98,9 @@ jobs:
   # across other dirs (different naming convention, previously unwired anywhere).
   bin-sh-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 20
+    env:
+      PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
@@ -73,6 +110,11 @@ jobs:
       - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
         run: sudo apt-get update && sudo apt-get install -y zsh
       - name: run shell bin tests
+        # This step measured 4m56s against the old 5-minute JOB timeout on a
+        # single PR, and was cancelled outright on main under queue pressure.
+        # 8 minutes is real headroom for the step's own runtime; queue wait no
+        # longer counts against it.
+        timeout-minutes: 8
         run: |
           set -e
           # bin/tests/test_codex_hooks_resolve.sh is also run by adapter-sync.yml -
