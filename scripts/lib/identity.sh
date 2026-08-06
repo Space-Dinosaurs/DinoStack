@@ -5,6 +5,12 @@
 #          via the agentic-identity binary.
 #
 # Public API:
+#   AE_IDENTITY_SCOPE        - identity scope for installer writes: global
+#                              (default) or profile.
+#   _ae_identity_bind_config_dir <dir> <redirected>
+#                            - bind the selected harness config dir and infer
+#                              profile scope for redirected installs unless the
+#                              caller explicitly set AE_IDENTITY_SCOPE.
 #   ae_confirm <prompt>       - TTY-safe y/N prompt; returns 0 for y/Y, 1 otherwise.
 #   _ae_setup_identity        - 7-branch identity resolution (no-identity flag,
 #                               missing binary, existing identity, --identity flag,
@@ -35,6 +41,24 @@
 
 AE_IDENTITY_FLAG="${AE_IDENTITY_FLAG:-}"
 AE_NO_IDENTITY="${AE_NO_IDENTITY:-false}"
+# Scope for identity writes during install. Default "global" preserves legacy
+# single-global behavior. Redirected installers infer profile scope unless the
+# caller explicitly selected a scope.
+if [[ -n "${AE_IDENTITY_SCOPE+x}" ]]; then
+  AE_IDENTITY_SCOPE_EXPLICIT=true
+else
+  AE_IDENTITY_SCOPE=global
+  AE_IDENTITY_SCOPE_EXPLICIT=false
+fi
+
+_ae_identity_bind_config_dir() {
+  local config_dir="$1"
+  local redirected="${2:-false}"
+  AE_CONFIG_DIR="$config_dir"
+  if [[ "$AE_IDENTITY_SCOPE_EXPLICIT" != "true" && "$redirected" == "true" ]]; then
+    AE_IDENTITY_SCOPE=profile
+  fi
+}
 
 # ---------------------------------------------------------------------------
 # ae_confirm: TTY-safe yes/no prompt for optional installs.
@@ -56,7 +80,38 @@ ae_confirm() {
   [[ "$reply" =~ ^[Yy]$ ]]
 }
 
+_ae_identity_show_command() {
+  if [[ "$AE_IDENTITY_SCOPE" == "profile" && -n "${AE_CONFIG_DIR:-}" ]]; then
+    printf "agentic-identity show --scope profile --profile-dir "
+    printf "%q" "$AE_CONFIG_DIR"
+  else
+    printf "agentic-identity show --scope effective"
+  fi
+}
+
+_ae_identity_confirm_command() {
+  if [[ "$AE_IDENTITY_SCOPE" == "profile" && -n "${AE_CONFIG_DIR:-}" ]]; then
+    printf "agentic-identity confirm --scope profile --profile-dir "
+    printf "%q" "$AE_CONFIG_DIR"
+  else
+    printf "agentic-identity confirm --scope global"
+  fi
+}
+
+_ae_identity_guidance() {
+  echo "  Inspect identity: $(_ae_identity_show_command)"
+  echo "  Confirm provisional identity: $(_ae_identity_confirm_command)"
+}
+
 _ae_setup_identity() {
+  # Scope-aware agentic-identity args. For profile scope, pin the config dir
+  # explicitly so detection does not rely on env propagation to the subprocess
+  # (AE_CONFIG_DIR is set by the calling adapter install.sh before sourcing us).
+  local ae_scope_args=(--scope "$AE_IDENTITY_SCOPE")
+  if [[ "$AE_IDENTITY_SCOPE" == "profile" && -n "${AE_CONFIG_DIR:-}" ]]; then
+    ae_scope_args+=(--profile-dir "$AE_CONFIG_DIR")
+  fi
+
   # Branch 1: --no-identity flag
   if [[ "$AE_NO_IDENTITY" == "true" ]]; then
     echo "  - identity setup skipped (--no-identity)"
@@ -69,14 +124,23 @@ _ae_setup_identity() {
     return
   fi
 
-  # Branch 3: detect existing identity
+  # Branch 3: detect existing identity (global: effective incl. project fallback;
+  # profile: this profile's own identity only). For profile scope, pin the
+  # config dir explicitly (mirrors ae_scope_args) so detection works without
+  # env propagation to the subprocess.
+  local show_scope="$AE_IDENTITY_SCOPE"
+  [[ "$show_scope" == "global" ]] && show_scope="effective"
+  local show_args=(--scope "$show_scope")
+  if [[ "$AE_IDENTITY_SCOPE" == "profile" && -n "${AE_CONFIG_DIR:-}" ]]; then
+    show_args+=(--profile-dir "$AE_CONFIG_DIR")
+  fi
   local show_out
-  show_out="$(agentic-identity show --scope effective 2>/dev/null)" || show_out=""
+  show_out="$(agentic-identity show "${show_args[@]}" 2>/dev/null)" || show_out=""
   local existing_handle
   existing_handle="$(echo "$show_out" | grep '^developer_id:' | awk '{print $2}')" || existing_handle=""
   if [[ -n "$existing_handle" ]]; then
     if echo "$show_out" | grep -q 'provisional:'; then
-      echo "  = identity already set to '$existing_handle' (provisional - run 'agentic-identity confirm' to lock it in)"
+      echo "  = identity already set to '$existing_handle' (provisional - run '$(_ae_identity_confirm_command)' to lock it in)"
     else
       echo "  = identity already set to '$existing_handle' (confirmed)"
     fi
@@ -86,7 +150,7 @@ _ae_setup_identity() {
   # Branch 4: --identity=<handle> flag set (explicit intent, use --force)
   if [[ -n "$AE_IDENTITY_FLAG" ]]; then
     local rc=0
-    agentic-identity init "$AE_IDENTITY_FLAG" --force >/dev/null 2>&1 || rc=$?
+    agentic-identity init "$AE_IDENTITY_FLAG" --force "${ae_scope_args[@]}" >/dev/null 2>&1 || rc=$?
     if [[ "$rc" -eq 0 ]]; then
       echo "  + identity set to '$AE_IDENTITY_FLAG' via --identity flag"
     else
@@ -111,7 +175,7 @@ _ae_setup_identity() {
     echo "  Detected GitHub handle: $gh_login"
     if ae_confirm "  Set developer identity to '$gh_login'? [y/N] "; then
       local rc=0
-      agentic-identity init "$gh_login" >/dev/null 2>&1 || rc=$?
+      agentic-identity init "$gh_login" "${ae_scope_args[@]}" >/dev/null 2>&1 || rc=$?
       if [[ "$rc" -eq 0 ]]; then
         echo "  + identity set to '$gh_login' (confirmed)"
       elif [[ "$rc" -eq 2 ]]; then
@@ -145,7 +209,7 @@ _ae_setup_identity() {
     return
   fi
   local rc=0
-  agentic-identity init "$typed_handle" >/dev/null 2>&1 || rc=$?
+  agentic-identity init "$typed_handle" "${ae_scope_args[@]}" >/dev/null 2>&1 || rc=$?
   if [[ "$rc" -eq 0 ]]; then
     echo "  + identity set to '$typed_handle' (confirmed)"
   elif [[ "$rc" -eq 2 ]]; then

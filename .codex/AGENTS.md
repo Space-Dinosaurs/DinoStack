@@ -12,7 +12,9 @@ Before following any operational instruction below, establish these bindings in 
 2. Select the active Codex config directory from the first non-empty runtime source in this order:
    `AGENTIC_CONFIG_DIR`, then `CODEX_HOME`, then the standard Codex config directory beneath a
    validated absolute `HOME`. Require the selected path to resolve to a real current-user-owned
-   directory that is not group/world writable, then bind `AE_CODEX_CONFIG_DIR` to it.
+   directory that is not group/world writable, then bind `AE_CODEX_CONFIG_DIR` to it. Profile
+   identity operations use only the already-validated `$AE_CODEX_CONFIG_DIR` runtime binding;
+   the active profile identity file is `$AE_CODEX_CONFIG_DIR/identity.yml`.
 3. Inspect `AGENTS.md` beneath that selected config directory without following an unchecked final
    path. Require the installed entry to be a symlink whose physical target is the regular
    `.codex/AGENTS.md` file beneath a repository candidate whose `content/SKILL.md`, `.codex/`
@@ -42,11 +44,11 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 ## Activation preflight
 
-Run this check once at the top of the first skill invocation in a session (and at the top of every `/`-command in `content/commands/`). It is fast, silent when active, and governs whether the methodology runs at all in the current project. Keep it to three file reads with no subagent spawn and no LLM reasoning. **Exception:** Step 6 (Scaffolding-sync check) is the single authorized side-effecting exception to this invariant. It calls `$AE_REPO_DIR/bin/agentic-migrate` as a bounded shell-out; the binary is methodology-owned, failure is swallowed, and it never blocks activation.
+Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" agentic-identity resolve-hook --cwd "$AE_PROJECT_DIR"` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `$AE_REPO_DIR/bin/agentic-migrate` scaffolding sync.
 
 1. **Read the global mode and profile.** Load `$AE_SHARED_CONFIG_DIR/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default` (see the deprecated legacy preset subsection below for the fallback path when `profile` is genuinely absent rather than merely invalid).
 
-   Also read the **effective identity** for this session. Check `$AE_PROJECT_DIR/.agentic/identity.yml` first, then fall back to `~/.agentic/identity.yml`. Use the first file that exists, resolving by the 4-tier confirmation ordering: project-confirmed > global-confirmed > project-provisional > global-provisional > none. In practice this is a two-file read: if the project file exists and is confirmed (no `provisional: true`), use it. If the project file is provisional, also read the global file; if the global is confirmed, prefer the global. Otherwise use the project file. Record `developer_id` and `provisional` from whichever file wins. Absent file or absent `provisional` field = confirmed identity (Python `.get('provisional', False)`; JS `provisional === true`). **This is a read-only field parse - no prompt, no shell-out, no LLM reasoning. The "fast, silent" preflight invariant is preserved.** When `provisional: true` is recorded on the effective identity, the conductor surfaces a non-blocking confirmation notice at its first user-facing turn (see §Session Context and Memory in `$AE_REPO_DIR/content/rules/conventions.md`).
+   Also invoke that resolver and record only validated JSON `null` or `{developer_id, provisional, identity_scope, config_dir?}`. It safely discovers project/profile/global candidates and applies confirmation-first ordering: project > profile > global, then provisional project > profile > global. Do not re-read identity files. A provisional winner triggers the scoped first-turn notice. Full resolver and routing contract: `$AE_REPO_DIR/content/commands/ds-identity.md`.
 
    **Deprecated legacy preset (read-only compat).** Older configs may still carry a session-wide `preset` field (`lean` | `standard` | `strict`) at either scope. It is a read-only fallback used ONLY when `profile` is genuinely ABSENT at that scope - check key presence, not truthiness. An invalid `profile` value is treated identically to absent for this purpose (a valid legacy `preset` may then apply); if nothing validates anywhere, terminate at `default`.
 
@@ -716,18 +718,21 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Per-developer session log.** Canonical methodology describes a harness Stop hook that writes `$AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl`. The current Codex Stop hook does not write that project-local telemetry; it writes only `~/.codex/projects/[hash]/context.md`. Codex project-local telemetry migration is deferred to `context-writer-migration`.
 
-**Identity setup - auto-derive + confirm-once.** Run `agentic-identity auto` once to derive a provisional handle from your GitHub login (`gh api user`). The identity is written to `~/.agentic/identity.yml` with `provisional: true`. Manual setup remains available via `agentic-identity init <handle>`. To use a per-repo handle, pass `--scope project`: this writes `$AE_PROJECT_DIR/.agentic/identity.yml` (gitignored, covered by the existing `$AE_PROJECT_DIR/.agentic/*` umbrella). A confirmed project identity takes precedence over the global file for sessions in that repo. A provisional project file does NOT suppress a confirmed global - see "Scope / effective identity resolution" in the `agentic-identity` command doc.
+**Identity setup.** `agentic-identity auto` derives a provisional global GitHub handle; `init <handle>` sets one manually. `--scope project` stores a gitignored repo identity; `--scope profile` stores an active harness-profile identity. Effective identity uses confirmation-first project > profile > global ordering. Full paths, profile bindings, and routing contract: `$AE_REPO_DIR/content/commands/ds-identity.md`.
 
-**Conductor first-user-turn provisional-confirm.** When the preflight resolves a `provisional: true` effective identity (Step 1 in `$AE_REPO_DIR/content/sections/01-activation-preflight.md` - project file checked first, then global), the conductor surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
+**Conductor first-user-turn provisional-confirm.** When the preflight resolves a `provisional: true` effective identity, the conductor substitutes the winning scope (`global`, `profile`, or `project`) and surfaces the following notice at its first user-facing turn - non-blocking, analogous to the meta-divergence notice:
 
 ```
 IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
 Telemetry is buffered (not lost) until confirmed.
-  Confirm: agentic-identity confirm
-  Correct: agentic-identity init <handle> --force
+  Confirm (global/project): agentic-identity confirm --scope <global|project>
+  Correct (global/project): agentic-identity init <handle> --force --scope <global|project>
+  Show (profile): agentic-identity show --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
+  Confirm (profile): agentic-identity confirm --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
+  Correct (profile): agentic-identity init <handle> --force --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
 ```
 
-The notice re-surfaces next session if ignored. CI/headless sessions never reach a user turn - telemetry stays buffered until a TTY session confirms. `agentic-identity confirm` strips the `provisional` flag and flushes the pending buffer into both the global and per-project session logs.
+Profile commands use the active config binding; add `--profile-dir <dir>` only when absent. The notice re-surfaces until confirmation. Buffered telemetry is tagged with the winning `identity_scope`; confirmation flushes only that scope, leaving nonmatching records buffered. See `$AE_REPO_DIR/content/commands/ds-identity.md`.
 
 **Deprecated-preset first-user-turn notice.** When the preflight (Step 1 in `$AE_REPO_DIR/content/sections/01-activation-preflight.md`) finds a legacy session-wide `preset` key present at either scope - `$AE_SHARED_CONFIG_DIR/agentic-engineering.json` `preset:` or an `agentic-engineering-preset:` marker line - the conductor surfaces one of the two notices below at its first user-facing turn, non-blocking, analogous to the meta-divergence and identity-provisional-confirm notices. Fire on PRESENCE of the key regardless of whether it wins resolution; use the first template when the legacy preset won at that scope, the second when it was present but overridden by a `profile` elsewhere in the precedence chain:
 

@@ -339,6 +339,6 @@ Done.
 
 Next steps:
   - Run /ds-status to verify the install is active in this project.
-  - Run agentic-identity show to confirm your developer identity.
+  - Run agentic-identity show --scope effective to confirm your developer identity.
   - Open a new shell if adapters added shell integrations.
 ```

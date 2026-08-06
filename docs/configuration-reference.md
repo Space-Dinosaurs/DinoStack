@@ -120,8 +120,12 @@ directory; setting it to a non-root path disables the graph risk signal).
 
 ## 5. Identity files
 
-`.agentic/identity.yml` (project-scoped, gitignored) and `~/.agentic/identity.yml`
-(global). Used for telemetry attribution.
+`.agentic/identity.yml` (project-scoped, gitignored),
+`<active-config-dir>/identity.yml` (profile-scoped), and
+`~/.agentic/identity.yml` (global). Used for telemetry attribution. The active
+profile config dir resolves from `AGENTIC_CONFIG_DIR`, `CLAUDE_CONFIG_DIR`,
+`CODEX_HOME`, then `PI_CODING_AGENT_DIR`; profile-scope subcommands accept `--profile-dir <dir>` as
+an override.
 
 | Field | Default | Valid values |
 |---|---|---|
@@ -133,12 +137,14 @@ logs are not written. The effective default is no identity. Use
 `agentic-identity auto` to auto-derive a provisional handle from the GitHub
 login (lowest-friction starting point).
 
-**4-tier precedence:** project-confirmed > global-confirmed >
-project-provisional > global-provisional > none.
+**6-tier precedence:** project-confirmed > profile-confirmed >
+global-confirmed > project-provisional > profile-provisional >
+global-provisional > none.
 
 Commands: `agentic-identity auto` (derive from GitHub login, writes provisional
-global), `agentic-identity init <handle> [--scope project]` (manual),
-`agentic-identity confirm` (strip provisional flag, flush pending telemetry).
+global), `agentic-identity init <handle> [--scope profile|project]` (manual),
+`agentic-identity confirm [--scope global|profile|project]` (strip provisional
+flag and flush only pending telemetry routed to that scope).
 
 ---
 

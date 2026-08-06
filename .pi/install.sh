@@ -53,6 +53,16 @@ AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 # at the skill-install section, but needed here too to compute the redirect
 # target for AE_CONFIG_PATH).
 PI_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}}}"
+if declare -f _ae_identity_bind_config_dir >/dev/null; then
+  if [[ -n "${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-}}" ]]; then
+    _ae_identity_bind_config_dir "$PI_CONFIG_DIR" true
+  else
+    # --config-dir is install-time only and is not visible to later Pi
+    # sessions. Without a runtime env binding, keep identity global rather
+    # than create an unreachable profile identity.
+    _ae_identity_bind_config_dir "$PI_CONFIG_DIR" false
+  fi
+fi
 if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${PI_CODING_AGENT_DIR:-}}}" ]]; then
   AE_CONFIG_PATH="$PI_CONFIG_DIR/agentic-engineering.json"
 fi
@@ -342,7 +352,7 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
 fi
 
 echo ""

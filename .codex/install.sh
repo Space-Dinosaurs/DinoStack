@@ -62,6 +62,13 @@ done
 CODEX_CONFIG_DIR="${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${CODEX_HOME:-$HOME/.codex}}}"
 # Public API note: --config-dir=<dir>, AGENTIC_CONFIG_DIR, or CODEX_HOME
 # redirects this harness config dir for per-profile installs.
+if declare -f _ae_identity_bind_config_dir >/dev/null; then
+  if [[ -n "${AE_CONFIG_DIR_FLAG:-${AGENTIC_CONFIG_DIR:-${CODEX_HOME:-}}}" ]]; then
+    _ae_identity_bind_config_dir "$CODEX_CONFIG_DIR" true
+  else
+    _ae_identity_bind_config_dir "$CODEX_CONFIG_DIR" false
+  fi
+fi
 
 # Activation config path defaults to the shared $HOME location but is also
 # redirectable via --config-dir so multi-tenant installs (one profile per
@@ -311,7 +318,7 @@ AE_FINAL_DESTINATIONS=(
   $'file\t'"$CONFIG_FILE"
   $'file\t'"$HOOKS_FLAG_MARKER"
   $'file\t'"$HOME/.agentic/identity.yml"
-  $'directory\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR"
+  $'snapshot\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR"$'\t'"$HOME/.agentic/hooks-snapshot/.versions"$'\t'"$(basename "$HOOKS_SNAPSHOT_EXPECTED_DIR")"
   $'file\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.snapshot-meta.json"
   $'link\t'"$AGENTS_DST"$'\t'"$AGENTS_SRC"
   $'link\t'"$NAMED_AGENTS_DST"$'\t'"$NAMED_AGENTS_SRC"
@@ -381,6 +388,27 @@ for encoded in sys.argv[1:]:
         if stat.S_ISLNK(info.st_mode) or not stat.S_ISDIR(info.st_mode):
             fail(path, "expected a real directory")
         validate_owned(path, info)
+        continue
+
+    if kind == "snapshot":
+        if stat.S_ISLNK(info.st_mode):
+            resolved = Path(os.path.realpath(path))
+            versions = Path(os.path.realpath(os.path.expanduser(parts[2])))
+            expected_prefix = parts[3] + "."
+            if resolved.parent != versions or not resolved.name.startswith(expected_prefix):
+                fail(path, f"snapshot link escapes immutable generations ({resolved})")
+            try:
+                target_info = os.stat(path)
+            except OSError as exc:
+                fail(path, f"cannot inspect snapshot generation ({exc})")
+            if not stat.S_ISDIR(target_info.st_mode):
+                fail(path, "snapshot generation is not a directory")
+            validate_owned(resolved, target_info)
+        elif stat.S_ISDIR(info.st_mode):
+            # Legacy in-place snapshots are accepted for one migration sync.
+            validate_owned(path, info)
+        else:
+            fail(path, "expected a snapshot directory or immutable-generation link")
         continue
 
     if kind != "link":
@@ -890,7 +918,7 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo ""
   echo "Developer identity..."
   _ae_setup_identity
-  echo "  Run 'agentic-identity show' to confirm your identity."
+  _ae_identity_guidance
 fi
 
 # ---------------------------------------------------------------------------
