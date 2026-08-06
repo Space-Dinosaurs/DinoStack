@@ -4,7 +4,8 @@
 # Public API: Git pre-commit hook invoked with no arguments from a DinoStack checkout.
 #
 # Upstream deps: the staged Git index, project lint/type tools when installed,
-#                scripts/check-codex-skill-sync.sh, and all adapter build scripts.
+#                native-skill and prompt-wrapper generators, their sync check,
+#                and all adapter build scripts.
 #
 # Downstream consumers: local Git commits and worktree-isolated engineer commits.
 #
@@ -106,12 +107,15 @@ while IFS= read -r staged_path; do
     content/*|\
     scripts/build-methodology.sh|\
     scripts/codex-skills.py|\
+    .codex/lib/prompt-wrappers.py|\
     scripts/check-codex-skill-sync.sh|\
     scripts/test/test_codex_skills.py|\
     .codex/build.sh|\
     .codex/skill-frontmatter/*|\
     .codex/skill-compatibility.yml|\
     .codex/skills/*|\
+    .codex/prompts/*|\
+    .codex/prompt-generation-state/*|\
     .codex/commands/*|\
     .codex/references/*|\
     .codex/hooks/skill-auto-load-check.sh|\
@@ -133,6 +137,8 @@ if [[ "$CODEX_SKILL_SYNC_REQUIRED" == "true" ]]; then
   }
   trap cleanup_codex_skill_snapshot EXIT
   git checkout-index --all --prefix="$CODEX_SKILL_INDEX_SNAPSHOT/"
+  python3 "$CODEX_SKILL_INDEX_SNAPSHOT/.codex/lib/prompt-wrappers.py" \
+    build --repo "$CODEX_SKILL_INDEX_SNAPSHOT"
   bash "$CODEX_SKILL_INDEX_SNAPSHOT/scripts/check-codex-skill-sync.sh"
   cleanup_codex_skill_snapshot
   trap - EXIT
@@ -174,6 +180,8 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/agents/"*.toml \
     "$REPO_DIR/.codex/skills" \
+    "$REPO_DIR/.codex/prompts" \
+    "$REPO_DIR/.codex/prompt-generation-state" \
     "$REPO_DIR/.codex/skill-compatibility.yml" \
     "$REPO_DIR/.codex/hooks/skill-auto-load-check.sh" \
     "$REPO_DIR/.codex/references/"*.md \

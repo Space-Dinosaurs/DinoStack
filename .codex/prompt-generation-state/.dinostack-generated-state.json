@@ -1,0 +1,1 @@
+{"binding":{"commands_root":".codex/commands","kind":"canonical","prompts_root":".codex/prompts","state_root":".codex/prompt-generation-state"},"magic":"DINOSTACK_CODEX_PROMPT_STATE","schema_version":1}

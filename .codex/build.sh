@@ -4,13 +4,14 @@
 # Public API: bash .codex/build.sh
 #
 # Upstream deps: content methodology/rules/agents/commands/references, Codex
-#                frontmatter and compatibility inventory, and shared hook sources.
+#                frontmatter and compatibility inventory, the prompt-wrapper
+#                generator, and shared hook sources.
 #
 # Downstream consumers: .codex/install.sh, pre-commit, CI sync checks, and developers.
 #
 # Failure modes: exits non-zero before mutation when a mirror root is unsafe,
-#                or on methodology assembly, mirror replacement, native-skill
-#                validation, or named-agent generation failure.
+#                or on methodology assembly, mirror replacement, native-skill,
+#                prompt-wrapper, or named-agent generation failure.
 #
 # Performance: linear in canonical content and generated Codex artifact size.
 
@@ -237,6 +238,11 @@ if [[ ! -L "$HOOKS_DST/skill-auto-load-check.sh" ]]; then
 fi
 
 echo "Rebuilt command, reference, and shared-hook symlinks"
+
+# The repository-only legacy prompt surface is derived from the completed
+# canonical command mirror. It intentionally remains independent of native
+# skill generation and owns only .codex/prompts plus its manifest state.
+python3 "$CODEX_DIR/lib/prompt-wrappers.py" build --repo "$REPO_DIR"
 
 python3 "$REPO_DIR/scripts/codex-skills.py" build --repo "$REPO_DIR" --output "$SKILLS_DST"
 
