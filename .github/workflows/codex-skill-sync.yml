@@ -22,10 +22,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: pip install pyyaml
+      - name: Bootstrap ignored prompt runtime
+        run: python3 .codex/lib/prompt-wrappers.py build --repo .
       - name: Check codex skill sync
         run: bash scripts/check-codex-skill-sync.sh
-      - name: Run native skill generator tests
-        run: python3 -m unittest scripts.test.test_codex_skills
+      - name: Run full Codex skill test suite
+        run: python3 scripts/test/test_codex_skills.py
       - name: Run clean-clone mutation gate
         run: python3 scripts/test/test_codex_skills.py --clean-clone
       - name: Run public Codex build
