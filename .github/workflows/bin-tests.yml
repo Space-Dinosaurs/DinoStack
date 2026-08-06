@@ -33,14 +33,14 @@ jobs:
         # floor below in the same PR.
         run: |
           python3 -m pytest bin/tests/test_qa_knowledge_capture_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 52) { print "expected >= 52 collected tests (17 functions x 3 shells + 1 static), got " $1; exit 1 } }'
-      - name: floor collected test_knowledge_harness_smoke.py count at 28
-        # 15 test functions - 13 parametrized x {bash, zsh} (26) plus 2 static,
-        # shell-independent assertions (2) = 28 collected IDs. Adding or
+      - name: floor collected test_knowledge_harness_smoke.py count at 30
+        # 17 test functions - 13 parametrized x {bash, zsh} (26) plus 4 static,
+        # shell-independent assertions (4) = 30 collected IDs. Adding or
         # removing a test function in
         # bin/tests/test_knowledge_harness_smoke.py obliges updating the floor
         # below in the same PR.
         run: |
-          python3 -m pytest bin/tests/test_knowledge_harness_smoke.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 28) { print "expected >= 28 collected tests (13 functions x 2 shells + 2 static), got " $1; exit 1 } }'
+          python3 -m pytest bin/tests/test_knowledge_harness_smoke.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 30) { print "expected >= 30 collected tests (13 functions x 2 shells + 4 static), got " $1; exit 1 } }'
   # Python hook tests live here (shared python toolchain with bin-tests); JS/sh
   # hook tests live in hooks-tests.yml.
   hooks-python-tests:

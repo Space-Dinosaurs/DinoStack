@@ -65,6 +65,10 @@ Failure modes: builders raise via subprocess.CalledProcessError (check=True
                skewed past the index's), so a block under test must
                `git update-index --refresh` before trusting
                `git diff-index --quiet` - see _write_file()'s docstring.
+               install_git_stub() refuses a second install on the same
+               fixture (it would delegate to the first stub and recurse
+               forever), and GitStub.argv_lines() raises on a malformed
+               record rather than returning a wrong invocation count.
 
 Performance: standard; each builder does a handful of local git commands
              (~10-50ms) against a pytest tmp_path. The knowledge builders add
@@ -171,9 +175,22 @@ KNOWLEDGE_MODES = ("modified", "identical", "absent", "fewer_lines")
 # preceding fetch).
 PUSH_REJECT_MESSAGE = "AE-FIXTURE-PUSH-REJECTED"
 
-# Field separator used inside the git stub's argv log. \x1f (US) cannot occur
-# in a git subcommand or a fixture path, so parsing is unambiguous.
+# Framing for the git stub's argv log.
+#
+# Records are terminated by \x1e (RS) and fields separated by \x1f (US) -
+# NEWLINE IS NOT A DELIMITER at either level. That is not a stylistic choice:
+# git arguments routinely contain newlines (a `commit-tree -m "$MSG"` whose
+# message carries a blank line and a DCO trailer is the canonical case), and
+# newline-framed records split one such invocation into three, inflating
+# len(argv_lines()) and injecting a phantom entry into subcommands() with
+# nothing to detect it.
+#
+# Each record additionally carries its own argc as field 2, so a record that
+# does get split - by an argument containing a literal \x1e, or by any future
+# framing regression - fails the field-count check in
+# GitStub.argv_lines() LOUDLY instead of being mis-parsed silently.
 _ARGV_SEP = "\x1f"
+_ARGV_RECORD_SEP = "\x1e"
 
 
 @dataclass
@@ -200,14 +217,40 @@ class GitStub:
     fail_exit_code: int = 1
 
     def argv_lines(self) -> list[list[str]]:
-        """Every recorded invocation as [subcommand, *full_argv]."""
+        """Every recorded invocation as [subcommand, *full_argv].
+
+        Records are \\x1e-terminated and fields \\x1f-separated, so an argument
+        containing newlines (a multi-line commit message, say) stays inside
+        one record. The per-record argc is validated: a malformed record
+        raises rather than silently yielding a wrong invocation count."""
         if not self.log_path.exists():
             return []
+        raw = self.log_path.read_text(encoding="utf-8")
         out: list[list[str]] = []
-        for line in self.log_path.read_text(encoding="utf-8").splitlines():
-            if line == "":
+        for record in raw.split(_ARGV_RECORD_SEP):
+            if record == "":
                 continue
-            out.append(line.split(_ARGV_SEP))
+            fields = record.split(_ARGV_SEP)
+            if len(fields) < 2:
+                raise AssertionError(
+                    f"malformed git-stub record (expected at least "
+                    f"subcommand + argc, got {fields!r}) in {self.log_path}"
+                )
+            subcommand, argc_field, args = fields[0], fields[1], fields[2:]
+            try:
+                argc = int(argc_field)
+            except ValueError:
+                raise AssertionError(
+                    f"malformed git-stub record: argc field {argc_field!r} is "
+                    f"not an integer, in record {record!r}"
+                ) from None
+            if len(args) != argc:
+                raise AssertionError(
+                    f"malformed git-stub record: argc says {argc} but {len(args)} "
+                    f"argument fields are present - the log framing is broken "
+                    f"(record: {record!r})"
+                )
+            out.append([subcommand, *args])
         return out
 
     def subcommands(self) -> list[str]:
@@ -688,13 +731,21 @@ for a in "$@"; do
   esac
 done
 
-# ONE single-write append per invocation (never a sequence of printf calls
-# sharing one redirect) so two stub processes can never interleave a partial
-# record into the log.
+# ONE record per invocation, written with ONE append (never a sequence of
+# printf calls sharing a redirect, which two concurrent stub processes could
+# interleave).
+#
+# The record is \037-separated and \036-TERMINATED. Newline is deliberately
+# NOT a delimiter: git arguments contain newlines (`commit-tree -m "$MSG"`
+# with a blank line and a DCO trailer), and newline framing would split one
+# invocation into several records that the reader cannot tell apart from
+# several invocations. argc ($#) is recorded as field 2 so the reader can
+# detect any record that did get split.
 AE_STUB_US=$(printf '\037')
-line="$sub"
+AE_STUB_RS=$(printf '\036')
+line="$sub$AE_STUB_US$#"
 for a in "$@"; do line="$line$AE_STUB_US$a"; done
-printf '%s\n' "$line" >> "$AE_STUB_LOG"
+printf '%s%s' "$line" "$AE_STUB_RS" >> "$AE_STUB_LOG"
 
 if [ -n "$AE_STUB_FAIL_SUBCMD" ] && [ "$sub" = "$AE_STUB_FAIL_SUBCMD" ]; then
   printf 'AE-GIT-STUB: forced failure for subcommand %s (exit %s)\n' \
@@ -703,6 +754,19 @@ if [ -n "$AE_STUB_FAIL_SUBCMD" ] && [ "$sub" = "$AE_STUB_FAIL_SUBCMD" ]; then
 fi
 exec "$AE_STUB_REAL_GIT" "$@"
 """
+
+
+_GIT_STUB_FINGERPRINT = "AE_STUB_REAL_GIT="
+
+
+def _is_git_stub(path: Path) -> bool:
+    """True when path is one of this module's git stubs (not the real git
+    binary), detected by a marker in its text. Binary git reads as bytes that
+    fail to decode, which is the False case."""
+    try:
+        return _GIT_STUB_FINGERPRINT in path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return False
 
 
 def install_git_stub(
@@ -725,6 +789,21 @@ def install_git_stub(
 
     bin_dir = bin_dir or (fixture.repo_dir.parent / "git-stub-bin")
     bin_dir.mkdir(parents=True, exist_ok=True)
+
+    # Fail closed on a SECOND install against the same fixture. The first
+    # install prepends its bin_dir to fixture.env["PATH"], so `git` now
+    # resolves to the stub - a second install would write
+    # AE_STUB_REAL_GIT='<stub>' into the stub and every git call would recurse
+    # forever. Observed: a hang until a 15s test timeout, appending to the
+    # argv log on every iteration. Checked two ways because a caller-supplied
+    # bin_dir defeats the path comparison on its own.
+    if Path(real_git).parent == bin_dir or _is_git_stub(Path(real_git)):
+        raise AssertionError(
+            f"install_git_stub() would delegate to another stub ({real_git}) "
+            f"and recurse forever - it has already been installed on this "
+            f"fixture. Install it once; pass fail_subcommand on that call, or "
+            f"build a second fixture."
+        )
     log_path = bin_dir / "argv.log"
     log_path.write_text("", encoding="utf-8")
 

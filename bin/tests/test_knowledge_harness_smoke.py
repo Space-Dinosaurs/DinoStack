@@ -17,8 +17,8 @@ Purpose: Proves the knowledge-commit test harness works before any
          emits "0", not nothing.
 
 Public API: none (pytest test module; 13 parametrized functions x {bash, zsh}
-            = 26 collected IDs, plus 2 static shell-independent assertions =
-            28 - see the collected-count floor in
+            = 26 collected IDs, plus 4 static shell-independent assertions =
+            30 - see the collected-count floor in
             .github/workflows/bin-tests.yml).
 
 Upstream deps: bin/tests/lib/md_shell_extract.py, bin/tests/lib/git_fixture.py,
@@ -151,7 +151,13 @@ def test_render_raises_on_this_block_so_consumers_must_bypass_it():
         )
     with pytest.raises(mse.HarnessExtractionError) as excinfo:
         mse.render(block)
-    assert "occurs 0 times" in str(excinfo.value)
+    message = str(excinfo.value)
+    assert "occurs 0 times" in message
+    # The raise must send a new consumer to the BYPASS, not to editing the
+    # global whitelist - adding keys there would break Phase 8's render call
+    # sites, and this is precisely the raise a new consumer hits first.
+    assert "bypass render()" in message, message
+    assert "do NOT add keys to the whitelist" in message, message
 
 
 def test_extraction_is_non_vacuous():
@@ -425,6 +431,75 @@ def test_consumer_shape_push_actually_lands_on_origin(tmp_path, shell):
 # ---------------------------------------------------------------------------
 # Q3. Tee-and-delegate git stub.
 # ---------------------------------------------------------------------------
+
+
+def test_git_stub_log_keeps_a_multiline_argument_in_one_record(tmp_path):
+    """Regression guard: a git argument containing newlines must not split
+    one invocation into several log records.
+
+    `commit-tree -m "$MSG"` with a blank line and a DCO trailer is the exact
+    shape a knowledge-commit block builds. Under newline-framed records this
+    produced THREE entries for ONE invocation, a phantom
+    'Signed-off-by: ...' entry in subcommands(), and an inflated
+    len(argv_lines()) - with nothing to detect it. Records are now
+    \\x1e-terminated and carry their own argc.
+
+    Shell-independent: this exercises the stub itself, not a shell block."""
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    stub = git_fixture.install_git_stub(fixture)
+    msg = "chore(knowledge): capture MEMORY.md\n\nSigned-off-by: A B <a@b.c>\n"
+
+    tree = subprocess.run(
+        ["git", "-C", str(fixture.repo_dir), "write-tree"],
+        env=fixture.env,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout.strip()
+    proc = subprocess.run(
+        ["git", "-C", str(fixture.repo_dir), "commit-tree", tree, "-p", "HEAD", "-m", msg],
+        env=fixture.env,
+        capture_output=True,
+        text=True,
+    )
+    assert proc.returncode == 0, proc.stderr
+
+    lines = stub.argv_lines()
+    assert len(lines) == 2, f"expected exactly 2 recorded invocations, got {lines!r}"
+    assert stub.subcommands() == ["write-tree", "commit-tree"], (
+        f"no phantom entries permitted: {stub.subcommands()!r}"
+    )
+    commit_tree = lines[1]
+    assert commit_tree[-1] == msg, (
+        "the multi-line -m argument must round-trip byte-exact inside its "
+        f"record, got {commit_tree[-1]!r}"
+    )
+    assert commit_tree == [
+        "commit-tree",
+        "-C",
+        str(fixture.repo_dir),
+        "commit-tree",
+        tree,
+        "-p",
+        "HEAD",
+        "-m",
+        msg,
+    ]
+
+
+def test_git_stub_cannot_be_installed_twice(tmp_path):
+    """A second install would resolve `git` to the first stub and recurse
+    forever (observed: a hang until a 15s timeout, growing the argv log every
+    iteration). It must raise instead - a fixture that hangs would burn the
+    whole python-bin-tests job with no diagnostic."""
+    fixture = git_fixture.build_knowledge_consumer_shape(tmp_path)
+    git_fixture.install_git_stub(fixture)
+    with pytest.raises(AssertionError, match="recurse forever"):
+        git_fixture.install_git_stub(fixture)
+    # Also caught when the caller supplies a different bin_dir, where the
+    # parent-directory comparison alone would not fire.
+    with pytest.raises(AssertionError, match="recurse forever"):
+        git_fixture.install_git_stub(fixture, bin_dir=tmp_path / "second-stub-bin")
 
 
 @pytest.mark.parametrize("shell", SHELLS)
