@@ -407,6 +407,138 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 10: the UPDATE-FLOW fallback fence's non-main-branch and dirty-tree
+# guards must actually STOP execution before reaching `git ... pull`, not
+# merely print an error and fall through to it. A prose-only guard (an
+# executed comment like `# STOP - do not proceed` with no `exit`) is
+# invisible to a text assertion that just checks the error message exists -
+# this test extracts the literal fenced block from content/commands/ds-update.md
+# and RUNS it, verifying via a fake `git` on PATH that `pull` is never
+# invoked when either guard should have fired.
+# ---------------------------------------------------------------------------
+if [[ -f "$DS_UPDATE_MD" ]]; then
+  FALLBACK_SCRIPT="$(python3 -c "
+import re, sys
+
+text = open(sys.argv[1], encoding='utf-8').read()
+# Anchor on the sentence immediately preceding the fallback fence (there are
+# two 'CURRENT_BRANCH=' fences in this doc - Step 2b's non-blocking preview,
+# and this one - so a bare 'first \`\`\`bash after CURRENT_BRANCH=' match would
+# silently grab the wrong, non-authoritative block).
+anchor = 'not optional preview info as in Step 2b:'
+anchor_idx = text.find(anchor)
+if anchor_idx == -1:
+    print('EXTRACT_FAILED')
+    sys.exit(0)
+m = re.search(r'\`\`\`bash\nCURRENT_BRANCH=.*?\n\`\`\`', text[anchor_idx:], re.DOTALL)
+if not m:
+    print('EXTRACT_FAILED')
+    sys.exit(0)
+# Strip the \`\`\`bash / \`\`\` fence markers, keep the body verbatim.
+body = m.group(0)
+body = body[len('\`\`\`bash\n'):-len('\`\`\`')]
+print(body)
+" "$DS_UPDATE_MD")"
+
+  if [[ "$FALLBACK_SCRIPT" == "EXTRACT_FAILED" || -z "$FALLBACK_SCRIPT" ]]; then
+    _fail "T10 could not extract the UPDATE-FLOW fallback fence from $DS_UPDATE_MD - doc structure changed; update the extraction regex"
+  else
+    FALLBACK_TMPDIR="$(mktemp -d)"
+    FAKE_GIT_LOG="$FALLBACK_TMPDIR/git-calls.log"
+    FAKE_BIN_DIR="$FALLBACK_TMPDIR/bin"
+    mkdir -p "$FAKE_BIN_DIR"
+
+    # Fake `git` on PATH: logs every invoked subcommand (rev-parse/status/pull)
+    # and returns branch/dirty-state controlled by env vars, so the extracted
+    # fence's body runs completely unmodified - only its `git` calls are
+    # intercepted, which is what lets this test catch a reintroduced
+    # comment-only guard without also masking a real behavioral change.
+    cat > "$FAKE_BIN_DIR/git" <<'FAKEGIT'
+#!/usr/bin/env bash
+echo "$*" >> "$FAKE_GIT_LOG"
+# Expected invocation shapes from the extracted fence:
+#   git -C <dir> rev-parse --abbrev-ref HEAD
+#   git -C <dir> status --porcelain
+#   git -C <dir> pull --ff-only origin main
+if [[ "$*" == *"rev-parse --abbrev-ref HEAD"* ]]; then
+  echo "${FAKE_BRANCH:-main}"
+  exit 0
+elif [[ "$*" == *"status --porcelain"* ]]; then
+  printf '%s' "${FAKE_DIRTY:-}"
+  exit 0
+elif [[ "$*" == *"pull --ff-only"* ]]; then
+  echo "pull invoked" >> "$FAKE_GIT_LOG.pull-reached"
+  exit 0
+fi
+exit 0
+FAKEGIT
+    chmod +x "$FAKE_BIN_DIR/git"
+
+    run_fallback_fence() {
+      # Args: $1 = FAKE_BRANCH, $2 = FAKE_DIRTY
+      : > "$FAKE_GIT_LOG"
+      rm -f "$FAKE_GIT_LOG.pull-reached"
+      (
+        PATH="$FAKE_BIN_DIR:$PATH"
+        export PATH
+        FAKE_GIT_LOG="$FAKE_GIT_LOG"
+        export FAKE_GIT_LOG
+        FAKE_BRANCH="$1"
+        export FAKE_BRANCH
+        FAKE_DIRTY="$2"
+        export FAKE_DIRTY
+        AE_REPO_DIR="$FALLBACK_TMPDIR/fake-repo"
+        export AE_REPO_DIR
+        SELECTED_ADAPTERS=()
+        bash -c "$FALLBACK_SCRIPT"
+      )
+    }
+
+    # --- Guard A: non-main branch, clean tree -> must STOP before pull ---
+    run_fallback_fence "feature/some-branch" ""
+    FENCE_RC=$?
+    if [[ "$FENCE_RC" -ne 0 ]]; then
+      _pass "T10a non-main-branch guard: fence exits non-zero"
+    else
+      _fail "T10a non-main-branch guard: fence exited 0 - the guard did not stop execution"
+    fi
+    if [[ ! -f "$FAKE_GIT_LOG.pull-reached" ]]; then
+      _pass "T10a non-main-branch guard: pull was never invoked"
+    else
+      _fail "T10a non-main-branch guard: pull WAS invoked despite non-main branch - the STOP is prose-only"
+    fi
+
+    # --- Guard B: main branch, dirty tree -> must STOP before pull ---
+    run_fallback_fence "main" "M some/dirty/file.txt"
+    FENCE_RC=$?
+    if [[ "$FENCE_RC" -ne 0 ]]; then
+      _pass "T10b dirty-tree guard: fence exits non-zero"
+    else
+      _fail "T10b dirty-tree guard: fence exited 0 - the guard did not stop execution"
+    fi
+    if [[ ! -f "$FAKE_GIT_LOG.pull-reached" ]]; then
+      _pass "T10b dirty-tree guard: pull was never invoked"
+    else
+      _fail "T10b dirty-tree guard: pull WAS invoked despite a dirty tree - the STOP is prose-only"
+    fi
+
+    # --- Non-vacuity: main branch, clean tree -> both guards pass through,
+    # pull IS reached (proves the harness can observe a reached pull at all,
+    # so T10a/T10b's "pull never invoked" checks are falsifiable). ---
+    run_fallback_fence "main" ""
+    if [[ -f "$FAKE_GIT_LOG.pull-reached" ]]; then
+      _pass "T10c non-vacuity: clean main branch reaches pull (harness can detect a reached pull)"
+    else
+      _fail "T10c non-vacuity: clean main branch never reached pull - the fake git harness itself is broken, T10a/T10b prove nothing"
+    fi
+
+    rm -rf "$FALLBACK_TMPDIR"
+  fi
+else
+  _fail "T10 $DS_UPDATE_MD not found"
+fi
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

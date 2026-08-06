@@ -817,6 +817,10 @@ setup_git_fixture_with_argv_install() {
     cat > .claude/install.sh <<'INSTALLEOF'
 #!/usr/bin/env bash
 if [[ -n "${INSTALL_ARGS_LOG:-}" ]]; then
+  # Unconditional marker line: proves install.sh actually ran even when it
+  # receives zero forwarded flags (e.g. an --adapters-only forced install),
+  # which the argv-only loop below would otherwise leave undetectable.
+  echo "RAN" >> "$INSTALL_ARGS_LOG"
   for arg in "$@"; do
     echo "$arg" >> "$INSTALL_ARGS_LOG"
   done
@@ -943,6 +947,49 @@ if echo "$ARGS_RECORDED" | grep -qx -- "--mode=opt-out" && \
   _pass "T16 no-rebuild-needed + config change: install.sh actually ran with the confirmed flags"
 else
   _fail "T16 no-rebuild-needed + config change: install.sh did NOT run with confirmed flags (recorded: $ARGS_RECORDED) - the Critical bug reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 17 (Minor fix): an explicit --adapters selection alone (no --mode/
+# --profile/--identity/--no-identity) must also force the adapter install
+# loop on the old_head==new_head ("Already up to date") early-return path.
+#
+# Before the fix, forced_install was `bool(install_flags)` only, so
+# --adapters=.claude on an up-to-date repo printed "Already up to date",
+# exited 0, and never invoked install.sh at all - the operator's explicit
+# adapter selection was silently dropped.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE.
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor --adapters=.claude
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T17 already-up-to-date + --adapters only: exits 0"
+else
+  _fail "T17 already-up-to-date + --adapters only: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _pass "T17 already-up-to-date + --adapters only: reports forced install"
+else
+  _fail "T17 already-up-to-date + --adapters only: missing forced-install message (got: $OUT) - the Minor bug reproduces here"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "RAN"; then
+  _pass "T17 already-up-to-date + --adapters only: install.sh actually ran"
+else
+  _fail "T17 already-up-to-date + --adapters only: install.sh did NOT run (recorded: $ARGS_RECORDED) - the Minor bug reproduces here"
 fi
 
 rm -rf "$TEMP_HOME"

@@ -542,17 +542,29 @@ def main() -> int:
 
     # A non-empty install_flags means the caller confirmed a configuration
     # change (--mode/--profile/--identity/--no-identity) that must actually
-    # reach install.sh. Neither rebuild-skip early return below is allowed
-    # to exit 0 without running the adapter loop when that is true - see
-    # bin/tests/test_agentic_update.sh T15/T16 for the regression coverage
-    # (both early-return paths: already-up-to-date and no-rebuild-needed).
-    forced_install = bool(install_flags)
+    # reach install.sh. An explicit --adapters selection is the same kind of
+    # signal - the caller named a specific adapter set they want refreshed,
+    # so a no-op skip would silently ignore that request. Neither rebuild-skip
+    # early return below is allowed to exit 0 without running the adapter
+    # loop when either is true - see bin/tests/test_agentic_update.sh T15/T16
+    # for the regression coverage (both early-return paths: already-up-to-date
+    # and no-rebuild-needed).
+    forced_install = bool(install_flags) or bool(args.adapters.strip())
+
+    # Human-readable reason for the "forcing adapter install" messages below.
+    # install_flags can be empty when the only forcing signal is an explicit
+    # --adapters selection - fall back to describing that instead of joining
+    # an empty list into a blank reason.
+    if install_flags:
+        forced_reason = ' '.join(install_flags)
+    else:
+        forced_reason = f"--adapters={args.adapters.strip()}"
 
     if old_head and new_head and old_head == new_head:
         if forced_install:
             print(
                 f"Already up to date ({old_short}), but forcing adapter install "
-                f"because a config change was requested: {' '.join(install_flags)}."
+                f"because a config change was requested: {forced_reason}."
             )
             return _run_adapter_installs(repo_dir, args, install_flags)
         print(f"Already up to date ({old_short}).")
@@ -599,7 +611,7 @@ def main() -> int:
             print(
                 f"Updated {old_short}..{new_short} ({commits_pulled} commit(s)). "
                 f"No adapter source changed, but forcing adapter install because "
-                f"a config change was requested: {' '.join(install_flags)}."
+                f"a config change was requested: {forced_reason}."
             )
             return _run_adapter_installs(repo_dir, args, install_flags)
         print("No rebuild needed (no adapter source changed).")
