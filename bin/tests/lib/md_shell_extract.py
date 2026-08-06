@@ -295,10 +295,15 @@ def syntax_check(rendered_script: str, shell: str) -> subprocess.CompletedProces
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
             fh.write(rendered_script)
+        # Bounded and stdin-closed for the same reason as every subprocess in
+        # bin/tests/lib/git_fixture.py: an unbounded stall becomes a killed CI
+        # job with no log, and pytest's fd-0 capture disappears under `-s`.
         return subprocess.run(
             [shell, "-n", path],
             capture_output=True,
             text=True,
+            timeout=30,
+            stdin=subprocess.DEVNULL,
         )
     finally:
         os.remove(path)

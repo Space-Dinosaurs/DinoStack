@@ -261,8 +261,31 @@ class GitStub:
         return subcommand in self.subcommands()
 
 
+# Every subprocess in this module is bounded and has stdin closed.
+#
+# timeout: an unbounded git call that stalls (a credential or terminal prompt,
+# a hung hook) escalates into a killed CI job with no usable log. Bounded, it
+# is one TimeoutExpired at the exact call site. 30s is ~1000x the observed
+# runtime of any git command here.
+#
+# stdin=DEVNULL: a git that decides to prompt gets EOF and fails instead of
+# waiting forever. pytest's own fd capture already points fd 0 at devnull, but
+# that protection VANISHES under `-s` / `-p no:capture` - which is precisely
+# how someone will run this suite while debugging the next stall.
+_SUBPROCESS_TIMEOUT_SECONDS = 30
+
+
 def _run(args: list[str], cwd: Path, env: dict[str, str]) -> None:
-    subprocess.run(args, cwd=str(cwd), env=env, check=True, capture_output=True, text=True)
+    subprocess.run(
+        args,
+        cwd=str(cwd),
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=_SUBPROCESS_TIMEOUT_SECONDS,
+        stdin=subprocess.DEVNULL,
+    )
 
 
 def _base_env(tmp_path: Path, user_name: Optional[str], user_email: Optional[str]) -> dict[str, str]:
@@ -285,6 +308,17 @@ def _base_env(tmp_path: Path, user_name: Optional[str], user_email: Optional[str
     env["GIT_CONFIG_GLOBAL"] = str(global_gitconfig)
     env["LC_ALL"] = "C"
     env["LANG"] = "C"
+    # Never let git block on a prompt. GIT_CONFIG_NOSYSTEM=1 plus the
+    # fixture-local GIT_CONFIG_GLOBAL already mean no credential or askpass
+    # helper is inherited TODAY, but nothing asserted that and nothing would
+    # catch a regression - and the failure mode is a subprocess that waits
+    # forever, which is the most expensive kind. These four make a prompt
+    # impossible rather than merely unreachable: a prompting git now fails
+    # fast instead of hanging.
+    env["GIT_TERMINAL_PROMPT"] = "0"
+    env["GIT_ASKPASS"] = ""
+    env["SSH_ASKPASS"] = ""
+    env["GIT_SSH_COMMAND"] = "ssh -o BatchMode=yes"
     # Drop any AUTHOR/COMMITTER identity inherited from the calling process
     # (e.g. this test suite's own CI commit env) unless a fixture opts back
     # in (build_identity_no_gitconfig_shape).
@@ -599,6 +633,8 @@ def _is_tracked_at_head(repo_dir: Path, rel_path: str, env: dict[str, str]) -> b
         env=env,
         capture_output=True,
         text=True,
+        timeout=_SUBPROCESS_TIMEOUT_SECONDS,
+        stdin=subprocess.DEVNULL,
     )
     return result.returncode == 0
 
@@ -883,6 +919,8 @@ def build_knowledge_dinostack_shape(tmp_path: Path) -> Fixture:
             env=fixture.env,
             capture_output=True,
             text=True,
+            timeout=_SUBPROCESS_TIMEOUT_SECONDS,
+            stdin=subprocess.DEVNULL,
         )
         if result.returncode != 0:
             raise AssertionError(

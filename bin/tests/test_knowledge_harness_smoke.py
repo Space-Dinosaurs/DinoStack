@@ -58,6 +58,16 @@ MEMORY = "MEMORY.md"
 DECISIONS = "decisions.md"
 LEARNINGS = ".agentic/learnings.md"
 
+# Every subprocess in this module is bounded and stdin-closed. A per-call
+# timeout LARGER than the CI step budget can never fire usefully - two 120s
+# calls alone exceeded the old 5-minute job limit, so the job died before any
+# timeout produced a diagnostic. These are sized to fail inside the step and
+# under pytest-timeout's own 60s per-test limit, leaving a stack trace at the
+# exact call. stdin=DEVNULL keeps a prompting git from blocking under
+# `-s` / `-p no:capture`, where pytest's fd-0 capture is absent.
+BLOCK_TIMEOUT_SECONDS = 30
+GIT_TIMEOUT_SECONDS = 30
+
 
 def _shell_or_skip(shell: str) -> str:
     """Skip locally when a shell is missing; hard-fail in CI so the zsh half
@@ -93,7 +103,8 @@ def _run_block(fixture: git_fixture.Fixture, shell: str) -> subprocess.Completed
         env=fixture.env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=BLOCK_TIMEOUT_SECONDS,
+        stdin=subprocess.DEVNULL,
     )
 
 
@@ -133,6 +144,8 @@ def _git(fixture: git_fixture.Fixture, *args: str, cwd: Path | None = None):
         env=fixture.env,
         capture_output=True,
         text=True,
+        timeout=GIT_TIMEOUT_SECONDS,
+        stdin=subprocess.DEVNULL,
     )
 
 
@@ -227,7 +240,8 @@ def test_exported_branch_name_would_populate_environ(tmp_path, shell):
         env=env,
         capture_output=True,
         text=True,
-        timeout=120,
+        timeout=BLOCK_TIMEOUT_SECONDS,
+        stdin=subprocess.DEVNULL,
     )
     _assert_completed(result)
     assert _field(result.stdout, "SMOKE_AWK_ENVIRON") == fixture.branch_name
@@ -455,12 +469,16 @@ def test_git_stub_log_keeps_a_multiline_argument_in_one_record(tmp_path):
         capture_output=True,
         text=True,
         check=True,
+        timeout=GIT_TIMEOUT_SECONDS,
+        stdin=subprocess.DEVNULL,
     ).stdout.strip()
     proc = subprocess.run(
         ["git", "-C", str(fixture.repo_dir), "commit-tree", tree, "-p", "HEAD", "-m", msg],
         env=fixture.env,
         capture_output=True,
         text=True,
+        timeout=GIT_TIMEOUT_SECONDS,
+        stdin=subprocess.DEVNULL,
     )
     assert proc.returncode == 0, proc.stderr
 
