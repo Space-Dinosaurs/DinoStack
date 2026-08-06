@@ -373,7 +373,6 @@ Running /ds-init-project is idempotent - it updates existing files and adds new 
 - Updates root AGENTS.md with new decisions
 - Creates/updates track AGENTS.md files
 - Enriches `.agentic/_wrap.md` with the session summary, which the derived `.agentic/context.md` then carries
-- Adds stable facts to MEMORY.md
 - Promotes recurring or high-blast-radius Skeptic findings to `.agentic/findings.md`
 </div>
 </div>
