@@ -67,6 +67,27 @@ else
   fail "codex output still points at Claude skill path: $out"
 fi
 
+# ---------------------------------------------------------------------------
+# Positive control: a non-codex, non-gemini invocation (Claude's real shape -
+# no AE_ADAPTER, script_dir NOT ending /.codex/hooks) must still emit the
+# nudge. Without this assertion, deleting the entire gate (or short-circuiting
+# the whole script) is invisible to this suite - it would still report
+# 0 failed with every adapter silently getting zero output, including Claude.
+# ---------------------------------------------------------------------------
+HOME_CLAUDE="$TMP_ROOT/home-claude"
+CLAUDE_SCRIPT_DIR="$TMP_ROOT/claude-hooks"
+mkdir -p "$HOME_CLAUDE/.claude" "$CLAUDE_SCRIPT_DIR"
+
+printf '{"skill_auto_load": true}\n' > "$HOME_CLAUDE/.claude/agentic-engineering.json"
+cp "$REPO_DIR/hooks/skill-auto-load-check.sh" "$CLAUDE_SCRIPT_DIR/skill-auto-load-check.sh"
+
+claude_out="$(HOME="$HOME_CLAUDE" bash "$CLAUDE_SCRIPT_DIR/skill-auto-load-check.sh" 2>&1)"
+if [[ "$claude_out" == *"SKILL CHECK [agentic-engineering]"* ]]; then
+  pass "non-codex/non-gemini invocation (Claude's real shape) still emits the skill-load nudge"
+else
+  fail "expected the skill-load nudge for a non-codex/non-gemini invocation, got: $claude_out"
+fi
+
 echo "Results: $PASS passed, $FAIL failed"
 if [[ "$FAIL" -gt 0 ]]; then
   exit 1

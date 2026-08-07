@@ -14,7 +14,8 @@
 #                       (UserPromptSubmit hook), .gemini/install.sh (BeforeAgent hook)
 # Failure modes: always exits 0; missing config, false flag, or codex/gemini adapter = silent
 #                no-op; never blocks hook chain
-# Performance: <50ms; python3 JSON parse only
+# Performance: <5ms on the codex/gemini exit path (shell only, no python3);
+#              <50ms otherwise (adds one python3 JSON parse)
 
 ae_config="$HOME/.claude/agentic-engineering.json"
 
