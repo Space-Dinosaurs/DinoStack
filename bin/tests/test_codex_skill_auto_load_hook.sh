@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
-# Purpose: Regression test for Codex skill auto-load hook wiring.
+# Purpose: Regression test for Codex skill auto-load hook wiring. Codex already
+#          always-loads the full methodology via .codex/AGENTS.md, so the shared
+#          skill-auto-load-check.sh script gates Codex out unconditionally
+#          (DS-143) - it must emit zero output regardless of skill_auto_load.
 # Public API: bash bin/tests/test_codex_skill_auto_load_hook.sh
 
 set -uo pipefail
@@ -52,10 +55,10 @@ else
 fi
 
 out="$(HOME="$HOME_CODEX" bash -c "$skill_cmd" 2>&1)"
-if [[ "$out" == *"$HOME_CODEX/.agents/skills/agentic-engineering/SKILL.md"* ]]; then
-  pass "codex skill auto-load output points at ~/.agents skill path"
+if [[ -z "$out" ]]; then
+  pass "codex skill auto-load emits zero output (Codex already always-loads via .codex/AGENTS.md)"
 else
-  fail "expected codex ~/.agents skill path, got: $out"
+  fail "expected zero output for codex, got: $out"
 fi
 
 if [[ "$out" != *"$HOME_CODEX/.claude/skills/agentic-engineering/SKILL.md"* ]]; then
