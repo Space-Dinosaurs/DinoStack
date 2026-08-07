@@ -424,7 +424,7 @@ upsert_hook(
 )
 
 # ---- BeforeAgent hook (skill auto-load check) --------------------------------
-SKILL_CMD = f'bash "{repo_dir}/hooks/skill-auto-load-check.sh"'
+SKILL_CMD = f'AE_ADAPTER=gemini bash "{repo_dir}/hooks/skill-auto-load-check.sh"'
 
 upsert_hook(
     ba_star["hooks"],
