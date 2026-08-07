@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Purpose: Build the Claude Code adapter outputs from canonical content/.
 # Public API: invoked as `bash .claude/build.sh`; idempotent.
-# Upstream deps: content/commands/, content/references/, content/sections/, content/SKILL.md,
-#               content/project-scaffolding.yml, content/templates/,
+# Upstream deps: content/commands/, content/references/, content/rules/, content/sections/,
+#               content/SKILL.md, content/project-scaffolding.yml, content/templates/,
 #               scripts/build-methodology.sh, .claude/skills/agentic-engineering/SKILL.frontmatter.yaml,
 #               .claude/commands.frontmatter/ (optional per-command frontmatter sidecars).
 # Downstream consumers: .claude/commands/, .claude/skills/agentic-engineering/{SKILL.md,METHODOLOGY.md,references/,
