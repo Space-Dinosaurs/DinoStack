@@ -1203,7 +1203,7 @@
     </div>
   </div>
   <div class="note">
-    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/METHODOLOGY.md</code> (top-level - delegation, risk classification, task decomposition), <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, regression-test-obligation.md, qa-regression-obligation.md, doc-sync-obligation.md)<br>
+    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/METHODOLOGY.md</code> (top-level - delegation, risk classification, task decomposition), <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (37 files - skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, frontend-discipline.md, qa-gate.md, and more)<br>
     <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), Hermes (<code>.hermes/</code>), OpenClaw (<code>.openclaw/</code>), and VS Code Copilot (<code>.copilot/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
@@ -1499,6 +1499,10 @@
     <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
       <strong>QA Regression Test Obligation:</strong> The symmetric rule for qa-engineer FAILs. When a fix engineer addresses a QA failure, it adds a unit/integration/e2e test that would have caught the failing scenario; the parallel Skeptic on the QA-fix iteration verifies it exists before sign-off. When a regression test is genuinely infeasible (visual conformance failure with no headless-testable observable, etc.), the engineer appends a curated entry to <code>.agentic/qa-regressions.md</code> so architects re-check the surface on future tickets via <code>qa_criteria.scenarios[]</code>. Canonical statement in <code>qa-regression-obligation.md</code>.
     </div>
+    <div class="rel-card" style="border-color: rgba(24,224,255,0.25); margin-top: 10px;">
+      <h4 style="color: var(--sky);">Front-End / QA Methodology</h4>
+      <p class="desc">The <code>qa_criteria.method</code> enum has 7 values: <code>browser</code>, <code>api</code>, <code>runtime-required</code>, <code>visual_conformance</code>, <code>accessibility</code>, <code>perceptual_diff</code>, and <code>motion</code>. Canonical reference: <code>content/references/frontend-discipline.md</code> - 7 sections (Semantic HTML, ARIA, Keyboard support, Focus management, Reduced motion, Design tokens, Responsive patterns) plus an 8-category FE-discipline findings table in <code>skeptic-protocol.md</code> that auto-applies whenever a diff touches FE files.</p>
+    </div>
   </div>
 
   <hr class="section-divider">
@@ -1507,7 +1511,7 @@
   <div style="margin-bottom: 24px;">
     <div id="proto-subagent" style="margin-bottom: 16px; border-bottom: 1px solid var(--border-faint); padding-bottom: 12px;">
       <div style="font-family: 'Nunito Sans', sans-serif; font-size: 22px; font-weight: 700; letter-spacing: -0.025em; color: var(--violet); margin-bottom: 4px;">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
-      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Orchestration Methodology - 11 sections. The outer frame governing delegation.</div>
+      <div style="font-family: 'Nunito Sans', sans-serif; font-size: 15px; font-weight: 400; color: var(--text-secondary);">The Orchestration Methodology - 13 sections. The outer frame governing delegation.</div>
     </div>
     <div class="two-col">
       <div>
@@ -1554,6 +1558,16 @@
             <li>Softening adversarial briefs</li>
           </ul>
         </div>
+        <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
+          <h4 style="color: #b06bff;">Sections 9-13</h4>
+          <ul>
+            <li><strong>9. Relationship to the Skeptic Protocol</strong> - the two protocols are complementary: this one governs delegation decisions, the Skeptic Protocol governs the inner review loop.</li>
+            <li><strong>10. Input Contract</strong> - the execution contract block (outputs, tool_scope, completion_conditions) an <code>engineer</code> Worker spawn must include on Elevated-risk tasks.</li>
+            <li><strong>11. Output Expectations</strong> - what a Worker returns (final output, round summary, memory update requests), the re-route limit, and side-effect disclosure rules.</li>
+            <li><strong>12. Sync with Related Documents</strong> - this document is canonical; <code>~/.claude/CLAUDE.md</code> and <code>skeptic-protocol.md</code> must be checked for drift when it changes.</li>
+            <li><strong>13. Conductor context budget</strong> - soft limit (~15-20 turns, warn and recommend <code>/ds-wrap</code>) and hard limit (~25-30 turns) for long-running conductor sessions.</li>
+          </ul>
+        </div>
       </div>
     </div>
     <div class="note" style="border-left-color: var(--violet); margin-top: 10px;">
@@ -1574,7 +1588,7 @@
       <div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2);">
           <h4 style="color: #b06bff;">The Team</h4>
-          <p class="desc">18 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, goal-condition-evaluator, wrap-ticket, learnings-agent). Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files. Full descriptions in the Agent Layer section below.</p>
+          <p class="desc">18 named agents (investigator, debugger, security-auditor, architect, orchestration-planner, engineer, skeptic, qa-engineer, adr-generator, adr-drift-detector, perf-analyst, product-discovery, release-orchestrator, dependency-auditor, learning-extractor, goal-condition-evaluator, wrap-ticket, learnings-agent). Most agents are read-only - 7 of 18 write files: adr-generator, engineer, learning-extractor, learnings-agent, product-discovery, release-orchestrator, and wrap-ticket. Full descriptions in the Agent Layer section below.</p>
         </div>
       </div>
       <div>
@@ -1676,7 +1690,7 @@
   <div class="note">
     <strong>Key constraint:</strong> Only the main session agent (conductor) spawns agents. No agent spawns other agents.<br>
     <strong>Isolation:</strong> Agents run in background by default. Can use <code>isolation: "worktree"</code> for git-isolated work.<br>
-    <strong>Most agents are read-only. Engineer, release-orchestrator, learnings-agent, and wrap-ticket write files.</strong> Gold left border = writes files.
+    <strong>Most agents are read-only - 7 of 18 write files: adr-generator, engineer, learning-extractor, learnings-agent, product-discovery, release-orchestrator, and wrap-ticket.</strong> Gold left border = writes files.
   </div>
 </div>
 
@@ -1818,6 +1832,7 @@
           <li><strong>/ds-memory-update</strong> - captures a specific architectural decision or stable fact into memory with its own Worker + Skeptic accuracy loop.</li>
           <li><strong>/ds-feedback-triage</strong> - batch triage of the home-dir feedback store (<code>~/.agentic/feedback.jsonl</code>). Reviews the accumulated backlog of tool-friction, process-escalation, guardrail-fire, and operator-correction signals from <code>/ds-wrap</code>, presents them grouped, and creates tracker tickets only for items the operator explicitly approves.</li>
           <li><strong>/ds-ticket-triage</strong> - strategic triage of a ticket list or tracker input. Analyses dependencies and conflicts, distributes work across parallel lanes, and emits a paste-ready game plan. Plan-only: no code edits, no tracker mutations. Includes a story-size preflight: tickets estimated at &ge;5 story points receive a decomposition warning and a <code>context_risk: high</code> flag; tickets &le;4 points proceed silently.</li>
+          <li><strong>/ds-wrap-deferred</strong> - non-interactive, single-pass session enrichment invoked by the deferred-wrap daemon (<code>hooks/wrap-daemon.js</code>) headlessly resuming a cleanly-ended session, not by users directly. Writes good-faith enrichment of the same three targets as <code>/ds-wrap</code> with no prompts and no subagents, then exits.</li>
         </ul>
       </div>
     </div>
