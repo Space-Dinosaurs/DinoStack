@@ -348,6 +348,11 @@ _run_install "$FAKE_HOME" --dry-run || true
 # See case (e)'s note re: the rc assertion - DROPPED here per the same
 # empirically-determined A2 decision (scrubbed-PATH pre-check returned
 # rc=1; any doubt means drop from both cases together).
+if grep -Fq "[dry-run] would update managed-by-agentic-engineering" "$FAKE_HOME/.install_out"; then
+  _pass "case (e2): dry-run output names the CLAUDE.md intent (proves the run reached the CLAUDE.md phase)"
+else
+  _fail "case (e2): dry-run output missing CLAUDE.md intent line (absence assertion below is unanchored)"
+fi
 if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
   _pass "case (e2): --dry-run creates no CLAUDE.md when absent"
 else
@@ -357,6 +362,16 @@ if grep -Fq "WARNING: the agentic-engineering skill is not linked to this checko
   _pass "case (e2): SKILL_LINK_OK warning fires when the skill link was never established under dry-run"
 else
   _fail "case (e2): SKILL_LINK_OK warning did not fire on fresh dry-run"
+fi
+# The warning is emitted at two call sites (the skill-symlink block and the
+# Summary block, per addendum A5) - a plain at-least-once grep above matches
+# the first occurrence and would stay green even if the second (Summary)
+# emission drifted or was deleted outright. Pin the count explicitly.
+_e2_warning_count="$(grep -Fc "WARNING: the agentic-engineering skill is not linked to this checkout" "$FAKE_HOME/.install_out")"
+if [[ "$_e2_warning_count" -eq 2 ]]; then
+  _pass "case (e2): SKILL_LINK_OK warning fires exactly twice (skill-symlink block + Summary block)"
+else
+  _fail "case (e2): SKILL_LINK_OK warning fired $_e2_warning_count time(s), expected exactly 2"
 fi
 rm -rf "$FAKE_HOME"
 

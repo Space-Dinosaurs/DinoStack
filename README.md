@@ -153,7 +153,7 @@ The following flags work for all adapters (`.claude`, `.cursor`, `.codex`, `.gem
 ```
 bash .claude/install.sh --identity=<handle>   # set developer identity (GitHub handle) non-interactively
 bash .claude/install.sh --no-identity          # skip the developer-identity prompt
-bash .claude/install.sh --dry-run             # preview symlink + repo_dir changes; hook, build, and permission phases still execute
+bash .claude/install.sh --dry-run             # preview symlink, CLAUDE.md managed-block update, and repo_dir changes; hook, build, and permission phases still execute
 ```
 
 **Changing mode later:** rerun any adapter's installer with `--mode=<value>` to overwrite the config, or edit `~/.claude/agentic-engineering.json` directly.

@@ -35,6 +35,11 @@
 #     already holds a valid DIFFERENT repo_dir, a warning is printed and the
 #     existing value is preserved. Only absent/invalid/same values are written.
 #   - All interactive prompts fall back to a default when stdin is not a TTY.
+#   - A skipped or not-yet-created skill symlink sets SKILL_LINK_OK=false and
+#     emits an operator warning twice per run (once where the skip is
+#     detected, once in the Summary block). Every --dry-run on a machine
+#     without an existing, correctly-pointed skill link falls into this case
+#     and emits the warning, since --dry-run never creates the symlink.
 #
 # Performance: ~5-10 s (one build pass, node/python3 calls for hooks/settings).
 # ---------------------------------------------------------------------------
@@ -491,12 +496,16 @@ else
   fi
 fi
 
-if [[ "$SKILL_LINK_OK" != "true" ]]; then
-  echo ""
+_ae_skill_link_warning() {
   echo "  WARNING: the agentic-engineering skill is not linked to this checkout ($SKILL_LINK_REASON)."
   echo "  CLAUDE.md's managed block may reference the skill; the reference will not resolve"
   echo "  until the link is established. Re-run without --dry-run, or resolve the noted"
   echo "  conflict above and re-run install.sh."
+}
+
+if [[ "$SKILL_LINK_OK" != "true" ]]; then
+  echo ""
+  _ae_skill_link_warning
 fi
 
 # ---------------------------------------------------------------------------
@@ -1618,10 +1627,7 @@ echo "  add 'agentic-engineering: opt-in' to its AGENTS.md, and the methodology 
 _ae_identity_guidance
 echo ""
 if [[ "$SKILL_LINK_OK" != "true" ]]; then
-  echo "  WARNING: the agentic-engineering skill is not linked to this checkout ($SKILL_LINK_REASON)."
-  echo "  CLAUDE.md's managed block may reference the skill; the reference will not resolve"
-  echo "  until the link is established. Re-run without --dry-run, or resolve the noted"
-  echo "  conflict above and re-run install.sh."
+  _ae_skill_link_warning
   echo ""
 fi
 echo "Next steps (for the agent running this installer):"
