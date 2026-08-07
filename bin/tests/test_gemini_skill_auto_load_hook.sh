@@ -20,16 +20,20 @@
 # Failure modes: any assertion failure prints the failing assertion and exits
 #                1. A temporary fake HOME is used; the real ~/.gemini is
 #                never touched. .gemini/install.sh is run against the REAL
-#                checkout (like bin/tests/test_hooks_snapshot_migration.sh) -
-#                only $HOME is sandboxed - and it still writes
-#                <repo>/.git/hooks/pre-commit and rebuilds .claude/build.sh +
-#                .cursor/build.sh in the live tree; the precommit-hook-guard
-#                protects the pre-commit hook, the build side effects are
-#                pre-existing and out of scope here (same as the migration
-#                test).
+#                checkout - only $HOME is sandboxed - and it invokes
+#                .gemini/build.sh (regenerates .gemini/ adapter artifacts in
+#                the live tree from content/); verified it does not write
+#                <repo>/.git/hooks/pre-commit and does not invoke
+#                .claude/build.sh or .cursor/build.sh (unlike the .claude/
+#                .codex/.kimi install paths exercised in
+#                bin/tests/test_hooks_snapshot_migration.sh). The
+#                precommit-hook-guard save/restore calls here are
+#                belt-and-braces, not load-bearing - kept for parity with the
+#                sibling test in case .gemini/install.sh's build chain
+#                changes later, not because the current chain touches it.
 #
-# Performance: ~5-10s wall time (one .gemini/install.sh run, which builds
-#              adapters via .claude/build.sh + .cursor/build.sh).
+# Performance: ~5-10s wall time (one .gemini/install.sh run, which invokes
+#              .gemini/build.sh only).
 
 set -uo pipefail
 
