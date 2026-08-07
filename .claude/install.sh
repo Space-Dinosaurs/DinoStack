@@ -18,8 +18,9 @@
 #     config dir (agents/commands/skills/settings/CLAUDE.md/agentic-engineering.json)
 #     to <dir> for per-profile installs. Shared state (~/.agentic, ~/.local/bin,
 #     ~/.claude.json) always stays in the real $HOME. Default: ~/.claude.
-#   --dry-run: print symlink actions and repo_dir write intent without executing
-#              them. Hook wiring, build, and permission phases still execute.
+#   --dry-run: print symlink actions, the CLAUDE.md managed-block update
+#              intent, and repo_dir write intent without executing them.
+#              Hook wiring, build, and permission phases still execute.
 #
 # Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink.
 #
@@ -437,6 +438,9 @@ done
 # Symlink skill
 # ---------------------------------------------------------------------------
 
+SKILL_LINK_OK=true
+SKILL_LINK_REASON=""
+
 echo "Linking skill: agentic-engineering..."
 
 mkdir -p "$(dirname "$SKILLS_DST")"
@@ -449,6 +453,8 @@ if [[ -L "$SKILLS_DST" ]]; then
     # Stale symlink pointing to another methodology checkout - re-point it.
     if [[ "$AE_DRY_RUN" == "true" ]]; then
       echo "  ~ engineering (would re-point to repo_dir)"
+      SKILL_LINK_OK=false
+      SKILL_LINK_REASON="dry-run: stale symlink not re-pointed"
     else
       ln -sfn "$SKILLS_SRC" "$SKILLS_DST"
       echo "  ~ engineering (re-pointed to repo_dir)"
@@ -456,23 +462,41 @@ if [[ -L "$SKILLS_DST" ]]; then
   else
     if [[ "$AE_DRY_RUN" == "true" ]]; then
       echo "  ! engineering (would skip: symlink points outside methodology checkout: $current_target)"
+      SKILL_LINK_OK=false
+      SKILL_LINK_REASON="symlink points outside methodology checkout: $current_target"
     else
       echo "  ! engineering (symlink points elsewhere: $current_target - skipping)"
+      SKILL_LINK_OK=false
+      SKILL_LINK_REASON="symlink points outside methodology checkout: $current_target"
     fi
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
   if [[ "$AE_DRY_RUN" == "true" ]]; then
     echo "  ! engineering (would skip: real file/directory exists at destination)"
+    SKILL_LINK_OK=false
+    SKILL_LINK_REASON="real file/directory exists at destination"
   else
     echo "  ! engineering (real file/directory exists at destination - skipping)"
+    SKILL_LINK_OK=false
+    SKILL_LINK_REASON="real file/directory exists at destination"
   fi
 else
   if [[ "$AE_DRY_RUN" == "true" ]]; then
     echo "  + agentic-engineering (would create)"
+    SKILL_LINK_OK=false
+    SKILL_LINK_REASON="dry-run: symlink not created"
   else
     ln -s "$SKILLS_SRC" "$SKILLS_DST"
     echo "  + agentic-engineering"
   fi
+fi
+
+if [[ "$SKILL_LINK_OK" != "true" ]]; then
+  echo ""
+  echo "  WARNING: the agentic-engineering skill is not linked to this checkout ($SKILL_LINK_REASON)."
+  echo "  CLAUDE.md's managed block may reference the skill; the reference will not resolve"
+  echo "  until the link is established. Re-run without --dry-run, or resolve the noted"
+  echo "  conflict above and re-run install.sh."
 fi
 
 # ---------------------------------------------------------------------------
@@ -1004,6 +1028,12 @@ fi
 # Update ~/.claude/CLAUDE.md
 # ---------------------------------------------------------------------------
 
+# DS-143: when the @-imports are removed from managed_content below, decide
+# whether this write should be gated on SKILL_LINK_OK (set in the skill-symlink
+# block above). Do not remove the imports without making that call.
+if [[ "$AE_DRY_RUN" == "true" ]]; then
+  echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md"
+else
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
 AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
@@ -1066,6 +1096,7 @@ else:
     else:
         print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
 PYEOF
+fi
 
 # ---------------------------------------------------------------------------
 # Write repo_dir to ~/.agentic/agentic-engineering-config.json (guarded)
@@ -1586,6 +1617,13 @@ echo "  agentic-engineering is installed. Open a new Claude Code session in any 
 echo "  add 'agentic-engineering: opt-in' to its AGENTS.md, and the methodology activates."
 _ae_identity_guidance
 echo ""
+if [[ "$SKILL_LINK_OK" != "true" ]]; then
+  echo "  WARNING: the agentic-engineering skill is not linked to this checkout ($SKILL_LINK_REASON)."
+  echo "  CLAUDE.md's managed block may reference the skill; the reference will not resolve"
+  echo "  until the link is established. Re-run without --dry-run, or resolve the noted"
+  echo "  conflict above and re-run install.sh."
+  echo ""
+fi
 echo "Next steps (for the agent running this installer):"
 echo ""
 echo "  Offer the user a quick orientation. Ask which of the following they'd"
