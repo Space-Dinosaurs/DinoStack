@@ -1,41 +1,43 @@
 #!/usr/bin/env bash
-# Purpose: Guard against unbounded growth of the "resident set" - the
-#          methodology content every Claude Code session loads via the
-#          @-imports in ~/.claude/CLAUDE.md on every project, regardless of
-#          whether that project's task needs it. The resident set is:
-#            - the assembled METHODOLOGY.md (bash scripts/build-methodology.sh)
-#            - content/rules/conventions.md
-#            - content/rules/code-standards.md
-#          This script sums their byte sizes and fails if the total exceeds
-#          THRESHOLD. THRESHOLD is a ratchet: when a compression PR shrinks
-#          the resident set, lower THRESHOLD in the same PR so growth cannot
-#          silently claw the savings back. Raising THRESHOLD should be rare
-#          and deliberate - it is a decision to permanently tax every session
-#          in every project with more always-loaded context.
+# Purpose: Guard against unbounded growth of the "resident set" - the small
+#          pointer table that stays loaded in every Claude Code session via
+#          the @-import of content/templates/claude-managed-content.md into
+#          ~/.claude/CLAUDE.md, regardless of whether that project's task
+#          needs the full methodology.
+#
+#          As of DS-143, METHODOLOGY.md, content/rules/conventions.md, and
+#          content/rules/code-standards.md are NOT part of this measurement.
+#          They are no longer always-loaded: they load on skill invocation
+#          (trigger-loaded via the SKILL.md embed), not on every session.
+#          Growth of THAT content is governed by a sibling gate,
+#          scripts/check-skill-embed-budget.sh - if you are looking for a
+#          budget on the methodology body itself, that is the script you
+#          want, not this one.
+#
+#          This script sums the byte size of
+#          content/templates/claude-managed-content.md and fails if it
+#          exceeds THRESHOLD. THRESHOLD is a ratchet: when a compression PR
+#          shrinks the resident set, lower THRESHOLD in the same PR so
+#          growth cannot silently claw the savings back. Raising THRESHOLD
+#          should be rare and deliberate - it is a decision to permanently
+#          tax every session in every project with more always-loaded
+#          context.
 #
 # Public API: bash scripts/check-resident-budget.sh
 #             Exits 0 when total bytes <= THRESHOLD. Exits 1 when over
-#             budget, when a required input file is missing, or when the
-#             build-methodology.sh floor fires (see Failure modes below).
+#             budget, when the input file is missing, or when the
+#             plausibility floor fires (see Failure modes below).
 #
-# Upstream deps: scripts/build-methodology.sh; content/rules/conventions.md;
-#                content/rules/code-standards.md.
+# Upstream deps: content/templates/claude-managed-content.md.
 #
 # Downstream consumers: .github/workflows/resident-budget.yml.
 #
-# Failure modes: over budget -> exit 1 with per-file breakdown, total,
-#                threshold, and overage printed. Build failure -> exit 1
-#                when build-methodology.sh output is implausibly small
-#                (< MIN_PLAUSIBLE_METHODOLOGY_BYTES), with a message that
-#                explicitly distinguishes a broken build from a budget
-#                overage. Missing input file -> exit 1. Read-only; no side
-#                effects on the repo.
-#
-# Note: METHODOLOGY.md is measured by running build-methodology.sh fresh,
-#       NOT by statting the generated .claude/skills/agentic-engineering/
-#       METHODOLOGY.md file - a PR that edits content/sections/** without
-#       rebuilding adapters would otherwise be measured against a stale
-#       artifact and could slip a regression past this gate.
+# Failure modes: over budget -> exit 1 with a breakdown naming the file and
+#                the numbers. Missing input file -> exit 1. File emptied or
+#                implausibly small (< MIN_PLAUSIBLE_BYTES) -> exit 1 with a
+#                message that explicitly distinguishes a vanished/corrupted
+#                file from a budget overage. Read-only; no side effects on
+#                the repo.
 #
 # Compatible with both bash and zsh invocation of the containing shell; CI
 # always invokes it as `bash scripts/check-resident-budget.sh`, but a
@@ -51,61 +53,50 @@ set -euo pipefail
 # to "//".
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
-# Ratchet: 120,066 measured on this branch 2026-08-02 (progressive-disclosure
-# compression of 02-delegation.md and 12-protocol-details.md - #541 - plus the
-# Skeptic-requested manifest/index/prohibition-clause fixes on top, rebased
-# onto origin/main #540 which grew the resident set) + 1,000 B headroom.
-# Lower this value in the same commit as any deliberate compression of the
-# resident set. See the header comment above before raising it.
-THRESHOLD=121066
+# Ratchet: content/templates/claude-managed-content.md measured 1,705 B on
+# this branch 2026-08-06 (DS-143, redefining this gate after the @-import
+# removal - #581 lineage). THRESHOLD is set to roughly 2x that measurement
+# (3,410 B) to give headroom for the pointer table to grow a few more lines
+# before this gate fires, while still catching runaway growth early. Lower
+# this value in the same commit as any deliberate compression of the
+# managed-content file. See the header comment above before raising it.
+THRESHOLD=3410
 
-# Plausibility floor: if build-methodology.sh ever exits 0 while emitting
-# nothing or a truncated stream, methodology_bytes would be near-zero and
-# the check would PASS with tens of KB of false headroom. This floor is
-# deliberately far below any realistic post-compression target - this repo
-# has an active compression programme aiming for ~66,400 B and an
-# aspiration of 60,000 B for METHODOLOGY.md alone, so the floor must never
-# be able to fire on correct, successful compression work. 10,000 B is
-# roughly an order of magnitude below that floor: it can only mean the
-# build produced garbage or nothing, never that compression "went well".
-MIN_PLAUSIBLE_METHODOLOGY_BYTES=10000
+# Plausibility floor: if claude-managed-content.md were ever emptied or
+# truncated (a bad merge, an accidental overwrite), managed_content_bytes
+# would be near-zero and the check would PASS with a huge false headroom.
+# This floor is deliberately far below any realistic content size for this
+# file - it exists to catch "the file vanished or is empty," not to police
+# normal size fluctuation.
+MIN_PLAUSIBLE_BYTES=200
 
-CONVENTIONS_FILE="$REPO_DIR/content/rules/conventions.md"
-CODE_STANDARDS_FILE="$REPO_DIR/content/rules/code-standards.md"
+MANAGED_CONTENT_FILE="$REPO_DIR/content/templates/claude-managed-content.md"
 
-if [ ! -f "$CONVENTIONS_FILE" ]; then
-  echo "check-resident-budget.sh: missing file: $CONVENTIONS_FILE" >&2
-  exit 1
-fi
-if [ ! -f "$CODE_STANDARDS_FILE" ]; then
-  echo "check-resident-budget.sh: missing file: $CODE_STANDARDS_FILE" >&2
+if [ ! -f "$MANAGED_CONTENT_FILE" ]; then
+  echo "check-resident-budget.sh: missing file: $MANAGED_CONTENT_FILE" >&2
   exit 1
 fi
 
-methodology_bytes="$(bash "$REPO_DIR/scripts/build-methodology.sh" | wc -c | tr -d '[:space:]')"
+managed_content_bytes="$(wc -c < "$MANAGED_CONTENT_FILE" | tr -d '[:space:]')"
 
-if [ "$methodology_bytes" -lt "$MIN_PLAUSIBLE_METHODOLOGY_BYTES" ]; then
-  echo "check-resident-budget.sh: BUILD FAILURE, not a budget problem." >&2
-  echo "  build-methodology.sh produced only $methodology_bytes B of output," >&2
-  echo "  below the $MIN_PLAUSIBLE_METHODOLOGY_BYTES B plausibility floor." >&2
-  echo "  This means the build is broken or emitted truncated/empty output -" >&2
-  echo "  it does NOT mean the resident set is under budget. Investigate" >&2
-  echo "  scripts/build-methodology.sh directly; do not raise THRESHOLD or" >&2
-  echo "  lower this floor to make this pass." >&2
+if [ "$managed_content_bytes" -lt "$MIN_PLAUSIBLE_BYTES" ]; then
+  echo "check-resident-budget.sh: FILE FAILURE, not a budget problem." >&2
+  echo "  content/templates/claude-managed-content.md is only" >&2
+  echo "  $managed_content_bytes B, below the $MIN_PLAUSIBLE_BYTES B" >&2
+  echo "  plausibility floor. This means the file was emptied, truncated," >&2
+  echo "  or corrupted - it does NOT mean the resident set is under" >&2
+  echo "  budget. Investigate content/templates/claude-managed-content.md" >&2
+  echo "  directly; do not raise THRESHOLD or lower this floor to make" >&2
+  echo "  this pass." >&2
   exit 1
 fi
 
-conventions_bytes="$(wc -c < "$CONVENTIONS_FILE" | tr -d '[:space:]')"
-code_standards_bytes="$(wc -c < "$CODE_STANDARDS_FILE" | tr -d '[:space:]')"
-
-total=$(( methodology_bytes + conventions_bytes + code_standards_bytes ))
+total="$managed_content_bytes"
 
 if [ "$total" -le "$THRESHOLD" ]; then
   headroom=$(( THRESHOLD - total ))
   echo "resident budget check: OK"
-  echo "  METHODOLOGY.md (built):        $methodology_bytes B"
-  echo "  content/rules/conventions.md:  $conventions_bytes B"
-  echo "  content/rules/code-standards.md: $code_standards_bytes B"
+  echo "  content/templates/claude-managed-content.md: $managed_content_bytes B"
   echo "  total:     $total B"
   echo "  threshold: $THRESHOLD B"
   echo "  headroom:  $headroom B"
@@ -114,14 +105,13 @@ fi
 
 overage=$(( total - THRESHOLD ))
 echo "resident budget check: OVER BUDGET" >&2
-echo "  METHODOLOGY.md (built):        $methodology_bytes B" >&2
-echo "  content/rules/conventions.md:  $conventions_bytes B" >&2
-echo "  content/rules/code-standards.md: $code_standards_bytes B" >&2
+echo "  content/templates/claude-managed-content.md: $managed_content_bytes B" >&2
 echo "  total:     $total B" >&2
 echo "  threshold: $THRESHOLD B" >&2
 echo "  overage:   $overage B" >&2
 echo "" >&2
-echo "The always-loaded methodology resident set grew past its budget." >&2
+echo "The always-loaded resident set (the pointer table in" >&2
+echo "content/templates/claude-managed-content.md) grew past its budget." >&2
 echo "Trim content or, if the growth is deliberate and justified, raise" >&2
 echo "THRESHOLD in scripts/check-resident-budget.sh in the same PR." >&2
 exit 1
