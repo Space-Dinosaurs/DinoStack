@@ -504,6 +504,13 @@
         <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent adversarial review, per-change risk gates, worktree isolation, enforced quality gates</span></div>
       </div>
 
+      <div class="card">
+        <h3>Muse Code <span style="font-weight:400;color:var(--text-muted);font-size:15px;">(Meta)</span></h3>
+        <p class="identity">Proprietary terminal coding agent co-trained with its model (Muse Spark 1.2); persistent background agents and a replay-exact event log</p>
+        <div class="row"><span class="label">Best at</span><span class="val">Long autonomous runs - crash-resume durability, cheapest tokens (Contributor tier), zero-config install</span></div>
+        <div class="row win"><span class="label">Where DinoStack wins</span><span class="val">Independent adversarial review, risk-gated delegation, model/harness independence, committed cross-session methodology</span></div>
+      </div>
+
     </div>
   </div>
 </section>
@@ -528,6 +535,7 @@
             <th scope="col">Letta</th>
             <th scope="col">MetaHarness</th>
             <th scope="col">BMad Method</th>
+            <th scope="col">Muse Code</th>
           </tr>
         </thead>
         <tbody>
@@ -544,6 +552,7 @@
             <td>Stateful runtime: primary + sleep-time agent (two-agent memory design); subagents in Letta Code</td>
             <td>Factory CLI/Studio; generated harness can include agents/skills, but no runtime orchestrator</td>
             <td>Multi-agent: named personas (Analyst, PM, Architect, Dev, UX) hand off via docs, story-by-story</td>
+            <td>Lead agent + 4 persistent background observers (memory, skill, goal, verification); write-capable subagent fan-out, one level deep only</td>
           </tr>
           <tr>
             <th scope="row">Review stance</th>
@@ -558,6 +567,7 @@
             <td>Not addressed - runtime layer, no per-output review</td>
             <td>Governance policy artifact; no independent adversarial reviewer</td>
             <td>Dev agent runs its own code-review workflow + human; Test Architect module is test strategy, not adversarial diff review; no independent reviewer</td>
+            <td>No independent per-change reviewer; <code>/grilling</code> interviews the plan pre-execution; verification observer is advisory and off by default</td>
           </tr>
           <tr>
             <th scope="row">Substrate</th>
@@ -572,6 +582,7 @@
             <td>Runnable software: open-source server, SQL/Postgres persistence, REST API + SDKs</td>
             <td>npm package + CLI + MCP server + vector memory backend (<code>ruvector</code>)</td>
             <td>Markdown + folders (<code>_bmad/</code> skills, <code>_bmad-output/</code> artifacts), thin Node/Python CLI</td>
+            <td>Proprietary CLI + co-trained closed model (Muse Spark 1.2); not open source</td>
           </tr>
           <tr>
             <th scope="row">Infrastructure weight</th>
@@ -586,6 +597,7 @@
             <td>Heavy: stateful server + database (hosted cloud option)</td>
             <td>Medium-to-heavy (generated harnesses include server/DB components)</td>
             <td>Light (npx install; skills + markdown executed by the IDE agent)</td>
+            <td>Single binary, one curl install; runtime owns worktrees, event log, OS sandbox</td>
           </tr>
           <tr>
             <th scope="row">Human-in-loop assumption</th>
@@ -600,6 +612,7 @@
             <td>Agent self-manages memory; human is the end user it serves and remembers</td>
             <td>Operator configures and publishes harnesses; runtime use is host-dependent</td>
             <td>Human drives each phase and story; reviews artifacts and code at handoffs</td>
+            <td>Staged per-command approvals; <code>/plan</code> gates on approval; multi-hour autonomous runs are the design target</td>
           </tr>
           <tr>
             <th scope="row">Core conviction</th>
@@ -614,6 +627,7 @@
             <td>Memory is the missing layer; agents must remember, learn, and self-improve across sessions</td>
             <td>The harness is the product; model is replaceable</td>
             <td>Specs (PRD, architecture, self-contained story files) are the durable source of truth; eliminate context loss</td>
+            <td>Durability is the product - replay-exact event log, crash resume, exportable audit trace</td>
           </tr>
         </tbody>
       </table>
@@ -641,6 +655,7 @@
             <th scope="col">Letta</th>
             <th scope="col">MetaHarness</th>
             <th scope="col">BMad Method</th>
+            <th scope="col">Muse Code</th>
           </tr>
         </thead>
         <tbody>
@@ -657,6 +672,7 @@
             <td>Not addressed - no per-output review at the runtime layer</td>
             <td>Low at runtime (policy file, no reviewer)</td>
             <td>Dev-runs-own-code-review + human; no independent machine reviewer of the diff</td>
+            <td>Low - no adversarial review of diffs; plan-stage interview only</td>
           </tr>
           <tr>
             <th scope="row">Token cost</th>
@@ -671,6 +687,7 @@
             <td>Memory-optimized: paged context + sleep-time compute shift reasoning off the user-facing path</td>
             <td>Not addressed</td>
             <td>High: ~31.7k tokens per workflow run; $800-2k/mo per dev on frontier models (V6 web bundles target this)</td>
+            <td>Lowest in field on Contributor tier ($0.10/M in, $0.20/M out - Meta trains on your data); Standard tier $1.25/M in, $4.25/M out</td>
           </tr>
           <tr>
             <th scope="row">Speed / latency</th>
@@ -685,6 +702,7 @@
             <td>Latency-optimized: sleep-time compute decouples memory reorganization from user-facing turns</td>
             <td>Not addressed (build-time tool, not runtime orchestrator)</td>
             <td>Slower: front-loaded PRD + architecture + stories before implementation; Quick Flow shortens it</td>
+            <td>Warm session-long background agents avoid per-task re-exploration (vendor claim, unbenchmarked)</td>
           </tr>
           <tr>
             <th scope="row">Parallelism</th>
@@ -699,6 +717,7 @@
             <td>Concurrent stateful agents; shared memory blocks across agents; subagents in Letta Code</td>
             <td>Not addressed</td>
             <td>Limited: story-by-story in fresh chats; sequential by design</td>
+            <td>Native - parallel subagents at ~cores-2 with queueing (Meta's own docs conflict on clamp bounds)</td>
           </tr>
           <tr>
             <th scope="row">Setup overhead</th>
@@ -713,6 +732,7 @@
             <td>Moderate: pip/npm install or hosted Cloud; self-hosting a stateful server is real infra</td>
             <td>Low: <code>npx metaharness</code></td>
             <td>Low to install (<code>npx bmad-method install</code>); steep method learning curve (~2 months cited)</td>
+            <td>Near zero - one curl + browser auth</td>
           </tr>
           <tr>
             <th scope="row">Portability across harnesses</th>
@@ -727,6 +747,7 @@
             <td>Model-agnostic across LLM providers; is its own runtime, not a multi-harness methodology</td>
             <td>Strong: generates adapters for Claude Code, Codex, pi.dev, Hermes, OpenClaw, RVM</td>
             <td>Claude Code, Cursor, Codex CLI, Copilot, Windsurf; V6 adaptive skills target Claude/Codex/Kimi/OpenCode</td>
+            <td>None - Meta harness + Muse Spark only; early reports say the model underperforms outside its own harness</td>
           </tr>
           <tr>
             <th scope="row">Determinism / resumability</th>
@@ -741,6 +762,7 @@
             <td>Persisted agent state is the product: agents resume statefully across sessions by default</td>
             <td>Not addressed</td>
             <td>Sprint tracking (<code>sprint-status.yaml</code>) + per-story story files; fresh chat per story is the resume unit</td>
+            <td>Strongest in field - intent-before-effect log, deterministic export, resume inspects real state</td>
           </tr>
         </tbody>
       </table>
@@ -773,6 +795,7 @@
             <th scope="col">Letta</th>
             <th scope="col">MetaHarness</th>
             <th scope="col">BMad Method</th>
+            <th scope="col">Muse Code</th>
           </tr>
         </thead>
         <tbody>
@@ -789,6 +812,7 @@
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(primary + sleep-time agent; subagents in Letta Code - runtime, not build-time orchestrator)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(factory, not orchestrator)</span></span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(named personas, doc-based handoff - but sequential, human-routed)</span></span></td>
+            <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(lead + subagents + observers)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Risk classification</th>
@@ -803,6 +827,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(not addressed at the runtime layer)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(scale-adaptive planning tracks by project size, not per-change risk gating)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(staged approvals, no published risk tiers)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Independent Skeptic review</th>
@@ -817,6 +842,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no independent reviewer of agent output)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(Dev's own code-review + human; no independent adversarial reviewer)</span></span></td>
+            <td><span class="pill dash"><span class="dot"></span>No <span class="note">(<code>/grilling</code> is a prompting mode; verifier advisory, off by default)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Planning artifacts</th>
@@ -831,6 +857,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(not a planning methodology)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(PRD, architecture doc, epics/stories, sprint tracking - richest in the set)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>/plan</code> approval-gated; <code>/grill-with-docs</code> writes settled decisions into project docs)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Intent layer / memory</th>
@@ -845,6 +872,7 @@
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(runtime, model-managed: core/recall/archival tiers, self-editing blocks, sleep-time consolidation, semantic search)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(scoped vector memory namespace, no human-auditable intent layer)</span></span></td>
             <td><span class="pill check"><span class="dot"></span>Yes <span class="note">(PRD/architecture/story files/decision-log as durable spec; sprint-status.yaml tracking - but no auto-consolidated learnings loop)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(cross-session memory advertised; backend undocumented)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Worktree isolation</th>
@@ -859,6 +887,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(not a build-time coding orchestrator; Letta Code uses git-tracked MemFS for memory, a different concern)</span></span></td>
             <td><span class="pill dash"><span class="dot"></span>No</span></td>
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(fresh-chat-per-story for context hygiene, not git worktree isolation)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(first-class but opt-in via <code>--subagent-worktree-isolation</code>; silently no-ops outside a git repo)</span></span></td>
           </tr>
           <tr>
             <th scope="row">Quality gates</th>
@@ -873,6 +902,7 @@
             <td><span class="pill dash"><span class="dot"></span>No <span class="note">(no lint/typecheck/test gate at the runtime layer)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>harness validate</code> for package; no lint/typecheck/test for generated code)</span></span></td>
             <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(code-review workflow + Test Architect test strategy; no enforced lint/typecheck/test gate)</span></span></td>
+            <td><span class="pill partial"><span class="dot"></span>Partial <span class="note">(<code>/goal</code> completion audit can require a named test oracle; no mandated lint/type/test gate)</span></span></td>
           </tr>
         </tbody>
       </table>
@@ -914,6 +944,9 @@
 
       <h3>BMad Method (Brian Madison)</h3>
       <p>BMad Method is the closest structural peer to DinoStack in this whole set: both are multi-agent, spec-driven, markdown-substrate methodologies with named specialist roles that hand off through documents, both run cross-harness on a thin code shell over markdown, and both reject single-agent vibe coding on the same thesis (specs are the durable source of truth, scoped context windows beat one agent holding everything). They diverge on two decisive axes. <span class="win">DinoStack wins</span> on the correctness axis: BMad's review is the Dev agent (Amelia) running its own <code>bmad-code-review</code> workflow plus the human, its Test Architect module is test strategy rather than adversarial diff sign-off, and there is no fresh reviewer that never saw the implementer's reasoning; BMad's scale-adaptive tracks (Quick Flow / BMad Method / Enterprise) adapt planning depth to project size, not review intensity to per-change risk; and it uses fresh-chat-per-story for context hygiene rather than git worktree isolation, with no enforced lint/typecheck/test gate. BMad legitimately wins on the product-front-load axis. One of its wins - a project roadmap layer (PRD -&gt; epics -&gt; stories -&gt; sprint-status.yaml) - is on DinoStack's own known-gaps list, though DinoStack treats that roadmap as a deliberate non-goal. Its other front-load win, agent-facilitated product discovery (a Phase 1 Analysis stage with Analyst/PM/UX personas, brainstorming, market research, and PRFAQ), is a scope difference rather than a listed gap: DinoStack has first-class operator-owned vision/requirements product-intent docs but no agent that facilitates discovery. BMad adds maturity and breadth DinoStack does not have (~49k stars, 36 releases, expansion modules for game dev and creative work). The cleanest framing: BMad is what DinoStack's spec discipline looks like when you bolt on full agile-PM ceremony and product discovery but do not make the reviewer independent or gate on per-change risk. They compose - BMad's planning phase feeds DinoStack's gated implementation - but BMad pays for its ceremony in tokens (~$800-2k/mo per dev) and a ~2-month learning curve DinoStack does not impose.</p>
+
+      <h3>Muse Code (Meta)</h3>
+      <p>Muse Code (Meta, beta Aug 5 2026) is a terminal and CI coding agent co-trained with Muse Spark 1.2 - the only entry here where model and harness were built for each other. Its differentiator is durability: an append-only event log records intent before every effect, making multi-hour runs replay-exact, exportable, and resumable after a crash. Subagent fan-out is worktree-isolated (<code>.muse/worktrees/</code>, opt-in, one level deep, ~cores-2 concurrency) and four persistent background observers keep memory, skills, and goals warm across the session; Meta also advertises cross-session memory, with the backend undocumented. Review is where it is thinnest: <code>/grilling</code> interrogates plans pre-execution and a verification observer exists but ships off by default - there is no independent reviewer of diffs, no risk classification, and no quality-gate mandate, and <span class="win">DinoStack wins</span> on all three. It legitimately wins on durability, warm-start latency, onboarding friction, and price (a data-sharing Contributor tier at $0.10/$0.20 per M tokens); the cost is total lock-in to a closed model that early users report degrades outside Meta's harness. Like lazy and Letta, it is a runtime/product rather than a methodology - it composes with, rather than substitutes for, DinoStack's governance layer.</p>
 
     </div>
   </div>
@@ -963,6 +996,11 @@
       <li><span class="src-title">Letta (formerly MemGPT)</span> <span class="desc">- a stateful-agent runtime + memory infrastructure (Packer/Wooders, UC Berkeley)</span></li>
       <li><span class="src-title">MetaHarness</span> <span class="desc">- ruvnet, a build-time factory for branded agent harnesses</span></li>
       <li><span class="src-title">BMad Method</span> <span class="desc">- Brian Madison, a multi-agent spec-driven agile development methodology</span></li>
+      <li><span class="src-title">Introducing Muse Code and Muse Spark 1.2</span> <span class="desc">- Meta AI Research launch post</span></li>
+      <li><span class="src-title">Meet Muse Spark 1.2 and Muse Code</span> <span class="desc">- Meta AI Developers blog</span></li>
+      <li><span class="src-title">Inside Muse Code: Subagent Fan-Out, Skills, Event Logs</span> <span class="desc">- Digital Applied</span></li>
+      <li><span class="src-title">Muse Code and Muse Spark 1.2</span> <span class="desc">- Hacker News launch thread</span></li>
+      <li><span class="src-title">Meta launches Muse Code</span> <span class="desc">- TechCrunch</span></li>
       <li><span class="src-title">DinoStack self-audit against the 10 pillars</span> <span class="desc">- supporting context, not a head-to-head</span></li>
     </ul>
   </div>
