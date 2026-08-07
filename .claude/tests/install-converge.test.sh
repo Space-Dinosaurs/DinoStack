@@ -15,7 +15,9 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~10 s wall time (runs install.sh multiple times with fake HOME).
+# Performance: ~30 s wall time (12 install.sh invocations after this change,
+#              up from 11; each runs two full adapter builds against the
+#              real checkout).
 #
 # Regression coverage:
 #   - Change 1: stale "ours" symlink (target under .../DinoStack/...) is
@@ -24,6 +26,15 @@
 #   - Change 1: a real file at dst is left untouched (skip).
 #   - Change 1: a symlink pointing outside any methodology checkout is skipped.
 #   - Change 2: --dry-run makes no filesystem changes.
+#   - Change 2 (extended, DS-144): --dry-run leaves an existing CLAUDE.md
+#     managed block byte-identical (case (e)), and creates no CLAUDE.md at
+#     all when one never existed (case (e2)).
+#   - Case (a) positive control (DS-144): a non-dry-run install still writes
+#     a complete CLAUDE.md managed block (both markers present), guarding
+#     against an over-gating fix that deletes the write entirely instead of
+#     wrapping it. Also asserts SKILL_LINK_OK's warning does NOT fire when
+#     the skill symlink is freshly established; case (e2) asserts it DOES
+#     fire when the skill link was never established under a fresh dry-run.
 #   - Change 3: clobber guard - valid DIFFERENT repo_dir is NOT overwritten;
 #     absent/invalid repo_dir IS written.
 #   - Case (g): legacy path-scoped Write(<cfg>/**) / Write(<cfg>/projects/**)
@@ -144,6 +155,25 @@ else
   _fail "case (a): install output did not include '~ $FIXTURE_NAME' indicator"
 fi
 
+# Positive control (DS-144): a non-dry-run install still writes a complete
+# CLAUDE.md managed block, guarding against an over-gating fix that deletes
+# the write entirely instead of wrapping it. Also asserts SKILL_LINK_OK's
+# warning does NOT fire when the skill symlink freshly links (this fixture's
+# only pre-populated dir is .claude/agents, so $SKILLS_DST is absent and the
+# real `ln -s` runs).
+if [[ -f "$FAKE_HOME/.claude/CLAUDE.md" ]] \
+   && grep -Fq "BEGIN managed-by-agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md" \
+   && grep -Fq "END managed-by-agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md"; then
+  _pass "case (a): non-dry-run install still writes CLAUDE.md with both markers"
+else
+  _fail "case (a): non-dry-run install did not write a complete managed CLAUDE.md block"
+fi
+if grep -Fq "WARNING: the agentic-engineering skill is not linked to this checkout" "$FAKE_HOME/.install_out"; then
+  _fail "case (a): SKILL_LINK_OK warning fired even though the skill was freshly linked"
+else
+  _pass "case (a): no SKILL_LINK_OK warning when the skill links successfully"
+fi
+
 rm -rf "$FAKE_HOME"
 
 # ---------------------------------------------------------------------------
@@ -239,7 +269,28 @@ mkdir -p "$FAKE_HOME/.claude/agents"
 ln -s "/nonexistent/DinoStack/old/$FIXTURE_NAME" "$FAKE_HOME/.claude/agents/$FIXTURE_NAME"
 OLD_TARGET="$(readlink "$FAKE_HOME/.claude/agents/$FIXTURE_NAME")"
 
+# Also exercises DS-144: --dry-run must leave an existing CLAUDE.md managed
+# block byte-identical, and must print the CLAUDE.md dry-run intent line.
+mkdir -p "$FAKE_HOME/.claude"
+cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
+<!-- BEGIN managed-by-agentic-engineering -->
+placeholder managed content
+<!-- END managed-by-agentic-engineering -->
+EOF
+before_sha="$(shasum -a 256 "$FAKE_HOME/.claude/CLAUDE.md" | awk '{print $1}')"
+if [[ -z "$before_sha" ]]; then
+  _fail "case (e): could not compute before_sha (fixture write failed?)"
+fi
+
 _run_install "$FAKE_HOME" --dry-run || true
+# NOTE (DS-144, A2): a scrubbed-PATH empirical pre-check
+# (`env PATH=/usr/bin:/bin bash .claude/install.sh --mode=opt-out
+# --profile=default --dry-run < /dev/null; echo "rc=$?"`) returned rc=1
+# (ModuleNotFoundError: yaml, reached via the initial adapter build phase
+# which still runs under --dry-run). Per the plan's A2 addendum, any doubt
+# means dropping the rc assertion from BOTH case (e) and case (e2) - the
+# grep assertions below already satisfy the anti-vacuous-green requirement
+# on their own.
 
 # Symlink must NOT have been changed.
 if [[ -L "$FAKE_HOME/.claude/agents/$FIXTURE_NAME" ]]; then
@@ -267,6 +318,61 @@ else
   _fail "case (e): --dry-run created ~/.agentic/agentic-engineering-config.json (must not mutate config)"
 fi
 
+# DS-144: --dry-run must leave the existing CLAUDE.md managed block
+# byte-identical. Skip the comparison entirely when before_sha is empty
+# (A6) - otherwise an empty-to-empty match would emit a spurious PASS for
+# a fixture-write failure the earlier _fail already flagged.
+if [[ -n "$before_sha" ]]; then
+  after_sha="$(shasum -a 256 "$FAKE_HOME/.claude/CLAUDE.md" | awk '{print $1}')"
+  if [[ "$before_sha" == "$after_sha" ]]; then
+    _pass "case (e): --dry-run leaves CLAUDE.md byte-identical"
+  else
+    _fail "case (e): --dry-run modified CLAUDE.md"
+  fi
+fi
+if grep -Fq "[dry-run] would update managed-by-agentic-engineering" "$FAKE_HOME/.install_out"; then
+  _pass "case (e): dry-run output names the CLAUDE.md intent"
+else
+  _fail "case (e): dry-run output missing CLAUDE.md intent line"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (e2): --dry-run on a machine that has never had ~/.claude/CLAUDE.md
+#            creates none. This is the literal "fresh machine" scenario
+#            DS-144's ticket describes.
+# ---------------------------------------------------------------------------
+FAKE_HOME="$(mktemp -d)"
+_run_install "$FAKE_HOME" --dry-run || true
+# See case (e)'s note re: the rc assertion - DROPPED here per the same
+# empirically-determined A2 decision (scrubbed-PATH pre-check returned
+# rc=1; any doubt means drop from both cases together).
+if grep -Fq "[dry-run] would update managed-by-agentic-engineering" "$FAKE_HOME/.install_out"; then
+  _pass "case (e2): dry-run output names the CLAUDE.md intent (proves the run reached the CLAUDE.md phase)"
+else
+  _fail "case (e2): dry-run output missing CLAUDE.md intent line (absence assertion below is unanchored)"
+fi
+if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
+  _pass "case (e2): --dry-run creates no CLAUDE.md when absent"
+else
+  _fail "case (e2): --dry-run created CLAUDE.md on a fresh machine"
+fi
+if grep -Fq "WARNING: the agentic-engineering skill is not linked to this checkout" "$FAKE_HOME/.install_out"; then
+  _pass "case (e2): SKILL_LINK_OK warning fires when the skill link was never established under dry-run"
+else
+  _fail "case (e2): SKILL_LINK_OK warning did not fire on fresh dry-run"
+fi
+# The warning is emitted at two call sites (the skill-symlink block and the
+# Summary block, per addendum A5) - a plain at-least-once grep above matches
+# the first occurrence and would stay green even if the second (Summary)
+# emission drifted or was deleted outright. Pin the count explicitly.
+_e2_warning_count="$(grep -Fc "WARNING: the agentic-engineering skill is not linked to this checkout" "$FAKE_HOME/.install_out")"
+if [[ "$_e2_warning_count" -eq 2 ]]; then
+  _pass "case (e2): SKILL_LINK_OK warning fires exactly twice (skill-symlink block + Summary block)"
+else
+  _fail "case (e2): SKILL_LINK_OK warning fired $_e2_warning_count time(s), expected exactly 2"
+fi
 rm -rf "$FAKE_HOME"
 
 # ---------------------------------------------------------------------------
