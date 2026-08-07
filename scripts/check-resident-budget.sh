@@ -16,7 +16,15 @@
 #          script measures that shipped body only, not the whole file: a
 #          measurement that included the manifest comment could pass with
 #          the entire table deleted, because the comment alone is larger
-#          than the table.
+#          than the table. If the manifest comment is absent (removed or
+#          reformatted), the whole file is treated as the body rather than
+#          failing on an "empty" match - the split is best-effort, not a
+#          hard requirement that the manifest exist.
+#
+#          A byte-count bound alone cannot detect content loss disguised as
+#          same-size filler, so this script also asserts a stable,
+#          content-bearing phrase from the table itself
+#          (STABLE_CONTENT_PHRASE below) is present in the measured body.
 #
 #          As of this unit, .claude/install.sh still emits three separate
 #          @-import lines (METHODOLOGY.md, content/rules/conventions.md,
@@ -39,9 +47,10 @@
 #          context.
 #
 # Public API: bash scripts/check-resident-budget.sh
-#             Exits 0 when body bytes <= THRESHOLD. Exits 1 when over
-#             budget, when the input file is missing, or when the
-#             plausibility floor fires (see Failure modes below).
+#             Exits 0 when body bytes <= THRESHOLD and the content
+#             assertion passes. Exits 1 when over budget, when the input
+#             file is missing, when the plausibility floor fires, or when
+#             the content assertion fails (see Failure modes below).
 #
 # Upstream deps: content/templates/claude-managed-content.md.
 #
@@ -51,9 +60,13 @@
 #                the numbers. Missing input file -> exit 1. Shipped body
 #                emptied or implausibly small (< MIN_PLAUSIBLE_BYTES) -> exit
 #                1 with a message that explicitly distinguishes a
-#                vanished/gutted body from a budget overage - this is what
-#                catches the "delete the table, keep the manifest comment"
+#                vanished/gutted body from a budget overage - this catches
+#                the "delete the table, keep the manifest comment"
 #                regression that a whole-file measurement would miss.
+#                Content assertion failure (STABLE_CONTENT_PHRASE absent
+#                from the body) -> exit 1 with a distinct "table content
+#                missing" message - this catches same-size content
+#                replacement that a byte-count bound alone cannot see.
 #                Read-only; no side effects on the repo.
 #
 # Compatible with both bash and zsh invocation of the containing shell; CI
@@ -90,6 +103,13 @@ THRESHOLD=600
 # "manifest survives, payload gone."
 MIN_PLAUSIBLE_BYTES=100
 
+# Content assertion: a byte-count bound cannot tell real table content
+# apart from same-size filler. This phrase is the skill-invocation cell of
+# the Skill Loading table itself - content-bearing, not incidental
+# formatting (not "##", not a table pipe) - and must survive any edit that
+# keeps the table doing its job.
+STABLE_CONTENT_PHRASE='/agentic-engineering'
+
 MANAGED_CONTENT_FILE="$REPO_DIR/content/templates/claude-managed-content.md"
 
 if [ ! -f "$MANAGED_CONTENT_FILE" ]; then
@@ -98,22 +118,48 @@ if [ ! -f "$MANAGED_CONTENT_FILE" ]; then
 fi
 
 # Measure only the shipped body - everything after the manifest comment's
-# closing "-->". Split the file on the first occurrence of "-->" via awk's
-# record separator and take the second record; this is a plain awk/wc
-# pipeline so it behaves identically under bash and zsh.
-body_bytes="$(awk 'BEGIN{RS="-->"} NR==2{printf "%s", $0; exit}' "$MANAGED_CONTENT_FILE" | wc -c | tr -d '[:space:]')"
+# closing "-->", when a manifest comment is present. Split on the first
+# occurrence of "-->" via awk's record separator and take the second
+# record; write it to a temp file rather than a shell variable so trailing
+# newlines are preserved exactly (a $(...) capture would strip them and
+# shift the byte count). If no "-->" is found, treat the whole file as the
+# body rather than failing on an empty match - the manifest comment is a
+# convention, not a structural requirement of the shipped content.
+body_file="$(mktemp)"
+trap 'rm -f "$body_file"' EXIT
+
+if grep -q -- '-->' "$MANAGED_CONTENT_FILE"; then
+  awk 'BEGIN{RS="-->"} NR==2{printf "%s", $0; exit}' "$MANAGED_CONTENT_FILE" > "$body_file"
+else
+  cat "$MANAGED_CONTENT_FILE" > "$body_file"
+fi
+
+body_bytes="$(wc -c < "$body_file" | tr -d '[:space:]')"
 
 if [ "$body_bytes" -lt "$MIN_PLAUSIBLE_BYTES" ]; then
   echo "check-resident-budget.sh: FILE FAILURE, not a budget problem." >&2
   echo "  The shipped body of" >&2
   echo "  content/templates/claude-managed-content.md (everything after the" >&2
-  echo "  manifest comment's closing '-->') is only $body_bytes B, below" >&2
+  echo "  manifest comment's closing '-->', or the whole file if no" >&2
+  echo "  manifest comment is present) is only $body_bytes B, below" >&2
   echo "  the $MIN_PLAUSIBLE_BYTES B plausibility floor. This means the" >&2
-  echo "  table was emptied, truncated, or the closing '-->' marker is" >&2
-  echo "  missing/misplaced - it does NOT mean the resident set is under" >&2
-  echo "  budget. Investigate content/templates/claude-managed-content.md" >&2
-  echo "  directly; do not raise THRESHOLD or lower this floor to make" >&2
-  echo "  this pass." >&2
+  echo "  table was emptied or truncated - it does NOT mean the resident" >&2
+  echo "  set is under budget. Investigate" >&2
+  echo "  content/templates/claude-managed-content.md directly; do not" >&2
+  echo "  raise THRESHOLD or lower this floor to make this pass." >&2
+  exit 1
+fi
+
+if ! grep -qF -- "$STABLE_CONTENT_PHRASE" "$body_file"; then
+  echo "check-resident-budget.sh: TABLE CONTENT MISSING, not a budget problem." >&2
+  echo "  The shipped body of" >&2
+  echo "  content/templates/claude-managed-content.md is $body_bytes B (within" >&2
+  echo "  bounds) but does not contain the expected phrase" >&2
+  echo "  '$STABLE_CONTENT_PHRASE'. A byte-count bound alone cannot tell real" >&2
+  echo "  table content apart from same-size filler - this means the Skill" >&2
+  echo "  Loading table's content was replaced or corrupted, not just" >&2
+  echo "  resized. Investigate content/templates/claude-managed-content.md" >&2
+  echo "  directly." >&2
   exit 1
 fi
 
