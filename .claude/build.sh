@@ -10,6 +10,10 @@
 # Failure modes: exits non-zero on missing inputs, broken hardlinks, or assembly script failure.
 # Side-effects: removes stale .claude/commands/*.md files whose basename no longer matches any
 #               content/commands/*.md source (e.g. after a command rename or deletion upstream).
+#               Also embeds METHODOLOGY.md and content/rules/*.md (except module-manifest.md)
+#               verbatim into the generated SKILL.md body under an "Embedded Resident Content"
+#               section, so the full methodology loads on skill invocation without relying on
+#               ~/.claude/CLAUDE.md's @-import lines.
 # Performance: standard.
 
 set -euo pipefail
@@ -52,6 +56,35 @@ fi
   # Strip leading HTML comment block (manifest header) if present, then emit body.
   perl -0pe 's/\A<!--.*?-->\n\n?//s' "$CONTENT/SKILL.md"
 } > "$SKILL_DST/SKILL.md"
+
+# Embed resident content directly into SKILL.md so it loads on skill invocation
+# instead of via the three @-import lines in ~/.claude/CLAUDE.md. This lets the
+# imports be dropped from ~/.claude/CLAUDE.md (a separate unit) without losing
+# always-on access to METHODOLOGY.md and the two rules files - Claude Code injects
+# the full SKILL.md body verbatim when the skill is invoked.
+{
+  echo ""
+  echo "## Embedded Resident Content"
+  echo ""
+  echo "### METHODOLOGY.md"
+  echo ""
+  cat "$SKILL_DST/METHODOLOGY.md"
+  echo ""
+  for f in "$CONTENT/rules/"*.md; do
+    name=$(basename "$f")
+    [[ "$name" == "module-manifest.md" ]] && continue
+    echo "### rules/${name}"
+    echo ""
+    cat "$f"
+    echo ""
+  done
+  echo ""
+  echo "## Note for this Claude Code build"
+  echo ""
+  echo "The rules and methodology files named above under 'Rules (read these files)'"
+  echo "(METHODOLOGY.md, rules/code-standards.md, rules/conventions.md) are embedded"
+  echo "verbatim above under 'Embedded Resident Content' - they are already in context now that this skill has been invoked. Do not issue a separate Read for them."
+} >> "$SKILL_DST/SKILL.md"
 
 # Commands: prepend prerequisite blockquote. If an adapter-private frontmatter
 # sidecar exists at .claude/commands.frontmatter/<name>.yaml, prepend it as a
