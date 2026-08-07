@@ -13,21 +13,51 @@
 #             Exits 0 when FLOOR <= measured bytes <= CEILING. Exits 1 when
 #             either bound is crossed, or when a required input is missing.
 #
-# Upstream deps: .claude/build.sh (rebuilds SKILL.md from content/ sources).
+# Upstream deps: .claude/build.sh (rebuilds SKILL.md from content/ sources,
+#                see its own side-effects below); content/sections/[0-9][0-9]-*.md
+#                (section-heading completeness check); content/rules/conventions.md
+#                (tail-phrase completeness check).
 #
 # Downstream consumers: intended for a CI job wired by a later DS-143 unit
 #                        (not this one - see the ticket note below).
 #
-# Failure modes: under FLOOR -> exit 1, most likely means the embed block in
+# Failure modes: embed incomplete (a whole section or rules file silently
+#                dropped from assembly, landing inside the FLOOR..CEILING
+#                dead zone where the byte band alone can't see it) -> exit 1
+#                with a distinct "embed incomplete" message, separate from
+#                and checked before the bound violations below. Under FLOOR
+#                -> exit 1, most likely means the embed block in
 #                .claude/build.sh regressed to a pointer-only SKILL.md or the
 #                build truncated. Over CEILING -> exit 1, means the embedded
 #                methodology grew past its safety boundary (see CEILING
 #                rationale below) and needs compression or a deliberately
 #                re-verified higher ceiling. Missing .claude/build.sh -> exit
-#                1. Read-only against repo sources; writes only to the
-#                generated .claude/skills/agentic-engineering/SKILL.md via
-#                the build it invokes (the same file .claude/build.sh always
-#                regenerates).
+#                1. A failing `.claude/build.sh` propagates the build's own
+#                exit code via `set -e` rather than this script's own exit 1
+#                - e.g. a build that dies with exit 7 makes this script exit
+#                7, not 1; this is correct and CI-safe (any nonzero fails the
+#                job) but is a distinct, undocumented-elsewhere code path.
+#                NOT read-only: this script invokes a full adapter build
+#                (`bash .claude/build.sh`), which writes
+#                .claude/skills/agentic-engineering/{SKILL.md,METHODOLOGY.md},
+#                re-links its references/, project-scaffolding.yml, and
+#                templates/.agentic/* hardlinks, rewrites every
+#                .claude/commands/*.md, and DELETES any .claude/commands/*.md
+#                whose content/commands/ source no longer exists. A
+#                contributor running this "budget check" on a branch that
+#                renamed or removed a command will see those files deleted
+#                from their tree (git-recoverable, and the same prune
+#                .claude/build.sh always performs - not a novel side effect
+#                of this script, but a real one worth knowing about before
+#                running it).
+#
+# Performance: not a `stat` - runs a full adapter build (`bash
+#              .claude/build.sh`, which itself invokes
+#              scripts/build-methodology.sh) plus a fixed-size loop over the
+#              12 content/sections/*.md files, on every invocation. Expect
+#              build-script latency (sub-second on a warm checkout), not
+#              filesystem-metadata latency; this is surprising for something
+#              named check-*-budget.sh and worth calling out explicitly.
 #
 # Note: SKILL.md is measured by running .claude/build.sh fresh, NOT by
 #       statting whatever happens to be on disk - a PR that edits content/
@@ -84,6 +114,57 @@ bash "$BUILD_SCRIPT" >/dev/null
 
 if [ ! -f "$SKILL_MD" ]; then
   echo "check-skill-embed-budget.sh: build did not produce $SKILL_MD" >&2
+  exit 1
+fi
+
+# Embed-completeness check (distinct from the FLOOR/CEILING bound check
+# below): a whole embedded file - one content/sections/*.md section, or the
+# content/rules/conventions.md tail - can go missing from assembly and still
+# land inside the FLOOR..CEILING byte band, where the two-sided bound check
+# alone cannot see it (verified: dropping content/sections/04-risk-
+# classification.md from assembly, or dropping content/rules/conventions.md
+# from the .claude/build.sh embed loop, both still land inside the band and
+# both must fail here instead). A single arbitrary head/tail phrase pair
+# cannot detect a dropped *middle* section, so this checks a phrase from
+# EVERY content/sections/*.md file, not just one - each section's own first
+# top-level heading, derived dynamically so a renamed or newly added section
+# is covered automatically without maintaining a hardcoded list here.
+SECTIONS_DIR="$REPO_DIR/content/sections"
+section_files="$(LC_ALL=C find "$SECTIONS_DIR" -maxdepth 1 -type f -name '[0-9][0-9]-*.md' | LC_ALL=C sort)"
+if [ -z "$section_files" ]; then
+  echo "check-skill-embed-budget.sh: no section files found in $SECTIONS_DIR" >&2
+  exit 1
+fi
+while IFS= read -r section_file; do
+  heading="$(grep -m1 '^## ' "$section_file" || true)"
+  if [ -z "$heading" ]; then
+    echo "check-skill-embed-budget.sh: embed incomplete" >&2
+    echo "  $section_file has no top-level '## ' heading to check against" >&2
+    exit 1
+  fi
+  if ! grep -qxF "$heading" "$SKILL_MD"; then
+    echo "check-skill-embed-budget.sh: embed incomplete" >&2
+    echo "  missing section heading from $(basename "$section_file"): $heading" >&2
+    echo "  this section is not present in the built SKILL.md - assembly" >&2
+    echo "  silently dropped a whole embedded file, which the FLOOR/CEILING" >&2
+    echo "  byte band alone cannot detect." >&2
+    exit 1
+  fi
+done <<< "$section_files"
+
+# Tail-phrase check: content/rules/conventions.md sorts last (alphabetically)
+# among the content/rules/*.md files .claude/build.sh embeds (module-
+# manifest.md is deliberately excluded from the embed), so a stable phrase
+# from its own last heading confirms the rules-file embed loop actually
+# reached and completed its last file - catching a whole rules file
+# silently dropped from the embed the same way the section-heading loop
+# above catches a dropped section.
+TAIL_PHRASE='## External Comment Discipline'
+if ! grep -qxF "$TAIL_PHRASE" "$SKILL_MD"; then
+  echo "check-skill-embed-budget.sh: embed incomplete" >&2
+  echo "  missing tail phrase from content/rules/conventions.md: $TAIL_PHRASE" >&2
+  echo "  this heading is not present in the built SKILL.md - the rules-file" >&2
+  echo "  embed loop in .claude/build.sh did not complete." >&2
   exit 1
 fi
 
