@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
 """
 Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* rename
-         (24 tools). Confirms (1) every bin/ds-<suffix> real content file is
-         present and executable; (2) every bin/agentic-<suffix> compat name
-         is a symlink whose PATH-installed alias resolves to the identical
-         real file as bin/ds-<suffix> (proven through a real os.symlink, not
-         an in-process path comparison alone); (3) a representative safe
-         subset of tools produce identical exit codes when invoked through a
-         real PATH symlink under the OLD name vs. the NEW name directly; and
-         (4) the four python bin/ds-* tools that load bin/_lib.py via
+         (25 tools: the original 24 plus bin/agentic-evidence, renamed to
+         bin/ds-evidence in a follow-up gap-close pass after a concurrent
+         session added it mid-rename). Confirms (1) every bin/ds-<suffix>
+         real content file is present and executable; (2) every
+         bin/agentic-<suffix> compat name is a symlink whose PATH-installed
+         alias resolves to the identical real file as bin/ds-<suffix>
+         (proven through a real os.symlink, not an in-process path
+         comparison alone); (3) a representative safe subset of tools
+         produce identical exit codes when invoked through a real PATH
+         symlink under the OLD name vs. the NEW name directly; (4) the four
+         python bin/ds-* tools that load bin/_lib.py via
          Path(__file__).resolve().parent (config, feedback, migrate,
          tracker) resolve it correctly when invoked through a real PATH
          symlink installed under their OLD agentic-* name (not just their
          new ds- name, which bin/tests/test_bin_symlink_resolution.py
-         already covers).
+         already covers); and (5) a COUNT-DRIVEN sweep - independent of the
+         SUFFIXES list below - that enumerates every real bin/ds-* file on
+         disk and asserts each has a working bin/agentic-* alias, so a
+         future added tool that is renamed without updating SUFFIXES (or
+         whose alias is simply missing) is still caught.
 
 Public API: python3 -m pytest bin/tests/test_ds_rename_regression.py -q
             Also directly executable: python3 bin/tests/test_ds_rename_regression.py
@@ -29,7 +36,7 @@ Downstream consumers: bin-tests CI job (pytest bin/tests/ -q picks up every
 Failure modes: any assertion failure prints/raises and is counted; the
                direct-execution __main__ path exits 1 if any check fails.
 
-Performance: < 15 s wall time (24 filesystem checks + ~15 subprocess spawns,
+Performance: < 15 s wall time (25 filesystem checks + ~16 subprocess spawns,
              all local, no network).
 """
 
@@ -43,23 +50,21 @@ from pathlib import Path
 
 REPO_BIN = Path(__file__).resolve().parent.parent
 
-# The 24 renamed tools (suffix only). Independently re-derived against
-# `ls bin/agentic-*` at review time per the spawn brief - bin/agentic-evidence
-# exists but is NOT one of the 24 (pre-existing tool, out of this program's
-# scope; flagged separately, not renamed).
+# The 25 renamed tools (suffix only): the original 24 plus "evidence",
+# renamed to bin/ds-evidence in a follow-up gap-close pass. Independently
+# re-derived against `ls bin/agentic-*` at review time.
 SUFFIXES = [
     "base-sync", "calibrate", "codex-dispatch", "codex-session-id", "config",
-    "configure", "cost", "disable", "doctor", "emit", "feedback", "help",
-    "identity", "memory", "migrate", "models", "parse-subagent-usage",
-    "resolve-worktree", "status", "team", "tracker", "update",
-    "wrap-acquire-lock", "wrap-release-lock",
+    "configure", "cost", "disable", "doctor", "emit", "evidence", "feedback",
+    "help", "identity", "memory", "migrate", "models",
+    "parse-subagent-usage", "resolve-worktree", "status", "team", "tracker",
+    "update", "wrap-acquire-lock", "wrap-release-lock",
 ]
 
-# The 4 real bin/_lib.py dependents (verified by grep against bin/ds-* at
-# authoring time: config, feedback, migrate, tracker). The spawn brief cited
-# "five tools" but an independent re-derivation (grep -l "_lib.py" across all
-# 24 bin/ds-* files plus bin/agentic-evidence) found exactly 4 - reported as
-# a discrepancy rather than silently trusting either count.
+# The 4 real bin/_lib.py dependents (verified by grep against all 25
+# bin/ds-* files: config, feedback, migrate, tracker). bin/ds-evidence is
+# explicitly self-contained (imports no sibling module, per its own module
+# manifest) and is NOT in this list.
 LIB_DEPENDENT_SUFFIXES = ["config", "feedback", "migrate", "tracker"]
 
 # Representative safe-invocation subset for the through-symlink behavioral
@@ -75,6 +80,7 @@ SAFE_INVOCATIONS = [
     ("calibrate", [], False),
     ("codex-dispatch", [], False),
     ("emit", [], False),
+    ("evidence", ["--help"], False),
     ("help", [], False),
     ("memory", ["--help"], False),
     ("models", ["--help"], False),
@@ -87,7 +93,7 @@ def _repo_file(suffix: str) -> Path:
     return REPO_BIN / f"ds-{suffix}"
 
 
-def test_all_24_ds_names_present_and_executable() -> None:
+def test_all_25_ds_names_present_and_executable() -> None:
     missing = []
     not_exec = []
     for suffix in SUFFIXES:
@@ -99,7 +105,43 @@ def test_all_24_ds_names_present_and_executable() -> None:
             not_exec.append(str(p))
     assert not missing, f"missing bin/ds-* files: {missing}"
     assert not not_exec, f"bin/ds-* files not executable: {not_exec}"
-    assert len(SUFFIXES) == 24, f"expected 24 renamed tools, list has {len(SUFFIXES)}"
+    assert len(SUFFIXES) == 25, f"expected 25 renamed tools, list has {len(SUFFIXES)}"
+
+
+def test_every_ds_star_file_on_disk_has_a_working_agentic_alias() -> None:
+    """Count-driven, list-independent: enumerate every real bin/ds-* file
+    actually on disk (not the hardcoded SUFFIXES list above) and assert each
+    has a bin/agentic-<suffix> symlink alias that resolves to it through a
+    real PATH-installed symlink. Catches the next tool added to bin/ds-*
+    whose compat alias is missing or whose SUFFIXES entry was forgotten -
+    exactly the class of gap that left bin/agentic-evidence un-renamed for
+    one review cycle in this program."""
+    ds_files = sorted(
+        p for p in REPO_BIN.iterdir()
+        if p.is_file() and not p.is_symlink() and p.name.startswith("ds-")
+    )
+    assert ds_files, "no bin/ds-* files found on disk - unexpected"
+
+    missing_alias = []
+    broken_alias = []
+    with tempfile.TemporaryDirectory() as tmp:
+        fake_local_bin = Path(tmp) / "local-bin"
+        fake_local_bin.mkdir()
+        for ds_file in ds_files:
+            suffix = ds_file.name[len("ds-"):]
+            alias_path = REPO_BIN / f"agentic-{suffix}"
+            if not alias_path.is_symlink():
+                missing_alias.append(alias_path.name)
+                continue
+            installed = fake_local_bin / f"agentic-{suffix}"
+            os.symlink(alias_path.resolve(), installed)
+            if installed.resolve() != ds_file.resolve():
+                broken_alias.append(
+                    f"agentic-{suffix} resolves to {installed.resolve()}, "
+                    f"expected {ds_file.resolve()}"
+                )
+    assert not missing_alias, f"bin/ds-* files with no bin/agentic-* alias: {missing_alias}"
+    assert not broken_alias, "aliases resolving to the wrong file:\n" + "\n".join(broken_alias)
 
 
 def test_all_agentic_names_resolve_to_matching_ds_file() -> None:
@@ -226,8 +268,9 @@ def test_lib_py_resolves_through_old_name_symlink_for_all_dependents() -> None:
 
 
 EXTRA_TESTS = [
-    test_all_24_ds_names_present_and_executable,
+    test_all_25_ds_names_present_and_executable,
     test_all_agentic_names_resolve_to_matching_ds_file,
+    test_every_ds_star_file_on_disk_has_a_working_agentic_alias,
     test_representative_tools_behave_identically_through_old_symlink,
     test_lib_py_resolves_through_old_name_symlink_for_all_dependents,
 ]
