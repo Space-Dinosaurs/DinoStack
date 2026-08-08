@@ -12,20 +12,26 @@ This system is designed to evolve. As AI tooling matures and teams discover bett
 
 ## Updating
 
-Run `agentic-update` from anywhere, no arguments.
+Run `ds-update` from anywhere, no arguments.
 
 | Path                | Command                          | When                                                                                                             |
 | ------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Shell (recommended) | `agentic-update`                 | Default; from any directory, no TTY                                                                              |
+| Shell (recommended) | `ds-update`                 | Default; from any directory, no TTY                                                                              |
 | In-session          | `/ds-update`                     | Inside Claude Code, any project                                                                                  |
 | TUI                 | `./update.sh`                    | Interactive adapter selection                                                                                    |
 | CI / scripts        | `git pull && ./install-all.sh`   | Non-interactive                                                                                                  |
-| Repair drift        | `agentic-doctor --fix`           | Fix broken symlinks/hooks (e.g. after moving the repo)                                                           |
-| Check cross-harness | `agentic-doctor --cross-harness` | Validate team.yml / role-models.yml, referenced harnesses, and model handles (add `--json` for machine output) |
+| Repair drift        | `ds-doctor --fix`           | Fix broken symlinks/hooks (e.g. after moving the repo)                                                           |
+| Check cross-harness | `ds-doctor --cross-harness` | Validate team.yml / role-models.yml, referenced harnesses, and model handles (add `--json` for machine output) |
 
 Bootstrap is guarded against creating a second clone - if an existing install is detected it aborts and prints the update-in-place command.
 
 Full details: [docs/updating.md](docs/updating.md).
+
+Every `ds-*` CLI (e.g. `ds-update`, `ds-doctor`, `ds-cost`) has a permanent
+`agentic-*` compat alias (e.g. `agentic-update`) - both names invoke the same
+binary and behave identically. `ds-*` is the current primary name; the
+`agentic-*` form is kept indefinitely for existing cron jobs and shell
+aliases.
 
 ## Getting started
 
@@ -206,7 +212,7 @@ The per-project marker only has effect in combination with the global activation
 - `storybook_enabled` - boolean, default `false`. Opt-in targeting of the Storybook iframe for `visual_conformance` and `accessibility` scenarios.
 - `motion_aware` - boolean, default `false`. Opt-in CDP reduced-motion checks per scenario; absent motion scenarios on UI-visible Elevated units become a Major finding.
 - `storybook_version` - enum (`6` | `7`), default `7`. Selects the Storybook URL format for `story_id` scenarios; set automatically by `/ds-init-project`.
-- `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `agentic-cost team` aggregation after pull.
+- `commit_telemetry` - boolean, default `true`. Commits the per-developer session log as a separate commit on the PR branch, enabling `ds-cost team` aggregation after pull.
 - `knowledge_commit_on_pr` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 11e commits any changed `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` onto the ticket's PR branch (checkout-free, via a temporary index plus `commit-tree`), so a session's durable knowledge ships with the work that produced it. Set to `false` as a kill switch: the phase pushes operator-authored markdown onto a branch whose checks have already passed, which re-runs CI at a point where no phase revisits a red result.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in out-of-session daemon that picks up deferred `/ds-wrap` jobs; tuned by the `deferred_wrap_*` related keys.
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; the shipped template and `/ds-init-project` set it). Stop hook that detects conductor abdication - asking permission for a non-destructive next step, announcing a surface-and-proceed default and then not acting on it, or a co-equal ballot in a prose `## Operator decisions` block - and injects a directive.
@@ -261,7 +267,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Multi-developer coordination - parallel sessions, branch and worktree hygiene
 - Regression test obligation - when a fix requires a regression test and what counts
 - Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
-- Cross-harness agent teams - `agentic-team` CLI, team.yml schema, cross-harness dispatch and collection
+- Cross-harness agent teams - `ds-team` CLI, team.yml schema, cross-harness dispatch and collection
 - Evidence-on-disk - spill/sketch/rehydrate protocol for large worker tool outputs
 
 **Agents** (18) - named specialist roles:
@@ -276,21 +282,21 @@ ds-config (interactive settings viewer/editor for methodology mode/profile/toggl
 
 ## Identity and Telemetry
 
-`agentic-cost` reports token and wall-time rollups per developer. For those rollups to be meaningful, each developer needs a registered handle so session logs are attributed correctly.
+`ds-cost` reports token and wall-time rollups per developer. For those rollups to be meaningful, each developer needs a registered handle so session logs are attributed correctly.
 
 ### Registering a handle (global)
 
 The quickest path derives your handle from your GitHub login:
 
 ```bash
-agentic-identity auto      # derives handle from `gh api user`, writes it provisional
-agentic-identity confirm   # strips the provisional flag and flushes buffered sessions
+ds-identity auto      # derives handle from `gh api user`, writes it provisional
+ds-identity confirm   # strips the provisional flag and flushes buffered sessions
 ```
 
 Or set a handle manually:
 
 ```bash
-agentic-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
+ds-identity init <handle>   # writes ~/.agentic/identity.yml directly as confirmed
 ```
 
 Until you confirm, telemetry is buffered in `~/.agentic/session-log/.pending/` - no sessions are lost. Confirmation flushes only pending records matching the confirmed effective scope and retains nonmatching records. Matching records start writing attributed logs; nonmatching records remain buffered for their own scope.
@@ -300,7 +306,7 @@ provisional identity, not merely the active profile. Identity targets and
 parent directories are opened without following symlinks; special,
 multiply-linked, and wrong-owner identity files are rejected.
 
-Run `agentic-identity show --scope effective` at any time to see the identity
+Run `ds-identity show --scope effective` at any time to see the identity
 that wins for the current project and profile.
 
 ### Per-profile and per-project overrides
@@ -309,8 +315,8 @@ For separate harness tenants or config profiles, store the identity beside
 that profile's configuration:
 
 ```bash
-AGENTIC_CONFIG_DIR=~/.claude-client-a agentic-identity auto --scope profile
-AGENTIC_CONFIG_DIR=~/.claude-client-a agentic-identity confirm --scope profile
+AGENTIC_CONFIG_DIR=~/.claude-client-a ds-identity auto --scope profile
+AGENTIC_CONFIG_DIR=~/.claude-client-a ds-identity confirm --scope profile
 ```
 
 Profile config-dir detection uses `AGENTIC_CONFIG_DIR`, then
@@ -321,8 +327,8 @@ must not contain symlinked components.
 If you use a different handle for specific repos, set a project-scoped identity from inside that repo:
 
 ```bash
-agentic-identity init <handle> --scope project   # writes <repo>/.agentic/identity.yml
-agentic-identity confirm --scope project          # confirm a provisional project identity
+ds-identity init <handle> --scope project   # writes <repo>/.agentic/identity.yml
+ds-identity confirm --scope project          # confirm a provisional project identity
 ```
 
 The project file is covered by the existing `.agentic/*` gitignore umbrella - it is per-developer and never committed. The global identity is unchanged.
@@ -337,24 +343,24 @@ A provisional project or profile file never suppresses a working confirmed
 identity. To see which handle is active in the current repo and profile:
 
 ```bash
-agentic-identity show --scope effective
+ds-identity show --scope effective
 ```
 
-### agentic-cost attribution
+### ds-cost attribution
 
-`agentic-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
+`ds-cost team` aggregates `.agentic/session-log/<dev>.jsonl` files for the current repo. A developer who uses two different handles across repos appears as two rows - this is expected. Session logs are local-only (per machine); there is no automatic cross-machine aggregation.
 
 ## Tracker config: `.agentic/tracker.yml`
 
 A repo whose tracker cannot be declared in a tracked, universally-inherited `AGENTS.md` - doing so would bake one operator's workspace, project key, or account ID into a public file - can still resolve `TRACKER` at runtime via a project-local, gitignored overlay.
 
 ```bash
-agentic-tracker init --tracker jira --prefix DS --base-url https://acme.atlassian.net
-agentic-tracker resolve --json   # merge algorithm, deterministically testable
-agentic-tracker show --scope project
+ds-tracker init --tracker jira --prefix DS --base-url https://acme.atlassian.net
+ds-tracker resolve --json   # merge algorithm, deterministically testable
+ds-tracker show --scope project
 ```
 
-The overlay is merged field-by-field over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain, with the overlay winning and every changed field disclosed. `agentic-tracker` refuses to write the file at a path git would track - it refuses an unignored path (fix: add a `.gitignore` line), refuses an already-tracked path (fix: `git rm --cached`), and fails closed when it cannot tell. An absent, malformed, incomplete, or credential-bearing overlay never blocks - it degrades to the `AGENTS.md` result with an actionable reason. See [configuration-reference.md](docs/configuration-reference.md) for the full field reference.
+The overlay is merged field-by-field over the `AGENTS.md` `## Tracker` / `## Linear` resolution chain, with the overlay winning and every changed field disclosed. `ds-tracker` refuses to write the file at a path git would track - it refuses an unignored path (fix: add a `.gitignore` line), refuses an already-tracked path (fix: `git rm --cached`), and fails closed when it cannot tell. An absent, malformed, incomplete, or credential-bearing overlay never blocks - it degrades to the `AGENTS.md` result with an actionable reason. See [configuration-reference.md](docs/configuration-reference.md) for the full field reference.
 
 ## Repo structure
 

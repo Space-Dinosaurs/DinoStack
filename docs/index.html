@@ -938,7 +938,7 @@
 <!-- ═══ INSTALL: One command to get started ═══ -->
 <div id="install" class="section config-layer">
   <div class="section-title"><h2>Install</h2><h3>One command. Everything else is optional.</h3></div>
-  <p class="desc">One line clones the repo into <code>DinoStack/</code> inside your current directory, runs the installer, and writes the install path to <code>~/.agentic/agentic-engineering-config.json</code> so update tooling (<code>agentic-update</code>, <code>/ds-update</code>) knows where to find it. Prerequisites: <code>git</code> and <code>python3</code> - <code>node</code> is optional, needed only for the update TUI.</p>
+  <p class="desc">One line clones the repo into <code>DinoStack/</code> inside your current directory, runs the installer, and writes the install path to <code>~/.agentic/agentic-engineering-config.json</code> so update tooling (<code>ds-update</code>, <code>/ds-update</code>) knows where to find it. Prerequisites: <code>git</code> and <code>python3</code> - <code>node</code> is optional, needed only for the update TUI.</p>
 
   <div class="code-block">
     <span class="cb-label">one-liner install</span>
@@ -965,7 +965,7 @@
 <!-- ═══ UPDATING: Keep DinoStack current ═══ -->
 <div id="updating" class="section config-layer">
   <div class="section-title"><h2>Updating</h2><h3>Keep DinoStack current with one command.</h3></div>
-  <p class="desc">Run <code>agentic-update</code> from any directory, no arguments. It pulls the latest <code>main</code>, rebuilds adapters only when something changed under <code>content/</code>, <code>hooks/</code>, <code>bin/</code>, or the build scripts, resets the version-check cache, and runs <code>agentic-doctor --fix</code> to repair drifted symlinks or hooks. No TTY required.</p>
+  <p class="desc">Run <code>ds-update</code> from any directory, no arguments. It pulls the latest <code>main</code>, rebuilds adapters only when something changed under <code>content/</code>, <code>hooks/</code>, <code>bin/</code>, or the build scripts, resets the version-check cache, and runs <code>ds-doctor --fix</code> to repair drifted symlinks or hooks. No TTY required.</p>
   <table style="width: 100%; border-collapse: collapse; font-size: 14.5px; margin: 16px 0;">
     <thead>
       <tr style="border-bottom: 1px solid var(--border-subtle);">
@@ -977,7 +977,7 @@
     <tbody>
       <tr style="border-bottom: 1px solid var(--border-faint);">
         <td style="padding: 10px 12px; vertical-align: top;">Shell <span style="color: var(--text-muted); font-size: 0.85em;">(recommended)</span></td>
-        <td style="padding: 10px 12px; vertical-align: top;"><code>agentic-update</code></td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>ds-update</code></td>
         <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Default; from any directory, no TTY</td>
       </tr>
       <tr style="border-bottom: 1px solid var(--border-faint);">
@@ -997,7 +997,7 @@
       </tr>
       <tr>
         <td style="padding: 10px 12px; vertical-align: top;">Repair drift</td>
-        <td style="padding: 10px 12px; vertical-align: top;"><code>agentic-doctor --fix</code></td>
+        <td style="padding: 10px 12px; vertical-align: top;"><code>ds-doctor --fix</code></td>
         <td style="padding: 10px 12px; color: var(--text-muted); vertical-align: top;">Fix broken symlinks/hooks (e.g. after moving the repo)</td>
       </tr>
     </tbody>
@@ -1168,8 +1168,8 @@
   <div class="rel-card" style="margin-bottom: 16px;">
     <h4>Identity handle</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">The developer handle used to attribute per-session telemetry logs. Identity can be global, profile-scoped at <code>&lt;active-config-dir&gt;/identity.yml</code>, or project-scoped at <code>.agentic/identity.yml</code>. Effective identity uses six-tier confirmation-first precedence.</p>
-    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> none (absent file = no attribution; run <code>agentic-identity auto</code> to derive from GitHub login)</p>
-    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-identity auto</code> / <code>agentic-identity init &lt;handle&gt;</code> / <code>agentic-identity confirm</code>; add <code>--scope profile|project</code> for an override and <code>--profile-dir &lt;dir&gt;</code> when profile env detection is unavailable.</p>
+    <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any string &nbsp; <strong>Default:</strong> none (absent file = no attribution; run <code>ds-identity auto</code> to derive from GitHub login)</p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>ds-identity auto</code> / <code>ds-identity init &lt;handle&gt;</code> / <code>ds-identity confirm</code>; add <code>--scope profile|project</code> for an override and <code>--profile-dir &lt;dir&gt;</code> when profile env detection is unavailable.</p>
   </div>
 
   <!-- Tracker config -->
@@ -1177,7 +1177,7 @@
     <h4>Tracker config overlay</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">A project-local, gitignored <code>.agentic/tracker.yml</code> file, merged field-by-field over the AGENTS.md tracker resolution chain - lets a repo whose tracker can't be declared in a public file still resolve TRACKER at runtime.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> any allowlisted key &nbsp; <strong>Default:</strong> absent file = AGENTS.md chain only</p>
-    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>agentic-tracker init --tracker jira --prefix P --base-url U</code> / <code>agentic-tracker resolve --json</code></p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>ds-tracker init --tracker jira --prefix P --base-url U</code> / <code>ds-tracker resolve --json</code></p>
   </div>
 
   <p class="desc" style="margin-bottom: 20px; font-size: 13px;">File settings (<code>agentic-engineering.json</code>, <code>.agentic/config.json</code>, AGENTS.md) take effect at the next session start. <code>export</code>ed env vars apply to the current session. Full reference: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
@@ -1460,7 +1460,7 @@
             <li><strong>Findings counters in <code>events.jsonl</code></strong> - every Skeptic <code>spawn_complete</code> carries <code>findings_count</code>, <code>diff_lines</code>, <code>signed_off</code>, and <code>iteration</code> inside <code>data</code>. Conductor builds the merged JSON inline; subagents never write to <code>.agentic/</code>.</li>
             <li><strong>5% sampled meta-Skeptic</strong> - deterministic <code>hash(task_id+iteration) % 100 &lt; 5</code>. Background fire-and-forget; conductor declares the unit complete without waiting. Meta-Skeptic returns text only; conductor parses and emits <code>meta_review_complete</code>.</li>
             <li><strong>Surfacing</strong> - Critical/Major divergence on a sampled spawn surfaces as one inline <code>META-DIVERGENCE:</code> line at the next turn boundary. Original sign-off remains binding; the notice is advisory. Dual triggers: in-session (Phase 6 boundaries) and session-start sweep (catches async returns from prior sessions). The sweep paginates via <code>.meta-divergence-last-sweep</code> timestamp tracker — reads only events newer than the last sweep, capped to 100 lines on first run.</li>
-            <li><strong><code>bin/agentic-calibrate</code></strong> - <code>density</code> (findings per 100 diff-lines, excludes zero-diff rows) and <code>divergence</code> (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.</li>
+            <li><strong><code>bin/ds-calibrate</code></strong> - <code>density</code> (findings per 100 diff-lines, excludes zero-diff rows) and <code>divergence</code> (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.</li>
             <li>Threat model: drift detection in a non-adversarial conductor relationship. Not cheating-prevention - a compromised conductor can mis-emit counts. Target is operator self-deception over time, not adversarial spoofing.</li>
           </ul>
         </div>
@@ -1843,7 +1843,7 @@
         <ul>
           <li><strong>/ds-status</strong> - read-only resolver dump. Prints the resolved global config, project marker, profile, and first-activation sentinel state. Useful for debugging activation and profile issues. Writes nothing; always exits 0.</li>
           <li><strong>/ds-help</strong> - prints every DinoStack slash command with a one-line description, grouped by intent, plus usage patterns for inspecting, invoking, and tuning the skill. Writes nothing; always exits 0.</li>
-          <li><strong>/ds-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>agentic-identity auto</code>), tags buffered sessions with the winning <code>identity_scope</code>, then confirms only that scope. Supports global, harness-profile, and per-project scope with six-tier confirmation-first precedence and nofollow identity-file safety.</li>
+          <li><strong>/ds-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>ds-identity auto</code>), tags buffered sessions with the winning <code>identity_scope</code>, then confirms only that scope. Supports global, harness-profile, and per-project scope with six-tier confirmation-first precedence and nofollow identity-file safety.</li>
           <li><strong>/ds-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
           <li><strong>/ds-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
           <li><strong>/ds-config</strong> - interactive command to view and change agentic-engineering settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>

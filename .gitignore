@@ -91,7 +91,7 @@ __pycache__/
 
 # Orphaned pid-suffixed atomic_write staging files (DS-109). A SIGKILL between
 # write and rename can leave one of these behind at any tracked path this
-# repo's own tooling writes atomically (e.g. bin/agentic-config writing
+# repo's own tooling writes atomically (e.g. bin/ds-config writing
 # AGENTS.md) - unpredictable exact name, but the <pid> suffix shape is fixed.
 *.tmp.[0-9]*
 

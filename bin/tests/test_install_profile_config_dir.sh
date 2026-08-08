@@ -59,8 +59,8 @@ if [[ -e "$PROFILE/.agentic/agentic-engineering-config.json" ]]; then
 else
   pass "shared repo_dir config not placed under profile dir"
 fi
-if grep -Fq "agentic-identity show --scope profile --profile-dir $PROFILE" <<<"$INSTALL_OUT" \
-  && grep -Fq "agentic-identity confirm --scope profile --profile-dir $PROFILE" <<<"$INSTALL_OUT"; then
+if grep -Fq "ds-identity show --scope profile --profile-dir $PROFILE" <<<"$INSTALL_OUT" \
+  && grep -Fq "ds-identity confirm --scope profile --profile-dir $PROFILE" <<<"$INSTALL_OUT"; then
   pass "profile completion guidance pins the active profile directory"
 else
   fail "profile completion guidance did not pin show/confirm to $PROFILE"
@@ -89,8 +89,8 @@ DEFAULT_OUT="$(bash "$REPO_DIR/.claude/install.sh" \
 [[ -f "$HOME/.claude/settings.json" ]] \
   && pass "default install targets \$HOME/.claude" \
   || fail "default install did NOT target \$HOME/.claude"
-if grep -Fq "agentic-identity show --scope effective" <<<"$DEFAULT_OUT" \
-  && grep -Fq "agentic-identity confirm --scope global" <<<"$DEFAULT_OUT"; then
+if grep -Fq "ds-identity show --scope effective" <<<"$DEFAULT_OUT" \
+  && grep -Fq "ds-identity confirm --scope global" <<<"$DEFAULT_OUT"; then
   pass "non-profile completion guidance uses effective/global semantics"
 else
   fail "non-profile completion guidance lacks effective/global scope"
@@ -131,14 +131,14 @@ for harness in claude codex omp pi; do
     pass "$harness: --config-dir did NOT touch shared \$HOME/.claude"
   fi
   if [[ "$harness" == "omp" || "$harness" == "pi" ]]; then
-    if grep -Fq "agentic-identity show --scope effective" <<<"$tenant_out" \
-      && grep -Fq "agentic-identity confirm --scope global" <<<"$tenant_out"; then
+    if grep -Fq "ds-identity show --scope effective" <<<"$tenant_out" \
+      && grep -Fq "ds-identity confirm --scope global" <<<"$tenant_out"; then
       pass "$harness: flag-only redirect avoids unreachable profile identity"
     else
       fail "$harness: flag-only redirect advertised an unreachable profile identity"
     fi
-  elif grep -Fq "agentic-identity show --scope profile --profile-dir $tenant_a" <<<"$tenant_out" \
-    && grep -Fq "agentic-identity confirm --scope profile --profile-dir $tenant_a" <<<"$tenant_out"; then
+  elif grep -Fq "ds-identity show --scope profile --profile-dir $tenant_a" <<<"$tenant_out" \
+    && grep -Fq "ds-identity confirm --scope profile --profile-dir $tenant_a" <<<"$tenant_out"; then
     pass "$harness: profile guidance pins the redirected config directory"
   else
     fail "$harness: profile guidance did not pin $tenant_a"
@@ -174,7 +174,7 @@ PI_OUT="$(env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME \
   bash "$REPO_DIR/.pi/install.sh" --identity=pi-native \
     --mode=opt-out --profile=default 2>&1 || true)"
 if [[ -f "$PI_TARGET/identity.yml" ]] \
-  && grep -Fq "agentic-identity show --scope profile --profile-dir $PI_TARGET" <<<"$PI_OUT"; then
+  && grep -Fq "ds-identity show --scope profile --profile-dir $PI_TARGET" <<<"$PI_OUT"; then
   pass "pi: native PI_CODING_AGENT_DIR binding creates reachable profile identity"
 else
   fail "pi: native PI_CODING_AGENT_DIR binding did not create/profile-guide identity"
@@ -189,7 +189,7 @@ OMP_OUT="$(env -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \
   bash "$REPO_DIR/.omp/install.sh" --identity=omp-native \
     --mode=opt-out --profile=default 2>&1 || true)"
 if [[ -f "$OMP_TARGET/identity.yml" ]] \
-  && grep -Fq "agentic-identity show --scope profile --profile-dir $OMP_TARGET" <<<"$OMP_OUT"; then
+  && grep -Fq "ds-identity show --scope profile --profile-dir $OMP_TARGET" <<<"$OMP_OUT"; then
   pass "omp: shared AGENTIC_CONFIG_DIR binding creates reachable profile identity"
 else
   fail "omp: shared AGENTIC_CONFIG_DIR binding did not create/profile-guide identity"
@@ -241,7 +241,7 @@ for harness in omp pi; do
     bash "$REPO_DIR/scripts/install-profiles.sh" --harnesses="$harness" \
       --tenants=tenant --no-cursor --identity="${harness}-bound" \
       --mode=opt-out --profile=default >/dev/null 2>&1 || true
-  resolved="$(env "${binding[@]}" "$REPO_DIR/bin/agentic-identity" \
+  resolved="$(env "${binding[@]}" "$REPO_DIR/bin/ds-identity" \
     resolve-hook --cwd "$REPO_DIR" 2>/dev/null || true)"
   resolved_cfg="$(python3 -c 'import json,os,sys; print(os.path.realpath(json.loads(sys.stdin.read()).get("config_dir", "")))' <<<"$resolved" 2>/dev/null || true)"
   expected_cfg="$(python3 -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$cfg")"
@@ -384,7 +384,7 @@ rm -rf "$NX"
 RERUN="$(mktemp -d)"
 export HOME="$RERUN/home"; mkdir -p "$HOME"
 RERUN_PROFILE="$HOME/.claude-tenant"; mkdir -p "$RERUN_PROFILE"
-# agentic-identity must be on PATH for the installer's identity branches.
+# ds-identity must be on PATH for the installer's identity branches.
 export PATH="$REPO_DIR/bin:$PATH"
 
 env -u AGENTIC_CONFIG_DIR -u CLAUDE_CONFIG_DIR -u CODEX_HOME -u PI_CODING_AGENT_DIR \

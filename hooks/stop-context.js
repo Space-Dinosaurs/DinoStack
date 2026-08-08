@@ -712,7 +712,7 @@ const HANDLE_RE = /^[a-z0-9._-]{1,64}$/;
  */
 function getIdentity(cwd) {
   try {
-    const helper = path.resolve(__dirname, '..', 'bin', 'agentic-identity');
+    const helper = path.resolve(__dirname, '..', 'bin', 'ds-identity');
     const result = spawnSync(helper, ['resolve-hook', '--cwd', cwd], {
       encoding: 'utf8',
       timeout: 2000,
@@ -857,7 +857,7 @@ function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
       }).trim();
     } catch (_) { /* detached HEAD or non-git dir */ }
 
-    const helper = path.resolve(__dirname, '..', 'bin', 'agentic-identity');
+    const helper = path.resolve(__dirname, '..', 'bin', 'ds-identity');
     const request = JSON.stringify({
       identity,
       session_uuid: sessionId || generateUuid(),

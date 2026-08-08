@@ -389,7 +389,7 @@ sync_hooks_snapshot() {
     return 0
   fi
 
-  if [[ ! -d "$real_repo_dir/hooks" || ! -f "$real_repo_dir/bin/agentic-identity" ]]; then
+  if [[ ! -d "$real_repo_dir/hooks" || ! -f "$real_repo_dir/bin/ds-identity" ]]; then
     echo "hooks-snapshot: required hooks/helper source missing (previous snapshot preserved)" >&2
     return 1
   fi
@@ -427,11 +427,11 @@ sync_hooks_snapshot() {
   rm -rf "$stage_dir/hooks/tests"
   rm -f "$stage_dir/hooks/AGENTS.md"
   mkdir -p "$stage_dir/bin"
-  cp "$real_repo_dir/bin/agentic-identity" "$stage_dir/bin/agentic-identity" || {
+  cp "$real_repo_dir/bin/ds-identity" "$stage_dir/bin/ds-identity" || {
     rm -rf -- "$stage_dir"
     return 1
   }
-  chmod 700 "$stage_dir/bin/agentic-identity" || {
+  chmod 700 "$stage_dir/bin/ds-identity" || {
     rm -rf -- "$stage_dir"
     return 1
   }
@@ -468,7 +468,7 @@ sync_hooks_snapshot() {
   local source_hash=""
   source_hash="$(compute_hooks_source_hash \
     "$real_repo_dir/hooks" \
-    "$real_repo_dir/bin/agentic-identity" \
+    "$real_repo_dir/bin/ds-identity" \
     "$real_repo_dir/.codex/config/hooks.json" \
     "$real_repo_dir/.codex/hooks" \
     "$real_repo_dir/.gemini/hooks" \

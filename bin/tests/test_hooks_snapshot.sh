@@ -55,8 +55,8 @@ _make_fake_repo() {
   local dir="$1"
   mkdir -p "$dir/bin" "$dir/hooks/tests" "$dir/.codex/config" "$dir/.codex/hooks" \
            "$dir/.gemini/hooks" "$dir/.kimi/hooks"
-  printf '#!/usr/bin/env python3\nprint("helper")\n' > "$dir/bin/agentic-identity"
-  chmod 700 "$dir/bin/agentic-identity"
+  printf '#!/usr/bin/env python3\nprint("helper")\n' > "$dir/bin/ds-identity"
+  chmod 700 "$dir/bin/ds-identity"
   echo "risk" > "$dir/hooks/risk-reminder.sh"
   echo "test-only" > "$dir/hooks/tests/should-be-excluded.sh"
   echo "manifest" > "$dir/hooks/AGENTS.md"
@@ -121,7 +121,7 @@ else
   _fail "published snapshot is not a symlink to a complete immutable generation"
 fi
 
-if [[ -x "$SNAP_DIR/bin/agentic-identity" ]]; then
+if [[ -x "$SNAP_DIR/bin/ds-identity" ]]; then
   _pass "first sync copies the executable identity/telemetry helper"
 else
   _fail "first sync omitted the executable identity/telemetry helper"
@@ -497,13 +497,13 @@ rm -rf "$REPO_C/hooks/nested"
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 
 HELPER_HASH_BEFORE="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['source_hash'])" "$SNAP_DIR/.snapshot-meta.json")"
-echo "# helper changed" >> "$REPO_C/bin/agentic-identity"
+echo "# helper changed" >> "$REPO_C/bin/ds-identity"
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 HELPER_HASH_AFTER="$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['source_hash'])" "$SNAP_DIR/.snapshot-meta.json")"
 
 if [[ "$HELPER_HASH_AFTER" != "$HELPER_HASH_BEFORE" ]] && \
-   cmp -s "$REPO_C/bin/agentic-identity" "$SNAP_DIR/bin/agentic-identity" && \
-   [[ -x "$SNAP_DIR/bin/agentic-identity" ]]; then
+   cmp -s "$REPO_C/bin/ds-identity" "$SNAP_DIR/bin/ds-identity" && \
+   [[ -x "$SNAP_DIR/bin/ds-identity" ]]; then
   _pass "identity-helper changes affect source_hash and refresh executable snapshot bytes"
 else
   _fail "identity-helper change was omitted from snapshot hash/copy refresh"
@@ -511,13 +511,13 @@ fi
 
 # A failed refresh must preserve the previously published generation.
 PUBLISHED_BEFORE="$(readlink "$SNAP_DIR")"
-SNAP_HELPER_BEFORE="$(shasum -a 256 "$SNAP_DIR/bin/agentic-identity" | awk '{print $1}')"
-mv "$REPO_C/bin/agentic-identity" "$REPO_C/bin/agentic-identity.saved"
+SNAP_HELPER_BEFORE="$(shasum -a 256 "$SNAP_DIR/bin/ds-identity" | awk '{print $1}')"
+mv "$REPO_C/bin/ds-identity" "$REPO_C/bin/ds-identity.saved"
 FAILED_REFRESH_RC=0
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null 2>&1" \
   || FAILED_REFRESH_RC=$?
-mv "$REPO_C/bin/agentic-identity.saved" "$REPO_C/bin/agentic-identity"
-SNAP_HELPER_AFTER="$(shasum -a 256 "$SNAP_DIR/bin/agentic-identity" | awk '{print $1}')"
+mv "$REPO_C/bin/ds-identity.saved" "$REPO_C/bin/ds-identity"
+SNAP_HELPER_AFTER="$(shasum -a 256 "$SNAP_DIR/bin/ds-identity" | awk '{print $1}')"
 if [[ "$FAILED_REFRESH_RC" -eq 1 && "$(readlink "$SNAP_DIR")" == "$PUBLISHED_BEFORE" \
   && "$SNAP_HELPER_AFTER" == "$SNAP_HELPER_BEFORE" ]]; then
   _pass "failed refresh preserves the prior published generation byte-for-byte"
@@ -530,8 +530,8 @@ fi
 # symlink. It must never observe a missing or mixed generation.
 printf 'GEN=old\n' > "$REPO_C/hooks/risk-reminder.sh"
 printf '#!/usr/bin/env python3\n# GEN=old\nprint(\"helper\")\n' \
-  > "$REPO_C/bin/agentic-identity"
-chmod 700 "$REPO_C/bin/agentic-identity"
+  > "$REPO_C/bin/ds-identity"
+chmod 700 "$REPO_C/bin/ds-identity"
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 READER_RESULT="$TMP_ROOT/snapshot-reader-result"
 python3 - "$SNAP_DIR" "$READER_RESULT" <<'PYEOF' &
@@ -545,7 +545,7 @@ for _ in range(1000):
     generation = pathlib.Path(os.path.realpath(public))
     try:
         hook = (generation / "hooks" / "risk-reminder.sh").read_text()
-        helper = (generation / "bin" / "agentic-identity").read_text()
+        helper = (generation / "bin" / "ds-identity").read_text()
     except OSError as exc:
         pathlib.Path(result).write_text(f"missing:{exc}")
         raise SystemExit(1)
@@ -563,14 +563,14 @@ READER_PID=$!
 sleep 0.05
 printf 'GEN=new\n' > "$REPO_C/hooks/risk-reminder.sh"
 printf '#!/usr/bin/env python3\n# GEN=new\nprint(\"helper\")\n' \
-  > "$REPO_C/bin/agentic-identity"
-chmod 700 "$REPO_C/bin/agentic-identity"
+  > "$REPO_C/bin/ds-identity"
+chmod 700 "$REPO_C/bin/ds-identity"
 HOME="$FAKE_HOME" bash -c "source '$LIB'; sync_hooks_snapshot '$REPO_C' >/dev/null"
 READER_RC=0
 wait "$READER_PID" || READER_RC=$?
 if [[ "$READER_RC" -eq 0 && "$(cat "$READER_RESULT" 2>/dev/null)" == "ok" \
   && "$(cat "$SNAP_DIR/hooks/risk-reminder.sh")" == "GEN=new" \
-  && "$(grep -c 'GEN=new' "$SNAP_DIR/bin/agentic-identity")" -eq 1 ]]; then
+  && "$(grep -c 'GEN=new' "$SNAP_DIR/bin/ds-identity")" -eq 1 ]]; then
   _pass "concurrent reader sees only complete old or new immutable generations"
 else
   _fail "concurrent reader observed a missing or mixed snapshot generation ($(cat "$READER_RESULT" 2>/dev/null))"
@@ -679,7 +679,7 @@ HASH_E1="$(HOME="$FAKE_HOME" bash -c "
   source '$LIB'
   compute_hooks_source_hash \
     '$REPO_E/hooks' \
-    '$REPO_E/bin/agentic-identity' \
+    '$REPO_E/bin/ds-identity' \
     '$REPO_E/.codex/config/hooks.json' \
     '$REPO_E/.codex/hooks' \
     '$REPO_E/.gemini/hooks' \
@@ -698,7 +698,7 @@ HASH_E2="$(HOME="$FAKE_HOME" bash -c "
   source '$LIB'
   compute_hooks_source_hash \
     '$REPO_E/hooks' \
-    '$REPO_E/bin/agentic-identity' \
+    '$REPO_E/bin/ds-identity' \
     '$REPO_E/.codex/config/hooks.json' \
     '$REPO_E/.codex/hooks' \
     '$REPO_E/.gemini/hooks' \
