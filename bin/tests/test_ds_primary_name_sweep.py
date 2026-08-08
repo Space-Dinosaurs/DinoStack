@@ -340,7 +340,19 @@ def test_codex_generated_identity_commands_use_ds_identity() -> None:
 # parent ai-tools repo, referenced as a worked example in
 # planning-artifacts.md - and is expected to remain indefinitely.
 RESIDUE_TOKEN_PATTERN = re.compile(r"agentic-[a-zA-Z][a-zA-Z0-9-]*")
-PROTECTED_TOKEN_PREFIX = "agentic-engineering"
+# Exact protected token set - NOT a prefix check. A prefix check
+# (`token.startswith("agentic-engineering")`) silently drops any token
+# that merely BEGINS with the protected noun, e.g. a hypothetical
+# `agentic-engineering-doctor` would be masked even though it is not one
+# of the actually-protected markers. Verified empirically: injecting
+# `agentic-engineering-doctor` into content/ left the old prefix-based
+# check GREEN.
+PROTECTED_TOKENS = {
+    "agentic-engineering",
+    "agentic-engineering-profile",
+    "agentic-engineering-preset",
+    "agentic-engineering-config",
+}
 EXPECTED_RESIDUE_SET = {
     ("content/references/planning-artifacts.md", "agentic-factory"),
 }
@@ -368,7 +380,7 @@ def test_content_residue_set_pinned_to_known_exceptions() -> None:
         rel = str(path.relative_to(REPO_ROOT))
         for match in RESIDUE_TOKEN_PATTERN.finditer(text):
             token = match.group(0)
-            if token.startswith(PROTECTED_TOKEN_PREFIX):
+            if token in PROTECTED_TOKENS:
                 continue
             found.add((rel, token))
 
