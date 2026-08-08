@@ -65,6 +65,15 @@ jobs:
         timeout-minutes: 2
         run: |
           python3 -m pytest bin/tests/test_knowledge_harness_smoke.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 30) { print "expected >= 30 collected tests (13 functions x 2 shells + 4 static), got " $1; exit 1 } }'
+      - name: floor collected test_phase11e_knowledge_commit_shell.py count at 47
+        # 25 test functions - 22 parametrized x {bash, zsh} (44) plus 3 static,
+        # shell-independent assertions (3) = 47 collected IDs. Adding or
+        # removing a test function in
+        # bin/tests/test_phase11e_knowledge_commit_shell.py obliges updating the
+        # floor below in the same PR.
+        timeout-minutes: 2
+        run: |
+          python3 -m pytest bin/tests/test_phase11e_knowledge_commit_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 47) { print "expected >= 47 collected tests (22 functions x 2 shells + 3 static), got " $1; exit 1 } }'
   # Python hook tests live here (shared python toolchain with bin-tests); JS/sh
   # hook tests live in hooks-tests.yml.
   hooks-python-tests:
