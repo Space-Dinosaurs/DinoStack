@@ -16,9 +16,9 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~50 s wall time (19 install.sh invocations after the DS-143
-#              Skeptic loop 3 fix pass, up from 17; each runs two full adapter
-#              builds against the real checkout).
+# Performance: ~55 s wall time (21 install.sh invocations after the DS-143
+#              follow-up fix pass added cases (o) and (p), up from 19; each
+#              runs two full adapter builds against the real checkout).
 #
 # Regression coverage:
 #   - Change 1: stale "ours" symlink (target under .../DinoStack/...) is
@@ -102,6 +102,16 @@
 #     exists to cover. If the post-case adapter rebuild
 #     (scripts/build-all.sh) fails, a loud warning is printed naming the
 #     possible canary contamination instead of failing silently.
+#   - Case (o) (DS-143 follow-up): TWO well-formed managed blocks in one
+#     CLAUDE.md - migration detection scans every block (not just the
+#     first), covering both block orderings (lean-then-old and
+#     old-then-lean). See the case's own header comment for the full
+#     regression rationale.
+#   - Case (p) (DS-143 follow-up, Gap 1): the actual reachable defect -
+#     unrelated prose OUTSIDE the managed block containing the old
+#     @-import marker string must never force skill_auto_load, since
+#     detection is scoped to the managed block's own content, not the
+#     whole file.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -1090,6 +1100,146 @@ if [[ "$_n_install_out_run2" == *"IMPORTANT: skill definitions changed"* ]]; the
   _pass "case (n): registry-refresh restart notice fires on the update-path run even though CLAUDE.md is a no-op"
 else
   _fail "case (n): registry-refresh restart notice missing on the update-path run (the exact case it exists for)"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (o): DS-143 follow-up - TWO well-formed managed blocks in one
+#           CLAUDE.md. The rewrite's pattern.sub() has no count= and
+#           rewrites EVERY matched block, so migration detection must scan
+#           every block too, not just the first. Sub-case 1 (the actual
+#           regression) puts the lean (new-format) block FIRST and the
+#           old-format (import-carrying) block SECOND - a first-match-only
+#           detector would inspect only the lean block, find no import
+#           marker, and leave skill_auto_load unmigrated even though the
+#           rewrite strips the second block's imports too, unrecoverable on
+#           any later run since the marker is then gone from disk. Sub-case
+#           2 is a same-cost control in the reverse order (old block first),
+#           which a first-match-only detector already handled correctly and
+#           must stay green.
+# ---------------------------------------------------------------------------
+
+OLD_BLOCK_IN_MARKERS='<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+
+@skills/agentic-engineering/METHODOLOGY.md
+@skills/agentic-engineering/rules/code-standards.md
+@skills/agentic-engineering/rules/conventions.md
+<!-- END managed-by-agentic-engineering -->'
+
+LEAN_BLOCK_IN_MARKERS='<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+<!-- END managed-by-agentic-engineering -->'
+
+for _case_o_order in lean_then_old old_then_lean; do
+  FAKE_HOME="$(mktemp -d)"
+  mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+  if [[ "$_case_o_order" == "lean_then_old" ]]; then
+    printf '%s\n\n%s\n' "$LEAN_BLOCK_IN_MARKERS" "$OLD_BLOCK_IN_MARKERS" > "$FAKE_HOME/.claude/CLAUDE.md"
+  else
+    printf '%s\n\n%s\n' "$OLD_BLOCK_IN_MARKERS" "$LEAN_BLOCK_IN_MARKERS" > "$FAKE_HOME/.claude/CLAUDE.md"
+  fi
+  python3 - "$FAKE_HOME/.claude/agentic-engineering.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "w") as f:
+    json.dump({"mode": "opt-out", "profile": "default", "skill_auto_load": False}, f, indent=2)
+    f.write("\n")
+PYEOF
+
+  _run_install "$FAKE_HOME" || true
+
+  _o_auto_load="$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    print(json.load(f).get('skill_auto_load'))
+" "$FAKE_HOME/.claude/agentic-engineering.json" 2>/dev/null)"
+  if [[ "$_o_auto_load" == "True" ]]; then
+    _pass "case (o, $_case_o_order): skill_auto_load migrated to true (old block present among two)"
+  else
+    _fail "case (o, $_case_o_order): skill_auto_load stayed '$_o_auto_load' despite an old-format block being present"
+  fi
+
+  _o_import_count="$(grep -c "@skills/agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+  if [[ "$_o_import_count" -eq 0 ]]; then
+    _pass "case (o, $_case_o_order): both managed blocks end lean (no @-import lines remain)"
+  else
+    _fail "case (o, $_case_o_order): @-import lines remain after rewrite (count=$_o_import_count)"
+  fi
+
+  rm -rf "$FAKE_HOME"
+done
+
+# ---------------------------------------------------------------------------
+# Case (p): DS-143 follow-up - the actual Gap-1 defect. A single well-formed,
+#           already-lean managed block (no @-import lines) plus UNRELATED
+#           prose OUTSIDE the managed block that happens to contain the old
+#           @-import marker string (e.g. a user's own note-to-self about
+#           re-adding always-loaded imports someday), plus
+#           skill_auto_load:false pre-seeded. Before the fix, migration
+#           detection scanned the WHOLE FILE for the marker string
+#           (`old_import_marker in existing`), so this prose alone forced
+#           skill_auto_load back to true on every subsequent install/update -
+#           permanently overriding a user's deliberate choice, since the
+#           marker text lives in their own notes forever, not in a managed
+#           block that ever gets rewritten. After the fix (detection scoped
+#           to the managed block's own captured content), skill_auto_load
+#           must stay false.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
+# My own notes
+
+I want to remember to re-add this some day: @skills/agentic-engineering/METHODOLOGY.md
+
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+<!-- END managed-by-agentic-engineering -->
+EOF
+python3 - "$FAKE_HOME/.claude/agentic-engineering.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "w") as f:
+    json.dump({"mode": "opt-out", "profile": "default", "skill_auto_load": False}, f, indent=2)
+    f.write("\n")
+PYEOF
+
+_run_install "$FAKE_HOME" || true
+
+_p_auto_load="$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    print(json.load(f).get('skill_auto_load'))
+" "$FAKE_HOME/.claude/agentic-engineering.json" 2>/dev/null)"
+if [[ "$_p_auto_load" == "False" ]]; then
+  _pass "case (p): prose outside the managed block containing the old import marker does not force skill_auto_load"
+else
+  _fail "case (p): skill_auto_load was forced to '$_p_auto_load' by prose outside the managed block (whole-file scan bug)"
 fi
 
 rm -rf "$FAKE_HOME"
