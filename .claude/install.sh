@@ -53,11 +53,13 @@
 #     detected on disk pre-rewrite AND SKILL_LINK_OK == true), skill_auto_load
 #     is force-set to true in agentic-engineering.json as a one-time
 #     migration; this self-disarms once the old imports are gone from disk.
-#     A "start a new session" registry-refresh notice prints whenever the
-#     rewritten CLAUDE.md content actually differs from what was on disk
-#     before this run (fresh create/append, or any change to the managed
-#     block's body) - suppressed both when the gate blocked the strip and
-#     when a re-run against an already-lean, unchanged block is a no-op.
+#     A "start a new session" registry-refresh notice prints unconditionally
+#     whenever SKILL_LINK_OK == true (the strip gate allowed the skill-based
+#     table to be (re)written) - including idempotent re-runs and update-path
+#     runs where only the skill's regenerated body changed underneath an
+#     unchanged CLAUDE.md, since the notice's subject is the skill registry,
+#     not the CLAUDE.md byte diff. Suppressed only when the gate itself
+#     blocked the strip (SKILL_LINK_OK != true).
 #   - The managed-block table body's source,
 #     content/templates/claude-managed-content.md, must retain its leading
 #     HTML manifest comment with a "-->" terminator; if that terminator is
@@ -1066,26 +1068,19 @@ fi
 # DS-143: the Skill Loading table body is single-sourced from
 # content/templates/claude-managed-content.md. When SKILL_LINK_OK == true
 # (the skill symlink resolves, so the methodology loads on skill invocation
-# instead), the three @-import lines are dropped. When SKILL_LINK_OK != true,
-# the imports are appended after the table exactly as before, and a warning
-# is printed - the imports must never be stripped without a working skill
-# symlink to fall back on.
+# instead), the three @-import lines are dropped and the registry-refresh
+# restart notice below fires unconditionally, since the skill body was
+# (re)written on this run regardless of whether CLAUDE.md's bytes changed.
+# When SKILL_LINK_OK != true, the imports are appended after the table
+# exactly as before, and a warning is printed instead of the notice - the
+# imports must never be stripped without a working skill symlink to fall
+# back on.
 if [[ "$AE_DRY_RUN" == "true" ]]; then
   echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md"
 else
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
-# MINOR-4 (DS-143 Skeptic loop 2): the registry-refresh restart notice below
-# must fire only for a run that actually changed the managed block (a fresh
-# create/append, or an update whose rewritten content differs from what was
-# already on disk) - not for an idempotent re-run against an already-lean
-# block. AE_CLAUDE_MD_CHANGED_MARKER is a scratch file the python heredoc
-# touches iff `updated != existing`; its mere existence after the heredoc is
-# the signal, so it must be removed beforehand in case a stale one lingers.
-AE_CLAUDE_MD_CHANGED_MARKER="$(mktemp)"
-rm -f "$AE_CLAUDE_MD_CHANGED_MARKER"
-
-AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_REPO_DIR="$REPO_DIR" AE_SKILL_LINK_OK="$SKILL_LINK_OK" AE_CONFIG_PATH="$AE_CONFIG_PATH" AE_CLAUDE_MD_CHANGED_MARKER="$AE_CLAUDE_MD_CHANGED_MARKER" python3 - <<'PYEOF'
+AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_REPO_DIR="$REPO_DIR" AE_SKILL_LINK_OK="$SKILL_LINK_OK" AE_CONFIG_PATH="$AE_CONFIG_PATH" python3 - <<'PYEOF'
 import json, os, re, sys
 
 target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
@@ -1095,7 +1090,6 @@ end_marker = "<!-- END managed-by-agentic-engineering -->"
 repo_dir = os.environ.get("AE_REPO_DIR", "")
 skill_link_ok = os.environ.get("AE_SKILL_LINK_OK", "") == "true"
 config_path = os.environ.get("AE_CONFIG_PATH", "")
-changed_marker = os.environ.get("AE_CLAUDE_MD_CHANGED_MARKER", "")
 
 import_lines = [
     "@skills/agentic-engineering/METHODOLOGY.md",
@@ -1200,27 +1194,18 @@ else:
         print("  + Appended managed-by-agentic-engineering section to ~/.claude/CLAUDE.md")
     else:
         print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
-
-# MINOR-4 (DS-143 Skeptic loop 2): signal to the shell whether this run
-# actually changed the on-disk content, so the registry-refresh restart
-# notice below can be scoped to runs that actually changed something
-# (an idempotent re-run against an already-lean block must not re-print it).
-if changed_marker and updated != existing:
-    with open(changed_marker, "w") as f:
-        f.write("changed\n")
 PYEOF
 
 if [[ "$SKILL_LINK_OK" != "true" ]]; then
   echo "  WARNING: keeping the @-import lines in CLAUDE.md's managed block ($SKILL_LINK_REASON)."
   echo "  Resolve the skill symlink conflict noted above, then re-run install.sh to switch to"
   echo "  skill-triggered methodology loading."
-elif [[ -f "$AE_CLAUDE_MD_CHANGED_MARKER" ]]; then
+else
   echo ""
   echo "IMPORTANT: skill definitions changed. Start a NEW Claude Code session"
   echo "before relying on /agentic-engineering - the currently running session's"
   echo "skill registry may not reflect this update yet."
 fi
-rm -f "$AE_CLAUDE_MD_CHANGED_MARKER"
 fi
 
 # ---------------------------------------------------------------------------

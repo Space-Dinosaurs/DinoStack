@@ -16,8 +16,8 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~44 s wall time (17 install.sh invocations after the DS-143
-#              Skeptic loop 2 fix pass, up from 15; each runs two full adapter
+# Performance: ~50 s wall time (19 install.sh invocations after the DS-143
+#              Skeptic loop 3 fix pass, up from 17; each runs two full adapter
 #              builds against the real checkout).
 #
 # Regression coverage:
@@ -75,19 +75,28 @@
 #   - Case (k): negative migration control - an already-migrated (lean)
 #     block plus a user-set skill_auto_load:false stays false (the
 #     migration self-disarms once the old @-import marker is gone from
-#     disk). Also asserts (MINOR-4, Skeptic loop 2) that the
-#     registry-refresh restart notice does NOT fire on this idempotent
-#     no-op rewrite, contrasting with case (a)'s fresh create/strip where
-#     it must.
+#     disk). Also asserts (MAJOR, Skeptic loop 3, re-aimed from the loop 2
+#     MINOR-4 fix) that the registry-refresh restart notice FIRES on this
+#     gate-allowed rewrite even though CLAUDE.md's own rewrite is a no-op -
+#     the notice's subject is the skill body, not CLAUDE.md's byte diff.
 #   - Case (l) (Skeptic loop 2, MAJOR-2): the UserPromptSubmit
 #     skill-auto-load-check command written into settings.json carries the
 #     AE_ADAPTER=claude tag, immunizing it against an ambient AE_ADAPTER env
 #     var accidentally routing it into the shared hook script's codex|gemini
 #     exit-0 no-op path.
-#   - Case (m) (Skeptic loop 2, MINOR-3): a template file missing its
-#     manifest comment terminator ("-->") makes install.sh fail loudly and
-#     leave CLAUDE.md untouched, instead of silently shipping the whole
-#     file (manifest included) into the user's managed block.
+#   - Case (m) (Skeptic loop 2, MINOR-3; hardened Skeptic loop 3): a template
+#     file missing its manifest comment terminator ("-->") makes install.sh
+#     fail loudly and leave CLAUDE.md untouched, instead of silently shipping
+#     the whole file (manifest included) into the user's managed block. The
+#     mutated template is restored via a real `trap ... EXIT`, not a
+#     straight-line `cp` after the fact.
+#   - Case (n) (Skeptic loop 3, MAJOR): update-path reproduction - a fresh
+#     install (Run 1) followed by a Run 2 against the same FAKE_HOME after an
+#     embedded skill input (content/rules/conventions.md) is mutated with a
+#     canary. CLAUDE.md's managed block is byte-identical across both runs,
+#     but SKILL.md is regenerated with the canary and the registry-refresh
+#     restart notice must still fire on Run 2 - the exact steady-state
+#     `/ds-update` scenario the notice exists to cover.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -891,14 +900,17 @@ else
   _fail "case (k): expected skill_auto_load to stay False, got '$_k_auto_load'"
 fi
 
-# MINOR-4 (DS-143 Skeptic loop 2): re-writing an already-lean block with
-# identical content is a no-op rewrite (updated == existing) - the
-# registry-refresh restart notice must NOT fire, unlike case (a)'s fresh
-# create/strip where it must.
+# MAJOR (DS-143 Skeptic loop 3): the registry-refresh restart notice's
+# subject is the skill body, not CLAUDE.md's byte diff - this run's gate
+# allowed the strip (SKILL_LINK_OK == true), so the skill artifact was
+# (re)generated even though re-writing an already-lean block is a no-op
+# rewrite of CLAUDE.md itself. The notice MUST fire here, same as case (a)'s
+# fresh create/strip - an idempotent CLAUDE.md rewrite is not evidence that
+# the skill definitions did not change underneath it.
 if grep -Fq "IMPORTANT: skill definitions changed" "$FAKE_HOME/.install_out"; then
-  _fail "case (k): registry-refresh restart notice fired on an idempotent no-op rewrite"
+  _pass "case (k): registry-refresh restart notice fires on a gate-allowed rewrite even when CLAUDE.md itself is a no-op"
 else
-  _pass "case (k): registry-refresh restart notice does NOT fire on an idempotent no-op rewrite"
+  _fail "case (k): registry-refresh restart notice missing on a gate-allowed rewrite (CLAUDE.md no-op must not suppress it)"
 fi
 
 rm -rf "$FAKE_HOME"
@@ -947,14 +959,18 @@ rm -rf "$FAKE_HOME"
 #           silently ship the whole file, manifest comment included, into
 #           the user's CLAUDE.md) AND must not touch CLAUDE.md at all.
 #           Mutates the REAL template file in this checkout for the
-#           duration of the case only; always restored via trap-adjacent
-#           cleanup below, mirroring the canary-mutation pattern used
-#           elsewhere in this repo for gate verification.
+#           duration of the case only, restored via a real `trap ... EXIT`
+#           (MINOR, DS-143 Skeptic loop 3) - a straight-line `cp` after
+#           `_run_install` leaves the tracked, shippable template corrupted
+#           on disk if the case is interrupted or aborts between the mutate
+#           and restore steps.
 # ---------------------------------------------------------------------------
 
 TEMPLATE_PATH="$REPO_DIR/content/templates/claude-managed-content.md"
 TEMPLATE_BACKUP="$(mktemp)"
 cp "$TEMPLATE_PATH" "$TEMPLATE_BACKUP"
+_case_m_restore() { cp "$TEMPLATE_BACKUP" "$TEMPLATE_PATH"; rm -f "$TEMPLATE_BACKUP"; }
+trap '_case_m_restore; _cleanup' EXIT
 printf 'no manifest comment here, no terminator either\n' > "$TEMPLATE_PATH"
 
 FAKE_HOME="$(mktemp -d)"
@@ -962,8 +978,8 @@ mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
 
 _run_install "$FAKE_HOME" || true
 
-cp "$TEMPLATE_BACKUP" "$TEMPLATE_PATH"
-rm -f "$TEMPLATE_BACKUP"
+_case_m_restore
+trap _cleanup EXIT
 
 if grep -Fq "could not find manifest comment terminator" "$FAKE_HOME/.install_out"; then
   _pass "case (m): install.sh fails loudly when the template's manifest terminator is missing"
@@ -975,6 +991,78 @@ if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
   _pass "case (m): CLAUDE.md was NOT created when the template's manifest terminator is missing"
 else
   _fail "case (m): CLAUDE.md was created despite the template's manifest terminator being missing"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (n): MAJOR (DS-143 Skeptic loop 3) - update-path reproduction. Run 1
+#           (fresh install) establishes the skill link and writes CLAUDE.md.
+#           Then an embedded skill input (content/rules/conventions.md) is
+#           mutated with a canary line and Run 2 (update path) is executed
+#           against the SAME FAKE_HOME - CLAUDE.md's managed block does not
+#           change (the Skill Loading table body is unrelated to
+#           conventions.md), but .claude/build.sh regenerates
+#           .claude/skills/agentic-engineering/SKILL.md with the canary
+#           embedded. The registry-refresh restart notice must still fire on
+#           Run 2: its subject is the skill body, not CLAUDE.md's byte diff,
+#           and Run 2 is exactly the run the notice exists to warn about (a
+#           stale in-session skill registry after skill content changed).
+#           Restored via trap so an interrupt mid-case cannot leave the
+#           canary in a tracked, shippable source file. install.sh's build
+#           step (.claude/build.sh) regenerates adapter outputs against the
+#           REAL repo checkout, not FAKE_HOME - so restoring the source alone
+#           is not sufficient; the adapters must be rebuilt afterward or the
+#           canary leaks into tracked, shippable generated files (SKILL.md,
+#           .cursor/rules/conventions.mdc, etc.).
+# ---------------------------------------------------------------------------
+
+CONVENTIONS_PATH="$REPO_DIR/content/rules/conventions.md"
+CONVENTIONS_BACKUP="$(mktemp)"
+cp "$CONVENTIONS_PATH" "$CONVENTIONS_BACKUP"
+_case_n_restore() {
+  cp "$CONVENTIONS_BACKUP" "$CONVENTIONS_PATH"
+  rm -f "$CONVENTIONS_BACKUP"
+  bash "$REPO_DIR/scripts/build-all.sh" > /dev/null 2>&1 || true
+}
+trap '_case_n_restore; _cleanup' EXIT
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+
+_run_install "$FAKE_HOME" || true
+_n_claude_md_run1="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+
+printf '\n<!-- case-n-canary -->\n' >> "$CONVENTIONS_PATH"
+
+_run_install "$FAKE_HOME" || true
+_n_claude_md_run2="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+_n_skill_md_run2="$(cat "$FAKE_HOME/.claude/skills/agentic-engineering/SKILL.md" 2>/dev/null)"
+_n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
+
+# Restore + rebuild BEFORE assertions: $FAKE_HOME's skill files are symlinks
+# into the real repo checkout, so once the canary is removed and adapters
+# rebuilt, the symlinked SKILL.md would read back clean too - captured
+# above, into the shell variables, before restoring.
+_case_n_restore
+trap _cleanup EXIT
+
+if [[ "$_n_claude_md_run1" == "$_n_claude_md_run2" ]]; then
+  _pass "case (n): update-path run's CLAUDE.md managed block is byte-identical across runs (no-op rewrite)"
+else
+  _fail "case (n): update-path run unexpectedly changed CLAUDE.md's managed block"
+fi
+
+if [[ "$_n_skill_md_run2" == *"case-n-canary"* ]]; then
+  _pass "case (n): update-path run's regenerated SKILL.md embeds the canary (build actually ran)"
+else
+  _fail "case (n): update-path run's SKILL.md does not contain the canary - build did not regenerate it"
+fi
+
+if [[ "$_n_install_out_run2" == *"IMPORTANT: skill definitions changed"* ]]; then
+  _pass "case (n): registry-refresh restart notice fires on the update-path run even though CLAUDE.md is a no-op"
+else
+  _fail "case (n): registry-refresh restart notice missing on the update-path run (the exact case it exists for)"
 fi
 
 rm -rf "$FAKE_HOME"
