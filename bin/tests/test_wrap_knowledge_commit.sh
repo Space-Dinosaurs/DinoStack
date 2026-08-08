@@ -122,11 +122,11 @@ else
   _fail "$TICKET_REWORK does not name Phase 11b as the Trivial-skipped mechanism - spec item 18's reword is missing."
 fi
 
-# 4. agentic-emit knowledge_commit must appear inside Part G.
-if grep -qF 'agentic-emit knowledge_commit' "$WRAP"; then
-  _pass "'agentic-emit knowledge_commit' present in $WRAP"
+# 4. ds-emit knowledge_commit must appear inside Part G.
+if grep -qF 'ds-emit knowledge_commit' "$WRAP"; then
+  _pass "'ds-emit knowledge_commit' present in $WRAP"
 else
-  _fail "'agentic-emit knowledge_commit' not found in $WRAP - Part G step 10's auditability event is missing."
+  _fail "'ds-emit knowledge_commit' not found in $WRAP - Part G step 10's auditability event is missing."
 fi
 
 # 5. The check-ignore gate must be present, and must NOT be suffixed

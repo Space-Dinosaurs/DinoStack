@@ -26,7 +26,7 @@ loop, not a multi-phase pipeline. No subagent spawns, no new config toggles.
 
 ## Step 1 - Load open items
 
-Run `agentic-feedback list --status open` (prints a JSON array; empty store
+Run `ds-feedback list --status open` (prints a JSON array; empty store
 or file-absent prints `[]`). If the array is empty, print:
 
 ```
@@ -155,7 +155,7 @@ Supply:
 - `TICKET_TYPE` = resolved in Step 4a
 
 On `CREATE_STATUS=created`: run
-`agentic-feedback mark --id <item.id> --status triaged` and record
+`ds-feedback mark --id <item.id> --status triaged` and record
 `CREATED_TICKET_URL` for the closing summary. On `failed`/`skipped`: apply
 Step 4c.
 
@@ -165,7 +165,7 @@ The operator may dismiss an item without creating a ticket, at any point in
 the session:
 
 ```
-agentic-feedback mark --id <id> --status dismissed
+ds-feedback mark --id <id> --status dismissed
 ```
 
 This is available for indices the operator reviewed in Step 2 and decided
@@ -212,8 +212,8 @@ This command intentionally does NOT:
 - Auto-create tickets without explicit per-batch operator greenlight.
 - Cross-route `scope: methodology` items to a maintainer tracker (deferred
   slice-2; see Slice-1 boundary above).
-- Mutate `~/.agentic/feedback.jsonl` records other than via `agentic-feedback
-  mark` (id/ts/status remain CLI-owned per `bin/agentic-feedback`).
+- Mutate `~/.agentic/feedback.jsonl` records other than via `ds-feedback
+  mark` (id/ts/status remain CLI-owned per `bin/ds-feedback`).
 - Spawn any subagent - the entire flow is conductor-direct.
 - Invoke `/ds-implement-ticket` or any implementation agent on the created
   tickets. The ticket is created; working it is a separate, later decision.

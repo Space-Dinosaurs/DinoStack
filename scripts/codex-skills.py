@@ -941,7 +941,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         generated, replacements = re.subn(
             r"Use `?CLAUDE_CODE_SESSION_ID`? and only that variable\s*-\s*"
             r"`?AGENTIC_SESSION_ID`? and `?CLAUDE_SESSION_UUID`? are both empty in a live "
-            r"session \(`?bin/agentic-migrate`? reads them and is already silently degraded as "
+            r"session \(`?bin/ds-migrate`? reads them and is already silently degraded as "
             r"a result\)\.",
             "Use `AE_SESSION_ID` only. It is the Codex session binding derived by passing hook "
             "JSON to `$AE_REPO_DIR/bin/ds-codex-session-id`.",

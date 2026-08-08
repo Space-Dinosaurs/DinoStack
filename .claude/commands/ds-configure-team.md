@@ -14,10 +14,10 @@ This is a standalone any-harness capability - it is independent of the Pi/oh-my-
 
 ## Step 1 - Configure the team
 
-Run `bin/agentic-team configure` to launch a **discovery-first** interactive wizard and write `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
+Run `bin/ds-team configure` to launch a **discovery-first** interactive wizard and write `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
 
 ```bash
-bin/agentic-team configure
+bin/ds-team configure
 ```
 
 The wizard runs `discover` first and prints a summary of installed harnesses (version + discovered model count when available) before asking anything. If only your own harness (e.g. `claude`) is installed - nothing to cross-dispatch to - it says so and exits cleanly without prompting.
@@ -48,7 +48,7 @@ Discovered models are shown for reference only - you may type any model id, or l
 For non-interactive use - useful in scripts or automated onboarding - pass assignments directly (unchanged, back-compat path):
 
 ```bash
-bin/agentic-team configure \
+bin/ds-team configure \
   --non-interactive \
   --assign architect=claude:claude-opus-4-5 \
   --assign engineer=omp:kimi/kimi-k2.7 \
@@ -67,13 +67,13 @@ Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-h
 Confirm which harnesses are installed and which models they can reach:
 
 ```bash
-bin/agentic-team discover
+bin/ds-team discover
 ```
 
 For machine-readable output:
 
 ```bash
-bin/agentic-team discover --json
+bin/ds-team discover --json
 ```
 
 Each discovered harness reports installed status, version, discovered models (best-effort - populated for `omp` and `cursor-agent`, `[]` for the rest), and invocation family. A harness listed as an `--assign` target but absent from discovery output means it is not installed - resolve that before dispatching.
@@ -82,6 +82,6 @@ Each discovered harness reports installed status, version, discovered models (be
 
 See `content/references/cross-harness-teams.md` for the full dispatch, status-check, and collect flow.
 
-**Routing enforcement (Claude Code, proactive).** On Claude Code, once `.agentic/team.yml` has `enabled: true`, the `hooks/enforce-background-spawn.py` hook proactively denies a native `Task`/`Agent` spawn for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) mapped to a non-`claude` harness - even before any dispatch has happened. The deny message gives the exact `bin/agentic-team dispatch ...` command to run instead. Set `AE_TEAM_ROUTING_DISABLE=1` to disable this check if needed.
+**Routing enforcement (Claude Code, proactive).** On Claude Code, once `.agentic/team.yml` has `enabled: true`, the `hooks/enforce-background-spawn.py` hook proactively denies a native `Task`/`Agent` spawn for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) mapped to a non-`claude` harness - even before any dispatch has happened. The deny message gives the exact `bin/ds-team dispatch ...` command to run instead. Set `AE_TEAM_ROUTING_DISABLE=1` to disable this check if needed.
 
 **Suppression contract (binding on all harnesses).** While a team run is active - indicated by `.agentic/teamrun/.active` existing in the project root - the conductor MUST NOT spawn its own native subagents. The cross-harness team is the active delegation surface; spawning native agents alongside it creates duplicate work and uncoordinated state. On Claude Code this contract is enforced by a hook; on Codex, Gemini, Kimi, and other harnesses it is a prose contract that the conductor must honor. Treat the presence of `.agentic/teamrun/.active` as a hard suppression signal regardless of harness.

@@ -51,7 +51,8 @@ Sanctioned scan sites (`SCAN_FILES`, tests 3/3b only):
     carries the enumerated set, the "not exhaustive" framing, and Step 0
     check 2's sanctioning phrase.
   - content/agents/skeptic.md - the Skeptic's own operating instructions
-    (hardlinked to .claude/agents/skeptic.md, same inode - editing one edits
+    (.claude/agents is a symlink blob pointing at ../content/agents, so
+    .claude/agents/skeptic.md resolves to the same file - editing one edits
     both; this suite reads the content/ path only, per repo convention).
   No other file is scanned by tests 3/3b: the closed-world-construction
   residual catcher exists to police the two files that define and enforce

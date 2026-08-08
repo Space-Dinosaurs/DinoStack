@@ -11,9 +11,9 @@ Purpose: Conductor-facing command to inspect and apply project scaffolding migra
          from the canonical manifest (content/project-scaffolding.yml).
 Public API: /ds-migrate-project, /ds-migrate-project --apply, /ds-migrate-project --apply --include-destructive,
             /ds-migrate-project --reset <version>
-Upstream: content/project-scaffolding.yml (via bin/agentic-migrate); project .agentic/config.json
-Downstream: called by operator; shells out to bin/agentic-migrate
-Failure modes: silently swallowed by agentic-migrate; command surfaces exit-code summary to operator
+Upstream: content/project-scaffolding.yml (via bin/ds-migrate); project .agentic/config.json
+Downstream: called by operator; shells out to bin/ds-migrate
+Failure modes: silently swallowed by ds-migrate; command surfaces exit-code summary to operator
 -->
 
 Inspect or apply project scaffolding migrations from the canonical manifest (`content/project-scaffolding.yml`). By default (no flags) runs a dry-run diff and shows what would change without applying anything.
@@ -33,7 +33,7 @@ Inspect or apply project scaffolding migrations from the canonical manifest (`co
 
 Shells out to:
 ```bash
-agentic-migrate diff [--manifest <resolved-path>] [--project-root <cwd>]
+ds-migrate diff [--manifest <resolved-path>] [--project-root <cwd>]
 ```
 
 Prints a human-readable summary of what `--apply` would do. Read-only - no changes written.
@@ -42,7 +42,7 @@ Prints a human-readable summary of what `--apply` would do. Read-only - no chang
 
 Shells out to:
 ```bash
-agentic-migrate apply [--manifest <resolved-path>] [--project-root <cwd>]
+ds-migrate apply [--manifest <resolved-path>] [--project-root <cwd>]
 ```
 
 Applies additive scaffolding rules from the manifest:
@@ -69,17 +69,17 @@ Sets `scaffolding_version` in `.agentic/config.json` to the specified integer wi
 **Use case:** you want the next preflight to re-run the full diff and re-emit the audit line - for example, to verify the migration engine is idempotent after a manual edit to `.gitignore` or `.agentic/`. Does NOT undo applied changes; if you need to undo, do so manually.
 
 ```bash
-agentic-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-verify
+ds-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-verify
 ```
 
 ## Manifest resolution
 
-`agentic-migrate` resolves the manifest in this order (first found wins):
+`ds-migrate` resolves the manifest in this order (first found wins):
 1. `AGENTIC_MANIFEST_PATH` env var
 2. `~/.claude/skills/agentic-engineering/project-scaffolding.yml`
 3. `<script_dir>/../content/project-scaffolding.yml` (dev path)
 
-## Exit codes from agentic-migrate
+## Exit codes from ds-migrate
 
 | Code | Meaning |
 |------|---------|

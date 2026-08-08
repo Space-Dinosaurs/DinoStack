@@ -45,7 +45,7 @@ Upstream deps: stdlib only (subprocess, dataclasses, pathlib, shutil).
                GIT_CONFIG_NOSYSTEM=1, and a fixture-local GIT_CONFIG_GLOBAL so
                no ambient git identity, init.defaultBranch, gpgsign setting,
                or ~/.nvm/nvm.sh (which would otherwise prepend to PATH ahead
-               of the agentic-identity stub dir) can leak in. The bare
+               of the ds-identity stub dir) can leak in. The bare
                `origin` added by add_bare_origin() is a sibling directory on
                the same filesystem - still no network access.
 
@@ -368,18 +368,18 @@ def _seed_session_log(repo_dir: Path, developer: str) -> Path:
     return log_path
 
 
-def _stub_agentic_identity(
+def _stub_ds_identity(
     bin_dir: Path, env: dict[str, str], developer: Optional[str], provisional: bool = False
 ) -> None:
-    """Install a PATH-shadowing fake `agentic-identity` executable so the
-    block's `agentic-identity show` calls resolve deterministically without
+    """Install a PATH-shadowing fake `ds-identity` executable so the
+    block's `ds-identity show` calls resolve deterministically without
     depending on this machine's real ~/.agentic/identity.yml."""
     bin_dir.mkdir(parents=True, exist_ok=True)
-    stub = bin_dir / "agentic-identity"
+    stub = bin_dir / "ds-identity"
     if developer is None:
         body = (
             "#!/bin/sh\n"
-            'echo "No identity set. Run: agentic-identity init <handle>"\n'
+            'echo "No identity set. Run: ds-identity init <handle>"\n'
             "exit 0\n"
         )
     elif provisional:
@@ -407,7 +407,7 @@ def build_dinostack_shape(tmp_path: Path) -> Fixture:
     _init_repo(repo_dir, branch_name, env)
     _write_gitignore(repo_dir, DINOSTACK_GITIGNORE, env)
     _seed_session_log(repo_dir, developer)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = ""
@@ -428,7 +428,7 @@ def build_consumer_shape(tmp_path: Path) -> Fixture:
     _write_gitignore(repo_dir, CONSUMER_GITIGNORE, env)
     _seed_session_log(repo_dir, developer)
     _run(["git", "worktree", "add", "-q", str(worktree_dir), "-b", branch_name], cwd=repo_dir, env=env)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = str(worktree_dir)
@@ -456,7 +456,7 @@ def build_worktree_shape(tmp_path: Path) -> Fixture:
         f"fixture invariant violated: {dest} must not exist before the "
         f"block runs (required for the D2 mutant to be a valid no-op test)"
     )
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = str(worktree_dir)
@@ -476,7 +476,7 @@ def build_fanout_shape(tmp_path: Path) -> Fixture:
     _init_repo(repo_dir, branch_name, env)
     _write_gitignore(repo_dir, CONSUMER_GITIGNORE, env)
     _seed_session_log(repo_dir, developer)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = ""
@@ -484,7 +484,7 @@ def build_fanout_shape(tmp_path: Path) -> Fixture:
 
 
 def build_no_identity_shape(tmp_path: Path) -> Fixture:
-    """(v) Identity unconfirmed/absent: `agentic-identity show` resolves no
+    """(v) Identity unconfirmed/absent: `ds-identity show` resolves no
     `developer_id:` line, so $DEVELOPER is empty and the
     `[ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]` guard at :2284
     short-circuits - the telemetry block is never entered."""
@@ -495,7 +495,7 @@ def build_no_identity_shape(tmp_path: Path) -> Fixture:
     _write_gitignore(repo_dir, CONSUMER_GITIGNORE, env)
     # No session-log seeded - DEVELOPER never resolves, so SESSION_LOG_SRC is
     # never referenced (nothing to seed against).
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer=None)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer=None)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = ""
@@ -524,7 +524,7 @@ def build_identity_no_gitconfig_shape(tmp_path: Path) -> Fixture:
     _init_repo(repo_dir, branch_name, env)
     _write_gitignore(repo_dir, CONSUMER_GITIGNORE, env)
     _seed_session_log(repo_dir, developer)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = ""
@@ -877,7 +877,7 @@ def _build_knowledge_base(
     env = _base_env(tmp_path, DUMMY_NAME, DUMMY_EMAIL)
     _init_repo(repo_dir, branch_name, env)
     _write_gitignore(repo_dir, gitignore, env)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     _knowledge_env(env, repo_dir)
     return Fixture(repo_dir, None, branch_name, developer, env)
 
