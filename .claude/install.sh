@@ -23,6 +23,9 @@
 #              Hook wiring, build, and permission phases still execute.
 #
 # Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink.
+#   The CLAUDE.md managed-block table body is single-sourced from
+#   content/templates/claude-managed-content.md (manifest header stripped at
+#   write time) - do not re-inline that table here.
 #
 # Downstream consumers: bootstrap.sh (calls this), /update-agentic-engineering,
 #   developers running directly.
@@ -35,11 +38,36 @@
 #     already holds a valid DIFFERENT repo_dir, a warning is printed and the
 #     existing value is preserved. Only absent/invalid/same values are written.
 #   - All interactive prompts fall back to a default when stdin is not a TTY.
+#     The skill_auto_load prompt (fresh install only) defaults to yes ([Y/n],
+#     blank = yes) both interactively and non-interactively.
 #   - A skipped or not-yet-created skill symlink sets SKILL_LINK_OK=false and
 #     emits an operator warning twice per run (once where the skip is
 #     detected, once in the Summary block). Every --dry-run on a machine
 #     without an existing, correctly-pointed skill link falls into this case
 #     and emits the warning, since --dry-run never creates the symlink.
+#   - DS-143 gate: the CLAUDE.md managed block drops its three @-import lines
+#     ONLY when SKILL_LINK_OK == true; otherwise the imports are appended
+#     after the table exactly as before, and a warning is printed - the
+#     imports are never stripped without a working skill symlink to fall
+#     back on. On the run that first strips the imports (old-format block
+#     detected on disk pre-rewrite AND SKILL_LINK_OK == true), skill_auto_load
+#     is force-set to true in agentic-engineering.json as a one-time
+#     migration; this self-disarms once the old imports are gone from disk.
+#     A "start a new session" registry-refresh notice prints unconditionally
+#     whenever SKILL_LINK_OK == true (the strip gate allowed the skill-based
+#     table to be (re)written) - including idempotent re-runs and update-path
+#     runs where only the skill's regenerated body changed underneath an
+#     unchanged CLAUDE.md, since the notice's subject is the skill registry,
+#     not the CLAUDE.md byte diff. Suppressed only when the gate itself
+#     blocked the strip (SKILL_LINK_OK != true).
+#   - The managed-block table body's source,
+#     content/templates/claude-managed-content.md, must retain its leading
+#     HTML manifest comment with a "-->" terminator; if that terminator is
+#     missing, install.sh fails loudly and leaves CLAUDE.md untouched rather
+#     than silently shipping the whole template (manifest text included)
+#     into the user's file. Contract matches
+#     scripts/check-resident-budget.sh's own terminator requirement. A
+#     missing/unreadable template file at that path fails the same way.
 #
 # Performance: ~5-10 s (one build pass, node/python3 calls for hooks/settings).
 # ---------------------------------------------------------------------------
@@ -201,12 +229,12 @@ config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load agentic-engineering skill at session start? [Y/n] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
-        config["skill_auto_load"] = answer in ("y", "yes")
+        config["skill_auto_load"] = answer in ("", "y", "yes")
     except OSError:
-        config["skill_auto_load"] = False
+        config["skill_auto_load"] = True
 # Write back
 # Symlink guard: never write through a symlink (open("w") would follow it and
 # truncate the real target). If the config path is a symlink, refuse.
@@ -660,7 +688,7 @@ else:
         })
         print("  + Added UserPromptSubmit risk-classification hook")
 
-SKILL_AUTO_CMD = f"bash {hooks_root}/hooks/skill-auto-load-check.sh"
+SKILL_AUTO_CMD = f"AE_ADAPTER=claude bash {hooks_root}/hooks/skill-auto-load-check.sh"
 
 upsert_hook(
     ups_star["hooks"],
@@ -1037,43 +1065,100 @@ fi
 # Update ~/.claude/CLAUDE.md
 # ---------------------------------------------------------------------------
 
-# DS-143: when the @-imports are removed from managed_content below, decide
-# whether this write should be gated on SKILL_LINK_OK (set in the skill-symlink
-# block above). Do not remove the imports without making that call.
+# DS-143: the Skill Loading table body is single-sourced from
+# content/templates/claude-managed-content.md. When SKILL_LINK_OK == true
+# (the skill symlink resolves, so the methodology loads on skill invocation
+# instead), the three @-import lines are dropped and the registry-refresh
+# restart notice below fires unconditionally, since the skill body was
+# (re)written on this run regardless of whether CLAUDE.md's bytes changed.
+# When SKILL_LINK_OK != true, the imports are appended after the table
+# exactly as before, and a warning is printed instead of the notice - the
+# imports must never be stripped without a working skill symlink to fall
+# back on.
 if [[ "$AE_DRY_RUN" == "true" ]]; then
   echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md"
 else
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
-AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
-import os, re, sys
+AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_REPO_DIR="$REPO_DIR" AE_SKILL_LINK_OK="$SKILL_LINK_OK" AE_CONFIG_PATH="$AE_CONFIG_PATH" python3 - <<'PYEOF'
+import json, os, re, sys
 
 target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
-managed_content = """\
-<!-- BEGIN managed-by-agentic-engineering -->
-## Skill Loading
+repo_dir = os.environ.get("AE_REPO_DIR", "")
+skill_link_ok = os.environ.get("AE_SKILL_LINK_OK", "") == "true"
+config_path = os.environ.get("AE_CONFIG_PATH", "")
 
-Before starting any task, check if a domain skill should be loaded:
+import_lines = [
+    "@skills/agentic-engineering/METHODOLOGY.md",
+    "@skills/agentic-engineering/rules/code-standards.md",
+    "@skills/agentic-engineering/rules/conventions.md",
+]
+old_import_marker = import_lines[0]
 
-| Signal | Skill |
-|---|---|
-| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+template_path = os.path.join(repo_dir, "content", "templates", "claude-managed-content.md")
+try:
+    with open(template_path, "r") as f:
+        template_raw = f.read()
+except OSError as e:
+    sys.stderr.write(f"  ! managed-content template not found or unreadable: {template_path} ({e})\n")
+    sys.stderr.write("  ! CLAUDE.md was NOT touched.\n")
+    sys.exit(1)
 
-If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+# Strip the leading manifest HTML comment: everything through the closing "-->"
+# of that comment block. Only the body after it ships into CLAUDE.md.
+# Contract aligned with scripts/check-resident-budget.sh (MINOR-3, DS-143
+# Skeptic loop 2): require the "-->" terminator and fail loudly when absent,
+# rather than silently falling back to shipping the whole file (manifest
+# comment included) into the user's ~/.claude/CLAUDE.md.
+close_idx = template_raw.find("-->")
+if close_idx == -1:
+    sys.stderr.write(
+        f"  ! could not find manifest comment terminator ('-->') in {template_path}\n"
+    )
+    sys.stderr.write("  ! CLAUDE.md was NOT touched.\n")
+    sys.exit(1)
+template_body = template_raw[close_idx + 3:]
+template_body = template_body.strip("\n")
 
-@skills/agentic-engineering/METHODOLOGY.md
-@skills/agentic-engineering/rules/code-standards.md
-@skills/agentic-engineering/rules/conventions.md
-<!-- END managed-by-agentic-engineering -->"""
+block_lines = [begin_marker, template_body]
+if not skill_link_ok:
+    block_lines.append("")
+    block_lines.extend(import_lines)
+block_lines.append(end_marker)
+managed_content = "\n".join(block_lines)
 
 if os.path.exists(target):
     with open(target, "r") as f:
         existing = f.read()
 else:
     existing = ""
+
+# One-time migration: if the CLAUDE.md content ON DISK BEFORE this rewrite
+# still carried the old always-loaded @-import, AND this run is actually
+# stripping it (skill_link_ok), force skill_auto_load=true so users are not
+# left with neither the always-on imports nor the trigger-loaded skill.
+# Self-disarming: once the old marker is gone from disk (this run migrates
+# it away, or a user removes it by hand), this condition can never fire
+# again for this installation.
+if skill_link_ok and old_import_marker in existing and config_path:
+    try:
+        if os.path.islink(config_path):
+            raise OSError(f"refusing to write through symlink: {config_path}")
+        if os.path.exists(config_path):
+            with open(config_path, "r") as f:
+                cfg = json.load(f)
+        else:
+            cfg = {}
+        cfg["skill_auto_load"] = True
+        with open(config_path, "w") as f:
+            json.dump(cfg, f, indent=2)
+            f.write("\n")
+        print("  + one-time migration: forced skill_auto_load=true (old @-imports were being removed)")
+    except Exception as e:
+        sys.stderr.write(f"  ! migration write failed: {e}\n")
 
 # Symlink guard: never write through a symlink (open("w") follows it and truncates
 # the real target). PoC verified: symlinking CLAUDE.md to a victim file and running
@@ -1087,7 +1172,12 @@ if begin_marker in existing and end_marker in existing:
         r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
         re.DOTALL
     )
-    updated = pattern.sub(managed_content, existing)
+    # Use a callable replacement, not a string one: pattern.sub() interprets
+    # backslash escapes (e.g. \1, \g<name>) in a string replacement, and the
+    # template body is a markdown table where a literal pipe is written as
+    # "\|" - a callable sidesteps that interpretation entirely (MINOR-1,
+    # DS-143 Skeptic loop 2).
+    updated = pattern.sub(lambda _: managed_content, existing)
     with open(target, "w") as f:
         f.write(updated)
     print("  = Updated managed-by-agentic-engineering section in ~/.claude/CLAUDE.md")
@@ -1105,6 +1195,17 @@ else:
     else:
         print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
 PYEOF
+
+if [[ "$SKILL_LINK_OK" != "true" ]]; then
+  echo "  WARNING: keeping the @-import lines in CLAUDE.md's managed block ($SKILL_LINK_REASON)."
+  echo "  Resolve the skill symlink conflict noted above, then re-run install.sh to switch to"
+  echo "  skill-triggered methodology loading."
+else
+  echo ""
+  echo "IMPORTANT: skill definitions changed. Start a NEW Claude Code session"
+  echo "before relying on /agentic-engineering - the currently running session's"
+  echo "skill registry may not reflect this update yet."
+fi
 fi
 
 # ---------------------------------------------------------------------------
