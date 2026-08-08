@@ -75,10 +75,16 @@
 # output - it is a presence check, not a completeness digest, so partial
 # corruption or truncation of a section's BODY (heading intact, content
 # gutted or duplicated) is only caught if it pushes total bytes outside
-# FLOOR..CEILING; small sections can be truncated or duplicated internally
-# and still land inside the band undetected. A content-integrity digest is
-# out of scope for this script - that is scripts/check-methodology-drift.sh's
-# job for METHODOLOGY.md itself.
+# FLOOR..CEILING; small sections or rules files can be truncated or
+# duplicated internally and still land inside the band undetected
+# (confirmed live: replacing content/sections/04-risk-classification.md's
+# body with a 3-line stub, heading intact, still measured 110,161 B - well
+# inside the band). scripts/check-methodology-drift.sh owns content
+# integrity for content/sections/** (via build-methodology.sh's output),
+# but nothing in this repo's CI owns content integrity for
+# content/rules/code-standards.md or content/rules/conventions.md - body-
+# gutting inside either of those two files is an unattributed gap, not a
+# gap covered by drift-checking elsewhere.
 #
 # Compatible with both bash and zsh invocation of the containing shell; a
 # contributor, reviewer, or this file's own regression test may invoke it as
@@ -183,13 +189,24 @@ _check_embedded_set() {
     exit 1
   fi
   file_count="$(wc -l <<< "$files" | tr -d '[:space:]')"
-  if [ "$file_count" -ne "$expected_count" ]; then
+  if [ "$file_count" -gt "$expected_count" ]; then
     echo "check-skill-embed-budget.sh: embed incomplete" >&2
     echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
-    echo "  a $label source file was added or deleted outright (a pinned-count" >&2
-    echo "  check on purpose - see EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT" >&2
-    echo "  above for why). Update the expected count deliberately if" >&2
-    echo "  intentional, or restore the missing file if not." >&2
+    echo "  a new $label source file was added - this is likely intentional." >&2
+    echo "  If so, bump EXPECTED_SECTION_COUNT or EXPECTED_RULES_COUNT above" >&2
+    echo "  in the same commit that adds the file. If not, an extra file" >&2
+    echo "  landed under $dir unexpectedly - investigate before bumping the" >&2
+    echo "  count." >&2
+    exit 1
+  fi
+  if [ "$file_count" -lt "$expected_count" ]; then
+    echo "check-skill-embed-budget.sh: embed incomplete" >&2
+    echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
+    echo "  a $label source file went missing from $dir. This is the deleted-" >&2
+    echo "  file case the pinned EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT" >&2
+    echo "  constants exist to catch (see their comment above) - restore the" >&2
+    echo "  missing file. Do NOT lower the expected count to make this pass" >&2
+    echo "  unless the removal was deliberate." >&2
     exit 1
   fi
   while IFS= read -r f; do
@@ -207,11 +224,38 @@ _check_embedded_set() {
       echo "  byte band alone cannot detect." >&2
       exit 1
     fi
+    # Accumulate into the global ALL_HEADINGS list (deliberately not `local`
+    # here) so the caller can assert every checked heading is unique across
+    # BOTH sets after both invocations return - see that check below.
+    ALL_HEADINGS="$ALL_HEADINGS$heading
+"
   done <<< "$files"
 }
 
+ALL_HEADINGS=""
 _check_embedded_set "$REPO_DIR/content/sections" '[0-9][0-9]-*.md' '' "$EXPECTED_SECTION_COUNT" 'section'
 _check_embedded_set "$REPO_DIR/content/rules" '*.md' 'module-manifest.md' "$EXPECTED_RULES_COUNT" 'rules'
+
+# Duplicate-heading guard: `grep -qxF "$heading" "$SKILL_MD"` above matches
+# presence ANYWHERE in the built output, not per-file. If two source files
+# happened to share the same first top-level heading, dropping ONE of them
+# would still find the OTHER's copy of that heading in the output and pass
+# - the presence check alone cannot tell which file it matched. Not
+# currently possible (every heading checked above occurs exactly once as
+# of this writing), but asserting uniqueness up front closes this cheaply
+# instead of relying on that staying true by chance.
+duplicate_headings="$(printf '%s' "$ALL_HEADINGS" | LC_ALL=C sort | LC_ALL=C uniq -d)"
+if [ -n "$duplicate_headings" ]; then
+  echo "check-skill-embed-budget.sh: embed incomplete" >&2
+  echo "  duplicate top-level heading(s) shared across source files - the" >&2
+  echo "  presence check above cannot distinguish per-file completeness when" >&2
+  echo "  a heading repeats, so it can silently pass with one copy dropped:" >&2
+  printf '%s\n' "$duplicate_headings" | while IFS= read -r dup; do
+    [ -n "$dup" ] && echo "    $dup" >&2
+  done
+  echo "  give the affected file(s) a distinct top-level heading." >&2
+  exit 1
+fi
 
 skill_bytes="$(wc -c < "$SKILL_MD" | tr -d '[:space:]')"
 

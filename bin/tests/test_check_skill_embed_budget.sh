@@ -7,14 +7,23 @@
 #          tautology where deriving the "expected" file set from the same
 #          working-tree glob that assembly itself reads makes an outright
 #          `rm` of a source file invisible to the check (both sides move
-#          together). This test exercises the gate script directly against
-#          a scratch fixture repo (never the working tree itself),
-#          reproducing all four mutations found during review: a rules file
-#          dropped from the .claude/build.sh embed loop (conventions.md and
+#          together). The round-3 defect was that every scenario below sized
+#          its fixture at exactly (FLOOR + CEILING) / 2, so the FLOOR and
+#          CEILING checks themselves - the two bounds the gate exists to
+#          enforce - had zero coverage; both bound checks could be deleted
+#          wholesale and this suite stayed green. This test exercises the
+#          gate script directly against a scratch fixture repo (never the
+#          working tree itself), reproducing all four embed-completeness
+#          mutations found during round 1/2 review (a rules file dropped
+#          from the .claude/build.sh embed loop - conventions.md and
 #          code-standards.md, tested separately since they sort on either
-#          side of each other), a section dropped from
+#          side of each other; a section dropped from
 #          scripts/build-methodology.sh's assembly while the source file
-#          stays on disk, and a section file deleted outright from disk.
+#          stays on disk; a section file deleted outright from disk) plus
+#          the two round-3 bound scenarios (a fixture sized below FLOOR, a
+#          fixture padded past CEILING) - each asserting the specific bound
+#          message, not just the exit code, since a bound violation and an
+#          embed-incomplete failure both exit 1 and must be told apart.
 #
 # Public API: ./bin/tests/test_check_skill_embed_budget.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -31,8 +40,9 @@
 #                contributors without zsh installed can still run the rest
 #                of the suite.
 #
-# Downstream consumers: developer running locally before commit; CI
-#                        (bin-sh-tests.yml auto-discovers bin/tests/test_*.sh).
+# Downstream consumers: developer running locally before commit; CI (the
+#                        bin-sh-tests job in .github/workflows/bin-tests.yml
+#                        auto-discovers bin/tests/test_*.sh).
 #
 # Failure modes: gate script missing -> immediate FAIL. Any scenario's
 #                observed exit code or message does not match the expected
@@ -108,8 +118,11 @@ fi
 #     scripts/build-methodology.sh that assembles the section files (same
 #     glob/sort shape as the real one), and a stub .claude/build.sh that
 #     calls it and then embeds the rules files (skipping module-manifest.md,
-#     same as the real one) - deterministic and network-free. Sized so a
-#     clean build lands roughly midway between FLOOR and CEILING.
+#     same as the real one) - deterministic and network-free. $2, if given,
+#     overrides the target total byte size (default: roughly midway between
+#     FLOOR and CEILING) - used by the round-3 FLOOR/CEILING scenarios below
+#     to size a fixture that actually crosses one of the bounds instead of
+#     always landing safely inside them.
 build_fixture() {
   local dir="$1"
   mkdir -p "$dir/scripts" "$dir/content/sections" "$dir/content/rules" "$dir/.claude/skills/agentic-engineering"
@@ -117,8 +130,11 @@ build_fixture() {
   cp "$GATE_SCRIPT" "$dir/scripts/check-skill-embed-budget.sh"
 
   local total_files=$(( EXPECTED_SECTION_COUNT + 2 ))
-  local target_total=$(( (FLOOR + CEILING) / 2 ))
+  local target_total="${2:-$(( (FLOOR + CEILING) / 2 ))}"
   local per_file=$(( target_total / total_files ))
+  if [[ $per_file -lt 1 ]]; then
+    per_file=1
+  fi
 
   local i
   for (( i = 1; i <= EXPECTED_SECTION_COUNT; i++ )); do
@@ -393,6 +409,99 @@ else
     else
       _fail "section-deleted fixture did not fail identically under zsh (rc=$del_zsh_rc): $del_zsh_out"
     fi
+  fi
+fi
+
+# --- Scenario 5 (round-3 Major): fixture shrunk below FLOOR. Every scenario
+#     above sizes its fixture at roughly (FLOOR + CEILING) / 2, so none of
+#     them ever crossed either bound - both the FLOOR and CEILING checks
+#     could be deleted wholesale and this suite stayed green (the round-3
+#     defect this scenario and the next one close). Every file and heading
+#     is still present here - only the padding shrinks - so this must be
+#     caught by the byte-band check, not the embed-completeness check.
+#     Assert the specific "UNDER FLOOR" message, not just the exit code: a
+#     bound violation and an embed-incomplete failure both exit 1.
+FLOOR_DIR="$TMP_ROOT/under-floor"
+floor_target=$(( FLOOR - (FLOOR / 3) ))
+if [[ $floor_target -lt 1 ]]; then
+  floor_target=1
+fi
+build_fixture "$FLOOR_DIR" "$floor_target"
+
+floor_out="$(run_gate "$FLOOR_DIR" bash)"
+floor_rc=$?
+
+if [[ $floor_rc -ne 0 ]]; then
+  _pass "under-floor fixture exits non-zero"
+else
+  _fail "under-floor fixture exited 0 (expected non-zero, this is the round-3 Major missing-bound-coverage regression): $floor_out"
+fi
+
+if echo "$floor_out" | grep -q "UNDER FLOOR"; then
+  _pass "under-floor fixture reports UNDER FLOOR"
+else
+  _fail "under-floor fixture did not report UNDER FLOOR: $floor_out"
+fi
+
+if echo "$floor_out" | grep -q "embed incomplete"; then
+  _fail "under-floor fixture was misreported as embed incomplete instead of a bound violation - every file and heading is present in this fixture, only padding shrank: $floor_out"
+else
+  _pass "under-floor fixture is reported as a bound violation, not embed incomplete"
+fi
+
+if command -v zsh >/dev/null 2>&1; then
+  floor_zsh_out="$(run_gate "$FLOOR_DIR" zsh)"
+  floor_zsh_rc=$?
+  if [[ $floor_zsh_rc -ne 0 ]] && echo "$floor_zsh_out" | grep -q "UNDER FLOOR"; then
+    _pass "under-floor fixture fails identically under zsh"
+  else
+    _fail "under-floor fixture did not fail identically under zsh (rc=$floor_zsh_rc): $floor_zsh_out"
+  fi
+fi
+
+# --- Scenario 6 (round-3 Major): a rules fixture padded past CEILING after
+#     a normal, complete build. Every file and heading is still present -
+#     only content/rules/conventions.md's body grows - so this must be
+#     caught by the byte-band check, not the embed-completeness check.
+CEIL_DIR="$TMP_ROOT/over-ceiling"
+build_fixture "$CEIL_DIR"
+ceiling_pad_bytes=$(( CEILING - (FLOOR + CEILING) / 2 + 10000 ))
+python3 -c "
+import sys
+n = int(sys.argv[1])
+path = sys.argv[2]
+with open(path, 'a') as f:
+    f.write('p' * n)
+" "$ceiling_pad_bytes" "$CEIL_DIR/content/rules/conventions.md"
+
+ceiling_out="$(run_gate "$CEIL_DIR" bash)"
+ceiling_rc=$?
+
+if [[ $ceiling_rc -ne 0 ]]; then
+  _pass "over-ceiling fixture exits non-zero"
+else
+  _fail "over-ceiling fixture exited 0 (expected non-zero, this is the round-3 Major missing-bound-coverage regression): $ceiling_out"
+fi
+
+if echo "$ceiling_out" | grep -q "OVER CEILING"; then
+  _pass "over-ceiling fixture reports OVER CEILING"
+else
+  _fail "over-ceiling fixture did not report OVER CEILING: $ceiling_out"
+fi
+
+if echo "$ceiling_out" | grep -q "embed incomplete"; then
+  _fail "over-ceiling fixture was misreported as embed incomplete instead of a bound violation - every file and heading is present in this fixture, only conventions.md's body grew: $ceiling_out"
+else
+  _pass "over-ceiling fixture is reported as a bound violation, not embed incomplete"
+fi
+
+if command -v zsh >/dev/null 2>&1; then
+  ceiling_zsh_out="$(run_gate "$CEIL_DIR" zsh)"
+  ceiling_zsh_rc=$?
+  if [[ $ceiling_zsh_rc -ne 0 ]] && echo "$ceiling_zsh_out" | grep -q "OVER CEILING"; then
+    _pass "over-ceiling fixture fails identically under zsh"
+  else
+    _fail "over-ceiling fixture did not fail identically under zsh (rc=$ceiling_zsh_rc): $ceiling_zsh_out"
   fi
 fi
 
