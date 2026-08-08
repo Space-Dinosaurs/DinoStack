@@ -6,40 +6,34 @@
 #          needs the full methodology.
 #
 #          content/templates/claude-managed-content.md is the canonical
-#          source of that table, but the installer does not read this file
-#          today - it still carries the table text inline (a sibling unit
-#          of DS-143 wires the installer to read this file instead; until
-#          that lands, this gate bounds a copy that is not yet coupled to
-#          what ships). The file opens with a manifest HTML comment
-#          (Purpose/Public API/etc, delimited by <!-- ... -->) that never
-#          ships to CLAUDE.md - only the body after the comment does. This
-#          script measures that shipped body only, not the whole file: a
-#          measurement that included the manifest comment could pass with
-#          the entire table deleted, because the comment alone is larger
-#          than the table. If the manifest comment is absent (removed or
-#          reformatted), the whole file is treated as the body rather than
-#          failing on an "empty" match - the split is best-effort, not a
-#          hard requirement that the manifest exist.
+#          source of that table. As of DS-143, .claude/install.sh READS this
+#          file at run time rather than carrying the table inline - the
+#          installer and this gate now measure the same source. The file
+#          opens with a manifest HTML comment (Purpose/Public API/etc,
+#          delimited by <!-- ... -->) that never ships to CLAUDE.md - only
+#          the body after the comment does. This script measures that
+#          shipped body only, not the whole file: a measurement that
+#          included the manifest comment could pass with the entire table
+#          deleted, because the comment alone is larger than the table. If
+#          the manifest comment is absent (removed or reformatted), the
+#          whole file is treated as the body rather than failing on an
+#          "empty" match - the split is best-effort, not a hard requirement
+#          that the manifest exist.
 #
 #          A byte-count bound alone cannot detect content loss disguised as
 #          same-size filler, so this script also asserts a stable,
 #          content-bearing phrase from the table itself
 #          (STABLE_CONTENT_PHRASE below) is present in the measured body.
 #
-#          As of this unit, .claude/install.sh still emits three separate
-#          @-import lines into the managed block in addition to this table
-#          (@skills/agentic-engineering/METHODOLOGY.md,
+#          As of DS-143, .claude/install.sh no longer emits the three
+#          @-import lines (@skills/agentic-engineering/METHODOLOGY.md,
 #          @skills/agentic-engineering/rules/conventions.md,
-#          @skills/agentic-engineering/rules/code-standards.md - sourced
-#          from content/rules/conventions.md and
-#          content/rules/code-standards.md respectively) - see
-#          .claude/install.sh around the managed_content assembly.
-#          DS-143's plan is to remove those
-#          @-imports and make that content trigger-loaded instead (via the
-#          SKILL.md embed, budgeted separately by
-#          scripts/check-skill-embed-budget.sh), but that removal has NOT
-#          landed as of this commit - it is pending a sibling unit, not
-#          accomplished fact.
+#          @skills/agentic-engineering/rules/code-standards.md) into the
+#          managed block - that always-loaded injection was removed rather
+#          than relocated, and that content now loads on-trigger via the
+#          SKILL.md embed instead, budgeted separately by
+#          scripts/check-skill-embed-budget.sh. This gate bounds only the
+#          Skill Loading table.
 #
 #          This script sums the byte size of the shipped body of
 #          content/templates/claude-managed-content.md and fails if it
