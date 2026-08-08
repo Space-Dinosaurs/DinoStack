@@ -20,7 +20,7 @@ Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
          a dispatchable role (engineer/debugger/qa-engineer/skeptic/
          security-auditor) whose resolved harness (role entry, else
          default_harness) is anything OTHER than "claude", the native Task/Agent
-         spawn is denied with an actionable `bin/agentic-team dispatch ...`
+         spawn is denied with an actionable `bin/ds-team dispatch ...`
          instruction. This fixes the chicken-and-egg bug where team.yml was
          silently ignored because the (2)-below sentinel-based suppression only
          ever activates AFTER the first dispatch. Fail-open on any config load
@@ -30,7 +30,7 @@ Purpose: PreToolUse hook that enforces three METHODOLOGY rules on Claude Code:
          harness team run is active (sentinel <cwd>/.agentic/teamrun/.active
          exists and is LIVE), denies Task/Agent spawns outright AND denies Skill
          calls whose skill name starts with "oh-my-claudecode:" (OMC-skill
-         detection). Tells the conductor to use `bin/agentic-team dispatch`.
+         detection). Tells the conductor to use `bin/ds-team dispatch`.
          The sentinel is treated as EXPIRED (suppression lifted) when the PID it
          names is dead OR its mtime is older than 2 h - so a crashed conductor
          does not permanently suppress native spawns. Sentinel suppression
@@ -116,7 +116,7 @@ Failure modes:
       references the `model` field - no code path in the unknown-harness
       branch interpolates untrusted team.yml text.
     - Resolved harness known: deny message names the (allowlist-validated)
-      harness and a `bin/agentic-team dispatch` command, but the free-text
+      harness and a `bin/ds-team dispatch` command, but the free-text
       `model` value from team.yml is NEVER interpolated into the message -
       not even sanitized/truncated. The suggested dispatch command uses a
       literal `--model <model-from-team.yml>` placeholder so a malicious
@@ -145,7 +145,7 @@ _DISPATCHABLE_ROLES = frozenset({
 })
 
 # Mirrors KNOWN_HARNESSES in bin/_role_spec.py (single source of truth for
-# bin/agentic-team + bin/agentic-configure). _known_harnesses() below tries
+# bin/ds-team + bin/ds-configure). _known_harnesses() below tries
 # the real module first; this is only the fail-open fallback, kept in sync
 # by hand - matches how _DISPATCHABLE_ROLES above is hand-duplicated too.
 _KNOWN_HARNESSES_FALLBACK = frozenset({
@@ -217,7 +217,7 @@ _PROJECT_TEAM_YML_REL = ".agentic/team.yml"
 def _load_effective_team_config(cwd: str) -> dict:
     """Load and shallow-merge global + project team.yml (project wins).
 
-    Mirrors bin/agentic-team's _load_team_config merge semantics: read global
+    Mirrors bin/ds-team's _load_team_config merge semantics: read global
     then project, project overwrites per top-level key. PyYAML is imported
     locally so a hook-context environment without it degrades to an empty
     config (fail-open) rather than crashing. Any error anywhere (missing
@@ -395,7 +395,7 @@ def main() -> None:
                                     data,
                                     f"cross-harness team active: role '{role}' is "
                                     "assigned to a non-claude harness in team.yml; "
-                                    "dispatch via bin/agentic-team."
+                                    "dispatch via bin/ds-team."
                                 )
                             else:
                                 # model is untrusted free text from team.yml
@@ -408,7 +408,7 @@ def main() -> None:
                                     data,
                                     f"cross-harness team active: role '{role}' is assigned to "
                                     f"harness '{harness}'. Dispatch with: "
-                                    f"bin/agentic-team dispatch --harness {harness} --role {role} "
+                                    f"bin/ds-team dispatch --harness {harness} --role {role} "
                                     "--brief <file> --workdir <dir> --model <model-from-team.yml> "
                                     "- then poll status/collect."
                                 )
@@ -430,7 +430,7 @@ def main() -> None:
                         data,
                         f"{tool_name} spawn blocked: a DinoStack cross-harness team "
                         "run is active (.agentic/teamrun/.active sentinel present and "
-                        "live). Dispatch workers via `bin/agentic-team dispatch` "
+                        "live). Dispatch workers via `bin/ds-team dispatch` "
                         "instead of native spawns. To resume native delegation, wait "
                         "for the team run to complete. The sentinel self-expires when "
                         "its conductor PID is dead or its mtime exceeds 2 h; there is "
@@ -460,7 +460,7 @@ def main() -> None:
                         "team run is active (.agentic/teamrun/.active sentinel "
                         "present and live). OMC skills must not be invoked while "
                         "the DinoStack team layer owns dispatch. Use "
-                        "`bin/agentic-team dispatch` to assign work to workers."
+                        "`bin/ds-team dispatch` to assign work to workers."
                     )
                 # Non-OMC Skill, Skill with absent/unrecognised field -> allow.
                 sys.exit(0)

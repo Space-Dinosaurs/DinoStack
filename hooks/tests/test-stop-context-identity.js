@@ -355,7 +355,7 @@ console.log('\n[J6] outside-$HOME env dir rejected');
   cleanup(tmpDir);
 }
 
-// J7: --profile-dir override is CLI-only (bin/agentic-identity); the hook has
+// J7: --profile-dir override is CLI-only (bin/ds-identity); the hook has
 // no flag surface -> intentionally no hook-level test (mirrors Python J7 note).
 console.log('\n[J7] skipped: --profile-dir is CLI-only, no hook surface');
 
@@ -667,8 +667,8 @@ console.log('\n[SNAPSHOT] deployed Stop hook resolves its bundled identity helpe
     env: buildEnv(fakeHome),
   });
   const deployedHook = path.join(snapshotDir, 'hooks', 'stop-context.js');
-  const deployedHelper = path.join(snapshotDir, 'bin', 'agentic-identity');
-  assert(fs.existsSync(deployedHelper), 'snapshot contains bin/agentic-identity');
+  const deployedHelper = path.join(snapshotDir, 'bin', 'ds-identity');
+  assert(fs.existsSync(deployedHelper), 'snapshot contains bin/ds-identity');
   assert((fs.statSync(deployedHelper).mode & 0o111) !== 0,
     'snapshot identity helper is executable');
   runHookAt(deployedHook, projectDir, fakeHome, 'snapshot-direct');
@@ -767,7 +767,7 @@ console.log('\n[TELEMETRY] wrong-owner log target fails closed when fixture is p
       'wrong-owner telemetry target stayed unchanged');
   } else {
     const helperSource = fs.readFileSync(
-      path.resolve(__dirname, '..', '..', 'bin', 'agentic-identity'), 'utf8');
+      path.resolve(__dirname, '..', '..', 'bin', 'ds-identity'), 'utf8');
     assert(helperSource.includes('target_stat.st_uid == os.geteuid()'),
       'wrong-owner fixture unavailable; deployed helper still enforces current-owner predicate');
   }
@@ -832,7 +832,7 @@ console.log('\n[TELEMETRY] concurrent same-session writers preserve the later ti
     makeTmp('ae-telemetry-same-session-');
   execFileSync('git', ['init', '-q'], { cwd: projectDir });
   writeIdentity(globalIdentityDir, 'repeat-dev', true);
-  const helper = path.resolve(__dirname, '..', '..', 'bin', 'agentic-identity');
+  const helper = path.resolve(__dirname, '..', '..', 'bin', 'ds-identity');
   const pendingDir = path.join(fakeHome, '.agentic', 'session-log', '.pending');
   fs.mkdirSync(pendingDir, { recursive: true });
   const payload = (spawnCount) => JSON.stringify({
@@ -894,7 +894,7 @@ console.log('\n[TELEMETRY] concurrent helper appends remain complete JSONL recor
     makeTmp('ae-telemetry-concurrent-');
   execFileSync('git', ['init', '-q'], { cwd: projectDir });
   writeIdentity(globalIdentityDir, 'safe-dev', false);
-  const helper = path.resolve(__dirname, '..', '..', 'bin', 'agentic-identity');
+  const helper = path.resolve(__dirname, '..', '..', 'bin', 'ds-identity');
   const telemetryData = {
     wall_seconds: 0,
     tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },

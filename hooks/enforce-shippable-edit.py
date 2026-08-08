@@ -62,7 +62,7 @@ Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, importlib.util).
 Downstream consumers: Claude Code hook runner (PreToolUse event for Write,
                       Edit, and MultiEdit). Wired via ~/.claude/settings.json
                       by .claude/install.sh (three matcher blocks: "Write",
-                      "Edit", "MultiEdit"). Referenced by bin/agentic-doctor
+                      "Edit", "MultiEdit"). Referenced by bin/ds-doctor
                       (MANAGED_HOOK_BASENAMES) and content/rules/
                       conventions.md §Git Workflow.
 

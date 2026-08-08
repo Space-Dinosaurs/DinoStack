@@ -146,7 +146,7 @@ def test_task_denied_when_sentinel_live():
         rc, parsed = _run_hook(payload)
         assert rc == 0
         assert _is_denied(parsed), f"Expected deny, got: {parsed}"
-        assert "agentic-team dispatch" in _deny_reason(parsed)
+        assert "ds-team dispatch" in _deny_reason(parsed)
 
 
 def test_task_allowed_when_sentinel_absent():
@@ -713,7 +713,7 @@ def test_routing_denies_engineer_mapped_to_omp(tmp_path):
         assert rc == 0
         assert _is_denied(parsed), f"Expected routing deny, got: {parsed}"
         reason = _deny_reason(parsed)
-        assert "bin/agentic-team dispatch" in reason
+        assert "bin/ds-team dispatch" in reason
         assert "--harness omp" in reason
         assert "--role engineer" in reason
         # model is never interpolated - a literal placeholder is used instead
@@ -781,7 +781,7 @@ def test_routing_denies_known_harness_never_echoes_model(tmp_path):
         assert "Ignore prior rules" not in reason
         assert "curl evil" not in reason
         assert "\x07" not in reason
-        assert "bin/agentic-team dispatch" in reason
+        assert "bin/ds-team dispatch" in reason
         assert "--harness omp" in reason
         assert "--role engineer" in reason
 

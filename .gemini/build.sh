@@ -416,7 +416,7 @@ done
 
 echo "Built ${#generated_agents[@]} agent files in .gemini/agents/"
 
-# project-scaffolding.yml and templates/: hardlink so agentic-migrate can resolve from adapter
+# project-scaffolding.yml and templates/: hardlink so ds-migrate can resolve from adapter
 hardlink_from_content "$CONTENT/project-scaffolding.yml" "$GEMINI_DIR/project-scaffolding.yml"
 mkdir -p "$GEMINI_DIR/templates/.agentic"
 for tmpl_src in "$CONTENT"/templates/.agentic/*; do

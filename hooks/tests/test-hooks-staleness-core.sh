@@ -39,8 +39,8 @@ _make_fake_repo() {
   local dir="$1"
   mkdir -p "$dir/bin" "$dir/hooks" "$dir/.codex/config" "$dir/.codex/hooks" \
            "$dir/.gemini/hooks" "$dir/.kimi/hooks"
-  printf '#!/usr/bin/env python3\nprint("helper")\n' > "$dir/bin/agentic-identity"
-  chmod 700 "$dir/bin/agentic-identity"
+  printf '#!/usr/bin/env python3\nprint("helper")\n' > "$dir/bin/ds-identity"
+  chmod 700 "$dir/bin/ds-identity"
   echo "risk" > "$dir/hooks/risk-reminder.sh"
   echo '{"hooks":{}}' > "$dir/.codex/config/hooks.json"
   echo "codex-risk" > "$dir/.codex/hooks/risk-reminder.sh"

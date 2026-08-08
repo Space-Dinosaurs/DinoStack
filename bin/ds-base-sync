@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# ---------------------------------------------------------------------------
+# Module manifest
+# Purpose: CLI wrapper around scripts/lib/base-branch-sync.sh. Fast-forwards
+#          the LOCAL <base-branch> ref in <repo> to match origin/<base-branch>.
+#          Never merges, rebases, force-pushes, or autostashes.
+#
+# Public API:
+#   ds-base-sync <repo> <base-branch>
+#     Prints a breadcrumb line (and possibly WARNING/NOTE diagnostic lines) to
+#     stdout. Exit codes are NORMALIZED by this wrapper - git's own native
+#     exit codes are never passed through:
+#       0  synced           - status=ff-pulled or status=ff-updated-ref
+#       1  diverged          - status=diverged
+#       2  skipped-dirty      - status=skipped-dirty
+#       3  usage/repo-resolution/argument error
+#       4  inconclusive       - status=fetch-failed, status=refused-unknown,
+#                               or status=ref-locked-elsewhere
+#
+# Upstream deps: scripts/lib/base-branch-sync.sh, bash, git.
+#
+# Downstream consumers: content/commands/ds-implement-ticket.md Phase 12
+#                       (repo-relative invocation), content/rules/
+#                       conventions.md Conductor preflight step 6 (PATH
+#                       invocation).
+#
+# Failure modes:
+#   - Exits 3 with stderr usage message if arg count != 2.
+#   - Exits 3 with stderr message if <repo> is not a directory.
+#   - Exits 3 with stderr message if <repo> is not a valid git repository.
+#   - Exits 3 with stderr message if scripts/lib/base-branch-sync.sh is not
+#     found relative to this script.
+#   - See scripts/lib/base-branch-sync.sh for the full status/exit-code
+#     classification (5 distinct statuses across exit codes 0/1/2/4).
+#
+# Performance: standard - see scripts/lib/base-branch-sync.sh.
+# ---------------------------------------------------------------------------
+
+set -u
+
+if [ "$#" -ne 2 ]; then
+  echo "usage: ds-base-sync <repo> <base-branch>" >&2
+  exit 3
+fi
+
+if [ ! -d "$1" ]; then
+  echo "ds-base-sync: not a directory: $1" >&2
+  exit 3
+fi
+
+REPO_DIR="$(cd "$1" 2>/dev/null && pwd -P)"
+if [ -z "$REPO_DIR" ]; then
+  echo "ds-base-sync: cannot resolve path: $1" >&2
+  exit 3
+fi
+
+if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+  echo "ds-base-sync: not a git repository: $REPO_DIR" >&2
+  exit 3
+fi
+
+# Resolve BASH_SOURCE[0] through any symlink chain before computing
+# SCRIPT_DIR. This tool is installed on PATH as a symlink
+# (~/.local/bin/ds-base-sync -> $REPO_DIR/bin/ds-base-sync, see
+# .claude/install.sh ae_install_bins()), so when invoked by name (call site
+# 2, content/rules/conventions.md step 6), BASH_SOURCE[0] is the SYMLINK
+# path - dirname of that resolves to ~/.local/bin, not $REPO_DIR/bin, and
+# LIB_DIR resolves to a nonexistent path. Pure-bash loop, not `readlink -f`
+# (GNU-only, absent on macOS/BSD).
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  DIR="$(cd "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd -P)"
+  SOURCE="$(readlink "$SOURCE")"
+  # A relative symlink target is relative to the symlink's own directory.
+  case "$SOURCE" in
+    /*) ;;
+    *) SOURCE="$DIR/$SOURCE" ;;
+  esac
+done
+SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" 2>/dev/null && pwd -P)"
+LIB_DIR="$(cd "$SCRIPT_DIR/../scripts/lib" 2>/dev/null && pwd -P)"
+
+if [ ! -f "$LIB_DIR/base-branch-sync.sh" ]; then
+  echo "ds-base-sync: base-branch-sync.sh not found at $LIB_DIR/base-branch-sync.sh" >&2
+  exit 3
+fi
+
+# shellcheck source=../scripts/lib/base-branch-sync.sh
+. "$LIB_DIR/base-branch-sync.sh"
+
+ae_base_branch_sync "$REPO_DIR" "$2"
+exit $?

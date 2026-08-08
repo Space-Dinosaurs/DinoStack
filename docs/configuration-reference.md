@@ -135,16 +135,16 @@ an override.
 
 **Absent file / absent `developer_id`:** no telemetry is attributed; session
 logs are not written. The effective default is no identity. Use
-`agentic-identity auto` to auto-derive a provisional handle from the GitHub
+`ds-identity auto` to auto-derive a provisional handle from the GitHub
 login (lowest-friction starting point).
 
 **6-tier precedence:** project-confirmed > profile-confirmed >
 global-confirmed > project-provisional > profile-provisional >
 global-provisional > none.
 
-Commands: `agentic-identity auto` (derive from GitHub login, writes provisional
-global), `agentic-identity init <handle> [--scope profile|project]` (manual),
-`agentic-identity confirm [--scope global|profile|project]` (strip provisional
+Commands: `ds-identity auto` (derive from GitHub login, writes provisional
+global), `ds-identity init <handle> [--scope profile|project]` (manual),
+`ds-identity confirm [--scope global|profile|project]` (strip provisional
 flag and flush only pending telemetry routed to that scope).
 
 ---
@@ -199,9 +199,9 @@ Project-local, gitignored, pure data (never executes). Merged field-by-field, ov
 
 Any key matching a credential-shaped pattern (`token`, `secret`, `password`, `api_key`, `credential`, `cookie`, `bearer`, `pat`) rejects the **entire file** - this is not a secret scanner, only a key-name guard; a short token pasted under an allowlisted key is still accepted.
 
-Commands: `agentic-tracker init --tracker {jira,linear} --prefix P [--base-url U] [--workspace W]`, `agentic-tracker show [--scope project|effective]`, `agentic-tracker set <key> <value>`, `agentic-tracker resolve [--json]`, `agentic-tracker path`.
+Commands: `ds-tracker init --tracker {jira,linear} --prefix P [--base-url U] [--workspace W]`, `ds-tracker show [--scope project|effective]`, `ds-tracker set <key> <value>`, `ds-tracker resolve [--json]`, `ds-tracker path`.
 
-`agentic-tracker init`/`set` refuse to write at a path git would track: an unignored path (fix: add a `.gitignore` line), an already-tracked path (fix: `git rm --cached`, since a `.gitignore` line alone does not untrack an indexed file), or an indeterminate ignore state (fails closed). `--force-unignored` downgrades any of the three refusals to a warning and proceeds. Note: `git check-ignore` also honors `~/.gitignore_global` (`core.excludesFile`) and `.git/info/exclude`, so the guard can pass for one operator on a machine-local exclude while refusing a teammate in the same repo - harmless (git still will not track it for that operator), but worth knowing before filing a support question.
+`ds-tracker init`/`set` refuse to write at a path git would track: an unignored path (fix: add a `.gitignore` line), an already-tracked path (fix: `git rm --cached`, since a `.gitignore` line alone does not untrack an indexed file), or an indeterminate ignore state (fails closed). `--force-unignored` downgrades any of the three refusals to a warning and proceeds. Note: `git check-ignore` also honors `~/.gitignore_global` (`core.excludesFile`) and `.git/info/exclude`, so the guard can pass for one operator on a machine-local exclude while refusing a teammate in the same repo - harmless (git still will not track it for that operator), but worth knowing before filing a support question.
 
 ---
 

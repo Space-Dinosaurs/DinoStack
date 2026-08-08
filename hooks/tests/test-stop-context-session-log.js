@@ -166,7 +166,7 @@ console.log('\n[2] Missing identity: no ~/.agentic/identity.yml');
   const contextPath = path.join(agenticDir, 'context.md');
   let contextContent = '';
   try { contextContent = fs.readFileSync(contextPath, 'utf8'); } catch (_) {}
-  assert(contextContent.includes('agentic-identity init'), 'identity nudge appended to context.md');
+  assert(contextContent.includes('ds-identity init'), 'identity nudge appended to context.md');
 
   // Sentinel created
   const sentinelPath = path.join(fakeHome, '.agentic', '.identity-nudged');

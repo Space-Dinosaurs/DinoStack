@@ -2,17 +2,17 @@
 
 ## Quick update (recommended)
 
-Run `agentic-update` from any directory, no arguments.
+Run `ds-update` from any directory, no arguments.
 
-What it does: pulls the latest `main`, rebuilds adapters only if something changed under `content/`, `hooks/`, `bin/`, or the build scripts, resets the version-check cache, and runs `agentic-doctor --fix` to repair drifted symlinks or hooks. No TTY required.
+What it does: pulls the latest `main`, rebuilds adapters only if something changed under `content/`, `hooks/`, `bin/`, or the build scripts, resets the version-check cache, and runs `ds-doctor --fix` to repair drifted symlinks or hooks. No TTY required.
 
 Flags:
 
 - `--check` - report how many commits behind you are without pulling
-- `--no-doctor` - skip the `agentic-doctor --fix` repair step
+- `--no-doctor` - skip the `ds-doctor --fix` repair step
 - `--adapters=cursor,codex` - rebuild only the specified adapters
 
-First time? `agentic-update` installs itself to `~/.local/bin/` on your next `./update.sh` or `/ds-update` run; after that it works from anywhere.
+First time? `ds-update` installs itself to `~/.local/bin/` on your next `./update.sh` or `/ds-update` run; after that it works from anywhere.
 
 ## TUI updater (`./update.sh`)
 
@@ -42,14 +42,14 @@ git pull
 bash .claude/install.sh
 ```
 
-## Health check and repair (`agentic-doctor`)
+## Health check and repair (`ds-doctor`)
 
-`agentic-doctor` is a read-only health inspector that verifies your install is wired correctly. Run it any time symlinks feel broken, hooks aren't firing, or you've moved the repo to a new path.
+`ds-doctor` is a read-only health inspector that verifies your install is wired correctly. Run it any time symlinks feel broken, hooks aren't firing, or you've moved the repo to a new path.
 
 ```bash
-agentic-doctor          # read-only scan; exit 0 = healthy, 1 = findings
-agentic-doctor --fix    # re-point drifted symlinks (or remove stale ones) and repair hook paths; exit 0 = all fixed, 2 = some unfixable
-agentic-doctor --dry-run  # same as the default scan - enumerate findings without changing anything
+ds-doctor          # read-only scan; exit 0 = healthy, 1 = findings
+ds-doctor --fix    # re-point drifted symlinks (or remove stale ones) and repair hook paths; exit 0 = all fixed, 2 = some unfixable
+ds-doctor --dry-run  # same as the default scan - enumerate findings without changing anything
 ```
 
 What it checks:

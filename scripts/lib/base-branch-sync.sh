@@ -22,7 +22,7 @@
 #
 # Upstream deps: bash, git, awk.
 #
-# Downstream consumers: bin/agentic-base-sync.
+# Downstream consumers: bin/ds-base-sync.
 #
 # Failure modes:
 #   - Two fully separate per-branch terminal classifications (HEAD-on-base vs
@@ -56,8 +56,8 @@ ae_base_branch_sync() {
   local repo="$1" base="$2"
   local head err verify_err counts behind ahead
 
-  [ -n "$repo" ] || { echo "usage: agentic-base-sync <repo> <base-branch>" >&2; return 3; }
-  [ -n "$base" ] || { echo "usage: agentic-base-sync <repo> <base-branch>" >&2; return 3; }
+  [ -n "$repo" ] || { echo "usage: ds-base-sync <repo> <base-branch>" >&2; return 3; }
+  [ -n "$base" ] || { echo "usage: ds-base-sync <repo> <base-branch>" >&2; return 3; }
 
   head=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
   # Detached HEAD: rev-parse --abbrev-ref HEAD returns the literal string "HEAD",

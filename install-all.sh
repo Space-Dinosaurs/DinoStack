@@ -32,9 +32,9 @@ set -euo pipefail
 # Notes: Adapter discovery mirrors scripts/update.js discoverAdapters() and its
 #        SKIP_DIRS set exactly (loaded from scripts/lib/update-shared.json -
 #        the single source of truth shared with scripts/update.js and
-#        bin/agentic-update; do not reintroduce a local literal here). .claude
+#        bin/ds-update; do not reintroduce a local literal here). .claude
 #        runs first unconditionally so its agentic-* binaries (incl.
-#        agentic-identity) are on PATH before other adapters' identity steps
+#        ds-identity) are on PATH before other adapters' identity steps
 #        run.
 # =============================================================================
 
@@ -45,7 +45,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ---------------------------------------------------------------------------
 # Skip-list - loaded from scripts/lib/update-shared.json (single source of
-# truth shared with scripts/update.js and bin/agentic-update). python3 is
+# truth shared with scripts/update.js and bin/ds-update). python3 is
 # already a hard dependency of this repo's install/update flow (bootstrap.sh
 # preflights it), so shelling out is safe here.
 # ---------------------------------------------------------------------------
@@ -151,8 +151,8 @@ set +f
 # ---------------------------------------------------------------------------
 # Ordering: .claude FIRST regardless of sort order.
 # Rationale: the .claude installer wires the agentic-* CLI binaries (incl.
-# agentic-identity) onto PATH via ~/.local/bin. scripts/lib/identity.sh calls
-# agentic-identity, so .claude must run before other adapters' identity steps.
+# ds-identity) onto PATH via ~/.local/bin. scripts/lib/identity.sh calls
+# ds-identity, so .claude must run before other adapters' identity steps.
 # ---------------------------------------------------------------------------
 ORDERED=()
 if [[ -f "$REPO_DIR/.claude/install.sh" ]]; then

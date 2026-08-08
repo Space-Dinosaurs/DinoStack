@@ -20,16 +20,16 @@ changing directories (`git rev-parse --show-toplevel` when inside a repository, 
 verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
 compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
 `AE_REPO_DIR`. Evaluate
-`$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
+`$AE_REPO_DIR/bin/ds-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
 before any operational step. Require its `AE_REPO_DIR` and `AE_PROJECT_DIR` values to match the
 independently validated paths above, then consume the same JSON object to bind
 `AE_CODEX_CONFIG_DIR`, `AE_SHARED_CONFIG_DIR`, and `AE_ACTIVATION_CONFIG`; fail closed on any
 mismatch. Map canonical filesystem tools to Codex filesystem reads, `rg --files`, `rg`, shell, and
 `apply_patch`; ask one bounded direct question only after default derivation.
 Derive `AE_SESSION_ID` by passing hook JSON to
-`$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
+`$AE_REPO_DIR/bin/ds-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
-`$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+`$AE_REPO_DIR/bin/ds-codex-dispatch command <name>`; do not claim bare slash registration.
 Codex `spawn_agent` accepts only `task_name`, `message`, and `fork_turns`. Put Tier and model intent
 in the task brief or resolve it through role routing before the spawn; never pass Claude-only spawn
 fields. When isolation is required, the conductor creates the worktree manually before spawning.
@@ -39,7 +39,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 1. `git fetch origin`.
 2. Resolve `BASE_BRANCH` with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
    canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in
    project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),
    then local `develop`, then local `development`. Multiple matching declarations are rejected as
@@ -49,7 +49,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
 4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
 5. Load the named role instructions with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.
 6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
@@ -499,11 +499,11 @@ Before any phase, read the project's `AGENTS.md` and extract the following value
 **Legacy `## Linear` shape guard** — if `TRACKER=linear` was resolved from a `## Linear` section AND the section is missing the `Workspace:` field (required for URL generation), stop immediately and print:
 
 ```
-Your tracker config is missing fields $implement-ticket needs. Run manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project` to update it —
+Your tracker config is missing fields $implement-ticket needs. Run manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` to update it —
 discovery will fill in most fields automatically.
 ```
 
-Do not continue. Do not attempt to write the migration. All config-mutation logic lives in manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`.
+Do not continue. Do not attempt to write the migration. All config-mutation logic lives in manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`.
 
 **`$AE_PROJECT_DIR/.agentic/tracker.yml` local overlay.** After the fallback chain above resolves a base result (steps 1-4), check for a project-local, gitignored `<repo>/.agentic/tracker.yml` overlay and merge it in: the overlay wins field-by-field over the `AGENTS.md` result, and any changed field is disclosed. This lets a repo whose tracker cannot be declared in a tracked, universally-inherited `AGENTS.md` still resolve `TRACKER` at runtime, without baking one operator's workspace or account ID into a public file.
 
@@ -541,18 +541,18 @@ All work lives in `$REPO`.
 
 ## Tracker Writeback Helper
 
-Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
+Reusable subagent invocation pattern. Used by Phase 11 (existing), 7 new sites below, and awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
 
 **Invocation contract:**
 
 When the conductor reaches a writeback boundary:
 1. Skip entirely if `TRACKER == none`.
-2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - are enumerated in the guard's step 4.d.iv below.
+2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - are enumerated in the guard's step 4.d.iv below.
 3. Pass to the subagent:
    - `tracker`: `linear` | `jira`
    - `ticket_id`: from current task context
    - `target_state`: one of the resolved `TRACKER_STATE_*` variables
-   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F
+   - `forward_only_guard`: `true` for every writeback caller - the 7 new sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F
    - `tracker_state_values`: `{ "IN_PROGRESS": "$TRACKER_STATE_IN_PROGRESS", "IN_REVIEW": "$TRACKER_STATE_IN_REVIEW", "QA": "$TRACKER_STATE_QA", "DEV_COMPLETE": "$TRACKER_STATE_DEV_COMPLETE", "BLOCKED": "$TRACKER_STATE_BLOCKED", "DONE": "$TRACKER_STATE_DONE" }` - the 6 values resolved once in Setup; required by the forward-only guard's same-category pipeline sub-rank
    - `diagnostic_enabled`: `$TRACKER_STATE_DIAGNOSTIC` (boolean, resolved once in Setup; gates the diagnostic-enrichment sub-step of step 5 below)
    - `linear_team_key`: `$TICKET_PREFIX` (Linear only; the team key already resolved in Setup from the `## Linear` `Team:` field - scopes the live `list_workflow_states` call in step 5's diagnostic-enrichment sub-step to the correct team, exactly as Phase 2c's own Fetch step already does for its advisory-only call)
@@ -585,7 +585,7 @@ When the conductor reaches a writeback boundary:
         - **Inherited dev-complete carries no rank.** `DEV_COMPLETE` participates in this sub-rank ONLY when the project DECLARED a dev-complete field (`JIRA_STATE_DEV_COMPLETE`, `State Dev Complete:`, or the overlay's `state_dev_complete`), as reported by the `dev_complete_declared` input. When the value was INHERITED from the resolved `TRACKER_STATE_DONE` because no dev-complete field was declared, it resolves to no pipeline rank and falls through to the skip branch below, exactly as it did before dev-complete existed. This applies to `DEV_COMPLETE` wherever it appears in the comparison, as the CURRENT state's name as well as the target's. Rationale: a project that points its Done field at a non-terminal lane as a workaround has, by construction, not told AE where that lane sits relative to its QA lane - and on a real board the two commonly sit in the opposite order (`Ready for QA` before `QA in Progress`). Ranking an inherited value trailing would let W7 permit a move from the QA lane BACK to the dev-complete lane, undoing W3's own write. Declaring a dev-complete field is the operator's signal that the position is intentional; inheritance is not.
         - **Name collision.** The lookup is a name-to-rank lookup over the pipeline tokens only, so a name that matches a pipeline token resolves to that token's rank regardless of also matching a non-pipeline key such as `DONE`. This rule applies only to a DECLARED `DEV_COMPLETE`; an inherited one has no rank to collide with (see the preceding bullet). When a DECLARED name matches more than one PIPELINE token - for example an operator pointing both `State QA:` and `State Dev Complete:` at the same lane on a short board - it resolves to the HIGHEST such rank.
         - If BOTH names resolve to a pipeline rank: **permit** iff `pipeline_rank(current) < pipeline_rank(target)`; otherwise **skip**.
-        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 6 known `tracker_state_values` at all, or because it matches one of the 6 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 6 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+        - Otherwise (at least one name does not resolve to a pipeline rank - either because it does not match any of the 6 known `tracker_state_values` at all, or because it matches one of the 6 values that has no pipeline rank, e.g. `DONE` or `BLOCKED` reached here only on a misconfigured tracker where that value's category coincides with this same-category band): **skip** unconditionally. Set the return payload's `unmatched_state_name` to that name only when it does not resolve to any of the 6 known `tracker_state_values` at all - a name that resolves to a configured value but simply lacks a pipeline rank is not "unmatched." **Fire-and-forget call sites** (W1-W7, Phase 11 - these never read the subagent's return value) additionally emit ONE stderr line directly here, bounded to at most one line per fire because each fire covers exactly one ticket: `tracker-writeback: <ticket_id> current state '<name>' did not match any configured TRACKER_STATE_* value - skipping same-category comparison.` **Callers that await the result** - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - do NOT get a per-ticket stderr line for this branch; they read `unmatched_state_name` from each ticket's return, accumulate across their sweep, and print exactly ONE aggregate line at the end.
 5. **Soft-fail:** any transition error logged to stderr; subagent returns `{ "status": "failed", "errors": [...] }`. Conductor logs and continues; never blocks the phase. A state pre-read failure (MCP/API error) is also a skip: log a one-line warning to stderr and do not proceed. Do not assume any rank when the pre-read fails.
 
    **Diagnostic enrichment (new, gated on `diagnostic_enabled`; runs strictly AFTER a transition attempt, never before, and can never change whether the write happens).** When step 4 permits a transition, the subagent attempts it using the EXISTING mechanism, completely unchanged from today - Linear: a single `mcp__linear__save_issue` call with `state: target_state`; Jira: discover available transitions via `mcp__mcp-atlassian__jira_get_transitions` on this ticket, then call `mcp__mcp-atlassian__jira_transition_issue` for the matching transition id. **Nothing runs before this attempt - there is no new round-trip on the happy path on either tracker.** (Jira's discovery call is not new API surface introduced by this plan - it is already required to obtain a transition id before any Jira transition can be attempted at all; Linear's `save_issue` remains the single direct call it is today.)
@@ -596,7 +596,7 @@ When the conductor reaches a writeback boundary:
 
    This step can only relabel a `"failed"` outcome to `"skipped_unconfigured_state"` when live data positively confirms the configured name is not currently usable; it can never convert `"failed"` into `"ok"`, and it can never prevent, delay, or retry the original transition attempt.
 
-   Fire-and-forget call sites (W1-W7, Phase 11) emit, for a `"skipped_unconfigured_state"` outcome only, the `diagnostic` text as ONE stderr line: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. A plain `"failed"` outcome (enriched with `diagnostic` or not) continues to use the existing `FAILED:` line format (see "Failure logging" below, extended for this case). Callers that await the result (3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`, `$wrap` Part F) read `status` and `diagnostic` from the return payload and format them per their own operator-visible-line conventions (see the edits to those files below).
+   Fire-and-forget call sites (W1-W7, Phase 11) emit, for a `"skipped_unconfigured_state"` outcome only, the `diagnostic` text as ONE stderr line: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. A plain `"failed"` outcome (enriched with `diagnostic` or not) continues to use the existing `FAILED:` line format (see "Failure logging" below, extended for this case). Callers that await the result (3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`, `$wrap` Part F) read `status` and `diagnostic` from the return payload and format them per their own operator-visible-line conventions (see the edits to those files below).
 
 **Rejected: fully tracker-derived pipeline order.** A live-fetched global ordering was considered instead of a declarable default. Jira's only available state-enumeration call (`jira_get_transitions` on a probe ticket) returns transitions available from that ticket's CURRENT status only - an edge-local view of the workflow graph, not a global ordering of all states - so no cross-tracker-symmetric live-derived order can be built that works the same way for both currently-supported trackers. A mechanism that only works for one tracker breaks universality; the explicit-declaration-with-fixed-default design above is the soundest project-level alternative.
 
@@ -903,7 +903,7 @@ On `continue-resume`: discard Phase 0 output, use `batch-state.json.tickets[]`. 
 
 1. `git fetch origin`.
 2. For each ticket in `tickets[]` with `status` `pending` or `blocked`: re-fetch the tracker record. If the ticket has been merged elsewhere (per tracker status, or per `gh pr list --state merged --head <branch>` returning a non-empty result), append a `replan_log` entry `{ts, action: "drop_merged", ticket_id, detail}` and set the ticket's `status` to `skipped_already_merged`.
-3. Run manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phases 1-3 over the surviving pending/blocked tickets to re-sequence. Level 2 investigator (Phase 2b) is gated on `replan_count >= 2`: count `replan_log` entries with `action: "investigator_rerun"`; if the count is >= 2, spawn a real background investigator (including the functional-duplicate brief); otherwise run Level 1 only (conductor-direct). Append the `replan_log` entry `{ts, action: "investigator_rerun", ticket_id: null, detail: "replan #N"}` BEFORE spawning the investigator when it fires. Map the resulting lanes back to the surviving tickets' `cluster_id` and `depends_on` fields (array order); deferred or in-progress-excluded tickets discovered during re-plan are surfaced to the operator and excluded from tickets[].
+3. Run manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phases 1-3 over the surviving pending/blocked tickets to re-sequence. Level 2 investigator (Phase 2b) is gated on `replan_count >= 2`: count `replan_log` entries with `action: "investigator_rerun"`; if the count is >= 2, spawn a real background investigator (including the functional-duplicate brief); otherwise run Level 1 only (conductor-direct). Append the `replan_log` entry `{ts, action: "investigator_rerun", ticket_id: null, detail: "replan #N"}` BEFORE spawning the investigator when it fires. Map the resulting lanes back to the surviving tickets' `cluster_id` and `depends_on` fields (array order); deferred or in-progress-excluded tickets discovered during re-plan are surfaced to the operator and excluded from tickets[].
 4. All writes apply Contract A (per-write `session_id` gate) and Contract B (`replan_log[]` read-merge-write preservation). See "Batch state contracts" below.
 5. Bump `status` back to `active`. Preserve `wallclock_started_at` from the prior batch (the wallclock cap is per-batch lifetime, not per-session - a batch resumed in a later session continues counting against the original `wallclock_started_at`).
 
@@ -915,12 +915,12 @@ Emit breadcrumb: `[phase: batch-resume | tickets_remaining=K]`.
 
 <!--
 Phase 0a manifest:
-  Purpose: run manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phases 1-3 (algorithm by reference) over the Phase 0
+  Purpose: run manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phases 1-3 (algorithm by reference) over the Phase 0
            entries[], surface triage results to the operator, map lane-assigned tickets
            to batch-state.json, then iterate per-ticket phases 1-12 in array order.
   Public API: reads Phase 0 entries[]; writes $AE_PROJECT_DIR/.agentic/batch-state.json tickets[]
               (lane-assigned only; deferred and in-progress-excluded are NOT written).
-  Upstream deps: manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phases 1-3 (algorithm reference - no copy);
+  Upstream deps: manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phases 1-3 (algorithm reference - no copy);
                  investigator (Phase 2b Level 2, conditional on len(entries) <= 20);
                  Phase 0 entries[] (already normalized, no re-normalization).
   Downstream consumers: Phase 0a-pre (resume), Phase 12a (handoff), all per-ticket
@@ -936,15 +936,15 @@ Phase 0a manifest:
 
 **Flow:**
 
-1. **Run the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` planning algorithm (Phases 1-3) conductor-orchestrated.** Phase 0a feeds its OWN already-normalized `entries[]` directly into triage Phase 1 - triage Phase 0 is NOT re-run (entries are already normalized).
+1. **Run the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` planning algorithm (Phases 1-3) conductor-orchestrated.** Phase 0a feeds its OWN already-normalized `entries[]` directly into triage Phase 1 - triage Phase 0 is NOT re-run (entries are already normalized).
 
-   - **Phase 1 (metadata fetch, conductor-direct, soft-fail):** for each entry, fetch priority, status, story_points, labels, components, assignee, and issuelinks from the tracker (same per-ticket fetch as manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phase 1). Soft-fail per ticket (mark `fetch_failed: true` and proceed). Detect `terminal: true` (Done/Cancelled) and `in_progress: true` (active workflow state) per the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phase 1 rules.
+   - **Phase 1 (metadata fetch, conductor-direct, soft-fail):** for each entry, fetch priority, status, story_points, labels, components, assignee, and issuelinks from the tracker (same per-ticket fetch as manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phase 1). Soft-fail per ticket (mark `fetch_failed: true` and proceed). Detect `terminal: true` (Done/Cancelled) and `in_progress: true` (active workflow state) per the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phase 1 rules.
 
    - **Phase 2a (DAG + cycle handling, conductor-direct):** build the dependency graph from `blocks`/`is-blocked-by` links, detect cycles (break at lowest-confidence link, defer both with `cycle_warning: true`). External deps noted but not used for lane assignment.
 
-   - **Phase 2b conflict-surface analysis:** Level 1 is always conductor-direct (shared component/label overlap check). Level 2 applies when `len(entries) <= 20`: spawn ONE real background investigator with the full manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phase 2b brief, including the functional-duplicate detection task (bar: "a reasonable engineer would implement them with exactly the same change"). When `len(entries) > 20`: set `HEURISTIC_ONLY=true` and proceed WITHOUT prompting - rationale: the batch was already committed via Phase 0, and prompting mid-initialization wastes operator context.
+   - **Phase 2b conflict-surface analysis:** Level 1 is always conductor-direct (shared component/label overlap check). Level 2 applies when `len(entries) <= 20`: spawn ONE real background investigator with the full manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phase 2b brief, including the functional-duplicate detection task (bar: "a reasonable engineer would implement them with exactly the same change"). When `len(entries) > 20`: set `HEURISTIC_ONLY=true` and proceed WITHOUT prompting - rationale: the batch was already committed via Phase 0, and prompting mid-initialization wastes operator context.
 
-   - **Phase 3 (Rules 1-4, conductor-direct):** distribute surviving tickets across lanes using the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` Phase 3 consume-and-remainder pipeline. Lane cap is fixed at 3 on this path (`--lanes` override is not available for the $implement-ticket integration path).
+   - **Phase 3 (Rules 1-4, conductor-direct):** distribute surviving tickets across lanes using the manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` Phase 3 consume-and-remainder pipeline. Lane cap is fixed at 3 on this path (`--lanes` override is not available for the $implement-ticket integration path).
 
    The result is an in-memory `triage_result` containing:
    `{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`.
@@ -1230,7 +1230,7 @@ Read:
 - Files mentioned in the ticket description
 - Sibling files to understand existing patterns
 - `$REPO/AGENTS.md` for conventions
-- The project's `MEMORY.md` (already in context via the `@MEMORY.md` import in the project root `CLAUDE.md`, added by manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
+- The project's `MEMORY.md` (already in context via the `@MEMORY.md` import in the project root `CLAUDE.md`, added by manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`) for architectural decisions and rationale; if the project maintains a custom decision log, read that too
 - Any `[track]/AGENTS.md` files for tracks touched by this ticket - track-specific conventions, stack, and gotchas
 
 Focus on understanding enough to make a solid plan - don't over-read.
@@ -3515,7 +3515,7 @@ if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   fi
 else
   echo "PR #$PR_NUMBER is open and ready for review: https://github.com/$GH_REPO/pull/$PR_NUMBER"
-  echo "Note: If auto-merge is off (default), the dev-complete transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see $AE_REPO_DIR/content/rules/conventions.md §Session Context and Memory). AE never fires the terminal Done state automatically; TRACKER_STATE_DEV_COMPLETE inherits the resolved TRACKER_STATE_DONE value when undeclared, so a project that declares no post-merge lane sees the same transition as before. When rework_detection is false there are no ledger candidates and no automatic dev-complete transition - run \`manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` TICKET_ID\` after merge in that configuration. \`manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` TICKET_ID\` also remains available to force the transition immediately."
+  echo "Note: If auto-merge is off (default), the dev-complete transition is pushed automatically by the session-start pending-merge sweep within one session boot of the merge (see $AE_REPO_DIR/content/rules/conventions.md §Session Context and Memory). AE never fires the terminal Done state automatically; TRACKER_STATE_DEV_COMPLETE inherits the resolved TRACKER_STATE_DONE value when undeclared, so a project that declares no post-merge lane sees the same transition as before. When rework_detection is false there are no ledger candidates and no automatic dev-complete transition - run \`manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` TICKET_ID\` after merge in that configuration. \`manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` TICKET_ID\` also remains available to force the transition immediately."
 fi
 ```
 
@@ -3531,7 +3531,7 @@ A total `gh pr view` failure leaves `PR_STATE` empty, which fails the `IS_DRAFT`
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
 
-Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the dev-complete transition is pushed automatically by the session-start pending-merge sweep instead (see `$AE_REPO_DIR/content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. AE never fires the terminal `TRACKER_STATE_DONE` state automatically at any site; `TRACKER_STATE_DEV_COMPLETE` inherits the resolved `TRACKER_STATE_DONE` value when undeclared, so a project that declares no post-merge lane is unaffected. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic dev-complete transition - run `manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` <TICKET_ID>` after merge in that configuration. `manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync` <TICKET_ID>` also remains available to force the transition immediately.
+Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the dev-complete transition is pushed automatically by the session-start pending-merge sweep instead (see `$AE_REPO_DIR/content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. AE never fires the terminal `TRACKER_STATE_DONE` state automatically at any site; `TRACKER_STATE_DEV_COMPLETE` inherits the resolved `TRACKER_STATE_DONE` value when undeclared, so a project that declares no post-merge lane is unaffected. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic dev-complete transition - run `manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` <TICKET_ID>` after merge in that configuration. `manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` <TICKET_ID>` also remains available to force the transition immediately.
 
 **Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - Phase 11e is skipped for the same reason (no PR branch to commit onto), and the "Conditional auto-merge" block is skipped entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 
@@ -3642,7 +3642,7 @@ Derive the list from the session's completed `tickets[]` entries in `$AE_PROJECT
 
 This phase's own trigger condition (see above) guarantees every ticket in `$AE_PROJECT_DIR/.agentic/batch-state.json.tickets[]`, when the file exists, has already reached a terminal state - no `pending` or `in_progress` entries remain to resume. So the next command is always derived from a triage artifact, never from an in-batch "remaining tickets" scan.
 
-Check for a triage artifact: glob `docs/planning/triage-*.md` - pick the newest by mtime. `$AE_PROJECT_DIR/.agentic/triage-*.md` is not a valid fallback path: manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage` explicitly writes no `$AE_PROJECT_DIR/.agentic/` state (`$AE_REPO_DIR/content/commands/ds-ticket-triage.md`'s header and Phase 0 both state "No `$AE_PROJECT_DIR/.agentic/` state writes"), so no file can ever exist there. If a triage artifact is found, extract the next recommended lane's ticket IDs from its "## Kickoff prompts" section (heuristic: first lane block not covered by tickets already landed this session). Each lane block already contains a literal copy-pasteable `$implement-ticket <ticket_ids>` code fence (see `$AE_REPO_DIR/content/commands/ds-ticket-triage.md` Phase 4a artifact skeleton) - reuse it verbatim rather than reconstructing the command. Do not look for a `lanes[]` field on the artifact: `lanes[]` is the in-memory `triage_result` structure Phase 0a builds during triage (`{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`), not a field of the rendered markdown - the on-disk artifact has no such field.
+Check for a triage artifact: glob `docs/planning/triage-*.md` - pick the newest by mtime. `$AE_PROJECT_DIR/.agentic/triage-*.md` is not a valid fallback path: manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage` explicitly writes no `$AE_PROJECT_DIR/.agentic/` state (`$AE_REPO_DIR/content/commands/ds-ticket-triage.md`'s header and Phase 0 both state "No `$AE_PROJECT_DIR/.agentic/` state writes"), so no file can ever exist there. If a triage artifact is found, extract the next recommended lane's ticket IDs from its "## Kickoff prompts" section (heuristic: first lane block not covered by tickets already landed this session). Each lane block already contains a literal copy-pasteable `$implement-ticket <ticket_ids>` code fence (see `$AE_REPO_DIR/content/commands/ds-ticket-triage.md` Phase 4a artifact skeleton) - reuse it verbatim rather than reconstructing the command. Do not look for a `lanes[]` field on the artifact: `lanes[]` is the in-memory `triage_result` structure Phase 0a builds during triage (`{lanes[], deferred[], in_progress_excluded[], functional_duplicates[], conflict_warnings[], heuristic_only}`), not a field of the rendered markdown - the on-disk artifact has no such field.
 
 ```
 Next:  $implement-ticket <lane_tickets>
@@ -3653,7 +3653,7 @@ Next:  $implement-ticket <lane_tickets>
 If no triage artifact exists, print:
 
 ```
-Next:  manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`   # no outstanding work detected; re-triage to pick next batch
+Next:  manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`   # no outstanding work detected; re-triage to pick next batch
        (from: <absolute_path_to_repo>)
 ```
 

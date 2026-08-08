@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""
+Purpose: CLI for managing the home-dir feedback store (~/.agentic/feedback.jsonl)
+         used to accumulate operator/agent friction signals (tool friction,
+         process escalations, guardrail fires, operator corrections) captured
+         during /ds-wrap runs across projects, for later triage into tickets or
+         methodology fixes.
+
+Public API:
+  ds-feedback append --repo <path> --session-uuid <uuid> --file <path-to-json-array>
+  ds-feedback list [--scope {project,methodology}] [--status {open,triaged,dismissed}]
+                        [--repo <path>]
+  ds-feedback mark --id <uuid> --status {open,triaged,dismissed}
+  ds-feedback --help
+
+Data model:
+  ~/.agentic/feedback.jsonl: one JSON object per line.
+  Fields:
+    id                 (CLI-owned) uuid4, assigned on append.
+    ts                 (CLI-owned) UTC ISO8601, assigned on append.
+    repo               caller-supplied via --repo at append time.
+    scope              caller-supplied draft field; one of "project", "methodology".
+    severity           caller-supplied draft field; one of "high", "medium", "low".
+    category           caller-supplied draft field; one of "tool-friction",
+                       "process-escalation", "guardrail-fire", "operator-correction".
+    evidence           caller-supplied draft field; non-empty string.
+    suggested_title    caller-supplied draft field; non-empty string.
+    suggested_body     caller-supplied draft field; non-empty string.
+    status             (CLI-owned) one of "open", "triaged", "dismissed";
+                       assigned "open" on append, changed only via `mark`.
+    session_uuid       caller-supplied via --session-uuid at append time.
+
+  IMPORTANT: id, ts, and status are CLI-owned. On `append`, any id/ts/status
+  keys present in a caller-supplied draft object are IGNORED and overwritten
+  by CLI-assigned values - callers (operators or LLM agents assembling the
+  --file batch) must never be trusted to self-assign these three fields.
+
+  Enums:
+    scope:    project | methodology
+    severity: high | medium | low
+    category: tool-friction | process-escalation | guardrail-fire | operator-correction
+    status:   open | triaged | dismissed
+
+Upstream deps: Python 3 stdlib only (argparse, json, os, sys, uuid, datetime,
+               pathlib). Shared helpers: bin/_lib (acquire_exclusive_lock,
+               atomic_write).
+
+Downstream consumers: content/commands/ds-wrap.md Part D.5 (writes drafts via
+                      `append` at end of session); content/commands/ds-feedback-triage.md
+                      (reads via `list`, updates status via `mark`).
+
+Failure modes:
+  append: per-item soft-fail - an individual draft that fails validation
+    (bad enum value, missing/empty required string field) is skipped with a
+    warning printed to stderr; the batch continues. An empty or all-invalid
+    batch is NOT an error (exit 0, no-op). Exit 1 only on hard errors:
+    --file missing/unreadable, --file not valid JSON, --file not a JSON
+    array, lock acquisition timeout, or a write I/O failure.
+  list: file-absent prints "[]" and exits 0 (not an error). Malformed
+    (non-JSON) lines in the store are skipped silently.
+  mark: exits 1 with a stderr message if the store file is absent or no
+    line matches --id. The rewrite is all-or-nothing via atomic_write - a
+    failure mid-rewrite leaves the original file untouched. A malformed
+    (non-JSON) line encountered during mark's read is dropped from the
+    rewritten file (as with list) but - unlike list - mark prints a
+    one-line stderr warning naming the line number, since mark's rewrite
+    is destructive and the drop should be visible, not silent. mark also
+    re-canonicalizes every surviving line via json.dumps with compact
+    separators on rewrite, so non-target lines are byte-identical only
+    for lines the CLI itself originally wrote; an externally hand-edited
+    line (different key order, whitespace, etc.) will be re-canonicalized
+    to the CLI's compact form even though its field values are preserved.
+
+  Locking: all three subcommands acquire the same exclusive LOCK_PATH for
+  their full read/modify/write critical section (append's read+append,
+  list's read, mark's read+rewrite), serializing concurrent invocations -
+  e.g. two projects' /ds-wrap runs calling `append` at the same time, or a
+  `mark` full-file rewrite racing an `append`. acquire_exclusive_lock (from
+  bin/_lib) opens the lock file in 'r' mode and requires it to already
+  exist; every subcommand therefore mkdir -p's the lock file's parent and
+  touch()es the lock file before calling acquire_exclusive_lock.
+
+Performance: Standard. Single-file read + append/rewrite; no indexing. Fine
+  at the scale of an individual developer's accumulated feedback backlog.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-feedback ->
+# repo bin/ds-feedback, as created by install.sh) back to the real
+# bin/ directory so _lib.py is found on a bare `ds-feedback` invocation.
+import sys as _sys
+import importlib.util as _ilu
+import importlib.machinery as _ilm
+
+_LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
+if "_lib" in _sys.modules:
+    _lib_mod = _sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    _sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
+acquire_exclusive_lock = _lib_mod.acquire_exclusive_lock
+atomic_write = _lib_mod.atomic_write
+del _sys, _ilu, _ilm, _lib_mod
+
+FEEDBACK_PATH = Path(os.path.expanduser("~/.agentic/feedback.jsonl"))
+LOCK_PATH = Path(os.path.expanduser("~/.agentic/feedback.jsonl.lock"))
+
+SCOPE_VALUES = ("project", "methodology")
+SEVERITY_VALUES = ("high", "medium", "low")
+CATEGORY_VALUES = ("tool-friction", "process-escalation", "guardrail-fire", "operator-correction")
+STATUS_VALUES = ("open", "triaged", "dismissed")
+
+DRAFT_STRING_FIELDS = ("evidence", "suggested_title", "suggested_body")
+
+
+def _ensure_lock_bootstrap() -> None:
+    """Ensure LOCK_PATH and its parent dir exist before acquire_exclusive_lock.
+
+    acquire_exclusive_lock opens the lock file in 'r' mode and requires it to
+    already exist - mirrors bin/ds-identity's mkdir+touch bootstrap.
+    """
+    LOCK_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    LOCK_PATH.touch(exist_ok=True)
+
+
+def _read_store(warn_on_malformed: bool = False) -> list[dict]:
+    """Read FEEDBACK_PATH and return a list of parsed line dicts.
+
+    File-absent returns []. Malformed (non-JSON) lines are skipped.
+
+    When warn_on_malformed is True (used by `mark`'s full-file rewrite,
+    where a skipped line represents a destructive silent drop from the
+    store), a one-line stderr warning naming the 1-based line number is
+    printed for each skipped line. `list`'s read path leaves this False -
+    list is non-destructive, so warning there would be noisier than useful.
+    """
+    if not FEEDBACK_PATH.is_file():
+        return []
+    rows: list[dict] = []
+    text = FEEDBACK_PATH.read_text(encoding="utf-8")
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            if warn_on_malformed:
+                print(
+                    f"ds-feedback: skipping malformed line {lineno} in "
+                    f"{FEEDBACK_PATH.name}",
+                    file=sys.stderr,
+                )
+            continue
+    return rows
+
+
+def _validate_draft(draft: dict) -> str | None:
+    """Return None if draft is valid, else a human-readable reason string."""
+    if not isinstance(draft, dict):
+        return "not a JSON object"
+    scope = draft.get("scope")
+    if scope not in SCOPE_VALUES:
+        return f"invalid scope {scope!r} (must be one of {SCOPE_VALUES})"
+    severity = draft.get("severity")
+    if severity not in SEVERITY_VALUES:
+        return f"invalid severity {severity!r} (must be one of {SEVERITY_VALUES})"
+    category = draft.get("category")
+    if category not in CATEGORY_VALUES:
+        return f"invalid category {category!r} (must be one of {CATEGORY_VALUES})"
+    for field in DRAFT_STRING_FIELDS:
+        value = draft.get(field)
+        if not isinstance(value, str) or not value.strip():
+            return f"missing/empty required field {field!r}"
+    return None
+
+
+def cmd_append(args: argparse.Namespace) -> int:
+    file_path = Path(args.file)
+    try:
+        raw = file_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        print(f"ds-feedback: cannot read --file {file_path}: {exc}", file=sys.stderr)
+        return 1
+
+    try:
+        drafts = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        print(f"ds-feedback: --file {file_path} is not valid JSON: {exc}", file=sys.stderr)
+        return 1
+
+    if not isinstance(drafts, list):
+        print(f"ds-feedback: --file {file_path} must contain a JSON array", file=sys.stderr)
+        return 1
+
+    accepted: list[dict] = []
+    for idx, draft in enumerate(drafts):
+        reason = _validate_draft(draft)
+        if reason is not None:
+            print(f"ds-feedback: skipping draft[{idx}]: {reason}", file=sys.stderr)
+            continue
+        now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        # CLI-owned fields (id, ts, status) always overwrite any caller-supplied
+        # values for those keys - never trust operator/LLM-supplied id/ts/status.
+        record = {
+            "id": str(uuid.uuid4()),
+            "ts": now,
+            "repo": args.repo,
+            "scope": draft["scope"],
+            "severity": draft["severity"],
+            "category": draft["category"],
+            "evidence": draft["evidence"],
+            "suggested_title": draft["suggested_title"],
+            "suggested_body": draft["suggested_body"],
+            "status": "open",
+            "session_uuid": args.session_uuid,
+        }
+        accepted.append(record)
+
+    if not accepted:
+        # Empty or all-invalid batch is a clean no-op, not an error.
+        print("ds-feedback: no valid drafts to append (0 written)")
+        return 0
+
+    _ensure_lock_bootstrap()
+    try:
+        with acquire_exclusive_lock(LOCK_PATH):
+            FEEDBACK_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+            lines = "".join(json.dumps(r, separators=(",", ":")) + "\n" for r in accepted)
+            with open(FEEDBACK_PATH, "a", encoding="utf-8") as f:
+                f.write(lines)
+    except RuntimeError as exc:
+        print(f"ds-feedback: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"ds-feedback: write failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Appended {len(accepted)} feedback item(s).")
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    _ensure_lock_bootstrap()
+    try:
+        with acquire_exclusive_lock(LOCK_PATH):
+            rows = _read_store()
+    except RuntimeError as exc:
+        print(f"ds-feedback: {exc}", file=sys.stderr)
+        return 1
+
+    if args.scope is not None:
+        rows = [r for r in rows if r.get("scope") == args.scope]
+    if args.status is not None:
+        rows = [r for r in rows if r.get("status") == args.status]
+    if args.repo is not None:
+        rows = [r for r in rows if r.get("repo") == args.repo]
+
+    print(json.dumps(rows, indent=2))
+    return 0
+
+
+def cmd_mark(args: argparse.Namespace) -> int:
+    _ensure_lock_bootstrap()
+    try:
+        with acquire_exclusive_lock(LOCK_PATH):
+            if not FEEDBACK_PATH.is_file():
+                print(
+                    f"ds-feedback: no feedback store at {FEEDBACK_PATH}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            rows = _read_store(warn_on_malformed=True)
+            matched = False
+            new_lines: list[str] = []
+            for row in rows:
+                if row.get("id") == args.id:
+                    matched = True
+                    row = dict(row)
+                    row["status"] = args.status
+                new_lines.append(json.dumps(row, separators=(",", ":")))
+
+            if not matched:
+                print(
+                    f"ds-feedback: no feedback item with id {args.id!r}",
+                    file=sys.stderr,
+                )
+                return 1
+
+            content = "".join(line + "\n" for line in new_lines)
+            try:
+                atomic_write(FEEDBACK_PATH, content, mode=0o600)
+            except Exception as exc:
+                print(f"ds-feedback: write failed: {exc}", file=sys.stderr)
+                return 1
+    except RuntimeError as exc:
+        print(f"ds-feedback: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Marked {args.id} as {args.status}.")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="ds-feedback",
+        description="Manage the home-dir feedback store (~/.agentic/feedback.jsonl).",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    p_append = sub.add_parser("append", help="Append validated feedback drafts from a JSON file")
+    p_append.add_argument("--repo", required=True, help="Repo path to stamp on each item")
+    p_append.add_argument("--session-uuid", required=True, help="Session uuid to stamp on each item")
+    p_append.add_argument("--file", required=True, help="Path to a JSON array of draft objects")
+    p_append.set_defaults(func=cmd_append)
+
+    p_list = sub.add_parser("list", help="List feedback items as a JSON array")
+    p_list.add_argument("--scope", choices=SCOPE_VALUES, default=None, help="Filter by scope")
+    p_list.add_argument("--status", choices=STATUS_VALUES, default=None, help="Filter by status")
+    p_list.add_argument("--repo", default=None, help="Filter by repo")
+    p_list.set_defaults(func=cmd_list)
+
+    p_mark = sub.add_parser("mark", help="Update the status of a feedback item by id")
+    p_mark.add_argument("--id", required=True, help="Feedback item id (uuid)")
+    p_mark.add_argument("--status", required=True, choices=STATUS_VALUES, help="New status")
+    p_mark.set_defaults(func=cmd_mark)
+
+    args = p.parse_args(argv[1:])
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

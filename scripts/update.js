@@ -6,8 +6,8 @@
  *          origin main, and executes each selected adapter's install.sh.
  *          Skips adapter rebuilds when no adapter-source paths changed,
  *          making pure consumer daily updates near-instant. Runs
- *          `agentic-doctor --fix` at the end as a best-effort self-heal
- *          step, mirroring bin/agentic-update.
+ *          `ds-doctor --fix` at the end as a best-effort self-heal
+ *          step, mirroring bin/ds-update.
  *
  * Public API:
  *   main()        - CLI entry point. Called directly when the file is
@@ -25,12 +25,12 @@
  *                   their next tool call. Exported for unit tests via
  *                   module.exports, along with SKIP_DIRS and REBUILD_TRIGGERS
  *                   (loaded from scripts/lib/update-shared.json) for
- *                   cross-language parity testing against bin/agentic-update.
+ *                   cross-language parity testing against bin/ds-update.
  *
  * Upstream deps: Node built-ins (fs, path, child_process, readline). No
  *                external packages. Reads scripts/lib/update-shared.json for
  *                SKIP_DIRS, REBUILD_TRIGGERS, and DISPLAY_NAMES - the single
- *                source of truth shared with bin/agentic-update and
+ *                source of truth shared with bin/ds-update and
  *                install-all.sh (DISPLAY_NAMES has no Python consumer, but
  *                is still single-sourced here rather than duplicated as a
  *                local literal). Do not reintroduce a local literal for any
@@ -810,30 +810,30 @@ async function main() {
     console.warn('  If they are generated files that should not be tracked, add them to .gitignore.');
   }
 
-  // Self-heal: run agentic-doctor --fix, mirroring bin/agentic-update's
+  // Self-heal: run ds-doctor --fix, mirroring bin/ds-update's
   // _run_doctor() step. Best-effort - a missing binary or non-fatal exit is
   // warned, never raised, so the TUI update still reports success.
   runDoctor();
 }
 
-// Runs `agentic-doctor --fix` with inherited stdio. Mirrors _run_doctor() in
-// bin/agentic-update - kept as a separate ported function (not shared code)
+// Runs `ds-doctor --fix` with inherited stdio. Mirrors _run_doctor() in
+// bin/ds-update - kept as a separate ported function (not shared code)
 // since the two implementations are in different languages; see
 // scripts/lib/update-shared.json for the constants that ARE shared.
 function runDoctor() {
-  const result = spawnSync('agentic-doctor', ['--fix'], { stdio: 'inherit' });
+  const result = spawnSync('ds-doctor', ['--fix'], { stdio: 'inherit' });
   if (result.error) {
     if (result.error.code === 'ENOENT') {
-      console.warn('\nwarning: agentic-doctor not found on PATH; skipping health check.');
+      console.warn('\nwarning: ds-doctor not found on PATH; skipping health check.');
     } else {
-      console.warn(`\nwarning: agentic-doctor failed: ${result.error.message}; continuing.`);
+      console.warn(`\nwarning: ds-doctor failed: ${result.error.message}; continuing.`);
     }
     return;
   }
   if (result.status === 2) {
-    console.warn('\nWARNING: health check found issues that could not be auto-fixed; run \'agentic-doctor\' for details');
+    console.warn('\nWARNING: health check found issues that could not be auto-fixed; run \'ds-doctor\' for details');
   } else if (result.status !== 0) {
-    console.warn(`\nwarning: agentic-doctor --fix exited ${result.status}; continuing (non-critical).`);
+    console.warn(`\nwarning: ds-doctor --fix exited ${result.status}; continuing (non-critical).`);
   }
 }
 

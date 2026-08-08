@@ -106,7 +106,7 @@ def test_cli_help_runs():
     r = subprocess.run([sys.executable, str(_BIN_PATH), "--help"],
                        capture_output=True, text=True)
     assert r.returncode == 0
-    assert "agentic-models" in r.stdout
+    assert "ds-models" in r.stdout
 
 
 def test_cli_positional_args_json():

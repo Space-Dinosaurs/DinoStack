@@ -20,16 +20,16 @@ changing directories (`git rev-parse --show-toplevel` when inside a repository, 
 verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
 compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
 `AE_REPO_DIR`. Evaluate
-`$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
+`$AE_REPO_DIR/bin/ds-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
 before any operational step. Require its `AE_REPO_DIR` and `AE_PROJECT_DIR` values to match the
 independently validated paths above, then consume the same JSON object to bind
 `AE_CODEX_CONFIG_DIR`, `AE_SHARED_CONFIG_DIR`, and `AE_ACTIVATION_CONFIG`; fail closed on any
 mismatch. Map canonical filesystem tools to Codex filesystem reads, `rg --files`, `rg`, shell, and
 `apply_patch`; ask one bounded direct question only after default derivation.
 Derive `AE_SESSION_ID` by passing hook JSON to
-`$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
+`$AE_REPO_DIR/bin/ds-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
-`$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+`$AE_REPO_DIR/bin/ds-codex-dispatch command <name>`; do not claim bare slash registration.
 Codex `spawn_agent` accepts only `task_name`, `message`, and `fork_turns`. Put Tier and model intent
 in the task brief or resolve it through role routing before the spawn; never pass Claude-only spawn
 fields. When isolation is required, the conductor creates the worktree manually before spawning.
@@ -39,7 +39,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 1. `git fetch origin`.
 2. Resolve `BASE_BRANCH` with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
    canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in
    project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),
    then local `develop`, then local `development`. Multiple matching declarations are rejected as
@@ -49,7 +49,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
 4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
 5. Load the named role instructions with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.
 6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
@@ -108,12 +108,12 @@ files on every session and the reference docs on the triggers described in $AE_C
 
 ## Commands (invoke by name)
 
-- manual workflow 'ds-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-help` - static, zero-token command reference; lists every slash command with a one-line description.
-- manual workflow 'ds-status' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
+- manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-help` - static, zero-token command reference; lists every slash command with a one-line description.
+- manual workflow 'ds-status' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
 - `$brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `$brief --from <path>` to extract a Brief from an existing PRD.
-- manual workflow 'ds-update' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-update` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
+- manual workflow 'ds-update' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-update` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
 
-Run manual workflow 'ds-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-help` for the full command inventory.
+Run manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-help` for the full command inventory.
 
 ## Reference Docs (read on trigger - see Protocol Details in $AE_CORE_SKILL_ROOT/METHODOLOGY.md)
 

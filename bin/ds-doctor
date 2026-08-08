@@ -1,0 +1,1136 @@
+#!/usr/bin/env python3
+"""
+Purpose: Inspect global agentic-engineering install health and (with --fix)
+         converge drift. Checks that managed symlinks under ~/.claude resolve
+         into the canonical repo_dir, that ~/.local/bin/ wrappers exist for
+         each bin/{agentic-,ds-}* script (BIN_TOOL_PREFIXES), that no stale
+         ~/.local/bin symlink points at a since-removed repo_dir/bin script
+         (reverse direction), that hook commands in ~/.claude/settings.json
+         point into repo_dir, that every managed hook script referenced in
+         settings.json actually exists on disk (orphaned-hook detection),
+         and that the repo_dir pre-commit hook is wired. With --fix,
+         re-points ours-to-own broken/stale symlinks and rewrites hook paths
+         in settings.json (atomic read-merge-write); when the expected
+         in-repo target for an ours-to-own symlink no longer exists at all
+         (e.g. a renamed command), --fix DELETES the stale symlink from
+         ~/.claude/{agents,commands,skills} or ~/.local/bin instead of
+         re-pointing it. The orphaned-hook check is read-only (FAIL only, no
+         --fix repair - the fix is restoring the script or re-running
+         install.sh). Never invokes install.sh, never touches real files or
+         foreign symlinks. NOTE: the reverse ~/.local/bin stale-link check
+         (check_local_bin_stale) is checked-out-tree-relative, not just
+         rename-relative - on an older commit or a feature branch where a
+         given bin/ tool does not yet exist, --fix will remove the user's
+         PATH wrapper for it too. This is bounded and self-healing: the
+         wrapper is recreated by the forward check the next time --fix runs
+         against a checkout where the tool exists again.
+
+Public API: ds-doctor [--fix] [--dry-run] [--cross-harness] [--json]
+            --cross-harness: also validate the cross-harness team stack
+              (team.yml + role-models.yml parse/schema, referenced harnesses
+              installed via `ds-team discover --json`, model handles
+              resolvable via `omp models ls --json`, dispatch resolver wired).
+            --json: emit findings as a JSON object instead of status lines.
+            Prints one status line per check:
+              OK <kind>: <detail>
+              FAIL <kind>: <detail>
+              FIX symlink: <dst> : <old/broken target> -> <new target>
+              FIX symlink: <dst> : <old/broken target> -> (removed, stale)
+              SKIP <kind>: <dst> (reason)
+            Exits 0 (all pass / --fix resolved all), 1 (findings in read-only
+            or dry-run mode), 2 (--fix ran but one or more items could not be
+            fixed).
+
+Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, sys, tempfile).
+               Reads ~/.agentic/agentic-engineering-config.json (repo_dir source),
+               ~/.claude/settings.json (hook inspection/repair),
+               ~/.claude/agents/, ~/.claude/commands/, ~/.claude/skills/.
+               Reads <repo_dir>/bin/{agentic-,ds-}* (bin wrapper check).
+               Reads <repo_dir>/.git/hooks/pre-commit (pre-commit check).
+
+Downstream consumers: developers diagnosing broken installs after cloning to a
+                      new path; bootstrap guard advisory for two-clone setups.
+
+Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
+               ~/.claude/settings.json -> check (c) skipped with SKIP output.
+               All file errors swallowed; a failing check is counted as FAIL.
+               Never modifies files unless --fix is passed (without --dry-run).
+
+Performance: base checks are O(small) (<100 ms). With --cross-harness the
+             run shells out to `ds-team discover` and `omp models ls`,
+             each under a timeout (up to ~30-60 s worst case) -- so a
+             --cross-harness run is bounded by those subprocess timeouts, not
+             sub-100 ms.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+def _home() -> Path:
+    """Current HOME directory (re-evaluated each call so tests can override HOME)."""
+    return Path(os.path.expanduser("~"))
+
+
+def _config_path() -> Path:
+    return _home() / ".agentic" / "agentic-engineering-config.json"
+
+
+def _settings_path() -> Path:
+    return _home() / ".claude" / "settings.json"
+
+
+def _local_bin() -> Path:
+    return _home() / ".local" / "bin"
+
+
+def _managed_link_dirs() -> list[Path]:
+    """Managed symlink trees under ~/.claude. Re-evaluated each call."""
+    h = _home()
+    return [
+        h / ".claude" / "agents",
+        h / ".claude" / "commands",
+        h / ".claude" / "skills" / "agentic-engineering",
+    ]
+
+# Recognized bin/ tool basename prefixes. Both are checked: ds-* is the
+# primary name and agentic-* is the permanent compat symlink family, so
+# checking both keeps the local_bin checks below from silently dropping
+# either set.
+BIN_TOOL_PREFIXES: tuple[str, ...] = ("agentic-", "ds-")
+
+# Basenames of hook scripts that live in <repo_dir>/hooks/.
+MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
+    "enforce-askuserquestion-default.py",
+    "enforce-background-spawn.py",
+    "enforce-orchestrator-singularity.py",
+    "enforce-shippable-edit.py",
+    "post-tool-use-capture-nudge.js",
+    "session-end-wrap.js",
+    "session-start-version-check.sh",
+    "session-start-wrap.sh",
+    "skill-auto-load-check.sh",
+    "stop-context.js",
+    "wrap-daemon.js",
+])
+
+# ---------------------------------------------------------------------------
+# Config resolution
+# ---------------------------------------------------------------------------
+
+
+def _load_repo_dir() -> Path:
+    """Read repo_dir from config, falling back to ~/DinoStack.
+
+    Always returns a realpath (os.path.realpath) so comparisons with other
+    realpath'd paths work correctly on macOS where /var is a symlink to
+    /private/var.
+    """
+    fallback = Path(os.path.realpath(str(_home() / "DinoStack")))
+    try:
+        config = _config_path()
+        if config.is_file():
+            data = json.loads(config.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("repo_dir"):
+                raw = Path(str(data["repo_dir"])).expanduser()
+                return Path(os.path.realpath(str(raw)))
+    except Exception:
+        pass
+    return fallback
+
+
+def _is_git_repo(path: Path) -> bool:
+    """Return True if path contains a .git directory or file."""
+    try:
+        return (path / ".git").exists()
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+
+def _realpath(p: Path) -> Path:
+    """os.path.realpath resolving symlinks and /private/var -> /var on macOS."""
+    return Path(os.path.realpath(str(p)))
+
+
+def _is_relative_to(child: Path, parent: Path) -> bool:
+    """Path.is_relative_to polyfill for Python < 3.9.
+
+    For broken symlinks, os.path.realpath follows the link to its (non-existent)
+    target, so we must NOT use realpath on the child directly - instead, we
+    realpath the child's parent directory (which does exist) and re-attach the
+    final name. This correctly handles cases where child is a symlink (broken or
+    otherwise) that lives in a real directory.
+
+    For regular files/dirs and non-symlink paths, both approaches are equivalent.
+    """
+    # Resolve parent normally
+    parent_r = Path(os.path.realpath(str(parent)))
+    # For child: resolve its parent dir, then re-attach the name.
+    # This avoids following the symlink itself.
+    child_parent_r = Path(os.path.realpath(str(child.parent)))
+    child_r = child_parent_r / child.name
+    try:
+        child_r.relative_to(parent_r)
+        return True
+    except ValueError:
+        return False
+
+
+def _readlink_resolved(dst: Path) -> tuple[str, Path | None]:
+    """Return (raw_target_str, realpath_or_None_if_broken).
+
+    Uses os.path.realpath (not Path.resolve) so /private/var and /var
+    compare correctly on macOS.
+    """
+    try:
+        raw = os.readlink(str(dst))
+        candidate = Path(raw) if Path(raw).is_absolute() else dst.parent / raw
+        real = Path(os.path.realpath(str(candidate)))
+        return raw, real if real.exists() else None
+    except Exception:
+        return "(unreadable)", None
+
+
+# ---------------------------------------------------------------------------
+# Ownership predicate
+# ---------------------------------------------------------------------------
+
+
+def _is_ours(dst: Path, repo_dir: Path) -> bool:
+    """Return True if we own this symlink and may re-point it.
+
+    Owned iff ALL of:
+    - dst is under ~/.claude/{agents,commands,skills/agentic-engineering}
+      OR under <repo_dir>/.git/hooks OR under LOCAL_BIN
+    - dst is a symlink (not a real file)
+    - current target is either already under some DinoStack-looking repo_dir
+      OR broken (target does not exist)
+    """
+    if not os.path.islink(str(dst)):
+        return False
+
+    in_managed = any(_is_relative_to(dst, d) for d in _managed_link_dirs())
+    in_git_hooks = _is_relative_to(dst, repo_dir / ".git" / "hooks")
+    in_local_bin = _is_relative_to(dst, _local_bin())
+
+    if not (in_managed or in_git_hooks or in_local_bin):
+        return False
+
+    _raw, resolved = _readlink_resolved(dst)
+
+    # Broken symlink - target does not exist -> we can reclaim it
+    if resolved is None:
+        return True
+
+    # Target exists under repo_dir -> clearly ours
+    if _is_relative_to(resolved, repo_dir):
+        return True
+
+    # Target exists under another DinoStack clone (name heuristic).
+    # Match any path component that IS "DinoStack" or ENDS WITH "-DinoStack"
+    # (e.g. "old-DinoStack", "backup-DinoStack").
+    for part in resolved.parts:
+        if part == "DinoStack" or part.endswith("-DinoStack"):
+            return True
+
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Finding accumulator
+# ---------------------------------------------------------------------------
+
+
+class Doctor:
+    def __init__(self, repo_dir: Path, fix: bool, json_mode: bool = False) -> None:
+        self.repo_dir = repo_dir
+        self.fix = fix  # True only when --fix passed AND --dry-run NOT passed
+        self.json_mode = json_mode
+        self.findings: list[tuple[str, str]] = []
+        self.unfixable: list[str] = []
+
+    def _emit(self, status: str, message: str) -> None:
+        self.findings.append((status, message))
+        if not self.json_mode:
+            print(f"{status} {message}")
+
+    def ok(self, kind: str, detail: str) -> None:
+        self._emit("OK", f"{kind}: {detail}")
+
+    def fail(self, kind: str, detail: str) -> None:
+        self._emit("FAIL", f"{kind}: {detail}")
+
+    def skip(self, kind: str, dst_or_detail: object, reason: str) -> None:
+        self._emit("SKIP", f"{kind}: {dst_or_detail} ({reason})")
+
+    def warn(self, kind: str, detail: str) -> None:
+        """A non-fatal advisory: recorded as a finding but does NOT fail exit."""
+        self._emit("WARN", f"{kind}: {detail}")
+
+    def repoint_symlink(self, kind: str, dst: Path, old: str, new: Path) -> None:
+        """Announce and (if fix mode) perform a symlink re-point.
+
+        Prints: FIX symlink: <dst> : <old/broken target> -> <new target>
+        In read-only/dry-run mode, the FIX line is informational only and
+        counts as a finding (exit 1). In live fix mode, performs the re-point.
+        """
+        self._emit("FIX", f"symlink: {dst} : {old} -> {new}")
+        if self.fix:
+            try:
+                if os.path.islink(str(dst)):
+                    os.remove(str(dst))
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                os.symlink(str(new), str(dst))
+            except Exception as exc:
+                self.fail(kind, f"could not re-point {dst}: {exc}")
+                self.mark_unfixable(dst)
+
+    def remove_stale_symlink(self, kind: str, dst: Path, old: str) -> None:
+        """Announce and (if fix mode) remove a symlink whose computed expected
+        target does not exist in the repo (the upstream artifact was renamed
+        or deleted, not merely moved). Removing - not recreating - is the
+        correct repair here: recreating would just re-point the link at a
+        target that still doesn't exist, reproducing the dangling link on
+        the very next run.
+
+        Prints: FIX symlink: <dst> : <old/broken target> -> (removed, stale)
+        In read-only/dry-run mode, the FIX line is informational only and
+        counts as a finding (exit 1). In live fix mode, removes the symlink.
+        """
+        self._emit("FIX", f"symlink: {dst} : {old} -> (removed, stale)")
+        if self.fix:
+            try:
+                if os.path.islink(str(dst)):
+                    os.remove(str(dst))
+            except Exception as exc:
+                self.fail(kind, f"could not remove stale {dst}: {exc}")
+                self.mark_unfixable(dst)
+
+    def has_unresolved_findings(self) -> bool:
+        """Return True if there are FAIL or FIX lines in the output.
+
+        In live fix mode, FIX lines represent completed repairs (not failures),
+        so only FAIL lines count. In read-only/dry-run mode, both FAIL and FIX
+        lines count as findings requiring action.
+        """
+        if self.fix:
+            # Fix mode: only unfixed items (FAIL lines) matter
+            return any(s == "FAIL" for s, _ in self.findings)
+        else:
+            # Read-only/dry-run: FAIL or FIX both indicate drift
+            return any(s in ("FAIL", "FIX") for s, _ in self.findings)
+
+    def has_unfixable(self) -> bool:
+        return bool(self.unfixable)
+
+    def mark_unfixable(self, item) -> None:
+        """Append str(item) to unfixable only when fix mode is active."""
+        if self.fix:
+            self.unfixable.append(str(item))
+
+
+# ---------------------------------------------------------------------------
+# Check (a): repo_dir is a valid git repo
+# ---------------------------------------------------------------------------
+
+
+def check_repo_dir(doc: Doctor) -> None:
+    if not doc.repo_dir.exists():
+        doc.fail(
+            "repo_dir",
+            f"{doc.repo_dir} does not exist; re-run bootstrap or set repo_dir in {_config_path()}",
+        )
+        doc.mark_unfixable(doc.repo_dir)
+        return
+    if not _is_git_repo(doc.repo_dir):
+        doc.fail(
+            "repo_dir",
+            f"{doc.repo_dir} exists but is not a git repo; re-run bootstrap or set repo_dir in {_config_path()}",
+        )
+        doc.mark_unfixable(doc.repo_dir)
+        return
+    doc.ok("repo_dir", f"{doc.repo_dir} is a valid git repo")
+
+
+# ---------------------------------------------------------------------------
+# Check (b): managed ~/.claude symlinks resolve into repo_dir
+# ---------------------------------------------------------------------------
+
+
+def check_managed_symlinks(doc: Doctor) -> None:
+    """Check all entries under the managed ~/.claude dirs resolve into repo_dir."""
+    for root in _managed_link_dirs():
+        # If the root itself is a symlink (e.g. skills/agentic-engineering)
+        if os.path.islink(str(root)):
+            _check_one_link(doc, root, "managed_links")
+            continue
+
+        if not root.exists():
+            doc.skip("managed_links", root, "directory does not exist")
+            continue
+
+        try:
+            entries = sorted(root.iterdir())
+        except Exception:
+            doc.skip("managed_links", root, "could not read directory")
+            continue
+
+        for entry in entries:
+            if os.path.islink(str(entry)):
+                _check_one_link(doc, entry, "managed_links")
+            else:
+                # Real file in a managed dir: skip, do not touch
+                doc.skip("managed_links", entry, "real file, not a symlink")
+
+
+def _check_one_link(doc: Doctor, dst: Path, kind: str) -> None:
+    """Verify one symlink resolves into repo_dir; fix or skip as appropriate."""
+    raw, resolved = _readlink_resolved(dst)
+
+    if resolved is not None and _is_relative_to(resolved, doc.repo_dir):
+        doc.ok(kind, f"{dst} -> {raw}")
+        return
+
+    expected = _expected_target_in_repo(dst, doc.repo_dir)
+
+    if not _is_ours(dst, doc.repo_dir):
+        t_display = raw if resolved is None else str(resolved)
+        doc.skip(kind, dst, f"not ours - target {t_display} exists outside repo_dir")
+        return
+
+    # Broken or wrong target - we own it
+    old_display = f"{raw} (broken)" if resolved is None else raw
+
+    if expected is not None and expected.exists():
+        doc.repoint_symlink(kind, dst, old_display, expected)
+    elif expected is not None:
+        # Path arithmetic resolved a location, but nothing exists there in
+        # the repo - the artifact was renamed or removed upstream, not just
+        # moved. Repointing here would recreate a dangling link; remove it.
+        doc.remove_stale_symlink(kind, dst, old_display)
+    else:
+        doc.fail(kind, f"{dst}: target {old_display} is wrong; could not determine repair target")
+        doc.mark_unfixable(dst)
+
+
+def _expected_target_in_repo(dst: Path, repo_dir: Path) -> Path | None:
+    """Compute where dst should point within repo_dir.
+
+    Agents/commands: ~/.claude/agents/foo.md -> <repo_dir>/.claude/agents/foo.md
+    Skills dir:      ~/.claude/skills/agentic-engineering ->
+                     <repo_dir>/.claude/skills/agentic-engineering
+
+    Uses parent-realpath to avoid following symlinks on dst itself (which would
+    resolve to the broken/stale target, not the symlink's location).
+    """
+    claude_dir = _home() / ".claude"
+    # Build the realpath of dst's location (not its target) for comparison
+    dst_resolved = Path(os.path.realpath(str(dst.parent))) / dst.name
+    claude_dir_r = Path(os.path.realpath(str(claude_dir)))
+    try:
+        rel = dst_resolved.relative_to(claude_dir_r)
+        return repo_dir / ".claude" / rel
+    except ValueError:
+        return None
+
+
+# ---------------------------------------------------------------------------
+# Check (c): hook commands in settings.json embed paths under repo_dir
+# ---------------------------------------------------------------------------
+
+
+def check_hook_paths(doc: Doctor) -> None:
+    settings_path = _settings_path()
+    if not settings_path.exists():
+        doc.skip("hooks", settings_path, "settings.json not found")
+        return
+
+    try:
+        raw_text = settings_path.read_text(encoding="utf-8")
+        data = json.loads(raw_text)
+    except Exception as exc:
+        doc.fail("hooks", f"could not parse {settings_path}: {exc}")
+        return
+
+    drift: list[tuple[str, str]] = []  # (old_cmd, new_cmd)
+
+    def _walk(obj: object) -> None:
+        if isinstance(obj, list):
+            for item in obj:
+                _walk(item)
+        elif isinstance(obj, dict):
+            cmd = obj.get("command")
+            if isinstance(cmd, str):
+                replacement = _hook_replacement(cmd, doc.repo_dir)
+                if replacement is not None:
+                    drift.append((cmd, replacement))
+            for v in obj.values():
+                if isinstance(v, (dict, list)):
+                    _walk(v)
+
+    _walk(data)
+
+    if not drift:
+        doc.ok("hooks", f"{settings_path}: all managed hook paths reference repo_dir")
+        return
+
+    for old_cmd, new_cmd in drift:
+        doc.repoint_symlink("hooks", settings_path, old_cmd, Path(new_cmd))
+
+    if doc.fix:
+        _atomic_patch_settings(doc, settings_path, data, {old: new for old, new in drift})
+
+
+def _hook_replacement(cmd: str, repo_dir: Path) -> str | None:
+    """If cmd references a managed hook at the wrong path, return the fixed cmd."""
+    for basename in MANAGED_HOOK_BASENAMES:
+        if basename not in cmd:
+            continue
+        tokens = cmd.split()
+        for token in tokens:
+            if basename not in token:
+                continue
+            token_path = Path(token)
+            expected = repo_dir / "hooks" / basename
+            if _is_relative_to(token_path, repo_dir):
+                return None  # already correct
+            # Only fix paths that look like a DinoStack install
+            if any(p == "DinoStack" or p.endswith("-DinoStack") for p in token_path.parts):
+                return cmd.replace(str(token_path), str(expected), 1)
+        break
+    return None
+
+
+def _atomic_patch_settings(
+    doc: Doctor, settings_path: Path, data: dict, replacements: dict[str, str]
+) -> None:
+    """Atomic read-merge-write: fix only the matched hook command strings."""
+
+    def _patch(obj: object) -> object:
+        if isinstance(obj, list):
+            return [_patch(item) for item in obj]
+        elif isinstance(obj, dict):
+            return {
+                k: (
+                    replacements[v]
+                    if k == "command" and isinstance(v, str) and v in replacements
+                    else _patch(v)
+                )
+                for k, v in obj.items()
+            }
+        return obj
+
+    try:
+        patched = _patch(data)
+        new_text = json.dumps(patched, indent=2) + "\n"
+        dir_ = str(settings_path.parent)
+        fd, tmp_path = tempfile.mkstemp(dir=dir_, prefix=".settings-tmp-")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(new_text)
+            os.replace(tmp_path, str(settings_path))
+            doc.ok("hooks", f"{settings_path}: hook paths repaired (atomic rewrite)")
+        except Exception as exc:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            doc.fail("hooks", f"could not write {settings_path}: {exc}")
+            doc.mark_unfixable(settings_path)
+    except Exception as exc:
+        doc.fail("hooks", f"patch failed: {exc}")
+        doc.mark_unfixable(settings_path)
+
+
+def check_hook_scripts_exist(doc: Doctor) -> None:
+    """FAIL each managed hook script referenced in settings.json that is
+    missing on disk (an orphaned hook wiring - e.g. a moved, renamed, or
+    deleted script). Read-only: never repointed or removed by --fix; the
+    fix for a missing script is restoring the file or re-running install.sh
+    to re-wire against a corrected path, not a doctor-side patch.
+    """
+    settings_path = _settings_path()
+    if not settings_path.exists():
+        doc.skip("hook_scripts", settings_path, "settings.json not found")
+        return
+
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        doc.fail("hook_scripts", f"could not parse {settings_path}: {exc}")
+        return
+
+    missing: set[str] = set()
+
+    def _walk(obj: object) -> None:
+        if isinstance(obj, list):
+            for item in obj:
+                _walk(item)
+        elif isinstance(obj, dict):
+            cmd = obj.get("command")
+            if isinstance(cmd, str):
+                for token in cmd.split():
+                    if "/hooks/" not in token or not token.endswith((".py", ".js", ".sh")):
+                        continue
+                    basename = os.path.basename(token)
+                    if basename not in MANAGED_HOOK_BASENAMES:
+                        continue
+                    if not os.path.exists(token):
+                        missing.add(token)
+            for v in obj.values():
+                if isinstance(v, (dict, list)):
+                    _walk(v)
+
+    _walk(data)
+
+    if not missing:
+        doc.ok("hook_scripts", f"{settings_path}: all managed hook scripts exist on disk")
+        return
+
+    for token in sorted(missing):
+        doc.fail("hook_scripts", f"{token} referenced in {settings_path} does not exist on disk")
+
+
+# ---------------------------------------------------------------------------
+# Check (d): ~/.local/bin/<name> symlinks for each bin/agentic-* script
+# ---------------------------------------------------------------------------
+
+
+def check_local_bin_symlinks(doc: Doctor) -> None:
+    bin_dir = doc.repo_dir / "bin"
+    if not bin_dir.is_dir():
+        doc.skip("local_bin", bin_dir, "repo_dir/bin does not exist")
+        return
+
+    try:
+        scripts = sorted(
+            p for p in bin_dir.iterdir()
+            if p.name.startswith(BIN_TOOL_PREFIXES) and p.is_file()
+        )
+    except Exception:
+        doc.skip("local_bin", bin_dir, "could not read bin/")
+        return
+
+    if not scripts:
+        doc.skip("local_bin", bin_dir, "no agentic-*/ds-* scripts found in repo_dir/bin")
+        return
+
+    local_bin = _local_bin()
+    for script in scripts:
+        link = local_bin / script.name
+        _check_bin_link(doc, link, script)
+
+
+def _check_bin_link(doc: Doctor, link: Path, expected_target: Path) -> None:
+    """Verify or fix one ~/.local/bin/<name> symlink."""
+    link_exists = link.exists() or os.path.islink(str(link))
+
+    if not link_exists:
+        doc.repoint_symlink("local_bin", link, "(missing)", expected_target)
+        return
+
+    if not os.path.islink(str(link)):
+        doc.skip("local_bin", link, "real file, not a symlink")
+        return
+
+    raw, resolved = _readlink_resolved(link)
+
+    if resolved is not None and resolved == _realpath(expected_target):
+        doc.ok("local_bin", f"{link} -> {raw}")
+        return
+
+    if _is_ours(link, doc.repo_dir):
+        old = raw if resolved is not None else f"{raw} (broken)"
+        doc.repoint_symlink("local_bin", link, old, expected_target)
+    else:
+        t = str(resolved) if resolved else f"{raw} (broken)"
+        doc.skip("local_bin", link, f"not ours - target {t} exists outside repo_dir")
+
+
+# ---------------------------------------------------------------------------
+# Check (d2): reverse direction - a ~/.local/bin symlink whose raw target is
+# rooted at <repo_dir>/bin but that target no longer exists (e.g. a tool
+# renamed or removed upstream, such as the agentic-* -> ds-* rename).
+# The scan above (check_local_bin_symlinks) only walks repo/bin -> expected
+# link, so it can never notice a link left behind for a tool that vanished
+# from repo/bin entirely; this is the missing reverse direction.
+# ---------------------------------------------------------------------------
+
+
+def _stale_repo_bin_link_target(dst: Path, repo_dir: Path) -> str | None:
+    """Return the raw (unresolved) target string if dst is a stale link into
+    this repo's bin/ tree, else None.
+
+    Deliberately narrower than _is_ours(): _is_ours() treats ANY broken
+    symlink located under ~/.local/bin as reclaimable, which would be unsafe
+    here (a user's own broken symlink that happens to live in ~/.local/bin,
+    unrelated to this repo, must never be removed). This predicate instead
+    requires the symlink's own (unresolved) target text to be lexically
+    rooted at <repo_dir>/bin - i.e. it must have been created BY this repo's
+    install machinery pointing INTO this repo's bin/ - before it is
+    considered stale. It therefore cannot fire on:
+      - a real file (the os.path.islink guard)
+      - a live symlink whose target still exists (resolved is not None)
+      - a symlink pointing anywhere outside <repo_dir>/bin, broken or not
+        (including another DinoStack clone's bin/, or a wholly unrelated
+        broken symlink an operator created themselves)
+    Comparison is done against the realpath of <repo_dir>/bin (not the raw
+    target's directory, which does not exist for a stale link) so a
+    symlinked repo_dir still compares correctly.
+
+    Undocumented-until-now behavior this predicate drives: staleness is
+    relative to the CURRENT checkout state of repo_dir/bin, not solely to a
+    rename. On an older commit or a feature branch where a given tool does
+    not yet exist in bin/, a link to it reads as stale here and --fix will
+    remove the user's ~/.local/bin wrapper for it. This is bounded and
+    self-healing - check_local_bin_symlinks recreates the wrapper on a
+    later --fix run once the checkout is back on a commit where the tool
+    exists.
+    """
+    if not os.path.islink(str(dst)):
+        return None
+    raw, resolved = _readlink_resolved(dst)
+    if resolved is not None:
+        return None  # target exists - not stale
+    if raw == "(unreadable)":
+        return None
+    candidate = Path(raw) if Path(raw).is_absolute() else dst.parent / raw
+    candidate_dir_r = Path(os.path.realpath(str(candidate.parent)))
+    bin_dir_r = Path(os.path.realpath(str(repo_dir / "bin")))
+    if candidate_dir_r != bin_dir_r:
+        return None
+    return raw
+
+
+def check_local_bin_stale(doc: Doctor) -> None:
+    """Detect (and with --fix, remove) ~/.local/bin symlinks that point at a
+    now-missing <repo_dir>/bin script. See _stale_repo_bin_link_target for
+    the exact ownership predicate and why it cannot touch operator-owned
+    files.
+
+    Entries whose name matches a script CURRENTLY present in repo_dir/bin
+    (matching BIN_TOOL_PREFIXES) are skipped here even when their existing
+    target is broken - check_local_bin_symlinks (the forward check, run
+    immediately before this one) already owns repointing that link. Without
+    this skip, read-only/--dry-run mode reports two contradictory
+    recommendations for the same link (a forward repoint AND a reverse
+    removal); in live --fix mode the forward check has already re-pointed
+    the link by the time this function reads it, so it would silently
+    no-op here anyway - this skip only fixes the read-only/--dry-run report.
+    """
+    local_bin = _local_bin()
+    if not local_bin.is_dir():
+        doc.skip("local_bin_stale", local_bin, "~/.local/bin does not exist")
+        return
+
+    bin_dir = doc.repo_dir / "bin"
+    if not bin_dir.is_dir():
+        # repo_dir/bin itself is absent (e.g. mid-checkout or bad repo_dir) -
+        # do not treat every local_bin link as stale just because we cannot
+        # currently see the source tree.
+        doc.skip("local_bin_stale", bin_dir, "repo_dir/bin does not exist")
+        return
+
+    try:
+        current_names = {
+            p.name for p in bin_dir.iterdir()
+            if p.name.startswith(BIN_TOOL_PREFIXES) and p.is_file()
+        }
+    except Exception:
+        current_names = set()
+
+    try:
+        entries = sorted(local_bin.iterdir())
+    except Exception:
+        doc.skip("local_bin_stale", local_bin, "could not read ~/.local/bin")
+        return
+
+    found_stale = False
+    for entry in entries:
+        if entry.name in current_names:
+            # Owned by check_local_bin_symlinks - see docstring above.
+            continue
+        raw = _stale_repo_bin_link_target(entry, doc.repo_dir)
+        if raw is None:
+            continue
+        found_stale = True
+        doc.remove_stale_symlink("local_bin_stale", entry, f"{raw} (broken)")
+
+    if not found_stale:
+        doc.ok("local_bin_stale", f"{local_bin}: no stale repo-bin symlinks")
+
+
+# ---------------------------------------------------------------------------
+# Check (e): <repo_dir>/.git/hooks/pre-commit -> <repo_dir>/hooks/pre-commit
+# ---------------------------------------------------------------------------
+
+
+def check_git_precommit(doc: Doctor) -> None:
+    expected_src = doc.repo_dir / "hooks" / "pre-commit"
+    git_hook = doc.repo_dir / ".git" / "hooks" / "pre-commit"
+
+    if not expected_src.exists():
+        doc.skip("git_precommit", git_hook, f"managed pre-commit not found at {expected_src}")
+        return
+
+    hook_exists = git_hook.exists() or os.path.islink(str(git_hook))
+
+    if not hook_exists:
+        doc.repoint_symlink("git_precommit", git_hook, "(missing)", expected_src)
+        return
+
+    if not os.path.islink(str(git_hook)):
+        doc.skip("git_precommit", git_hook, "real file, not a symlink - not managed by us")
+        return
+
+    raw, resolved = _readlink_resolved(git_hook)
+
+    if resolved is not None and resolved == _realpath(expected_src):
+        doc.ok("git_precommit", f"{git_hook} -> {raw}")
+        return
+
+    if _is_ours(git_hook, doc.repo_dir):
+        old = raw if resolved is not None else f"{raw} (broken)"
+        doc.repoint_symlink("git_precommit", git_hook, old, expected_src)
+    else:
+        t = str(resolved) if resolved else f"{raw} (broken)"
+        doc.skip("git_precommit", git_hook, f"not ours - target {t} exists outside repo_dir")
+
+
+
+# ---------------------------------------------------------------------------
+# Cross-harness team health (team.yml / role-models.yml / harnesses / models)
+# ---------------------------------------------------------------------------
+
+def _load_agentic_team_module():
+    """Import bin/ds-team as a module to reuse its config helpers."""
+    import importlib.machinery
+    import importlib.util
+    at_path = Path(__file__).resolve().parent / "ds-team"
+    if not at_path.is_file():
+        return None
+    try:
+        loader = importlib.machinery.SourceFileLoader("_agentic_team", str(at_path))
+        spec = importlib.util.spec_from_loader("_agentic_team", loader)
+        mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        loader.exec_module(mod)
+        return mod
+    except Exception:
+        return None
+
+
+def _omp_model_handles():
+    """Return the set of model handles known to omp via `omp models ls --json`.
+
+    Uses the structured --json API (not display-table text) so a handle with a
+    space or extra slash is never silently dropped. Returns None when omp is
+    unavailable / the command fails, so callers WARN rather than FAIL.
+    """
+    import shutil
+    import subprocess
+    import json as _json
+    if not shutil.which("omp"):
+        return None
+    try:
+        out = subprocess.run(
+            ["omp", "models", "ls", "--json"],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        payload = _json.loads(out.stdout)
+    except (ValueError, TypeError):
+        return None
+    models = payload.get("models") if isinstance(payload, dict) else payload
+    if not isinstance(models, list):
+        return None
+    handles = set()
+    for m in models:
+        if isinstance(m, dict):
+            for key in ("id", "selector", "name"):
+                v = m.get(key)
+                if isinstance(v, str) and v:
+                    handles.add(v)
+        elif isinstance(m, str) and m:
+            handles.add(m)
+    return handles or None
+
+
+def _installed_harnesses():
+    """Return installed harness labels via `ds-team discover --json`.
+
+    Uses the structured --json API (not the human-readable columns) so the
+    result does not depend on display formatting. Returns None on failure.
+    """
+    import shutil
+    import subprocess
+    import json as _json
+    if not shutil.which("ds-team"):
+        return None
+    try:
+        out = subprocess.run(
+            ["ds-team", "discover", "--json"],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out.returncode != 0:
+        return None
+    try:
+        payload = _json.loads(out.stdout)
+    except (ValueError, TypeError):
+        return None
+    if not isinstance(payload, dict):
+        return None
+    installed = {
+        name for name, info in payload.items()
+        if isinstance(info, dict) and info.get("installed") is True
+    }
+    return installed or None
+
+
+def check_cross_harness(doc: "Doctor") -> None:
+    """Validate the cross-harness team stack: configs, harnesses, model handles."""
+    at = _load_agentic_team_module()
+    if at is None:
+        doc.warn("cross-harness", "ds-team module not importable; skipping")
+        return
+
+    # (1a) team.yml parse + schema-valid.
+    try:
+        config = at._load_team_config()
+    except (OSError, ValueError, ImportError) as exc:
+        doc.fail("team.yml", f"failed to load/parse: {exc}")
+        return  # don't fall through into "no team.yml" warning on real failure
+    if not config:
+        doc.warn("team.yml", "no team.yml found (cross-harness dispatch off)")
+        return
+
+    # Validate schema - wrap in broad try/except so a structural surprise
+    # (e.g. _validate_config AttributeError on `roles: "string"`) becomes a
+    # FAIL finding rather than crashing the whole doctor process.
+    try:
+        errors = at._validate_config(config, source="team.yml")
+    except Exception as exc:
+        doc.fail("team.yml", f"validator crashed on structurally invalid config: {type(exc).__name__}: {exc}")
+        errors = []
+    if errors:
+        for e in errors:
+            doc.fail("team.yml", e)
+    else:
+        doc.ok("team.yml", "schema valid")
+
+
+
+    # (1b) role-models.yml (optional): if present, it must parse as YAML.
+    import os as _os
+    import glob as _glob  # noqa: F401  (kept for parity; not used directly)
+    rm_paths = [
+        _os.path.expanduser("~/.agentic/role-models.yml"),
+        _os.path.join(_os.getcwd(), ".agentic", "role-models.yml"),
+    ]
+    rm_found = [rp for rp in rm_paths if _os.path.isfile(rp)]
+    if not rm_found:
+        doc.ok("role-models.yml", "absent (optional; reviewer defaults apply)")
+    else:
+        try:
+            import yaml as _yaml
+        except ImportError:
+            doc.warn("role-models.yml", "pyyaml not importable; not parsed")
+            _yaml = None
+        for rp in rm_found:
+            if _yaml is None:
+                break
+            try:
+                with open(rp) as _f:
+                    parsed = _yaml.safe_load(_f)
+                if parsed is not None and not isinstance(parsed, dict):
+                    doc.fail("role-models.yml", f"{rp}: top level must be a mapping")
+                else:
+                    doc.ok("role-models.yml", f"{rp}: parses")
+            except (OSError, _yaml.YAMLError) as exc:
+                doc.fail("role-models.yml", f"{rp}: {exc}")
+
+    roles = config.get("roles", {}) or {}
+    default_harness = config.get("default_harness")
+
+    # (2) every referenced harness is installed.
+    installed = _installed_harnesses()
+    referenced = {default_harness} if default_harness else set()
+    for spec in roles.values():
+        entry = at._role_entry(spec)
+        h = entry.get("harness")
+        if h:
+            referenced.add(h)
+    referenced.discard(None)
+    if installed is None:
+        doc.warn("harnesses", "ds-team discover unavailable; not verified")
+    else:
+        for h in sorted(referenced):
+            if h in installed:
+                doc.ok("harness", f"{h} installed")
+            else:
+                doc.fail("harness", f"{h} referenced in team.yml but NOT installed")
+
+    # (3) every model handle is resolvable via omp (best-effort / WARN).
+    handles = _omp_model_handles()
+    referenced_models = []
+    for role, spec in roles.items():
+        entry = at._role_entry(spec)
+        m = entry.get("model")
+        if isinstance(m, str) and m:
+            referenced_models.append((role, m))
+        # multi-model list form (roles[*].models), present once the D-2
+        # round-robin PR lands; guarded so this works against either version.
+        getter = getattr(at, "_role_models_list", None)
+        if getter:
+            for mm in getter(spec):
+                referenced_models.append((role, mm))
+    if handles is None:
+        doc.warn("models", "omp models ls unavailable; handles not verified")
+    else:
+        for role, m in referenced_models:
+            # Only omp-routed handles (provider/model) are checked against omp.
+            if "/" not in m:
+                continue
+            if m in handles:
+                doc.ok("model", f"{role} -> {m}")
+            else:
+                doc.warn("model", f"{role} -> {m} not in `omp models ls`")
+
+    # (4) dispatch model-resolution wiring (D-1) present?
+    if getattr(at, "_resolve_role_model", None):
+        doc.ok("dispatch", "per-role model resolution wired (_resolve_role_model)")
+    else:
+        doc.warn(
+            "dispatch",
+            "per-role model resolution not present; dispatch may ignore team.yml "
+            "model unless --model is passed (pending the dispatch-resolution fix)",
+        )
+
+
+# ---------------------------------------------------------------------------
+# Entrypoint
+# ---------------------------------------------------------------------------
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(
+        prog="ds-doctor",
+        description=(
+            "Inspect global agentic-engineering install health. "
+            "With --fix, re-points drifted symlinks toward the canonical repo_dir "
+            "(removing them when the expected in-repo target no longer exists) "
+            "and repairs hook paths in ~/.claude/settings.json. "
+            "NEVER invokes install.sh or rebuilds adapters. "
+            "Note: with two DinoStack clones, --fix re-points links toward the "
+            "canonical repo_dir (from ~/.agentic/agentic-engineering-config.json); "
+            "prevention is the bootstrap guard."
+        ),
+    )
+    parser.add_argument(
+        "--fix",
+        action="store_true",
+        help="Re-point ours-to-own drifted symlinks (or remove them if the expected target is gone) and repair hook paths in settings.json.",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        dest="dry_run",
+        help=(
+            "Enumerate findings and planned repairs without changing anything. "
+            "Same as no-flag mode (read-only scan)."
+        ),
+    )
+    parser.add_argument(
+        "--cross-harness",
+        action="store_true",
+        dest="cross_harness",
+        help="Also validate the cross-harness team stack (team.yml, "
+             "role-models.yml, referenced harnesses, model handles).",
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        dest="json_mode",
+        help="Emit findings as a JSON object instead of human-readable lines.",
+    )
+    args = parser.parse_args()
+
+    # --dry-run takes priority; --fix alone is the live-fix mode
+    actually_fix = args.fix and not args.dry_run
+
+    repo_dir = _load_repo_dir()
+    doc = Doctor(repo_dir=repo_dir, fix=actually_fix, json_mode=args.json_mode)
+
+    # (a) repo_dir validity
+    check_repo_dir(doc)
+
+    # (b) managed ~/.claude symlinks
+    check_managed_symlinks(doc)
+
+    # (c) hook paths in settings.json
+    check_hook_paths(doc)
+
+    # (d) managed hook scripts exist on disk (orphaned-hook detection)
+    check_hook_scripts_exist(doc)
+
+    # (e) ~/.local/bin wrappers
+    check_local_bin_symlinks(doc)
+
+    # (e2) reverse direction: stale ~/.local/bin symlinks into a now-missing
+    # repo_dir/bin script
+    check_local_bin_stale(doc)
+
+    # (f) git pre-commit hook
+    check_git_precommit(doc)
+
+    # (g) cross-harness team stack (opt-in via --cross-harness)
+    if args.cross_harness:
+        check_cross_harness(doc)
+
+    # JSON output mode: emit structured findings + summary.
+    if args.json_mode:
+        import json as _json
+        counts: dict[str, int] = {}
+        for status, _ in doc.findings:
+            counts[status] = counts.get(status, 0) + 1
+        payload = {
+            "findings": [{"status": s, "message": m} for s, m in doc.findings],
+            "counts": counts,
+            "ok": not doc.has_unresolved_findings() and not doc.has_unfixable(),
+        }
+        print(_json.dumps(payload, indent=2))
+
+    # Exit codes
+    if actually_fix:
+        # Fail mode: return 2 if any repair could not be applied, but also
+        # surface a non-zero exit when a non-fixable FAIL was recorded (e.g. a
+        # cross-harness schema/harness failure), so CI/scripts don't see 0.
+        if doc.has_unfixable():
+            return 2
+        return 1 if doc.has_unresolved_findings() else 0
+
+    # Read-only mode (no --fix, or --dry-run): exit 1 if any FAIL or FIX
+    return 1 if doc.has_unresolved_findings() else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

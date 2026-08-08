@@ -428,7 +428,7 @@ Threat model: drift detection in a non-adversarial conductor relationship. Not a
 </style>
 
 - **Surfacing** - Critical/Major divergence on a sampled spawn surfaces as one inline `META-DIVERGENCE:` line. Original sign-off remains binding; the notice is advisory. Surfacing fires both in-session (Phase 6 turn boundaries) and at session start (catches async returns from prior sessions). The sweep paginates via `.meta-divergence-last-sweep` timestamp tracker.
-- **Inspection CLI** - `agentic-calibrate density` (findings per 100 diff-lines, excludes zero-diff rows) and `agentic-calibrate divergence` (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.
+- **Inspection CLI** - `ds-calibrate density` (findings per 100 diff-lines, excludes zero-diff rows) and `ds-calibrate divergence` (meta-Skeptic rubber-stamp rate). Warming-up line shown until 10 qualifying spawns observed.
 
 <div class="callout">
 Per-spawn: audit-note Minor attests the Skeptic re-read the diff end-to-end. Long-horizon: calibration layer catches aggregate drift across sessions. Two layers, two timescales.

@@ -1,13 +1,13 @@
 <!--
 Purpose: Operator-facing guide to .agentic/events.jsonl - the structured
          event log that records orchestration boundaries. Covers the base
-         schema, main event types, who writes what, and how agentic-cost
+         schema, main event types, who writes what, and how ds-cost
          consumes the data. Complements docs/identity-telemetry.md (which
          covers identity setup, not the event data model).
 
 Public API: Operator-facing prose. Entry point for operators who want to
             understand what is being logged, consume the log themselves,
-            or troubleshoot agentic-cost output.
+            or troubleshoot ds-cost output.
             The full V1 event-type schemas live in
             content/references/events-log.md.
 
@@ -15,7 +15,7 @@ Upstream deps: content/sections/09-events-log.md (writer scope and base
                schema); content/references/events-log.md (full V1 schemas,
                per-developer session log, append discipline, PII boundary).
 
-See also: docs/identity-telemetry.md (identity setup and agentic-cost
+See also: docs/identity-telemetry.md (identity setup and ds-cost
           team rollup).
 
 Downstream consumers: docs site root index.
@@ -31,7 +31,7 @@ Performance: Standard.
 
 `.agentic/events.jsonl` is a per-project structured log of orchestration
 boundaries. It is optional, gitignored, and written locally - no data leaves
-the machine. `agentic-cost` reads it to produce token and wall-time reports.
+the machine. `ds-cost` reads it to produce token and wall-time reports.
 
 For identity setup (registering a developer handle so sessions are attributed
 correctly), see [docs/identity-telemetry.md](identity-telemetry.md).
@@ -103,7 +103,7 @@ Key `data` fields: `wall_seconds`, summed `tokens`, `spawn_count`,
 `by_agent` rollup (per-agent `spawns`, `wall_seconds`, `tokens_total`).
 
 This event is also mirrored to `.agentic/session-log/<developer_id>.jsonl`
-for team rollup via `agentic-cost team`.
+for team rollup via `ds-cost team`.
 
 ### meta_review_complete
 
@@ -125,19 +125,19 @@ workaround - no file contents, no output, no secrets), `session_uuid`.
 This feeds the skill-candidate detection system. See
 [docs/skill-candidates.md](skill-candidates.md).
 
-## agentic-cost
+## ds-cost
 
-`agentic-cost` reads `events.jsonl` and the per-developer session logs to
+`ds-cost` reads `events.jsonl` and the per-developer session logs to
 produce token and wall-time reports.
 
 ```bash
-agentic-cost            # current session summary
-agentic-cost team       # per-developer rollup across all committed session logs
+ds-cost            # current session summary
+ds-cost team       # per-developer rollup across all committed session logs
 ```
 
 Session logs at `.agentic/session-log/<developer_id>.jsonl` are committed to
 git via `/ds-implement-ticket` Phase 8 (when `commit_telemetry: true` and
-identity is confirmed). `agentic-cost team` therefore reflects sessions from
+identity is confirmed). `ds-cost team` therefore reflects sessions from
 all developers whose telemetry has landed on the branch via pull after merge.
 
 ## Practical notes
@@ -162,7 +162,7 @@ The log is supplementary signal for the session skeleton, not required.
   atomicity, retention, and PII boundary
 - `content/sections/09-events-log.md` - writer scope and base schema
   (the section that events-log.md expands)
-- `docs/identity-telemetry.md` - identity setup and agentic-cost team
+- `docs/identity-telemetry.md` - identity setup and ds-cost team
   rollup (the prerequisite for attributed session logs)
 - `docs/skill-candidates.md` - how tool_failure_workaround events feed
   the skill-candidate detection system
