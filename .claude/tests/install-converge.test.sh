@@ -18,8 +18,8 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~55 s wall time (19 install.sh invocations as of the DS-143
-#              cases (i)-(m); each runs two full adapter builds against the
+# Performance: ~60 s wall time (22 install.sh invocations as of the DS-143
+#              cases (i)-(o); each runs two full adapter builds against the
 #              real checkout).
 #
 # Regression coverage:
@@ -96,6 +96,18 @@
 #     writing a degenerate `<!-- BEGIN ... -->\n\n<!-- END ... -->` block;
 #     CLAUDE.md is left untouched (absent, in this fixture) so a user's
 #     pre-existing imports are never destroyed by a bad template.
+#   - Case (o) (DS-143): TWO well-formed managed blocks in one CLAUDE.md.
+#     Regression test for a fix-pass-2 Skeptic finding: pattern.sub() (no
+#     count=) rewrites EVERY block, so migrating must be detected across
+#     ALL blocks, not just the first via pattern.search(). Sub-case
+#     new_then_old (new-format block first, old-format/import-carrying
+#     block second) is the actual regression - under the pre-fix
+#     search()-based detector this stripped the second block's imports
+#     while leaving skill_auto_load false, unrecoverable on any later run.
+#     Watched red against a scratch revert to pattern.search() before the
+#     finditer() fix landed. Sub-case old_then_new (reverse order) is a
+#     same-cost control that already migrated correctly under the old code
+#     and stays green under both.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -1036,6 +1048,49 @@ else
 fi
 
 rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (o): TWO well-formed managed blocks in one CLAUDE.md. Regression test
+#           for the fix-pass-2 Skeptic finding: the rewrite's pattern.sub()
+#           has no count= and rewrites EVERY block, so migration detection
+#           must scan every block too, not just the first. Sub-case 1 (the
+#           actual regression) puts the new-format block FIRST and the
+#           old-format (import-carrying) block SECOND - under the old
+#           pattern.search()-based detector this left the user with imports
+#           stripped and skill_auto_load still false, unrecoverable on any
+#           later run since the marker is gone. Sub-case 2 is a same-cost
+#           control in the reverse order (old block first), which already
+#           migrated correctly under the old code and must stay green.
+# ---------------------------------------------------------------------------
+
+for _ae_block_order in new_then_old old_then_new; do
+  FAKE_HOME="$(mktemp -d)"
+  mkdir -p "$FAKE_HOME/.claude"
+  NEW_BLOCK="$(_ae_expected_managed_content)"
+  if [[ "$_ae_block_order" == "new_then_old" ]]; then
+    printf '%s\n\n%s\n' "$NEW_BLOCK" "$OLD_BLOCK_IN_MARKERS" > "$FAKE_HOME/.claude/CLAUDE.md"
+  else
+    printf '%s\n\n%s\n' "$OLD_BLOCK_IN_MARKERS" "$NEW_BLOCK" > "$FAKE_HOME/.claude/CLAUDE.md"
+  fi
+  cat > "$FAKE_HOME/.claude/agentic-engineering.json" <<'EOF'
+{
+  "mode": "opt-out",
+  "profile": "default",
+  "skill_auto_load": false
+}
+EOF
+
+  _run_install_bare "$FAKE_HOME" || true
+
+  skill_auto_load_o="$(python3 -c "import json; print(json.load(open('$FAKE_HOME/.claude/agentic-engineering.json')).get('skill_auto_load'))")"
+  if [[ "$skill_auto_load_o" == "True" ]]; then
+    _pass "case (o, $_ae_block_order): skill_auto_load migrated to true (old block present among two)"
+  else
+    _fail "case (o, $_ae_block_order): skill_auto_load stayed '$skill_auto_load_o' despite an old-format block being present"
+  fi
+
+  rm -rf "$FAKE_HOME"
+done
 
 # ---------------------------------------------------------------------------
 # Results
