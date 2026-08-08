@@ -3490,7 +3490,7 @@ def test_activation_preflight_uses_one_bounded_identity_resolver():
                 'resolve-hook --cwd "$AE_PROJECT_DIR"'
             ) in section, path
         else:
-            assert "agentic-identity resolve-hook --cwd <cwd>" in section, path
+            assert "ds-identity resolve-hook --cwd <cwd>" in section, path
         assert ("3-second" in section or "3 seconds" in section) \
             and "64 KiB" in section, path
         for stale in stale_claims:

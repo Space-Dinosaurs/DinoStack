@@ -42,10 +42,13 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              current tuples: a `literal_rules` tuple's PATTERN (index 0)
              is legitimately allowed to contain an old name (it exists to
              MATCH un-renamed `content/**` text - e.g. `agentic-identity
-             resolve-hook --cwd <cwd>`, which `content/sections/
-             01-activation-preflight.md` still says verbatim, since
-             `content/**` is Units 3-5 scope, out of bounds for this
-             program). But the REPLACEMENT is entirely codex-authored: it
+             auto`, which `content/commands/ds-identity.md` still says
+             verbatim, since `content/commands/**` is Units 4-5 scope, out
+             of bounds for this program; Unit 3 renamed `content/sections/**`
+             and `content/rules/**` and, where it did, updated the matching
+             PATTERN in lockstep - see the sibling PATTERN/REPLACEMENT pair
+             for the identity resolve-hook command below). But the
+             REPLACEMENT is entirely codex-authored: it
              is hand-written prose/command text that ships into the
              generated Codex harness, and none of the 14 current tuples'
              replacements has any legitimate reason to reproduce an old
@@ -66,9 +69,13 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              writes that bare relative path) - that function builds its
              replacement DYNAMICALLY by splicing the unmatched suffix of
              the matched text, so it can never "forget" to rename a
-             hardcoded string. Only `literal_rules`' fully-hardcoded
-             replacement strings can go stale this way, which is exactly
-             the shape of the MAJOR 1 finding.
+             hardcoded string. `literal_rules`' fully-hardcoded replacement
+             strings are one place this can go stale, and are the shape of
+             the MAJOR 1 finding, but they are not the only place: several
+             other codex-authored hardcoded strings in this file (e.g. the
+             `CODEX_SPAWN_CONTRACT`/`SIMPLIFY_CONTRACT` blocks and other
+             inline `bin/ds-*` command text) carry the same risk if a tool
+             is ever renamed again - this test does not scan those.
 
          (3) `test_codex_generated_identity_commands_use_ds_identity` -
              defense-in-depth directly against the two rendered artifacts
