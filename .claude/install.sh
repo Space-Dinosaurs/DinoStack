@@ -22,7 +22,9 @@
 #              intent, and repo_dir write intent without executing them.
 #              Hook wiring, build, and permission phases still execute.
 #
-# Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink.
+# Upstream deps: bash 3.2+, python3, git, node (for hooks), ln, readlink,
+#   content/templates/claude-managed-content.md (read at run time when
+#   writing the CLAUDE.md managed block - DS-143; see Failure modes below).
 #
 # Downstream consumers: bootstrap.sh (calls this), /update-agentic-engineering,
 #   developers running directly.
@@ -44,6 +46,12 @@
 #     Every --dry-run on a machine without an existing, correctly-pointed
 #     skill link falls into the two-warning case, since --dry-run never
 #     creates the symlink.
+#   - If content/templates/claude-managed-content.md is missing when the
+#     CLAUDE.md-rewrite phase runs (both gates passed), the run aborts under
+#     `set -euo pipefail` with a bare Python FileNotFoundError traceback.
+#     This happens AFTER hooks and settings.json are written and BEFORE the
+#     repo_dir write - re-running install.sh with the template restored
+#     completes the interrupted phases; nothing earlier needs to be redone.
 #
 # Performance: ~5-10 s (one build pass, node/python3 calls for hooks/settings).
 # ---------------------------------------------------------------------------
@@ -1081,6 +1089,10 @@ if close_idx == -1:
     sys.exit(1)
 template_body = template_raw[close_idx + len("-->"):].lstrip("\n").rstrip("\n")
 
+if not template_body.strip():
+    sys.stderr.write(f"template {template_path} has no body after its manifest comment\n")
+    sys.exit(1)
+
 managed_content = begin_marker + "\n" + template_body + "\n" + end_marker
 
 if os.path.exists(target):
@@ -1096,21 +1108,29 @@ if os.path.islink(target):
     sys.stderr.write(f"refusing to write through symlink: {target}\n")
     sys.exit(1)
 
-# DS-143 migration: a pre-existing managed block still carrying the old
-# @-import lines means this install predates the trigger-loaded design.
-# Detect it BEFORE the rewrite below (the marker string is gone from the new
-# block, so this can never re-fire once migrated) and force
-# skill_auto_load=true for this one transition, so the backstop that
-# replaces the imports is not left dormant across the switch. A user who
-# deliberately sets skill_auto_load=false AFTER migrating is never touched -
-# by then the old marker string is gone and this branch does not run.
-migrating = "@skills/agentic-engineering/METHODOLOGY.md" in existing
+# DS-143 migration: a pre-existing MANAGED BLOCK (not the file at large)
+# still carrying the old @-import lines means this install predates the
+# trigger-loaded design. Scope detection to the managed block's own content
+# ONLY - a user's unrelated prose elsewhere in CLAUDE.md (their own notes,
+# a hand-restored old block outside the markers, etc.) must never match.
+# Detect it BEFORE the rewrite below, from the OLD block content captured
+# now (the marker string is gone from the NEW block written below, so this
+# can never re-fire once migrated) and force skill_auto_load=true for this
+# one transition, so the backstop that replaces the imports is not left
+# dormant across the switch. A user who deliberately sets
+# skill_auto_load=false AFTER migrating is never touched - by then the old
+# block (and its marker string) no longer exists anywhere.
+pattern = re.compile(
+    r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
+    re.DOTALL
+)
+old_block_match = pattern.search(existing)
+if old_block_match:
+    migrating = "@skills/agentic-engineering/METHODOLOGY.md" in old_block_match.group(0)
+else:
+    migrating = False
 
-if begin_marker in existing and end_marker in existing:
-    pattern = re.compile(
-        r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
-        re.DOTALL
-    )
+if old_block_match:
     updated = pattern.sub(managed_content, existing)
     with open(target, "w") as f:
         f.write(updated)
@@ -1132,16 +1152,24 @@ else:
 if migrating:
     ae_config_path = os.environ.get("AE_CONFIG_PATH")
     if ae_config_path and not os.path.islink(ae_config_path):
+        # Read-modify-write only - never fall back to an empty dict on a
+        # read failure, or the write below would replace the whole file
+        # with just {"skill_auto_load": true} and drop mode/profile/set_at
+        # (the bare-overwrite class AGENTS.md warns against). Skip the
+        # migration write entirely rather than risk clobbering the file;
+        # it is non-fatal - the CLAUDE.md rewrite above already succeeded.
         try:
             with open(ae_config_path) as f:
                 ae_config = json.load(f)
-        except Exception:
-            ae_config = {}
-        ae_config["skill_auto_load"] = True
-        with open(ae_config_path, "w") as f:
-            json.dump(ae_config, f, indent=2)
-            f.write("\n")
-        print("  ~ migrated skill_auto_load to true (pre-trigger-loaded install detected)")
+        except Exception as exc:
+            print(f"  ! could not read {ae_config_path} to migrate skill_auto_load ({exc}) - skipped")
+            ae_config = None
+        if ae_config is not None:
+            ae_config["skill_auto_load"] = True
+            with open(ae_config_path, "w") as f:
+                json.dump(ae_config, f, indent=2)
+                f.write("\n")
+            print("  ~ migrated skill_auto_load to true (pre-trigger-loaded install detected)")
 PYEOF
 AE_CLAUDE_MD_REWRITTEN=true
 fi

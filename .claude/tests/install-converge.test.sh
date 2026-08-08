@@ -99,6 +99,20 @@ _run_install() {
   return $?
 }
 
+# _run_install_bare: like _run_install but omits --mode/--profile so a
+# fixture's pre-existing agentic-engineering.json (mode+profile already set)
+# takes the "already set (keeping)" no-write branch instead of being
+# re-stamped with a fresh set_at - needed for tests that assert
+# agentic-engineering.json is byte-identical or that set_at survives.
+_run_install_bare() {
+  local fake_home="$1"
+  shift
+  mkdir -p "$fake_home/.agentic"
+  HOME="$fake_home" bash "$INSTALL_SH" "$@" \
+    < /dev/null > "$fake_home/.install_out" 2>&1
+  return $?
+}
+
 # Source dir that install.sh will symlink FROM (agents dir used as a concrete target).
 AGENTS_SRC="$REPO_DIR/.claude/agents"
 
@@ -675,6 +689,263 @@ if grep -q "added" "$FAKE_HOME/.install_out" 2>/dev/null; then
   _pass "case (h): install output reports added rules"
 else
   _fail "case (h): install output did not report added rules"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# DS-143 Skeptic fix-pass-1 cases (i)-(m): CLAUDE.md managed-block template
+# read, SKILL_LINK_OK gating on the rewrite, and the skill_auto_load
+# migration - including the negative control for the scope defect (Major 1)
+# where the migration detector must scan only the managed block, not the
+# whole file.
+# ---------------------------------------------------------------------------
+
+TEMPLATE_PATH="$REPO_DIR/content/templates/claude-managed-content.md"
+
+# Compute the expected post-rewrite managed-block content the same way
+# install.sh does: strip the manifest comment up to and including the FIRST
+# "-->", trim, and wrap in markers.
+_ae_expected_managed_content() {
+  python3 -c "
+raw = open('$TEMPLATE_PATH').read()
+idx = raw.find('-->')
+body = raw[idx+3:].lstrip(chr(10)).rstrip(chr(10))
+print('<!-- BEGIN managed-by-agentic-engineering -->')
+print(body)
+print('<!-- END managed-by-agentic-engineering -->', end='')
+"
+}
+
+OLD_BLOCK_IN_MARKERS='<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+
+@skills/agentic-engineering/METHODOLOGY.md
+@skills/agentic-engineering/rules/code-standards.md
+@skills/agentic-engineering/rules/conventions.md
+<!-- END managed-by-agentic-engineering -->'
+
+# ---------------------------------------------------------------------------
+# Case (i): real run + SKILL_LINK_OK=true -> block rewritten, no @skills/
+#           line, block body byte-equals the template's post-manifest body.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+_run_install "$FAKE_HOME" || true
+
+if [[ -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
+  actual_block="$(sed -n '/<!-- BEGIN managed-by-agentic-engineering -->/,/<!-- END managed-by-agentic-engineering -->/p' "$FAKE_HOME/.claude/CLAUDE.md")"
+  expected_block="$(_ae_expected_managed_content)"
+  if [[ "$actual_block" == "$expected_block" ]]; then
+    _pass "case (i): emitted block byte-equals the template's post-manifest body"
+  else
+    _fail "case (i): emitted block does not match template body"
+  fi
+  if [[ "$actual_block" != *"@skills/agentic-engineering"* ]]; then
+    _pass "case (i): emitted block contains no @skills/agentic-engineering import"
+  else
+    _fail "case (i): emitted block still contains an @skills/agentic-engineering import"
+  fi
+else
+  _fail "case (i): CLAUDE.md was not created"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (j): real run + SKILL_LINK_OK=false (bad symlink) -> CLAUDE.md and
+#           agentic-engineering.json are byte-identical before/after, and
+#           the skip line names the reason.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude/skills"
+ln -s "/tmp/ds143-outside-checkout" "$FAKE_HOME/.claude/skills/agentic-engineering"
+mkdir -p "$FAKE_HOME/.claude"
+printf '%s\n' "$OLD_BLOCK_IN_MARKERS" > "$FAKE_HOME/.claude/CLAUDE.md"
+cat > "$FAKE_HOME/.claude/agentic-engineering.json" <<'EOF'
+{
+  "mode": "opt-out",
+  "profile": "default",
+  "skill_auto_load": false
+}
+EOF
+before_claude_sha="$(shasum -a 256 "$FAKE_HOME/.claude/CLAUDE.md" | awk '{print $1}')"
+before_config_sha="$(shasum -a 256 "$FAKE_HOME/.claude/agentic-engineering.json" | awk '{print $1}')"
+
+# _run_install_bare: the fixture already declares mode+profile, so omitting
+# --mode/--profile takes the "already set (keeping)" branch and does not
+# re-stamp set_at - isolating the SKILL_LINK_OK gate's effect on the config
+# file from the installer's unrelated, pre-existing set_at-refresh behavior.
+_run_install_bare "$FAKE_HOME" || true
+
+after_claude_sha="$(shasum -a 256 "$FAKE_HOME/.claude/CLAUDE.md" | awk '{print $1}')"
+after_config_sha="$(shasum -a 256 "$FAKE_HOME/.claude/agentic-engineering.json" | awk '{print $1}')"
+
+if [[ "$before_claude_sha" == "$after_claude_sha" ]]; then
+  _pass "case (j): CLAUDE.md byte-identical when SKILL_LINK_OK=false"
+else
+  _fail "case (j): CLAUDE.md was modified despite SKILL_LINK_OK=false"
+fi
+if [[ "$before_config_sha" == "$after_config_sha" ]]; then
+  _pass "case (j): agentic-engineering.json byte-identical when SKILL_LINK_OK=false"
+else
+  _fail "case (j): agentic-engineering.json was modified despite SKILL_LINK_OK=false"
+fi
+if grep -Fq "not updated: symlink points outside methodology checkout" "$FAKE_HOME/.install_out"; then
+  _pass "case (j): skip line names the SKILL_LINK_REASON"
+else
+  _fail "case (j): skip line did not name the reason"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (k): --dry-run touches neither CLAUDE.md nor agentic-engineering.json,
+#           under both link states (fresh dst = would-succeed, and bad
+#           symlink = would-fail).
+# ---------------------------------------------------------------------------
+
+for _ae_link_state in fresh bad; do
+  FAKE_HOME="$(mktemp -d)"
+  mkdir -p "$FAKE_HOME/.claude"
+  if [[ "$_ae_link_state" == "bad" ]]; then
+    mkdir -p "$FAKE_HOME/.claude/skills"
+    ln -s "/tmp/ds143-outside-checkout" "$FAKE_HOME/.claude/skills/agentic-engineering"
+  fi
+  printf '%s\n' "$OLD_BLOCK_IN_MARKERS" > "$FAKE_HOME/.claude/CLAUDE.md"
+  cat > "$FAKE_HOME/.claude/agentic-engineering.json" <<'EOF'
+{
+  "mode": "opt-out",
+  "profile": "default",
+  "skill_auto_load": false
+}
+EOF
+  before_claude_sha="$(shasum -a 256 "$FAKE_HOME/.claude/CLAUDE.md" | awk '{print $1}')"
+  before_config_sha="$(shasum -a 256 "$FAKE_HOME/.claude/agentic-engineering.json" | awk '{print $1}')"
+
+  _run_install_bare "$FAKE_HOME" --dry-run || true
+
+  after_claude_sha="$(shasum -a 256 "$FAKE_HOME/.claude/CLAUDE.md" | awk '{print $1}')"
+  after_config_sha="$(shasum -a 256 "$FAKE_HOME/.claude/agentic-engineering.json" | awk '{print $1}')"
+
+  if [[ "$before_claude_sha" == "$after_claude_sha" ]]; then
+    _pass "case (k, $_ae_link_state): --dry-run leaves CLAUDE.md untouched"
+  else
+    _fail "case (k, $_ae_link_state): --dry-run modified CLAUDE.md"
+  fi
+  if [[ "$before_config_sha" == "$after_config_sha" ]]; then
+    _pass "case (k, $_ae_link_state): --dry-run leaves agentic-engineering.json untouched"
+  else
+    _fail "case (k, $_ae_link_state): --dry-run modified agentic-engineering.json"
+  fi
+
+  rm -rf "$FAKE_HOME"
+done
+
+# ---------------------------------------------------------------------------
+# Case (l): old block present (imports INSIDE the managed block) ->
+#           skill_auto_load becomes true in the same run that strips the
+#           imports, and mode/profile/set_at survive.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude"
+printf '%s\n' "$OLD_BLOCK_IN_MARKERS" > "$FAKE_HOME/.claude/CLAUDE.md"
+cat > "$FAKE_HOME/.claude/agentic-engineering.json" <<'EOF'
+{
+  "mode": "opt-out",
+  "profile": "default",
+  "set_at": "2026-01-01T00:00:00Z",
+  "skill_auto_load": false
+}
+EOF
+
+_run_install_bare "$FAKE_HOME" || true
+
+if [[ -f "$FAKE_HOME/.claude/CLAUDE.md" ]] && ! grep -Fq "@skills/agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md"; then
+  _pass "case (l): imports stripped from the managed block in this run"
+else
+  _fail "case (l): imports still present after this run"
+fi
+python3 -c "
+import json, sys
+cfg = json.load(open('$FAKE_HOME/.claude/agentic-engineering.json'))
+ok = True
+if cfg.get('skill_auto_load') is not True:
+    print('FAIL: skill_auto_load =', cfg.get('skill_auto_load'), '(expected True)')
+    ok = False
+if cfg.get('mode') != 'opt-out':
+    print('FAIL: mode =', cfg.get('mode'), '(expected opt-out)')
+    ok = False
+if cfg.get('profile') != 'default':
+    print('FAIL: profile =', cfg.get('profile'), '(expected default)')
+    ok = False
+if cfg.get('set_at') != '2026-01-01T00:00:00Z':
+    print('FAIL: set_at =', cfg.get('set_at'), '(expected preserved value)')
+    ok = False
+sys.exit(0 if ok else 1)
+" && _pass "case (l): skill_auto_load migrated to true; mode/profile/set_at preserved" \
+  || _fail "case (l): migration wrote incorrect config (see FAIL lines above)"
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (m): NEGATIVE CONTROL for the migration-detector scope defect
+#           (Major 1) - the old @-import string is present ONLY OUTSIDE the
+#           managed block (e.g. a user's own notes section). A pre-existing
+#           skill_auto_load: false must stay false, across TWO consecutive
+#           runs. Reproduces the reviewer's proof: scanning the whole file
+#           for the marker string re-fires on every run and clobbers a
+#           deliberate false.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude"
+cat > "$FAKE_HOME/.claude/CLAUDE.md" <<EOF
+# My own notes
+
+I used to have this in my dotfiles before the managed block existed:
+@skills/agentic-engineering/METHODOLOGY.md
+Keeping it here for reference, outside the managed block.
+
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+placeholder already-migrated content, no imports
+<!-- END managed-by-agentic-engineering -->
+EOF
+cat > "$FAKE_HOME/.claude/agentic-engineering.json" <<'EOF'
+{
+  "mode": "opt-out",
+  "profile": "default",
+  "skill_auto_load": false
+}
+EOF
+
+_run_install "$FAKE_HOME" || true
+skill_auto_load_run1="$(python3 -c "import json; print(json.load(open('$FAKE_HOME/.claude/agentic-engineering.json')).get('skill_auto_load'))")"
+
+_run_install "$FAKE_HOME" || true
+skill_auto_load_run2="$(python3 -c "import json; print(json.load(open('$FAKE_HOME/.claude/agentic-engineering.json')).get('skill_auto_load'))")"
+
+if [[ "$skill_auto_load_run1" == "False" ]]; then
+  _pass "case (m): skill_auto_load stays False after run 1 (import string outside managed block)"
+else
+  _fail "case (m): skill_auto_load became '$skill_auto_load_run1' after run 1 (migration scope defect - scanned outside the managed block)"
+fi
+if [[ "$skill_auto_load_run2" == "False" ]]; then
+  _pass "case (m): skill_auto_load stays False after run 2 (does not re-fire)"
+else
+  _fail "case (m): skill_auto_load became '$skill_auto_load_run2' after run 2 (migration scope defect - re-fired)"
 fi
 
 rm -rf "$FAKE_HOME"
