@@ -162,6 +162,16 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "11a7bc34cec43c9cceaecd99428a2129404dbcd0593b8a2a5bacdf147c92f44d",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/config.json"
+    },
+    {
       "expected_target": ".claude/",
       "generated_token": "$AE_REPO_DIR/.claude/",
       "kind": "operational",
@@ -432,16 +442,6 @@
       "source_token": "Task"
     },
     {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "3802900dc50266735cd87b6e78c10d579f022c223878bccf2ca039a8c4cb26b0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
       "expected_target": "content/references/activation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
       "kind": "operational",
@@ -500,16 +500,6 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
-    },
-    {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "434df2612c68c02a1dc42db62a51404443048c4387f358e10efba5b0d220e76d",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -1030,16 +1020,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/qa-gate.md"
-    },
-    {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "7bd5801d5a8257a16f3d8d19f4688541df31f6ea73027e66741853aa887d5e87",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/config.json"
     },
     {
       "expected_target": "Agent",
@@ -1872,6 +1852,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "da0c50ba22881ad0ead4030563f08b6c6f7fd6a35f50e1f583099d4bb8812ca7",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "AskUserQuestion",
       "kind": "semantic-reference",
@@ -2010,6 +2000,16 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/loop-state.json"
+    },
+    {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "f0b4ef1e81b29ec531d9b01847d8fdbbdfa08524f7609c4288d43a9150ad1ed1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "filesystem read",

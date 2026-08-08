@@ -55,7 +55,7 @@ a warning is printed.
 ## 3. Project: `.agentic/config.json`
 
 Committed to the repo. Seeded with defaults by `/ds-init-project`. Absent file =
-all defaults, no behavior change. The 20 behavioral toggles plus 6 tuning
+all defaults, no behavior change. The 21 behavioral toggles plus 6 tuning
 parameters are listed below. The file also carries a `scaffolding_version` key
 that is installer/migration-managed (used by `/ds-migrate-project` as the
 source-of-truth stamp for "has this project been migrated to vN") - do not edit
@@ -76,6 +76,7 @@ it manually.
 | `motion_aware` | `false` | bool | qa-engineer runs CDP-emulated reduced-motion checks |
 | `storybook_version` | `7` | `6`, `7` | Storybook URL format (`6` = `?selectedKind=&selectedStory=`); set automatically by `/ds-init-project` |
 | `commit_telemetry` | `true` | bool | Phase 8 commits the per-developer session-log file as a separate PR commit; set to `false` to opt out |
+| `knowledge_commit_on_pr` | `true` | bool | Phase 11e commits changed `MEMORY.md` / `decisions.md` / `.agentic/learnings.md` onto the ticket's PR branch; set to `false` to opt out |
 | `deferred_wrap_daemon` | `false` | bool | Opt-in for out-of-session daemon to run deferred `/ds-wrap` jobs (tuned by the `deferred_wrap_*` params below) |
 | `abdication_guard_enabled` | absent → guard inert; `/ds-init-project` template sets `true` | bool | Stop hook blocks conductor turns that end by asking permission for a non-destructive next step, announcing a surface-and-proceed default and then not acting on it, or presenting a prose co-equal ballot in an `## Operator decisions` block; requires an explicit `true` to run; kill-switch: `AE_ABDICATION_GUARD_DISABLE=1` |
 | `skill_candidate_detection` | `true` | bool | Master toggle for the skill-candidate detector; `false` disables all layers |

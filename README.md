@@ -194,7 +194,7 @@ The per-project marker only has effect in combination with the global activation
 
 ## Project config
 
-`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty-one methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
 
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
@@ -271,7 +271,7 @@ ds-config (interactive settings viewer/editor for methodology mode/profile/toggl
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
-**Project config / overview layer** - the committed `.agentic/config.json` holds twenty methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
+**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-one methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
 
 ## Identity and Telemetry
 
