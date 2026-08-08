@@ -1042,10 +1042,10 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 # Under this denylist these files are tracked by default (nothing above
 # ignores them) - the negations below are not load-bearing here. They exist
 # for the case where a project later adds a broad .agentic/* umbrella ignore
-# (e.g. via agentic-migrate): git .gitignore matching is last-match-wins, so
+# (e.g. via ds-migrate): git .gitignore matching is last-match-wins, so
 # a negation only overrides an umbrella pattern that appears ABOVE it in the
-# file. agentic-migrate inserts new umbrella patterns above any existing
-# negation for this reason - see bin/agentic-migrate _append_gitignore.
+# file. ds-migrate inserts new umbrella patterns above any existing
+# negation for this reason - see bin/ds-migrate _append_gitignore.
 !.agentic/session-log/
 !.agentic/learnings.md
 !.agentic/qa.md
@@ -1123,7 +1123,7 @@ To draft this intent layer instead of writing it by hand, spawn the `product-dis
 
 Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
 
-Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `agentic-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
+Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `ds-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
 
 **11a. Linear setup** (run if tracker = Linear)
 
@@ -1236,12 +1236,12 @@ After all files are processed, print a short summary with three sections:
 **Config readout.** Print the resolved configuration in two blocks, then the pointers.
 
 Block 1 - activation state (reuse the binary; do NOT re-derive resolution):
-  Resolve `agentic-status` from PATH first, then the adapter `bin/` install dir; if
+  Resolve `ds-status` from PATH first, then the adapter `bin/` install dir; if
   neither resolves, skip Block 1 SILENTLY (do not error). When resolvable, run it and
   echo its full output verbatim.
 
 Block 2 - project config toggles (read directly from the just-written file; separate
-data agentic-status does not own). Read `.agentic/config.json` and print:
+data ds-status does not own). Read `.agentic/config.json` and print:
 
 ```
 Project config (.agentic/config.json)

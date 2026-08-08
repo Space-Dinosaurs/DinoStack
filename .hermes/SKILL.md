@@ -8431,7 +8431,7 @@ When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the executio
    - **Existing helpers** — grep the codebase for functions that already do what you just wrote. Prefer calling an existing utility over reimplementing it.
    - **Pattern violations** — if the codebase already has an established pattern for this class of problem (e.g., a shared validation schema, a common React hook, a standard error wrapper), use it.
    This check is mandatory. If you find duplication and choose not to extract it, state the reason explicitly in your output (e.g., "Intentionally not extracted: the two paths diverge in the next ticket").
-5. **Context economy: evidence-on-disk.** When a tool output exceeds ~20 lines / ~8k chars and you will need it again, spill it with `agentic-evidence spill`, keep the sketch line in context, and `get <node-id>` on demand. Full protocol: `content/references/evidence-on-disk.md`.
+5. **Context economy: evidence-on-disk.** When a tool output exceeds ~20 lines / ~8k chars and you will need it again, spill it with `ds-evidence spill`, keep the sketch line in context, and `get <node-id>` on demand. Full protocol: `content/references/evidence-on-disk.md`.
 6. Run the project's quality gates - lint, typecheck, tests - whatever applies. All must pass before you are done. If a gate fails, fix the code; do not suppress or disable the check.
 7. If you discover the task is significantly more complex than the prompt suggested, or if completing it would require making architecture decisions you were not given, stop and say so clearly in your output. Do not silently expand scope.
 
@@ -11534,7 +11534,7 @@ You are never spawned unless the conductor already holds `.agentic/wrap/lock`. P
 }
 ```
 
-**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `agentic-wrap-release-lock`) at /ds-implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
+**Lock release is mandatory on every exit path.** wrap-ticket has no Bash and does not release the lock itself; the conductor releases it (via `ds-wrap-release-lock`) at /ds-implement-ticket Phase 11b after wrap-ticket returns, regardless of whether the run succeeded, partially succeeded, or skipped.
 
 ### 2. Read the inputs
 
@@ -11639,7 +11639,7 @@ Otherwise leave `size_advisory: null`.
 
 ### 7. Release the lock
 
-The conductor releases the lock (via `agentic-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
+The conductor releases the lock (via `ds-wrap-release-lock`) at Phase 11b after this agent returns — wrap-ticket has no Bash and does not run it. Lock release is mandatory on every exit path.
 
 ### 8. Return
 
@@ -11708,7 +11708,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **Dedup before every append.** Case-insensitive whitespace-collapsed substring match against existing content. If matched, skip with a `writer_actions[]` note.
 - **Caps are hard.** 3 entries to MEMORY.md, 2 to decisions.md, 1 paragraph to `_wrap.md` - per run, never exceeded.
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 12.
-- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `agentic-wrap-release-lock` on every Phase 11b exit path.
+- **Lock release is mandatory.** The conductor (not wrap-ticket, which has no Bash) runs `ds-wrap-release-lock` on every Phase 11b exit path.
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /ds-wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.
@@ -12285,8 +12285,8 @@ Reads the current resolved state, prompts for which setting to change and the
 new value, writes the correct file, and confirms what changed and when it takes
 effect.
 
-Implementation: `bin/agentic-config` (Python 3 stdlib; reuses resolver logic
-from `bin/agentic-status`).
+Implementation: `bin/ds-config` (Python 3 stdlib; reuses resolver logic
+from `bin/ds-status`).
 
 ## Usage
 
@@ -12355,7 +12355,7 @@ No subcommands or flags. Selection is done interactively.
 When an equivalent config toggle exists (e.g. `abdication_guard_enabled`
 covers `AE_ABDICATION_GUARD_DISABLE`), offer to set that instead.
 
-**Out of scope:** identity (owned by `/ds-identity`), tracker config (owned by `agentic-tracker`), `team.yml`
+**Out of scope:** identity (owned by `/ds-identity`), tracker config (owned by `ds-tracker`), `team.yml`
 (v1 deferral), AGENTS.md source-of-truth conflicts across multiple nested files.
 
 ## `mode opt-in` footgun handling
@@ -12365,7 +12365,7 @@ setting that silently disables the methodology on every project that lacks an
 `agentic-engineering: opt-in` marker in its AGENTS.md - which is most projects.
 This is the opposite of the intent when a user just wants "tighter control".
 
-**Pre-write gate (LLM layer).** Before invoking `bin/agentic-config mode opt-in`,
+**Pre-write gate (LLM layer).** Before invoking `bin/ds-config mode opt-in`,
 warn the user that:
 - `opt-in` mode makes the methodology inactive by default in all repos.
 - Any project without `agentic-engineering: opt-in` in its AGENTS.md will
@@ -12378,7 +12378,7 @@ Confirm that the user wants to proceed. Only invoke the binary after confirmatio
 Do not run the binary speculatively - the binary writes the file immediately on
 invocation and prints its warning only after the write is committed.
 
-If the user confirms, invoke `bin/agentic-config mode opt-in`. The binary also
+If the user confirms, invoke `bin/ds-config mode opt-in`. The binary also
 prints a post-write reminder listing the affected repos (any repo without an
 opt-in marker), but the LLM-layer gate is the primary safety check.
 
@@ -12389,7 +12389,7 @@ take effect at the **next session start**. The command confirms this explicitly
 after each write. No restart is required for env kill-switch exports (those apply
 to the current shell session when set before launching Claude).
 
-## Exit codes (bin/agentic-config)
+## Exit codes (bin/ds-config)
 
 - `0` - change applied successfully or operator chose to exit without changes
 - `1` - I/O error (read-only file, permission denied, malformed JSON)
@@ -12409,10 +12409,10 @@ This is a standalone any-harness capability - it is independent of the Pi/oh-my-
 
 ## Step 1 - Configure the team
 
-Run `bin/agentic-team configure` to launch a **discovery-first** interactive wizard and write `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
+Run `bin/ds-team configure` to launch a **discovery-first** interactive wizard and write `.agentic/team.yml` (or `~/.agentic/team.yml` for a user-global config):
 
 ```bash
-bin/agentic-team configure
+bin/ds-team configure
 ```
 
 The wizard runs `discover` first and prints a summary of installed harnesses (version + discovered model count when available) before asking anything. If only your own harness (e.g. `claude`) is installed - nothing to cross-dispatch to - it says so and exits cleanly without prompting.
@@ -12443,7 +12443,7 @@ Discovered models are shown for reference only - you may type any model id, or l
 For non-interactive use - useful in scripts or automated onboarding - pass assignments directly (unchanged, back-compat path):
 
 ```bash
-bin/agentic-team configure \
+bin/ds-team configure \
   --non-interactive \
   --assign architect=claude:claude-opus-4-5 \
   --assign engineer=omp:kimi/kimi-k2.7 \
@@ -12462,13 +12462,13 @@ Exit codes: `0` success or no-op; `2` bad `--assign` value, unknown `--default-h
 Confirm which harnesses are installed and which models they can reach:
 
 ```bash
-bin/agentic-team discover
+bin/ds-team discover
 ```
 
 For machine-readable output:
 
 ```bash
-bin/agentic-team discover --json
+bin/ds-team discover --json
 ```
 
 Each discovered harness reports installed status, version, discovered models (best-effort - populated for `omp` and `cursor-agent`, `[]` for the rest), and invocation family. A harness listed as an `--assign` target but absent from discovery output means it is not installed - resolve that before dispatching.
@@ -12477,7 +12477,7 @@ Each discovered harness reports installed status, version, discovered models (be
 
 See `content/references/cross-harness-teams.md` for the full dispatch, status-check, and collect flow.
 
-**Routing enforcement (Claude Code, proactive).** On Claude Code, once `.agentic/team.yml` has `enabled: true`, the `hooks/enforce-background-spawn.py` hook proactively denies a native `Task`/`Agent` spawn for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) mapped to a non-`claude` harness - even before any dispatch has happened. The deny message gives the exact `bin/agentic-team dispatch ...` command to run instead. Set `AE_TEAM_ROUTING_DISABLE=1` to disable this check if needed.
+**Routing enforcement (Claude Code, proactive).** On Claude Code, once `.agentic/team.yml` has `enabled: true`, the `hooks/enforce-background-spawn.py` hook proactively denies a native `Task`/`Agent` spawn for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) mapped to a non-`claude` harness - even before any dispatch has happened. The deny message gives the exact `bin/ds-team dispatch ...` command to run instead. Set `AE_TEAM_ROUTING_DISABLE=1` to disable this check if needed.
 
 **Suppression contract (binding on all harnesses).** While a team run is active - indicated by `.agentic/teamrun/.active` existing in the project root - the conductor MUST NOT spawn its own native subagents. The cross-harness team is the active delegation surface; spawning native agents alongside it creates duplicate work and uncoordinated state. On Claude Code this contract is enforced by a hook; on Codex, Gemini, Kimi, and other harnesses it is a prose contract that the conductor must honor. Treat the presence of `.agentic/teamrun/.active` as a hard suppression signal regardless of harness.
 
@@ -12491,18 +12491,18 @@ Render token and wall-time rollups from `.agentic/events.jsonl`. Optionally
 shows dollar columns when `~/.agentic/pricing.yml` is present (opt-in;
 absent pricing means token-only output, never invented dollar figures).
 
-Implementation: `bin/agentic-cost` (Python 3 stdlib + optional pyyaml).
+Implementation: `bin/ds-cost` (Python 3 stdlib + optional pyyaml).
 
 ## Usage
 
 ```
-agentic-cost session [<session-uuid>]   # default: current project, all sessions
-agentic-cost task <task_id>             # rollup for one task_id
-agentic-cost project [--since YYYY-MM-DD]  # rollup across all sessions in this project
-agentic-cost team [--json]              # per-developer rollup from .agentic/session-log/
-agentic-cost operator [--since YYYY-MM-DD] [--json]
+ds-cost session [<session-uuid>]   # default: current project, all sessions
+ds-cost task <task_id>             # rollup for one task_id
+ds-cost project [--since YYYY-MM-DD]  # rollup across all sessions in this project
+ds-cost team [--json]              # per-developer rollup from .agentic/session-log/
+ds-cost operator [--since YYYY-MM-DD] [--json]
                                         # cross-project rollup from ~/.agentic/session-log/
-agentic-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--author <handle>] [--json]
+ds-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--author <handle>] [--json]
                                         # historical rollup from git log + gh pr list
 ```
 
@@ -12539,7 +12539,7 @@ to token-only output and prints "Install pyyaml for pricing support."
 
 V1 instruments engineer/skeptic/qa only; architect/investigator/debugger spawns are not counted.
 
-This footer is appended to every `agentic-cost session|task|project` output
+This footer is appended to every `ds-cost session|task|project` output
 so users see the disclosure without reading the spec.
 
 ## Pricing config (opt-in)
@@ -12565,7 +12565,7 @@ models:
 
 ## operator subcommand
 
-`agentic-cost operator` reads the **global** mirror at `~/.agentic/session-log/*.jsonl`
+`ds-cost operator` reads the **global** mirror at `~/.agentic/session-log/*.jsonl`
 and produces a cross-project rollup aggregated by `developer_id` and `project_slug`.
 It is the third dimension in the cost-visibility hierarchy:
 
@@ -12611,7 +12611,7 @@ cells).
 
 ## retro subcommand
 
-`agentic-cost retro` reconstructs a rough per-author work rollup from external
+`ds-cost retro` reconstructs a rough per-author work rollup from external
 data sources for projects that pre-date Stage 1 telemetry (or any period where
 `.agentic/session-log/` is empty). It is an escape hatch for historical
 analysis - not a replacement for true Stage 1 telemetry.
@@ -12645,11 +12645,11 @@ Top ticket prefixes (from commit messages):
   DINO            34 commits across  18 tickets
   (no prefix)     13 commits
 
-Stage 1 telemetry: agentic-cost team for accurate per-agent breakdown
+Stage 1 telemetry: ds-cost team for accurate per-agent breakdown
                    from sessions starting when Stage 1 was active here.
 ```
 
-Use `agentic-cost team` for accurate per-agent and per-token breakdowns from
+Use `ds-cost team` for accurate per-agent and per-token breakdowns from
 sessions where Stage 1 telemetry was active (`.agentic/session-log/` populated).
 Cross-reference with `.agentic/session-log/` to determine when Stage 1 coverage
 begins for your project.
@@ -12658,7 +12658,7 @@ begins for your project.
 
 V1 is Claude Code only. Codex CLI and Gemini CLI sessions produce no
 token data because the transcript schema differs; their rows do not
-appear in `agentic-cost` output. V2 will add a harness adapter layer.
+appear in `ds-cost` output. V2 will add a harness adapter layer.
 
 ---
 
@@ -12671,15 +12671,15 @@ Append the agentic-engineering opt-out marker to the project
 config. Refuses to overwrite an existing opt-in marker without
 `--force`.
 
-Implementation: `bin/agentic-disable` (Python 3 stdlib).
+Implementation: `bin/ds-disable` (Python 3 stdlib).
 
 ## Usage
 
 ```
-agentic-disable                # write opt-out to project AGENTS.md
-agentic-disable --global       # also update ~/.claude/agentic-engineering.json
-agentic-disable --force        # remove existing opt-in marker first, then append opt-out
-agentic-disable --global --force
+ds-disable                # write opt-out to project AGENTS.md
+ds-disable --global       # also update ~/.claude/agentic-engineering.json
+ds-disable --force        # remove existing opt-in marker first, then append opt-out
+ds-disable --global --force
 ```
 
 ## Behavior
@@ -12768,7 +12768,7 @@ loop, not a multi-phase pipeline. No subagent spawns, no new config toggles.
 
 ## Step 1 - Load open items
 
-Run `agentic-feedback list --status open` (prints a JSON array; empty store
+Run `ds-feedback list --status open` (prints a JSON array; empty store
 or file-absent prints `[]`). If the array is empty, print:
 
 ```
@@ -12897,7 +12897,7 @@ Supply:
 - `TICKET_TYPE` = resolved in Step 4a
 
 On `CREATE_STATUS=created`: run
-`agentic-feedback mark --id <item.id> --status triaged` and record
+`ds-feedback mark --id <item.id> --status triaged` and record
 `CREATED_TICKET_URL` for the closing summary. On `failed`/`skipped`: apply
 Step 4c.
 
@@ -12907,7 +12907,7 @@ The operator may dismiss an item without creating a ticket, at any point in
 the session:
 
 ```
-agentic-feedback mark --id <id> --status dismissed
+ds-feedback mark --id <id> --status dismissed
 ```
 
 This is available for indices the operator reviewed in Step 2 and decided
@@ -12954,8 +12954,8 @@ This command intentionally does NOT:
 - Auto-create tickets without explicit per-batch operator greenlight.
 - Cross-route `scope: methodology` items to a maintainer tracker (deferred
   slice-2; see Slice-1 boundary above).
-- Mutate `~/.agentic/feedback.jsonl` records other than via `agentic-feedback
-  mark` (id/ts/status remain CLI-owned per `bin/agentic-feedback`).
+- Mutate `~/.agentic/feedback.jsonl` records other than via `ds-feedback
+  mark` (id/ts/status remain CLI-owned per `bin/ds-feedback`).
 - Spawn any subagent - the entire flow is conductor-direct.
 - Invoke `/ds-implement-ticket` or any implementation agent on the created
   tickets. The ticket is created; working it is a separate, later decision.
@@ -12971,12 +12971,12 @@ Prints every slash command with a one-line description, grouped by intent,
 plus usage patterns for inspecting, deliberately invoking, and tuning the
 skill. Writes nothing. Always exits 0.
 
-Implementation: `bin/agentic-help` (Python 3 stdlib).
+Implementation: `bin/ds-help` (Python 3 stdlib).
 
 ## Usage
 
 ```
-agentic-help
+ds-help
 ```
 
 No subcommands, no flags. The help text is a compile-time constant; the
@@ -13008,15 +13008,15 @@ Supports manual, automatic (GitHub-derived), and provisional-to-confirmed
 identity flows. Identity drives per-project `.agentic/session-log/<dev>.jsonl`
 and the global operator mirror at `~/.agentic/session-log/<dev>.jsonl`.
 
-Implementation: `bin/agentic-identity` (Python 3 stdlib + optional pyyaml).
+Implementation: `bin/ds-identity` (Python 3 stdlib + optional pyyaml).
 
 ## Usage
 
 ```
-agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
-agentic-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
-agentic-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
-agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
+ds-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 ## Subcommands
@@ -13024,7 +13024,7 @@ agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>
 ### init
 
 ```
-agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Set a developer identity manually. `<handle>` must match `^[a-z0-9._-]{1,64}$`.
@@ -13060,7 +13060,7 @@ undetectable profile dir, flush error, or not in a git repo (project scope);
 ### show
 
 ```
-agentic-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
+ds-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
 ```
 
 Print identity information without writing. A valid query exits `0`, including
@@ -13106,7 +13106,7 @@ created_at:    2026-06-04T10:00:00Z
 ```
 
 `provisional: true` appears only when the identity is provisional. Prints
-"No identity set. Run: agentic-identity init <handle>" when no file exists
+"No identity set. Run: ds-identity init <handle>" when no file exists
 at the requested scope.
 
 Exit codes: `0` for a valid scope, including an absent identity; `1` when an
@@ -13115,7 +13115,7 @@ explicit `--profile-dir` is rejected.
 ### auto
 
 ```
-agentic-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Derive a handle automatically from the GitHub CLI and write it as provisional.
@@ -13134,7 +13134,7 @@ Behavior on edge cases:
 - `gh` unavailable or unauthenticated: exits `1` with a hint to run
   `gh auth login`.
 - Login fails the regex after lowercasing: exits `1` with a hint to use
-  `agentic-identity init <handle>`.
+  `ds-identity init <handle>`.
 - A confirmed (non-provisional) identity already exists: exits `2`
   (no overwrite without `--force`).
 - A provisional identity already exists: overwrites silently (no `--force`
@@ -13153,7 +13153,7 @@ without `--force`.
 ### confirm
 
 ```
-agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Confirm a provisional identity and activate telemetry. `--scope` defaults to
@@ -13195,7 +13195,7 @@ unpredictable sibling temporary. Unsafe or substituted destinations are never
 followed or modified. Concurrent writers serialize on the pinned pending
 directory and an older timestamp cannot replace a newer record. The Stop hook
 delegates this write to the bundled
-`agentic-identity write-hook` helper when identity is provisional or absent.
+`ds-identity write-hook` helper when identity is provisional or absent.
 Format:
 
 ```json
@@ -13222,12 +13222,12 @@ No `developer_id` field - sessions are unattributed until flushed.
 provisional identity, never merely from the active config directory.
 `config_dir` is present only for a profile-scope winner. Both routing fields
 are removed from the canonical attributed log line.
-`agentic-cost` does NOT read `.pending/` (the glob `*.jsonl` never reaches
+`ds-cost` does NOT read `.pending/` (the glob `*.jsonl` never reaches
 the `.pending/` subdirectory).
 
 Buffer cap: 100 files. Enumeration and processing are streamed and stop after
 101 directory entries. When a safe oldest file is pruned, stderr reports
-`agentic-identity: pending buffer cap exceeded; pruned <N> oldest session(s).`
+`ds-identity: pending buffer cap exceeded; pruned <N> oldest session(s).`
 
 ### Flush (`flushPendingBuffer`)
 
@@ -13269,9 +13269,9 @@ notice when a provisional identity is detected:
 ```
 Tracking handle '<handle>' was auto-derived (provisional). Telemetry is
 paused until you confirm.
-To confirm: agentic-identity confirm --scope <scope>
+To confirm: ds-identity confirm --scope <scope>
 To use a different handle:
-  agentic-identity init <handle> --force --scope <scope>
+  ds-identity init <handle> --force --scope <scope>
 ```
 
 The conductor substitutes the winning scope. Profile scope uses the active
@@ -13337,10 +13337,10 @@ Key rules:
 - A confirmed profile identity beats a confirmed global identity.
 - `--scope project` requires the `cwd` to be inside a git repo; exits `1` if not.
 
-### `agentic-cost` and multi-handle attribution
+### `ds-cost` and multi-handle attribution
 
 A developer who uses project, profile, and global handles can appear as separate
-rows in `agentic-cost team` and `agentic-cost operator` output - one row per
+rows in `ds-cost team` and `ds-cost operator` output - one row per
 distinct `developer_id`. This is intentional: each handle is an independent
 identity. Cross-handle rollup is not provided automatically.
 
@@ -13359,7 +13359,7 @@ same schema.
 | `provisional` | no | Present and `true` only when auto-derived; absent means confirmed |
 | `derived_from` | no | Source of the auto-derived handle; `gh` when set by `auto` |
 
-**Back-compat:** An identity written by `agentic-identity init` before V1
+**Back-compat:** An identity written by `ds-identity init` before V1
 has no `provisional` key. Absent `provisional` is treated as confirmed
 (`provisional === false`). Existing manually-created identities need zero
 migration and continue to work without change.
@@ -13372,9 +13372,9 @@ migration and continue to work without change.
 | Provisional | `~/.agentic/session-log/.pending/<uuid>.json` (buffered; flushed on confirm/init) |
 | None | Same as provisional; Stop hook also appends an identity nudge to this session's `.agentic/context.d/` shard, which the derived `.agentic/context.md` rollup then carries |
 
-- `agentic-cost team` reads `.agentic/session-log/` (project-local) - aggregates
+- `ds-cost team` reads `.agentic/session-log/` (project-local) - aggregates
   all confirmed developer files for the current repo.
-- `agentic-cost operator` reads `~/.agentic/session-log/*.jsonl` (global) -
+- `ds-cost operator` reads `~/.agentic/session-log/*.jsonl` (global) -
   cross-repo rollup for the operator across all projects.
 - Pending buffer is invisible to both commands until flushed.
 
@@ -13701,7 +13701,7 @@ Ticket id '<raw>' sanitizes to empty; loop state keyed on session instead (<LOOP
 
 Emit it after the key is derived and only under that condition. It must not live inside `ae_derive_loop_key`: that function's only output is the key via `printf`, so a diagnostic there corrupts every caller and every assertion in `bin/tests/test_loop_key_derivation.sh`.
 
-`LOOP_KEY` also governs telemetry attribution: export `AGENTIC_LOOP_KEY="$LOOP_KEY"` at every `bin/agentic-emit` call site (see Phase 6).
+`LOOP_KEY` also governs telemetry attribution: export `AGENTIC_LOOP_KEY="$LOOP_KEY"` at every `bin/ds-emit` call site (see Phase 6).
 
 ### Candidate check
 
@@ -13807,7 +13807,7 @@ else:
 Before any phase, read the project's `AGENTS.md` and extract the following values:
 
 - `REPO` — absolute path to the repo root
-- `REPO_DIR` — absolute path to the **agentic-engineering / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used by `bin/agentic-resolve-worktree` (Phase 8 cleanup) and `bin/agentic-base-sync` (Phase 12, repo-relative invocation).
+- `REPO_DIR` — absolute path to the **agentic-engineering / DinoStack install** (NOT the same as `REPO` - `REPO` is the ticket's own project checkout, `REPO_DIR` is where the `bin/`-tools live). Resolve via the canonical resolver `scripts/lib/repo-dir.sh` (`resolve_repo_dir`): read `repo_dir` from `~/.agentic/agentic-engineering-config.json` if present and a valid git repo; else fall back to `~/DinoStack`. Used by `bin/ds-resolve-worktree` (Phase 8 cleanup) and `bin/ds-base-sync` (Phase 12, repo-relative invocation).
 - `GH_REPO` — GitHub repo slug (e.g. `org/repo-name`)
 - `BASE_BRANCH` — the branch all work is based from. Resolve in this order: (1) if declared via a `BASE_BRANCH:` line in `AGENTS.md`, use that; (2) else `develop` if it exists locally; (3) else `development` if it exists locally; (4) else stop and ask the user: no `develop`/`development` integration branch found - use `main` (falling back to `master`), or set up a develop-based workflow? Offer `main` as the recommended default; (5) on decline / main preference, resolve `main` (fall back to `master`). Do not auto-create a branch. Once resolved, print: `BASE_BRANCH resolved to: [value]`.
 - `QUALITY_CMD` — the full quality gate command to run from repo root
@@ -13845,7 +13845,7 @@ Do not continue. Do not attempt to write the migration. All config-mutation logi
 - **Data-only.** `.agentic/tracker.yml` is data-only and executes nothing - unlike `.agentic/phase0-classifiers.yml`, which runs with full conductor privileges (see the Trigger-based Phase 0 section below).
 - **Tracked-file warning.** If the overlay file is git-tracked (rather than ignored), print one warning before proceeding - it may hold another operator's tracker config committed by mistake or hand-authored outside the write-path guard.
 - **Guard interaction:** the legacy `## Linear` shape guard is evaluated before this overlay and is never suppressed by it.
-- Prefer `agentic-tracker resolve --json` for this whole step (it implements the merge rule, diagnostics, and guards above deterministically); when the binary is unavailable, apply the rule as written here.
+- Prefer `ds-tracker resolve --json` for this whole step (it implements the merge rule, diagnostics, and guards above deterministically); when the binary is unavailable, apply the rule as written here.
 
 Print a summary of resolved values before Phase 1:
 
@@ -13932,7 +13932,7 @@ When the conductor reaches a writeback boundary:
 
 **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state (step 1) and the 6 `tracker_state_values` strings resolved once in Setup. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
 
-**Failure logging:** subagent stderr is captured by the conductor's `agentic-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. A `status: "skipped_unconfigured_state"` outcome uses the distinct SKIPPED form defined in step 5's diagnostic-enrichment sub-step instead: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. No block, either form.
+**Failure logging:** subagent stderr is captured by the conductor's `ds-emit` event; one operator-visible line per failure of the form: `tracker-writeback: <ticket_id> -> '<target_state>' FAILED: <error>`. A `status: "skipped_unconfigured_state"` outcome uses the distinct SKIPPED form defined in step 5's diagnostic-enrichment sub-step instead: `tracker-writeback: <ticket_id> -> '<target_state>' SKIPPED: <diagnostic>`. No block, either form.
 
 For full details of the Phase 11 writeback subagent brief shape, see the Phase 11 block below — the brief is unchanged except for the addition of `target_state`, `forward_only_guard`, `tracker_state_values`, and `pipeline_order` parameters. Phase 11's own Jira `JIRA_QA_TRANSITION`-gated transition mechanism (see "Behavior" above - unaffected, unedited by this plan) and its Linear path both additionally receive the diagnostic-enrichment behavior from `## Tracker Writeback Helper` step 5 when a transition attempt does not succeed; this plan does not change what Phase 11 writes or when, only what it reports when it does not write.
 
@@ -15008,7 +15008,7 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
   - `PLAN_PRESEEDED == false` (no Brief/Plan, or the commit-and-push hit the gitignore no-op branch): `create_commands` is the standard create-from-base form: `git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH`.
   - `PLAN_PRESEEDED == true` (the Phase 4 procedure already pushed a plan commit to `$BRANCH_NAME`): `create_commands` tracks the existing remote branch instead of creating it from base: `git -C $REPO worktree add $WORKTREE_PATH $BRANCH_NAME` (no `-b`, no base ref - the branch already exists on origin, seeded with the plan commit). Using the create-from-base form here would either fail (branch already exists) or silently orphan the plan commit depending on git version; tracking the existing ref is the only correct form once `PLAN_PRESEEDED` is true.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
-- `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `agentic-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
+- `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `ds-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 
   **Non-fast-forward recovery.** On a rejected (non-fast-forward) push, the engineer runs this specified recovery once:
 
@@ -15252,19 +15252,19 @@ Emit the inline breadcrumb:
 
 **Telemetry emit (V1):** Bracket the Skeptic `Agent` tool call with:
 ```
-# Every agentic-emit call site exports the resolved key so the event's `phase`
-# resolves from THIS ticket's own .agentic/loop-state-$LOOP_KEY.json. Without it, agentic-emit
+# Every ds-emit call site exports the resolved key so the event's `phase`
+# resolves from THIS ticket's own .agentic/loop-state-$LOOP_KEY.json. Without it, ds-emit
 # falls back to its unset-env rows: with 2+ keyed files present (the whole
 # point of this design) it must answer "unknown", so every event in a
 # multi-ticket checkout would lose its phase.
 export AGENTIC_LOOP_KEY="$LOOP_KEY"
-agentic-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'"}'
+ds-emit spawn_start skeptic - '{"tier":<tier>,"tool_use_id":"<toolu_id_if_known_else_null>","session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'"}'
 # ... Agent tool call ...
 # After return, parse subagent transcript for tokens/wall_seconds:
-USAGE="$(agentic-parse-subagent-usage <session_uuid> <agent_id>)"
-agentic-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
+USAGE="$(ds-parse-subagent-usage <session_uuid> <agent_id>)"
+ds-emit spawn_complete skeptic - "$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s",%s}' "$CLAUDE_CODE_SESSION_ID" "${USAGE#\{}")"
 ```
-`export AGENTIC_LOOP_KEY="$LOOP_KEY"` applies at **every** `agentic-emit` call site in this document, not just this one - Phase 6, Phase 6b, the calibration/meta-review emits, and the Phase 7/10a fix-engineer brackets. See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
+`export AGENTIC_LOOP_KEY="$LOOP_KEY"` applies at **every** `ds-emit` call site in this document, not just this one - Phase 6, Phase 6b, the calibration/meta-review emits, and the Phase 7/10a fix-engineer brackets. See `METHODOLOGY.md §Events log` for the full event schema. All conductor emits (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) must include `"session_uuid":"$CLAUDE_CODE_SESSION_ID"` in the `data` JSON object; the shell expands `$CLAUDE_CODE_SESSION_ID` at emit time. (`conductor_direct` is deprecated and no longer emitted.)
 
 ```
 ## Prior iteration findings
@@ -15320,14 +15320,14 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 1. **Build the calibration data block.** Compute `diff_lines` from the reviewed diff (`git -C $REPO diff origin/$BASE_BRANCH..HEAD | wc -l`, or the unit-scoped equivalent for fan-out). Tally `findings_count` from the final Skeptic round's findings list (Critical / Major / Minor counts). Read `iteration` from the loop state.
 
-2. **Emit the extended `spawn_complete` event.** Construct the merged JSON inline (no `bin/agentic-emit` flag changes) and call:
+2. **Emit the extended `spawn_complete` event.** Construct the merged JSON inline (no `bin/ds-emit` flag changes) and call:
 
    ```bash
    USAGE_AND_CALIBRATION="$(printf '{"tier":<tier>,"agent_id":"<agent_id>","status":"ok","session_uuid":"%s","wall_seconds":<n>,"tokens":{...},"findings_count":{"critical":<c>,"major":<m>,"minor":<n>},"diff_lines":<d>,"signed_off":true,"iteration":<i>,"meta_review":null}' "$CLAUDE_CODE_SESSION_ID")"
-   agentic-emit spawn_complete skeptic <task_id> "$USAGE_AND_CALIBRATION"
+   ds-emit spawn_complete skeptic <task_id> "$USAGE_AND_CALIBRATION"
    ```
 
-   The conductor builds the JSON by merging the existing usage fields (from `agentic-parse-subagent-usage`) with the calibration fields. `bin/agentic-emit` is unchanged.
+   The conductor builds the JSON by merging the existing usage fields (from `ds-parse-subagent-usage`) with the calibration fields. `bin/ds-emit` is unchanged.
 
 3. **Compute the deterministic sampling bucket.** Hash `<task_id><iteration>` into a uniform 0-99 bucket (`python3 -c 'import hashlib,sys; print(int(hashlib.sha256(sys.argv[1].encode()).hexdigest(),16) % 100)' "<task_id><iteration>"`). If `bucket < 5`, the spawn is sampled.
 
@@ -15343,7 +15343,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
    ```bash
    META_DATA="$(printf '{"original_task_id":"<id>","session_uuid":"%s","divergence":{"critical_missed":[...],"major_missed":[...],"minor_missed":[...]},"agreement":<bool>}' "$CLAUDE_CODE_SESSION_ID")"
-   agentic-emit meta_review_complete skeptic-meta <original_task_id> "$META_DATA"
+   ds-emit meta_review_complete skeptic-meta <original_task_id> "$META_DATA"
    ```
 
    The next in-session scan or session-start sweep will surface any Critical/Major divergence per the Meta-divergence surfacing block above.
@@ -15358,7 +15358,7 @@ See `content/references/skeptic-protocol.md` Section 14 for the full calibration
 - The branch name and repo path
 - Instruction to run `$QUALITY_CMD` before finishing
 
-**Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `agentic-emit spawn_start engineer <task_id> ...` before, and `agentic-emit spawn_complete engineer <task_id> ...` after - using `agentic-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
+**Telemetry emit (V1):** Bracket the Engineer `Agent` tool call with `ds-emit spawn_start engineer <task_id> ...` before, and `ds-emit spawn_complete engineer <task_id> ...` after - using `ds-parse-subagent-usage` to populate tokens/model/wall_seconds. Same pattern as the Skeptic emit in Step 1.
 
 **Step 5.** Receive Engineer output.
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection below. **Tracker writeback (W4):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W4 | target: $TRACKER_STATE_BLOCKED]` Emit escalation format. Stop. Do NOT increment `iteration`.
@@ -15498,7 +15498,7 @@ Emit the inline breadcrumb:
 
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
-**Telemetry emit (V1):** Bracket the QA `Agent` tool call with `agentic-emit spawn_start qa-engineer <task_id> ...` before and `agentic-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
+**Telemetry emit (V1):** Bracket the QA `Agent` tool call with `ds-emit spawn_start qa-engineer <task_id> ...` before and `ds-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
 
 ```
 ## Prior QA failures
@@ -15543,7 +15543,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state-$LOOP_KEY.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `agentic-emit spawn_start engineer <task_id> ...` and `agentic-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
@@ -15648,11 +15648,11 @@ Stage specific files - never `git add -A` or `git add .`:
 export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20
 git -C $REPO add [specific files]
 
-# Resolve developer identity for trailer (soft-fail throughout; agentic-identity may not be installed).
+# Resolve developer identity for trailer (soft-fail throughout; ds-identity may not be installed).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
-DEVELOPER=$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
+DEVELOPER=$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')
 # Clear if provisional (cmd_show emits multi-space "provisional:   true"; use flexible [[:space:]]+ match).
-if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 DEVTRAILER=${DEVELOPER:+"Developer: ${DEVELOPER}"}
 
 # Resolve DCO Signed-off-by fields (git config inherits from global; check project-local first).
@@ -15734,7 +15734,7 @@ git -C $REPO push -u origin [BRANCH_NAME]
 # Resolve the worktree from the branch name so renames do not break cleanup.
 git -C "$REPO" fetch origin "$BRANCH_NAME" 2>/dev/null || true
 if git -C "$REPO" ls-remote --heads origin "$BRANCH_NAME" | grep -q "$BRANCH_NAME"; then
-  WORKTREE_PATH=$("$REPO_DIR/bin/agentic-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
+  WORKTREE_PATH=$("$REPO_DIR/bin/ds-resolve-worktree" "$REPO" "$BRANCH_NAME" 2>/dev/null || true)
   if [ -n "$WORKTREE_PATH" ] && [ -d "$WORKTREE_PATH" ]; then
     if [ -z "$(git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null)" ]; then
       git -C "$REPO" worktree remove "$WORKTREE_PATH" 2>/dev/null || true
@@ -15956,8 +15956,8 @@ Run:
 # Resolve identity for PR Developer: field (may already be set from Phase 8).
 # Re-derive here if Phase 8 was skipped (e.g., parallel path with no fixup files).
 # Note: `show` (no --scope) resolves the project-local identity first per the 4-tier ordering.
-DEVELOPER=${DEVELOPER:-$(agentic-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
-if agentic-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
+DEVELOPER=${DEVELOPER:-$(ds-identity show 2>/dev/null | awk '/^developer_id:/{print $2}')}
+if ds-identity show 2>/dev/null | grep -qE '^provisional:[[:space:]]+true'; then DEVELOPER=""; fi
 
 # UNIT_IS_BEHAVIOR_VISIBLE: true only when QA ran+passed, evidence URLs exist, AND risk class is
 # not security/auth/crypto/payments/Elevated-correctness (derived in-context from Phase 2/3
@@ -16405,14 +16405,14 @@ These are the same credentials used for existing tracker writebacks. No new cred
 
 **Spawn:** `wrap-ticket` (Tier 1, foreground, blocking, 60-second timeout).
 
-**Lock acquisition (bounded wait):** before spawning, acquire `.agentic/wrap/lock` via `agentic-wrap-acquire-lock` - never a manual `mkdir`, which would produce a lock directory with no `owner.json` and forfeit the daemon-side live-lock protection this design depends on. The lock is shared with `/ds-wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/_wrap.md` - each a genuine read-modify-write of a curated file. It is NOT and never was mutual exclusion for `.agentic/context.md`: that file is now a derived rollup, deliberately written WITHOUT the lock, because it is recomposed from `_wrap.md` plus the per-session shards and a lost update self-heals on the next turn. (Naming `context.md` here was a false claim even before that change - the two hooks that "protected" it CHECKED the lock and neither ACQUIRED it, so it gave them no exclusion against each other. See `content/references/conductor-operating-rules.md` under "`.agentic/context.md` writer contract".)
+**Lock acquisition (bounded wait):** before spawning, acquire `.agentic/wrap/lock` via `ds-wrap-acquire-lock` - never a manual `mkdir`, which would produce a lock directory with no `owner.json` and forfeit the daemon-side live-lock protection this design depends on. The lock is shared with `/ds-wrap` to prevent concurrent writes to MEMORY.md, decisions.md, and `.agentic/_wrap.md` - each a genuine read-modify-write of a curated file. It is NOT and never was mutual exclusion for `.agentic/context.md`: that file is now a derived rollup, deliberately written WITHOUT the lock, because it is recomposed from `_wrap.md` plus the per-session shards and a lost update self-heals on the next turn. (Naming `context.md` here was a false claim even before that change - the two hooks that "protected" it CHECKED the lock and neither ACQUIRED it, so it gave them no exclusion against each other. See `content/references/conductor-operating-rules.md` under "`.agentic/context.md` writer contract".)
 
-1. **First attempt (foreground, no wait):** `agentic-wrap-acquire-lock "$REPO" --role=agent --no-wait --session-id="$CLAUDE_CODE_SESSION_ID"`. Branch on exit code:
+1. **First attempt (foreground, no wait):** `ds-wrap-acquire-lock "$REPO" --role=agent --no-wait --session-id="$CLAUDE_CODE_SESSION_ID"`. Branch on exit code:
    - **0** - acquired. Go to "If the lock is acquired" below.
    - **5** - busy (lock held by another session, e.g. `/ds-wrap` running concurrently). Go to step 2.
    - **1** - fatal (lib load failure or an invalid `--role`). Surface the WARNING line verbatim, then skip Phase 11b with `skipped_reason: "wrap-lock-contention"`. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
-   - **any other exit code, including PATH-not-found** - if the command is not found on PATH at all, do NOT fall back to a manual `mkdir` (see rationale above); instead skip Phase 11b with `skipped_reason: "wrap-lock-contention"` and the operator note naming the missing install step: `"Phase 11b skipped: agentic-wrap-acquire-lock not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH."` For any other unrecognized code, surface it verbatim and skip the same way. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
-2. **On busy, re-invoke bounded (background):** `agentic-wrap-acquire-lock "$REPO" --role=agent --timeout-ms=45000 --session-id="$CLAUDE_CODE_SESSION_ID"` with `run_in_background: true`. **The conductor holds at this step: it MUST NOT advance to Phase 11d, Phase 12, or any step that clears `findings_log` while this background attempt is outstanding.** `findings_log` is read from `.agentic/loop-state-$LOOP_KEY.json` by the conductor at spawn time, and Phase 12 is its only clearer (see the Phase 11b trigger note above) - advancing past this step before the background attempt resolves would let Phase 12 clear `findings_log` out from under a `wrap-ticket` spawn that is still pending, which is the exact data-loss failure mode this ticket exists to prevent. 45000ms (45s) is a **chosen bound, not derived from any shared phase-level budget**: `wrap-ticket`'s own 60s spawn timeout (see `**Spawn:**` above) is a SEPARATE, sequential budget for the spawn itself, so a worst-case contended run now takes up to ~105s total (45s wait + 60s spawn) rather than the ~60s of an uncontended run. 45s is chosen to be comfortably shorter than `wrap-ticket`'s own spawn timeout and dramatically shorter than `/ds-wrap`'s own 20-minute default wait (`content/commands/ds-wrap.md` Pre-flight lock acquisition step 3) - long enough that ordinary `/ds-wrap` write-phase contention resolves within the bound, short enough that Phase 11b (already inline in a long ticket loop) does not stall indefinitely. On the completion notification, branch on exit code:
+   - **any other exit code, including PATH-not-found** - if the command is not found on PATH at all, do NOT fall back to a manual `mkdir` (see rationale above); instead skip Phase 11b with `skipped_reason: "wrap-lock-contention"` and the operator note naming the missing install step: `"Phase 11b skipped: ds-wrap-acquire-lock not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH."` For any other unrecognized code, surface it verbatim and skip the same way. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
+2. **On busy, re-invoke bounded (background):** `ds-wrap-acquire-lock "$REPO" --role=agent --timeout-ms=45000 --session-id="$CLAUDE_CODE_SESSION_ID"` with `run_in_background: true`. **The conductor holds at this step: it MUST NOT advance to Phase 11d, Phase 12, or any step that clears `findings_log` while this background attempt is outstanding.** `findings_log` is read from `.agentic/loop-state-$LOOP_KEY.json` by the conductor at spawn time, and Phase 12 is its only clearer (see the Phase 11b trigger note above) - advancing past this step before the background attempt resolves would let Phase 12 clear `findings_log` out from under a `wrap-ticket` spawn that is still pending, which is the exact data-loss failure mode this ticket exists to prevent. 45000ms (45s) is a **chosen bound, not derived from any shared phase-level budget**: `wrap-ticket`'s own 60s spawn timeout (see `**Spawn:**` above) is a SEPARATE, sequential budget for the spawn itself, so a worst-case contended run now takes up to ~105s total (45s wait + 60s spawn) rather than the ~60s of an uncontended run. 45s is chosen to be comfortably shorter than `wrap-ticket`'s own spawn timeout and dramatically shorter than `/ds-wrap`'s own 20-minute default wait (`content/commands/ds-wrap.md` Pre-flight lock acquisition step 3) - long enough that ordinary `/ds-wrap` write-phase contention resolves within the bound, short enough that Phase 11b (already inline in a long ticket loop) does not stall indefinitely. On the completion notification, branch on exit code:
    - **0** - acquired. Go to "If the lock is acquired" below.
    - **2** - timeout (45s elapsed, lock still held). Skip Phase 11b with `skipped_reason: "wrap-lock-contention"` and the operator note: `"Phase 11b skipped: wrap-lock-contention (lock still held after 45s bounded wait)."`, printing the helper's final `timeout ...` line verbatim. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
    - **1 / any other exit code** - surface the helper's printed line verbatim (WARNING line on exit 1) and skip Phase 11b with `skipped_reason: "wrap-lock-contention"`. Do NOT spawn `wrap-ticket`. Do NOT release the lock (this session never acquired it).
@@ -16440,7 +16440,7 @@ These are the same credentials used for existing tracker writebacks. No new cred
 - If `wrap-ticket` exceeds the 60s timeout: conductor warns the operator (`"Phase 11b: wrap-ticket exceeded 60s timeout; proceeding without learnings capture."`) and proceeds. Lock release for this outcome happens after the timeout fires, per the scoped release sentence below.
 - If `wrap-ticket` returns with `skipped_reason` populated (zero-substance, wrap-lock-contention, etc.): conductor prints the `operator_summary` and proceeds without warning.
 
-Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `agentic-wrap-release-lock "$REPO"` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The release root MUST match the root passed to the acquire calls in step 1 and step 2 above - a bare `agentic-wrap-release-lock` resolves against the conductor's cwd instead, and if cwd differs from `$REPO` the release is a silent no-op that leaks the lock for the rest of the session. The two skip-conditions paths and every lock-acquisition-failed path (the first attempt's non-0/non-5 exit code, and the bounded-wait attempt's 45s timeout or non-0/non-2 exit code) never acquired the lock in this session and must NOT call the release helper.
+Lock release: this applies ONLY within the "If the lock is acquired" branch above - the conductor runs `ds-wrap-release-lock "$REPO"` (PATH-wired helper) unconditionally on every `wrap-ticket` outcome in that branch (success, non-JSON return, timeout, soft-fail) before advancing to Phase 12. The release root MUST match the root passed to the acquire calls in step 1 and step 2 above - a bare `ds-wrap-release-lock` resolves against the conductor's cwd instead, and if cwd differs from `$REPO` the release is a silent no-op that leaks the lock for the rest of the session. The two skip-conditions paths and every lock-acquisition-failed path (the first attempt's non-0/non-5 exit code, and the bounded-wait attempt's 45s timeout or non-0/non-2 exit code) never acquired the lock in this session and must NOT call the release helper.
 
 **Post-return skill-candidate merge (conductor-side, runs AFTER lock release, soft-fail):**
 
@@ -16765,7 +16765,7 @@ else
   fi
 fi
 
-agentic-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\":\"$KC_STATUS\",\"files_staged\":[$KC_JSON_STAGED],\"files_committed\":[$KC_JSON_FILES],\"files_skipped_ignored\":[$KC_JSON_IGN],\"branch\":\"$BRANCH_NAME\",\"commit\":\"$KC_SHA\",\"deleted_lines\":$KC_DELETED}" 2>/dev/null || true
+ds-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\":\"$KC_STATUS\",\"files_staged\":[$KC_JSON_STAGED],\"files_committed\":[$KC_JSON_FILES],\"files_skipped_ignored\":[$KC_JSON_IGN],\"branch\":\"$BRANCH_NAME\",\"commit\":\"$KC_SHA\",\"deleted_lines\":$KC_DELETED}" 2>/dev/null || true
 ```
 
 `GIT_INDEX_FILE="$KC_IDX" git ...` is a **per-command assignment, not an export**, in both bash and zsh - the value is scoped to that one invocation and cannot reach `$REPO/.git/index`. Do not convert it to an `export ... ; unset ...` pair, and do not remove it from the `update-index` call.
@@ -16875,10 +16875,10 @@ Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true
 # $BASE_BRANCH are conductor-substituted values by the time Phase 12 runs (both
 # resolved in Setup) - never empty here in a correctly-running session, and the
 # tool independently validates non-empty args regardless (exit 3 on empty).
-if [ -x "$REPO_DIR/bin/agentic-base-sync" ]; then
-  "$REPO_DIR/bin/agentic-base-sync" "$REPO" "$BASE_BRANCH"
+if [ -x "$REPO_DIR/bin/ds-base-sync" ]; then
+  "$REPO_DIR/bin/ds-base-sync" "$REPO" "$BASE_BRANCH"
 else
-  echo "WARNING: agentic-base-sync tool not found at $REPO_DIR/bin/ - skipping post-merge sync this run."
+  echo "WARNING: ds-base-sync tool not found at $REPO_DIR/bin/ - skipping post-merge sync this run."
 fi
 ```
 
@@ -18066,10 +18066,10 @@ Regardless of whether `.gitignore` is new or existing: check whether the targete
 # Under this denylist these files are tracked by default (nothing above
 # ignores them) - the negations below are not load-bearing here. They exist
 # for the case where a project later adds a broad .agentic/* umbrella ignore
-# (e.g. via agentic-migrate): git .gitignore matching is last-match-wins, so
+# (e.g. via ds-migrate): git .gitignore matching is last-match-wins, so
 # a negation only overrides an umbrella pattern that appears ABOVE it in the
-# file. agentic-migrate inserts new umbrella patterns above any existing
-# negation for this reason - see bin/agentic-migrate _append_gitignore.
+# file. ds-migrate inserts new umbrella patterns above any existing
+# negation for this reason - see bin/ds-migrate _append_gitignore.
 !.agentic/session-log/
 !.agentic/learnings.md
 !.agentic/qa.md
@@ -18147,7 +18147,7 @@ To draft this intent layer instead of writing it by hand, spawn the `product-dis
 
 Only run if the user confirmed a specific tracker (Linear or Jira) in Step 1. If tracker was "none", "neither", declined (`no tracker` / empty-Enter or `n`/`no`/`2`/`3` on any tracker prompt), or not confirmed, skip this step entirely — do not prompt for API keys, workspace slug, team key, project key, base URL, or any other tracker field.
 
-Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `agentic-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
+Prompt: *Write tracker config to `AGENTS.md` (shared, committed) or `.agentic/tracker.yml` (local, gitignored)? `[A/l]`* - default `A` = exactly today's behavior (write the `## Linear` / `## Tracker` section to `AGENTS.md` as below). On `l`, invoke `ds-tracker init --tracker {jira,linear} --prefix ... [--base-url ... | --workspace ...] [--qa-assignee ...]` with the same values gathered below, and skip the `## Linear` / `## Tracker` `AGENTS.md` write entirely - the two are mutually exclusive per invocation.
 
 **11a. Linear setup** (run if tracker = Linear)
 
@@ -18260,12 +18260,12 @@ After all files are processed, print a short summary with three sections:
 **Config readout.** Print the resolved configuration in two blocks, then the pointers.
 
 Block 1 - activation state (reuse the binary; do NOT re-derive resolution):
-  Resolve `agentic-status` from PATH first, then the adapter `bin/` install dir; if
+  Resolve `ds-status` from PATH first, then the adapter `bin/` install dir; if
   neither resolves, skip Block 1 SILENTLY (do not error). When resolvable, run it and
   echo its full output verbatim.
 
 Block 2 - project config toggles (read directly from the just-written file; separate
-data agentic-status does not own). Read `.agentic/config.json` and print:
+data ds-status does not own). Read `.agentic/config.json` and print:
 
 ```
 Project config (.agentic/config.json)
@@ -18383,17 +18383,17 @@ Otherwise: complete silently - do NOT report back to the user.
 
 ## Memory retrieval
 
-To query existing memory without rewriting it, use `bin/agentic-memory`:
+To query existing memory without rewriting it, use `bin/ds-memory`:
 
 ```bash
 # Find recent Skeptic spawns
-agentic-memory query --type spawn_complete --agent skeptic --last 5
+ds-memory query --type spawn_complete --agent skeptic --last 5
 
 # Find decisions about a topic
-agentic-memory query --source MEMORY.md --topic "context budget"
+ds-memory query --source MEMORY.md --topic "context budget"
 
 # Show recent turns
-agentic-memory turns --last 5
+ds-memory turns --last 5
 ```
 
 This is a permitted direct action — the conductor may run it inline without spawning a subagent.
@@ -18411,9 +18411,9 @@ Purpose: Conductor-facing command to inspect and apply project scaffolding migra
          from the canonical manifest (content/project-scaffolding.yml).
 Public API: /ds-migrate-project, /ds-migrate-project --apply, /ds-migrate-project --apply --include-destructive,
             /ds-migrate-project --reset <version>
-Upstream: content/project-scaffolding.yml (via bin/agentic-migrate); project .agentic/config.json
-Downstream: called by operator; shells out to bin/agentic-migrate
-Failure modes: silently swallowed by agentic-migrate; command surfaces exit-code summary to operator
+Upstream: content/project-scaffolding.yml (via bin/ds-migrate); project .agentic/config.json
+Downstream: called by operator; shells out to bin/ds-migrate
+Failure modes: silently swallowed by ds-migrate; command surfaces exit-code summary to operator
 -->
 
 Inspect or apply project scaffolding migrations from the canonical manifest (`content/project-scaffolding.yml`). By default (no flags) runs a dry-run diff and shows what would change without applying anything.
@@ -18433,7 +18433,7 @@ Inspect or apply project scaffolding migrations from the canonical manifest (`co
 
 Shells out to:
 ```bash
-agentic-migrate diff [--manifest <resolved-path>] [--project-root <cwd>]
+ds-migrate diff [--manifest <resolved-path>] [--project-root <cwd>]
 ```
 
 Prints a human-readable summary of what `--apply` would do. Read-only - no changes written.
@@ -18442,7 +18442,7 @@ Prints a human-readable summary of what `--apply` would do. Read-only - no chang
 
 Shells out to:
 ```bash
-agentic-migrate apply [--manifest <resolved-path>] [--project-root <cwd>]
+ds-migrate apply [--manifest <resolved-path>] [--project-root <cwd>]
 ```
 
 Applies additive scaffolding rules from the manifest:
@@ -18469,17 +18469,17 @@ Sets `scaffolding_version` in `.agentic/config.json` to the specified integer wi
 **Use case:** you want the next preflight to re-run the full diff and re-emit the audit line - for example, to verify the migration engine is idempotent after a manual edit to `.gitignore` or `.agentic/`. Does NOT undo applied changes; if you need to undo, do so manually.
 
 ```bash
-agentic-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-verify
+ds-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-verify
 ```
 
 ## Manifest resolution
 
-`agentic-migrate` resolves the manifest in this order (first found wins):
+`ds-migrate` resolves the manifest in this order (first found wins):
 1. `AGENTIC_MANIFEST_PATH` env var
 2. `~/.claude/skills/agentic-engineering/project-scaffolding.yml`
 3. `<script_dir>/../content/project-scaffolding.yml` (dev path)
 
-## Exit codes from agentic-migrate
+## Exit codes from ds-migrate
 
 | Code | Meaning |
 |------|---------|
@@ -19116,12 +19116,12 @@ Read-only inspection of the agentic-engineering activation resolver.
 Dumps the resolved global config, project marker, profile, and
 first-activation sentinel state. Writes nothing. Always exits 0.
 
-Implementation: `bin/agentic-status` (Python 3 stdlib).
+Implementation: `bin/ds-status` (Python 3 stdlib).
 
 ## Usage
 
 ```
-agentic-status
+ds-status
 ```
 
 No subcommands, no flags. Reads:
@@ -19149,7 +19149,7 @@ agentic-engineering status
 
 Held examples (only when .agentic/wrap/lock exists):
   wrap lock: held role=agent session=f176f720-a218-4cac-84a0-1489abe7aa1d age=3m
-  wrap lock: held role=agent session=(none) age=10h18m - past the abandonment threshold; the next `agentic-wrap-acquire-lock` clears it if the holder is gone
+  wrap lock: held role=agent session=(none) age=10h18m - past the abandonment threshold; the next `ds-wrap-acquire-lock` clears it if the holder is gone
 
 DEPRECATED example (only shown when a legacy preset key is present at some scope):
   DEPRECATED: preset key 'strict' (global) resolved to profile=strict; migrate by setting
@@ -19208,7 +19208,7 @@ the effective value came from:
   session id) or 4 hours (without one). It is **advisory, not authoritative**:
   it reports observable facts and does not re-derive the abandonment predicate,
   which lives once in `wrapLockAbandoned` (`hooks/lib/wrap-marker.js`) and is
-  acted on only by `agentic-wrap-acquire-lock`. This line exists because **no
+  acted on only by `ds-wrap-acquire-lock`. This line exists because **no
   operator-invocable command could previously reveal a wedged lock** - the
   10.3-hour orphan that silently discarded 49 `context.md` writes across 6
   sessions had to be diagnosed by hand. `context.md` writes are no longer
@@ -20552,7 +20552,7 @@ Ask for activation mode (`opt-in` / `opt-out`, default from saved config or `opt
 
 ### 1c - Developer identity
 
-Run `agentic-identity show --scope effective` to check the current identity state:
+Run `ds-identity show --scope effective` to check the current identity state:
 
 - **Confirmed identity found:** "Identity: `<handle>` (confirmed). Keep or change? [Enter = keep]"
 - **Provisional identity found:** "Identity: `<handle>` (provisional - not yet confirmed). Options: (c)onfirm as-is, (e)dit handle, (s)kip. [c]"
@@ -20567,7 +20567,7 @@ Resolve to either a handle (pass `--identity=<handle>` to install.sh in Step 4) 
 
 Skip this step for FRESH-CLONE-FLOW.
 
-This step is read-only: it only gathers what Step 3's confirmation display needs to show. **Enforcement of the branch/dirty-tree/divergence safety checks happens inside `agentic-update` at Step 4**, not here - `agentic-update` already implements the branch check, the dirty-tree check, and fails closed on a non-fast-forward (diverged) pull. Reimplementing that enforcement in prose here would be exactly the drift this command collapsed (see PR history: four independent copies of "get the latest methodology" had already diverged before this section was rewritten to delegate).
+This step is read-only: it only gathers what Step 3's confirmation display needs to show. **Enforcement of the branch/dirty-tree/divergence safety checks happens inside `ds-update` at Step 4**, not here - `ds-update` already implements the branch check, the dirty-tree check, and fails closed on a non-fast-forward (diverged) pull. Reimplementing that enforcement in prose here would be exactly the drift this command collapsed (see PR history: four independent copies of "get the latest methodology" had already diverged before this section was rewritten to delegate).
 
 **2a - Fetch:**
 ```bash
@@ -20583,7 +20583,7 @@ LOCAL_AHEAD="$(echo "$COUNTS" | awk '{print $1}')"
 REMOTE_AHEAD="$(echo "$COUNTS" | awk '{print $2}')"
 DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
 ```
-Use these only to populate the Step 3 "Plan:" display (branch name, "clean"/"has local changes", "origin/main is N commit(s) ahead", and a note when both are ahead - "local and origin have diverged; the update will fail at Step 4 until resolved"). None of these conditions block Step 3 from being shown; `agentic-update` is the actual gate.
+Use these only to populate the Step 3 "Plan:" display (branch name, "clean"/"has local changes", "origin/main is N commit(s) ahead", and a note when both are ahead - "local and origin have diverged; the update will fail at Step 4 until resolved"). None of these conditions block Step 3 from being shown; `ds-update` is the actual gate.
 
 ## Step 3 - Confirm plan
 
@@ -20613,9 +20613,9 @@ This explicit confirmation is what authorizes the side-effecting Step 4 as a con
 
 ### UPDATE-FLOW
 
-Delegate the mechanical steps - branch/dirty-tree/divergence enforcement, the pull, the hooks-change note, and the adapter loop - to `agentic-update` in a single call rather than reimplementing them here. This is what actually collapses the drift: before this rewrite, this section duplicated `bin/agentic-update`'s branch check, dirty-tree check, pull, and per-adapter install loop line-for-line in prose, and the two copies had already started to diverge.
+Delegate the mechanical steps - branch/dirty-tree/divergence enforcement, the pull, the hooks-change note, and the adapter loop - to `ds-update` in a single call rather than reimplementing them here. This is what actually collapses the drift: before this rewrite, this section duplicated `bin/ds-update`'s branch check, dirty-tree check, pull, and per-adapter install loop line-for-line in prose, and the two copies had already started to diverge.
 
-**4a - Detect `--identity` flag support** (before delegating, so the flag is only passed when the pulled install.sh - as of the START of this step - is known to support it; `agentic-update` re-checks this per-adapter internally as it runs each install.sh after its own pull):
+**4a - Detect `--identity` flag support** (before delegating, so the flag is only passed when the pulled install.sh - as of the START of this step - is known to support it; `ds-update` re-checks this per-adapter internally as it runs each install.sh after its own pull):
 ```bash
 INSTALL_SH="$AE_REPO_DIR/.claude/install.sh"
 if grep -q -- '--identity' "$INSTALL_SH" 2>/dev/null; then
@@ -20626,20 +20626,20 @@ fi
 ```
 If `IDENTITY_SUPPORTED=0`, skip identity flags and note: "This install.sh version does not support `--identity`. Re-run after a future update to configure identity."
 
-**4b - Delegate to `agentic-update`:**
+**4b - Delegate to `ds-update`:**
 
 ```bash
 # ADAPTERS_CSV: comma-joined SELECTED_ADAPTERS from Step 1a.
 # Only pass --identity/--no-identity when IDENTITY_SUPPORTED=1 (from 4a).
-agentic-update --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity] --adapters=<ADAPTERS_CSV> --no-doctor
+ds-update --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity] --adapters=<ADAPTERS_CSV> --no-doctor
 UPDATE_STATUS=$?
 ```
 
-`--no-doctor` is passed deliberately: this command's own Step 5 runs a diagnostic-only `agentic-doctor` (no `--fix`) so findings are reported, not silently auto-applied - `agentic-update`'s built-in doctor step defaults to `--fix`, which would change that contract if left enabled here.
+`--no-doctor` is passed deliberately: this command's own Step 5 runs a diagnostic-only `ds-doctor` (no `--fix`) so findings are reported, not silently auto-applied - `ds-update`'s built-in doctor step defaults to `--fix`, which would change that contract if left enabled here.
 
-On non-zero `UPDATE_STATUS`: stop and show `agentic-update`'s stdout/stderr verbatim. `agentic-update` already produces actionable messages for every case this section used to check by hand: non-main branch, dirty tree (lists the dirty files), a failed or diverged (non-fast-forward) pull, and a failed adapter install (fail-soft - every selected adapter is attempted, and the names and exit codes of all that failed are listed together at the end). It also prints the hooks-change note to stderr internally when the pull touched `hooks/`, using the same wording this section used to duplicate - that note surfaces automatically as part of the verbatim output, nothing further to do here.
+On non-zero `UPDATE_STATUS`: stop and show `ds-update`'s stdout/stderr verbatim. `ds-update` already produces actionable messages for every case this section used to check by hand: non-main branch, dirty tree (lists the dirty files), a failed or diverged (non-fast-forward) pull, and a failed adapter install (fail-soft - every selected adapter is attempted, and the names and exit codes of all that failed are listed together at the end). It also prints the hooks-change note to stderr internally when the pull touched `hooks/`, using the same wording this section used to duplicate - that note surfaces automatically as part of the verbatim output, nothing further to do here.
 
-If `agentic-update` is not found on PATH (e.g. this is the very first `/ds-update` run in a fresh shell before `~/.local/bin` was picked up), fall back to running the branch/dirty-tree checks, the pull, and the per-adapter install loop directly. This fallback has no other gate - `agentic-update`'s own branch and dirty-tree checks are unreachable when it isn't found - so both hard blocks below are mandatory here, not optional preview info as in Step 2b:
+If `ds-update` is not found on PATH (e.g. this is the very first `/ds-update` run in a fresh shell before `~/.local/bin` was picked up), fall back to running the branch/dirty-tree checks, the pull, and the per-adapter install loop directly. This fallback has no other gate - `ds-update`'s own branch and dirty-tree checks are unreachable when it isn't found - so both hard blocks below are mandatory here, not optional preview info as in Step 2b:
 
 ```bash
 CURRENT_BRANCH="$(git -C "$AE_REPO_DIR" rev-parse --abbrev-ref HEAD)"
@@ -20678,9 +20678,9 @@ if [[ "${#FAILED_ADAPTERS[@]}" -gt 0 ]]; then
   exit 1
 fi
 ```
-A non-main branch or a dirty tree can silently fast-forward the branch into a broken state (the same reason `agentic-update` enforces both internally) - never skip these two checks on the fallback path.
+A non-main branch or a dirty tree can silently fast-forward the branch into a broken state (the same reason `ds-update` enforces both internally) - never skip these two checks on the fallback path.
 
-Note "agentic-update not found on PATH; ran the fallback sequence directly. Open a new shell so `agentic-update` is available next time."
+Note "ds-update not found on PATH; ran the fallback sequence directly. Open a new shell so `ds-update` is available next time."
 
 ### FRESH-CLONE-FLOW
 
@@ -20712,7 +20712,7 @@ Do NOT use anonymous `curl | bash` of bootstrap.sh (fails for private repos) and
 
 **4c - Run adapters (same loop as UPDATE-FLOW):**
 
-After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW's `agentic-update`-not-found fallback (Step 4). Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed. Do NOT delegate this loop to `agentic-update` either: it errors out when `repo_dir` does not yet exist rather than cloning, and even after the clone lands it would misfire - `agentic-update`'s rebuild-skip logic treats `old_head == new_head` (true immediately after a fresh clone, before any pull) as "nothing changed, skip the adapter loop", which would silently skip every adapter on a brand-new install.
+After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW's `ds-update`-not-found fallback (Step 4). Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed. Do NOT delegate this loop to `ds-update` either: it errors out when `repo_dir` does not yet exist rather than cloning, and even after the clone lands it would misfire - `ds-update`'s rebuild-skip logic treats `old_head == new_head` (true immediately after a fresh clone, before any pull) as "nothing changed, skip the adapter loop", which would silently skip every adapter on a brand-new install.
 
 bootstrap.sh may be invoked for global PATH wiring / config-dir setup if needed, but adapter installation must use the loop below:
 
@@ -20743,17 +20743,17 @@ On non-zero exit from any adapter: stop immediately, report which adapter failed
 After adapters are installed, run a read-only health check to surface any configuration or wiring issues:
 
 ```bash
-agentic-doctor
+ds-doctor
 ```
 
-`agentic-doctor` is invoked without `--fix` here - this is a diagnostic-only pass; it makes no changes. If the command is not on PATH (e.g. a fresh install before PATH is reloaded), skip this step silently and note "Health check skipped - `agentic-doctor` not found on PATH; open a new shell and run `agentic-doctor` manually."
+`ds-doctor` is invoked without `--fix` here - this is a diagnostic-only pass; it makes no changes. If the command is not on PATH (e.g. a fresh install before PATH is reloaded), skip this step silently and note "Health check skipped - `ds-doctor` not found on PATH; open a new shell and run `ds-doctor` manually."
 
 Parse the exit code and output:
 
 - **Exit 0 (no findings):** print `Health: OK`
-- **Non-zero exit or any finding lines in output:** print `Health: N issue(s) - run agentic-doctor --fix to converge` (where N is the count of finding lines, or "1+" if the count cannot be parsed).
+- **Non-zero exit or any finding lines in output:** print `Health: N issue(s) - run ds-doctor --fix to converge` (where N is the count of finding lines, or "1+" if the count cannot be parsed).
 
-Print the full `agentic-doctor` output below the summary line so the user can see what was found.
+Print the full `ds-doctor` output below the summary line so the user can see what was found.
 
 ## Step 6 - Persist config and report
 
@@ -20809,11 +20809,11 @@ Done.
   Commits pulled: N  (or "already up to date" / "fresh install")
   Adapters installed: Claude, Codex
   Mode: opt-out | Profile: default | Identity: yourhandle (confirmed)
-  Health: OK  (or "N issue(s) - run agentic-doctor --fix to converge")
+  Health: OK  (or "N issue(s) - run ds-doctor --fix to converge")
 
 Next steps:
   - Run /ds-status to verify the install is active in this project.
-  - Run agentic-identity show --scope effective to confirm your developer identity.
+  - Run ds-identity show --scope effective to confirm your developer identity.
   - Open a new shell if adapters added shell integrations.
 ```
 
@@ -20964,14 +20964,14 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
 **Pre-flight lock acquisition.** /ds-wrap writes to several shared project-local files. See the Consumers list under the Atomic write discipline (NORMATIVE) section in content/references/wrap-context-format.md: the 17 sites - 3 in the merge algorithm, 14 in ds-wrap.md. The lock window also covers `.agentic/compression-state.json`, which is outside that Consumers list because it is machine state rather than a human-facing document. It does NOT write `context.md` - that file is a derived rollup and is deliberately lock-free. Concurrent /ds-wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:
 
 1. Ensure `<cwd>/.agentic/wrap/` exists (`mkdir -p <cwd>/.agentic/wrap`).
-2. Attempt acquisition in the FOREGROUND via the acquire helper, single attempt, no wait: `agentic-wrap-acquire-lock "$cwd" --role=agent --no-wait --session-id="$CLAUDE_CODE_SESSION_ID"`. This replaces the old hand-rolled `mkdir <cwd>/.agentic/wrap/lock` plus a separate owner-file write: the helper publishes the lock directory and BOTH owner artifacts (the legacy `owner` 2-line body and the schema-validated `owner.json` descriptor) atomically and fail-closed, inside one process - so the window in which the lock directory exists without an owner is eliminated, not merely narrowed - and the descriptor comes from one code path shared with the daemon rather than shell string-formatting. Run it synchronously (foreground): it is a single `mkdir` plus two `rename` calls with no poll loop and no `sleep`, so this is not the long-foreground-poll failure mode, and it must be synchronous because the conductor needs the result before deciding what to do next. Branch on exit code:
+2. Attempt acquisition in the FOREGROUND via the acquire helper, single attempt, no wait: `ds-wrap-acquire-lock "$cwd" --role=agent --no-wait --session-id="$CLAUDE_CODE_SESSION_ID"`. This replaces the old hand-rolled `mkdir <cwd>/.agentic/wrap/lock` plus a separate owner-file write: the helper publishes the lock directory and BOTH owner artifacts (the legacy `owner` 2-line body and the schema-validated `owner.json` descriptor) atomically and fail-closed, inside one process - so the window in which the lock directory exists without an owner is eliminated, not merely narrowed - and the descriptor comes from one code path shared with the daemon rather than shell string-formatting. Run it synchronously (foreground): it is a single `mkdir` plus two `rename` calls with no poll loop and no `sleep`, so this is not the long-foreground-poll failure mode, and it must be synchronous because the conductor needs the result before deciding what to do next. Branch on exit code:
    - **0** - lock acquired. Proceed.
    - **5** - busy (lock already held by someone else). Go to step 3 below.
    - **1** - fatal (lib failed to load, or an invalid `--role`). Surface the WARNING line verbatim, then abort.
    - **any other exit code** (including 127, the shell's command-not-found code) - surface it verbatim and abort. Never fall through to "proceed" on an unrecognised code.
 
-   If the command is not found on PATH at all, abort with a message naming the install step - do NOT fall back to a manual `mkdir`, which would produce a lock directory with no `owner.json` and forfeit the daemon-side live-lock protection this whole design depends on. Word the message harness-neutrally, since this file is shared across adapters: "`agentic-wrap-acquire-lock` not found on PATH - re-run your harness's DinoStack install script (`<repo>/.claude/install.sh` for Claude Code, the equivalent script under your adapter directory otherwise) to wire `bin/` onto PATH."
-3. **On busy: do not read the owner file, do not classify it, and do not abort.** There is no separate unreadable-owner or stale-owner branch to evaluate here - both are progress conditions the helper itself handles, not give-up conditions for the conductor to decide. Run the acquire helper again, this time as a BACKGROUND command (`run_in_background: true`), letting it wait: `agentic-wrap-acquire-lock "$cwd" --role=agent --session-id="$CLAUDE_CODE_SESSION_ID"`. It polls in-process (jittered ~5s interval) and exits once the lock is acquired or after 20 minutes; non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch on exactly three outcomes:
+   If the command is not found on PATH at all, abort with a message naming the install step - do NOT fall back to a manual `mkdir`, which would produce a lock directory with no `owner.json` and forfeit the daemon-side live-lock protection this whole design depends on. Word the message harness-neutrally, since this file is shared across adapters: "`ds-wrap-acquire-lock` not found on PATH - re-run your harness's DinoStack install script (`<repo>/.claude/install.sh` for Claude Code, the equivalent script under your adapter directory otherwise) to wire `bin/` onto PATH."
+3. **On busy: do not read the owner file, do not classify it, and do not abort.** There is no separate unreadable-owner or stale-owner branch to evaluate here - both are progress conditions the helper itself handles, not give-up conditions for the conductor to decide. Run the acquire helper again, this time as a BACKGROUND command (`run_in_background: true`), letting it wait: `ds-wrap-acquire-lock "$cwd" --role=agent --session-id="$CLAUDE_CODE_SESSION_ID"`. It polls in-process (jittered ~5s interval) and exits once the lock is acquired or after 20 minutes; non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch on exactly three outcomes:
    - **0** - acquired; the lock is now held by /ds-wrap. Proceed normally.
    - **2** - timeout. Report the helper's final `timeout ...` line verbatim (it already carries role, pid, start time, and an `rm -rf` recovery command). Then abort.
    - **1** - unexpected failure. Surface the WARNING line from stdout, then abort.
@@ -20980,13 +20980,13 @@ All steps are silent on success. Log each migration action taken (e.g. "Migrated
    Exit codes 3 (unreadable owner) and 4 (stale-needs-manual) no longer exist, deliberately: an unreadable owner and an old-looking timestamp are progress conditions, not give-up conditions. A lock whose owner looks old may be held by a /ds-wrap that is legitimately still working - the timestamp alone cannot distinguish that from an abandoned lock, so the waiter keeps waiting and only tells the operator how to unwedge it manually (the HINT's `rm -rf` command) if the operator judges it stuck.
 4. Liveness is the authoritative signal, not the timestamp. The helper determines whether the lock's owner is a live process wherever the owner record carries a genuine, checkable PID; the timestamp is used only where the owner record is PID-blind (e.g. a legacy 2-line body from an interactive /ds-wrap, whose recorded PID is a shell that has already exited by the time the file lands), and even there it is advisory, not decisive. The conductor does not run its own `ps -p` check - it relies entirely on the helper's exit code.
 
-5. **`--session-id` is the liveness signal for an interactive hold, and it is why an abandoned lock is no longer immortal.** A `--role=agent` descriptor carries `pid: null` by construction, so there is no process to liveness-check; without a session id the helper's verdict for such a lock is `live` FOREVER. Pass `--session-id="$CLAUDE_CODE_SESSION_ID"` at BOTH acquisition sites above, keeping the flag on the SAME LINE as the invocation. Use `CLAUDE_CODE_SESSION_ID` and only that variable - `AGENTIC_SESSION_ID` and `CLAUDE_SESSION_UUID` are both empty in a live session (`bin/agentic-migrate` reads them and is already silently degraded as a result). The flag is soft: an unset variable expands to an empty value, the helper publishes `session_id: null`, acquisition still succeeds, and the lock falls back to a pid-blind age rule - degraded, never stealing a live hold. Nothing here is harness-specific beyond the variable name: adapters that do not export it simply get the fallback.
+5. **`--session-id` is the liveness signal for an interactive hold, and it is why an abandoned lock is no longer immortal.** A `--role=agent` descriptor carries `pid: null` by construction, so there is no process to liveness-check; without a session id the helper's verdict for such a lock is `live` FOREVER. Pass `--session-id="$CLAUDE_CODE_SESSION_ID"` at BOTH acquisition sites above, keeping the flag on the SAME LINE as the invocation. Use `CLAUDE_CODE_SESSION_ID` and only that variable - `AGENTIC_SESSION_ID` and `CLAUDE_SESSION_UUID` are both empty in a live session (`bin/ds-migrate` reads them and is already silently degraded as a result). The flag is soft: an unset variable expands to an empty value, the helper publishes `session_id: null`, acquisition still succeeds, and the lock falls back to a pid-blind age rule - degraded, never stealing a live hold. Nothing here is harness-specific beyond the variable name: adapters that do not export it simply get the fallback.
 
 **Self-heal on acquire.** Before each attempt the helper clears a lock it can PROVE abandoned - a `role:agent` hold whose session stopped heartbeating past 30 minutes, or any PID-blind hold older than 4 hours - and prints `cleared-abandoned-lock <path>` when it does. This is the only case in which the helper removes a lock, and it is announced, never silent. An old-but-live hold is still waited on exactly as before. The default config (`deferred_wrap_daemon: false`) never launches the daemon that owns the other clear path, so without this the operator was the only recovery mechanism.
 
 The 30-minute mark is advisory only: it changes the *message* the waiter prints (adding the `rm -rf` HINT to the "waiting"/"timeout" line past that age), never the *decision* to keep waiting.
 
-**Lock release is mandatory on every exit path.** The lock dir MUST be removed (run `agentic-wrap-release-lock` — the PATH-wired helper that releases `<cwd>/.agentic/wrap/lock`) before /ds-wrap returns control to the user, on ALL of:
+**Lock release is mandatory on every exit path.** The lock dir MUST be removed (run `ds-wrap-release-lock` — the PATH-wired helper that releases `<cwd>/.agentic/wrap/lock`) before /ds-wrap returns control to the user, on ALL of:
 - successful completion at Step 6;
 - escalation to the user at Step 3 (format re-invocation limit or contested finding);
 - compression failure or escalation at Part E;
@@ -21443,7 +21443,7 @@ Where `$REPO_CWD` is the absolute cwd of the project (the same value identified 
 
 Skip Part D.5 on the **zero-substance path** (already skipped Steps 1-3; no session activity to extract feedback signals from) — same skip condition as Part D. Run Part D.5 on the **light path** and the **standard path**, immediately after Part D and still INSIDE the `wrap/lock` window already held from pre-flight. Soft-fail: the whole step is wrapped swallow-all — any error anywhere in Part D.5 is silently swallowed; Part D.5 failure NEVER breaks or delays the wrap. Unlike Part D, **Part D.5 has no config gate** — it is always-on regardless of `skill_candidate_detection` or any other toggle.
 
-**Deterministic evidence gathering.** Each of the four signals below is individually guarded: a missing file, a missing or broken `agentic-feedback` binary, or a read error on any ONE signal must never break or stall the wrap, and must never prevent the remaining signals from being checked. Gather candidates from whichever signals are available; skip any that error or are absent.
+**Deterministic evidence gathering.** Each of the four signals below is individually guarded: a missing file, a missing or broken `ds-feedback` binary, or a read error on any ONE signal must never break or stall the wrap, and must never prevent the remaining signals from being checked. Gather candidates from whichever signals are available; skip any that error or are absent.
 
 1. **Tool-friction signal.** If `.agentic/events.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file). Filter to lines where `event == "tool_failure_workaround"` AND `data.session_uuid == $CLAUDE_CODE_SESSION_ID`. Each match is a candidate: `category = tool-friction`, evidence `"tool_failure_workaround: <tool> (<domain_tag>) - <note>"`.
 2. **Skeptic-loop-stall signal.** If any `.agentic/loop-state-*.json` (or the legacy `.agentic/loop-state.json`) exists AND its `session_id == $CLAUDE_CODE_SESSION_ID` AND `status == "stalled"`: one candidate per such file, `category = process-escalation`, `scope` defaults to `methodology`, evidence citing `loop_state.termination_reason` (`cap_reached` | `convergence_failure` | `blocked`) plus the `last_phase` and `ticket_id` at time of stall.
@@ -21452,11 +21452,11 @@ Skip Part D.5 on the **zero-substance path** (already skipped Steps 1-3; no sess
    - **(b) Enforcement fire-log.** If `.agentic/.enforcement-fires.jsonl` exists, read only its last ~500 lines (bounded read — never read the whole file; schema: `{ts, hook, decision, reason}`, see `hooks/lib/enforcement_log.py`) and tally occurrences per `hook` value. If the tally is non-empty: one candidate, `category = guardrail-fire`, `scope` defaults to `methodology`, evidence citing the per-hook counts (e.g. `"enforcement-fires: enforce-tier=3, enforce-shippable-edit=1"`). **Honesty note:** this file has no session-correlation field, so the tally is a REPO-WIDE cumulative count across every session that has ever run since the file was created (or last rotated/deleted), not a count scoped to the current session. State this narrowly in the evidence text; do not describe it as this-session-only. `enforce-no-abdication.py` never writes to this file (it keeps its own separate counter per (a) above) — a fire from that hook only ever shows up in signal (a), never here.
 4. **Operator-correction signal.** Using the same session reflection Part D already surveys (no new mechanism — inline LLM reasoning over the transcript), identify up to 5 turns where the operator explicitly corrected, rejected, or expressed frustration with a conductor action this session. Each is a candidate: `category = operator-correction`, evidence = the operator's verbatim correction, trimmed to the relevant sentence(s).
 
-If the combined candidate set across all four signals is empty: emit `[]` and STOP here — no temp file write, no `agentic-feedback` invocation (mirrors Part D's "output `[]` if nothing qualifies"). This keeps Part D.5 latency-free on light and zero-substance sessions where nothing fired.
+If the combined candidate set across all four signals is empty: emit `[]` and STOP here — no temp file write, no `ds-feedback` invocation (mirrors Part D's "output `[]` if nothing qualifies"). This keeps Part D.5 latency-free on light and zero-substance sessions where nothing fired.
 
 **Draft extraction (inline LLM reasoning; may merge closely-related candidates):**
 
-For each surviving candidate, produce a draft object `{scope, severity, category, evidence, suggested_title, suggested_body}`. Do NOT include `id`, `ts`, `status`, `repo`, or `session_uuid` — those five fields are CLI-owned and assigned by `agentic-feedback append` itself.
+For each surviving candidate, produce a draft object `{scope, severity, category, evidence, suggested_title, suggested_body}`. Do NOT include `id`, `ts`, `status`, `repo`, or `session_uuid` — those five fields are CLI-owned and assigned by `ds-feedback append` itself.
 
 - `category`: copied verbatim from the source signal type above (deterministic, not LLM-judged).
 - `scope`: defaults per source type as listed above (`methodology` for skeptic-loop-stall and guardrail-fire). **Repo-identity override:** if the current repo root contains BOTH `content/commands/ds-wrap.md` AND `METHODOLOGY.md` (i.e. this IS the methodology source repo, not a consumer project), force `scope = methodology` for every draft regardless of source type. Otherwise, for `tool-friction` and `operator-correction` candidates, judge `scope` from the evidence content — AE process or tooling friction is `methodology`; friction with the working project's own feature or code is `project`.
@@ -21468,7 +21468,7 @@ Emit a JSON array of 0-5 drafts. The extracted JSON must not emit `__WRAP_FEEDBA
 
 **Write and invoke (Bash):**
 
-Write the extracted drafts array to a temp file and call `agentic-feedback append`. Use `$CLAUDE_CODE_SESSION_ID` as the session id; if it is unset or empty, skip the invocation entirely (soft no-op). The heredoc uses a distinctive delimiter (`__WRAP_FEEDBACK_JSON__`, not `EOF`) so that verbatim operator-correction text captured by Signal 4 cannot prematurely close the heredoc and truncate the JSON payload — quoted (`<< '__WRAP_FEEDBACK_JSON__'`) so there is still no variable expansion or injection.
+Write the extracted drafts array to a temp file and call `ds-feedback append`. Use `$CLAUDE_CODE_SESSION_ID` as the session id; if it is unset or empty, skip the invocation entirely (soft no-op). The heredoc uses a distinctive delimiter (`__WRAP_FEEDBACK_JSON__`, not `EOF`) so that verbatim operator-correction text captured by Signal 4 cannot prematurely close the heredoc and truncate the JSON payload — quoted (`<< '__WRAP_FEEDBACK_JSON__'`) so there is still no variable expansion or injection.
 
 ```bash
 FEEDBACK_TMP=$(mktemp /tmp/wrap-feedback-XXXXXX.json)
@@ -21478,12 +21478,12 @@ __WRAP_FEEDBACK_JSON__
 
 # Skip if no session id
 if [ -n "$CLAUDE_CODE_SESSION_ID" ]; then
-  agentic-feedback append --repo "$REPO_CWD" --session-uuid "$CLAUDE_CODE_SESSION_ID" --file "$FEEDBACK_TMP" >/dev/null 2>&1 || true
+  ds-feedback append --repo "$REPO_CWD" --session-uuid "$CLAUDE_CODE_SESSION_ID" --file "$FEEDBACK_TMP" >/dev/null 2>&1 || true
 fi
 rm -f "$FEEDBACK_TMP" 2>/dev/null || true
 ```
 
-Where `$REPO_CWD` is the same absolute cwd of the project Part D already uses. Any failure (non-zero exit, missing or broken `agentic-feedback` binary, lock contention) is silently swallowed via `|| true`; the wrap continues normally.
+Where `$REPO_CWD` is the same absolute cwd of the project Part D already uses. Any failure (non-zero exit, missing or broken `ds-feedback` binary, lock contention) is silently swallowed via `|| true`; the wrap continues normally.
 
 **Part E — Compress always-loaded memory files**
 
@@ -21562,7 +21562,7 @@ If the project is a git repository with a `/ds-cleanup-worktrees` skill availabl
 
 **Step 6 — Terminal marker transition + confirm completion.**
 
-Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired helper that releases `<cwd>/.agentic/wrap/lock`). This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
+Release the pre-flight lock: run `ds-wrap-release-lock` (the PATH-wired helper that releases `<cwd>/.agentic/wrap/lock`). This must run before returning to the user, regardless of whether any prior step reported "skipped" or "nothing to do".
 
 **Terminal marker transition (transitions its OWN marker to a retained `done` tombstone on completion).** When Step 0a staged a per-session `.agentic/wrap/pending-<session_id>.json` marker (the daemon guard passed), this synchronous `/ds-wrap` transitions its OWN marker to a retained `done` tombstone on completion so the daemon does not later re-wrap a session the user already wrapped manually. When the Step 0a guard was false (off-Claude, toggle-off, or under the daemon guard), no marker was staged and there is nothing to transition - skip this block entirely. Transition the marker ONLY at true completion:
 
@@ -21570,7 +21570,7 @@ Release the pre-flight lock: run `agentic-wrap-release-lock` (the PATH-wired hel
 
 **Part F - Tracker status reconciliation.**
 
-Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock` above has already run, never before. Tracker/gh API calls (ticket queries, `gh pr list`, comment posts) are slow and must not extend how long `/ds-wrap` holds `.agentic/wrap/lock` - other conductors and `wrap-ticket` invocations queue behind that lock. Purpose: give conductor-led ticket work (a session that touched a ticket outside `/ds-implement-ticket` - e.g. a direct fix committed to `BASE_BRANCH`) a tracker footprint, so the ticket's tracker column doesn't silently lag behind shipped work.
+Runs OUTSIDE the `wrap/lock` window - strictly AFTER `ds-wrap-release-lock` above has already run, never before. Tracker/gh API calls (ticket queries, `gh pr list`, comment posts) are slow and must not extend how long `/ds-wrap` holds `.agentic/wrap/lock` - other conductors and `wrap-ticket` invocations queue behind that lock. Purpose: give conductor-led ticket work (a session that touched a ticket outside `/ds-implement-ticket` - e.g. a direct fix committed to `BASE_BRANCH`) a tracker footprint, so the ticket's tracker column doesn't silently lag behind shipped work.
 
 Skip Part F entirely on the **zero-substance path** (see Step 0.5) - no session activity means no ticket-referencing commits to detect. Part F runs on the light path and the standard path, same as Part D.
 
@@ -21598,7 +21598,7 @@ Accumulate any `unmatched_state_name` returned by the guard across all detected 
 
 **Part G - Knowledge-file commit.**
 
-Runs OUTSIDE the `wrap/lock` window - strictly AFTER `agentic-wrap-release-lock` above has already run, never before (same placement rationale as Part F: this step performs git and filesystem operations that must not extend how long `/ds-wrap` holds `.agentic/wrap/lock`). Part G is independent of Part F and may run in either order relative to it, but both must run after lock release. Purpose: `/ds-wrap` is NOT the ongoing content writer of any of the three files below - root `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` are written by `wrap-ticket`, `learnings-agent`, and `learning-extractor` respectively (see `content/references/conductor-operating-rules.md` §"wrap-ticket writer carve-out" for the full writer map; the sole exception is `/ds-wrap`'s own narrow bootstrap stub-seed of root `MEMORY.md`, described in the pre-flight scaffold-accuracy check, item 1, above). But this repo's own git workflow only ships a commit via a worktree-isolated `engineer` branch (see `AGENTS.md` §Conventions), so any conductor-side write to these three files - whichever agent made it - never reaches a commit unless a human remembers to do it by hand later. Part G closes that gap: it commits verbatim copies of the surviving files to a fresh branch and pushes it, leaving the human to open the PR.
+Runs OUTSIDE the `wrap/lock` window - strictly AFTER `ds-wrap-release-lock` above has already run, never before (same placement rationale as Part F: this step performs git and filesystem operations that must not extend how long `/ds-wrap` holds `.agentic/wrap/lock`). Part G is independent of Part F and may run in either order relative to it, but both must run after lock release. Purpose: `/ds-wrap` is NOT the ongoing content writer of any of the three files below - root `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` are written by `wrap-ticket`, `learnings-agent`, and `learning-extractor` respectively (see `content/references/conductor-operating-rules.md` §"wrap-ticket writer carve-out" for the full writer map; the sole exception is `/ds-wrap`'s own narrow bootstrap stub-seed of root `MEMORY.md`, described in the pre-flight scaffold-accuracy check, item 1, above). But this repo's own git workflow only ships a commit via a worktree-isolated `engineer` branch (see `AGENTS.md` §Conventions), so any conductor-side write to these three files - whichever agent made it - never reaches a commit unless a human remembers to do it by hand later. Part G closes that gap: it commits verbatim copies of the surviving files to a fresh branch and pushes it, leaving the human to open the PR.
 
 Write-ordering among the three files is not a `/ds-wrap`-internal question, because `/ds-wrap` is not their ongoing writer - Part G only picks up whatever state they are in when it runs. The one real ordering question - whether `learning-extractor`'s write to `.agentic/learnings.md` precedes `wrap-ticket`'s read of it during Phase 11b - has no guarantee: `learning-extractor` is fire-and-forget (`content/commands/ds-implement-ticket.md`, Phase 6 clean exit), and `wrap-ticket` explicitly reads "whatever entries exist ... may be partial or empty. No warning needed" if extraction has not finished by Phase 11b. This is a documented, accepted race with a safe degraded fallback, not an ordering guarantee, and it is entirely outside `/ds-wrap`'s scope.
 
@@ -21621,7 +21621,7 @@ Skip Part G entirely on the **zero-substance path** (see Step 0.5, and the zero-
 
   No marker cleanup is needed. Once the ticket PR merges, the file matches `origin/<BASE_BRANCH>` and the preceding byte-identity bullet skips it first, so a stale marker is inert rather than harmful. Accepted residual: a file changed AGAIN after the Phase 11e commit correctly does not fire this gate, so that content lands on two branches; Part G has no merge algorithm by design, and the PR diff is where a human catches it.
 
-If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` breadcrumb - no worktree, no branch, no commit - but it still emits one `agentic-emit knowledge_commit` event per step 10 below, with `status: "no-changes"`, so the no-op outcome remains auditable in `events.jsonl` the same as every other outcome.
+If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` breadcrumb - no worktree, no branch, no commit - but it still emits one `ds-emit knowledge_commit` event per step 10 below, with `status: "no-changes"`, so the no-op outcome remains auditable in `events.jsonl` the same as every other outcome.
 
 **Otherwise (at least one file survives):**
 
@@ -21640,7 +21640,7 @@ If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` b
 7. Push the branch: `git -C <worktree> push -u origin <branch-name>`. **Do NOT run `gh pr create`.** On push failure (network, auth, remote rejected): soft-fail per the absolute contract - log `[wrap: Part G] push failed: <error>` and skip to step 9 (worktree cleanup); do not retry.
 8. On push success, print the branch name plus a ready-to-paste PR-open command: `gh pr create --base <BASE_BRANCH> --head <branch-name>`. This is a printed affordance only, not an auto-executed action and not a prompt awaiting a reply - `/ds-wrap` summarizes a session, it does not ship on the operator's behalf, so it must never open an outward-facing PR unprompted.
 9. **Remove the ephemeral worktree on every exit path from this subsection where one was created** - success, the steps-1-3 setup-failure soft-fail (when the worktree exists), the step-4 missing-git-config soft-fail, the step-6 commit-failure soft-fail, and the step-7 push-failure soft-fail all reach this cleanup (`git worktree remove` the ephemeral worktree; a leaked worktree is not an acceptable outcome of a soft failure).
-10. Emit one `agentic-emit` event describing the outcome: `agentic-emit knowledge_commit - - '<json>'` (see `bin/agentic-emit` for the exact 4-arg signature: `<event> <agent|-> <task_id|-> <json_data>`). The JSON `data` payload includes at minimum: `status` (one of `committed`, `no-changes`, `setup-failed`, `commit-failed`, `push-failed`, `failed` - `failed` denotes the step-4 missing-git-config soft-fail specifically, and `setup-failed` denotes a steps-1-3 worktree-creation/copy/stage soft-fail), `files_committed` (array of basenames actually committed), `files_skipped_ignored` (array of basenames skipped by the gitignore gate), and `branch` (the branch name, or `null` when no branch was created). Emit this event on every path that reaches a determinable outcome - the no-op path (`status: "no-changes"`), the setup-failure soft-fail (`status: "setup-failed"`), the missing-git-config soft-fail (`status: "failed"`), the commit-failure soft-fail (`status: "commit-failed"`), and the push-failure soft-fail (`status: "push-failed"`) - not only on success. There is no `skipped-ignored` status: a file skipped by the gitignore gate is recorded in `files_skipped_ignored` regardless of the overall outcome, and the overall `status` is driven only by whether the run produced a commit, not by which files were gitignored along the way. Today the `[phase: ...]` breadcrumb is `echo`-only and produces no durable record; this event is what makes Part G's outcome auditable after the fact. The `knowledge_commit` event is now emitted from two sites, so the payload also carries `site` - one of `wrap-part-g` or `phase-11e` - plus `files_staged`, the list of files staged before the commit attempt; `files_committed` keeps the same meaning at both sites (files ACTUALLY committed), which means it is empty on every non-success status; and Phase 11e's `status` enum omits `setup-failed` (worktree-specific, with no analogue in a checkout-free commit) while adding `revert-risk-skipped`, `disabled`, and `no-branch` (the PR branch ref did not resolve - distinct from `no-changes`, because the ref-absence warning is printed to stdout and would otherwise leave no durable record of which of the two occurred).
+10. Emit one `ds-emit` event describing the outcome: `ds-emit knowledge_commit - - '<json>'` (see `bin/ds-emit` for the exact 4-arg signature: `<event> <agent|-> <task_id|-> <json_data>`). The JSON `data` payload includes at minimum: `status` (one of `committed`, `no-changes`, `setup-failed`, `commit-failed`, `push-failed`, `failed` - `failed` denotes the step-4 missing-git-config soft-fail specifically, and `setup-failed` denotes a steps-1-3 worktree-creation/copy/stage soft-fail), `files_committed` (array of basenames actually committed), `files_skipped_ignored` (array of basenames skipped by the gitignore gate), and `branch` (the branch name, or `null` when no branch was created). Emit this event on every path that reaches a determinable outcome - the no-op path (`status: "no-changes"`), the setup-failure soft-fail (`status: "setup-failed"`), the missing-git-config soft-fail (`status: "failed"`), the commit-failure soft-fail (`status: "commit-failed"`), and the push-failure soft-fail (`status: "push-failed"`) - not only on success. There is no `skipped-ignored` status: a file skipped by the gitignore gate is recorded in `files_skipped_ignored` regardless of the overall outcome, and the overall `status` is driven only by whether the run produced a commit, not by which files were gitignored along the way. Today the `[phase: ...]` breadcrumb is `echo`-only and produces no durable record; this event is what makes Part G's outcome auditable after the fact. The `knowledge_commit` event is now emitted from two sites, so the payload also carries `site` - one of `wrap-part-g` or `phase-11e` - plus `files_staged`, the list of files staged before the commit attempt; `files_committed` keeps the same meaning at both sites (files ACTUALLY committed), which means it is empty on every non-success status; and Phase 11e's `status` enum omits `setup-failed` (worktree-specific, with no analogue in a checkout-free commit) while adding `revert-risk-skipped`, `disabled`, and `no-branch` (the PR branch ref did not resolve - distinct from `no-changes`, because the ref-absence warning is printed to stdout and would otherwise leave no durable record of which of the two occurred).
 
 **Residual coverage.** `/ds-wrap` is manual and synchronous (see line 13, "Manual `/ds-wrap` is synchronous"), and the deferred-wrap daemon that can complete a forgotten wrap headlessly is Claude-only and opt-in, defaulting to `deferred_wrap_daemon: false` (see the "Claude-host + opt-in + non-daemon guard" note under Step 0a). So a session that ends without ever invoking `/ds-wrap` still strands its knowledge-file writes until a LATER session's start-up sweep fires the read-only notice (`content/rules/conventions.md` §Session Context and Memory, the knowledge-strand sweep) - and permanently, if no later session ever runs. Part G narrows this gap; it does not close it.
 

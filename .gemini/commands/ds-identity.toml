@@ -11,15 +11,15 @@ Supports manual, automatic (GitHub-derived), and provisional-to-confirmed
 identity flows. Identity drives per-project `.agentic/session-log/<dev>.jsonl`
 and the global operator mirror at `~/.agentic/session-log/<dev>.jsonl`.
 
-Implementation: `bin/agentic-identity` (Python 3 stdlib + optional pyyaml).
+Implementation: `bin/ds-identity` (Python 3 stdlib + optional pyyaml).
 
 ## Usage
 
 ```
-agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
-agentic-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
-agentic-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
-agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
+ds-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 ## Subcommands
@@ -27,7 +27,7 @@ agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>
 ### init
 
 ```
-agentic-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity init <handle> [--display-name <name>] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Set a developer identity manually. `<handle>` must match `^[a-z0-9._-]{1,64}$`.
@@ -63,7 +63,7 @@ undetectable profile dir, flush error, or not in a git repo (project scope);
 ### show
 
 ```
-agentic-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
+ds-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
 ```
 
 Print identity information without writing. A valid query exits `0`, including
@@ -109,7 +109,7 @@ created_at:    2026-06-04T10:00:00Z
 ```
 
 `provisional: true` appears only when the identity is provisional. Prints
-"No identity set. Run: agentic-identity init <handle>" when no file exists
+"No identity set. Run: ds-identity init <handle>" when no file exists
 at the requested scope.
 
 Exit codes: `0` for a valid scope, including an absent identity; `1` when an
@@ -118,7 +118,7 @@ explicit `--profile-dir` is rejected.
 ### auto
 
 ```
-agentic-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Derive a handle automatically from the GitHub CLI and write it as provisional.
@@ -137,7 +137,7 @@ Behavior on edge cases:
 - `gh` unavailable or unauthenticated: exits `1` with a hint to run
   `gh auth login`.
 - Login fails the regex after lowercasing: exits `1` with a hint to use
-  `agentic-identity init <handle>`.
+  `ds-identity init <handle>`.
 - A confirmed (non-provisional) identity already exists: exits `2`
   (no overwrite without `--force`).
 - A provisional identity already exists: overwrites silently (no `--force`
@@ -156,7 +156,7 @@ without `--force`.
 ### confirm
 
 ```
-agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
+ds-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
 ```
 
 Confirm a provisional identity and activate telemetry. `--scope` defaults to
@@ -198,7 +198,7 @@ unpredictable sibling temporary. Unsafe or substituted destinations are never
 followed or modified. Concurrent writers serialize on the pinned pending
 directory and an older timestamp cannot replace a newer record. The Stop hook
 delegates this write to the bundled
-`agentic-identity write-hook` helper when identity is provisional or absent.
+`ds-identity write-hook` helper when identity is provisional or absent.
 Format:
 
 ```json
@@ -225,12 +225,12 @@ No `developer_id` field - sessions are unattributed until flushed.
 provisional identity, never merely from the active config directory.
 `config_dir` is present only for a profile-scope winner. Both routing fields
 are removed from the canonical attributed log line.
-`agentic-cost` does NOT read `.pending/` (the glob `*.jsonl` never reaches
+`ds-cost` does NOT read `.pending/` (the glob `*.jsonl` never reaches
 the `.pending/` subdirectory).
 
 Buffer cap: 100 files. Enumeration and processing are streamed and stop after
 101 directory entries. When a safe oldest file is pruned, stderr reports
-`agentic-identity: pending buffer cap exceeded; pruned <N> oldest session(s).`
+`ds-identity: pending buffer cap exceeded; pruned <N> oldest session(s).`
 
 ### Flush (`flushPendingBuffer`)
 
@@ -272,9 +272,9 @@ notice when a provisional identity is detected:
 ```
 Tracking handle '<handle>' was auto-derived (provisional). Telemetry is
 paused until you confirm.
-To confirm: agentic-identity confirm --scope <scope>
+To confirm: ds-identity confirm --scope <scope>
 To use a different handle:
-  agentic-identity init <handle> --force --scope <scope>
+  ds-identity init <handle> --force --scope <scope>
 ```
 
 The conductor substitutes the winning scope. Profile scope uses the active
@@ -340,10 +340,10 @@ Key rules:
 - A confirmed profile identity beats a confirmed global identity.
 - `--scope project` requires the `cwd` to be inside a git repo; exits `1` if not.
 
-### `agentic-cost` and multi-handle attribution
+### `ds-cost` and multi-handle attribution
 
 A developer who uses project, profile, and global handles can appear as separate
-rows in `agentic-cost team` and `agentic-cost operator` output - one row per
+rows in `ds-cost team` and `ds-cost operator` output - one row per
 distinct `developer_id`. This is intentional: each handle is an independent
 identity. Cross-handle rollup is not provided automatically.
 
@@ -362,7 +362,7 @@ same schema.
 | `provisional` | no | Present and `true` only when auto-derived; absent means confirmed |
 | `derived_from` | no | Source of the auto-derived handle; `gh` when set by `auto` |
 
-**Back-compat:** An identity written by `agentic-identity init` before V1
+**Back-compat:** An identity written by `ds-identity init` before V1
 has no `provisional` key. Absent `provisional` is treated as confirmed
 (`provisional === false`). Existing manually-created identities need zero
 migration and continue to work without change.
@@ -375,9 +375,9 @@ migration and continue to work without change.
 | Provisional | `~/.agentic/session-log/.pending/<uuid>.json` (buffered; flushed on confirm/init) |
 | None | Same as provisional; Stop hook also appends an identity nudge to this session's `.agentic/context.d/` shard, which the derived `.agentic/context.md` rollup then carries |
 
-- `agentic-cost team` reads `.agentic/session-log/` (project-local) - aggregates
+- `ds-cost team` reads `.agentic/session-log/` (project-local) - aggregates
   all confirmed developer files for the current repo.
-- `agentic-cost operator` reads `~/.agentic/session-log/*.jsonl` (global) -
+- `ds-cost operator` reads `~/.agentic/session-log/*.jsonl` (global) -
   cross-repo rollup for the operator across all projects.
 - Pending buffer is invisible to both commands until flushed.
 

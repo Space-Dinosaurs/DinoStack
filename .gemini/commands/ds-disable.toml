@@ -11,15 +11,15 @@ Append the agentic-engineering opt-out marker to the project
 config. Refuses to overwrite an existing opt-in marker without
 `--force`.
 
-Implementation: `bin/agentic-disable` (Python 3 stdlib).
+Implementation: `bin/ds-disable` (Python 3 stdlib).
 
 ## Usage
 
 ```
-agentic-disable                # write opt-out to project AGENTS.md
-agentic-disable --global       # also update ~/.claude/agentic-engineering.json
-agentic-disable --force        # remove existing opt-in marker first, then append opt-out
-agentic-disable --global --force
+ds-disable                # write opt-out to project AGENTS.md
+ds-disable --global       # also update ~/.claude/agentic-engineering.json
+ds-disable --force        # remove existing opt-in marker first, then append opt-out
+ds-disable --global --force
 ```
 
 ## Behavior

@@ -77,17 +77,17 @@ Otherwise: complete silently - do NOT report back to the user.
 
 ## Memory retrieval
 
-To query existing memory without rewriting it, use `bin/agentic-memory`:
+To query existing memory without rewriting it, use `bin/ds-memory`:
 
 ```bash
 # Find recent Skeptic spawns
-agentic-memory query --type spawn_complete --agent skeptic --last 5
+ds-memory query --type spawn_complete --agent skeptic --last 5
 
 # Find decisions about a topic
-agentic-memory query --source MEMORY.md --topic "context budget"
+ds-memory query --source MEMORY.md --topic "context budget"
 
 # Show recent turns
-agentic-memory turns --last 5
+ds-memory turns --last 5
 ```
 
 This is a permitted direct action — the conductor may run it inline without spawning a subagent.
