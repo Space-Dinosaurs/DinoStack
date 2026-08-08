@@ -2,8 +2,14 @@
 # Purpose: Regression guard for scripts/check-skill-embed-budget.sh. Exercises
 #          bash/zsh parity, the floor-fail path (embed regression to a
 #          pointer-only skill), the ceiling-fail path (payload above the
-#          verified-safe injection range), the pass path (in range), and the
-#          exact-bound (inclusive) cases at FLOOR and CEILING.
+#          verified-safe injection range), the pass path (in range), the
+#          exact-bound (inclusive) cases at FLOOR and CEILING, and the
+#          embed-completeness check (DS-143 follow-up): a source file's
+#          heading dropped from SKILL.md while the file count still
+#          matches, an outright added source file (count above
+#          EXPECTED_SECTION_COUNT), and an outright deleted source file
+#          (count below EXPECTED_SECTION_COUNT) - the deleted-section
+#          tautology this gate exists to close.
 #
 # Public API: ./bin/tests/test_check_skill_embed_budget.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -364,6 +370,37 @@ if echo "$missing_file_out" | grep -q "a section source file went missing"; then
   _pass "missing-section-file fixture reports the deleted-file direction, not the added-file direction"
 else
   _fail "missing-section-file fixture did not report the deleted-file direction: $missing_file_out"
+fi
+
+# --- Scenario 8: the duplicate-heading guard. Two distinct source files
+#     sharing the same top-level heading text means the per-file presence
+#     check (`grep -qxF "$heading" "$SKILL_FILE"`) cannot tell which file's
+#     copy it matched - if section 2 shares section 1's exact heading, its
+#     presence check finds section 1's real occurrence in the built
+#     SKILL.md and passes even if section 2 itself was dropped entirely.
+#     Rewriting section 2's own source heading to duplicate section 1's
+#     (SKILL.md is left untouched, still carrying only ONE occurrence of
+#     that heading text - the real one from section 1) reproduces exactly
+#     that ambiguity and must be caught by the duplicate guard, not silently
+#     pass because presence alone was satisfied.
+# ---------------------------------------------------------------------------
+DUPLICATE_HEADING_DIR="$TMP_ROOT/duplicate_heading"
+build_fixture "$DUPLICATE_HEADING_DIR" "$midpoint2"
+printf '## Section 1\n\nstub body.\n' > "$DUPLICATE_HEADING_DIR/content/sections/02-stub.md"
+
+duplicate_heading_out="$(cd "$DUPLICATE_HEADING_DIR" && bash scripts/check-skill-embed-budget.sh 2>&1)"
+duplicate_heading_rc=$?
+
+if [[ $duplicate_heading_rc -ne 0 ]]; then
+  _pass "duplicate-heading fixture exits non-zero"
+else
+  _fail "duplicate-heading fixture exited 0 (expected non-zero): $duplicate_heading_out"
+fi
+
+if echo "$duplicate_heading_out" | grep -q "duplicate top-level heading"; then
+  _pass "duplicate-heading fixture reports the duplicate-heading guard, not a false pass"
+else
+  _fail "duplicate-heading fixture did not report the duplicate-heading guard: $duplicate_heading_out"
 fi
 
 echo ""
