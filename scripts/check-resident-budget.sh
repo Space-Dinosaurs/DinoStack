@@ -1,41 +1,47 @@
 #!/usr/bin/env bash
 # Purpose: Guard against unbounded growth of the "resident set" - the
-#          methodology content every Claude Code session loads via the
-#          @-imports in ~/.claude/CLAUDE.md on every project, regardless of
-#          whether that project's task needs it. The resident set is:
-#            - the assembled METHODOLOGY.md (bash scripts/build-methodology.sh)
-#            - content/rules/conventions.md
-#            - content/rules/code-standards.md
-#          This script sums their byte sizes and fails if the total exceeds
-#          THRESHOLD. THRESHOLD is a ratchet: when a compression PR shrinks
-#          the resident set, lower THRESHOLD in the same PR so growth cannot
-#          silently claw the savings back. Raising THRESHOLD should be rare
-#          and deliberate - it is a decision to permanently tax every session
-#          in every project with more always-loaded context.
+#          content every Claude Code session pays for on every project,
+#          regardless of whether that project's task needs it. Post-DS-143
+#          (trigger-loaded methodology), ~/.claude/CLAUDE.md no longer
+#          @-imports METHODOLOGY.md, conventions.md, or code-standards.md -
+#          those now ship inside the generated skill body and load only on
+#          skill invocation (see scripts/check-skill-embed-budget.sh for the
+#          budget on THAT payload). The only content still resident in every
+#          session is the Skill Loading table that .claude/install.sh writes
+#          into the managed-by-agentic-engineering block, single-sourced from
+#          content/templates/claude-managed-content.md.
+#
+#          That file's own manifest HTML comment is NOT part of the resident
+#          payload - it documents the file, it is never written into any
+#          session's CLAUDE.md. Measuring the whole file (manifest included)
+#          was tried and is wrong: the manifest is the majority of the file's
+#          bytes, so a THRESHOLD sized off the whole file lets the real
+#          payload balloon while the gate stays green, and a naive
+#          plausibility floor never fires on the realistic regression (delete
+#          the table, keep the manifest - file size barely changes). This
+#          script measures only the body AFTER the closing `-->` of the
+#          manifest comment.
 #
 # Public API: bash scripts/check-resident-budget.sh
-#             Exits 0 when total bytes <= THRESHOLD. Exits 1 when over
-#             budget, when a required input file is missing, or when the
-#             build-methodology.sh floor fires (see Failure modes below).
+#             Exits 0 when body bytes <= THRESHOLD. Exits 1 when over
+#             budget, when the input file is missing, or when the
+#             plausibility floor fires (see Failure modes below).
 #
-# Upstream deps: scripts/build-methodology.sh; content/rules/conventions.md;
-#                content/rules/code-standards.md.
+# Upstream deps: content/templates/claude-managed-content.md; python3 (used
+#                for a deterministic byte-offset search of the manifest
+#                comment terminator).
 #
 # Downstream consumers: .github/workflows/resident-budget.yml.
 #
-# Failure modes: over budget -> exit 1 with per-file breakdown, total,
-#                threshold, and overage printed. Build failure -> exit 1
-#                when build-methodology.sh output is implausibly small
-#                (< MIN_PLAUSIBLE_METHODOLOGY_BYTES), with a message that
-#                explicitly distinguishes a broken build from a budget
-#                overage. Missing input file -> exit 1. Read-only; no side
-#                effects on the repo.
-#
-# Note: METHODOLOGY.md is measured by running build-methodology.sh fresh,
-#       NOT by statting the generated .claude/skills/agentic-engineering/
-#       METHODOLOGY.md file - a PR that edits content/sections/** without
-#       rebuilding adapters would otherwise be measured against a stale
-#       artifact and could slip a regression past this gate.
+# Failure modes: over budget -> exit 1 with byte count, threshold, and
+#                overage printed. Body below MIN_PLAUSIBLE_BODY_BYTES -> exit
+#                1 with a message that distinguishes "file gutted/manifest
+#                left behind" from "budget overage" (these are different
+#                classes of defect and get different remediation). Missing
+#                comment terminator (`-->`) -> exit 1, since that means the
+#                file no longer has the expected manifest/body split at all.
+#                Missing input file -> exit 1. Read-only; no side effects on
+#                the repo.
 #
 # Compatible with both bash and zsh invocation of the containing shell; CI
 # always invokes it as `bash scripts/check-resident-budget.sh`, but a
@@ -51,77 +57,83 @@ set -euo pipefail
 # to "//".
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
 
-# Ratchet: 120,066 measured on this branch 2026-08-02 (progressive-disclosure
-# compression of 02-delegation.md and 12-protocol-details.md - #541 - plus the
-# Skeptic-requested manifest/index/prohibition-clause fixes on top, rebased
-# onto origin/main #540 which grew the resident set) + 1,000 B headroom.
-# Lower this value in the same commit as any deliberate compression of the
-# resident set. See the header comment above before raising it.
-THRESHOLD=121066
+# Ratchet: 401 B measured for the post-manifest body on this branch
+# 2026-08-07 (DS-143 - the Skill Loading table is the sole remaining
+# resident payload after the trigger-loaded methodology change) + roughly
+# 50% headroom on a fixed 7-line table. Lower this value in the same commit
+# as any deliberate shrink of the resident table. See the header comment
+# above before raising it.
+THRESHOLD=600
 
-# Plausibility floor: if build-methodology.sh ever exits 0 while emitting
-# nothing or a truncated stream, methodology_bytes would be near-zero and
-# the check would PASS with tens of KB of false headroom. This floor is
-# deliberately far below any realistic post-compression target - this repo
-# has an active compression programme aiming for ~66,400 B and an
-# aspiration of 60,000 B for METHODOLOGY.md alone, so the floor must never
-# be able to fire on correct, successful compression work. 10,000 B is
-# roughly an order of magnitude below that floor: it can only mean the
-# build produced garbage or nothing, never that compression "went well".
-MIN_PLAUSIBLE_METHODOLOGY_BYTES=10000
+# Plausibility floor: if the manifest comment ever swallows the whole file
+# (e.g. someone deletes the Skill Loading table but leaves the manifest),
+# body_bytes would be near-zero and the check would PASS with false
+# headroom. 100 B is comfortably below the real ~400 B payload but far above
+# "empty" - it can only fire on a gutted file, never on correct content.
+MIN_PLAUSIBLE_BODY_BYTES=100
 
-CONVENTIONS_FILE="$REPO_DIR/content/rules/conventions.md"
-CODE_STANDARDS_FILE="$REPO_DIR/content/rules/code-standards.md"
+MANAGED_CONTENT_FILE="$REPO_DIR/content/templates/claude-managed-content.md"
 
-if [ ! -f "$CONVENTIONS_FILE" ]; then
-  echo "check-resident-budget.sh: missing file: $CONVENTIONS_FILE" >&2
-  exit 1
-fi
-if [ ! -f "$CODE_STANDARDS_FILE" ]; then
-  echo "check-resident-budget.sh: missing file: $CODE_STANDARDS_FILE" >&2
+if [ ! -f "$MANAGED_CONTENT_FILE" ]; then
+  echo "check-resident-budget.sh: missing file: $MANAGED_CONTENT_FILE" >&2
   exit 1
 fi
 
-methodology_bytes="$(bash "$REPO_DIR/scripts/build-methodology.sh" | wc -c | tr -d '[:space:]')"
+file_bytes="$(wc -c < "$MANAGED_CONTENT_FILE" | tr -d '[:space:]')"
 
-if [ "$methodology_bytes" -lt "$MIN_PLAUSIBLE_METHODOLOGY_BYTES" ]; then
-  echo "check-resident-budget.sh: BUILD FAILURE, not a budget problem." >&2
-  echo "  build-methodology.sh produced only $methodology_bytes B of output," >&2
-  echo "  below the $MIN_PLAUSIBLE_METHODOLOGY_BYTES B plausibility floor." >&2
-  echo "  This means the build is broken or emitted truncated/empty output -" >&2
-  echo "  it does NOT mean the resident set is under budget. Investigate" >&2
-  echo "  scripts/build-methodology.sh directly; do not raise THRESHOLD or" >&2
-  echo "  lower this floor to make this pass." >&2
+# Locate the byte offset of the manifest comment's closing "-->" and measure
+# only what follows it. Using python3 for a single deterministic byte-offset
+# search rather than shell string ops, which do not reliably handle
+# multi-line HTML comments across bash/zsh.
+comment_end_offset="$(python3 -c "
+import sys
+data = open(sys.argv[1], 'rb').read()
+idx = data.find(b'-->')
+if idx == -1:
+    sys.exit(1)
+sys.stdout.write(str(idx + 3))
+" "$MANAGED_CONTENT_FILE")" || comment_end_offset=""
+
+if [ -z "$comment_end_offset" ]; then
+  echo "check-resident-budget.sh: could not find manifest comment terminator" >&2
+  echo "  ('-->') in $MANAGED_CONTENT_FILE. Expected a leading HTML comment" >&2
+  echo "  manifest followed by the resident body; the file's shape has" >&2
+  echo "  changed and this script's measurement no longer applies." >&2
   exit 1
 fi
 
-conventions_bytes="$(wc -c < "$CONVENTIONS_FILE" | tr -d '[:space:]')"
-code_standards_bytes="$(wc -c < "$CODE_STANDARDS_FILE" | tr -d '[:space:]')"
+body_bytes=$(( file_bytes - comment_end_offset ))
 
-total=$(( methodology_bytes + conventions_bytes + code_standards_bytes ))
+if [ "$body_bytes" -lt "$MIN_PLAUSIBLE_BODY_BYTES" ]; then
+  echo "check-resident-budget.sh: BODY FAILURE, not a budget problem." >&2
+  echo "  The measured post-manifest body is only $body_bytes B," >&2
+  echo "  below the $MIN_PLAUSIBLE_BODY_BYTES B plausibility floor." >&2
+  echo "  This means the resident content has been gutted (or the manifest" >&2
+  echo "  comment now swallows the whole file) - it does NOT mean the" >&2
+  echo "  resident set is under budget. Investigate" >&2
+  echo "  content/templates/claude-managed-content.md directly; do not" >&2
+  echo "  raise THRESHOLD or lower this floor to make this pass." >&2
+  exit 1
+fi
 
-if [ "$total" -le "$THRESHOLD" ]; then
-  headroom=$(( THRESHOLD - total ))
+if [ "$body_bytes" -le "$THRESHOLD" ]; then
+  headroom=$(( THRESHOLD - body_bytes ))
   echo "resident budget check: OK"
-  echo "  METHODOLOGY.md (built):        $methodology_bytes B"
-  echo "  content/rules/conventions.md:  $conventions_bytes B"
-  echo "  content/rules/code-standards.md: $code_standards_bytes B"
-  echo "  total:     $total B"
+  echo "  claude-managed-content.md (body only): $body_bytes B"
+  echo "  file total (incl. manifest):           $file_bytes B"
   echo "  threshold: $THRESHOLD B"
   echo "  headroom:  $headroom B"
   exit 0
 fi
 
-overage=$(( total - THRESHOLD ))
+overage=$(( body_bytes - THRESHOLD ))
 echo "resident budget check: OVER BUDGET" >&2
-echo "  METHODOLOGY.md (built):        $methodology_bytes B" >&2
-echo "  content/rules/conventions.md:  $conventions_bytes B" >&2
-echo "  content/rules/code-standards.md: $code_standards_bytes B" >&2
-echo "  total:     $total B" >&2
+echo "  claude-managed-content.md (body only): $body_bytes B" >&2
+echo "  file total (incl. manifest):           $file_bytes B" >&2
 echo "  threshold: $THRESHOLD B" >&2
 echo "  overage:   $overage B" >&2
 echo "" >&2
-echo "The always-loaded methodology resident set grew past its budget." >&2
+echo "The always-loaded resident set grew past its budget." >&2
 echo "Trim content or, if the growth is deliberate and justified, raise" >&2
 echo "THRESHOLD in scripts/check-resident-budget.sh in the same PR." >&2
 exit 1
