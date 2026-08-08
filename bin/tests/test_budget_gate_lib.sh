@@ -8,7 +8,14 @@
 #          budget_report) rather than only indirectly through a caller
 #          gate, so a break in the shared lib is caught here even if a
 #          particular caller's own fixtures happen not to exercise the
-#          broken path.
+#          broken path. The zero-extra-context budget_report scenarios run
+#          under `set -euo pipefail`, matching every real caller, and with
+#          no extra-context args, matching check-command-file-budget.sh's
+#          call shape - this is what reproduces the bash-3.2 empty-array
+#          "unbound variable" regression (a bare `bash -c` without
+#          set -euo pipefail cannot). Also covers the bytes == threshold
+#          boundary, which the interior-only 100-vs-200 / 300-vs-200 cases
+#          do not exercise.
 #
 # Public API: ./bin/tests/test_budget_gate_lib.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -89,8 +96,14 @@ else
   _fail "budget_file_bytes reported [$bytes_out], expected [500]"
 fi
 
-# --- Scenario 3: budget_report OK path (bytes <= threshold) ---
+# --- Scenario 3: budget_report OK path (bytes <= threshold). Invoked with
+#     zero extra-context args, matching check-command-file-budget.sh's real
+#     call shape, and under `set -euo pipefail` like every real caller -
+#     this is the exact condition that let the bash-3.2 empty-array
+#     "unbound variable" regression through undetected: without
+#     set -euo pipefail this scenario cannot reproduce it. ---
 report_ok_out="$(bash -c '
+set -euo pipefail
 source "'"$GATE_LIB"'"
 budget_report "widget check" "widget.txt" 100 200 "trim the widget" 2>&1
 ')"
@@ -114,8 +127,11 @@ else
   _fail "budget_report OK path did not report correct headroom: $report_ok_out"
 fi
 
-# --- Scenario 4: budget_report OVER BUDGET path (bytes > threshold) ---
+# --- Scenario 4: budget_report OVER BUDGET path (bytes > threshold). Zero
+#     extra-context args and set -euo pipefail, same rationale as
+#     Scenario 3. ---
 report_over_out="$(bash -c '
+set -euo pipefail
 source "'"$GATE_LIB"'"
 budget_report "widget check" "widget.txt" 300 200 "trim the widget" 2>&1
 ')"
@@ -147,6 +163,7 @@ fi
 
 # --- Scenario 5: budget_report with an extra context line, OK path ---
 report_extra_out="$(bash -c '
+set -euo pipefail
 source "'"$GATE_LIB"'"
 budget_report "widget check" "widget.txt" 100 200 "trim the widget" "extra context: 42 B" 2>&1
 ')"
@@ -154,6 +171,67 @@ if echo "$report_extra_out" | grep -q "extra context: 42 B"; then
   _pass "budget_report prints an optional extra context line"
 else
   _fail "budget_report did not print the optional extra context line: $report_extra_out"
+fi
+
+# --- Scenario 5b: bytes == threshold boundary (OK path, headroom 0 B).
+#     The gate uses `-le`, not `-lt` - only the equality case can catch a
+#     `-le` -> `-lt` mutation; the 100-vs-200 and 300-vs-200 cases above
+#     both skip past the boundary entirely. ---
+report_boundary_out="$(bash -c '
+set -euo pipefail
+source "'"$GATE_LIB"'"
+budget_report "widget check" "widget.txt" 200 200 "trim the widget" 2>&1
+')"
+report_boundary_rc=$?
+
+if [[ $report_boundary_rc -eq 0 ]]; then
+  _pass "budget_report exits 0 when bytes (200) == threshold (200)"
+else
+  _fail "budget_report exited $report_boundary_rc when bytes == threshold (expected 0): $report_boundary_out"
+fi
+
+if echo "$report_boundary_out" | grep -q "headroom:  0 B"; then
+  _pass "budget_report boundary case reports 0 B headroom"
+else
+  _fail "budget_report boundary case did not report 0 B headroom: $report_boundary_out"
+fi
+
+# --- Scenario 5c: zero-extra-context budget_report call under the literal
+#     /bin/bash binary, not whatever `bash` resolves to on PATH. This is
+#     the specific historical regression: macOS ships bash 3.2 as
+#     /bin/bash (bash >=4.4 tolerates expanding an empty array under
+#     set -u; 3.2 does not), and the gate scripts are invoked as
+#     `bash scripts/...` - which, run on a contributor's Mac without a
+#     newer bash on PATH, resolves to that /bin/bash. This scenario always
+#     runs (never skips) so the assertion is present on any runner where
+#     /bin/bash exists, whatever its version - on a 3.2 /bin/bash it fails
+#     red on the historical bug; on a >=4.4 /bin/bash (e.g. Ubuntu CI) it
+#     still asserts the zero-extras call path works under set -u, per the
+#     "must not silently skip" rule this repo applies to guarded
+#     assertions (bin/tests/test_check_resident_budget.sh is the pattern). ---
+if [[ -x /bin/bash ]]; then
+  bin_bash_out="$(/bin/bash -c '
+set -euo pipefail
+source "'"$GATE_LIB"'"
+budget_report "widget check" "widget.txt" 100 200 "trim the widget" 2>&1
+')"
+  bin_bash_rc=$?
+
+  if [[ $bin_bash_rc -eq 0 ]]; then
+    _pass "/bin/bash: budget_report exits 0 for a zero-extra-context call under set -euo pipefail"
+  else
+    _fail "/bin/bash: budget_report exited $bin_bash_rc for a zero-extra-context call under set -euo pipefail (expected 0) - this is the bash-3.2 empty-array regression: $bin_bash_out"
+  fi
+
+  if echo "$bin_bash_out" | grep -q "widget check: OK"; then
+    _pass "/bin/bash: budget_report prints the header/status line"
+  else
+    _fail "/bin/bash: budget_report did not print the header/status line: $bin_bash_out"
+  fi
+elif [[ -n "${CI:-}" ]]; then
+  _fail "/bin/bash absent in CI - the bash-3.2 zero-extra-context assertion cannot be skipped here"
+else
+  echo "SKIP: /bin/bash not found - skipping the explicit /bin/bash zero-extra-context assertion"
 fi
 
 # --- Scenario 6: bash/zsh parity on budget_file_bytes ---

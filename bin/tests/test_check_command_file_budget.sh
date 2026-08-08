@@ -9,8 +9,12 @@
 #          would stay under budget and silently pass once THRESHOLD_BYTES
 #          headroom exceeds it) and asserts the gate reports over budget
 #          against it, then asserts the gate still passes against the real
-#          file at its current size. Exercises bash/zsh parity and the
-#          missing-file path too.
+#          file at its current size. Also asserts the two halves of the
+#          R1-Critical fix directly, so either regressing silently: the
+#          gate emits a `::error::` workflow-command annotation on
+#          overage, and the real .github/workflows/command-file-budget.yml
+#          does not contain `continue-on-error`. Exercises bash/zsh parity
+#          and the missing-file path too.
 #
 # Public API: ./bin/tests/test_check_command_file_budget.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -187,6 +191,31 @@ if echo "$growth_out" | grep -q "OVER BUDGET"; then
   _pass "growth fixture prints OVER BUDGET"
 else
   _fail "growth fixture did not print OVER BUDGET: $growth_out"
+fi
+
+if echo "$growth_out" | grep -q "::error::"; then
+  _pass "growth fixture emits a ::error:: workflow-command annotation on overage"
+else
+  _fail "growth fixture did not emit a ::error:: annotation on overage - this is the exact R1-Critical regression (silent overage, no annotation) this test exists to catch: $growth_out"
+fi
+
+# --- Scenario 3b: the workflow does not swallow the gate's failure behind
+#     continue-on-error. This is the other half of the R1-Critical fix
+#     (a previously-shipped `continue-on-error: true` made overage look
+#     green with only a warning) - it has to be asserted against the real
+#     workflow file, not a fixture, since continue-on-error is a workflow
+#     property, not a gate-script property. ---
+WORKFLOW_FILE="$REPO_DIR/.github/workflows/command-file-budget.yml"
+if [[ ! -f "$WORKFLOW_FILE" ]]; then
+  _fail "$WORKFLOW_FILE not found"
+# Match the YAML key form only (with trailing colon) - the workflow's own
+# comment legitimately discusses `continue-on-error` in prose to explain
+# why it is NOT used, and a bare substring grep would false-positive on
+# that explanation.
+elif grep -qE '^\s*continue-on-error\s*:' "$WORKFLOW_FILE"; then
+  _fail "$WORKFLOW_FILE contains a continue-on-error: key - this reintroduces the R1-Critical defect (overage silently reported green)"
+else
+  _pass "$WORKFLOW_FILE does not contain a continue-on-error: key"
 fi
 
 # --- Scenario 4: missing target file fails distinctly ---

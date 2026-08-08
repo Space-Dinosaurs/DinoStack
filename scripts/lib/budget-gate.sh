@@ -36,9 +36,14 @@
 # Compatible with both bash and zsh sourcing/invocation of the containing
 # script; CI always invokes the sourcing scripts as `bash ...`, but a
 # contributor, reviewer, or a regression test may source/run them under
-# zsh and behaviour must be identical. Avoid the known zsh footguns in
-# this repo: never name a variable `status` (read-only in zsh) or `path`
-# (silently replaces $PATH).
+# zsh and behaviour must be identical. Also compatible with bash 3.2 (the
+# default /bin/bash on macOS) specifically: budget_report's extra-context
+# array is expanded with an explicit `[ ${#extra_context[@]} -gt 0 ]`
+# count guard, not a bare `"${extra_context[@]}"`, because expanding an
+# empty array under `set -u` is an "unbound variable" error on bash <4.4
+# (3.2 included) even though it is a documented no-op on bash >=4.4 and
+# zsh. Avoid the known zsh footguns in this repo: never name a variable
+# `status` (read-only in zsh) or `path` (silently replaces $PATH).
 
 # budget_repo_dir <script_dir>
 #   <script_dir> is the caller's own directory, already resolved by the
@@ -87,9 +92,11 @@ budget_report() {
     local headroom=$(( threshold - bytes ))
     echo "$header: OK"
     echo "  $metric_label: $bytes B"
-    for context_line in "${extra_context[@]}"; do
-      echo "  $context_line"
-    done
+    if [ "${#extra_context[@]}" -gt 0 ]; then
+      for context_line in "${extra_context[@]}"; do
+        echo "  $context_line"
+      done
+    fi
     echo "  threshold: $threshold B"
     echo "  headroom:  $headroom B"
     exit 0
@@ -98,9 +105,11 @@ budget_report() {
   local overage=$(( bytes - threshold ))
   echo "$header: OVER BUDGET" >&2
   echo "  $metric_label: $bytes B" >&2
-  for context_line in "${extra_context[@]}"; do
-    echo "  $context_line" >&2
-  done
+  if [ "${#extra_context[@]}" -gt 0 ]; then
+    for context_line in "${extra_context[@]}"; do
+      echo "  $context_line" >&2
+    done
+  fi
   echo "  threshold: $threshold B" >&2
   echo "  overage:   $overage B" >&2
   echo "" >&2
