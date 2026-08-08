@@ -450,7 +450,7 @@ Without that audit note, the conductor treats clean two-iteration agreement as s
 
 Audit-note Minors are bookkeeping rather than diff-level findings; they are exempt from re-raise and convergence-failure detection in `/ds-implement-ticket` Phase 6.
 
-The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 14 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `agentic-calibrate` queryable surface.
+The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 14 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `ds-calibrate` queryable surface.
 
 ---
 
@@ -772,11 +772,11 @@ Fanning out correctness-Skeptic + security-auditor + perf-analyst in parallel.
 
 The Skeptic loop's review depth degrades silently if it degrades at all. A Skeptic that drifts into rubber-stamp behavior produces clean sign-offs identical in surface form to genuine ones. Section 5's audit-note mechanism is the primary per-spawn defense; this section adds the secondary backstop: aggregate drift detection via structured findings counters, sampled meta-review, and an inspection CLI.
 
-This is a calibration layer, not a gating layer. Original Skeptic sign-off remains binding for merge decisions. Meta-divergence on Critical or Major findings is surfaced inline to the user as advisory; Minor divergences appear only in the `agentic-calibrate divergence` output.
+This is a calibration layer, not a gating layer. Original Skeptic sign-off remains binding for merge decisions. Meta-divergence on Critical or Major findings is surfaced inline to the user as advisory; Minor divergences appear only in the `ds-calibrate divergence` output.
 
 ### Findings counters in the events log
 
-Every `spawn_complete` event for `agent == "skeptic"` carries the following fields inside `data` (the conductor constructs the JSON inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do not write to `.agentic/`):
+Every `spawn_complete` event for `agent == "skeptic"` carries the following fields inside `data` (the conductor constructs the JSON inline before calling `bin/ds-emit`; meta-Skeptic and the original Skeptic do not write to `.agentic/`):
 
 ```json
 {
@@ -796,7 +796,7 @@ Existing `spawn_complete` fields (`tier`, `tool_use_id`, `agent_id`, `model`, `w
 
 A 5% sample of Skeptic sign-offs triggers a meta-review. Selection is deterministic: hash `task_id` concatenated with `iteration` into a uniform 0-99 bucket; trigger if `bucket < 5`. The deterministic hash means a sampling decision is reproducible from the events log without needing to record an RNG seed.
 
-Meta-Skeptic spawns are **background fire-and-forget**. The conductor declares the unit complete without waiting for meta-Skeptic return. When meta-Skeptic returns its textual divergence report asynchronously, the conductor parses the report, constructs the `meta_review_complete` event, and emits via `bin/agentic-emit`.
+Meta-Skeptic spawns are **background fire-and-forget**. The conductor declares the unit complete without waiting for meta-Skeptic return. When meta-Skeptic returns its textual divergence report asynchronously, the conductor parses the report, constructs the `meta_review_complete` event, and emits via `bin/ds-emit`.
 
 ### Meta-Skeptic spawn brief
 
@@ -827,7 +827,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Original sign-off remains binding. Minor-only divergences are NOT surfaced inline; they appear only in `agentic-calibrate divergence` output.
+Original sign-off remains binding. Minor-only divergences are NOT surfaced inline; they appear only in `ds-calibrate divergence` output.
 
 **Surfacing has two binding triggers:**
 
@@ -862,12 +862,12 @@ Format: single line, ISO8601 UTC timestamp (e.g. `2026-05-13T16:30:00Z`). File-a
 
 ### Inspection CLI
 
-`bin/agentic-calibrate` is the queryable surface for calibration data:
+`bin/ds-calibrate` is the queryable surface for calibration data:
 
 ```
-agentic-calibrate density   [--since <ISO8601>] [--task <task_id>]
-agentic-calibrate divergence [--since <ISO8601>]
-agentic-calibrate help
+ds-calibrate density   [--since <ISO8601>] [--task <task_id>]
+ds-calibrate divergence [--since <ISO8601>]
+ds-calibrate help
 ```
 
 `density` reads `.agentic/events.jsonl`, filters Skeptic `spawn_complete` events, and prints findings-per-100-diff-lines aggregates plus a per-iteration breakdown. Spawns where `diff_lines == 0` are excluded from the aggregate denominator; per-row output prints `N/A` in the density column for those rows. When fewer than 10 spawns have been observed (after zero-diff exclusion), the command prints `warming up: N/10 spawns observed; baseline not yet established.` to indicate that drift signals are not yet meaningful.

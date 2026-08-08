@@ -92,7 +92,7 @@ wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions
 `.agentic/context.md` is not a file anyone writes directly. It is recomposed on every turn as a pure function of two inputs:
 
 - **`.agentic/_wrap.md`** - the CURATED region: everything up to the `## Session Activity` sentinel, including `## Recent Focus` and its 10-slot rolling session-label window. Owned by `/ds-wrap` Part A, `/ds-wrap-deferred`, `wrap-ticket`, and a conductor-direct context write. The rolling-window algorithm in `content/references/wrap-context-format.md` is unchanged; only the path it reads and writes moved.
-- **`.agentic/context.d/<session_id>.md`** - one per-session activity SHARD: everything from the sentinel onward, regenerated wholesale. Written by the Claude Stop hook (`hooks/stop-context.js`), the OpenCode plugin (`.opencode/plugins/session-context.ts`), and `bin/agentic-migrate`.
+- **`.agentic/context.d/<session_id>.md`** - one per-session activity SHARD: everything from the sentinel onward, regenerated wholesale. Written by the Claude Stop hook (`hooks/stop-context.js`), the OpenCode plugin (`.opencode/plugins/session-context.ts`), and `bin/ds-migrate`.
 
 **The read contract is unchanged:** every session still reads `.agentic/context.md` as its first action.
 
@@ -104,7 +104,7 @@ wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions
 
 Compounding that, a `role:'agent'` lock carries `pid: null` by construction, so its liveness verdict is `live` forever and, on the default config (`deferred_wrap_daemon: false`), no code path could ever clear it. Measured live in this repo: a lock held **10.3 hours** by a dead pid, during which **49 `context.md` writes across 6 sessions were silently discarded** - from the file every session reads first, so all six started from stale context and none of them knew.
 
-**The fix and its invariants.** Writers write session-private shards, so they cannot collide. The rollup is derivable, so a lost update SELF-HEALS on the next turn instead of losing data - which is what makes the rollup write safe WITHOUT a lock, and what lets a `WRAP-LOCK-STUCK` banner reach the operator through the very lock it is reporting. Do not add a lock check to the rollup write; doing so restores all three defects in one edit. The lock now guards exactly one thing: `/ds-wrap`'s genuine read-modify-write of `_wrap.md`. It also carries a `session_id` and is cleared by `agentic-wrap-acquire-lock` once provably abandoned, so it can no longer be immortal.
+**The fix and its invariants.** Writers write session-private shards, so they cannot collide. The rollup is derivable, so a lost update SELF-HEALS on the next turn instead of losing data - which is what makes the rollup write safe WITHOUT a lock, and what lets a `WRAP-LOCK-STUCK` banner reach the operator through the very lock it is reporting. Do not add a lock check to the rollup write; doing so restores all three defects in one edit. The lock now guards exactly one thing: `/ds-wrap`'s genuine read-modify-write of `_wrap.md`. It also carries a `session_id` and is cleared by `ds-wrap-acquire-lock` once provably abandoned, so it can no longer be immortal.
 
 `.agentic/wrap/deferred-activity.jsonl` is **no longer produced** - spillover existed only because a held lock skipped the write. `/ds-wrap` Part A still DRAINS a pre-existing file (the drain step is unchanged), so records preserved from before this change are not orphaned. The daemon is launched by the SessionStart hook (`hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/ds-wrap-deferred`, the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/ds-wrap-deferred.md`.
 
@@ -141,7 +141,7 @@ The conductor MUST evaluate capture at each of these 7 events and emit a
    conductor MUST also emit a `tool_failure_workaround` event to `.agentic/events.jsonl`:
 
    ```bash
-   agentic-emit tool_failure_workaround - - \
+   ds-emit tool_failure_workaround - - \
      '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<name>","domain_tag":"<tag>","note":"<one sentence>"}'
    ```
 
@@ -240,11 +240,11 @@ When a Worker digest (engineer, investigator, or debugger return) contains a non
    a. If `kind == "workaround"`, also emit the `tool_failure_workaround` event with all four canonical fields:
 
       ```bash
-      agentic-emit tool_failure_workaround - - \
+      ds-emit tool_failure_workaround - - \
         '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<tool/command named in fact if identifiable, else the entry domain_tag>","domain_tag":"<entry domain_tag>","note":"<entry fact>"}'
       ```
 
-      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `agentic-cost` does not miscount.
+      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `ds-cost` does not miscount.
    b. Forward to `learnings-agent` with: `event_type` per the kind map (`workaround` -> `tool-failure-workaround`; `dead-end` -> `cross-component-gotcha`; `gotcha` -> `cross-component-gotcha`; `decision` -> `architectural-decision`), `description` = entry `fact`, `resolution` = entry `why`, `domain_tag` = entry `domain_tag`, and omit `severity` (all mapped types are KNW).
 3. If `Capture: SKIP`: declare `Capture: SKIP - [reason]` inline and proceed.
 

@@ -3,7 +3,7 @@ Purpose: Detailed activation-preflight reference blocks extracted from
          content/sections/01-activation-preflight.md. Contains: Step 5
          (first-activation notice - TTY/QUIET gate, sentinel write contract,
          sentinel body, notice text verbatim) and Step 6 (scaffolding-sync
-         check - agentic-migrate check/apply flow, gitignore patterns,
+         check - ds-migrate check/apply flow, gitignore patterns,
          AGENTS.md carve-out).
 
 Public API: Read-only reference document. Cross-referenced from:
@@ -12,7 +12,7 @@ Public API: Read-only reference document. Cross-referenced from:
 
 Upstream deps: content/sections/01-activation-preflight.md (parent section;
                read Steps 1-4 and Step 7 there for activation decision and
-               no-op path); bin/agentic-migrate (scaffolding-sync binary
+               no-op path); bin/ds-migrate (scaffolding-sync binary
                invoked in Step 6).
 
 Downstream consumers: every adapter that implements the activation preflight
@@ -23,7 +23,7 @@ Downstream consumers: every adapter that implements the activation preflight
 Failure modes: Sentinel write is create-only (O_EXCL / link() pattern);
                concurrent racers produce exactly one notice. Filesystem
                errors other than EEXIST are silently swallowed - the notice
-               may re-print on the next session. agentic-migrate failures
+               may re-print on the next session. ds-migrate failures
                are silently swallowed; methodology proceeds.
 
 Performance: Standard (single file write + optional binary shell-out).
@@ -65,7 +65,7 @@ Performance: Standard (single file write + optional binary shell-out).
 
 6. **Scaffolding-sync check.** Runs only when Step 4 resolved to active. Silent-fail: any error swallowed; methodology proceeds.
 
-   a. Invoke `agentic-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
+   a. Invoke `ds-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
    b. If status is "ok" (project version >= manifest version): no-op.
-   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends a one-line audit entry to the `.agentic/context.d/scaffolding-notices.md` shard (NOT to `.agentic/context.md`, which is a derived rollup that would discard the entry on the next Stop turn). The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/ds-migrate-project --include-destructive` only).
+   c. If status is "drift": invoke `ds-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends a one-line audit entry to the `.agentic/context.d/scaffolding-notices.md` shard (NOT to `.agentic/context.md`, which is a derived rollup that would discard the entry on the next Stop turn). The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/ds-migrate-project --include-destructive` only).
    d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/ds-migrate-project --include-destructive`.

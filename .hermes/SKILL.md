@@ -802,7 +802,7 @@ Purpose: Detailed activation-preflight reference blocks extracted from
          content/sections/01-activation-preflight.md. Contains: Step 5
          (first-activation notice - TTY/QUIET gate, sentinel write contract,
          sentinel body, notice text verbatim) and Step 6 (scaffolding-sync
-         check - agentic-migrate check/apply flow, gitignore patterns,
+         check - ds-migrate check/apply flow, gitignore patterns,
          AGENTS.md carve-out).
 
 Public API: Read-only reference document. Cross-referenced from:
@@ -811,7 +811,7 @@ Public API: Read-only reference document. Cross-referenced from:
 
 Upstream deps: content/sections/01-activation-preflight.md (parent section;
                read Steps 1-4 and Step 7 there for activation decision and
-               no-op path); bin/agentic-migrate (scaffolding-sync binary
+               no-op path); bin/ds-migrate (scaffolding-sync binary
                invoked in Step 6).
 
 Downstream consumers: every adapter that implements the activation preflight
@@ -822,7 +822,7 @@ Downstream consumers: every adapter that implements the activation preflight
 Failure modes: Sentinel write is create-only (O_EXCL / link() pattern);
                concurrent racers produce exactly one notice. Filesystem
                errors other than EEXIST are silently swallowed - the notice
-               may re-print on the next session. agentic-migrate failures
+               may re-print on the next session. ds-migrate failures
                are silently swallowed; methodology proceeds.
 
 Performance: Standard (single file write + optional binary shell-out).
@@ -864,9 +864,9 @@ Performance: Standard (single file write + optional binary shell-out).
 
 6. **Scaffolding-sync check.** Runs only when Step 4 resolved to active. Silent-fail: any error swallowed; methodology proceeds.
 
-   a. Invoke `agentic-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
+   a. Invoke `ds-migrate check` (resolved from PATH or adapter install bin/). If binary not found: skip silently.
    b. If status is "ok" (project version >= manifest version): no-op.
-   c. If status is "drift": invoke `agentic-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends a one-line audit entry to the `.agentic/context.d/scaffolding-notices.md` shard (NOT to `.agentic/context.md`, which is a derived rollup that would discard the entry on the next Stop turn). The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/ds-migrate-project --include-destructive` only).
+   c. If status is "drift": invoke `ds-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends a one-line audit entry to the `.agentic/context.d/scaffolding-notices.md` shard (NOT to `.agentic/context.md`, which is a derived rollup that would discard the entry on the next Stop turn). The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/ds-migrate-project --include-destructive` only).
    d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/ds-migrate-project --include-destructive`.
 
 ---
@@ -1122,7 +1122,7 @@ When spawning `qa-engineer`, include:
 
 <!--
 Purpose: Full reference for the post-merge local base-branch sync procedure -
-         the `agentic-base-sync` CLI contract, the underlying
+         the `ds-base-sync` CLI contract, the underlying
          `ae_base_branch_sync` bash function, the divergence diagnostic
          format, recovery guidance, and the two call sites that invoke it.
 
@@ -1132,7 +1132,7 @@ Public API: Read-only reference document. Cross-referenced from:
             content/rules/conventions.md Conductor preflight step 6
             (session-start sync call).
 
-Upstream deps: bin/agentic-base-sync, scripts/lib/base-branch-sync.sh.
+Upstream deps: bin/ds-base-sync, scripts/lib/base-branch-sync.sh.
 
 Downstream consumers: /ds-implement-ticket Phase 12; the conductor session-
                       start preflight in content/rules/conventions.md.
@@ -1147,12 +1147,12 @@ Failure modes: Prose + bash reference; does not auto-execute. A stale copy of
 
 ## Purpose
 
-Merging a PR to `BASE_BRANCH` leaves the conductor's (or any session's) local `BASE_BRANCH` ref exactly where it was - nothing in the methodology ever fast-forwards it automatically. Without an explicit sync step, the local checkout drifts one commit further behind per merge until a later `git pull --ff-only` refuses outright and the tree jams. `agentic-base-sync` is the one canonical, testable procedure that closes this gap: it fast-forwards the local `<base-branch>` ref to match `origin/<base-branch>`, and nothing else.
+Merging a PR to `BASE_BRANCH` leaves the conductor's (or any session's) local `BASE_BRANCH` ref exactly where it was - nothing in the methodology ever fast-forwards it automatically. Without an explicit sync step, the local checkout drifts one commit further behind per merge until a later `git pull --ff-only` refuses outright and the tree jams. `ds-base-sync` is the one canonical, testable procedure that closes this gap: it fast-forwards the local `<base-branch>` ref to match `origin/<base-branch>`, and nothing else.
 
 ## CLI contract
 
 ```
-usage: agentic-base-sync <repo> <base-branch>
+usage: ds-base-sync <repo> <base-branch>
 
 Fast-forwards the LOCAL <base-branch> ref in <repo> to match origin/<base-branch>.
 Never merges, rebases, force-pushes, or autostashes.
@@ -1184,7 +1184,7 @@ conditions on one native code) are never passed through. The wrapper's contract:
      SUCCESSFULLY (exit 0) - only an actual overwrite conflict lands here.
   3  usage / repo-resolution / argument error - includes an empty or missing
      `<repo>` or `<base-branch>` argument, validated BEFORE any git call, printed
-     to stderr, mirrors `agentic-resolve-worktree`.
+     to stderr, mirrors `ds-resolve-worktree`.
   4  inconclusive - sync could not be verified or completed this run, and is NOT
      itself evidence of divergence. Three distinct sub-causes, each printed with
      its own distinct breadcrumb status (never collapsed into one):
@@ -1232,15 +1232,15 @@ Stdout (always, on any exit): exactly one breadcrumb line, plus zero or more
 
 ## Base-branch sync procedure
 
-`bin/agentic-base-sync <repo> <base-branch>` is a thin CLI wrapper (argc/repo-dir/git-repo-ness validation, exit 3 on any such error, mirroring `bin/agentic-resolve-worktree`'s error style) around `ae_base_branch_sync`, defined in `scripts/lib/base-branch-sync.sh`:
+`bin/ds-base-sync <repo> <base-branch>` is a thin CLI wrapper (argc/repo-dir/git-repo-ness validation, exit 3 on any such error, mirroring `bin/ds-resolve-worktree`'s error style) around `ae_base_branch_sync`, defined in `scripts/lib/base-branch-sync.sh`:
 
 ```bash
 ae_base_branch_sync() {
   local repo="$1" base="$2"
   local head err verify_err counts behind ahead
 
-  [ -n "$repo" ] || { echo "usage: agentic-base-sync <repo> <base-branch>" >&2; return 3; }
-  [ -n "$base" ] || { echo "usage: agentic-base-sync <repo> <base-branch>" >&2; return 3; }
+  [ -n "$repo" ] || { echo "usage: ds-base-sync <repo> <base-branch>" >&2; return 3; }
+  [ -n "$base" ] || { echo "usage: ds-base-sync <repo> <base-branch>" >&2; return 3; }
 
   head=$(git -C "$repo" rev-parse --abbrev-ref HEAD 2>/dev/null)
   # Detached HEAD: rev-parse --abbrev-ref HEAD returns the literal string "HEAD",
@@ -1399,7 +1399,7 @@ ae_base_branch_sync() {
 }
 ```
 
-`bin/agentic-base-sync` sources this function from `scripts/lib/base-branch-sync.sh`, performs the argc check (exactly 2 args) plus repo-dir/git-repo-ness validation the same way `agentic-resolve-worktree` does (all exit 3 on failure, mirroring that tool's error style), calls `ae_base_branch_sync "$1" "$2"` (which independently re-validates non-empty `$1`/`$2` as its own defense-in-depth precondition), and does `exit $?`. The library function `return`s, never `exit`s; only the CLI wrapper `exit`s.
+`bin/ds-base-sync` sources this function from `scripts/lib/base-branch-sync.sh`, performs the argc check (exactly 2 args) plus repo-dir/git-repo-ness validation the same way `ds-resolve-worktree` does (all exit 3 on failure, mirroring that tool's error style), calls `ae_base_branch_sync "$1" "$2"` (which independently re-validates non-empty `$1`/`$2` as its own defense-in-depth precondition), and does `exit $?`. The library function `return`s, never `exit`s; only the CLI wrapper `exit`s.
 
 ## Divergence diagnostic format
 
@@ -1429,14 +1429,14 @@ The tool never rewrites the shared `<base-branch>` tree on divergence. On `statu
 
 ## Call sites
 
-- **`content/commands/ds-implement-ticket.md` Phase 12 (unconditional tail).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. Invoked via the repo-relative path `$REPO_DIR/bin/agentic-base-sync`, so it works without a PATH re-install. Only fires inside a `/ds-implement-ticket` invocation.
-- **`content/rules/conventions.md` Conductor preflight, step 6.** Fires once at session start, immediately after `BASE_BRANCH` is resolved non-interactively (declaration, local `develop`, or local `development` matched). Invoked via PATH (`agentic-base-sync`), guarded by `command -v`. This is the mechanism that catches a PR merged by a human, by another session, or via `gh pr merge` outside `/ds-implement-ticket` entirely - call site 1 cannot catch a merge that happens between `/ds-implement-ticket` invocations or in a different tool entirely. Skipped silently when `BASE_BRANCH` still requires the interactive prompt. A non-zero exit prints its own diagnostic and does not block preflight completion. Full invocation:
+- **`content/commands/ds-implement-ticket.md` Phase 12 (unconditional tail).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. Invoked via the repo-relative path `$REPO_DIR/bin/ds-base-sync`, so it works without a PATH re-install. Only fires inside a `/ds-implement-ticket` invocation.
+- **`content/rules/conventions.md` Conductor preflight, step 6.** Fires once at session start, immediately after `BASE_BRANCH` is resolved non-interactively (declaration, local `develop`, or local `development` matched). Invoked via PATH (`ds-base-sync`), guarded by `command -v`. This is the mechanism that catches a PR merged by a human, by another session, or via `gh pr merge` outside `/ds-implement-ticket` entirely - call site 1 cannot catch a merge that happens between `/ds-implement-ticket` invocations or in a different tool entirely. Skipped silently when `BASE_BRANCH` still requires the interactive prompt. A non-zero exit prints its own diagnostic and does not block preflight completion. Full invocation:
 
   ```bash
-  if command -v agentic-base-sync >/dev/null 2>&1; then
-    agentic-base-sync "$REPO" "$BASE_BRANCH"
+  if command -v ds-base-sync >/dev/null 2>&1; then
+    ds-base-sync "$REPO" "$BASE_BRANCH"
   else
-    echo "WARNING: agentic-base-sync not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local $BASE_BRANCH may be stale this session."
+    echo "WARNING: ds-base-sync not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local $BASE_BRANCH may be stale this session."
   fi
   ```
 
@@ -1925,7 +1925,7 @@ wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions
 `.agentic/context.md` is not a file anyone writes directly. It is recomposed on every turn as a pure function of two inputs:
 
 - **`.agentic/_wrap.md`** - the CURATED region: everything up to the `## Session Activity` sentinel, including `## Recent Focus` and its 10-slot rolling session-label window. Owned by `/ds-wrap` Part A, `/ds-wrap-deferred`, `wrap-ticket`, and a conductor-direct context write. The rolling-window algorithm in `content/references/wrap-context-format.md` is unchanged; only the path it reads and writes moved.
-- **`.agentic/context.d/<session_id>.md`** - one per-session activity SHARD: everything from the sentinel onward, regenerated wholesale. Written by the Claude Stop hook (`hooks/stop-context.js`), the OpenCode plugin (`.opencode/plugins/session-context.ts`), and `bin/agentic-migrate`.
+- **`.agentic/context.d/<session_id>.md`** - one per-session activity SHARD: everything from the sentinel onward, regenerated wholesale. Written by the Claude Stop hook (`hooks/stop-context.js`), the OpenCode plugin (`.opencode/plugins/session-context.ts`), and `bin/ds-migrate`.
 
 **The read contract is unchanged:** every session still reads `.agentic/context.md` as its first action.
 
@@ -1937,7 +1937,7 @@ wrap-ticket is the **automated writer in Phase 11b** for `MEMORY.md`, `decisions
 
 Compounding that, a `role:'agent'` lock carries `pid: null` by construction, so its liveness verdict is `live` forever and, on the default config (`deferred_wrap_daemon: false`), no code path could ever clear it. Measured live in this repo: a lock held **10.3 hours** by a dead pid, during which **49 `context.md` writes across 6 sessions were silently discarded** - from the file every session reads first, so all six started from stale context and none of them knew.
 
-**The fix and its invariants.** Writers write session-private shards, so they cannot collide. The rollup is derivable, so a lost update SELF-HEALS on the next turn instead of losing data - which is what makes the rollup write safe WITHOUT a lock, and what lets a `WRAP-LOCK-STUCK` banner reach the operator through the very lock it is reporting. Do not add a lock check to the rollup write; doing so restores all three defects in one edit. The lock now guards exactly one thing: `/ds-wrap`'s genuine read-modify-write of `_wrap.md`. It also carries a `session_id` and is cleared by `agentic-wrap-acquire-lock` once provably abandoned, so it can no longer be immortal.
+**The fix and its invariants.** Writers write session-private shards, so they cannot collide. The rollup is derivable, so a lost update SELF-HEALS on the next turn instead of losing data - which is what makes the rollup write safe WITHOUT a lock, and what lets a `WRAP-LOCK-STUCK` banner reach the operator through the very lock it is reporting. Do not add a lock check to the rollup write; doing so restores all three defects in one edit. The lock now guards exactly one thing: `/ds-wrap`'s genuine read-modify-write of `_wrap.md`. It also carries a `session_id` and is cleared by `ds-wrap-acquire-lock` once provably abandoned, so it can no longer be immortal.
 
 `.agentic/wrap/deferred-activity.jsonl` is **no longer produced** - spillover existed only because a held lock skipped the write. `/ds-wrap` Part A still DRAINS a pre-existing file (the drain step is unchanged), so records preserved from before this change are not orphaned. The daemon is launched by the SessionStart hook (`hooks/wrap-daemon.js`); it resumes each cleanly-ended session headlessly and runs the non-interactive single-pass `/ds-wrap-deferred`, the sole consumer of the per-session `pending.json` marker - there is no in-session draft-formatter agent. For the `pending.json` / `last-wrap` / `deferred-activity.jsonl` data model and the daemon enrichment protocol, see `content/commands/ds-wrap-deferred.md`.
 
@@ -1974,7 +1974,7 @@ The conductor MUST evaluate capture at each of these 7 events and emit a
    conductor MUST also emit a `tool_failure_workaround` event to `.agentic/events.jsonl`:
 
    ```bash
-   agentic-emit tool_failure_workaround - - \
+   ds-emit tool_failure_workaround - - \
      '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<name>","domain_tag":"<tag>","note":"<one sentence>"}'
    ```
 
@@ -2073,11 +2073,11 @@ When a Worker digest (engineer, investigator, or debugger return) contains a non
    a. If `kind == "workaround"`, also emit the `tool_failure_workaround` event with all four canonical fields:
 
       ```bash
-      agentic-emit tool_failure_workaround - - \
+      ds-emit tool_failure_workaround - - \
         '{"session_uuid":"'"$CLAUDE_CODE_SESSION_ID"'","tool":"<tool/command named in fact if identifiable, else the entry domain_tag>","domain_tag":"<entry domain_tag>","note":"<entry fact>"}'
       ```
 
-      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `agentic-cost` does not miscount.
+      For worker-internal discoveries where no distinct tool/command is named, `tool` falls back to the entry's `domain_tag` (a documented same-value fill, not a dropped field). All four keys are always present so `ds-cost` does not miscount.
    b. Forward to `learnings-agent` with: `event_type` per the kind map (`workaround` -> `tool-failure-workaround`; `dead-end` -> `cross-component-gotcha`; `gotcha` -> `cross-component-gotcha`; `decision` -> `architectural-decision`), `description` = entry `fact`, `resolution` = entry `why`, `domain_tag` = entry `domain_tag`, and omit `severity` (all mapped types are KNW).
 3. If `Capture: SKIP`: declare `Capture: SKIP - [reason]` inline and proceed.
 
@@ -2393,17 +2393,17 @@ Public API: Read-only reference. Load when configuring team.yml, deciding
 
 Upstream deps: content/sections/02-delegation.md (delegation decision table);
                content/sections/04-risk-classification.md (Tier/role layer);
-               bin/agentic-team (discover|dispatch|status|collect);
+               bin/ds-team (discover|dispatch|status|collect);
                bin/_role_spec.py (shared role-spec normalizer).
 
 Downstream consumers: content/sections/02-delegation.md (pointer);
                       content/sections/04-risk-classification.md (pointer);
-                      bin/agentic-team (schema section);
-                      bin/agentic-configure (team subcommand).
+                      bin/ds-team (schema section);
+                      bin/ds-configure (team subcommand).
 
 Failure modes: Prose reference; not auto-executed. The most common error path
                is a stale team.yml referencing a harness binary that was
-               uninstalled - agentic-team discover catches this and marks the
+               uninstalled - ds-team discover catches this and marks the
                harness absent. A PATH guardrail shim that erroneously blocks the
                worker's own binary is caught by the dispatch test suite; workers
                that hang (cursor-agent known bug) are bounded by the per-run
@@ -2411,7 +2411,7 @@ Failure modes: Prose reference; not auto-executed. The most common error path
 
 Performance: Standard. Dispatch is background shell-out per worker; no blocking
              network call on the conductor's critical path. Web enrichment in
-             agentic-configure is opt-in and cached.
+             ds-configure is opt-in and cached.
 -->
 
 # Cross-harness agent teams
@@ -2434,7 +2434,7 @@ spawn path, not a replacement for it. Apply it when all of the following hold:
 2. `team.yml` is present and `enabled: true` for this project or globally.
 3. The role being dispatched has a `roles[<role>]` entry in `team.yml` with a
    `harness` value other than the conductor's own harness.
-4. `agentic-team discover` confirms that harness is installed and reachable.
+4. `ds-team discover` confirms that harness is installed and reachable.
 
 When `team.yml` is absent or `enabled: false`, or when the harness is not
 installed, the conductor falls back to native delegation unchanged -- no error,
@@ -2449,7 +2449,7 @@ no prompt, no degraded mode. Cross-harness is additive and fully opt-in.
   directly.
 - Any spawn that the conductor would classify as direct-action (Low or
   diagnostic-only) -- those stay conductor-direct.
-- Spawns where `agentic-team discover` marks the target harness absent.
+- Spawns where `ds-team discover` marks the target harness absent.
   (Authentication errors are not a discover state -- they surface at dispatch
   time from the harness's own stderr/exit code.)
 
@@ -2473,7 +2473,7 @@ key):**
 enabled: true
 default_harness: codex          # where a role goes if no per-role harness is set;
                                 # validated same as roles[*].harness -- unknown value
-                                # produces a non-zero exit from agentic-team
+                                # produces a non-zero exit from ds-team
 roles:
   engineer:        { harness: codex,         model: gpt-5.3-codex }
   qa-engineer:     { harness: gemini,        model: gemini-2.5-flash }
@@ -2497,7 +2497,7 @@ dispatch:
 | `dispatch.output_format` | string | no | `"json"` | `json` or `text`. Governs the `collect` demux path. |
 
 The scalar-or-mapping normalize logic for role-spec entries is shared with
-`bin/agentic-configure` via `bin/_role_spec.py`. Both tools import the same
+`bin/ds-configure` via `bin/_role_spec.py`. Both tools import the same
 normalizer; there is no inline copy.
 
 Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
@@ -2508,12 +2508,12 @@ regardless.
 
 ## Per-harness dispatch table
 
-`bin/agentic-team dispatch` builds the worker invocation from this table. All 7
+`bin/ds-team dispatch` builds the worker invocation from this table. All 7
 harnesses now have **confirmed** (not probed) non-interactive flags, verified
 live against each CLI -- not hardcoded model IDs, just binary names and flag
 spellings, consistent with the "no hardcoded model IDs" stance anchored in
 `bin/_role_spec.py` (single source of harness/role labels) and the binary-name
-map in `bin/agentic-team` (the one allowed per-harness hardcoded fact).
+map in `bin/ds-team` (the one allowed per-harness hardcoded fact).
 
 | Harness | Non-interactive incantation | Model flag | Output flag | Notes / gotchas |
 |---|---|---|---|---|
@@ -2527,7 +2527,7 @@ map in `bin/agentic-team` (the one allowed per-harness hardcoded fact).
 | **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths` | `--model <model>` | raw stdout | `--allow-all-tools --allow-all-paths` required for non-interactive file writes (see RISK-ACCEPTED note below); `--model` forwarded only when configured; final message is raw stdout (no demux). |
 | **claude (worker)** | `claude -p "<brief>"` | `--model <model>` | `--output-format json` | Only as a *dispatched leaf worker*, never re-entering OMC. Harness label is `claude`; binary is `claude`. |
 
-Discovery (`agentic-team discover`) best-effort populates a `models: [...]`
+Discovery (`ds-team discover`) best-effort populates a `models: [...]`
 list per harness: omp via `omp models ls --json` (stdout parsed, stderr
 extension-load warnings tolerated) and cursor-agent via `cursor-agent
 --list-models` (line-per-model text). claude/codex/gemini/kimi/pi/opencode/copilot
@@ -2600,7 +2600,7 @@ boundary.
 ### 2. Harness-native sandbox (strongest per-worker fence, where available)
 
 Where the harness exposes a sandbox flag, it is applied at dispatch time. For
-codex this is `--sandbox read-only`. The `agentic-team discover` output records
+codex this is `--sandbox read-only`. The `ds-team discover` output records
 `native_subagent_disable_flag` per harness; dispatch sets it when non-null.
 This is stronger than the PATH guardrail because it is enforced by the harness
 process itself, not by a wrapper script.
@@ -2637,12 +2637,12 @@ suppression described below (active only after a run is in flight).
 
 **Proactive team-routing enforcement (fixes the chicken-and-egg bug):** the
 sentinel-only suppression below has a gap - the sentinel is created by the
-*first* `agentic-team dispatch`, so if the conductor never dispatches (e.g. it
+*first* `ds-team dispatch`, so if the conductor never dispatches (e.g. it
 keeps using native `Task`/`Agent` because nothing is stopping it), a `team.yml`
 with `enabled: true` was previously silently ignored. `hooks/enforce-background-
 spawn.py` closes this gap with a branch that runs BEFORE the sentinel check: it
 loads the effective `team.yml` (global + project, project wins, same merge
-semantics as `bin/agentic-team`; PyYAML imported opportunistically, fails open
+semantics as `bin/ds-team`; PyYAML imported opportunistically, fails open
 if unavailable) and, when `enabled: true` and the spawned `subagent_type` is one
 of the five dispatchable roles (`engineer`, `debugger`, `qa-engineer`,
 `skeptic`, `security-auditor`) whose resolved harness (role entry, else
@@ -2650,7 +2650,7 @@ of the five dispatchable roles (`engineer`, `debugger`, `qa-engineer`,
 with an actionable instruction, e.g.:
 
 > `cross-harness team active: role 'engineer' is assigned to harness 'omp'.
-> Dispatch with: bin/agentic-team dispatch --harness omp --role engineer
+> Dispatch with: bin/ds-team dispatch --harness omp --role engineer
 > --brief <file> --workdir <dir> --model <model-from-team.yml> - then poll
 > status/collect.`
 
@@ -2676,14 +2676,14 @@ contains a sentinel-suppression branch: when `.active` exists and is live
 (conductor PID present + not dead, mtime < 2 h), the hook denies any `Task` or
 `Agent` call outright and denies any Skill call whose `skill` argument starts
 with `oh-my-claudecode:`. The denial message instructs the conductor to dispatch
-via `agentic-team` instead.
+via `ds-team` instead.
 
 Stale-sentinel guard: the hook treats `.active` as expired when its recorded
 PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
 not permanently suppress native Task. The sentinel self-expires when its conductor PID is dead or its mtime exceeds 2 h; there is no manual clear command.
 
-Sentinel lifecycle: created by `agentic-team dispatch` on first run (carries
-conductor PID); removed by `agentic-team collect` when the last run in the
+Sentinel lifecycle: created by `ds-team dispatch` on first run (carries
+conductor PID); removed by `ds-team collect` when the last run in the
 batch completes.
 
 **On all other harnesses:** Agents running on non-Claude harnesses MUST treat
@@ -2714,7 +2714,7 @@ mechanical enforcement as a guarantee.
 
 Cross-harness workers are leaf processes. They write their output to
 `<workdir>/.agentic/teamrun/<run-id>/stdout` (and `stderr`, `exit`).
-`agentic-team collect <run-id>` demuxes the per-harness output shape and
+`ds-team collect <run-id>` demuxes the per-harness output shape and
 returns the final message text:
 
 | Harness | Output shape | collect extraction |
@@ -2746,10 +2746,10 @@ boundary is transparent to the Skeptic/QA layer.
 
 **Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor - regardless of which CLI harness it is running on (Claude Code, Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) - follows the same four-step dispatch contract for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves to a harness other than its own:
 
-1. **Discover** - run `bin/agentic-team discover` to confirm the target harness binary is installed and its native sandbox flag (if any). Missing binary -> fall back to native delegation unchanged, no error, no prompt.
-2. **Dispatch** - run `bin/agentic-team dispatch --role <role> --brief <path>` to spawn the worker in its own throwaway workdir (worktree or directory copy). The conductor never runs git inside the worker's workdir; the conductor remains sole git owner of the live repo.
-3. **Status poll** - run `bin/agentic-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block synchronously past the configured `dispatch.timeout_seconds` watchdog.
-4. **Collect** - run `bin/agentic-team collect <run-id>` to demux the harness-specific output shape and extract the final message text.
+1. **Discover** - run `bin/ds-team discover` to confirm the target harness binary is installed and its native sandbox flag (if any). Missing binary -> fall back to native delegation unchanged, no error, no prompt.
+2. **Dispatch** - run `bin/ds-team dispatch --role <role> --brief <path>` to spawn the worker in its own throwaway workdir (worktree or directory copy). The conductor never runs git inside the worker's workdir; the conductor remains sole git owner of the live repo.
+3. **Status poll** - run `bin/ds-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block synchronously past the configured `dispatch.timeout_seconds` watchdog.
+4. **Collect** - run `bin/ds-team collect <run-id>` to demux the harness-specific output shape and extract the final message text.
 
 Once `collect` returns, its output re-enters the Skeptic/QA gates exactly as described above under "How collected worker output re-enters the Skeptic/QA gates" - same adversarial review, same `qa_criteria` triggers, same re-route limits, no new gate or bypass for cross-harness origin.
 
@@ -3416,7 +3416,7 @@ Public API: Read-only reference document. Cross-referenced from:
 
 Upstream deps: content/sections/09-events-log.md (parent section; read that
                section first for writer scope and base schema);
-               bin/agentic-emit, bin/agentic-parse-subagent-usage, bin/agentic-cost
+               bin/ds-emit, bin/ds-parse-subagent-usage, bin/ds-cost
                (the consumers of these event schemas);
                content/references/skeptic-protocol.md Section 14
                (calibration mechanism specification for Skeptic-specific fields).
@@ -3430,11 +3430,11 @@ Downstream consumers: conductor (constructs spawn_start/spawn_complete/
                       log to .agentic/session-log/);
                       /ds-wrap command (reads events.jsonl for structural session skeleton,
                       and .agentic/.enforcement-fires.jsonl for Part D.5 signal 3(b));
-                      bin/agentic-cost team (reads .agentic/session-log/ for team rollup).
+                      bin/ds-cost team (reads .agentic/session-log/ for team rollup).
 
 Failure modes: Prose; does not execute. Schema drift between this reference and
                the actual event payloads emitted by the conductor causes
-               bin/agentic-cost and bin/agentic-parse-subagent-usage to silently
+               bin/ds-cost and bin/ds-parse-subagent-usage to silently
                miscount or drop records.
 
 Performance: Standard.
@@ -3446,11 +3446,11 @@ Performance: Standard.
 
 ## V1 telemetry event types
 
-(Cost & latency observability; see `bin/agentic-emit`, `bin/agentic-parse-subagent-usage`, `bin/agentic-cost`.)
+(Cost & latency observability; see `bin/ds-emit`, `bin/ds-parse-subagent-usage`, `bin/ds-cost`.)
 
 - `spawn_start`: emitted by the conductor immediately before an `Agent` tool call for engineer/skeptic/qa-engineer. `data` carries `tier`, `tool_use_id`, `agent_id: null` (Claude Code assigns the agent id after the `Agent` spawn returns), and `session_uuid` (see below).
 - `spawn_complete`: emitted by the conductor immediately after an `Agent` tool call returns. `data` carries `tier`, `tool_use_id`, `agent_id`, `model`, `wall_seconds`, `tokens` (`input`, `output`, `cache_creation`, `cache_read` - kept separate because they price differently), `status`, and `session_uuid` (see below).
-  - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
+  - **Skeptic-specific calibration fields** (when `agent == "skeptic"`): `data` additionally carries `findings_count` (`{critical, major, minor}`), `diff_lines` (integer; lines reviewed), `signed_off` (boolean), `iteration` (integer; loop iteration when sign-off occurred), and `meta_review` (always `null` at emission time; populated retroactively only via the separate `meta_review_complete` event below). The conductor constructs the merged `data` object inline before calling `bin/ds-emit`; meta-Skeptic and the original Skeptic do NOT write to `.agentic/`. See `content/references/skeptic-protocol.md` Section 14 for the calibration mechanism specification.
 - `conductor_direct`: **[DEPRECATED - no longer emitted; hook-emitted `spawn_start` (data.source:"hook") now provides ad-hoc spawn telemetry]** _(Historical reference only.)_ Was emitted by the conductor when it edits directly under the Trivial path or answers from context. `data` carried `wall_seconds`, a `note`, and `session_uuid`; tokens were zero in V1 (the conductor cannot read its own usage from inside the session - documented gap).
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
 - `session_total`: emitted by the Stop hook on EVERY turn (this is a pre-existing property, not introduced by the Stop hook's `--cadence=turn` loop-state/batch-state split described in `hooks/lib/state-mark.js` and the SessionEnd hook `hooks/session-end-wrap.js` - `writeSessionTotal` has always run on every Stop invocation; "once per session" was a prior inaccuracy in this doc, corrected here). `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
@@ -3476,7 +3476,7 @@ Optional. /ds-wrap may consult events.jsonl as supplementary signal for the stru
 
 ## Per-developer session log (`.agentic/session-log/`)
 
-The Stop hook writes a second target alongside `events.jsonl`. When a developer identity is set (via `agentic-identity init <handle>`), the hook appends one JSON line per session to `.agentic/session-log/<developer_id>.jsonl`. This file is committed to git via the `.agentic/session-log/` carve-out in `.gitignore`; `/ds-implement-ticket` Phase 8 commits it as a SEPARATE commit on the PR branch when `commit_telemetry: true` (default) and identity is confirmed. Run `agentic-cost team` to aggregate all session-log files present on the local checkout.
+The Stop hook writes a second target alongside `events.jsonl`. When a developer identity is set (via `ds-identity init <handle>`), the hook appends one JSON line per session to `.agentic/session-log/<developer_id>.jsonl`. This file is committed to git via the `.agentic/session-log/` carve-out in `.gitignore`; `/ds-implement-ticket` Phase 8 commits it as a SEPARATE commit on the PR branch when `commit_telemetry: true` (default) and identity is confirmed. Run `ds-cost team` to aggregate all session-log files present on the local checkout.
 
 **Canonical session-log line schema:**
 
@@ -3509,9 +3509,9 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
 
 **PII boundary:** Only the fields above are written. Excluded: prompt content, file paths, tool I/O, user messages, finding text, task descriptions, commit messages, environment variable values.
 
-**No confirmed identity:** Direct session-log writes are skipped when the 6-tier resolution yields no confirmed identity. Project, active-profile, and global identity files are all considered. When only provisional identities exist, telemetry is buffered at `~/.agentic/session-log/.pending/`; each record carries canonical `identity_scope` from the winning provisional identity, and profile winners also carry `config_dir`. `agentic-identity confirm --scope <winning-scope>` flushes only records whose `identity_scope` matches: profile confirmation additionally matches `config_dir`, project confirmation matches `repo_root`, and global confirmation accepts global-scope records even when a profile config dir is active. Nonmatching records remain buffered and cannot be reattributed by a later identity in another scope. When no tier resolves at all, the Stop hook appends a one-time nudge to this session's `.agentic/context.d/<session_id>.md` shard, from which the derived `.agentic/context.md` rollup carries it, directing the developer to run `agentic-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
+**No confirmed identity:** Direct session-log writes are skipped when the 6-tier resolution yields no confirmed identity. Project, active-profile, and global identity files are all considered. When only provisional identities exist, telemetry is buffered at `~/.agentic/session-log/.pending/`; each record carries canonical `identity_scope` from the winning provisional identity, and profile winners also carry `config_dir`. `ds-identity confirm --scope <winning-scope>` flushes only records whose `identity_scope` matches: profile confirmation additionally matches `config_dir`, project confirmation matches `repo_root`, and global confirmation accepts global-scope records even when a profile config dir is active. Nonmatching records remain buffered and cannot be reattributed by a later identity in another scope. When no tier resolves at all, the Stop hook appends a one-time nudge to this session's `.agentic/context.d/<session_id>.md` shard, from which the derived `.agentic/context.md` rollup carries it, directing the developer to run `ds-identity init <handle>`. A sentinel at `~/.agentic/.identity-nudged` prevents repeated nudges.
 
-**Aggregation:** `agentic-cost team` reads all `.agentic/session-log/*.jsonl` files on the local checkout and renders a per-developer rollup table sorted by total tokens. Because session-logs are committed via Phase 8 telemetry commits, the rollup reflects sessions from all developers whose telemetry has landed on the branch via pull after merge - enabling cross-developer team visibility without a separate aggregation service.
+**Aggregation:** `ds-cost team` reads all `.agentic/session-log/*.jsonl` files on the local checkout and renders a per-developer rollup table sorted by total tokens. Because session-logs are committed via Phase 8 telemetry commits, the rollup reflects sessions from all developers whose telemetry has landed on the branch via pull after merge - enabling cross-developer team visibility without a separate aggregation service.
 
 ## Enforcement fire log (`.agentic/.enforcement-fires.jsonl`)
 
@@ -3551,10 +3551,10 @@ Public API: Referenced by content/agents/engineer.md (## Implementation process,
             "Context economy: evidence-on-disk" step) and by
             content/references/delegation-detail.md (§Worker Preamble and
             Execution Contract Template). The sketch line format is a shared
-            binding contract with bin/agentic-evidence - the worked example
+            binding contract with bin/ds-evidence - the worked example
             below must match the CLI's emitted sketch lines byte-for-byte.
 
-Upstream deps: bin/agentic-evidence (spill/sketch/get/prune CLI). Correctness
+Upstream deps: bin/ds-evidence (spill/sketch/get/prune CLI). Correctness
                of the CLI is gated by bin/tests/test_agentic_evidence.py
                (required bin-tests CI check).
 
@@ -3621,25 +3621,25 @@ the map itself become a context burden.
 
 ## The Three-Step Loop
 
-1. **Spill** the output to the evidence store: `agentic-evidence spill`.
+1. **Spill** the output to the evidence store: `ds-evidence spill`.
 2. **Keep the printed sketch line in your context.** Each spill prints one line
    of the form `- n<seq> | label: <label> | tool: <tool> | chars: <N> | ts: <ts> | status: <status>`.
    That line is the permanent in-context pointer to the node.
 3. **`get <node-id>` on demand** when the raw text is needed again. The raw text
    is rehydrated into the tool result exactly as spilled.
 
-Re-run `agentic-evidence sketch` to refresh the map as nodes accumulate. The
+Re-run `ds-evidence sketch` to refresh the map as nodes accumulate. The
 sketch command lists every live node; replacing the in-context sketch with a
 fresh one keeps the node-ID map accurate.
 
 ## Teardown
 
-Run `agentic-evidence prune --all` at worker end. This mirrors the
+Run `ds-evidence prune --all` at worker end. This mirrors the
 temp-file-ownership rule in `content/rules/conventions.md` - agents that write
 temp files are responsible for deleting them in teardown, and
 `.agentic/evidence/` is a temp store in exactly that sense.
 
-Use `agentic-evidence prune --older-than HOURS` for mid-run housekeeping - for
+Use `ds-evidence prune --older-than HOURS` for mid-run housekeeping - for
 example, pruning nodes older than the current phase before re-pasting a fresh
 sketch under the ~40-line cap.
 
@@ -3656,7 +3656,7 @@ Consequences:
   the conductor or a follow-up worker in the same worktree can `get` the raw
   text while the store still exists.
 - **They are also useful for PRE-cleanup conductor access** via
-  `bin/agentic-resolve-worktree`, which locates the live worktree so the
+  `bin/ds-resolve-worktree`, which locates the live worktree so the
   conductor can read evidence before it is torn down.
 - **There is NO post-merge evidence retrieval.** Once the branch is pushed or
   merged and the worktree is removed, node IDs point at nothing. Do not cite
@@ -3700,16 +3700,16 @@ will need them again while patching. It spills each to the evidence store, keeps
 the printed sketch in context, and rehydrates the stack trace on demand.
 
 ```
-$ agentic-evidence spill /tmp/route-search.txt --label "route-search" --tool Bash
-$ agentic-evidence spill /tmp/stack-trace.txt --label "stack-trace" --tool Bash
-$ agentic-evidence spill /tmp/file-dump.txt --label "file-dump" --tool Bash
+$ ds-evidence spill /tmp/route-search.txt --label "route-search" --tool Bash
+$ ds-evidence spill /tmp/stack-trace.txt --label "stack-trace" --tool Bash
+$ ds-evidence spill /tmp/file-dump.txt --label "file-dump" --tool Bash
 
-$ agentic-evidence sketch
+$ ds-evidence sketch
 - n1 | label: route-search | tool: Bash | chars: 45230 | ts: 2026-08-05T09:14:02Z | status: ok
 - n2 | label: stack-trace | tool: Bash | chars: 8341 | ts: 2026-08-05T09:15:47Z | status: ok
 - n3 | label: file-dump | tool: Bash | chars: 2110 | ts: 2026-08-05T09:16:11Z | status: ok
 
-$ agentic-evidence get n2
+$ ds-evidence get n2
 <the raw stack-trace text rehydrated verbatim, 8,341 chars>
 ```
 
@@ -3952,9 +3952,9 @@ Public API: Read-only reference. Load when seeding role-models.yml, when
 
 Upstream deps: content/references/role-models.md (parent schema);
                content/sections/04-risk-classification.md (Role-model
-               routing tier); bin/agentic-models (ranking implementation).
+               routing tier); bin/ds-models (ranking implementation).
 
-Downstream consumers: bin/agentic-configure (TUI; ranking input);
+Downstream consumers: bin/ds-configure (TUI; ranking input);
                       content/commands/ds-init-project.md (Step 6g seed path);
                       content/sections/04-risk-classification.md.
 
@@ -3978,18 +3978,18 @@ This is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. On Cla
 
 There are three paths - use whichever matches your setup:
 
-**1. Ask-user (the configure wizard).** Run `bin/agentic-configure` interactively. The wizard prompts you role by role and ranks a list you provide against the hint dictionaries. You supply the model names your harness exposes; the wizard scores them and writes a starter `role-models.yml` you can then edit directly.
+**1. Ask-user (the configure wizard).** Run `bin/ds-configure` interactively. The wizard prompts you role by role and ranks a list you provide against the hint dictionaries. You supply the model names your harness exposes; the wizard scores them and writes a starter `role-models.yml` you can then edit directly.
 
 **2. Harness-native.** Your Pi or oh-my-pi login already grants access to a set of models. Open the harness's own model picker or settings panel, find the models your subscription includes, and copy those names into the wizard prompt or directly into `role-models.yml`. There is no separate network call needed - the harness already knows what you have.
 
 **3. Pin by hand.** Skip the wizard. Open `~/.agentic/role-models.yml` and write model names directly. The format is simple: see the schema in `content/references/role-models.md`. Use the harness's exact model handle (the string you would pass to a spawn call). The conductor forwards it verbatim.
 
-There are NO hardcoded model catalogs in this repo. Suggestions from the wizard come from the hint dictionaries in `bin/agentic-models` applied to the names you supply - not from any built-in list.
+There are NO hardcoded model catalogs in this repo. Suggestions from the wizard come from the hint dictionaries in `bin/ds-models` applied to the names you supply - not from any built-in list.
 
-## The binary: `bin/agentic-models`
+## The binary: `bin/ds-models`
 
 ```
-agentic-models [--json] [--suggest <role>] [--all-suggestions] \
+ds-models [--json] [--suggest <role>] [--all-suggestions] \
                [model-name ...] [--models-from FILE]
 ```
 
@@ -3999,7 +3999,7 @@ Model names are supplied as positional arguments, via `--models-from FILE` (one 
 
 **Heuristics.** Per role, the binary scores every model you supply with a small hint dictionary. Substring match is case-insensitive; higher score wins. The hint tables are tuned so Opus-class models surface for the architect / security-auditor tier, Sonnet-class for engineer / debugger, Haiku-class for investigator / qa-engineer, and cross-family candidates (Kimi, GLM, GPT-5.x) for the reviewer pool so the antagonist is plausibly as good as the author without being the same model.
 
-**No hardcoded model IDs.** The hint tables in `bin/agentic-models` use family names (`opus`, `sonnet`, `gpt-5`, `kimi-k2.7`, `glm-5.2`) as substring needles, not exact model strings. Adding a new model to the harness does not require any code change; the substring matcher picks it up from whatever list you feed in.
+**No hardcoded model IDs.** The hint tables in `bin/ds-models` use family names (`opus`, `sonnet`, `gpt-5`, `kimi-k2.7`, `glm-5.2`) as substring needles, not exact model strings. Adding a new model to the harness does not require any code change; the substring matcher picks it up from whatever list you feed in.
 
 ## Schema extension: effort and reasoning
 
@@ -4790,7 +4790,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-one project-level o
 - `storybook_enabled` - boolean, default `false`. Opt-in for `story_id` on `visual_conformance` and `accessibility` scenarios; when `true`, qa-engineer targets the Storybook iframe for isolated component verification. Requires Storybook 7+; init-project sets the related `storybook_url` config key when SB7+ is detected.
 - `motion_aware` - boolean, default `false`. Opt-in for the `motion` scenario method auto-Major Skeptic rule; when `true`, qa-engineer runs CDP-emulated reduced-motion checks per scenario.
 - `storybook_version` - enum (`6 | 7`), default `7`. Selects Storybook URL format for `story_id` scenarios; `6` uses `?selectedKind=&selectedStory=` format. Set automatically by init-project.
-- `commit_telemetry` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 8 commits the per-developer session-log file (`.agentic/session-log/<developer_id>.jsonl`) as a separate commit on the PR branch, enabling cross-developer team visibility via `agentic-cost team` after pull. Set to `false` to opt out of telemetry commits on this project.
+- `commit_telemetry` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 8 commits the per-developer session-log file (`.agentic/session-log/<developer_id>.jsonl`) as a separate commit on the PR branch, enabling cross-developer team visibility via `ds-cost team` after pull. Set to `false` to opt out of telemetry commits on this project.
 - `knowledge_commit_on_pr` - boolean, default `true`. When `true`, `/ds-implement-ticket` Phase 11e commits any changed `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` onto the ticket's PR branch (checkout-free, via a temporary index plus `commit-tree`), so a session's durable knowledge ships with the work that produced it. Set to `false` as a kill switch: the phase pushes operator-authored markdown onto a branch whose checks have already passed, which re-runs CI at a point where no phase revisits a red result.
 - `deferred_wrap_daemon` - boolean, default `false`. Opt-in for the daemon-driven deferred-wrap workflow; when `true`, an out-of-session daemon picks up deferred `/ds-wrap` jobs, tuned by the `deferred_wrap_*` related keys (`deferred_wrap_idle_minutes`, `deferred_wrap_heartbeat_seconds`, `deferred_wrap_timeout_minutes`, `deferred_wrap_inprogress_reclaim_minutes`, `deferred_wrap_pending_ttl_days` - see `content/rules/conventions.md` §Project Config). The default `false` preserves the in-session synchronous `/ds-wrap` behavior.
 - `abdication_guard_enabled` - boolean; requires an explicit `true` to run (absent/malformed config = guard does not fire; the shipped template and `/ds-init-project` set it). When active, a Stop hook detects three shapes of conductor abdication - a permission-seeking interrogative, a surface-and-proceed default announced and then not acted on, or a prose co-equal ballot in an `## Operator decisions` block - and blocks the stop, injecting a directive. Mechanizes the Proactive autonomy / default-and-proceed rule in §Delegation. Set to `false` to opt out once enabled. See `content/rules/conventions.md` §Project Config for full semantics.
@@ -4905,7 +4905,7 @@ The 5 Mandatory Tier-3 signal categories are untouched by this carve-out and sti
 
 **Codex/Gemini:** If `~/.agentic/tier-map.yml` (or a project-local `.agentic/tier-map.yml`) exists, the conductor resolves tier to a model name from that file and passes `--model <name>` on the CLI invocation. If neither file exists, the conductor omits `--model` entirely and the CLI uses its session default - there is no hardcoded fallback model list anywhere in the repo or adapters. Tier routing for Codex/Gemini is fully opt-in; users author the tier-map file themselves. See `content/references/tier-map-example.yml` for the format.
 
-**Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. To seed the file, run `bin/agentic-configure`: the wizard asks you per role and ranks the model names you supply using the hint dictionaries in `bin/agentic-models`. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the per-role ranking heuristics and selection paths.
+**Pi / oh-my-pi (role-models layer):** On the Pi and oh-my-pi harnesses an additional opt-in layer maps each role -- and the adversarial reviewer -- to a concrete model. If `~/.agentic/role-models.yml` (or project-local `.agentic/role-models.yml`) exists, the conductor resolves the spawn's `model`, `effort`, and `reasoning` fields from it: `roles[<role>]` for forward roles (scalar string or `{model, effort, reasoning}` mapping; the conductor forwards only the keys that are set), and a reviewer-diversity strategy (`distinct-from-author` / `round-robin` / `by-task`) for `skeptic` / `security-auditor` spawns so the reviewer runs on a different model than the author. The explicit `roles[<role>]` model wins over the Tier-implied model on collision (operator intent), and the conductor notes the override. If neither file exists, the conductor omits the fields and Pi uses its session defaults -- there are no hardcoded model IDs. To seed the file, run `bin/ds-configure`: the wizard asks you per role and ranks the model names you supply using the hint dictionaries in `bin/ds-models`. See `content/references/role-models.md` for the schema and resolution algorithm, and `content/references/model-discovery.md` for the per-role ranking heuristics and selection paths.
 
 **Cross-harness teams (opt-in, independent of role-models; any harness):** This layer is independent of the Pi/omp role-models layer above; it works on any conductor harness (Claude, Codex, Gemini, Kimi, Pi, omp, or any other). When `team.yml` is present and `enabled: true`, the conductor may dispatch Workers to entirely different CLI harnesses (codex, gemini, cursor-agent, kimi, pi, omp, opencode, copilot, claude-as-worker) rather than spawning native subagents. The role resolution, Tier declaration, and spawn-preset mechanism above all apply before dispatch; collected worker output re-enters the existing Skeptic/QA gates unchanged. See `content/references/cross-harness-teams.md` for the decision rule, `team.yml` schema, self-containment guard, and per-harness dispatch table.
 
@@ -4929,7 +4929,7 @@ Downstream consumers: content/sections/04-risk-classification.md (inline pointer
                       content/agents/skeptic.md;
                       content/agents/security-auditor.md;
                       content/commands/ds-init-project.md;
-                      bin/agentic-status.
+                      bin/ds-status.
 
 Failure modes: Prose + YAML schema; not auto-executed. Mis-set author-model
                tracking is the common error path: reviewer diversity depends
@@ -4994,7 +4994,7 @@ reviewers:
 
 Supported role keys are exactly: `conductor`, `investigator`, `architect`, `orchestration-planner`, `engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`. Any role absent from the map means the conductor omits `model` for that spawn and Pi uses its session default. `conductor` is advisory: it applies only if the harness supports re-rooting the main agent; otherwise it is ignored because the main session model is already running.
 
-`effort` and `reasoning` are pass-through fields the harness interprets (e.g. `effort: high`, `reasoning: 8192` for token-budget reasoning, or `reasoning: enabled` for boolean toggles). The conductor does not interpret these values -- it forwards them on the spawn call alongside `model`. On harnesses that do not support one of the fields, the conductor silently drops it. The setup wizard (`bin/agentic-configure`) asks you per role and only offers values the harness accepts -- it ranks the list of model names you provide rather than fetching them from a remote endpoint.
+`effort` and `reasoning` are pass-through fields the harness interprets (e.g. `effort: high`, `reasoning: 8192` for token-budget reasoning, or `reasoning: enabled` for boolean toggles). The conductor does not interpret these values -- it forwards them on the spawn call alongside `model`. On harnesses that do not support one of the fields, the conductor silently drops it. The setup wizard (`bin/ds-configure`) asks you per role and only offers values the harness accepts -- it ranks the list of model names you provide rather than fetching them from a remote endpoint.
 
 `reviewers:` controls adversarial-reviewer model diversity for `skeptic` and `security-auditor` spawns. Reviewer entries accept the same scalar-or-mapping form as `roles:`. When a reviewer entry is a mapping, the `model:` key is the candidate the strategy picks from; `effort:` and `reasoning:` are carried through to the chosen reviewer verbatim.
 
@@ -5499,7 +5499,7 @@ Without that audit note, the conductor treats clean two-iteration agreement as s
 
 Audit-note Minors are bookkeeping rather than diff-level findings; they are exempt from re-raise and convergence-failure detection in `/ds-implement-ticket` Phase 6.
 
-The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 14 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `agentic-calibrate` queryable surface.
+The audit-note mechanism is the **primary** defense against the rubber-stamp / cognitive-surrender failure mode. The calibration sampling described in Section 14 is a **secondary** backstop that detects drift in aggregate over time. The two mechanisms compose: per-spawn discipline lives in the audit note; long-horizon drift detection lives in the meta-Skeptic sampling pass and the `ds-calibrate` queryable surface.
 
 ---
 
@@ -5821,11 +5821,11 @@ Fanning out correctness-Skeptic + security-auditor + perf-analyst in parallel.
 
 The Skeptic loop's review depth degrades silently if it degrades at all. A Skeptic that drifts into rubber-stamp behavior produces clean sign-offs identical in surface form to genuine ones. Section 5's audit-note mechanism is the primary per-spawn defense; this section adds the secondary backstop: aggregate drift detection via structured findings counters, sampled meta-review, and an inspection CLI.
 
-This is a calibration layer, not a gating layer. Original Skeptic sign-off remains binding for merge decisions. Meta-divergence on Critical or Major findings is surfaced inline to the user as advisory; Minor divergences appear only in the `agentic-calibrate divergence` output.
+This is a calibration layer, not a gating layer. Original Skeptic sign-off remains binding for merge decisions. Meta-divergence on Critical or Major findings is surfaced inline to the user as advisory; Minor divergences appear only in the `ds-calibrate divergence` output.
 
 ### Findings counters in the events log
 
-Every `spawn_complete` event for `agent == "skeptic"` carries the following fields inside `data` (the conductor constructs the JSON inline before calling `bin/agentic-emit`; meta-Skeptic and the original Skeptic do not write to `.agentic/`):
+Every `spawn_complete` event for `agent == "skeptic"` carries the following fields inside `data` (the conductor constructs the JSON inline before calling `bin/ds-emit`; meta-Skeptic and the original Skeptic do not write to `.agentic/`):
 
 ```json
 {
@@ -5845,7 +5845,7 @@ Existing `spawn_complete` fields (`tier`, `tool_use_id`, `agent_id`, `model`, `w
 
 A 5% sample of Skeptic sign-offs triggers a meta-review. Selection is deterministic: hash `task_id` concatenated with `iteration` into a uniform 0-99 bucket; trigger if `bucket < 5`. The deterministic hash means a sampling decision is reproducible from the events log without needing to record an RNG seed.
 
-Meta-Skeptic spawns are **background fire-and-forget**. The conductor declares the unit complete without waiting for meta-Skeptic return. When meta-Skeptic returns its textual divergence report asynchronously, the conductor parses the report, constructs the `meta_review_complete` event, and emits via `bin/agentic-emit`.
+Meta-Skeptic spawns are **background fire-and-forget**. The conductor declares the unit complete without waiting for meta-Skeptic return. When meta-Skeptic returns its textual divergence report asynchronously, the conductor parses the report, constructs the `meta_review_complete` event, and emits via `bin/ds-emit`.
 
 ### Meta-Skeptic spawn brief
 
@@ -5876,7 +5876,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Original sign-off remains binding. Minor-only divergences are NOT surfaced inline; they appear only in `agentic-calibrate divergence` output.
+Original sign-off remains binding. Minor-only divergences are NOT surfaced inline; they appear only in `ds-calibrate divergence` output.
 
 **Surfacing has two binding triggers:**
 
@@ -5911,12 +5911,12 @@ Format: single line, ISO8601 UTC timestamp (e.g. `2026-05-13T16:30:00Z`). File-a
 
 ### Inspection CLI
 
-`bin/agentic-calibrate` is the queryable surface for calibration data:
+`bin/ds-calibrate` is the queryable surface for calibration data:
 
 ```
-agentic-calibrate density   [--since <ISO8601>] [--task <task_id>]
-agentic-calibrate divergence [--since <ISO8601>]
-agentic-calibrate help
+ds-calibrate density   [--since <ISO8601>] [--task <task_id>]
+ds-calibrate divergence [--since <ISO8601>]
+ds-calibrate help
 ```
 
 `density` reads `.agentic/events.jsonl`, filters Skeptic `spawn_complete` events, and prints findings-per-100-diff-lines aggregates plus a per-iteration breakdown. Spawns where `diff_lines == 0` are excluded from the aggregate denominator; per-row output prints `N/A` in the density column for those rows. When fewer than 10 spawns have been observed (after zero-diff exclusion), the command prints `warming up: N/10 spawns observed; baseline not yet established.` to indicate that drift signals are not yet meaningful.
@@ -6153,7 +6153,7 @@ These transitions apply to fix-pass Engineer spawns inside `/ds-implement-ticket
 - Reading a single specific file when the path is already known
 - Answering a question directly from context already in memory
 - `git status`, `git log`, `git diff` — read-only, instant
-- `agentic-memory query` / `agentic-memory turns` — read-only, instant; lightweight memory retrieval
+- `ds-memory query` / `ds-memory turns` — read-only, instant; lightweight memory retrieval
 - Taking a screenshot or browser snapshot
 - Synthesizing and explaining results that subagents have already returned
 - A one or two-line edit to a single file, where the correct output is immediately apparent without reading any other file, **and no Elevated risk signals are present**
@@ -7151,7 +7151,7 @@ This is a prose reference. It restates - verbatim - the shared formatting contra
 | Region | Owner | Written by |
 |---|---|---|
 | Everything UP TO the sentinel (the header, `## Recent Focus` and its 10-slot rolling label window, `## Watch Out For`, and every other curated section) | `.agentic/_wrap.md` | `/ds-wrap` Part A, `/ds-wrap-deferred`, `wrap-ticket`, a conductor-direct context write |
-| Everything FROM the sentinel onward (the activity region) | per-session shards in `.agentic/context.d/` | the Claude Stop hook, the OpenCode plugin, `bin/agentic-migrate` |
+| Everything FROM the sentinel onward (the activity region) | per-session shards in `.agentic/context.d/` | the Claude Stop hook, the OpenCode plugin, `bin/ds-migrate` |
 
 The two regions carry two DIFFERENT accumulation windows, and that is the accepted cost of the partition: 10 curated session labels before the sentinel, up to 10 session shards after it. They are disjoint. **A derived region must never own curated content** - the rollup is regenerated idempotently on every turn, and a derived file cannot hold curated narrative without destroying either the curation or the idempotence that licenses writing it without a lock.
 
@@ -7194,7 +7194,7 @@ Consumers (17 sites, each carrying a unique marker id): 3 in this reference's ow
 
 A single line containing the `session_id` of the session whose `/ds-wrap` (sync, background enrichment, or `/ds-wrap-deferred`) last successfully wrote `_wrap.md`. Atomic write (tmp + rename). This sentinel fully replaces any header-date parsing - no site parses the `_wrap.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `_wrap.md` write - never staged early (writing it during marker-staging would suppress that very session's own recovery marker). Note: a same-session `done` tombstone stamped `wrapped_at` ALSO suppresses `stagePending` (covering the case where `last-wrap` has rolled to a different session), so `last-wrap` is not the sole staging-suppression mechanism - the retained tombstone is the durable backstop when `last-wrap` no longer names this session.
 
-The `last-wrap` write is performed inside the same narrow lock window as the `_wrap.md` write: it is the last write before the lock is released (after the merged `_wrap.md` write, before lock release). The interactive `/ds-wrap` releases the lock itself (via the `agentic-wrap-release-lock` helper); on the headless `/ds-wrap-deferred` path the lock is cleared out-of-band by the daemon's stale-lock backstop, since that child has no Bash — so `last-wrap` is the child's last write.
+The `last-wrap` write is performed inside the same narrow lock window as the `_wrap.md` write: it is the last write before the lock is released (after the merged `_wrap.md` write, before lock release). The interactive `/ds-wrap` releases the lock itself (via the `ds-wrap-release-lock` helper); on the headless `/ds-wrap-deferred` path the lock is cleared out-of-band by the daemon's stale-lock backstop, since that child has no Bash — so `last-wrap` is the child's last write.
 
 <!-- ACCEPTED cross-version window: during an in-place upgrade where old-code sessions use .agentic/wrap.lock and new-code sessions use .agentic/wrap/lock, two sessions may hold different lock paths concurrently. This race is bounded to a transient recency-label discrepancy in context.md (a convenience label, not committed work). It self-heals on the next clean SessionStart. No lost-update of committed work occurs; the window is accepted and documented. -->
 
