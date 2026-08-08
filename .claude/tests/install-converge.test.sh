@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Purpose: Tests for .claude/install.sh symlink-convergence, guarded
-#          repo_dir write (Changes 1-3 in the converging-symlinks PR), and
-#          the legacy path-scoped Write() permission-rule migration.
+#          repo_dir write (Changes 1-3 in the converging-symlinks PR), the
+#          legacy path-scoped Write() permission-rule migration, the
+#          CLAUDE.md managed-block template read (DS-143), the
+#          SKILL_LINK_OK gate on that rewrite, and the skill_auto_load
+#          migration for pre-trigger-loaded installs.
 #
 # Public API: bash .claude/tests/install-converge.test.sh
 #             Exits 0 on all pass, non-zero on any failure.
@@ -15,8 +18,8 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~30 s wall time (12 install.sh invocations after this change,
-#              up from 11; each runs two full adapter builds against the
+# Performance: ~55 s wall time (19 install.sh invocations as of the DS-143
+#              cases (i)-(m); each runs two full adapter builds against the
 #              real checkout).
 #
 # Regression coverage:
@@ -58,6 +61,41 @@
 #     narrowed, at the cost of leaving Claude Code's startup warning about
 #     the inert scoped rule in place for that edge case. The install
 #     output reports added rules, not a legacy-rule removal.
+#   - Case (i) (DS-143): a real (non-dry-run) run with SKILL_LINK_OK=true
+#     rewrites the CLAUDE.md managed block from content read out of
+#     content/templates/claude-managed-content.md - the block contains no
+#     @skills/agentic-engineering import, and its body byte-equals the
+#     template's content after the template's first manifest-comment
+#     terminator. Mutation-tested: reddens when template_body is swapped
+#     for a hardcoded string, proving install.sh genuinely reads the file.
+#   - Case (j) (DS-143): a real run with SKILL_LINK_OK=false (symlink
+#     points outside any methodology checkout) leaves both CLAUDE.md and
+#     agentic-engineering.json byte-identical, and prints a skip line
+#     naming SKILL_LINK_REASON.
+#   - Case (k) (DS-143): --dry-run touches neither file, under two
+#     genuinely different SKILL_LINK_OK states - a pre-existing correctly
+#     -pointed skill symlink (SKILL_LINK_OK=true going in) and a bad
+#     symlink (SKILL_LINK_OK=false) - so the case exercises both the
+#     AE_DRY_RUN and SKILL_LINK_OK arms of the rewrite gate rather than
+#     only ever landing in the SKILL_LINK_OK=false branch.
+#   - Case (l) (DS-143): an old managed block still carrying the
+#     @skills/agentic-engineering import lines gets skill_auto_load
+#     migrated to true in the SAME run that strips the imports, while
+#     mode/profile/set_at survive untouched (via _run_install_bare, which
+#     avoids the installer's unrelated, always-on set_at refresh so the
+#     assertion isolates the migration's own effect).
+#   - Case (m) (DS-143): NEGATIVE CONTROL for a migration-detector scope
+#     defect - the old import string present ONLY OUTSIDE the managed
+#     block (e.g. a user's own notes) with skill_auto_load pre-set false
+#     must stay false across TWO consecutive runs. Reproduces a fix-pass-1
+#     Skeptic finding: scanning the whole file for the marker string
+#     (instead of only the captured old block) re-fires on every run and
+#     clobbers a deliberate false forever.
+#   - Case (n) (DS-143): a template whose body is empty after its manifest
+#     comment (a manifest-only file) aborts the run (rc != 0) rather than
+#     writing a degenerate `<!-- BEGIN ... -->\n\n<!-- END ... -->` block;
+#     CLAUDE.md is left untouched (absent, in this fixture) so a user's
+#     pre-existing imports are never destroyed by a bad template.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -810,16 +848,23 @@ rm -rf "$FAKE_HOME"
 
 # ---------------------------------------------------------------------------
 # Case (k): --dry-run touches neither CLAUDE.md nor agentic-engineering.json,
-#           under both link states (fresh dst = would-succeed, and bad
-#           symlink = would-fail).
+#           under two genuinely different SKILL_LINK_OK states. "fresh" here
+#           means a symlink ALREADY correctly pointed at SKILLS_SRC pre-run
+#           (install.sh's "already linked" branch, which leaves SKILL_LINK_OK
+#           true even under --dry-run) - NOT an absent dst, which --dry-run
+#           never creates and so always yields SKILL_LINK_OK=false. Without
+#           a pre-linked symlink both loop iterations land in the same
+#           SKILL_LINK_OK=false branch and the "under both link states"
+#           claim is untested (only re-verifies what cases (e)/(e2) cover).
 # ---------------------------------------------------------------------------
 
 for _ae_link_state in fresh bad; do
   FAKE_HOME="$(mktemp -d)"
-  mkdir -p "$FAKE_HOME/.claude"
+  mkdir -p "$FAKE_HOME/.claude/skills"
   if [[ "$_ae_link_state" == "bad" ]]; then
-    mkdir -p "$FAKE_HOME/.claude/skills"
     ln -s "/tmp/ds143-outside-checkout" "$FAKE_HOME/.claude/skills/agentic-engineering"
+  else
+    ln -s "$REPO_DIR/.claude/skills/agentic-engineering" "$FAKE_HOME/.claude/skills/agentic-engineering"
   fi
   printf '%s\n' "$OLD_BLOCK_IN_MARKERS" > "$FAKE_HOME/.claude/CLAUDE.md"
   cat > "$FAKE_HOME/.claude/agentic-engineering.json" <<'EOF'
@@ -946,6 +991,48 @@ if [[ "$skill_auto_load_run2" == "False" ]]; then
   _pass "case (m): skill_auto_load stays False after run 2 (does not re-fire)"
 else
   _fail "case (m): skill_auto_load became '$skill_auto_load_run2' after run 2 (migration scope defect - re-fired)"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (n): a template whose body is empty after its manifest comment (a
+#           manifest-only file, no "## Skill Loading" content or anything
+#           else) aborts the run rather than writing a degenerate managed
+#           block. Mutates the REAL template file in place for the duration
+#           of this case only; always restored from a backup before the
+#           case returns, on both the pass and fail paths.
+# ---------------------------------------------------------------------------
+
+TEMPLATE_BACKUP="$(mktemp)"
+cp "$TEMPLATE_PATH" "$TEMPLATE_BACKUP"
+cat > "$TEMPLATE_PATH" <<'EOF'
+<!--
+Manifest only - no body after this comment.
+-->
+EOF
+
+FAKE_HOME="$(mktemp -d)"
+_run_install "$FAKE_HOME"
+_ae_n_rc=$?
+
+cp "$TEMPLATE_BACKUP" "$TEMPLATE_PATH"
+rm -f "$TEMPLATE_BACKUP"
+
+if [[ "$_ae_n_rc" -ne 0 ]]; then
+  _pass "case (n): empty-body template aborts the run (rc=$_ae_n_rc)"
+else
+  _fail "case (n): empty-body template did not abort the run (rc=0)"
+fi
+if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
+  _pass "case (n): no CLAUDE.md written for an empty-body template"
+else
+  _fail "case (n): CLAUDE.md was written despite an empty-body template"
+fi
+if grep -Fq "has no body after its manifest comment" "$FAKE_HOME/.install_out"; then
+  _pass "case (n): install output names the empty-body reason"
+else
+  _fail "case (n): install output did not name the empty-body reason"
 fi
 
 rm -rf "$FAKE_HOME"

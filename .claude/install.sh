@@ -1120,17 +1120,23 @@ if os.path.islink(target):
 # dormant across the switch. A user who deliberately sets
 # skill_auto_load=false AFTER migrating is never touched - by then the old
 # block (and its marker string) no longer exists anywhere.
+#
+# Checked ALL matches, not just the first: pattern.sub() below (no count=)
+# rewrites EVERY managed block in the file, so detection must scan every
+# one too - a file with two well-formed blocks (new-format first, old
+# -format second) would otherwise strip the second block's imports while
+# migrating stayed False, since search() only inspects the first match.
 pattern = re.compile(
     r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
     re.DOTALL
 )
-old_block_match = pattern.search(existing)
-if old_block_match:
-    migrating = "@skills/agentic-engineering/METHODOLOGY.md" in old_block_match.group(0)
-else:
-    migrating = False
+old_block_matches = list(pattern.finditer(existing))
+migrating = any(
+    "@skills/agentic-engineering/METHODOLOGY.md" in m.group(0)
+    for m in old_block_matches
+)
 
-if old_block_match:
+if old_block_matches:
     updated = pattern.sub(managed_content, existing)
     with open(target, "w") as f:
         f.write(updated)
