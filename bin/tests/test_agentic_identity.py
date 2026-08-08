@@ -3486,7 +3486,7 @@ def test_activation_preflight_uses_one_bounded_identity_resolver():
             section = section[:next_section]
         if "/.codex/" in str(path):
             assert (
-                'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" agentic-identity '
+                'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" ds-identity '
                 'resolve-hook --cwd "$AE_PROJECT_DIR"'
             ) in section, path
         else:

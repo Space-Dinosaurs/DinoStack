@@ -201,8 +201,11 @@ if declare -f _ae_setup_identity >/dev/null; then
   echo "Developer identity..."
   _ae_setup_identity
   _ae_identity_guidance
-  echo "  (ds-identity binaries are wired by other adapters e.g. .claude or .codex."
-  echo "   If not on PATH, run 'ds-identity init <handle>' after installing another adapter.)"
+  echo "  (Hermes does not link any bin/ tools itself - 'ds-identity' commands come"
+  echo "   from another adapter's install, e.g. .claude or .codex. If you already"
+  echo "   have that adapter's 'agentic-identity' compat alias on PATH, use it"
+  echo "   directly - it resolves to the same binary. Otherwise, install one of"
+  echo "   those adapters, then re-run 'ds-identity init <handle>' here.)"
 fi
 
 # ---------------------------------------------------------------------------

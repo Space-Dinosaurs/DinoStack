@@ -39,7 +39,16 @@
 #     handed to the real .claude/install.sh. Asserts identity setup
 #     actually proceeds (does not hit the "ds-identity not found on PATH"
 #     skip branch) once ae_install_bins has had a chance to link ds-identity
-#     onto PATH first.
+#     onto PATH first. Two further POSITIVE assertions (not just absence of
+#     the bad message) confirm the identity block genuinely executed: the
+#     "Developer identity..." header is present, and one of
+#     _ae_setup_identity's real branch-outcome messages (identity set to /
+#     already set / setup skipped / init failed / non-interactive skip) is
+#     present. Absence-only checking cannot distinguish "identity ran and
+#     proceeded" from "the identity block never executed at all", and
+#     degrades silently if that message is reworded; these two assertions
+#     close that gap. (T1 already backstops outright deletion of the
+#     ordering, so the pair as a whole is not vacuous.)
 
 set -uo pipefail
 
@@ -135,6 +144,37 @@ EOF
     echo "------------------------------" >&2
   else
     _pass "T2: identity setup did not hit the 'ds-identity not found on PATH' skip branch - proceeded"
+  fi
+
+  # Positive assertions (not just absence-of-the-bad-message): confirm the
+  # identity block actually EXECUTED and reached a real _ae_setup_identity
+  # decision branch, rather than e.g. the whole "Developer identity" section
+  # silently never running at all (which T1's absence-based check alone
+  # cannot distinguish from "ran and proceeded" - see MINOR 3). T1 backstops
+  # outright deletion of the ordering; these two backstop the block's own
+  # non-execution or a silently-reworded header/branch message.
+  if echo "$OUT" | grep -q 'Developer identity\.\.\.'; then
+    _pass "T2: 'Developer identity...' header present - the identity block ran"
+  else
+    _fail "T2: 'Developer identity...' header not found in install.sh output - identity block did not run at all"
+    echo "----- install.sh output -----" >&2
+    echo "$OUT" >&2
+    echo "------------------------------" >&2
+  fi
+
+  # One of _ae_setup_identity's 7 branch-outcome messages (identity.sh) must
+  # appear - proves the function reached and printed a real decision, not
+  # just an empty/no-op invocation. In this fake, non-TTY-but-not-actually-
+  # readable HOME, the expected outcome is branch 5 or 7's skip message
+  # ("identity setup skipped"); the full alternation also covers the other
+  # outcomes so this stays valid if the harness environment changes.
+  if echo "$OUT" | grep -qE "identity (set to|already set|setup skipped|init failed)|non-interactive install: skipped identity setup"; then
+    _pass "T2: a real _ae_setup_identity branch-outcome message is present"
+  else
+    _fail "T2: no recognizable _ae_setup_identity branch-outcome message found - the block may have run without reaching a real decision branch"
+    echo "----- install.sh output -----" >&2
+    echo "$OUT" >&2
+    echo "------------------------------" >&2
   fi
 
   if [[ -L "$FAKE_HOME/.local/bin/ds-identity" ]]; then

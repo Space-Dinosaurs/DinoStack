@@ -44,7 +44,7 @@ For detailed protocol specs (Skeptic loop, subagent protocol, agent team), see t
 
 ## Activation preflight
 
-Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" agentic-identity resolve-hook --cwd "$AE_PROJECT_DIR"` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `$AE_REPO_DIR/bin/agentic-migrate` scaffolding sync.
+Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" ds-identity resolve-hook --cwd "$AE_PROJECT_DIR"` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `$AE_REPO_DIR/bin/agentic-migrate` scaffolding sync.
 
 1. **Read the global mode and profile.** Load `$AE_SHARED_CONFIG_DIR/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default` (see the deprecated legacy preset subsection below for the fallback path when `profile` is genuinely absent rather than merely invalid).
 
@@ -725,11 +725,11 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 ```
 IDENTITY: tracking handle '<handle>' auto-derived (provisional) - confirm or correct.
 Telemetry is buffered (not lost) until confirmed.
-  Confirm (global/project): agentic-identity confirm --scope <global|project>
-  Correct (global/project): agentic-identity init <handle> --force --scope <global|project>
-  Show (profile): agentic-identity show --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
-  Confirm (profile): agentic-identity confirm --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
-  Correct (profile): agentic-identity init <handle> --force --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
+  Confirm (global/project): ds-identity confirm --scope <global|project>
+  Correct (global/project): ds-identity init <handle> --force --scope <global|project>
+  Show (profile): ds-identity show --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
+  Confirm (profile): ds-identity confirm --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
+  Correct (profile): ds-identity init <handle> --force --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"
 ```
 
 Profile commands use the active config binding; add `--profile-dir <dir>` only when absent. The notice re-surfaces until confirmation. Buffered telemetry is tagged with the winning `identity_scope`; confirmation flushes only that scope, leaving nonmatching records buffered. See `$AE_REPO_DIR/content/commands/ds-identity.md`.

@@ -483,7 +483,7 @@
     },
     {
       "expected_target": "spawn_agent",
-      "generated_token": "**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an\nisolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):\n\n1. `git fetch origin`.\n2. Resolve `BASE_BRANCH` with\n   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch \"$AE_PROJECT_DIR\"`. This applies the\n   canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in\n   project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),\n   then local `develop`, then local `development`. Multiple matching declarations are rejected as\n   ambiguous. If none exists, the helper fails closed; ask the operator whether to use `main`\n   (recommended, falling back to `master`) or establish a develop-based workflow, exactly as\n   required by the base-branch resolution protocol.\n3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.\n4. Run `git worktree add \"$AE_PROJECT_DIR/.agentic/worktrees/<branch>\" -b \"<branch>\" \"origin/$BASE_BRANCH\"`.\n5. Load the named role instructions with\n   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.\n6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the\n   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role\n   instructions plus the execution contract. The spawned agent must use shell commands in that\n   worktree and must not edit the conductor checkout.\n\nCodex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and\nwait operations to collect completion, and applies the existing review gates to the returned diff.\nClaude hook payload fields and Claude Task behavior do not apply on Codex.",
+      "generated_token": "**Codex spawn contract.** Delegate with `spawn_agent` only. Before any spawn that needs an\nisolated checkout, run the following from the invoked project root (`$AE_PROJECT_DIR`):\n\n1. `git fetch origin`.\n2. Resolve `BASE_BRANCH` with\n   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch \"$AE_PROJECT_DIR\"`. This applies the\n   canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in\n   project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),\n   then local `develop`, then local `development`. Multiple matching declarations are rejected as\n   ambiguous. If none exists, the helper fails closed; ask the operator whether to use `main`\n   (recommended, falling back to `master`) or establish a develop-based workflow, exactly as\n   required by the base-branch resolution protocol.\n3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.\n4. Run `git worktree add \"$AE_PROJECT_DIR/.agentic/worktrees/<branch>\" -b \"<branch>\" \"origin/$BASE_BRANCH\"`.\n5. Load the named role instructions with\n   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.\n6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the\n   message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role\n   instructions plus the execution contract. The spawned agent must use shell commands in that\n   worktree and must not edit the conductor checkout.\n\nCodex spawns are asynchronous. The conductor remains responsive, uses the collaboration status and\nwait operations to collect completion, and applies the existing review gates to the returned diff.\nClaude hook payload fields and Claude Task behavior do not apply on Codex.",
       "kind": "operational",
       "occurrence_hash": "41bb21800fc6e41b7184aa2043d3c32228418dd45ebcf40d79c12e24bddb3098",
       "resolution_mode": "codex-spawn-contract",
@@ -563,7 +563,7 @@
     },
     {
       "expected_target": "AE_CODEX_CONFIG_DIR",
-      "generated_token": "AGENTIC_CONFIG_DIR=\"$AE_CODEX_CONFIG_DIR\" agentic-identity resolve-hook --cwd \"$AE_PROJECT_DIR\"",
+      "generated_token": "AGENTIC_CONFIG_DIR=\"$AE_CODEX_CONFIG_DIR\" ds-identity resolve-hook --cwd \"$AE_PROJECT_DIR\"",
       "kind": "operational",
       "occurrence_hash": "4820d81844ed4be0a1b1ce3ffbc6151b3309a22926ff96c6d55e0268b0a4b7e2",
       "resolution_mode": "validated-config-path",
@@ -933,7 +933,7 @@
     },
     {
       "expected_target": "content/commands/ds-skeptic.md",
-      "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic`",
+      "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic`",
       "kind": "operational",
       "occurrence_hash": "71e3e00ce7dd464fc0db2a5e225666b26df047c5920444e4028fc8d4a6d7f389",
       "resolution_mode": "manual-command-resource",
@@ -1193,7 +1193,7 @@
     },
     {
       "expected_target": "content/commands/ds-update-agentic-engineering.md",
-      "generated_token": "manual workflow 'ds-update-agentic-engineering' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-update-agentic-engineering`",
+      "generated_token": "manual workflow 'ds-update-agentic-engineering' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-update-agentic-engineering`",
       "kind": "operational",
       "occurrence_hash": "9251d135ffb518e05dd07e04ea30dcf27689b11a32b43b89f5cc737ea81b0ed5",
       "resolution_mode": "manual-command-resource",
@@ -1533,7 +1533,7 @@
     },
     {
       "expected_target": "references/skeptic-protocol.md#section-12",
-      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
+      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
       "kind": "operational",
       "occurrence_hash": "b2dd45ec1a0cacf6e106b1b53d5ce4c49297c321e18aa911f62d81d503cee67c",
       "resolution_mode": "cleanup-resource-contract",
@@ -1683,7 +1683,7 @@
     },
     {
       "expected_target": "content/commands/ds-skeptic.md",
-      "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic`",
+      "generated_token": "manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic`",
       "kind": "operational",
       "occurrence_hash": "c5f77e7da0481897747a25e2947c2bd54ba8430e8fe24b6355cb7b31a72e7e84",
       "resolution_mode": "manual-command-resource",
@@ -1703,7 +1703,7 @@
     },
     {
       "expected_target": "references/skeptic-protocol.md#section-12",
-      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
+      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
       "kind": "operational",
       "occurrence_hash": "c9388acc602bbd82416516535c191cb1fdfc51c38c9414e041354c2def7f9d03",
       "resolution_mode": "cleanup-resource-contract",
@@ -1713,7 +1713,7 @@
     },
     {
       "expected_target": "content/commands/ds-cleanup-worktrees.md",
-      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-cleanup-worktrees`",
+      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees`",
       "kind": "operational",
       "occurrence_hash": "ca3d1304b093d99879e9d63945a6af88adc11ecfd044bad436b77dd1bf6bff2b",
       "resolution_mode": "manual-command-resource",
@@ -1983,7 +1983,7 @@
     },
     {
       "expected_target": "references/skeptic-protocol.md#section-12",
-      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
+      "generated_token": "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)",
       "kind": "operational",
       "occurrence_hash": "ee4ad8ae3b30e47cdd854af128f03964ed1fa8882503b1ee7fca736009cab185",
       "resolution_mode": "cleanup-resource-contract",
@@ -2093,7 +2093,7 @@
     },
     {
       "expected_target": "content/commands/ds-status.md",
-      "generated_token": "manual workflow 'ds-status' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-status`",
+      "generated_token": "manual workflow 'ds-status' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-status`",
       "kind": "operational",
       "occurrence_hash": "051f126d1483eb4ba6a19f4ef48b640058955f48a6d8dfb992c21fb043cc6a06",
       "resolution_mode": "manual-command-resource",
@@ -2183,7 +2183,7 @@
     },
     {
       "expected_target": "content/commands/ds-help.md",
-      "generated_token": "manual workflow 'ds-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-help`",
+      "generated_token": "manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-help`",
       "kind": "operational",
       "occurrence_hash": "882e1f749b01c3eb3e79e2212f9901a762d0964a3b1d474042ee826700d432cc",
       "resolution_mode": "manual-command-resource",
@@ -2193,7 +2193,7 @@
     },
     {
       "expected_target": "content/commands/ds-help.md",
-      "generated_token": "manual workflow 'ds-help' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-help`",
+      "generated_token": "manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-help`",
       "kind": "operational",
       "occurrence_hash": "9269202547770aa38126763577e96dd15686426e0d5d3ffa2d64f0d1fb3ce479",
       "resolution_mode": "manual-command-resource",
@@ -2243,7 +2243,7 @@
     },
     {
       "expected_target": "content/commands/ds-update.md",
-      "generated_token": "manual workflow 'ds-update' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-update`",
+      "generated_token": "manual workflow 'ds-update' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-update`",
       "kind": "operational",
       "occurrence_hash": "af8f60f4e1b3b86acd12e767fb41a16a0b51ef82d6367acbbe61119f54f18421",
       "resolution_mode": "manual-command-resource",
@@ -3132,7 +3132,7 @@
       "source_token": "grep"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "07cfc12cbd2f6f1bd59e575e8c4e6db013d381f4a65fe401691942e2e943b8ef",
@@ -3272,7 +3272,7 @@
       "source_token": "content/references/skeptic-protocol.md"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "0a43088a582e67a7ac1e60fcb4cf9b86d120fbc847ad9cce59c133ff9362f852",
@@ -3442,7 +3442,7 @@
       "source_token": "-C"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "0e3418cee829c60cdc9834628b198238b132c01ebe35e3662cfcd3bd259e3ae2",
@@ -4313,7 +4313,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "1f85c1fafcb7d0b07df07419214b578d337dace5a0c2151076789eec13079343",
       "resolution_mode": "manual-command-resource",
@@ -4553,7 +4553,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "2416262dbdea56dc777e1c97b2ca8b4c1218c0cf59411beec0c0e62b9b4e066d",
       "resolution_mode": "manual-command-resource",
@@ -4663,7 +4663,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "261eb00a061c25e93cb236a183f78fe0611eb08e7b71f6b6386d52df10213dd0",
       "resolution_mode": "manual-command-resource",
@@ -5253,7 +5253,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "2f2e8aebd99563e032b5a053ba5fc9270699def0e84e5c750c82af0992c28c36",
       "resolution_mode": "manual-command-resource",
@@ -5973,7 +5973,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "3cbed8fe3742d3cfcfcd1e537428c44ef5fda604dce496542974755fd729033f",
       "resolution_mode": "manual-command-resource",
@@ -6173,7 +6173,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "3fa99388c477a886dead1fdb47ad0005285e51ed64b66e22079122c0b550b7bc",
       "resolution_mode": "manual-command-resource",
@@ -7013,7 +7013,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "4d36cf1020c1521e89be8cb2f18b1b53be730359f1de7830b974a9c87747124a",
       "resolution_mode": "manual-command-resource",
@@ -7202,7 +7202,7 @@
       "source_token": "~/DinoStack/.claude/skills/agentic-engineering"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "512e8af13ff4ad7f1cb5915ffbc063b7052e0c9e48a0ad1e675065cd1fae5d00",
@@ -7403,7 +7403,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "5629b31a12e226b27c6867ae34412569fb310fccdc9c21edff755606051cf9cb",
       "resolution_mode": "manual-command-resource",
@@ -7923,7 +7923,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "5e3fcc7387d2d0ef09d779a1e7187a9f90cfd29ba4bce45fe3997f5a40603271",
       "resolution_mode": "manual-command-resource",
@@ -7952,7 +7952,7 @@
       "source_token": ".agentic/loop-state.json"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "5eaf67ee263de1c15052799e7547365d29bcd56b8b5e566b55568f7b6e52ea51",
@@ -8152,7 +8152,7 @@
       "source_token": "case"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "623a1adc556792037bdf54d7e94d8e9b8605dc1982fc62def9ebf3089b1bf73c",
@@ -8263,7 +8263,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "63e7122e03cd3449f27cbca995205c05b0799476ce06497e988f2e1093311a1e",
       "resolution_mode": "manual-command-resource",
@@ -8373,7 +8373,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "65ca18f3ca13706d1f5fea5b10b73be5335cbf5e037ccc98700a0a158362470e",
       "resolution_mode": "manual-command-resource",
@@ -9152,7 +9152,7 @@
       "source_token": ".agentic/loop-state-"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "74518df6e5cc7a93ff01e1ee6d6adb4a08d60695e7c26027a0de07e03779baa2",
@@ -10672,7 +10672,7 @@
       "source_token": "/tmp"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "9303a6e57ad0c72e0b97e85f521efa0445fe6536ab68508d4356eea887f85dba",
@@ -10803,7 +10803,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "957b493c39d2a9b7b7a1b89a83ec093c1500d7a58dcaba681be78f6281732df6",
       "resolution_mode": "manual-command-resource",
@@ -10943,7 +10943,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "98d3955db1b27c123244a88aebb95eb67114f5d7ac27660044e85cee26ddb7a8",
       "resolution_mode": "manual-command-resource",
@@ -11953,7 +11953,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "a691b88f7f93bcf5969f298288b7fa7db292f73f9a5b9e5991bc35572aaf8951",
       "resolution_mode": "manual-command-resource",
@@ -12763,7 +12763,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "b61f7f6a7091683c1e3a563a7e894a6c5d6c1f80b1f70fa74771f6f31da752d8",
       "resolution_mode": "manual-command-resource",
@@ -12803,7 +12803,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "b737e13bbdb1c94e4fb95a4f27a31a22da3047455a33b37fafdce5134e768f8c",
       "resolution_mode": "manual-command-resource",
@@ -13103,7 +13103,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "bcfea6cf12d8a2217fbd4d605bca486e4d01cdf86d22d3b8f37454b6f9fc2db9",
       "resolution_mode": "manual-command-resource",
@@ -13123,7 +13123,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "bd471bda7db299011d76268fa58015f7da3164752176c331efbc2ca77b743ca6",
       "resolution_mode": "manual-command-resource",
@@ -13342,7 +13342,7 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "c0afe16c313c892461564dc38dc199ba38f85298ac7bc67e43ef7f3b9a4ddd68",
@@ -14043,7 +14043,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "cb37eb35520b53c9f9f422d9e7e0a95e023c1f883678d6daad5acfbbdada823f",
       "resolution_mode": "manual-command-resource",
@@ -15452,7 +15452,7 @@
       "source_token": "then"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "e48dc5ec690d67615a4a03906bb8830a2e39f0f89cea12b0dc020ba74448f94b",
@@ -15463,7 +15463,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "e4d68f96b96d78e55f494d09178a9f5ba2032b9c382069a0946174a721bba5b0",
       "resolution_mode": "manual-command-resource",
@@ -16273,7 +16273,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "f1bc990f382e5aaa2def3949f035b31f3b50b29d5362bc0bde208bb80629b489",
       "resolution_mode": "manual-command-resource",
@@ -16602,7 +16602,7 @@
       "source_token": "hooks/enforce-tier.py"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "f8196c7ef1fd5698f072419de764680eeb34b9c591c762002c2c679ca4807178",
@@ -17133,7 +17133,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-triage.md",
-      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-triage`",
+      "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
       "occurrence_hash": "ff6093a4cf76bca1b1b49b025c25b87f27480cea8068a77f17d96ef5c7a5b23f",
       "resolution_mode": "manual-command-resource",
@@ -17193,7 +17193,7 @@
     },
     {
       "expected_target": "content/commands/ds-cleanup-worktrees.md",
-      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-cleanup-worktrees`",
+      "generated_token": "manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees`",
       "kind": "operational",
       "occurrence_hash": "04eeed7854adae97a2edab83ed3a53b8a50708fe34d1c7efc4fcaee8540db387",
       "resolution_mode": "manual-command-resource",
@@ -17253,7 +17253,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "09e4bd986f45aefef6d86ea1b4997791cac87b4ed4ff8c6510e5897110b19c0e",
       "resolution_mode": "manual-command-resource",
@@ -17293,7 +17293,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "0b932d5b967c72c74e75acda7933cdb3e58560bb5b0702bef8354661dd69a3c0",
       "resolution_mode": "manual-command-resource",
@@ -17433,7 +17433,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "17fb1c82f31077cf22347cf3cc48143b401c591d5b1237b8571f544b889e9b74",
       "resolution_mode": "manual-command-resource",
@@ -17442,8 +17442,8 @@
       "source_token": "`/ds-init-project`"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
-      "generated_token": "5. **`--session-id` is the liveness signal for an interactive hold, and it is why an abandoned lock is no longer immortal.** A `--role=agent` descriptor carries `pid: null` by construction, so there is no process to liveness-check; without a session id the helper's verdict for such a lock is `live` FOREVER. Pass `--session-id=\"$AE_SESSION_ID\"` at BOTH acquisition sites above, keeping the flag on the SAME LINE as the invocation. Use `AE_SESSION_ID` only. It is the Codex session binding derived by passing hook JSON to `$AE_REPO_DIR/bin/agentic-codex-session-id`. The flag is soft: an unset variable expands to an empty value, the helper publishes `session_id: null`, acquisition still succeeds, and the lock falls back to a pid-blind age rule - degraded, never stealing a live hold. If session-ID derivation yields no identifier, the documented empty-value fallback applies.\n\n",
+      "expected_target": "bin/ds-codex-session-id",
+      "generated_token": "5. **`--session-id` is the liveness signal for an interactive hold, and it is why an abandoned lock is no longer immortal.** A `--role=agent` descriptor carries `pid: null` by construction, so there is no process to liveness-check; without a session id the helper's verdict for such a lock is `live` FOREVER. Pass `--session-id=\"$AE_SESSION_ID\"` at BOTH acquisition sites above, keeping the flag on the SAME LINE as the invocation. Use `AE_SESSION_ID` only. It is the Codex session binding derived by passing hook JSON to `$AE_REPO_DIR/bin/ds-codex-session-id`. The flag is soft: an unset variable expands to an empty value, the helper publishes `session_id: null`, acquisition still succeeds, and the lock falls back to a pid-blind age rule - degraded, never stealing a live hold. If session-ID derivation yields no identifier, the documented empty-value fallback applies.\n\n",
       "kind": "operational",
       "occurrence_hash": "18ab3f0209bf528101a6b0308491534818a44b765fe817c1892e6a181fbe2a8c",
       "resolution_mode": "runtime-helper",
@@ -17623,7 +17623,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "26bc5e6536db0d21ec911915c3e344800949112a15ad4493cee35503be737358",
       "resolution_mode": "manual-command-resource",
@@ -17662,7 +17662,7 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "2ac31381ad956496f2d0a05491613ef0aee86a2fa013f933324bccf72afb30ac",
@@ -17672,7 +17672,7 @@
       "source_token": "$CLAUDE_CODE_SESSION_ID"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "2ac31381ad956496f2d0a05491613ef0aee86a2fa013f933324bccf72afb30ac",
@@ -18363,7 +18363,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "58efda9863bc7c12cc856eda26fa1ca2e265d8be9cd90cbf6da15a94d9d84628",
       "resolution_mode": "manual-command-resource",
@@ -18383,7 +18383,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "59f041c7e1c89c72dc1eecb9f1f3aa6eb8509529fdc16ca6d493b768b4dd3271",
       "resolution_mode": "manual-command-resource",
@@ -18653,7 +18653,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "6af7f1059bd9b92c11c25f9ff56ab2f2774e1e1848d2129bd0e10f934d0ddd2e",
       "resolution_mode": "manual-command-resource",
@@ -18843,7 +18843,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "7751c06481e51fd11fe8c594798724bb8e9861102dd98b8c71d4ad9231c70dc5",
       "resolution_mode": "manual-command-resource",
@@ -18872,7 +18872,7 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "7b3040805d9637a8be6f082c8e819cd6faa22d68e842ccf99972deca62ec5702",
@@ -18933,7 +18933,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "7f62195843a61b9ae8fbf5ecdc6176ac399c02f9185fe44ae3269d9898cf36b3",
       "resolution_mode": "manual-command-resource",
@@ -19392,7 +19392,7 @@
       "source_token": "Write"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "a44fa79c8a9e3b67978bdb435b1481bffc48a051ee2db348067edd99543fe4cb",
@@ -19423,7 +19423,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "a68df6581f4803eb84fcbf4c793b597792d5ee8233de4d5b96950cf81d3fa97b",
       "resolution_mode": "manual-command-resource",
@@ -19553,7 +19553,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "b0afc8dfbccc1efc3688f7ef7a751aba737f7e42b5541bf5a397d5168493e6cb",
       "resolution_mode": "manual-command-resource",
@@ -19952,7 +19952,7 @@
       "source_token": "~/.claude"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "c57d14cffcad7ff0e84858ec46f895209b13a869e7d7ec0068d430e909b2e6cc",
@@ -20033,7 +20033,7 @@
     },
     {
       "expected_target": "content/commands/ds-wrap-deferred.md",
-      "generated_token": "manual workflow 'ds-wrap-deferred' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-wrap-deferred`",
+      "generated_token": "manual workflow 'ds-wrap-deferred' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-wrap-deferred`",
       "kind": "operational",
       "occurrence_hash": "cb1c929577571e7ce020b8272d959832d8b49b7c332fce7fae4624cd308ee73b",
       "resolution_mode": "manual-command-resource",
@@ -20102,7 +20102,7 @@
       "source_token": "The Stop hook writes this session's `<cwd>/.agentic/context.d/<session_id>.md` activity shard after every turn with raw session data, then recomposes the derived `<cwd>/.agentic/context.md` rollup from it. `/ds-wrap` merges a structured, human-curated version into `<cwd>/.agentic/_wrap.md` - the curated half of that rollup - when detail matters. Neither writes `context.md` directly. It is also the ongoing counterpart to `/ds-init-project`: where `/ds-init-project` scaffolds the AGENTS.md hierarchy, `/ds-wrap` populates it \u2014 filling in root and subdirectory AGENTS.md files with decisions, conventions, stack details, and gotchas learned during sessions."
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "ceb25bb61dc95ad2c6c4d24d5d2faeab209bd7680df57368fc72fb23a5f03bb1",
@@ -20173,7 +20173,7 @@
     },
     {
       "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-ticket-status-sync`",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
       "kind": "operational",
       "occurrence_hash": "d36d753b42da4f27472f70baddb9e0761f6dc3ef8080c3893a509145f6c1aa42",
       "resolution_mode": "manual-command-resource",
@@ -20192,7 +20192,7 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "d38d4e2e150b9d1623521391092ec715676302fa16ec57ba60392617c8b817ad",
@@ -20213,7 +20213,7 @@
     },
     {
       "expected_target": "content/commands/ds-wrap-deferred.md",
-      "generated_token": "manual workflow 'ds-wrap-deferred' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-wrap-deferred`",
+      "generated_token": "manual workflow 'ds-wrap-deferred' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-wrap-deferred`",
       "kind": "operational",
       "occurrence_hash": "d4b6e0bbbd2a05215027cd59c60649dcaeca3acaa56364953487db19a5ea5f31",
       "resolution_mode": "manual-command-resource",
@@ -20312,7 +20312,7 @@
       "source_token": "<cwd>/.agentic/_wrap.md"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "dd081c1d2ddca9bc3af665f537c7fa7324258a012f68babeed7a5286b3401e96",
@@ -20423,7 +20423,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "e5a963d03e93ff96acdb2d4b5da351671551c1f912054221c80b04cd5c1dbdb1",
       "resolution_mode": "manual-command-resource",
@@ -20543,7 +20543,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "ed5abb909f153a2dfcc1f1a312e7df62e17a24c175ad3535c67f1ace7fe8de1e",
       "resolution_mode": "manual-command-resource",
@@ -20563,7 +20563,7 @@
     },
     {
       "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
       "occurrence_hash": "ed7ebd79e21de137c29ec64207d24629f6702976b8463703dc0f593284267916",
       "resolution_mode": "manual-command-resource",
@@ -20802,7 +20802,7 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "fd30ef936cbf0e1f461460b175bf2588adca31ccf6b47202953fb29e0208cfce",
@@ -20822,7 +20822,7 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "bin/agentic-codex-session-id",
+      "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
       "occurrence_hash": "feeafcd45dc288a4bafe392a0c64eaac05bf7ed99558c1aaeed7894004324202",

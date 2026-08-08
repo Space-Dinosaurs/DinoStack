@@ -1728,7 +1728,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
                 f"generic profile identity guidance survived in {generated_path}",
             )
             for command in re.findall(
-                r"agentic-identity (?:show|confirm)[^\n`]*--scope profile[^\n`]*",
+                r"ds-identity (?:show|confirm)[^\n`]*--scope profile[^\n`]*",
                 content,
             ):
                 self.assertIn(
@@ -1737,11 +1737,11 @@ class CodexSkillGenerationTests(unittest.TestCase):
                     f"unpinned Codex profile identity command in {generated_path}",
                 )
         self.assertIn(
-            'agentic-identity show --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"',
+            'ds-identity show --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"',
             installed_agents,
         )
         self.assertIn(
-            'agentic-identity confirm --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"',
+            'ds-identity confirm --scope profile --profile-dir "$AE_CODEX_CONFIG_DIR"',
             installed_agents,
         )
         self.assertIn("$AE_CODEX_CONFIG_DIR/identity.yml", installed_agents)

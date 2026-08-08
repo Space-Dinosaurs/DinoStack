@@ -1017,7 +1017,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         (
             r"agentic-identity resolve-hook --cwd <cwd>",
             "codex-profile-identity-command",
-            'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" agentic-identity '
+            'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" ds-identity '
             'resolve-hook --cwd "$AE_PROJECT_DIR"',
             "validated-config-path",
             "profile-identity-command",
@@ -1075,15 +1075,15 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
             r"  Confirm: agentic-identity confirm --scope <scope>\n"
             r"  Correct: agentic-identity init <handle> --force --scope <scope>",
             "codex-profile-identity-command",
-            "  Confirm (global/project): agentic-identity confirm --scope "
+            "  Confirm (global/project): ds-identity confirm --scope "
             "<global|project>\n"
-            "  Correct (global/project): agentic-identity init <handle> --force "
+            "  Correct (global/project): ds-identity init <handle> --force "
             "--scope <global|project>\n"
-            "  Show (profile): agentic-identity show --scope profile --profile-dir "
+            "  Show (profile): ds-identity show --scope profile --profile-dir "
             "\"$AE_CODEX_CONFIG_DIR\"\n"
-            "  Confirm (profile): agentic-identity confirm --scope profile "
+            "  Confirm (profile): ds-identity confirm --scope profile "
             "--profile-dir \"$AE_CODEX_CONFIG_DIR\"\n"
-            "  Correct (profile): agentic-identity init <handle> --force --scope "
+            "  Correct (profile): ds-identity init <handle> --force --scope "
             "profile --profile-dir \"$AE_CODEX_CONFIG_DIR\"",
             "validated-config-path",
             "profile-identity-command",
