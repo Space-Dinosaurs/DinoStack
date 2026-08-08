@@ -4,12 +4,12 @@ Purpose: Lightweight memory-retrieval CLI for querying AE's existing data
          stores and returning a compact Markdown summary suitable for
          pasting into a prompt.
 
-Public API: agentic-memory query [keyword] [--since YYYY-MM-DD]
+Public API: ds-memory query [keyword] [--since YYYY-MM-DD]
                       [--until YYYY-MM-DD] [--type event_type]
                       [--agent agent_name] [--last N]
                       [--source MEMORY.md|events.jsonl|context.md]
                       [--topic topic] [--max-items N] [--max-chars N]
-            agentic-memory turns --last N   (N must be <= 200)
+            ds-memory turns --last N   (N must be <= 200)
 
 Retrieval caps: query output is bounded per source to at most 20 matched
                items and 8000 rendered characters by default. When a cap
@@ -464,7 +464,7 @@ def cmd_turns(args: argparse.Namespace) -> int:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="agentic-memory",
+        prog="ds-memory",
         description="Lightweight memory retrieval tool for querying .agentic/events.jsonl, MEMORY.md, and .agentic/context.md",
     )
     subparsers = parser.add_subparsers(dest="command")

@@ -7,11 +7,11 @@ Purpose: CLI for managing the home-dir feedback store (~/.agentic/feedback.jsonl
          methodology fixes.
 
 Public API:
-  agentic-feedback append --repo <path> --session-uuid <uuid> --file <path-to-json-array>
-  agentic-feedback list [--scope {project,methodology}] [--status {open,triaged,dismissed}]
+  ds-feedback append --repo <path> --session-uuid <uuid> --file <path-to-json-array>
+  ds-feedback list [--scope {project,methodology}] [--status {open,triaged,dismissed}]
                         [--repo <path>]
-  agentic-feedback mark --id <uuid> --status {open,triaged,dismissed}
-  agentic-feedback --help
+  ds-feedback mark --id <uuid> --status {open,triaged,dismissed}
+  ds-feedback --help
 
 Data model:
   ~/.agentic/feedback.jsonl: one JSON object per line.
@@ -95,9 +95,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
-# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-feedback ->
-# repo bin/agentic-feedback, as created by install.sh) back to the real
-# bin/ directory so _lib.py is found on a bare `agentic-feedback` invocation.
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-feedback ->
+# repo bin/ds-feedback, as created by install.sh) back to the real
+# bin/ directory so _lib.py is found on a bare `ds-feedback` invocation.
 import sys as _sys
 import importlib.util as _ilu
 import importlib.machinery as _ilm
@@ -131,7 +131,7 @@ def _ensure_lock_bootstrap() -> None:
     """Ensure LOCK_PATH and its parent dir exist before acquire_exclusive_lock.
 
     acquire_exclusive_lock opens the lock file in 'r' mode and requires it to
-    already exist - mirrors bin/agentic-identity's mkdir+touch bootstrap.
+    already exist - mirrors bin/ds-identity's mkdir+touch bootstrap.
     """
     LOCK_PATH.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     LOCK_PATH.touch(exist_ok=True)
@@ -161,7 +161,7 @@ def _read_store(warn_on_malformed: bool = False) -> list[dict]:
         except json.JSONDecodeError:
             if warn_on_malformed:
                 print(
-                    f"agentic-feedback: skipping malformed line {lineno} in "
+                    f"ds-feedback: skipping malformed line {lineno} in "
                     f"{FEEDBACK_PATH.name}",
                     file=sys.stderr,
                 )
@@ -194,24 +194,24 @@ def cmd_append(args: argparse.Namespace) -> int:
     try:
         raw = file_path.read_text(encoding="utf-8")
     except OSError as exc:
-        print(f"agentic-feedback: cannot read --file {file_path}: {exc}", file=sys.stderr)
+        print(f"ds-feedback: cannot read --file {file_path}: {exc}", file=sys.stderr)
         return 1
 
     try:
         drafts = json.loads(raw)
     except json.JSONDecodeError as exc:
-        print(f"agentic-feedback: --file {file_path} is not valid JSON: {exc}", file=sys.stderr)
+        print(f"ds-feedback: --file {file_path} is not valid JSON: {exc}", file=sys.stderr)
         return 1
 
     if not isinstance(drafts, list):
-        print(f"agentic-feedback: --file {file_path} must contain a JSON array", file=sys.stderr)
+        print(f"ds-feedback: --file {file_path} must contain a JSON array", file=sys.stderr)
         return 1
 
     accepted: list[dict] = []
     for idx, draft in enumerate(drafts):
         reason = _validate_draft(draft)
         if reason is not None:
-            print(f"agentic-feedback: skipping draft[{idx}]: {reason}", file=sys.stderr)
+            print(f"ds-feedback: skipping draft[{idx}]: {reason}", file=sys.stderr)
             continue
         now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         # CLI-owned fields (id, ts, status) always overwrite any caller-supplied
@@ -233,7 +233,7 @@ def cmd_append(args: argparse.Namespace) -> int:
 
     if not accepted:
         # Empty or all-invalid batch is a clean no-op, not an error.
-        print("agentic-feedback: no valid drafts to append (0 written)")
+        print("ds-feedback: no valid drafts to append (0 written)")
         return 0
 
     _ensure_lock_bootstrap()
@@ -244,10 +244,10 @@ def cmd_append(args: argparse.Namespace) -> int:
             with open(FEEDBACK_PATH, "a", encoding="utf-8") as f:
                 f.write(lines)
     except RuntimeError as exc:
-        print(f"agentic-feedback: {exc}", file=sys.stderr)
+        print(f"ds-feedback: {exc}", file=sys.stderr)
         return 1
     except OSError as exc:
-        print(f"agentic-feedback: write failed: {exc}", file=sys.stderr)
+        print(f"ds-feedback: write failed: {exc}", file=sys.stderr)
         return 1
 
     print(f"Appended {len(accepted)} feedback item(s).")
@@ -260,7 +260,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         with acquire_exclusive_lock(LOCK_PATH):
             rows = _read_store()
     except RuntimeError as exc:
-        print(f"agentic-feedback: {exc}", file=sys.stderr)
+        print(f"ds-feedback: {exc}", file=sys.stderr)
         return 1
 
     if args.scope is not None:
@@ -280,7 +280,7 @@ def cmd_mark(args: argparse.Namespace) -> int:
         with acquire_exclusive_lock(LOCK_PATH):
             if not FEEDBACK_PATH.is_file():
                 print(
-                    f"agentic-feedback: no feedback store at {FEEDBACK_PATH}",
+                    f"ds-feedback: no feedback store at {FEEDBACK_PATH}",
                     file=sys.stderr,
                 )
                 return 1
@@ -297,7 +297,7 @@ def cmd_mark(args: argparse.Namespace) -> int:
 
             if not matched:
                 print(
-                    f"agentic-feedback: no feedback item with id {args.id!r}",
+                    f"ds-feedback: no feedback item with id {args.id!r}",
                     file=sys.stderr,
                 )
                 return 1
@@ -306,10 +306,10 @@ def cmd_mark(args: argparse.Namespace) -> int:
             try:
                 atomic_write(FEEDBACK_PATH, content, mode=0o600)
             except Exception as exc:
-                print(f"agentic-feedback: write failed: {exc}", file=sys.stderr)
+                print(f"ds-feedback: write failed: {exc}", file=sys.stderr)
                 return 1
     except RuntimeError as exc:
-        print(f"agentic-feedback: {exc}", file=sys.stderr)
+        print(f"ds-feedback: {exc}", file=sys.stderr)
         return 1
 
     print(f"Marked {args.id} as {args.status}.")
@@ -318,7 +318,7 @@ def cmd_mark(args: argparse.Namespace) -> int:
 
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
-        prog="agentic-feedback",
+        prog="ds-feedback",
         description="Manage the home-dir feedback store (~/.agentic/feedback.jsonl).",
     )
     sub = p.add_subparsers(dest="cmd", required=True)

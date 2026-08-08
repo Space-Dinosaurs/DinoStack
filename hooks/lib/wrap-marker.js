@@ -90,8 +90,8 @@
  *                        cleanStalePending, acquireWrapLock, transitionDone/GaveUp - U3),
  *                        hooks/session-start-wrap.sh (self-heals the sentinel in bash;
  *                        ensureClaudeHost is the Node-callable equivalent, exported for
- *                        adapter use - U4), bin/agentic-wrap-acquire-lock (acquireWrapLock,
- *                        wrapLockVerdict, wrapLockPath), bin/agentic-wrap-release-lock
+ *                        adapter use - U4), bin/ds-wrap-acquire-lock (acquireWrapLock,
+ *                        wrapLockVerdict, wrapLockPath), bin/ds-wrap-release-lock
  *                        (releaseWrapLock, readWrapLockOwnerV2, wrapLockPath).
  *
  * Failure modes: Every function is fail-open and NEVER throws to a hook - all fs
@@ -1013,7 +1013,7 @@ function makeLockDescriptor({ role, pid = null, token = null, acquiredAt = null,
  * removes another holder's lock is the daemon-side clearProvablyStaleWrapLock.
  *
  * `owner` (when non-null) is written VERBATIM as the legacy 2-line body -
- * existing 3-arg callers (the daemon, agentic-wrap-acquire-lock) depend on
+ * existing 3-arg callers (the daemon, ds-wrap-acquire-lock) depend on
  * this untouched. `opts.role` (when present) additionally publishes a
  * schema-validated JSON descriptor via makeLockDescriptor - opts is fully
  * optional so 3-arg callers keep working unchanged. `staleMs` is retained

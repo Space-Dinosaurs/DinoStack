@@ -1,7 +1,7 @@
 """
 Purpose: Shared normalizer for role spec values used in agentic config files.
          Converts scalar-or-mapping role spec entries into a canonical dict
-         so both agentic-configure and agentic-team share identical parse logic.
+         so both ds-configure and ds-team share identical parse logic.
 
 Public API: normalize_role_spec(value) -> dict
             Input is either a plain string (scalar model id) or a dict with
@@ -20,7 +20,7 @@ Public API: normalize_role_spec(value) -> dict
 
 Upstream deps: Python 3.11 stdlib only.
 
-Downstream consumers: bin/agentic-configure, bin/agentic-team.
+Downstream consumers: bin/ds-configure, bin/ds-team.
 
 Failure modes: Invalid types (not str, not dict, not None/falsy) raise
                TypeError with a descriptive message. Missing "model" key in a
@@ -35,13 +35,13 @@ from __future__ import annotations
 _KNOWN_KEYS = frozenset({"model", "effort", "reasoning"})
 
 # Canonical set of known harness labels.  Single source of truth imported by
-# both agentic-configure and agentic-team; neither file declares its own copy.
+# both ds-configure and ds-team; neither file declares its own copy.
 KNOWN_HARNESSES: frozenset[str] = frozenset({
     "codex", "gemini", "cursor-agent", "kimi", "pi", "omp", "claude",
     "opencode", "copilot",
 })
 
-# Canonical set of known role names (mirrors ROLES in agentic-configure).
+# Canonical set of known role names (mirrors ROLES in ds-configure).
 KNOWN_ROLES: frozenset[str] = frozenset({
     "conductor", "investigator", "architect", "orchestration-planner",
     "engineer", "debugger", "qa-engineer", "skeptic", "security-auditor",
@@ -93,7 +93,7 @@ def resolve_reviewer_model(
       distinct-from-author pool/fallback chain.
     * ``round-robin``: rotate through ``pool`` starting at *rotation_index*
       (mod len), skipping the author's own model, then ``fallback``. The caller
-      supplies the durable index (see agentic-team's rotation cursor); when it
+      supplies the durable index (see ds-team's rotation cursor); when it
       is None round-robin degrades to distinct-from-author ordering.
 
     The distinct-from-author guarantee is applied at every step: a candidate

@@ -5,12 +5,12 @@
  * Purpose: Portable, permission-safe release of the /ds-wrap directory lock
  *          (.agentic/wrap/lock). Replaces the inline `rm -rf .agentic/wrap/lock`
  *          that Claude Code's permission system denies even under bypass. Invoked
- *          by BARE NAME (PATH-wired like agentic-migrate) from any project root.
+ *          by BARE NAME (PATH-wired like ds-migrate) from any project root.
  *
- * Public API: CLI. `agentic-wrap-release-lock [cwd] [--token=<uuid>]`
+ * Public API: CLI. `ds-wrap-release-lock [cwd] [--token=<uuid>]`
  *   - cwd defaults to process.cwd() (the project root during /ds-wrap). Resolved to
  *     absolute before use (releaseWrapLock -> safeCwd rejects non-absolute paths).
- *   - --token: must match the token printed by `agentic-wrap-acquire-lock
+ *   - --token: must match the token printed by `ds-wrap-acquire-lock
  *     --print-token` for the hold being released. Required to release a
  *     foreign-process daemon/commit-role hold; a legacy (no-descriptor) or
  *     role:'agent' hold remains tokenlessly releasable (see wrap-marker.js
@@ -59,7 +59,7 @@
  *   not-a-lock), prints its own line so the conductor can surface it. Nothing
  *   auto-clears a persisted lock anymore (releaseWrapLock never removes another
  *   owner's live hold) - an operator unwedges it manually via the `rm -rf` command
- *   printed in the refusal/HINT lines, or agentic-wrap-acquire-lock's own waiter
+ *   printed in the refusal/HINT lines, or ds-wrap-acquire-lock's own waiter
  *   surfaces the same command once the hold crosses --advisory-ms.
  *
  * Performance: standard. One lstat + one owner read (V2) + at most one rmSync,

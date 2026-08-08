@@ -28,8 +28,8 @@ Public API:
 
 Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, time, pathlib).
 
-Downstream consumers: bin/agentic-identity (both helpers),
-                      bin/agentic-migrate (atomic_write).
+Downstream consumers: bin/ds-identity (both helpers),
+                      bin/ds-migrate (atomic_write).
 
 Failure modes:
   acquire_exclusive_lock: raises RuntimeError("lock timeout") after timeout seconds
@@ -130,7 +130,7 @@ def atomic_write(path: Path, content: str, mode: int | None = 0o600) -> None:
     destination itself is still possible if two writers target the same path.
 
     The tmp filename is suffixed with the current pid so two concurrent
-    callers (e.g. two agentic-identity invocations) never share one staging
+    callers (e.g. two ds-identity invocations) never share one staging
     path - a fixed tmp name would let one process's crash-cleanup unlink
     another process's still-in-flight write, or let two writers collide on
     the same tmp file.

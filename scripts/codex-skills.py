@@ -73,7 +73,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 1. `git fetch origin`.
 2. Resolve `BASE_BRANCH` with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
    canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in
    project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),
    then local `develop`, then local `development`. Multiple matching declarations are rejected as
@@ -83,7 +83,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
 4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
 5. Load the named role instructions with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.
 6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
@@ -96,7 +96,7 @@ Claude hook payload fields and Claude Task behavior do not apply on Codex.
 SIMPLIFY_CONTRACT = (
     "the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` "
     "(load that section, dispatch the named cleanup role with "
-    "`$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the "
+    "`$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the "
     "required narrow Skeptic review)"
 )
 CODEX_BACKGROUND_COMMAND_CONTRACT = (
@@ -189,7 +189,7 @@ def workflow_resolution(name: str) -> tuple[str, str, str]:
         )
     return (
         f"manual workflow '{name}' via "
-        f"`$AE_REPO_DIR/bin/agentic-codex-dispatch command {name}`",
+        f"`$AE_REPO_DIR/bin/ds-codex-dispatch command {name}`",
         "manual-command-resource",
         f"content/commands/{name}.md",
     )
@@ -696,8 +696,8 @@ def shell_occurrences(doc: Document, found: list[Occurrence], occupied: list[tup
                     local = segment_match.start(1) + match.start(1)
                     start = body_start + cursor + local
                     if token == "claude":
-                        generated = "$AE_REPO_DIR/bin/agentic-codex-dispatch legacy-cli claude"
-                        mode, target, kind = "shimmed", "bin/agentic-codex-dispatch", "operational"
+                        generated = "$AE_REPO_DIR/bin/ds-codex-dispatch legacy-cli claude"
+                        mode, target, kind = "shimmed", "bin/ds-codex-dispatch", "operational"
                     elif token.startswith(("agentic-", "ds-")):
                         generated = token
                         mode, target, kind = "repository-owned", f"bin/{token}", "operational"
@@ -944,7 +944,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
             r"session \(`?bin/agentic-migrate`? reads them and is already silently degraded as "
             r"a result\)\.",
             "Use `AE_SESSION_ID` only. It is the Codex session binding derived by passing hook "
-            "JSON to `$AE_REPO_DIR/bin/agentic-codex-session-id`.",
+            "JSON to `$AE_REPO_DIR/bin/ds-codex-session-id`.",
             generated,
             count=1,
         )
@@ -972,7 +972,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         add_occurrence(
             found, occupied, doc, match.start(), match.end(), "session-variable",
             match.group(0), generated, "operational", "runtime-helper",
-            "bin/agentic-codex-session-id", "codex-harness",
+            "bin/ds-codex-session-id", "codex-harness",
         )
 
     for match in re.finditer(r".*?`run_in_background:\s*true`.*?(?=\n)", doc.text):
@@ -1108,7 +1108,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
         (r"~/\.claude", "claude-path", "$AE_SHARED_CONFIG_DIR", "shared-config-path", "global-config-root", "$HOME/.claude", "shared-user-config"),
         (r"\.claude/agents", "claude-path", "$AE_REPO_DIR/content/agents", "mapped-resource", "repository-path", "content/agents", "dinostack-repository"),
         (r"\.claude/commands", "claude-path", "$AE_REPO_DIR/content/commands", "mapped-resource", "repository-path", "content/commands", "dinostack-repository"),
-        (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/agentic-codex-session-id", "codex-harness"),
+        (r"\$CLAUDE_CODE_SESSION_ID", "session-variable", "$AE_SESSION_ID", "runtime-helper", "session-id", "bin/ds-codex-session-id", "codex-harness"),
     ]
     for pattern, cls, generated, mode, target_kind, target, scope in literal_rules:
         for match in re.finditer(pattern, doc.text):
@@ -1323,16 +1323,16 @@ changing directories (`git rev-parse --show-toplevel` when inside a repository, 
 verified invocation directory). Project `.claude/**`, `.agentic/**`, `.gitignore`, QA, settings,
 compression, and migration state resolve only beneath `AE_PROJECT_DIR`, never beneath
 `AE_REPO_DIR`. Evaluate
-`$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
+`$AE_REPO_DIR/bin/ds-codex-dispatch runtime-bindings "<absolute-invocation-directory>"`
 before any operational step. Require its `AE_REPO_DIR` and `AE_PROJECT_DIR` values to match the
 independently validated paths above, then consume the same JSON object to bind
 `AE_CODEX_CONFIG_DIR`, `AE_SHARED_CONFIG_DIR`, and `AE_ACTIVATION_CONFIG`; fail closed on any
 mismatch. Map canonical filesystem tools to Codex filesystem reads, `rg --files`, `rg`, shell, and
 `apply_patch`; ask one bounded direct question only after default derivation.
 Derive `AE_SESSION_ID` by passing hook JSON to
-`$AE_REPO_DIR/bin/agentic-codex-session-id`. Native workflows are invoked with `$` syntax.
+`$AE_REPO_DIR/bin/ds-codex-session-id`. Native workflows are invoked with `$` syntax.
 Other DinoStack workflows remain manual command resources loaded with
-`$AE_REPO_DIR/bin/agentic-codex-dispatch command <name>`; do not claim bare slash registration.
+`$AE_REPO_DIR/bin/ds-codex-dispatch command <name>`; do not claim bare slash registration.
 Codex `spawn_agent` accepts only `task_name`, `message`, and `fork_turns`. Put Tier and model intent
 in the task brief or resolve it through role routing before the spawn; never pass Claude-only spawn
 fields. When isolation is required, the conductor creates the worktree manually before spawning.

@@ -505,12 +505,12 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("git worktree add", generated)
         self.assertNotIn('origin/main"', generated)
         self.assertIn('origin/$BASE_BRANCH"', generated)
-        self.assertIn('agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"', generated)
+        self.assertIn('ds-codex-dispatch base-branch "$AE_PROJECT_DIR"', generated)
         self.assertIn("then local", generated)
         self.assertIn("`develop`, then local", generated)
         self.assertIn("`development`", generated)
         self.assertIn("Work only in the pre-created worktree", generated)
-        self.assertIn("$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>", generated)
+        self.assertIn("$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>", generated)
         self.assertIn("spawn_agent", generated)
 
         payload = json.loads((self.repo / ".codex/skill-compatibility.yml").read_text())
@@ -551,7 +551,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIsNotNone(directive)
         directive_text = directive.group(0)
         self.assertIn("$AE_SESSION_ID", directive_text)
-        self.assertIn("agentic-codex-session-id", directive_text)
+        self.assertIn("ds-codex-session-id", directive_text)
         for forbidden in (
             "CLAUDE_CODE_SESSION_ID",
             "CLAUDE_SESSION_UUID",
@@ -585,7 +585,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
             self.assertIn("CODEX_HOME", preamble)
             self.assertNotIn("$HOME/.codex/AGENTS.md", preamble)
             self.assertIn("content/SKILL.md", preamble)
-            self.assertIn("agentic-codex-dispatch", preamble)
+            self.assertIn("ds-codex-dispatch", preamble)
             self.assertIn("fail closed", preamble)
 
         generated = (self.repo / ".codex/AGENTS.md").read_text(encoding="utf-8")
@@ -1674,7 +1674,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertEqual(
             {
                 "manual workflow 'ds-skeptic' via "
-                "`$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic`"
+                "`$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic`"
             },
             skeptic_tokens,
         )
@@ -1755,7 +1755,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
             installed_agents,
         )
         self.assertIn(
-            "$AE_REPO_DIR/bin/agentic-codex-dispatch runtime-bindings",
+            "$AE_REPO_DIR/bin/ds-codex-dispatch runtime-bindings",
             installed_agents,
         )
 
@@ -2264,7 +2264,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertNotRegex(generated, r"manual workflow '[^']+'.*?``")
         self.assertIn(
             "added by manual workflow 'ds-init-project' via "
-            "`$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-init-project`) "
+            "`$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`) "
             "for architectural decisions",
             generated,
         )

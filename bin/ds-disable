@@ -6,7 +6,7 @@ Purpose: Append the agentic-engineering opt-out marker to the project
          to overwrite an existing opt-in marker without --force. The
          CLI for the /ds-disable command.
 
-Public API: agentic-disable [--global] [--force]
+Public API: ds-disable [--global] [--force]
             Default: writes opt-out marker to <cwd>/AGENTS.md.
             --global: also updates ~/.claude/agentic-engineering.json.
             --force: removes a pre-existing opt-in marker line, then
@@ -186,7 +186,7 @@ def _do_global(out_lines: list[str]) -> int:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="agentic-disable",
+        prog="ds-disable",
         description=(
             "Append the agentic-engineering opt-out marker to the "
             "project AGENTS.md."
@@ -218,7 +218,7 @@ def main(argv: list[str]) -> int:
         try:
             text = agents_path.read_text(encoding="utf-8", errors="replace")
         except OSError as exc:
-            print(f"agentic-disable: ERROR reading {abs_path}: {exc}",
+            print(f"ds-disable: ERROR reading {abs_path}: {exc}",
                   file=sys.stderr)
             return 1
 
@@ -255,7 +255,7 @@ def main(argv: list[str]) -> int:
                     _atomic_write_bytes(agents_path, text.encode("utf-8"))
                 except OSError as exc:
                     print(
-                        f"agentic-disable: ERROR writing {abs_path}: {exc}",
+                        f"ds-disable: ERROR writing {abs_path}: {exc}",
                         file=sys.stderr,
                     )
                     return 1
@@ -277,7 +277,7 @@ def main(argv: list[str]) -> int:
             new_content, marker_line = _append_optout(content_bytes)
             _atomic_write_bytes(agents_path, new_content)
         except OSError as exc:
-            print(f"agentic-disable: ERROR writing {abs_path}: {exc}",
+            print(f"ds-disable: ERROR writing {abs_path}: {exc}",
                   file=sys.stderr)
             return 1
 
@@ -293,7 +293,7 @@ def main(argv: list[str]) -> int:
             payload = b"agentic-engineering: opt-out\n"
             _atomic_write_bytes(agents_path, payload)
         except OSError as exc:
-            print(f"agentic-disable: ERROR creating {abs_path}: {exc}",
+            print(f"ds-disable: ERROR creating {abs_path}: {exc}",
                   file=sys.stderr)
             return 1
         print(

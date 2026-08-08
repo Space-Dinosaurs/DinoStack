@@ -10,13 +10,13 @@ Purpose: CLI for managing per-developer identity files used by the Stop hook
          global-provisional > none.
 
 Public API:
-  agentic-identity init <handle> [--display-name "<name>"] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
-  agentic-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
-  agentic-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
-  agentic-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
-  agentic-identity resolve-hook --cwd <dir>  (internal Stop-hook API)
-  agentic-identity write-hook --cwd <dir>    (internal Stop-hook API)
-  agentic-identity --help
+  ds-identity init <handle> [--display-name "<name>"] [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+  ds-identity show [--scope {global,profile,project,effective}] [--profile-dir <dir>]
+  ds-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
+  ds-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
+  ds-identity resolve-hook --cwd <dir>  (internal Stop-hook API)
+  ds-identity write-hook --cwd <dir>    (internal Stop-hook API)
+  ds-identity --help
 
   Helpers: ScopeTarget, _resolve_scope_target(args, command),
            _read_identity(path=None), _write_identity(lines, target_path=None),
@@ -45,7 +45,7 @@ Upstream deps: Python 3 stdlib only (argparse, contextlib, datetime, fcntl,
 
 Downstream consumers: hooks/stop-context.js (resolves identity and writes
                       telemetry through resolve-hook/write-hook);
-                      bin/agentic-cost team (reads .agentic/session-log/ written
+                      bin/ds-cost team (reads .agentic/session-log/ written
                       after identity is set).
 
 Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
@@ -548,11 +548,11 @@ def _write_identity(lines: list[str], target_path: Path | None = None) -> int:
     except (OSError, UnicodeError) as exc:
         if isinstance(exc, NotADirectoryError):
             print(
-                f"agentic-identity: cannot create profile dir '{dest.parent}': {exc}",
+                f"ds-identity: cannot create profile dir '{dest.parent}': {exc}",
                 file=sys.stderr,
             )
             return 1
-        print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
+        print(f"ds-identity: write failed: {exc}", file=sys.stderr)
         return 1
     return 0
 
@@ -569,7 +569,7 @@ def _confirm_identity_file(
     try:
         directory_fd = _open_directory_nofollow(dest.parent, create=False)
     except OSError as exc:
-        print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
+        print(f"ds-identity: write failed: {exc}", file=sys.stderr)
         return 1
 
     try:
@@ -577,7 +577,7 @@ def _confirm_identity_file(
         current = _read_identity_at(directory_fd, dest.name)
         if current is None:
             print(
-                f"agentic-identity: identity changed or became unreadable: {dest}",
+                f"ds-identity: identity changed or became unreadable: {dest}",
                 file=sys.stderr,
             )
             return 1
@@ -597,7 +597,7 @@ def _confirm_identity_file(
         try:
             _atomic_write_identity_at(directory_fd, dest, content)
         except (OSError, UnicodeError) as exc:
-            print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
+            print(f"ds-identity: write failed: {exc}", file=sys.stderr)
             return 1
         return 0
     finally:
@@ -1266,7 +1266,7 @@ def _write_jsonl_safely(
             time.sleep(0.01)
     except (OSError, RuntimeError) as exc:
         if os.environ.get("AE_IDENTITY_DEBUG") == "1":
-            print(f"agentic-identity: append refused: {path}: {exc}", file=sys.stderr)
+            print(f"ds-identity: append refused: {path}: {exc}", file=sys.stderr)
         return False, False
 
 
@@ -1453,7 +1453,7 @@ def _write_pending_record_safely(record: dict, *, _attempt: int = 0) -> bool:
                 pass
         if pruned:
             print(
-                "agentic-identity: pending buffer cap exceeded; "
+                "ds-identity: pending buffer cap exceeded; "
                 f"pruned {pruned} oldest session(s).",
                 file=sys.stderr,
             )
@@ -1677,7 +1677,7 @@ def flushPendingBuffer(
                             pending_name,
                         )
                         print(
-                            "agentic-identity: global log write failed; "
+                            "ds-identity: global log write failed; "
                             "leaving pending file for retry.",
                             file=sys.stderr,
                         )
@@ -1722,7 +1722,7 @@ def flushPendingBuffer(
                                     )
                             else:
                                 print(
-                                    f"agentic-identity: repo_root '{repo_root}' "
+                                    f"ds-identity: repo_root '{repo_root}' "
                                     f"basename '{os.path.basename(toplevel)}' != "
                                     f"project_slug '{project_slug}'; skipping "
                                     "per-project write.",
@@ -1738,7 +1738,7 @@ def flushPendingBuffer(
                             FileNotFoundError,
                         ):
                             print(
-                                f"agentic-identity: repo_root '{repo_root}' "
+                                f"ds-identity: repo_root '{repo_root}' "
                                 "unreachable or unsafe; skipping per-project write.",
                                 file=sys.stderr,
                             )
@@ -1754,10 +1754,10 @@ def flushPendingBuffer(
                     os.close(pending_fd)
 
     except OSError as exc:
-        print(f"agentic-identity confirm: cannot open lock file: {exc}", file=sys.stderr)
+        print(f"ds-identity confirm: cannot open lock file: {exc}", file=sys.stderr)
         return 0
     except RuntimeError:
-        print("agentic-identity confirm: lock timeout after 30s; retry.", file=sys.stderr)
+        print("ds-identity confirm: lock timeout after 30s; retry.", file=sys.stderr)
         return 0
 
     if flushed > 0:
@@ -1768,7 +1768,7 @@ def flushPendingBuffer(
 def _rejected_profile_dir_msg(profile_dir: str) -> str:
     """Shared error literal for a provided-but-rejected --profile-dir."""
     return (
-        f"agentic-identity: --profile-dir '{profile_dir}' rejected: "
+        f"ds-identity: --profile-dir '{profile_dir}' rejected: "
         "must resolve under $HOME."
     )
 
@@ -1826,12 +1826,12 @@ class ScopeTarget:
         except OSError as exc:
             if isinstance(exc, NotADirectoryError):
                 print(
-                    f"agentic-identity: cannot create profile dir "
+                    f"ds-identity: cannot create profile dir "
                     f"'{self.path.parent}': {exc}",
                     file=sys.stderr,
                 )
             else:
-                print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
+                print(f"ds-identity: write failed: {exc}", file=sys.stderr)
             return 1, None, False
         try:
             fcntl.flock(parent_fd, fcntl.LOCK_EX)
@@ -1856,7 +1856,7 @@ class ScopeTarget:
             try:
                 _atomic_write_identity_at(parent_fd, self.path, content)
             except (OSError, UnicodeError) as exc:
-                print(f"agentic-identity: write failed: {exc}", file=sys.stderr)
+                print(f"ds-identity: write failed: {exc}", file=sys.stderr)
                 return 1, existing, is_fresh
             return 0, existing, is_fresh
         finally:
@@ -1931,7 +1931,7 @@ def _resolve_scope_target(
         print("No profile scope (no config-dir env set and no --profile-dir).")
     else:
         print(
-            "agentic-identity: cannot determine profile config dir. Set one of "
+            "ds-identity: cannot determine profile config dir. Set one of "
             + ", ".join(PROFILE_CONFIG_DIR_ENV)
             + " (under $HOME), or pass --profile-dir <dir>.",
             file=sys.stderr,
@@ -1943,7 +1943,7 @@ def _require_repo_root(cwd: Path) -> int:
     """Return 1 (and print error) if cwd has neither .agentic/ nor .git/; else 0."""
     if not (cwd / ".agentic").exists() and not (cwd / ".git").exists():
         print(
-            f"agentic-identity: no repo root found at '{cwd}'. "
+            f"ds-identity: no repo root found at '{cwd}'. "
             "Neither .agentic/ nor .git/ exists. "
             "Run from a repository directory when using --scope project.",
             file=sys.stderr,
@@ -1956,7 +1956,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     handle = args.handle
     if HANDLE_RE.fullmatch(handle) is None:
         print(
-            f"agentic-identity: invalid handle '{handle}'. "
+            f"ds-identity: invalid handle '{handle}'. "
             "Must match ^[a-z0-9._-]{{1,64}}$.",
             file=sys.stderr,
         )
@@ -1967,7 +1967,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         and _contains_unicode_control(args.display_name)
     ):
         print(
-            "agentic-identity: display name must not contain control characters.",
+            "ds-identity: display name must not contain control characters.",
             file=sys.stderr,
         )
         return 1
@@ -1991,7 +1991,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         current = existing.get("developer_id", "?") if existing else "?"
         scope_prefix = "" if target.scope == "global" else f"{target.scope} "
         print(
-            f"agentic-identity: {scope_prefix}identity already set to '{current}'. "
+            f"ds-identity: {scope_prefix}identity already set to '{current}'. "
             "Use --force to overwrite.",
             file=sys.stderr,
         )
@@ -2032,7 +2032,7 @@ def cmd_auto(args: argparse.Namespace) -> int:
         ValueError,
     ):
         print(
-            "agentic-identity: gh CLI unavailable or unauthenticated. "
+            "ds-identity: gh CLI unavailable or unauthenticated. "
             "Run 'gh auth login' first.",
             file=sys.stderr,
         )
@@ -2040,7 +2040,7 @@ def cmd_auto(args: argparse.Namespace) -> int:
 
     if result.returncode != 0:
         print(
-            "agentic-identity: gh CLI unavailable or unauthenticated. "
+            "ds-identity: gh CLI unavailable or unauthenticated. "
             "Run 'gh auth login' first.",
             file=sys.stderr,
         )
@@ -2050,15 +2050,15 @@ def cmd_auto(args: argparse.Namespace) -> int:
         login = result.stdout.decode("utf-8").strip().lower()
     except UnicodeError:
         print(
-            "agentic-identity: gh CLI returned invalid output. "
-            "Run 'agentic-identity init <handle>' manually.",
+            "ds-identity: gh CLI returned invalid output. "
+            "Run 'ds-identity init <handle>' manually.",
             file=sys.stderr,
         )
         return 1
     if HANDLE_RE.fullmatch(login) is None:
         print(
-            f"agentic-identity: derived handle '{login}' is not a valid agentic handle. "
-            "Run 'agentic-identity init <handle>' manually.",
+            f"ds-identity: derived handle '{login}' is not a valid agentic handle. "
+            "Run 'ds-identity init <handle>' manually.",
             file=sys.stderr,
         )
         return 1
@@ -2087,7 +2087,7 @@ def cmd_auto(args: argparse.Namespace) -> int:
             "" if target.scope == "global" else f"{target.scope} "
         )
         print(
-            f"agentic-identity: confirmed {scope_prefix}identity already set to "
+            f"ds-identity: confirmed {scope_prefix}identity already set to "
             f"'{current_handle}'. "
             "Use --force to overwrite.",
             file=sys.stderr,
@@ -2117,13 +2117,13 @@ def cmd_confirm(args: argparse.Namespace) -> int:
     if identity is None:
         if target.scope == "global":
             message = (
-                "agentic-identity: no identity set. "
-                "Run 'agentic-identity init <handle>' first."
+                "ds-identity: no identity set. "
+                "Run 'ds-identity init <handle>' first."
             )
         else:
             message = (
-                f"agentic-identity: no {target.scope} identity set. "
-                "Run 'agentic-identity init <handle> "
+                f"ds-identity: no {target.scope} identity set. "
+                "Run 'ds-identity init <handle> "
                 f"--scope {target.scope}' first."
             )
         print(message, file=sys.stderr)
@@ -2149,7 +2149,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     if scope == "effective":
         identity = _resolve_effective_identity(Path.cwd())
         if identity is None:
-            print("No identity set. Run: agentic-identity init <handle>")
+            print("No identity set. Run: ds-identity init <handle>")
             return 0
         print(f"developer_id:  {identity.get('developer_id', '?')}")
         if "display_name" in identity:
@@ -2168,7 +2168,7 @@ def cmd_show(args: argparse.Namespace) -> int:
     identity = target.read()
     if identity is None:
         if target.scope == "global":
-            print("No identity set. Run: agentic-identity init <handle>")
+            print("No identity set. Run: ds-identity init <handle>")
         else:
             print(f"No identity at {target.scope} scope.")
         return 0
@@ -2296,7 +2296,7 @@ def cmd_write_hook(args: argparse.Namespace) -> int:
 
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
-        prog="agentic-identity",
+        prog="ds-identity",
         description="Manage per-developer identity for session telemetry.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)

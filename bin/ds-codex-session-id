@@ -2,7 +2,7 @@
 """
 Purpose: Resolve one Codex invocation identifier without consulting Claude-only state.
 
-Public API: agentic-codex-session-id [HOOK_JSON]; also accepts hook JSON on stdin.
+Public API: ds-codex-session-id [HOOK_JSON]; also accepts hook JSON on stdin.
 
 Upstream deps: Codex hook session_id/thread_id fields, CODEX_THREAD_ID,
                CODEX_SESSION_ID, and Python's UUID implementation.
@@ -132,7 +132,7 @@ def main() -> int:
     try:
         data = payload()
     except InputError as exc:
-        print(f"agentic-codex-session-id: {exc}", file=sys.stderr)
+        print(f"ds-codex-session-id: {exc}", file=sys.stderr)
         return 2
     for candidate in (
         data.get("session_id"),

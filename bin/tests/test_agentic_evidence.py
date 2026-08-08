@@ -491,7 +491,7 @@ def test_version_and_help():
         timeout=30,
     )
     assert result.returncode == 0, f"rc={result.returncode}: {result.stderr!r}"
-    assert "agentic-evidence 0.1.0" in result.stdout
+    assert "ds-evidence 0.1.0" in result.stdout
 
     result = subprocess.run(
         [sys.executable, str(_BIN_PATH), "--help"],

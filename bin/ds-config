@@ -6,7 +6,7 @@ Purpose: Non-interactive CLI writer for agentic-engineering methodology
          file (~/.claude/agentic-engineering.json, .agentic/config.json, or
          AGENTS.md). The CLI backing for the /ds-config command.
 
-Public API: agentic-config <setting> <value> [--scope global|project]
+Public API: ds-config <setting> <value> [--scope global|project]
             Exit 0: success (prints "Changed: <setting> = <value> in <file>.
                     Takes effect at next session start.")
             Exit 0: qa_default_skip (reserved/inert, prints notice)
@@ -16,7 +16,7 @@ Public API: agentic-config <setting> <value> [--scope global|project]
 
 Upstream deps: Python 3 stdlib only (json, os, sys, re, datetime, pathlib,
                importlib). Imports _resolve_agents_md, _load_config,
-               _scan_agents_md, _resolve from bin/agentic-status and
+               _scan_agents_md, _resolve from bin/ds-status and
                atomic_write from bin/_lib.py via importlib.machinery.
                SourceFileLoader (same pattern as test_agentic_status.py).
 
@@ -50,17 +50,17 @@ from pathlib import Path
 # (same pattern as bin/tests/test_agentic_status.py:23-42)
 # ---------------------------------------------------------------------------
 
-# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-config ->
-# repo bin/agentic-config, as created by install.sh) back to the real bin/
-# directory so both agentic-status and _lib.py are found on a bare
-# `agentic-config` invocation.
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-config ->
+# repo bin/ds-config, as created by install.sh) back to the real bin/
+# directory so both ds-status and _lib.py are found on a bare
+# `ds-config` invocation.
 _BIN_DIR = Path(__file__).resolve().parent
 
-_STATUS_PATH = _BIN_DIR / "agentic-status"
+_STATUS_PATH = _BIN_DIR / "ds-status"
 _status_loader = importlib.machinery.SourceFileLoader("agentic_status", str(_STATUS_PATH))
 _status_spec = importlib.util.spec_from_loader("agentic_status", _status_loader)
 if _status_spec is None:
-    raise RuntimeError(f"Cannot build spec for agentic-status from {_STATUS_PATH}")
+    raise RuntimeError(f"Cannot build spec for ds-status from {_STATUS_PATH}")
 _status_mod = importlib.util.module_from_spec(_status_spec)
 _status_loader.exec_module(_status_mod)
 
@@ -365,13 +365,13 @@ def _upsert_agents_md_marker(marker_type: str, value: str) -> Path:
 
 def _usage() -> None:
     print(
-        "Usage: agentic-config <setting> <value> [--scope global|project]\n"
+        "Usage: ds-config <setting> <value> [--scope global|project]\n"
         "\n"
         "Examples:\n"
-        "  agentic-config mode opt-out\n"
-        "  agentic-config profile strict --scope project\n"
-        "  agentic-config abdication_guard_enabled true\n"
-        "  agentic-config deferred_wrap_idle_minutes 30\n",
+        "  ds-config mode opt-out\n"
+        "  ds-config profile strict --scope project\n"
+        "  ds-config abdication_guard_enabled true\n"
+        "  ds-config deferred_wrap_idle_minutes 30\n",
         file=sys.stderr,
     )
 
@@ -426,7 +426,7 @@ def main(argv: list[str]) -> int:
     # Not-writable settings: exit 2.
     if setting in _NOT_WRITABLE:
         print(
-            f"Error: '{setting}' is not writable via agentic-config "
+            f"Error: '{setting}' is not writable via ds-config "
             "(managed by installer or other tooling).",
             file=sys.stderr,
         )
@@ -436,7 +436,7 @@ def main(argv: list[str]) -> int:
     if setting not in _SETTINGS:
         print(
             f"Error: unknown setting '{setting}'. "
-            "Run /ds-config or agentic-config --help for available settings.",
+            "Run /ds-config or ds-config --help for available settings.",
             file=sys.stderr,
         )
         return 2

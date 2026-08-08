@@ -9,12 +9,12 @@ Purpose: Read .agentic/events.jsonl and render per-agent / per-task /
          command. Also provides `retro` subcommand for pre-telemetry historical
          rollups reconstructed from git log and gh pr list.
 
-Public API: agentic-cost session [<session_uuid>]
-            agentic-cost task <task_id>
-            agentic-cost project [--since <YYYY-MM-DD>]
-            agentic-cost team [--json]
-            agentic-cost operator [--since YYYY-MM-DD] [--json]
-            agentic-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+Public API: ds-cost session [<session_uuid>]
+            ds-cost task <task_id>
+            ds-cost project [--since <YYYY-MM-DD>]
+            ds-cost team [--json]
+            ds-cost operator [--since YYYY-MM-DD] [--json]
+            ds-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD]
                                [--author <handle>] [--json]
             All subcommands print a fixed-width table to stdout. Every
             output ends with the V1 disclosure footer line per
@@ -392,7 +392,7 @@ def cmd_project(args: argparse.Namespace) -> int:
         try:
             cutoff = _dt.date.fromisoformat(args.since)
         except ValueError:
-            print(f"agentic-cost: invalid --since date: {args.since}",
+            print(f"ds-cost: invalid --since date: {args.since}",
                   file=sys.stderr)
             return 2
         def keep(e: dict) -> bool:
@@ -510,12 +510,12 @@ def cmd_team(args: argparse.Namespace) -> int:
     records, skipped = _load_session_logs()
     if not records and not SESSION_LOG_DIR.is_dir():
         print(
-            "No team telemetry yet. Developers run: agentic-identity init <handle>"
+            "No team telemetry yet. Developers run: ds-identity init <handle>"
         )
         return 0
     if not records:
         print(
-            "No team telemetry yet. Developers run: agentic-identity init <handle>"
+            "No team telemetry yet. Developers run: ds-identity init <handle>"
         )
         return 0
 
@@ -944,7 +944,7 @@ def _render_retro_table(
         lines.append("")
 
     lines.append(
-        "Stage 1 telemetry: agentic-cost team for accurate per-agent breakdown"
+        "Stage 1 telemetry: ds-cost team for accurate per-agent breakdown"
     )
     lines.append(
         "                   from sessions starting when Stage 1 was active here."
@@ -966,7 +966,7 @@ def cmd_retro(args: argparse.Namespace) -> int:
         _dt.date.fromisoformat(since_str)
     except ValueError:
         print(
-            f"agentic-cost retro: invalid --since date: {since_str!r} "
+            f"ds-cost retro: invalid --since date: {since_str!r} "
             "(expected YYYY-MM-DD)",
             file=sys.stderr,
         )
@@ -976,7 +976,7 @@ def cmd_retro(args: argparse.Namespace) -> int:
         _dt.date.fromisoformat(until_str)
     except ValueError:
         print(
-            f"agentic-cost retro: invalid --until date: {until_str!r} "
+            f"ds-cost retro: invalid --until date: {until_str!r} "
             "(expected YYYY-MM-DD)",
             file=sys.stderr,
         )
@@ -984,7 +984,7 @@ def cmd_retro(args: argparse.Namespace) -> int:
 
     if not _is_git_repo():
         print(
-            "agentic-cost retro: not a git repository. "
+            "ds-cost retro: not a git repository. "
             "Run from within a git repo.",
             file=sys.stderr,
         )
@@ -1049,7 +1049,7 @@ def cmd_retro(args: argparse.Namespace) -> int:
 
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
-        prog="agentic-cost",
+        prog="ds-cost",
         description="Token / wall-time rollups from .agentic/events.jsonl",
     )
     sub = p.add_subparsers(dest="cmd", required=True)

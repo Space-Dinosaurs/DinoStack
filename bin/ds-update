@@ -4,17 +4,17 @@ Purpose: From-anywhere, non-interactive updater for agentic-engineering
          (DinoStack). Fetches origin, detects whether adapter sources changed
          via the same REBUILD_TRIGGERS logic as scripts/update.js, runs the
          appropriate install.sh scripts, resets the version-check cache, and
-         optionally runs agentic-doctor --fix. Designed for CI, cron jobs,
+         optionally runs ds-doctor --fix. Designed for CI, cron jobs,
          shell aliases, and any non-TTY context where scripts/update.js cannot
          run (because that script requires a TTY for its TUI).
 
-Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
+Public API: ds-update [--check] [--no-doctor] [--adapters=a,b,...]
                            [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
                            [--identity=<handle>|--no-identity]
              --check        Report how far behind origin/main the local main
                             branch is, then exit 0. Does NOT pull. Works from
                             any branch.
-             --no-doctor    Skip the agentic-doctor --fix step after update.
+             --no-doctor    Skip the ds-doctor --fix step after update.
              --adapters=X   Comma-separated list of adapter dirs to refresh
                             (e.g. --adapters=.claude,.cursor). .claude is
                             always prepended (LOCKED_ADAPTERS invariant).
@@ -48,7 +48,7 @@ Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
              0  success (up-to-date or updated)
              1  fatal error (not on main / dirty tree / pull failure / adapter
                 failure / git not found / repo not found)
-             2  agentic-doctor --fix exited 2 (unfixable health issues)
+             2  ds-doctor --fix exited 2 (unfixable health issues)
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
                subprocess, sys, tempfile, time). Reads
@@ -57,17 +57,17 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
                - single source of truth shared with scripts/update.js and
                install-all.sh; do not reintroduce a local literal for either).
                Invokes: git (fetch, pull, rev-parse, diff, status, etc.),
-               bash <adapter>/install.sh, agentic-doctor.
+               bash <adapter>/install.sh, ds-doctor.
 
 Downstream consumers: end users running from any cwd; CI pipelines; shell
                       aliases; any non-TTY automation that cannot launch the
                       interactive scripts/update.js TUI.
 
 Failure modes: exit 1 on non-main branch, dirty working tree, pull failure,
-               or adapter install failure. exit 2 when agentic-doctor --fix
+               or adapter install failure. exit 2 when ds-doctor --fix
                exits 2 (unfixable issues). Cache write (version-check-cache)
                is non-fatal: failures emit a warning and execution continues.
-               Missing agentic-doctor binary: warning, exit 0.
+               Missing ds-doctor binary: warning, exit 0.
 
 Advisory: when a pull changes any file under hooks/, a non-blocking
           informational note is printed to stderr (_hooks_touched /
@@ -109,7 +109,7 @@ def _load_shared_config() -> dict:
     install-all.sh. Do not reintroduce a local literal for either list here.
 
     Resolved relative to THIS file's own location (not the config-driven
-    repo_dir the updater operates on) - bin/agentic-update lives inside the
+    repo_dir the updater operates on) - bin/ds-update lives inside the
     same repo that ships scripts/lib/update-shared.json, so the shared file
     is always exactly two directories up regardless of which repo the tool
     is pointed at. Path(__file__).resolve() (not .parent alone) is required:
@@ -356,11 +356,11 @@ def _reset_version_check_cache() -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="agentic-update",
+        prog="ds-update",
         description=(
             "Non-interactive updater for agentic-engineering (DinoStack). "
             "Fetches origin, detects adapter-source changes, runs install scripts, "
-            "resets the version-check cache, and optionally runs agentic-doctor --fix. "
+            "resets the version-check cache, and optionally runs ds-doctor --fix. "
             "Safe for CI and non-TTY contexts."
         ),
     )
@@ -376,7 +376,7 @@ def main() -> int:
         "--no-doctor",
         action="store_true",
         dest="no_doctor",
-        help="Skip agentic-doctor --fix after updating.",
+        help="Skip ds-doctor --fix after updating.",
     )
     parser.add_argument(
         "--adapters",
@@ -726,32 +726,32 @@ def _run_adapter_installs(
 
 
 def _run_doctor() -> int:
-    """Run agentic-doctor --fix. Return 0 on success, 2 on unfixable, 0 on other errors."""
+    """Run ds-doctor --fix. Return 0 on success, 2 on unfixable, 0 on other errors."""
     try:
         result = subprocess.run(
-            ["agentic-doctor", "--fix"],
+            ["ds-doctor", "--fix"],
             # Inherit stdio so doctor output flows to the terminal
         )
         if result.returncode == 2:
             print(
                 "WARNING: health check found issues that could not be auto-fixed; "
-                "run 'agentic-doctor' for details",
+                "run 'ds-doctor' for details",
                 file=sys.stderr,
             )
             return 2
         if result.returncode != 0:
             print(
-                f"warning: agentic-doctor --fix exited {result.returncode}; "
+                f"warning: ds-doctor --fix exited {result.returncode}; "
                 "continuing (non-critical).",
                 file=sys.stderr,
             )
     except FileNotFoundError:
         print(
-            "warning: agentic-doctor not found on PATH; skipping health check.",
+            "warning: ds-doctor not found on PATH; skipping health check.",
             file=sys.stderr,
         )
     except Exception as exc:
-        print(f"warning: agentic-doctor failed: {exc}; continuing.", file=sys.stderr)
+        print(f"warning: ds-doctor failed: {exc}; continuing.", file=sys.stderr)
     return 0
 
 

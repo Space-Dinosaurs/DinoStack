@@ -10,14 +10,14 @@ Purpose: CLI for a project-local, gitignored tracker-config overlay
          account ID into a public file (DS-74).
 
 Public API:
-  agentic-tracker init --tracker {jira,linear} --prefix P [--base-url U]
+  ds-tracker init --tracker {jira,linear} --prefix P [--base-url U]
                        [--workspace W] [--qa-assignee ID] [--force]
                        [--force-unignored]
-  agentic-tracker show [--scope {project,effective}]
-  agentic-tracker set <key> <value> [--force-unignored]
-  agentic-tracker resolve [--json] [--project-root PATH]
-  agentic-tracker path
-  agentic-tracker --help
+  ds-tracker show [--scope {project,effective}]
+  ds-tracker set <key> <value> [--force-unignored]
+  ds-tracker resolve [--json] [--project-root PATH]
+  ds-tracker path
+  ds-tracker --help
 
   Helpers: _project_tracker_path(cwd=None), _read_overlay(path),
            _read_agents_md(path), _defaults_for(tracker),
@@ -40,11 +40,11 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, re, subprocess,
                `no-repo` (allow, warn), never a hard failure.
 
 Downstream consumers: content/commands/ds-implement-ticket.md Setup (prefers
-  `agentic-tracker resolve --json`; falls back to the prose chain when the
+  `ds-tracker resolve --json`; falls back to the prose chain when the
   binary is unavailable); ds-ticket-status-sync.md, ds-wrap.md Part F,
   ds-ticket-triage.md, ds-feedback-triage.md (same resolution chain, by
   reference). content/commands/ds-init-project.md Step 11 (writes via
-  `agentic-tracker init` when the operator chooses the local-overlay scope).
+  `ds-tracker init` when the operator chooses the local-overlay scope).
 
 Failure modes: exits 0 (success, all subcommands), 2 (resolve, and show
   --scope effective - the live legacy `## Linear` shape guard fired; never
@@ -101,9 +101,9 @@ import subprocess
 import sys
 
 # Shared helpers from bin/_lib (same directory; bin/ is on sys.path at
-# runtime). .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-tracker
-# -> repo bin/agentic-tracker, as created by install.sh) back to the real
-# bin/ directory so _lib.py is found on a bare `agentic-tracker` invocation.
+# runtime). .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-tracker
+# -> repo bin/ds-tracker, as created by install.sh) back to the real
+# bin/ directory so _lib.py is found on a bare `ds-tracker` invocation.
 # The bare `.parent` form (no `.resolve()`) is the live DS-66 bug - it
 # resolves to a missing ~/.local/bin/_lib.py and soft-fails silently.
 import sys as _sys
@@ -162,12 +162,14 @@ PIPELINE_REQUIRED_TOKENS = ("IN_PROGRESS", "IN_REVIEW", "QA")
 PIPELINE_OPTIONAL_TOKENS = ("DEV_COMPLETE",)
 PIPELINE_TOKENS = PIPELINE_REQUIRED_TOKENS + PIPELINE_OPTIONAL_TOKENS
 
-# Live guard text quoted verbatim from content/commands/ds-implement-ticket.md
-# "Legacy `## Linear` shape guard" (the em dash is quoted live text, not
-# newly authored prose).
+# Live guard text sourced from content/commands/ds-implement-ticket.md
+# "Legacy `## Linear` shape guard" (em dash normalized to a hyphen here per
+# this repo's no-em-dash convention; content/commands/ds-implement-ticket.md
+# itself is out of scope for this change and still carries the original
+# character).
 LEGACY_LINEAR_GUARD_MESSAGE = (
     "Your tracker config is missing fields /ds-implement-ticket needs. "
-    "Run /ds-init-project to update it —\n"
+    "Run /ds-init-project to update it -\n"
     "discovery will fill in most fields automatically."
 )
 
@@ -177,7 +179,7 @@ TRACKED_READ_WARNING = (
 )
 
 _UNIGNORED_MSG = (
-    "agentic-tracker: .agentic/tracker.yml is NOT gitignored in this repo - refusing to write.\n"
+    "ds-tracker: .agentic/tracker.yml is NOT gitignored in this repo - refusing to write.\n"
     "This file can carry your tracker workspace and account ID; committing it would put one\n"
     "operator's config in a tracked file.\n"
     "Fix: add this line to .gitignore, then re-run:\n"
@@ -186,7 +188,7 @@ _UNIGNORED_MSG = (
 )
 
 _TRACKED_MSG = (
-    "agentic-tracker: .agentic/tracker.yml is already TRACKED in this repo - refusing to write.\n"
+    "ds-tracker: .agentic/tracker.yml is already TRACKED in this repo - refusing to write.\n"
     "A .gitignore line alone will not help: git keeps tracking a file already in the index.\n"
     "Fix: untrack it first, then re-run:\n"
     "    git rm --cached .agentic/tracker.yml\n"
@@ -195,7 +197,7 @@ _TRACKED_MSG = (
 )
 
 _UNKNOWN_MSG = (
-    "agentic-tracker: cannot determine whether .agentic/tracker.yml is gitignored (git exited 128).\n"
+    "ds-tracker: cannot determine whether .agentic/tracker.yml is gitignored (git exited 128).\n"
     "Refusing to write rather than risk committing tracker config. Re-run inside a healthy\n"
     "git work tree, or override with --force-unignored."
 )
@@ -630,7 +632,7 @@ def _check_ignored(path: Path, force_unignored: bool = False) -> tuple[bool, str
 
     if state == "no-repo":
         return True, state, (
-            "agentic-tracker: not inside a git work tree; nothing prevents this file "
+            "ds-tracker: not inside a git work tree; nothing prevents this file "
             "from being committed elsewhere. Proceeding."
         )
     if state == "ignored":
@@ -782,7 +784,7 @@ def _disclosure_lines(result: dict) -> list[str]:
             f"Tracker: {result.get('TRACKER', 'none')} "
             f"(.agentic/tracker.yml present but unusable: {result.get('_overlay_reason')})"
         )
-        lines.append("Fix:     agentic-tracker show --scope project")
+        lines.append("Fix:     ds-tracker show --scope project")
     return lines
 
 
@@ -799,12 +801,12 @@ def cmd_init(args: argparse.Namespace) -> int:
     fields_to_write = [("tracker", tracker), ("prefix", prefix)]
     if tracker == "jira":
         if not args.base_url:
-            print("agentic-tracker: --base-url is required for --tracker jira.", file=sys.stderr)
+            print("ds-tracker: --base-url is required for --tracker jira.", file=sys.stderr)
             return 1
         fields_to_write.append(("base_url", args.base_url))
     else:
         if not args.workspace:
-            print("agentic-tracker: --workspace is required for --tracker linear.", file=sys.stderr)
+            print("ds-tracker: --workspace is required for --tracker linear.", file=sys.stderr)
             return 1
         fields_to_write.append(("workspace", args.workspace))
     if args.qa_assignee:
@@ -814,7 +816,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     for key, value in fields_to_write:
         ok, err = _validate_write_key(key, value)
         if not ok:
-            print(f"agentic-tracker: {err}", file=sys.stderr)
+            print(f"ds-tracker: {err}", file=sys.stderr)
             return 4
 
     may_write, _state, msg = _check_ignored(path, force_unignored=args.force_unignored)
@@ -825,7 +827,7 @@ def cmd_init(args: argparse.Namespace) -> int:
         print(msg, file=sys.stderr)
 
     if path.is_file() and not args.force:
-        print(f"agentic-tracker: {path} already exists. Use --force to overwrite.", file=sys.stderr)
+        print(f"ds-tracker: {path} already exists. Use --force to overwrite.", file=sys.stderr)
         return 1
 
     created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -836,7 +838,7 @@ def cmd_init(args: argparse.Namespace) -> int:
     try:
         atomic_write(path, "\n".join(lines) + "\n", mode=0o600)
     except Exception as exc:
-        print(f"agentic-tracker: write failed: {exc}", file=sys.stderr)
+        print(f"ds-tracker: write failed: {exc}", file=sys.stderr)
         return 1
 
     print(f"Tracker config written: {path}")
@@ -851,7 +853,7 @@ def cmd_set(args: argparse.Namespace) -> int:
 
     ok, err = _validate_write_key(key, value)
     if not ok:
-        print(f"agentic-tracker: {err}", file=sys.stderr)
+        print(f"ds-tracker: {err}", file=sys.stderr)
         return 4
 
     may_write, _state, msg = _check_ignored(path, force_unignored=args.force_unignored)
@@ -867,10 +869,10 @@ def cmd_set(args: argparse.Namespace) -> int:
         try:
             raw = path.read_text(encoding="utf-8")
         except OSError as exc:
-            print(f"agentic-tracker: cannot read existing {path}: {exc}", file=sys.stderr)
+            print(f"ds-tracker: cannot read existing {path}: {exc}", file=sys.stderr)
             return 1
         except UnicodeDecodeError as exc:
-            print(f"agentic-tracker: {path} is not valid UTF-8: {exc}", file=sys.stderr)
+            print(f"ds-tracker: {path} is not valid UTF-8: {exc}", file=sys.stderr)
             return 1
         for line in raw.split("\n"):
             stripped = line.strip()
@@ -892,7 +894,7 @@ def cmd_set(args: argparse.Namespace) -> int:
     try:
         atomic_write(path, "\n".join(existing_lines) + "\n", mode=0o600)
     except Exception as exc:
-        print(f"agentic-tracker: write failed: {exc}", file=sys.stderr)
+        print(f"ds-tracker: write failed: {exc}", file=sys.stderr)
         return 1
 
     print(f"Set {key} in {path}")
@@ -958,7 +960,7 @@ def cmd_path(_args: argparse.Namespace) -> int:
 
 def main(argv: list[str]) -> int:
     p = argparse.ArgumentParser(
-        prog="agentic-tracker",
+        prog="ds-tracker",
         description="Manage the project-local .agentic/tracker.yml overlay.",
     )
     sub = p.add_subparsers(dest="cmd", required=True)

@@ -5,7 +5,7 @@
 #          per-ticket keyed loop-state file, falling back to the legacy
 #          .agentic/loop-state.json, per the six-row order below.
 #
-# Public API: agentic-emit <event> <agent_or_-> <task_id_or_-> <json_data>
+# Public API: ds-emit <event> <agent_or_-> <task_id_or_-> <json_data>
 #             - event:    event type (spawn_start|spawn_complete|conductor_direct|...)
 #             - agent:    agent name, or "-" for null
 #             - task_id:  task id, or "-" for null
@@ -54,7 +54,7 @@
 set -u
 
 if [ "$#" -lt 4 ]; then
-  echo "agentic-emit: usage: agentic-emit <event> <agent|-> <task_id|-> <json_data>" >&2
+  echo "ds-emit: usage: ds-emit <event> <agent|-> <task_id|-> <json_data>" >&2
   exit 0
 fi
 

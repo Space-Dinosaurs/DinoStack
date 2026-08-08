@@ -6,12 +6,12 @@ Purpose: Evidence spill/sketch/rehydrate CLI for the agentic-engineering
          sketch the node set, and rehydrate individual nodes byte-exact.
 
 Public API:
-  agentic-evidence spill [FILE] [--label TEXT] [--tool TEXT]
+  ds-evidence spill [FILE] [--label TEXT] [--tool TEXT]
                          [--status TEXT] [--evidence-dir PATH]
-  agentic-evidence sketch [--evidence-dir PATH]
-  agentic-evidence get <node-id> [--evidence-dir PATH]
-  agentic-evidence prune (--all | --older-than HOURS) [--evidence-dir PATH]
-  agentic-evidence --help / --version
+  ds-evidence sketch [--evidence-dir PATH]
+  ds-evidence get <node-id> [--evidence-dir PATH]
+  ds-evidence prune (--all | --older-than HOURS) [--evidence-dir PATH]
+  ds-evidence --help / --version
 
 Evidence root resolution: nearest ancestor of CWD containing a .git DIRECTORY
   (normal repo) or a .git FILE whose first line begins "gitdir:" (isolation
@@ -30,7 +30,7 @@ Upstream deps: Python 3 stdlib only (argparse, datetime, os, re, sys,
                pathlib). No external dependencies. Self-contained; imports no
                sibling module (avoids the DS-66 PATH-symlink class).
 
-Downstream consumers: bin/agentic-resolve-worktree (stated pre-cleanup reader
+Downstream consumers: bin/ds-resolve-worktree (stated pre-cleanup reader
                       of node files); DS-141 Unit 2 reference doc (embeds the
                       sketch-line format byte-for-byte); conductors running
                       inline evidence capture.
@@ -256,7 +256,7 @@ def cmd_sketch(args: argparse.Namespace) -> int:
     if len(nodes) > SKETCH_WARN_THRESHOLD:
         print(
             f"Warning: {len(nodes)} nodes in evidence sketch; consider pruning "
-            f"with 'agentic-evidence prune --older-than <hours>'",
+            f"with 'ds-evidence prune --older-than <hours>'",
             file=sys.stderr,
         )
     for node in nodes:
@@ -320,14 +320,14 @@ def cmd_prune(args: argparse.Namespace) -> int:
 
 def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
-        prog="agentic-evidence",
+        prog="ds-evidence",
         description=(
             "Evidence spill/sketch/rehydrate CLI for the agentic-engineering "
             "methodology."
         ),
     )
     parser.add_argument(
-        "--version", action="version", version=f"agentic-evidence {VERSION}"
+        "--version", action="version", version=f"ds-evidence {VERSION}"
     )
     subparsers = parser.add_subparsers(dest="command")
 

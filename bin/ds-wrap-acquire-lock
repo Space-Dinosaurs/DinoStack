@@ -9,7 +9,7 @@
  *          the "foreground sleep is blocked; model gives up" failure mode of the
  *          previous prose-directed poll loop.
  *
- * Public API: CLI. `agentic-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N]
+ * Public API: CLI. `ds-wrap-acquire-lock [cwd] [--timeout-ms=N] [--poll-ms=N]
  *   [--role=agent|daemon|commit] [--no-wait] [--print-token] [--advisory-ms=N]
  *   [--session-id=<uuid>]`
  *   - cwd defaults to process.cwd(). Resolved to absolute via path.resolve.
@@ -28,7 +28,7 @@
  *   - --no-wait: single acquisition attempt; never schedules a retry timer.
  *     Exits 0 (acquired) or 5 (busy).
  *   - --print-token: on acquisition, additionally prints "token=<uuid>" - the
- *     token that must be passed to agentic-wrap-release-lock --token=<uuid> to
+ *     token that must be passed to ds-wrap-release-lock --token=<uuid> to
  *     release this specific hold (see that binary's token-scoped refusal).
  *   - --advisory-ms: age threshold (default 1800000 = 30 min) past which a
  *     progress/timeout line escalates to include an operator recovery HINT
@@ -38,7 +38,7 @@
  *     carries `pid: null` by construction and therefore has no process to
  *     liveness-check (see DS-106). Callers source it from CLAUDE_CODE_SESSION_ID
  *     and ONLY that variable - AGENTIC_SESSION_ID and CLAUDE_SESSION_UUID are
- *     both measured EMPTY, and bin/agentic-migrate is already silently degraded
+ *     both measured EMPTY, and bin/ds-migrate is already silently degraded
  *     from reading them. OPTIONAL and permissively handled: an absent or empty
  *     value publishes `session_id: null` and never fails acquisition, so every
  *     harness that does not export the variable keeps working (degraded to the
@@ -262,7 +262,7 @@ function main() {
     // by default, so __dirname is <repo>/bin). Never cwd-relative.
     lib = require(path.join(__dirname, '..', 'hooks', 'lib', 'wrap-marker.js'));
   } catch (_) {
-    process.stdout.write('WARNING: agentic-wrap-acquire-lock could not load wrap-marker lib; cannot poll for lock\n');
+    process.stdout.write('WARNING: ds-wrap-acquire-lock could not load wrap-marker lib; cannot poll for lock\n');
     process.exit(1);
     return;
   }

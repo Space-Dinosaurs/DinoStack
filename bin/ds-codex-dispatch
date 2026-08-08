@@ -3,7 +3,7 @@
 Purpose: Resolve manual DinoStack commands, named-agent prompts, and logical
          Codex skill resources through one repository-owned compatibility shim.
 
-Public API: agentic-codex-dispatch command NAME | agent NAME | path LOGICAL |
+Public API: ds-codex-dispatch command NAME | agent NAME | path LOGICAL |
             base-branch PROJECT_ROOT | runtime-bindings INVOCATION_DIR |
             legacy-cli NAME [ARGS...]. Command and agent modes print canonical
             resource bytes; path and base-branch print one validated value;
@@ -36,13 +36,13 @@ from typing import NoReturn
 
 
 def fail(message: str) -> NoReturn:
-    print(f"agentic-codex-dispatch: {message}", file=sys.stderr)
+    print(f"ds-codex-dispatch: {message}", file=sys.stderr)
     raise SystemExit(2)
 
 
 def repo_root() -> Path:
     root = Path(__file__).resolve().parent.parent
-    required = (root / "content/SKILL.md", root / ".codex", root / "bin/agentic-codex-dispatch")
+    required = (root / "content/SKILL.md", root / ".codex", root / "bin/ds-codex-dispatch")
     if not all(path.exists() for path in required):
         fail(f"DinoStack repository signature missing under {root}")
     return root

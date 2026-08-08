@@ -6,9 +6,9 @@ Purpose: Read .agentic/events.jsonl and render Skeptic calibration rollups -
          layer documented in content/references/skeptic-protocol.md Section
          13.
 
-Public API: agentic-calibrate density   [--since <ISO8601>] [--task <task_id>]
-            agentic-calibrate divergence [--since <ISO8601>]
-            agentic-calibrate help
+Public API: ds-calibrate density   [--since <ISO8601>] [--task <task_id>]
+            ds-calibrate divergence [--since <ISO8601>]
+            ds-calibrate help
             All subcommands print fixed-width tables to stdout. Exit codes:
             0 success; 1 missing events log; 2 malformed input.
 
@@ -24,7 +24,7 @@ Downstream consumers: content/references/skeptic-protocol.md Section 13
                       inspect Skeptic drift over time.
 
 Failure modes: missing .agentic/events.jsonl -> exit 1 with a one-line
-               message ("agentic-calibrate: no events log at <path>");
+               message ("ds-calibrate: no events log at <path>");
                malformed JSONL lines are skipped silently and counted in a
                trailing footnote ("N events skipped due to malformed
                lines."); zero qualifying spawns under the warming-up
@@ -62,14 +62,14 @@ def _parse_since(s: str | None) -> _dt.datetime | None:
             s = s[:-1] + "+00:00"
         return _dt.datetime.fromisoformat(s)
     except ValueError:
-        print(f"agentic-calibrate: malformed --since value: {s!r}", file=sys.stderr)
+        print(f"ds-calibrate: malformed --since value: {s!r}", file=sys.stderr)
         sys.exit(2)
 
 
 def _iter_events(path: Path, since: _dt.datetime | None) -> Iterable[dict[str, Any]]:
     skipped = 0
     if not path.exists():
-        print(f"agentic-calibrate: no events log at {path}", file=sys.stderr)
+        print(f"ds-calibrate: no events log at {path}", file=sys.stderr)
         sys.exit(1)
     with path.open() as f:
         for raw in f:
@@ -228,7 +228,7 @@ def cmd_divergence(args: argparse.Namespace) -> int:
 
 
 def cmd_help(_args: argparse.Namespace) -> int:
-    print(__doc__.strip() if __doc__ else "agentic-calibrate")
+    print(__doc__.strip() if __doc__ else "ds-calibrate")
     print()
     print("Subcommands:")
     print("  density   [--since <ISO8601>] [--task <task_id>]   "
@@ -241,7 +241,7 @@ def cmd_help(_args: argparse.Namespace) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        prog="agentic-calibrate",
+        prog="ds-calibrate",
         description="Skeptic calibration inspection over .agentic/events.jsonl.",
     )
     sub = parser.add_subparsers(dest="cmd")

@@ -22,7 +22,7 @@ Purpose: Read-only inspection of the agentic-engineering activation
          value is no longer part of `_resolve`'s return or the printed
          output - only `profile` and the deprecation notices surface.
 
-Public API: agentic-status
+Public API: ds-status
             Prints a fixed-format multi-line report (status lines with
             provenance, a profile-behavior explainer, a telemetry-health
             summary line, and a how-to-adjust block). No subcommands, no
@@ -604,7 +604,7 @@ def _wrap_lock_line() -> str:
     (present/absent, role, session, hold age) and flags an age past the
     abandonment thresholds; it does NOT re-derive the two-arm abandonment
     predicate. That predicate lives once, in `wrapLockAbandoned`
-    (hooks/lib/wrap-marker.js), and `agentic-wrap-acquire-lock` is the only thing
+    (hooks/lib/wrap-marker.js), and `ds-wrap-acquire-lock` is the only thing
     that acts on it. A third copy of a safety predicate here would be a
     correctness liability for no gain - the operator needs visibility, not a
     second opinion. Read-only and fail-open: any error yields `unknown`.
@@ -683,7 +683,7 @@ def _wrap_lock_line() -> str:
     threshold = _WRAP_ABANDON_S if session != "(none)" else _WRAP_LEGACY_ABANDON_S
     if age_s is not None and age_s > threshold:
         line += " - past the abandonment threshold; the next"
-        line += " `agentic-wrap-acquire-lock` clears it if the holder is gone"
+        line += " `ds-wrap-acquire-lock` clears it if the holder is gone"
     return line
 
 

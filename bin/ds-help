@@ -6,7 +6,7 @@ Purpose: Static, zero-token command reference for the agentic-engineering
          discover and recall commands without spending model tokens.
          The CLI for the /ds-help command. Writes nothing.
 
-Public API: agentic-help
+Public API: ds-help
             Prints a fixed HELP_TEXT block to stdout. No subcommands,
             no flags. Always exits 0.
 

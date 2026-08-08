@@ -50,7 +50,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 
 1. `git fetch origin`.
 2. Resolve `BASE_BRANCH` with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
+   `$AE_REPO_DIR/bin/ds-codex-dispatch base-branch "$AE_PROJECT_DIR"`. This applies the
    canonical precedence: exactly one dedicated unfenced whole-line `BASE_BRANCH:` declaration in
    project `AGENTS.md` (with an optional Markdown list prefix and optional `Declaration:` prefix),
    then local `develop`, then local `development`. Multiple matching declarations are rejected as
@@ -60,7 +60,7 @@ isolated checkout, run the following from the invoked project root (`$AE_PROJECT
 3. Choose a unique branch and absolute worktree path beneath `$AE_PROJECT_DIR/.agentic/worktrees/`.
 4. Run `git worktree add "$AE_PROJECT_DIR/.agentic/worktrees/<branch>" -b "<branch>" "origin/$BASE_BRANCH"`.
 5. Load the named role instructions with
-   `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`.
+   `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`.
 6. Call `spawn_agent` with supported inputs (`task_name`, `message`, and `fork_turns`). Begin the
    message with `Work only in the pre-created worktree <absolute-path>` and include the loaded role
    instructions plus the execution contract. The spawned agent must use shell commands in that
@@ -199,7 +199,7 @@ the conductor surfaces the question with a recommended default and proceeds with
 
 **Permission-blocked fallback (non-methodology files only).** When a spawned Worker returns BLOCKED explicitly citing an Edit permission denial by the Claude Code permission system, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Permission-blocked fallback before applying any edit directly. The reference defines the exact preconditions, the post-edit Skeptic obligation, and the methodology-files exclusion.
 
-**Editing methodology files under `$AE_REPO_DIR/`.** Before editing any file under `content/**`, Codex native-skill generation inputs or outputs (`$AE_REPO_DIR/.codex/skill-frontmatter/**`, `$AE_REPO_DIR/.codex/skill-compatibility.yml`, `$AE_REPO_DIR/scripts/codex-skills.py`, `$AE_REPO_DIR/.codex/skills/**`), build scripts, or hooks, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking manual workflow 'ds-update-agentic-engineering' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-update-agentic-engineering` instead of direct Edit/Write.
+**Editing methodology files under `$AE_REPO_DIR/`.** Before editing any file under `content/**`, Codex native-skill generation inputs or outputs (`$AE_REPO_DIR/.codex/skill-frontmatter/**`, `$AE_REPO_DIR/.codex/skill-compatibility.yml`, `$AE_REPO_DIR/scripts/codex-skills.py`, `$AE_REPO_DIR/.codex/skills/**`), build scripts, or hooks, the conductor MUST Read `$AE_REPO_DIR/content/references/conductor-operating-rules.md` §Editing methodology files for the routing rule that requires invoking manual workflow 'ds-update-agentic-engineering' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-update-agentic-engineering` instead of direct Edit/Write.
 
 **Investigator-Before-Architect Rules** - when about to spawn the architect on unfamiliar territory or a shared-utility surface: read `$AE_REPO_DIR/content/references/delegation-detail.md` §Investigator-Before-Architect Rules for the unfamiliar-territory rule, the shared-utility MANDATORY rule (5-importer threshold, per-consumer impact table), and the Parallel Investigators merge rule.
 
@@ -303,7 +303,7 @@ Perform a brief risk assessment before starting any task. Any single Elevated si
 | Trivial | Delegate the shippable edit to a worktree-isolated `engineer` (no Skeptic, no brief file); the conductor never edits the shippable tree directly | None (no Skeptic, no brief file) | Silent |
 | Low | Direct action | Brief inline self-check | Silent |
 | Elevated | Worker | Fresh independent Skeptic | Stated before starting |
-| Elevated + Cleanup | Worker | Skeptic -> `the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)` -> Skeptic (narrow) | Stated before starting |
+| Elevated + Cleanup | Worker | Skeptic -> `the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review)` -> Skeptic (narrow) | Stated before starting |
 
 ### Risk profiles
 
@@ -382,7 +382,7 @@ Applying adversarial review.
 ```
 Risk: Elevated + Cleanup - [specific signal]
 Tier: 2 (role default)
-Applying adversarial review with the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review) cleanup pass.
+Applying adversarial review with the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review) cleanup pass.
 ```
 
 When a Brief or Plan governs the task (see $AE_CORE_SKILL_ROOT/METHODOLOGY.md §Planning Artifacts), include the artifact path under the `Risk:` and `Tier:` lines:
@@ -483,7 +483,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Isolation is mandatory for every shippable-edit spawn.** Before every `engineer`, `qa-engineer`, and `release-orchestrator` spawn, execute the Codex spawn contract above (see §Delegation > Worker preamble). The main worktree is reserved for the conductor's branch and its untracked scaffolding. There is no exception: the Trivial-path solo `engineer` spawn must also execute the Codex spawn contract above - the conductor never edits the shippable tree directly, so even a single-engineer Trivial change runs in an isolated worktree. Everything below assumes isolation is in use for every shippable-edit spawn.
 
-**Isolation worktrees** (`$AE_REPO_DIR/.claude/worktrees/*`) are created by the Agent tool when `the explicit Codex worktree bootstrap contract above` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately when it is the branch this session just pushed (the self-scoped inline pattern below needs no merge check). A later sweep of someone else's leftover isolation worktree (manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-cleanup-worktrees` Step 3) is not immediate removal - it additionally requires merge evidence and skips a pushed-but-unmerged branch. See `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
+**Isolation worktrees** (`$AE_REPO_DIR/.claude/worktrees/*`) are created by the Agent tool when `the explicit Codex worktree bootstrap contract above` is set. Once the branch has been pushed to origin, the isolation worktree is redundant - the remote ref now holds the commits. The conductor must remove it immediately when it is the branch this session just pushed (the self-scoped inline pattern below needs no merge check). A later sweep of someone else's leftover isolation worktree (manual workflow 'ds-cleanup-worktrees' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-cleanup-worktrees` Step 3) is not immediate removal - it additionally requires merge evidence and skips a pushed-but-unmerged branch. See `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Isolation worktree cleanup commands for the command block.
 
 **Feature worktrees** (`$AE_PROJECT_DIR/.agentic/worktrees/*`) are removed after the PR is merged. See `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Feature worktree cleanup commands. Classified by **path, not branch name** (`$AE_REPO_DIR/bin/tests/worktree_model.py`, normative).
 
@@ -502,10 +502,10 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 | **Delegation detail** | consulting the full Worker autonomy contract, stop-frequency planning signal, investigator-before-architect rules, or a detected instruction-layer contradiction | `$AE_REPO_DIR/content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, §Decision Stability and Contradiction Resolution, §Harness-Injected Instruction Conflicts, §Orchestration Enforcement Hooks and Fan-out Detail, §Background-Spawn Enforcement Detail |
 | **Risk config and tiers** | consulting config toggles, the graph-derived risk signal, or tier declaration detail | `$AE_REPO_DIR/content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, §Tier Declaration Detail |
 | **Phase breadcrumb** | every natural orchestration boundary (after agent spawn, agent return, escalation, task completion) | Emit `[phase: label]` inline in your status update. Full vocabulary: `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` Rule 6 |
-| **Skeptic loop orchestration** | Elevated risk is declared | Run manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic` for the full orchestration template, or `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Sections 2-5) - loop steps, state management, re-route limits, escalation. Findings accumulation across loop iterations (findings_log schema, re-raise detection, auto-close rule): `$implement-ticket` Phase 6 |
+| **Skeptic loop orchestration** | Elevated risk is declared | Run manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic` for the full orchestration template, or `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Sections 2-5) - loop steps, state management, re-route limits, escalation. Findings accumulation across loop iterations (findings_log schema, re-raise detection, auto-close rule): `$implement-ticket` Phase 6 |
 | **Findings classification and sign-off** | reviewing Skeptic output | `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Sections 6, 11) - Critical/Major/Minor definitions, required sign-off format, validation rules |
-| **Elevated + Cleanup path** | declaring Elevated + Cleanup | `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 12) - the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/agentic-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review) integration workflow, second Skeptic narrow-scope review |
-| **Adversarial briefs** | writing the brief for a Skeptic | Run manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/agentic-codex-dispatch command ds-skeptic` (brief selection table) or `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 8) - domain-specific templates |
+| **Elevated + Cleanup path** | declaring Elevated + Cleanup | `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 12) - the executable cleanup pass in `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md Section 12` (load that section, dispatch the named cleanup role with `$AE_REPO_DIR/bin/ds-codex-dispatch agent <role>`, call `spawn_agent`, then run the required narrow Skeptic review) integration workflow, second Skeptic narrow-scope review |
+| **Adversarial briefs** | writing the brief for a Skeptic | Run manual workflow 'ds-skeptic' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-skeptic` (brief selection table) or `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 8) - domain-specific templates |
 | **Parallel spawning and worktrees** | decomposing work into multiple agents | `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` (Sections 2, 5, 7) - parallel-by-default, worktree isolation rules, check-in behavior |
 | **Task decomposition and review scope** | breaking work into multiple Workers | `$AE_CORE_SKILL_ROOT/references/subagent-protocol.md` (Section 6) - decomposition rules; `$AE_CORE_SKILL_ROOT/references/skeptic-protocol.md` (Section 9) - review scope guidance |
 | **Agent team composition** | which agent to use and how they compose | `$AE_CORE_SKILL_ROOT/references/agent-team.md` - flows (feature, bug, security), decision rules, spawn prompts |

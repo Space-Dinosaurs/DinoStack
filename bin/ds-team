@@ -11,7 +11,7 @@ Purpose: Cross-harness team configuration loader, discovery, dispatch, and
          runs a discovery-first interactive wizard (per-role menu of
          installed harnesses only) or the non-interactive wizard.
 
-Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
+Public API: ds-team <discover|dispatch|status|collect|configure> [options]
             discover   - probe installed harnesses (installed/version/family/models)
             dispatch   --harness <h> --role <r> --brief <file> --workdir <dir>
                          [--model <m>]
@@ -34,7 +34,7 @@ Public API: agentic-team <discover|dispatch|status|collect|configure> [options]
 Upstream deps: bin/_role_spec (normalize_role_spec, KNOWN_HARNESSES, KNOWN_ROLES);
                Python 3.11 stdlib only (+ pyyaml for YAML parsing).
 
-Downstream consumers: bin/agentic-configure (back-compat shim for team subcommand);
+Downstream consumers: bin/ds-configure (back-compat shim for team subcommand);
                       hooks/enforce-background-spawn.py (Unit 5b sentinel check).
 
 Failure modes: Unknown harness name in roles or default_harness -> non-zero
@@ -90,9 +90,9 @@ except ImportError:
 
 # ---------------------------------------------------------------------------
 # Load _role_spec from the same bin/ directory (no .py extension sibling).
-# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-team ->
-# repo bin/agentic-team, as created by install.sh) back to the real bin/
-# directory so _role_spec.py is found on a bare `agentic-team` invocation.
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-team ->
+# repo bin/ds-team, as created by install.sh) back to the real bin/
+# directory so _role_spec.py is found on a bare `ds-team` invocation.
 # ---------------------------------------------------------------------------
 _rs_path = Path(__file__).resolve().parent / "_role_spec.py"
 _rs_loader = _im.SourceFileLoader("_role_spec", str(_rs_path))
@@ -167,7 +167,7 @@ ROLES = [
 # ---------------------------------------------------------------------------
 # Capability table for cross-harness team ranking.
 # Maps model-family substrings (lowercase) to per-role strength hints.
-# NO hardcoded model IDs - only family name substrings, matching agentic-models
+# NO hardcoded model IDs - only family name substrings, matching ds-models
 # "no hardcoded catalog" stance. Positive = stronger for that role.
 # ---------------------------------------------------------------------------
 _TEAM_CAPABILITY_TABLE: dict[str, dict[str, int]] = {
@@ -229,7 +229,7 @@ def _parse_team_yml(text: str, source: str) -> dict:
     """
     if not _HAVE_YAML:
         raise ImportError(
-            "agentic-team requires pyyaml. Install with: pip install pyyaml"
+            "ds-team requires pyyaml. Install with: pip install pyyaml"
         )
     try:
         data = _yaml.safe_load(text)
@@ -268,14 +268,14 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
     dh = config.get("default_harness")
     if dh and dh not in KNOWN_HARNESSES:
         errors.append(
-            f"agentic-team: unknown default_harness {dh!r} in {source} "
+            f"ds-team: unknown default_harness {dh!r} in {source} "
             f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
         )
 
     for role, spec in config.get("roles", {}).items():
         if role not in KNOWN_ROLES:
             errors.append(
-                f"agentic-team: unknown role {role!r} in {source} "
+                f"ds-team: unknown role {role!r} in {source} "
                 f"(known: {', '.join(sorted(KNOWN_ROLES))})"
             )
         # Normalize to extract harness
@@ -286,7 +286,7 @@ def _validate_config(config: dict, source: str = "<team.yml>") -> list[str]:
             harness = str(spec) if spec else None
         if harness and harness not in KNOWN_HARNESSES:
             errors.append(
-                f"agentic-team: unknown harness {harness!r} for role {role!r} in {source} "
+                f"ds-team: unknown harness {harness!r} for role {role!r} in {source} "
                 f"(known: {', '.join(sorted(KNOWN_HARNESSES))})"
             )
 
@@ -339,7 +339,7 @@ def _resolve_role_model(
         config = _load_team_config(global_path=global_path, project_path=project_path)
     except (OSError, ValueError, ImportError) as exc:  # narrow: I/O + parse
         print(
-            f"agentic-team: could not load team.yml for model resolution: {exc}",
+            f"ds-team: could not load team.yml for model resolution: {exc}",
             file=sys.stderr,
         )
         return None
@@ -357,7 +357,7 @@ def _resolve_role_model(
 
 
 # ---------------------------------------------------------------------------
-# configure subcommand helpers (moved from agentic-configure)
+# configure subcommand helpers (moved from ds-configure)
 # ---------------------------------------------------------------------------
 
 def _score_model_for_role(
@@ -428,7 +428,7 @@ def _emit_team_yaml(
 ) -> str:
     """Render role assignments into a team.yml YAML block."""
     lines = [
-        "# Generated by agentic-configure team.",
+        "# Generated by ds-configure team.",
         "# Edit .agentic/team.yml freely.",
         "enabled: true",
     ]
@@ -486,9 +486,9 @@ def _parse_assign_pairs(
 
 
 def _cmd_configure(argv: list[str]) -> int:
-    """Handle the `agentic-team configure` subcommand."""
+    """Handle the `ds-team configure` subcommand."""
     ap = argparse.ArgumentParser(
-        prog="agentic-team configure",
+        prog="ds-team configure",
         description="Configure cross-harness team assignments in .agentic/team.yml.",
     )
     ap.add_argument(
@@ -516,7 +516,7 @@ def _cmd_configure(argv: list[str]) -> int:
         # Deterministic path: parse --assign pairs, validate, write.
         if not args.assign:
             print(
-                "agentic-team configure: --non-interactive requires at least one --assign pair",
+                "ds-team configure: --non-interactive requires at least one --assign pair",
                 file=sys.stderr,
             )
             return 2
@@ -528,7 +528,7 @@ def _cmd_configure(argv: list[str]) -> int:
         default_harness = args.default_harness.strip() or None
         if default_harness and default_harness not in KNOWN_HARNESSES:
             print(
-                f"agentic-team configure: unknown --default-harness {default_harness!r} "
+                f"ds-team configure: unknown --default-harness {default_harness!r} "
                 f"(known: {', '.join(sorted(KNOWN_HARNESSES))})",
                 file=sys.stderr,
             )
@@ -539,12 +539,12 @@ def _cmd_configure(argv: list[str]) -> int:
 
     # Interactive path: discover FIRST -> print summary -> rank -> per-role
     # menu of installed harnesses only -> write.
-    print("agentic-team configure: discovering installed harnesses...")
+    print("ds-team configure: discovering installed harnesses...")
     discovery = _discover_harnesses()
     if not discovery:
         print(
-            "agentic-team configure: harness discovery returned no results; "
-            "ensure agentic-team is installed",
+            "ds-team configure: harness discovery returned no results; "
+            "ensure ds-team is installed",
             file=sys.stderr,
         )
         # Still proceed with empty discovery - rankings will be empty.
@@ -569,7 +569,7 @@ def _cmd_configure(argv: list[str]) -> int:
         assignments = _rank_assignments(discovery)
         if sys.stdin.isatty() and not [h for h in installed_harnesses if h != "claude"]:
             print(
-                "\nagentic-team configure: no non-claude harnesses installed; "
+                "\nds-team configure: no non-claude harnesses installed; "
                 "nothing to cross-dispatch to. Exiting without prompting."
             )
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -1048,7 +1048,7 @@ def _cursor_watchdog(
             try:
                 with stderr_file.open("a", encoding="utf-8") as fh:
                     fh.write(
-                        f"\n[agentic-team watchdog] cursor-agent killed after "
+                        f"\n[ds-team watchdog] cursor-agent killed after "
                         f"{timeout}s timeout\n"
                     )
             except OSError:
@@ -1086,7 +1086,7 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
 
     if harness not in KNOWN_HARNESSES:
         print(
-            f"agentic-team dispatch: unknown harness {harness!r} "
+            f"ds-team dispatch: unknown harness {harness!r} "
             f"(known: {', '.join(sorted(KNOWN_HARNESSES))})",
             file=sys.stderr,
         )
@@ -1103,7 +1103,7 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
     # deliberate consent, not an implicit side effect of team.yml presence.
     if harness == "copilot" and os.environ.get("AGENTIC_TEAM_ALLOW_COPILOT") != "1":
         print(
-            "agentic-team dispatch: copilot requires explicit operator opt-in. "
+            "ds-team dispatch: copilot requires explicit operator opt-in. "
             "It runs with --allow-all-tools --allow-all-paths (unrestricted "
             "filesystem access) and inherits the full parent environment, which "
             "defeats the worktree isolation other harnesses rely on. Set "
@@ -1113,7 +1113,7 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         return 2
 
     if not brief_file.is_file():
-        print(f"agentic-team dispatch: brief file not found: {brief_file}", file=sys.stderr)
+        print(f"ds-team dispatch: brief file not found: {brief_file}", file=sys.stderr)
         return 2
 
     brief_text = brief_file.read_text(encoding="utf-8")
@@ -1132,13 +1132,13 @@ def _cmd_dispatch(args: argparse.Namespace) -> int:
         run_dir.mkdir(parents=True, exist_ok=False)
     except FileExistsError:
         print(
-            f"agentic-team dispatch: run directory already exists (run-id collision): {run_dir}",
+            f"ds-team dispatch: run directory already exists (run-id collision): {run_dir}",
             file=sys.stderr,
         )
         return 2
     except OSError as exc:
         print(
-            f"agentic-team dispatch: cannot create run directory {run_dir}: {exc}",
+            f"ds-team dispatch: cannot create run directory {run_dir}: {exc}",
             file=sys.stderr,
         )
         return 2
@@ -1385,7 +1385,7 @@ def _cmd_status(args: argparse.Namespace) -> int:
     workdir = Path(getattr(args, "workdir", "."))
     run_dir = _resolve_run_dir(run_id, workdir)
     if run_dir is None:
-        print(f"agentic-team status: unknown run-id {run_id!r}", file=sys.stderr)
+        print(f"ds-team status: unknown run-id {run_id!r}", file=sys.stderr)
         return 2
     print(_run_status(run_dir))
     return 0
@@ -1401,12 +1401,12 @@ def _cmd_collect(args: argparse.Namespace) -> int:
     workdir = Path(getattr(args, "workdir", "."))
     run_dir = _resolve_run_dir(run_id, workdir)
     if run_dir is None:
-        print(f"agentic-team collect: unknown run-id {run_id!r}", file=sys.stderr)
+        print(f"ds-team collect: unknown run-id {run_id!r}", file=sys.stderr)
         return 2
 
     status = _run_status(run_dir)
     if status == "running":
-        print(f"agentic-team collect: run {run_id!r} is still running", file=sys.stderr)
+        print(f"ds-team collect: run {run_id!r} is still running", file=sys.stderr)
         return 2
 
     harness_file = run_dir / "harness"
@@ -1451,11 +1451,11 @@ def main(argv: list[str]) -> int:
     # Dispatch-on-argv shim: if the first positional argument (ignoring any
     # leading --global-config / --project-config flags) is "configure", route
     # to _cmd_configure WITHOUT touching the existing argparse subparsers.
-    # This mirrors how agentic-configure handles the "team" subcommand and
+    # This mirrors how ds-configure handles the "team" subcommand and
     # avoids argparse eating configure's own --non-interactive / --assign flags.
     #
     # Strip any leading --global-config / --project-config pairs so that
-    # `agentic-team --global-config x configure ...` also routes correctly.
+    # `ds-team --global-config x configure ...` also routes correctly.
     _stripped = list(argv)
     for _opt in ("--global-config", "--project-config"):
         while _opt in _stripped:
@@ -1465,7 +1465,7 @@ def main(argv: list[str]) -> int:
         return _cmd_configure(_stripped[1:])
 
     ap = argparse.ArgumentParser(
-        prog="agentic-team",
+        prog="ds-team",
         description="Cross-harness agent team config loader and dispatch tool.",
     )
     ap.add_argument(
@@ -1513,7 +1513,7 @@ def main(argv: list[str]) -> int:
     try:
         config = _load_team_config(global_path, project_path)
     except ValueError as exc:
-        print(f"agentic-team: config parse error: {exc}", file=sys.stderr)
+        print(f"ds-team: config parse error: {exc}", file=sys.stderr)
         return 2
 
     errors = _validate_config(config)
@@ -1531,7 +1531,7 @@ def main(argv: list[str]) -> int:
     if args.subcommand == "collect":
         return _cmd_collect(args)
 
-    print(f"agentic-team: unknown subcommand {args.subcommand!r}", file=sys.stderr)
+    print(f"ds-team: unknown subcommand {args.subcommand!r}", file=sys.stderr)
     return 1
 
 

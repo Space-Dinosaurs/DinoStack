@@ -4,9 +4,9 @@
 #          compares against the current project state, and applies missing
 #          gitignore patterns and seed files without overwriting existing content.
 # Public API: check / apply / diff subcommands
-#   agentic-migrate check  [--manifest PATH]
-#   agentic-migrate apply  [--manifest PATH] [--project-root PATH] [--dry-run]
-#   agentic-migrate diff   [--manifest PATH] [--project-root PATH]
+#   ds-migrate check  [--manifest PATH]
+#   ds-migrate apply  [--manifest PATH] [--project-root PATH] [--dry-run]
+#   ds-migrate diff   [--manifest PATH] [--project-root PATH]
 # Upstream: content/project-scaffolding.yml (canonical) or adapter-replicated copy.
 #           Shared helpers: bin/_lib (atomic_write).
 # Downstream: invoked by Activation preflight Step 6 and /ds-migrate-project command
@@ -36,9 +36,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
-# .resolve() follows a PATH symlink (e.g. ~/.local/bin/agentic-migrate ->
-# repo bin/agentic-migrate, as created by install.sh) back to the real
-# bin/ directory so _lib.py is found on a bare `agentic-migrate` invocation.
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-migrate ->
+# repo bin/ds-migrate, as created by install.sh) back to the real
+# bin/ directory so _lib.py is found on a bare `ds-migrate` invocation.
 import sys as _sys
 
 _LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
@@ -336,7 +336,7 @@ def _append_gitignore(gitignore_path: Path, pattern: str) -> None:
         rewritten = _normalize_bare_agentic_pattern(pattern)
         if rewritten is not None:
             print(
-                f"agentic-migrate: rewriting bare .agentic/ ignore pattern "
+                f"ds-migrate: rewriting bare .agentic/ ignore pattern "
                 f"{pattern!r} to {rewritten!r} - a bare directory ignore can "
                 "never be negated by a !.agentic/<file> carve-out at any "
                 "position, because git will not descend into an excluded "
@@ -526,7 +526,7 @@ def _warn_manifest_not_found(project_root: Path) -> None:
     KNOWN LATENT BUG, out of scope here and tracked separately: BOTH of those env
     vars are empty in a live session, so the ``if session_id:`` branch never fires
     and this is ALWAYS in once-ever mode. The correct variable is
-    CLAUDE_CODE_SESSION_ID (see bin/agentic-wrap-acquire-lock's --session-id).
+    CLAUDE_CODE_SESSION_ID (see bin/ds-wrap-acquire-lock's --session-id).
     Deliberately NOT fixed in this change: doing so would alter this warning's
     firing cadence, which is unrelated to the context.md data-loss fix. Recorded
     here so the next reader does not mistake it for working code.
@@ -767,7 +767,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 target = project_root / entry["path"]
                 if not target.resolve().is_relative_to(resolved_root):
                     print(
-                        f"agentic-migrate: skipping out-of-root path: {entry['path']!r}",
+                        f"ds-migrate: skipping out-of-root path: {entry['path']!r}",
                         file=sys.stderr,
                     )
                     errored = True
@@ -829,7 +829,7 @@ def cmd_apply(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="agentic-migrate",
+        prog="ds-migrate",
         description="Apply additive project scaffolding migrations from a manifest.",
     )
     parser.add_argument("--manifest", default=None, help="Path to manifest YAML file.")

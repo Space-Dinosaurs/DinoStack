@@ -1376,17 +1376,6 @@ for tool_entry in "${CLI_TOOLS[@]}"; do
   fi
 done
 
-# ---------------------------------------------------------------------------
-# Developer identity
-# ---------------------------------------------------------------------------
-
-if declare -f _ae_setup_identity >/dev/null; then
-  echo ""
-  echo "Developer identity..."
-  _ae_setup_identity
-  _ae_identity_guidance
-fi
-
 # chrome-devtools MCP
 echo ""
 CLAUDE_JSON="$HOME/.claude.json"
@@ -1715,6 +1704,17 @@ ae_install_bins() {
 
 echo "Linking bin/ scripts to PATH..."
 ae_install_bins
+
+# ---------------------------------------------------------------------------
+# Developer identity
+# ---------------------------------------------------------------------------
+
+if declare -f _ae_setup_identity >/dev/null; then
+  echo ""
+  echo "Developer identity..."
+  _ae_setup_identity
+  _ae_identity_guidance
+fi
 
 # ---------------------------------------------------------------------------
 # Summary

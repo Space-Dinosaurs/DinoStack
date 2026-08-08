@@ -6,7 +6,7 @@
 #          Never merges, rebases, force-pushes, or autostashes.
 #
 # Public API:
-#   agentic-base-sync <repo> <base-branch>
+#   ds-base-sync <repo> <base-branch>
 #     Prints a breadcrumb line (and possibly WARNING/NOTE diagnostic lines) to
 #     stdout. Exit codes are NORMALIZED by this wrapper - git's own native
 #     exit codes are never passed through:
@@ -39,29 +39,29 @@
 set -u
 
 if [ "$#" -ne 2 ]; then
-  echo "usage: agentic-base-sync <repo> <base-branch>" >&2
+  echo "usage: ds-base-sync <repo> <base-branch>" >&2
   exit 3
 fi
 
 if [ ! -d "$1" ]; then
-  echo "agentic-base-sync: not a directory: $1" >&2
+  echo "ds-base-sync: not a directory: $1" >&2
   exit 3
 fi
 
 REPO_DIR="$(cd "$1" 2>/dev/null && pwd -P)"
 if [ -z "$REPO_DIR" ]; then
-  echo "agentic-base-sync: cannot resolve path: $1" >&2
+  echo "ds-base-sync: cannot resolve path: $1" >&2
   exit 3
 fi
 
 if ! git -C "$REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
-  echo "agentic-base-sync: not a git repository: $REPO_DIR" >&2
+  echo "ds-base-sync: not a git repository: $REPO_DIR" >&2
   exit 3
 fi
 
 # Resolve BASH_SOURCE[0] through any symlink chain before computing
 # SCRIPT_DIR. This tool is installed on PATH as a symlink
-# (~/.local/bin/agentic-base-sync -> $REPO_DIR/bin/agentic-base-sync, see
+# (~/.local/bin/ds-base-sync -> $REPO_DIR/bin/ds-base-sync, see
 # .claude/install.sh ae_install_bins()), so when invoked by name (call site
 # 2, content/rules/conventions.md step 6), BASH_SOURCE[0] is the SYMLINK
 # path - dirname of that resolves to ~/.local/bin, not $REPO_DIR/bin, and
@@ -81,7 +81,7 @@ SCRIPT_DIR="$(cd "$(dirname "$SOURCE")" 2>/dev/null && pwd -P)"
 LIB_DIR="$(cd "$SCRIPT_DIR/../scripts/lib" 2>/dev/null && pwd -P)"
 
 if [ ! -f "$LIB_DIR/base-branch-sync.sh" ]; then
-  echo "agentic-base-sync: base-branch-sync.sh not found at $LIB_DIR/base-branch-sync.sh" >&2
+  echo "ds-base-sync: base-branch-sync.sh not found at $LIB_DIR/base-branch-sync.sh" >&2
   exit 3
 fi
 

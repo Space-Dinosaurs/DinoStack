@@ -383,12 +383,12 @@ echo "=== Case 12: empty <base-branch> and empty <repo> arguments -> exit 3, no 
   ERR="$("$TOOL" "$C/repo" "" 2>&1 1>/dev/null)"; RC=$?
   SNAP_AFTER="$(_snapshot "$C/repo")"
   _assert_eq "case12: empty base -> exit 3" "3" "$RC"
-  _assert_contains "case12: empty base -> usage message on stderr" "$ERR" "usage: agentic-base-sync"
+  _assert_contains "case12: empty base -> usage message on stderr" "$ERR" "usage: ds-base-sync"
   _assert_eq "case12: empty base -> local ref byte-identical pre/post (no git call made)" "$SNAP_BEFORE" "$SNAP_AFTER"
 
   ERR2="$("$TOOL" "" base 2>&1 1>/dev/null)"; RC2=$?
   _assert_eq "case12: empty repo -> exit 3" "3" "$RC2"
-  _assert_contains "case12: empty repo -> error message on stderr" "$ERR2" "agentic-base-sync"
+  _assert_contains "case12: empty repo -> error message on stderr" "$ERR2" "ds-base-sync"
 }
 
 echo "=== Case 13: HEAD on base, pull succeeds trivially with local already ahead, origin unchanged -> ff-pulled + NOTE ==="

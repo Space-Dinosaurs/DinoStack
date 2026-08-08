@@ -5,7 +5,7 @@ Purpose: Rank a caller-supplied list of AI model IDs per agentic-engineering
          wizard, or shell) owns model discovery; this binary purely ranks
          whatever list it receives.
 
-Public API: agentic-models [--json] [--suggest <role>] [--all-suggestions]
+Public API: ds-models [--json] [--suggest <role>] [--all-suggestions]
             [--models-from FILE] [model ...]
             Model IDs arrive via positional args, --models-from FILE (one id
             per line), or stdin (when piped). All three sources are combined.
@@ -17,7 +17,7 @@ Public API: agentic-models [--json] [--suggest <role>] [--all-suggestions]
 
 Upstream deps: Python 3 stdlib (argparse, json, sys).
 
-Downstream consumers: bin/agentic-configure (TUI; uses --json);
+Downstream consumers: bin/ds-configure (TUI; uses --json);
                       content/references/model-discovery.md (spec);
                       content/sections/04-risk-classification.md (tier);
                       content/references/role-models.md.
@@ -146,7 +146,7 @@ def _collect_models(args: argparse.Namespace) -> list[str]:
 
 def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
-        prog="agentic-models",
+        prog="ds-models",
         description=(
             "Rank a list of AI model IDs per agentic-engineering role. "
             "Provide models via positional args, --models-from FILE, or stdin."

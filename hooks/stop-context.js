@@ -49,7 +49,7 @@
  *             hooks/lib/wrap-marker.js, the single source of truth.
  *
  * Upstream deps: Node built-ins (fs, path, os, child_process), the bounded
- *                descriptor-safe bin/agentic-identity resolve-hook/write-hook
+ *                descriptor-safe bin/ds-identity resolve-hook/write-hook
  *                helper, plus six
  *                local CommonJS modules: hooks/lib/wrap-marker.js (the deferred-/ds-wrap
  *                marker single source of truth - lock gate, per-session staging,
@@ -114,12 +114,12 @@
  * Downstream consumers: Claude Code Stop hook (configured in
  *                        ~/.claude/settings.json or project .claude/settings.json).
  *                        Output files are read by Worker agents at session start.
- *                        bin/agentic-cost team reads .agentic/session-log/ for
+ *                        bin/ds-cost team reads .agentic/session-log/ for
  *                        team-level aggregation.
- *                        bin/agentic-cost operator reads ~/.agentic/session-log/*.jsonl
+ *                        bin/ds-cost operator reads ~/.agentic/session-log/*.jsonl
  *                        for global operator rollup. The .pending/ subdir is NOT
- *                        globbed by agentic-cost (operator or team) - it is consumed
- *                        only by agentic-identity confirm/init via flushPendingBuffer.
+ *                        globbed by ds-cost (operator or team) - it is consumed
+ *                        only by ds-identity confirm/init via flushPendingBuffer.
  *
  * Failure modes: All failures are silent (process.exit(0)). Stdin acquisition
  *                (step 1 of run()) is bounded via hooks/lib/stdin-guard.js's
@@ -759,7 +759,7 @@ function appendIdentityNudgeToContextMd(repoRoot, sessionId) {
       '',
       '---',
       '[agentic-engineering] No developer identity set. Session telemetry is local-only.',
-      'To enable team telemetry: agentic-identity init <handle>',
+      'To enable team telemetry: ds-identity init <handle>',
       'Sentinel: ~/.agentic/.identity-nudged (delete to re-nudge)',
     ].join('\n') + '\n';
     const ok = contextRollup.appendToShard(repoRoot, sessionId || NO_SESSION_SHARD, nudge);
@@ -790,7 +790,7 @@ function computeSessionTotals(cwd, sessionId, cachedRaw) {
     if (!agg) return null;
 
     // Re-shape by_agent: flatten 4-band tokens to a single tokens_total for the
-    // session-log format consumed by agentic-cost team.
+    // session-log format consumed by ds-cost team.
     const byAgentFlat = {};
     for (const [name, entry] of Object.entries(agg.by_agent)) {
       const t = entry.tokens || {};

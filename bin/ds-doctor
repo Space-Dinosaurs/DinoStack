@@ -25,10 +25,10 @@ Purpose: Inspect global agentic-engineering install health and (with --fix)
          wrapper is recreated by the forward check the next time --fix runs
          against a checkout where the tool exists again.
 
-Public API: agentic-doctor [--fix] [--dry-run] [--cross-harness] [--json]
+Public API: ds-doctor [--fix] [--dry-run] [--cross-harness] [--json]
             --cross-harness: also validate the cross-harness team stack
               (team.yml + role-models.yml parse/schema, referenced harnesses
-              installed via `agentic-team discover --json`, model handles
+              installed via `ds-team discover --json`, model handles
               resolvable via `omp models ls --json`, dispatch resolver wired).
             --json: emit findings as a JSON object instead of status lines.
             Prints one status line per check:
@@ -57,7 +57,7 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                Never modifies files unless --fix is passed (without --dry-run).
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
-             run shells out to `agentic-team discover` and `omp models ls`,
+             run shells out to `ds-team discover` and `omp models ls`,
              each under a timeout (up to ~30-60 s worst case) -- so a
              --cross-harness run is bounded by those subprocess timeouts, not
              sub-100 ms.
@@ -102,9 +102,10 @@ def _managed_link_dirs() -> list[Path]:
         h / ".claude" / "skills" / "agentic-engineering",
     ]
 
-# Recognized bin/ tool basename prefixes. Both are checked so that a future
-# rename of the agentic-* family to ds-* (tracked separately - not done in
-# this change) does not silently drop tools from the local_bin checks below.
+# Recognized bin/ tool basename prefixes. Both are checked: ds-* is the
+# primary name and agentic-* is the permanent compat symlink family, so
+# checking both keeps the local_bin checks below from silently dropping
+# either set.
 BIN_TOOL_PREFIXES: tuple[str, ...] = ("agentic-", "ds-")
 
 # Basenames of hook scripts that live in <repo_dir>/hooks/.
@@ -663,7 +664,7 @@ def _check_bin_link(doc: Doctor, link: Path, expected_target: Path) -> None:
 # ---------------------------------------------------------------------------
 # Check (d2): reverse direction - a ~/.local/bin symlink whose raw target is
 # rooted at <repo_dir>/bin but that target no longer exists (e.g. a tool
-# renamed or removed upstream, such as a future agentic-* -> ds-* rename).
+# renamed or removed upstream, such as the agentic-* -> ds-* rename).
 # The scan above (check_local_bin_symlinks) only walks repo/bin -> expected
 # link, so it can never notice a link left behind for a tool that vanished
 # from repo/bin entirely; this is the missing reverse direction.
@@ -816,10 +817,10 @@ def check_git_precommit(doc: Doctor) -> None:
 # ---------------------------------------------------------------------------
 
 def _load_agentic_team_module():
-    """Import bin/agentic-team as a module to reuse its config helpers."""
+    """Import bin/ds-team as a module to reuse its config helpers."""
     import importlib.machinery
     import importlib.util
-    at_path = Path(__file__).resolve().parent / "agentic-team"
+    at_path = Path(__file__).resolve().parent / "ds-team"
     if not at_path.is_file():
         return None
     try:
@@ -873,7 +874,7 @@ def _omp_model_handles():
 
 
 def _installed_harnesses():
-    """Return installed harness labels via `agentic-team discover --json`.
+    """Return installed harness labels via `ds-team discover --json`.
 
     Uses the structured --json API (not the human-readable columns) so the
     result does not depend on display formatting. Returns None on failure.
@@ -881,11 +882,11 @@ def _installed_harnesses():
     import shutil
     import subprocess
     import json as _json
-    if not shutil.which("agentic-team"):
+    if not shutil.which("ds-team"):
         return None
     try:
         out = subprocess.run(
-            ["agentic-team", "discover", "--json"],
+            ["ds-team", "discover", "--json"],
             capture_output=True, text=True, timeout=60,
         )
     except (OSError, subprocess.SubprocessError):
@@ -909,7 +910,7 @@ def check_cross_harness(doc: "Doctor") -> None:
     """Validate the cross-harness team stack: configs, harnesses, model handles."""
     at = _load_agentic_team_module()
     if at is None:
-        doc.warn("cross-harness", "agentic-team module not importable; skipping")
+        doc.warn("cross-harness", "ds-team module not importable; skipping")
         return
 
     # (1a) team.yml parse + schema-valid.
@@ -922,7 +923,7 @@ def check_cross_harness(doc: "Doctor") -> None:
         doc.warn("team.yml", "no team.yml found (cross-harness dispatch off)")
         return
 
-    # Validate schema — wrap in broad try/except so a structural surprise
+    # Validate schema - wrap in broad try/except so a structural surprise
     # (e.g. _validate_config AttributeError on `roles: "string"`) becomes a
     # FAIL finding rather than crashing the whole doctor process.
     try:
@@ -980,7 +981,7 @@ def check_cross_harness(doc: "Doctor") -> None:
             referenced.add(h)
     referenced.discard(None)
     if installed is None:
-        doc.warn("harnesses", "agentic-team discover unavailable; not verified")
+        doc.warn("harnesses", "ds-team discover unavailable; not verified")
     else:
         for h in sorted(referenced):
             if h in installed:
@@ -1032,7 +1033,7 @@ def check_cross_harness(doc: "Doctor") -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        prog="agentic-doctor",
+        prog="ds-doctor",
         description=(
             "Inspect global agentic-engineering install health. "
             "With --fix, re-points drifted symlinks toward the canonical repo_dir "

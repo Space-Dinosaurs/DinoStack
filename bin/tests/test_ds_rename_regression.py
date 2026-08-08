@@ -20,7 +20,12 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* rename
          SUFFIXES list below - that enumerates every real bin/ds-* file on
          disk and asserts each has a working bin/agentic-* alias, so a
          future added tool that is renamed without updating SUFFIXES (or
-         whose alias is simply missing) is still caught.
+         whose alias is simply missing) is still caught; (6) every
+         bin/agentic-* alias resolves to an existing target (orphan-alias
+         direction); and (7) every bin/ds-* path entry, symlink or not,
+         resolves to an existing file (dangling-ds-symlink direction) -
+         (6) and (7) close the one-direction gap in (5), which only ever
+         walked from a real, non-symlink bin/ds-* file.
 
 Public API: python3 -m pytest bin/tests/test_ds_rename_regression.py -q
             Also directly executable: python3 bin/tests/test_ds_rename_regression.py
@@ -267,12 +272,52 @@ def test_lib_py_resolves_through_old_name_symlink_for_all_dependents() -> None:
     assert not failures, "\n".join(failures)
 
 
+def test_no_orphan_agentic_alias_without_ds_target() -> None:
+    """MINOR 1, direction 1: every bin/agentic-* symlink on disk must resolve
+    to an EXISTING file. test_every_ds_star_file_on_disk_has_a_working_
+    agentic_alias only walks ds-* -> agentic-* (and only counts real,
+    non-symlink ds-* files); it never notices an orphan bin/agentic-zzz
+    symlink whose ds-zzz target does not exist (e.g. the ds-* file was
+    renamed again or deleted but the old-name alias was never updated or
+    removed). This walks the OTHER direction: every bin/agentic-* symlink,
+    regardless of whether a matching ds-* file exists."""
+    agentic_symlinks = sorted(
+        p for p in REPO_BIN.iterdir()
+        if p.is_symlink() and p.name.startswith("agentic-")
+    )
+    assert agentic_symlinks, "no bin/agentic-* symlinks found on disk - unexpected"
+
+    orphans = [p.name for p in agentic_symlinks if not p.resolve().is_file()]
+    assert not orphans, f"bin/agentic-* aliases pointing at a nonexistent target: {orphans}"
+
+
+def test_no_dangling_ds_star_symlink() -> None:
+    """MINOR 1, direction 2: every bin/ds-* PATH ENTRY (real file OR
+    symlink) must resolve to an existing file.
+    test_every_ds_star_file_on_disk_has_a_working_agentic_alias filters its
+    walk to `p.is_file() and not p.is_symlink()`, so a bin/ds-zzz that is
+    ITSELF a dangling symlink (e.g. accidentally created pointing at a typo'd
+    or removed path) is excluded from that walk entirely and never
+    inspected by any existing test. This test enumerates every bin/ds-*
+    entry unconditionally and asserts none is a broken symlink."""
+    ds_entries = sorted(
+        p for p in REPO_BIN.iterdir()
+        if p.name.startswith("ds-") and (p.is_file() or p.is_symlink())
+    )
+    assert ds_entries, "no bin/ds-* entries found on disk - unexpected"
+
+    dangling = [p.name for p in ds_entries if p.is_symlink() and not p.resolve().is_file()]
+    assert not dangling, f"bin/ds-* entries that are dangling symlinks: {dangling}"
+
+
 EXTRA_TESTS = [
     test_all_25_ds_names_present_and_executable,
     test_all_agentic_names_resolve_to_matching_ds_file,
     test_every_ds_star_file_on_disk_has_a_working_agentic_alias,
     test_representative_tools_behave_identically_through_old_symlink,
     test_lib_py_resolves_through_old_name_symlink_for_all_dependents,
+    test_no_orphan_agentic_alias_without_ds_target,
+    test_no_dangling_ds_star_symlink,
 ]
 
 
