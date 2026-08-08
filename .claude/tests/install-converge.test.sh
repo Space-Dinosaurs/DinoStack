@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
 # Purpose: Tests for .claude/install.sh symlink-convergence, guarded
-#          repo_dir write (Changes 1-3 in the converging-symlinks PR), and
-#          the legacy path-scoped Write() permission-rule migration.
+#          repo_dir write (Changes 1-3 in the converging-symlinks PR), the
+#          legacy path-scoped Write() permission-rule migration, and the
+#          DS-143 gated import-strip / skill_auto_load migration.
 #
 # Public API: bash .claude/tests/install-converge.test.sh
 #             Exits 0 on all pass, non-zero on any failure.
@@ -15,9 +16,9 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~30 s wall time (12 install.sh invocations after this change,
-#              up from 11; each runs two full adapter builds against the
-#              real checkout).
+# Performance: ~40 s wall time (15 install.sh invocations after DS-143, up
+#              from 12; each runs two full adapter builds against the real
+#              checkout).
 #
 # Regression coverage:
 #   - Change 1: stale "ours" symlink (target under .../DinoStack/...) is
@@ -58,6 +59,23 @@
 #     narrowed, at the cost of leaving Claude Code's startup warning about
 #     the inert scoped rule in place for that edge case. The install
 #     output reports added rules, not a legacy-rule removal.
+#   - Case (a) (extended, DS-143): good-link fixture - the emitted CLAUDE.md
+#     managed block drops the three @-import lines, the registry-refresh
+#     restart notice fires, and the emitted table body is asserted
+#     byte-equal to content/templates/claude-managed-content.md (wiring
+#     assertion - guards against a lean block that only "looks right"
+#     against a hardcoded copy instead of genuinely reading the template).
+#   - Case (i): blocked-gate fixture (a real file at the skill symlink
+#     destination forces SKILL_LINK_OK=false) - the three @-import lines
+#     are RETAINED, the keep-imports warning fires, and the restart notice
+#     does NOT fire.
+#   - Case (j): migration fixture - a pre-existing old-format block plus
+#     skill_auto_load:false plus a good skill link ends, after one run,
+#     with the lean block AND skill_auto_load force-set to true.
+#   - Case (k): negative migration control - an already-migrated (lean)
+#     block plus a user-set skill_auto_load:false stays false (the
+#     migration self-disarms once the old @-import marker is gone from
+#     disk).
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -172,6 +190,50 @@ if grep -Fq "WARNING: the agentic-engineering skill is not linked to this checko
   _fail "case (a): SKILL_LINK_OK warning fired even though the skill was freshly linked"
 else
   _pass "case (a): no SKILL_LINK_OK warning when the skill links successfully"
+fi
+
+# DS-143: good-link fixture - the @-import lines must be gone (the table is
+# written from the template instead), and the registry-refresh restart
+# notice must fire because this run actually stripped the imports.
+_case_a_import_count="$(grep -c "@skills/agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+if [[ "$_case_a_import_count" -eq 0 ]]; then
+  _pass "case (a): DS-143 good-link CLAUDE.md contains no @skills/agentic-engineering import lines"
+else
+  _fail "case (a): DS-143 good-link CLAUDE.md still contains @skills/agentic-engineering import lines (count=$_case_a_import_count)"
+fi
+
+if grep -Fq "IMPORTANT: skill definitions changed" "$FAKE_HOME/.install_out"; then
+  _pass "case (a): DS-143 good-link install output includes the registry-refresh restart notice"
+else
+  _fail "case (a): DS-143 good-link install output missing the registry-refresh restart notice"
+fi
+
+# DS-143 wiring assertion (mandatory): the emitted table body must be
+# byte-equal to content/templates/claude-managed-content.md's post-manifest
+# body - a lean block that merely "looks right" against a hardcoded copy is
+# not acceptable coverage for single-sourcing.
+_case_a_table="$(python3 -c "
+import re, sys
+with open(sys.argv[1]) as f:
+    content = f.read()
+m = re.search(
+    r'<!-- BEGIN managed-by-agentic-engineering -->\n(.*)\n<!-- END managed-by-agentic-engineering -->',
+    content, re.DOTALL
+)
+sys.stdout.write(m.group(1) if m else '')
+" "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+_template_body="$(python3 -c "
+import sys
+with open(sys.argv[1]) as f:
+    data = f.read()
+idx = data.find('-->')
+body = data[idx + 3:].strip(chr(10))
+sys.stdout.write(body)
+" "$REPO_DIR/content/templates/claude-managed-content.md" 2>/dev/null)"
+if [[ -n "$_template_body" ]] && [[ "$_case_a_table" == "$_template_body" ]]; then
+  _pass "case (a): DS-143 wiring - emitted table body is byte-equal to content/templates/claude-managed-content.md"
+else
+  _fail "case (a): DS-143 wiring - emitted table body diverges from the template"
 fi
 
 rm -rf "$FAKE_HOME"
@@ -675,6 +737,146 @@ if grep -q "added" "$FAKE_HOME/.install_out" 2>/dev/null; then
   _pass "case (h): install output reports added rules"
 else
   _fail "case (h): install output did not report added rules"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (i): DS-143 blocked-gate - a real file/dir at the skill symlink
+#           destination forces SKILL_LINK_OK=false. The three @-import
+#           lines must be RETAINED (never stripped without a working skill
+#           link to fall back on), the skill-link keep-imports warning must
+#           fire, and the registry-refresh restart notice must NOT fire
+#           (the gate blocked the strip, so there is nothing to restart
+#           into - the SKILL_LINK_OK warning covers that case instead).
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude/skills/agentic-engineering"
+touch "$FAKE_HOME/.claude/skills/agentic-engineering/placeholder.md"
+
+_run_install "$FAKE_HOME" || true
+
+if [[ -f "$FAKE_HOME/.claude/CLAUDE.md" ]] \
+   && grep -Fq "@skills/agentic-engineering/METHODOLOGY.md" "$FAKE_HOME/.claude/CLAUDE.md" \
+   && grep -Fq "@skills/agentic-engineering/rules/code-standards.md" "$FAKE_HOME/.claude/CLAUDE.md" \
+   && grep -Fq "@skills/agentic-engineering/rules/conventions.md" "$FAKE_HOME/.claude/CLAUDE.md"; then
+  _pass "case (i): blocked-gate CLAUDE.md retains all three @-import lines"
+else
+  _fail "case (i): blocked-gate CLAUDE.md is missing one or more @-import lines"
+fi
+
+if grep -Fq "WARNING: keeping the @-import lines in CLAUDE.md's managed block" "$FAKE_HOME/.install_out"; then
+  _pass "case (i): blocked-gate install output warns that the @-imports were kept"
+else
+  _fail "case (i): blocked-gate install output missing the keep-imports warning"
+fi
+
+if grep -Fq "IMPORTANT: skill definitions changed" "$FAKE_HOME/.install_out"; then
+  _fail "case (i): blocked-gate install output should NOT print the registry-refresh restart notice"
+else
+  _pass "case (i): blocked-gate install output correctly suppresses the restart notice"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (j): DS-143 migration - a pre-existing OLD-format managed block
+#           (imports present) plus skill_auto_load:false plus a good skill
+#           link. One run must end with the lean block AND
+#           skill_auto_load:true (one-time forced migration, since imports
+#           are being removed and the flag would otherwise leave the user
+#           with neither always-on methodology nor a reliable trigger).
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+
+@skills/agentic-engineering/METHODOLOGY.md
+@skills/agentic-engineering/rules/code-standards.md
+@skills/agentic-engineering/rules/conventions.md
+<!-- END managed-by-agentic-engineering -->
+EOF
+python3 - "$FAKE_HOME/.claude/agentic-engineering.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "w") as f:
+    json.dump({"mode": "opt-out", "profile": "default", "skill_auto_load": False}, f, indent=2)
+    f.write("\n")
+PYEOF
+
+_run_install "$FAKE_HOME" || true
+
+_case_j_import_count="$(grep -c "@skills/agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+if [[ "$_case_j_import_count" -eq 0 ]]; then
+  _pass "case (j): migration run leaves the lean block (no @-import lines)"
+else
+  _fail "case (j): migration run did not strip the @-import lines (count=$_case_j_import_count)"
+fi
+
+_j_auto_load="$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    print(json.load(f).get('skill_auto_load'))
+" "$FAKE_HOME/.claude/agentic-engineering.json" 2>/dev/null)"
+if [[ "$_j_auto_load" == "True" ]]; then
+  _pass "case (j): migration run force-sets skill_auto_load=true"
+else
+  _fail "case (j): expected skill_auto_load=True after migration, got '$_j_auto_load'"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (k): DS-143 negative migration control - an already-migrated block
+#           (lean, no import string) plus a user-set skill_auto_load:false
+#           must stay false. Proves the migration self-disarms once the old
+#           marker is gone from disk.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+<!-- END managed-by-agentic-engineering -->
+EOF
+python3 - "$FAKE_HOME/.claude/agentic-engineering.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "w") as f:
+    json.dump({"mode": "opt-out", "profile": "default", "skill_auto_load": False}, f, indent=2)
+    f.write("\n")
+PYEOF
+
+_run_install "$FAKE_HOME" || true
+
+_k_auto_load="$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    print(json.load(f).get('skill_auto_load'))
+" "$FAKE_HOME/.claude/agentic-engineering.json" 2>/dev/null)"
+if [[ "$_k_auto_load" == "False" ]]; then
+  _pass "case (k): already-migrated block with user-set skill_auto_load=false stays false (self-disarmed)"
+else
+  _fail "case (k): expected skill_auto_load to stay False, got '$_k_auto_load'"
 fi
 
 rm -rf "$FAKE_HOME"
