@@ -4,16 +4,18 @@ Purpose: Single source of truth for the "Skill Loading" table that .claude/insta
          so a resident-budget CI check and the installer can both read one canonical copy
          instead of drifting independently.
 
-Public API: intended to be consumed verbatim (as markdown prose) by .claude/install.sh when
-            it assembles the managed_content Python string, and by any CI budget check that
-            needs to account for this content without duplicating it inline. Not yet wired -
-            .claude/install.sh still carries this table inline; a later unit of DS-143 points
-            the installer at this file.
+Public API: consumed verbatim (as markdown prose) by .claude/install.sh when it assembles the
+            managed_content string for ~/.claude/CLAUDE.md's managed-by-agentic-engineering
+            block, and by any CI budget check that needs to account for this content without
+            duplicating it inline. This manifest comment header is repo metadata: install.sh
+            strips everything up to and including the comment's closing delimiter before
+            emitting the body, so none of this text reaches the user's CLAUDE.md.
 
 Upstream deps: none (leaf content file; no imports or code dependencies).
 
-Downstream consumers: none yet (.claude/install.sh does not read this file as of this unit -
-                      see Public API). Deliberately omits the three @-import lines
+Downstream consumers: .claude/install.sh (reads this file at run time when writing the
+                      managed-by-agentic-engineering block; gated on AE_DRY_RUN and
+                      SKILL_LINK_OK - DS-143). Deliberately omits the three @-import lines
                       (METHODOLOGY.md, rules/code-standards.md, rules/conventions.md): the
                       trigger-loaded design removes those lines from the managed block
                       entirely rather than moving them here.

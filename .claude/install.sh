@@ -36,10 +36,14 @@
 #     existing value is preserved. Only absent/invalid/same values are written.
 #   - All interactive prompts fall back to a default when stdin is not a TTY.
 #   - A skipped or not-yet-created skill symlink sets SKILL_LINK_OK=false and
-#     emits an operator warning twice per run (once where the skip is
-#     detected, once in the Summary block). Every --dry-run on a machine
-#     without an existing, correctly-pointed skill link falls into this case
-#     and emits the warning, since --dry-run never creates the symlink.
+#     emits an operator warning twice per run under --dry-run (once where the
+#     skip is detected, once in the Summary block), or three times on a
+#     non-dry-run where the link failed (those two plus the CLAUDE.md-rewrite
+#     skip, DS-143 - the rewrite is gated on SKILL_LINK_OK so the managed
+#     block is left untouched rather than written without a working skill).
+#     Every --dry-run on a machine without an existing, correctly-pointed
+#     skill link falls into the two-warning case, since --dry-run never
+#     creates the symlink.
 #
 # Performance: ~5-10 s (one build pass, node/python3 calls for hooks/settings).
 # ---------------------------------------------------------------------------
@@ -201,12 +205,12 @@ config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load agentic-engineering skill at session start? [Y/n] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
-        config["skill_auto_load"] = answer in ("y", "yes")
+        config["skill_auto_load"] = answer not in ("n", "no")
     except OSError:
-        config["skill_auto_load"] = False
+        config["skill_auto_load"] = True
 # Write back
 # Symlink guard: never write through a symlink (open("w") would follow it and
 # truncate the real target). If the config path is a symlink, refuse.
@@ -660,7 +664,7 @@ else:
         })
         print("  + Added UserPromptSubmit risk-classification hook")
 
-SKILL_AUTO_CMD = f"bash {hooks_root}/hooks/skill-auto-load-check.sh"
+SKILL_AUTO_CMD = f"AE_ADAPTER=claude bash {hooks_root}/hooks/skill-auto-load-check.sh"
 
 upsert_hook(
     ups_star["hooks"],
@@ -1037,37 +1041,47 @@ fi
 # Update ~/.claude/CLAUDE.md
 # ---------------------------------------------------------------------------
 
-# DS-143: when the @-imports are removed from managed_content below, decide
-# whether this write should be gated on SKILL_LINK_OK (set in the skill-symlink
-# block above). Do not remove the imports without making that call.
+# DS-143: the managed block now READS content/templates/claude-managed-content.md
+# rather than inlining the "## Skill Loading" table, and the three @-import
+# lines (METHODOLOGY.md, rules/code-standards.md, rules/conventions.md) are
+# gone - the trigger-loaded design removes the always-loaded injection rather
+# than moving it. Decision on the deferred SKILL_LINK_OK question: yes, gate
+# the rewrite on it too, composed with the existing AE_DRY_RUN gate rather
+# than replacing it. Without the imports, the managed block is no longer a
+# self-sufficient fallback - a user whose skill symlink never established
+# would otherwise end the run with neither the always-loaded methodology nor
+# a working skill. When SKILL_LINK_OK is false, the existing block (whatever
+# format it is in) is left untouched and a warning names the reason.
+AE_CLAUDE_MD_REWRITTEN=false
 if [[ "$AE_DRY_RUN" == "true" ]]; then
   echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md"
+elif [[ "$SKILL_LINK_OK" != "true" ]]; then
+  echo "  [skip] managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md not updated: $SKILL_LINK_REASON"
+  _ae_skill_link_warning
 else
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
-AE_CONFIG_DIR="$AE_CONFIG_DIR" python3 - <<'PYEOF'
-import os, re, sys
+AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_CONFIG_PATH="$AE_CONFIG_PATH" AE_TEMPLATE_PATH="$REPO_DIR/content/templates/claude-managed-content.md" python3 - <<'PYEOF'
+import json, os, re, sys
 
 target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
 begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
 end_marker = "<!-- END managed-by-agentic-engineering -->"
 
-managed_content = """\
-<!-- BEGIN managed-by-agentic-engineering -->
-## Skill Loading
+template_path = os.environ["AE_TEMPLATE_PATH"]
+with open(template_path) as f:
+    template_raw = f.read()
 
-Before starting any task, check if a domain skill should be loaded:
+# The template carries a manifest HTML comment header ending in "-->". Strip
+# everything up to and including the FIRST "-->" only (repo metadata, not
+# user-facing) - a body containing a second "-->" must not be truncated.
+close_idx = template_raw.find("-->")
+if close_idx == -1:
+    sys.stderr.write(f"template {template_path} has no manifest comment terminator (-->)\n")
+    sys.exit(1)
+template_body = template_raw[close_idx + len("-->"):].lstrip("\n").rstrip("\n")
 
-| Signal | Skill |
-|---|---|
-| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
-
-If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
-
-@skills/agentic-engineering/METHODOLOGY.md
-@skills/agentic-engineering/rules/code-standards.md
-@skills/agentic-engineering/rules/conventions.md
-<!-- END managed-by-agentic-engineering -->"""
+managed_content = begin_marker + "\n" + template_body + "\n" + end_marker
 
 if os.path.exists(target):
     with open(target, "r") as f:
@@ -1081,6 +1095,16 @@ else:
 if os.path.islink(target):
     sys.stderr.write(f"refusing to write through symlink: {target}\n")
     sys.exit(1)
+
+# DS-143 migration: a pre-existing managed block still carrying the old
+# @-import lines means this install predates the trigger-loaded design.
+# Detect it BEFORE the rewrite below (the marker string is gone from the new
+# block, so this can never re-fire once migrated) and force
+# skill_auto_load=true for this one transition, so the backstop that
+# replaces the imports is not left dormant across the switch. A user who
+# deliberately sets skill_auto_load=false AFTER migrating is never touched -
+# by then the old marker string is gone and this branch does not run.
+migrating = "@skills/agentic-engineering/METHODOLOGY.md" in existing
 
 if begin_marker in existing and end_marker in existing:
     pattern = re.compile(
@@ -1104,7 +1128,22 @@ else:
         print("  + Appended managed-by-agentic-engineering section to ~/.claude/CLAUDE.md")
     else:
         print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
+
+if migrating:
+    ae_config_path = os.environ.get("AE_CONFIG_PATH")
+    if ae_config_path and not os.path.islink(ae_config_path):
+        try:
+            with open(ae_config_path) as f:
+                ae_config = json.load(f)
+        except Exception:
+            ae_config = {}
+        ae_config["skill_auto_load"] = True
+        with open(ae_config_path, "w") as f:
+            json.dump(ae_config, f, indent=2)
+            f.write("\n")
+        print("  ~ migrated skill_auto_load to true (pre-trigger-loaded install detected)")
 PYEOF
+AE_CLAUDE_MD_REWRITTEN=true
 fi
 
 # ---------------------------------------------------------------------------
@@ -1628,6 +1667,13 @@ _ae_identity_guidance
 echo ""
 if [[ "$SKILL_LINK_OK" != "true" ]]; then
   _ae_skill_link_warning
+  echo ""
+fi
+if [[ "$AE_CLAUDE_MD_REWRITTEN" == "true" ]]; then
+  echo "  NOTE: skill definitions changed (the managed-by-agentic-engineering block in"
+  echo "  $AE_CONFIG_DIR/CLAUDE.md was updated). Start a NEW Claude Code session before"
+  echo "  relying on /agentic-engineering - the harness snapshots its skill registry at"
+  echo "  session start and will not pick up this change mid-session."
   echo ""
 fi
 echo "Next steps (for the agent running this installer):"
