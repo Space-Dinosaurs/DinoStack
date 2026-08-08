@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read .agentic/events.jsonl and render Skeptic calibration rollups -
+         findings density per 100 diff-lines (drift signal) and meta-Skeptic
+         divergence rate (rubber-stamp signal). The CLI for the calibration
+         layer documented in content/references/skeptic-protocol.md Section
+         13.
+
+Public API: agentic-calibrate density   [--since <ISO8601>] [--task <task_id>]
+            agentic-calibrate divergence [--since <ISO8601>]
+            agentic-calibrate help
+            All subcommands print fixed-width tables to stdout. Exit codes:
+            0 success; 1 missing events log; 2 malformed input.
+
+Upstream deps: Python 3 stdlib (argparse, json, sys, os, datetime, pathlib).
+               Reads .agentic/events.jsonl (current working directory's
+               .agentic/, or $AGENTIC_DIR override). Optional pyyaml soft
+               dependency for any future config; not required by the current
+               subcommands.
+
+Downstream consumers: content/references/skeptic-protocol.md Section 13
+                      (queryable surface for the calibration layer);
+                      developers running the command interactively to
+                      inspect Skeptic drift over time.
+
+Failure modes: missing .agentic/events.jsonl -> exit 1 with a one-line
+               message ("agentic-calibrate: no events log at <path>");
+               malformed JSONL lines are skipped silently and counted in a
+               trailing footnote ("N events skipped due to malformed
+               lines."); zero qualifying spawns under the warming-up
+               threshold prints the warming-up line per spec; never raises
+               to the caller.
+
+Performance: O(N events) single pass; expected <1s on a session with a few
+             hundred events. No subprocess calls.
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import json
+import os
+import sys
+from pathlib import Path
+from typing import Any, Iterable
+
+WARMING_UP_THRESHOLD = 10
+
+
+def _events_path() -> Path:
+    base = os.environ.get("AGENTIC_DIR", ".agentic")
+    return Path(base) / "events.jsonl"
+
+
+def _parse_since(s: str | None) -> _dt.datetime | None:
+    if not s:
+        return None
+    try:
+        # Accept ISO8601 with or without trailing Z.
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        return _dt.datetime.fromisoformat(s)
+    except ValueError:
+        print(f"agentic-calibrate: malformed --since value: {s!r}", file=sys.stderr)
+        sys.exit(2)
+
+
+def _iter_events(path: Path, since: _dt.datetime | None) -> Iterable[dict[str, Any]]:
+    skipped = 0
+    if not path.exists():
+        print(f"agentic-calibrate: no events log at {path}", file=sys.stderr)
+        sys.exit(1)
+    with path.open() as f:
+        for raw in f:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+                if not isinstance(obj, dict):
+                    skipped += 1
+                    continue
+            except json.JSONDecodeError:
+                skipped += 1
+                continue
+            if since is not None:
+                ts = obj.get("ts")
+                if isinstance(ts, str):
+                    try:
+                        ts_norm = ts[:-1] + "+00:00" if ts.endswith("Z") else ts
+                        ts_dt = _dt.datetime.fromisoformat(ts_norm)
+                        if ts_dt < since:
+                            continue
+                    except ValueError:
+                        pass
+            yield obj
+    if skipped:
+        print(f"\n({skipped} events skipped due to malformed lines.)")
+
+
+def _is_skeptic_spawn_complete(ev: dict[str, Any]) -> bool:
+    return (
+        ev.get("event") == "spawn_complete"
+        and ev.get("agent") == "skeptic"
+    )
+
+
+def _is_meta_review_complete(ev: dict[str, Any]) -> bool:
+    return ev.get("event") == "meta_review_complete"
+
+
+def cmd_density(args: argparse.Namespace) -> int:
+    path = _events_path()
+    since = _parse_since(args.since)
+    rows: list[dict[str, Any]] = []
+    for ev in _iter_events(path, since):
+        if not _is_skeptic_spawn_complete(ev):
+            continue
+        data = ev.get("data") or {}
+        if "findings_count" not in data or "diff_lines" not in data:
+            continue
+        if args.task and ev.get("task_id") != args.task:
+            continue
+        rows.append({
+            "task_id": ev.get("task_id") or "-",
+            "iteration": data.get("iteration", "-"),
+            "findings_count": data.get("findings_count") or {},
+            "diff_lines": data.get("diff_lines", 0),
+            "signed_off": bool(data.get("signed_off", False)),
+            "ts": ev.get("ts", "-"),
+        })
+
+    qualifying = [r for r in rows if isinstance(r["diff_lines"], int) and r["diff_lines"] > 0]
+    n_qualifying = len(qualifying)
+
+    print("Skeptic findings density (per 100 diff-lines)")
+    print("=" * 72)
+    print(f"{'task_id':<32} {'iter':>4} {'C':>3} {'M':>3} {'m':>3} {'lines':>6} {'density':>9}")
+    print("-" * 72)
+    for r in rows:
+        fc = r["findings_count"]
+        c = int(fc.get("critical", 0) or 0)
+        ma = int(fc.get("major", 0) or 0)
+        mi = int(fc.get("minor", 0) or 0)
+        dl = r["diff_lines"]
+        if isinstance(dl, int) and dl > 0:
+            density = (c + ma + mi) * 100.0 / dl
+            density_s = f"{density:>8.2f}"
+        else:
+            density_s = "      N/A"
+        tid = str(r["task_id"])[:32]
+        print(f"{tid:<32} {str(r['iteration']):>4} {c:>3} {ma:>3} {mi:>3} {str(dl):>6} {density_s:>9}")
+    print("-" * 72)
+
+    if n_qualifying < WARMING_UP_THRESHOLD:
+        print(
+            f"warming up: {n_qualifying}/{WARMING_UP_THRESHOLD} spawns observed; "
+            "baseline not yet established."
+        )
+        return 0
+
+    total_findings = sum(
+        int((r["findings_count"] or {}).get("critical", 0) or 0)
+        + int((r["findings_count"] or {}).get("major", 0) or 0)
+        + int((r["findings_count"] or {}).get("minor", 0) or 0)
+        for r in qualifying
+    )
+    total_lines = sum(int(r["diff_lines"]) for r in qualifying)
+    aggregate = (total_findings * 100.0 / total_lines) if total_lines else 0.0
+    print(
+        f"Aggregate (n={n_qualifying}, excluding zero-diff rows): "
+        f"{total_findings} findings / {total_lines} lines = {aggregate:.2f} per 100 lines"
+    )
+    return 0
+
+
+def cmd_divergence(args: argparse.Namespace) -> int:
+    path = _events_path()
+    since = _parse_since(args.since)
+    rows: list[dict[str, Any]] = []
+    for ev in _iter_events(path, since):
+        if not _is_meta_review_complete(ev):
+            continue
+        data = ev.get("data") or {}
+        div = data.get("divergence") or {}
+        rows.append({
+            "original_task_id": data.get("original_task_id") or ev.get("task_id") or "-",
+            "critical_missed": list(div.get("critical_missed") or []),
+            "major_missed": list(div.get("major_missed") or []),
+            "minor_missed": list(div.get("minor_missed") or []),
+            "agreement": bool(data.get("agreement", False)),
+            "ts": ev.get("ts", "-"),
+        })
+
+    n = len(rows)
+    print("Meta-Skeptic divergence rate")
+    print("=" * 72)
+    if n == 0:
+        print("No meta_review_complete events found.")
+        return 0
+
+    n_critical = sum(1 for r in rows if r["critical_missed"])
+    n_major = sum(1 for r in rows if r["major_missed"])
+    n_minor = sum(1 for r in rows if r["minor_missed"])
+    n_agree = sum(1 for r in rows if r["agreement"])
+
+    print(f"Sampled spawns: {n}")
+    print(
+        f"Critical missed: {n_critical} ({n_critical * 100.0 / n:.1f}%)   "
+        f"Major missed: {n_major} ({n_major * 100.0 / n:.1f}%)   "
+        f"Minor missed: {n_minor} ({n_minor * 100.0 / n:.1f}%)"
+    )
+    print(f"Full agreement: {n_agree} ({n_agree * 100.0 / n:.1f}%)")
+    print("-" * 72)
+    print(f"{'original_task_id':<32} {'C':>3} {'M':>3} {'m':>3} {'agree':>6}")
+    print("-" * 72)
+    for r in rows:
+        tid = str(r["original_task_id"])[:32]
+        print(
+            f"{tid:<32} "
+            f"{len(r['critical_missed']):>3} "
+            f"{len(r['major_missed']):>3} "
+            f"{len(r['minor_missed']):>3} "
+            f"{('yes' if r['agreement'] else 'no'):>6}"
+        )
+    return 0
+
+
+def cmd_help(_args: argparse.Namespace) -> int:
+    print(__doc__.strip() if __doc__ else "agentic-calibrate")
+    print()
+    print("Subcommands:")
+    print("  density   [--since <ISO8601>] [--task <task_id>]   "
+          "Findings per 100 diff-lines.")
+    print("  divergence [--since <ISO8601>]                      "
+          "Meta-Skeptic divergence rate.")
+    print("  help                                                Show this help.")
+    return 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(
+        prog="agentic-calibrate",
+        description="Skeptic calibration inspection over .agentic/events.jsonl.",
+    )
+    sub = parser.add_subparsers(dest="cmd")
+
+    p_density = sub.add_parser("density", help="Findings per 100 diff-lines.")
+    p_density.add_argument("--since", default=None, help="ISO8601 lower bound.")
+    p_density.add_argument("--task", default=None, help="Filter by task_id.")
+    p_density.set_defaults(func=cmd_density)
+
+    p_div = sub.add_parser("divergence", help="Meta-Skeptic divergence rate.")
+    p_div.add_argument("--since", default=None, help="ISO8601 lower bound.")
+    p_div.set_defaults(func=cmd_divergence)
+
+    p_help = sub.add_parser("help", help="Show help.")
+    p_help.set_defaults(func=cmd_help)
+
+    args = parser.parse_args(argv)
+    if not args.cmd:
+        return cmd_help(args)
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

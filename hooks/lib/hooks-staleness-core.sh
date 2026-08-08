@@ -139,7 +139,7 @@ except Exception:
 if [[ -n "$_meta_hash" ]]; then
   _live_hash="$(compute_hooks_source_hash \
     "$ae_repo_dir/hooks" \
-    "$ae_repo_dir/bin/agentic-identity" \
+    "$ae_repo_dir/bin/ds-identity" \
     "$ae_repo_dir/.codex/config/hooks.json" \
     "$ae_repo_dir/.codex/hooks" \
     "$ae_repo_dir/.gemini/hooks" \

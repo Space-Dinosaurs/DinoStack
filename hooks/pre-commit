@@ -25,13 +25,16 @@ REPO_DIR="$(git rev-parse --show-toplevel)"
 # ---------------------------------------------------------------------------
 
 # Only run when bin/ or hooks/ Python/JS files are staged.
-# Extension-less Python CLIs in bin/ match ^bin/agentic-[a-z-]+$ (e.g. bin/agentic-cost).
+# Extension-less Python CLIs in bin/ match ^bin/ds-[a-z-]+$ (e.g. bin/ds-cost).
+# The ^bin/agentic-[a-z-]+$ alternative covers the permanent compat symlinks
+# (e.g. bin/agentic-cost -> bin/ds-cost) - they resolve to the same content
+# when staged, so linting either path is safe.
 STAGED_PY=()
 while IFS= read -r staged_python; do
   [[ -n "$staged_python" ]] && STAGED_PY+=("$staged_python")
 done < <(
   git diff --cached --name-only \
-    | grep -E '^(bin/|hooks/).*\.py$|^bin/agentic-[a-z-]+$' \
+    | grep -E '^(bin/|hooks/).*\.py$|^bin/(agentic|ds)-[a-z-]+$' \
     | grep -v '/tests/' \
     | grep -v '/lib/' \
     || true
@@ -57,14 +60,15 @@ if [[ ${#STAGED_PY[@]} -gt 0 ]]; then
   if command -v mypy >/dev/null 2>&1; then
     echo "[pre-commit] Running mypy on staged Python files..."
     # PROMINENT: this list must be updated when adding a new extension-less
-    # Python CLI to bin/. Only bin/agentic-* files with a python3 shebang are
-    # eligible (e.g. bin/agentic-emit is bash and must NOT be added).
+    # Python CLI to bin/. Only bin/ds-* files with a python3 shebang are
+    # eligible (e.g. bin/ds-emit is bash and must NOT be added). Lint the
+    # real bin/ds-* content files, not their bin/agentic-* compat symlinks.
     MYPY_PY_ARGS=(
-      bin/agentic-calibrate bin/agentic-codex-dispatch bin/agentic-codex-session-id
-      bin/agentic-configure bin/agentic-cost bin/agentic-disable
-      bin/agentic-doctor bin/agentic-help bin/agentic-identity bin/agentic-memory
-      bin/agentic-migrate bin/agentic-models bin/agentic-parse-subagent-usage
-      bin/agentic-status bin/agentic-team bin/agentic-update
+      bin/ds-calibrate bin/ds-codex-dispatch bin/ds-codex-session-id
+      bin/ds-configure bin/ds-cost bin/ds-disable
+      bin/ds-doctor bin/ds-help bin/ds-identity bin/ds-memory
+      bin/ds-migrate bin/ds-models bin/ds-parse-subagent-usage
+      bin/ds-status bin/ds-team bin/ds-update
       hooks/enforce-askuserquestion-default.py hooks/enforce-background-spawn.py
       hooks/enforce-no-abdication.py hooks/enforce-orchestrator-singularity.py
     )

@@ -1,0 +1,741 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read-only inspection of the agentic-engineering activation
+         resolver. Dumps the resolved global config, project marker,
+         profile, and first-activation sentinel state to stdout, each
+         value annotated with its provenance, followed by a
+         plain-English "What this means" behavior explainer and a
+         "How to adjust" block. The CLI for the /ds-status command.
+         Writes nothing.
+
+         The session-wide `preset` (lean/standard/strict) layer is a
+         time-bounded, presence-aware legacy shim (DS-48 Lever 9). A
+         valid legacy preset at either scope resolves to a profile ONLY
+         when no explicit `profile` value is present at that same
+         precedence step: project profile > project preset (legacy,
+         only if project profile absent) > global profile > global
+         preset (legacy, only if global profile absent) > hardcoded
+         "default". Presence of a legacy preset key ALWAYS emits a
+         DEPRECATED notice, regardless of whether it wins - an operator
+         with a stale preset key sees a migrate-off nudge even when a
+         profile override already shadows it. The resolved `preset`
+         value is no longer part of `_resolve`'s return or the printed
+         output - only `profile` and the deprecation notices surface.
+
+Public API: agentic-status
+            Prints a fixed-format multi-line report (status lines with
+            provenance, a profile-behavior explainer, a telemetry-health
+            summary line, and a how-to-adjust block). No subcommands, no
+            flags. Always exits 0.
+            _profile_behavior_block(profile) and _how_to_adjust_block(resolved)
+            are the single rendering surface for the explainer text and are
+            reused by callers (e.g. init-project shells out to this binary).
+            _telemetry_health_line(health_path) reads .agentic/.telemetry-health.json
+            and returns a one-line OK/failure summary; fail-open (returns OK
+            on any read or parse error).
+
+Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, re).
+               Reads ~/.claude/agentic-engineering.json, the project
+               root AGENTS.md (resolved through CLAUDE.md @AGENTS.md
+               import if present), .agentic/.activated, and
+               .agentic/.telemetry-health.json (fail-open; absent = OK).
+
+Downstream consumers: content/commands/ds-status.md (command
+                      spec); developers running the command
+                      interactively to debug activation state.
+
+Failure modes: missing or malformed JSON config -> renders
+               "missing"/defaults; never raises. Missing AGENTS.md ->
+               marker rendered as "none". File read errors are
+               swallowed and surfaced as "missing"/"none". The script
+               does not modify any file, so failures are
+               read-side-only.
+
+Performance: O(small). Two file reads (config + AGENTS.md). Constant
+             time; <50 ms on a cold start.
+"""
+
+from __future__ import annotations
+
+import datetime
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+CONFIG_PATH = Path(os.path.expanduser("~/.claude/agentic-engineering.json"))
+SENTINEL_PATH = Path(".agentic/.activated")
+TELEMETRY_HEALTH_PATH = Path(".agentic/.telemetry-health.json")
+ROLE_MODELS_GLOBAL_PATH = Path(os.path.expanduser("~/.agentic/role-models.yml"))
+ROLE_MODELS_PROJECT_PATH = Path(".agentic/role-models.yml")
+HEALTH_FILE_PATH = Path(".agentic/.telemetry-health.json")
+
+# DEPRECATED: legacy session-wide preset->profile alias table (DS-48 Lever 9).
+# preset support will be removed after the deprecation window; profile is the
+# single risk knob going forward.
+LEGACY_PRESET_TABLE = {
+    "lean": "relaxed",
+    "standard": "default",
+    "strict": "strict",
+}
+
+
+def _load_config() -> tuple[dict, str]:
+    """Return (config_dict, status) where status is 'found' or 'missing'."""
+    if not CONFIG_PATH.is_file():
+        return {}, "missing"
+    try:
+        with CONFIG_PATH.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            return {}, "missing"
+        return data, "found"
+    except (OSError, json.JSONDecodeError):
+        return {}, "missing"
+
+
+def _resolve_agents_md() -> Path | None:
+    """Resolve project AGENTS.md, following CLAUDE.md @AGENTS.md import."""
+    cwd = Path.cwd()
+    agents = cwd / "AGENTS.md"
+    if agents.is_file():
+        return agents
+    claude = cwd / "CLAUDE.md"
+    if claude.is_file():
+        try:
+            text = claude.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return None
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("@"):
+                target = stripped[1:].strip()
+                if target:
+                    candidate = (cwd / target).resolve()
+                    if candidate.is_file():
+                        return candidate
+    return None
+
+
+_MARKER_RE = re.compile(
+    r"^\s*(?:-\s+)?agentic-engineering:\s*(opt-in|opt-out)\s*$",
+    re.IGNORECASE,
+)
+_PROFILE_RE = re.compile(
+    r"^\s*(?:-\s+)?agentic-engineering-profile:\s*(\S+)\s*$",
+    re.IGNORECASE,
+)
+# DEPRECATED: legacy per-project preset marker line (DS-48 Lever 9).
+_LEGACY_PRESET_RE = re.compile(
+    r"^\s*(?:-\s+)?agentic-engineering-preset:\s*(\S+)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _scan_agents_md(path: Path | None) -> dict:
+    """Return {marker, project_profile, project_preset} from AGENTS.md.
+
+    project_preset is the legacy `agentic-engineering-preset:` marker
+    (DEPRECATED, DS-48 Lever 9) - still scanned because it feeds the
+    presence-aware legacy fallback in `_resolve` and the deprecation
+    notices; it no longer has any resolution weight when a project
+    `profile` value is also present.
+    """
+    out = {"marker": "none", "project_profile": None, "project_preset": None}
+    if path is None:
+        return out
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return out
+    first_marker: str | None = None
+    for line in text.splitlines():
+        m = _MARKER_RE.match(line)
+        if m and first_marker is None:
+            first_marker = m.group(1).lower()
+        p = _PROFILE_RE.match(line)
+        if p and out["project_profile"] is None:
+            val = p.group(1).lower()
+            if val in ("relaxed", "default", "strict"):
+                out["project_profile"] = val
+        pr = _LEGACY_PRESET_RE.match(line)
+        if pr and out["project_preset"] is None:
+            val = pr.group(1).lower()
+            if val in ("lean", "standard", "strict"):
+                out["project_preset"] = val
+    if first_marker:
+        out["marker"] = first_marker
+    return out
+
+
+_LEGACY_WON_TEMPLATE = (
+    "DEPRECATED: preset key '{value}' ({scope}) resolved to profile={resolved}; "
+    "migrate by setting profile={resolved} directly - preset support will be "
+    "removed after the deprecation window."
+)
+
+_LEGACY_NOT_USED_TEMPLATE = (
+    "DEPRECATED: preset key '{value}' ({scope}) is present but NOT used - "
+    "effective profile is '{effective}' (source: {source}). Remove the stale "
+    "preset key/marker - it has no effect and will be rejected after the "
+    "deprecation window."
+)
+
+
+def _resolve(config: dict, scan: dict, config_status: str = "found") -> dict:
+    """Resolve effective profile and active state (presence-aware, DS-48 Lever 9).
+
+    Precedence: project profile > project preset (legacy, only if project
+    profile absent) > global profile > global preset (legacy, only if global
+    profile absent) > hardcoded "default". An explicit valid value at a given
+    scope is distinguished from an ABSENT or INVALID value at that scope -
+    `config.get("profile")` returning None (absent) is never conflated with an
+    explicit "default" (present); an invalid value is treated identically to
+    absent for precedence purposes, allowing a legacy preset at the same scope
+    to apply.
+
+    Deprecation notices fire on PRESENCE of a valid legacy preset at either
+    scope, regardless of whether it wins the precedence chain - see
+    `legacy_notices` in the returned dict.
+    """
+    raw_mode = str(config.get("mode") or "opt-out").lower()
+    mode = "opt-in" if raw_mode == "opt-in" else "opt-out"
+    mode_source = (
+        "global config"
+        if config_status == "found"
+        else "global config (default; file missing)"
+    )
+
+    # Presence-aware validation: None means absent-or-invalid, never conflated
+    # with an explicit "default" value.
+    _raw_global_profile = config.get("profile")
+    global_valid_profile = (
+        _raw_global_profile.lower()
+        if isinstance(_raw_global_profile, str)
+        and _raw_global_profile.lower() in ("relaxed", "default", "strict")
+        else None
+    )
+    _raw_global_preset = config.get("preset")
+    global_valid_preset = (
+        _raw_global_preset.lower()
+        if isinstance(_raw_global_preset, str)
+        and _raw_global_preset.lower() in LEGACY_PRESET_TABLE
+        else None
+    )
+
+    project_valid_profile = scan["project_profile"]
+    project_valid_preset = scan["project_preset"]
+
+    # Precedence chain (see docstring). Each branch sets both the effective
+    # profile and a human-readable provenance label.
+    if project_valid_profile is not None:
+        effective_profile = project_valid_profile
+        profile_source = "project"
+    elif project_valid_preset is not None:
+        effective_profile = LEGACY_PRESET_TABLE[project_valid_preset]
+        profile_source = "project (legacy preset)"
+    elif global_valid_profile is not None:
+        effective_profile = global_valid_profile
+        profile_source = "global"
+    elif global_valid_preset is not None:
+        effective_profile = LEGACY_PRESET_TABLE[global_valid_preset]
+        profile_source = "global (legacy preset)"
+    else:
+        effective_profile = "default"
+        profile_source = "global (default; unset)"
+
+    # Deprecation notices: fire on presence, independent of whether the value
+    # won. Project notice (if any) precedes global notice (if any).
+    legacy_notices: list[str] = []
+    if project_valid_preset is not None:
+        if profile_source == "project (legacy preset)":
+            legacy_notices.append(
+                _LEGACY_WON_TEMPLATE.format(
+                    value=project_valid_preset,
+                    scope="project",
+                    resolved=effective_profile,
+                )
+            )
+        else:
+            legacy_notices.append(
+                _LEGACY_NOT_USED_TEMPLATE.format(
+                    value=project_valid_preset,
+                    scope="project",
+                    effective=effective_profile,
+                    source=profile_source,
+                )
+            )
+    if global_valid_preset is not None:
+        if profile_source == "global (legacy preset)":
+            legacy_notices.append(
+                _LEGACY_WON_TEMPLATE.format(
+                    value=global_valid_preset,
+                    scope="global",
+                    resolved=effective_profile,
+                )
+            )
+        else:
+            legacy_notices.append(
+                _LEGACY_NOT_USED_TEMPLATE.format(
+                    value=global_valid_preset,
+                    scope="global",
+                    effective=effective_profile,
+                    source=profile_source,
+                )
+            )
+
+    marker = scan["marker"]
+    if mode == "opt-out" and marker == "opt-out":
+        active = False
+        active_reason = (
+            "mode=opt-out + marker=opt-out -> inactive: this project opted out"
+        )
+    elif mode == "opt-in" and marker != "opt-in":
+        active = False
+        active_reason = (
+            f"mode=opt-in + marker={marker} -> inactive: opt-in mode requires "
+            "an 'agentic-engineering: opt-in' line in AGENTS.md"
+        )
+    elif mode == "opt-in" and marker == "opt-in":
+        active = True
+        active_reason = (
+            "mode=opt-in + marker=opt-in -> active: this project explicitly "
+            "opted in"
+        )
+    else:
+        active = True
+        active_reason = (
+            f"mode=opt-out + marker={marker} -> active: opt-out activates "
+            "everywhere unless a project opts out"
+        )
+
+    return {
+        "mode": mode,
+        "mode_source": mode_source,
+        "profile": effective_profile,
+        "profile_source": profile_source,
+        "legacy_notices": legacy_notices,
+        "set_at": config.get("set_at") or "unset",
+        "marker": marker,
+        "active": active,
+        "active_reason": active_reason,
+    }
+
+
+# Source of truth for profile-behavior wording: content/sections/04-risk-classification.md (profile deltas). Keep in sync.
+def _profile_behavior_block(profile: str) -> list[str]:
+    """Return the profile-behavior explainer lines.
+
+    The profile matching `profile` is rendered as the headline (un-parenthesized)
+    paragraph; the other two profiles render as parenthetical contrast lines.
+    Single rendering surface for this wording - callers reuse it rather than
+    duplicating the text.
+    """
+    # Each value: [first_line, *continuation_lines]. The first line is the
+    # un-parenthesized headline when this profile matches; continuation lines
+    # are indented two extra spaces relative to the headline.
+    descriptions = {
+        "default": [
+            "Profile 'default': single-file behavioral edits run directly with a self-check;",
+            "multi-file changes, new files, shared utilities, config, and anything risky",
+            "spawn a Worker plus an independent Skeptic review.",
+        ],
+        "relaxed": [
+            "Profile 'relaxed': single-file behavioral edits AND small pure-UI multi-file",
+            "changes run directly - lighter review, faster iteration.",
+        ],
+        "strict": [
+            "Profile 'strict': UI-copy tweaks, file renames, and targeted wording fixes are",
+            "all treated as Elevated and get Worker + Skeptic - broadest review coverage.",
+        ],
+    }
+    # Parenthetical contrast variants drop the "Profile '<name>': " prefix.
+    contrasts = {
+        "default": [
+            "default: single-file behavioral edits run directly with a self-check;",
+            "multi-file changes, new files, shared utilities, config, and anything risky",
+            "spawn a Worker plus an independent Skeptic review.",
+        ],
+        "relaxed": [
+            "relaxed: single-file behavioral edits AND small pure-UI multi-file changes run",
+            "directly - lighter review, faster iteration.",
+        ],
+        "strict": [
+            "strict: UI-copy tweaks, file renames, and targeted wording fixes are all treated",
+            "as Elevated and get Worker + Skeptic - broadest review coverage.",
+        ],
+    }
+    if profile not in descriptions:
+        profile = "default"
+    order = ["default", "relaxed", "strict"]
+    lines: list[str] = []
+    # Matched profile: headline (un-parenthesized). 2-space headline indent,
+    # 4-space continuation indent.
+    matched = descriptions[profile]
+    lines.append(f"  {matched[0]}")
+    for ln in matched[1:]:
+        lines.append(f"    {ln}")
+    # Other two profiles: parenthetical contrast lines.
+    for other in order:
+        if other == profile:
+            continue
+        block = contrasts[other]
+        if len(block) == 1:
+            lines.append(f"  ({block[0]})")
+            continue
+        lines.append(f"  ({block[0]}")
+        for ln in block[1:-1]:
+            lines.append(f"    {ln}")
+        lines.append(f"    {block[-1]})")
+    return lines
+
+
+# Harness env vars: truthy iff any one is set to a non-empty value.
+PI_OMP_HARNESS_ENV_VARS = (
+    "PI_HARNESS",
+    "OMP_HARNESS",
+    "OH_MY_PI_HARNESS",
+    "AGENTIC_HARNESS",
+)
+
+
+def _is_pi_omp_harness() -> bool:
+    """Best-effort runtime gate for Pi / oh-my-pi status-only reporting."""
+    return any(os.environ.get(k, "") for k in PI_OMP_HARNESS_ENV_VARS)
+
+
+def _role_models_status_block() -> list[str]:
+    """Return read-only role-model routing status lines."""
+    project_exists = ROLE_MODELS_PROJECT_PATH.is_file()
+    global_exists = ROLE_MODELS_GLOBAL_PATH.is_file()
+    if not (project_exists or global_exists or _is_pi_omp_harness()):
+        return []
+
+    lines = [""]
+    if not (project_exists or global_exists):
+        lines.append("Role-model routing (Pi/omp): not configured (Pi uses session defaults).")
+        return lines
+
+    effective = ROLE_MODELS_PROJECT_PATH if project_exists else ROLE_MODELS_GLOBAL_PATH
+    try:
+        text = effective.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        text = ""
+
+    strategy = "unset"
+    m = re.search(r"(?m)^[ \t]{2}strategy:\s*([^#\n]+)", text)
+    if m:
+        strategy = m.group(1).strip().strip("'\"")
+
+    role_count = 0
+    in_roles = False
+    for line in text.splitlines():
+        if re.match(r"^roles:\s*(?:#.*)?$", line) or re.match(r"^roles:\s*#", line):
+            in_roles = True
+            continue
+        if in_roles:
+            if re.match(r"^[A-Za-z0-9_-]+:\s*", line):
+                break
+            if re.match(r"^\s{2}[A-Za-z0-9_-]+:\s*\S+", line):
+                role_count += 1
+
+    sources = []
+    if project_exists:
+        sources.append(str(ROLE_MODELS_PROJECT_PATH))
+    if global_exists:
+        sources.append(str(ROLE_MODELS_GLOBAL_PATH))
+
+    lines.append("Role-model routing (Pi/omp): active")
+    lines.append(f"  reviewers.strategy: {strategy}")
+    lines.append(f"  roles entries: {role_count}")
+    lines.append(f"  source file(s): {', '.join(sources)}")
+    lines.append("  How to adjust: Edit ~/.agentic/role-models.yml (or .agentic/role-models.yml); see content/references/role-models.md.")
+    return lines
+
+
+def _telemetry_health_block() -> list[str]:
+    """Return telemetry-health status lines from .agentic/.telemetry-health.json.
+
+    Absent or unreadable file -> return [] (section omitted silently).
+    Tri-state per target via ISO8601 lexicographic string compare:
+      - failures == 0                                         -> OK
+      - failures > 0 AND last_success present AND
+        last_success > last_error_ts                          -> RECOVERED
+      - otherwise (failures > 0, currently failing)          -> FAILING
+    """
+    if not HEALTH_FILE_PATH.is_file():
+        return []
+    try:
+        data = json.loads(HEALTH_FILE_PATH.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, ValueError):
+        return []
+    if not isinstance(data, dict):
+        return []
+    targets = data.get("targets")
+    if not isinstance(targets, dict) or not targets:
+        return []
+
+    lines: list[str] = [""]
+    lines.append("Telemetry health")
+    updated_at = data.get("updated_at") or "unknown"
+    lines.append(f"  last updated: {updated_at}")
+
+    for target, info in sorted(targets.items()):
+        if not isinstance(info, dict):
+            continue
+        failures = info.get("failures") or 0
+        last_success = info.get("last_success") or ""
+        last_error = info.get("last_error") or ""
+        last_error_ts = info.get("last_error_ts") or ""
+
+        if failures == 0:
+            status = "OK"
+            lines.append(f"  {target}: {status}  (last_success: {last_success or 'none'})")
+        elif failures > 0 and last_success and last_success > last_error_ts:
+            status = "RECOVERED"
+            lines.append(
+                f"  {target}: {status} ({failures} failure(s))  "
+                f"(last_success: {last_success}, last_failure: {last_error_ts})"
+            )
+        else:
+            status = f"FAILING ({failures} failure(s))"
+            detail = f"last_failure: {last_error_ts}"
+            if last_error:
+                detail += f", error: {last_error}"
+            if last_success:
+                detail += f", last_success: {last_success}"
+            lines.append(f"  {target}: {status}  ({detail})")
+
+    return lines
+
+
+# ANSI escape sequence stripper for exception text rendered by _telemetry_health_line.
+_ANSI = re.compile(r"\x1b\[[0-9;]*[mGKHF]")
+
+
+def _telemetry_health_line(health_path: Path | None = None) -> str:
+    """Return a one-line telemetry-health summary for the current project.
+
+    Reads .agentic/.telemetry-health.json (or the provided path override).
+    Returns 'telemetry-health: OK' when the file is absent or all failure
+    counters are zero. When failures exist, returns a summary of the form:
+      'telemetry-health: N write failures across M targets; last error <target>: <msg> at <ts>'
+    Fail-open: any read or parse error returns 'telemetry-health: OK (unreadable)'.
+
+    Args:
+        health_path: Path to .telemetry-health.json; defaults to TELEMETRY_HEALTH_PATH.
+    """
+    p = health_path if health_path is not None else TELEMETRY_HEALTH_PATH
+    if not p.is_file():
+        return "telemetry-health: OK"
+    try:
+        with p.open("r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if not isinstance(data, dict):
+            return "telemetry-health: OK (unreadable)"
+        targets = data.get("targets", {})
+        if not isinstance(targets, dict):
+            return "telemetry-health: OK (unreadable)"
+
+        total_failures = 0
+        failing_targets: list[tuple[str, int, str, str]] = []  # (target, count, msg, ts)
+        for target, info in targets.items():
+            if not isinstance(info, dict):
+                continue
+            count = int(info.get("failures", 0) or 0)
+            if count > 0:
+                total_failures += count
+                last_msg = str(info.get("last_error", ""))
+                safe_msg = _ANSI.sub("", last_msg)[:200]
+                ts = str(info.get("last_error_ts", ""))
+                failing_targets.append((target, count, safe_msg, ts))
+
+        if total_failures == 0:
+            return "telemetry-health: OK"
+
+        # Report most-recently-failed target for the one-line summary.
+        failing_targets.sort(key=lambda x: x[3], reverse=True)
+        last_target, _, last_msg, last_ts = failing_targets[0]
+        n_targets = len(failing_targets)
+        return (
+            f"telemetry-health: {total_failures} write failure(s) across "
+            f"{n_targets} target(s); last error {last_target}: {last_msg} at {last_ts}"
+        )
+    except Exception:
+        return "telemetry-health: OK (unreadable)"
+
+
+def _how_to_adjust_block(resolved: dict) -> list[str]:
+    """Return the 'How to adjust' explainer lines.
+
+    Single rendering surface for this wording - callers reuse it rather than
+    duplicating the text. Substitutes the resolved AGENTS.md path and config
+    path so the instructions point at real files.
+    """
+    agents_display = resolved.get("marker_path_display", "AGENTS.md")
+    config_display = str(CONFIG_PATH)
+    return [
+        "  Change the profile for THIS project:",
+        f"    add a line to {agents_display}:  agentic-engineering-profile: relaxed   (or default / strict)",
+        "  Change the profile GLOBALLY:",
+        f'    edit {config_display}  ->  "profile": "relaxed" | "default" | "strict"',
+        "  Turn the skill OFF for this project:        /ds-disable",
+        "  Turn it off EVERYWHERE:                      /ds-disable --global",
+        "  See every command:                           /ds-help",
+    ]
+
+
+# Wrap-lock advisory thresholds. These MIRROR ABANDON_MS / LEGACY_ABANDON_MS in
+# hooks/lib/wrap-marker.js and must be changed together.
+_WRAP_ABANDON_S = 30 * 60
+_WRAP_LEGACY_ABANDON_S = 4 * 60 * 60
+
+
+def _wrap_lock_line() -> str:
+    """One ADVISORY line describing `.agentic/wrap/lock` state.
+
+    Exists because there was previously NO operator-invocable command that could
+    reveal a wedged lock: the 10.3-hour orphan that silently discarded 49
+    `context.md` writes across 6 sessions had to be diagnosed by hand, file by
+    file. `/ds-status` surfaced only the `deferred_wrap_daemon` toggle.
+
+    DELIBERATELY ADVISORY, not authoritative. It reports the OBSERVABLE facts
+    (present/absent, role, session, hold age) and flags an age past the
+    abandonment thresholds; it does NOT re-derive the two-arm abandonment
+    predicate. That predicate lives once, in `wrapLockAbandoned`
+    (hooks/lib/wrap-marker.js), and `agentic-wrap-acquire-lock` is the only thing
+    that acts on it. A third copy of a safety predicate here would be a
+    correctness liability for no gain - the operator needs visibility, not a
+    second opinion. Read-only and fail-open: any error yields `unknown`.
+    """
+    lock_dir = Path.cwd() / ".agentic" / "wrap" / "lock"
+    try:
+        # SYMLINK CHECK FIRST, and no-follow - mirroring the lstat discipline in
+        # hooks/lib/wrap-marker.js. `is_dir()` FOLLOWS symlinks, so a
+        # symlink-to-directory would otherwise be reported as an ordinary held
+        # lock while the lib (which lstats no-follow) refuses to read its owner.
+        if lock_dir.is_symlink():
+            return (
+                "wrap lock: WEDGED - a symlink sits at .agentic/wrap/lock; "
+                "acquisition fails forever and release refuses it. Remove the link manually."
+            )
+        if not lock_dir.is_dir():
+            # A NON-DIRECTORY at the lock path is a wedge, not a free lock.
+            # `acquireWrapLock` uses mkdir for exclusion, so a plain file there
+            # makes every acquisition fail with EEXIST forever, while
+            # `releaseWrapLock` refuses to remove it ('refused-not-a-lock')
+            # precisely because it is not our lock. Reporting that as "free" from
+            # the one command added to REVEAL wedges would hide the hardest wedge
+            # of the set - it needs manual removal and nothing else will say so.
+            if lock_dir.exists():
+                return (
+                    "wrap lock: WEDGED - a non-directory file sits at .agentic/wrap/lock; "
+                    "acquisition fails forever and release refuses it. Remove it manually."
+                )
+            return "wrap lock: free"
+    except OSError:
+        return "wrap lock: unknown (unreadable)"
+
+    role = "unknown"
+    session = "(none)"
+    started = None
+    try:
+        owner_json = lock_dir / "owner.json"
+        if owner_json.is_file():
+            d = json.loads(owner_json.read_text(encoding="utf-8"))
+            if isinstance(d, dict):
+                role = str(d.get("role") or "unknown")
+                session = str(d.get("session_id") or "(none)")
+                started = d.get("acquired_at")
+        else:
+            owner = lock_dir / "owner"
+            if owner.is_file():
+                role = "legacy"
+                lines = owner.read_text(encoding="utf-8").split("\n")
+                if len(lines) > 1 and lines[1].strip():
+                    started = lines[1].strip()
+    except (OSError, ValueError):
+        return "wrap lock: held role=unknown (owner unreadable)"
+
+    age_s = None
+    if isinstance(started, str) and started:
+        try:
+            ts = started.replace("Z", "+00:00")
+            age_s = max(
+                0.0,
+                (
+                    datetime.datetime.now(datetime.timezone.utc)
+                    - datetime.datetime.fromisoformat(ts)
+                ).total_seconds(),
+            )
+        except ValueError:
+            age_s = None
+
+    if age_s is None:
+        age_label = "unknown"
+    elif age_s < 3600:
+        age_label = f"{int(age_s // 60)}m"
+    else:
+        age_label = f"{int(age_s // 3600)}h{int((age_s % 3600) // 60)}m"
+
+    line = f"wrap lock: held role={role} session={session} age={age_label}"
+    threshold = _WRAP_ABANDON_S if session != "(none)" else _WRAP_LEGACY_ABANDON_S
+    if age_s is not None and age_s > threshold:
+        line += " - past the abandonment threshold; the next"
+        line += " `agentic-wrap-acquire-lock` clears it if the holder is gone"
+    return line
+
+
+def main(_argv: list[str]) -> int:
+    config, config_status = _load_config()
+    agents_path = _resolve_agents_md()
+    scan = _scan_agents_md(agents_path)
+    res = _resolve(config, scan, config_status)
+
+    sentinel_status = "present" if SENTINEL_PATH.is_file() else "absent"
+    marker_path_display = str(agents_path) if agents_path else "none"
+    res["marker_path_display"] = marker_path_display
+    active_display = "yes" if res["active"] else "no"
+
+    out = []
+    out.append("agentic-engineering status")
+    out.append(f"  global config: {CONFIG_PATH} ({config_status})")
+    out.append(f"  mode: {res['mode']} (source: {res['mode_source']})")
+    out.append(
+        f"  profile: {res['profile']} (source: {res['profile_source']})"
+    )
+    for notice in res["legacy_notices"]:
+        out.append(f"  {notice}")
+    out.append(f"  set_at: {res['set_at']}")
+    out.append(f"  project marker file: {marker_path_display}")
+    out.append(f"  marker: {res['marker']}")
+    out.append(f"  active: {active_display} ({res['active_reason']})")
+    out.append(f"  sentinel: {SENTINEL_PATH} ({sentinel_status})")
+    out.append(f"  {_wrap_lock_line()}")
+    out.append(f"  {_telemetry_health_line()}")
+    out.extend(_role_models_status_block())
+    out.extend(_telemetry_health_block())
+    out.append("")
+    out.append("What this means")
+    active_sentence = (
+        "Active here: yes. The methodology governs how work gets done in this project."
+        if res["active"]
+        else "Active here: no. The methodology does not govern work in this project."
+    )
+    out.append(f"  {active_sentence}")
+    out.extend(_profile_behavior_block(res["profile"]))
+    out.append("")
+    out.append("How to adjust")
+    out.extend(_how_to_adjust_block(res))
+    out.append("")
+    out.append(
+        "Note: deleting the sentinel re-arms the first-activation notice only."
+    )
+    out.append("To opt out, use /ds-disable.")
+    sys.stdout.write("\n".join(out) + "\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -961,6 +961,50 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertIn("## Task-state file", methodology)
         self.assertNotIn("spawn_agent-state", ticket + methodology)
 
+    def test_shell_occurrences_classifies_ds_prefixed_bin_tokens(self) -> None:
+        """Regression for the DS-rename classifier gap (scripts/codex-skills.py
+        shell_occurrences): after bin/agentic-* -> bin/ds-* renamed the real
+        content files onto a ds- prefix, a fenced-shell token like `ds-cost`
+        fell through the `token.startswith("agentic-")` elif into the final
+        else branch (kind="display-only", target="hashed-source-occurrence")
+        instead of being recognized as a repository-owned operational bin/
+        tool. Confirmed failing pre-fix: with the elif reverted to
+        `token.startswith("agentic-")` only, this test's kind/resolution_mode/
+        expected_target assertions redden (see fix commit for revert+rerun).
+        """
+        module_name = f"codex_skills_fixture_{id(self)}"
+        spec = importlib.util.spec_from_file_location(module_name, self.repo / GENERATOR)
+        self.assertIsNotNone(spec)
+        self.assertIsNotNone(spec.loader)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[module_name] = module
+        self.addCleanup(sys.modules.pop, module_name, None)
+        spec.loader.exec_module(module)
+
+        fixture = module.Document(
+            "fixture.md",
+            "\n".join(
+                (
+                    "Run it:",
+                    "```bash",
+                    "ds-cost team",
+                    "```",
+                )
+            ),
+        )
+        occurrences = module.inventory_document(fixture, self.repo)
+        matches = [o for o in occurrences if o.source_token == "ds-cost"]
+        self.assertEqual(
+            len(matches), 1,
+            f"expected exactly one ds-cost occurrence, got {matches!r} in {occurrences!r}",
+        )
+        occ = matches[0]
+        self.assertEqual(occ.kind, "operational")
+        self.assertEqual(occ.resolution_mode, "repository-owned")
+        self.assertEqual(occ.expected_target, "bin/ds-cost")
+        self.assertNotEqual(occ.kind, "display-only")
+        self.assertNotEqual(occ.expected_target, "hashed-source-occurrence")
+
     def test_base_branch_resolver_explicit_develop_development_and_absence(self) -> None:
         project = Path(self.temporary.name) / "base-branch-project"
         project.mkdir()

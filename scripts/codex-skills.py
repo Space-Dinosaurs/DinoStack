@@ -698,7 +698,7 @@ def shell_occurrences(doc: Document, found: list[Occurrence], occupied: list[tup
                     if token == "claude":
                         generated = "$AE_REPO_DIR/bin/agentic-codex-dispatch legacy-cli claude"
                         mode, target, kind = "shimmed", "bin/agentic-codex-dispatch", "operational"
-                    elif token.startswith("agentic-"):
+                    elif token.startswith(("agentic-", "ds-")):
                         generated = token
                         mode, target, kind = "repository-owned", f"bin/{token}", "operational"
                     elif token in PATH_BINARIES:

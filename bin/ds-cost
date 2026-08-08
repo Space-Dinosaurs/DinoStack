@@ -1,0 +1,1112 @@
+#!/usr/bin/env python3
+"""
+Purpose: Read .agentic/events.jsonl and render per-agent / per-task /
+         per-project token and wall-time rollups. Also reads
+         .agentic/session-log/*.jsonl for team-level per-developer aggregation.
+         Reads ~/.agentic/session-log/*.jsonl for operator-level cross-project
+         rollup. Optionally renders dollar columns when ~/.agentic/pricing.yml
+         is present (opt-in, never invented). The CLI for the /ds-cost
+         command. Also provides `retro` subcommand for pre-telemetry historical
+         rollups reconstructed from git log and gh pr list.
+
+Public API: agentic-cost session [<session_uuid>]
+            agentic-cost task <task_id>
+            agentic-cost project [--since <YYYY-MM-DD>]
+            agentic-cost team [--json]
+            agentic-cost operator [--since YYYY-MM-DD] [--json]
+            agentic-cost retro [--since YYYY-MM-DD] [--until YYYY-MM-DD]
+                               [--author <handle>] [--json]
+            All subcommands print a fixed-width table to stdout. Every
+            output ends with the V1 disclosure footer line per
+            acceptance criterion 12.
+            `operator` reads the global mirror ~/.agentic/session-log/*.jsonl
+            and aggregates by developer_id + project_slug across all projects.
+
+Upstream deps: Python 3 stdlib (json, sys, os, argparse, datetime, pathlib,
+               subprocess, re). Optional pyyaml soft dependency for
+               ~/.agentic/pricing.yml parsing; absent pyyaml -> token-only
+               output with the "Install pyyaml for pricing support." line.
+               `retro` also shells out to git (always) and gh (optional).
+
+Downstream consumers: content/commands/ds-cost.md (command spec);
+                      developers running the command interactively.
+
+Failure modes: missing .agentic/events.jsonl -> prints empty rollup with
+               TOTAL row at zero plus the standard footers; never raises.
+               Malformed JSONL lines are skipped silently and counted in
+               a "N events skipped due to malformed lines." footnote.
+               Missing pricing for a model -> dollar columns render as '?'
+               and the missing model is listed in a footnote.
+               missing/empty .agentic/session-log/ -> prints guidance message
+               and exits 0.
+               missing/empty ~/.agentic/session-log/ -> prints empty-data
+               message and exits 0.
+               `retro` not in a git repo -> exit 1, friendly message.
+               `retro` gh unavailable or unauthenticated -> git-only mode with
+               one-line warning.
+
+Performance: O(N events) single pass; <2s on a session with 50 events
+             per acceptance criterion 3. `retro` performance bounded by
+             git log and gh pr list response time (30s timeout each).
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as _dt
+import itertools
+import json
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+V1_FOOTER = (
+    "Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; "
+    "conductor spawn_complete for /ds-implement-ticket sessions). "
+    "Hook-spawn wall-time and tokens are unavailable (harness ceiling) and render as n/a."
+)
+
+EVENTS_PATH = Path(".agentic/events.jsonl")
+SESSION_LOG_DIR = Path(".agentic/session-log")
+GLOBAL_SESSION_LOG_DIR = Path(os.path.expanduser("~/.agentic/session-log"))
+PRICING_PATH = Path(os.path.expanduser("~/.agentic/pricing.yml"))
+
+
+def _load_events() -> tuple[list[dict], int]:
+    if not EVENTS_PATH.is_file():
+        return [], 0
+    events: list[dict] = []
+    skipped = 0
+    with EVENTS_PATH.open("r", encoding="utf-8", errors="replace") as fh:
+        for raw in fh:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                events.append(json.loads(raw))
+            except json.JSONDecodeError:
+                skipped += 1
+    return events, skipped
+
+
+def _load_pricing() -> tuple[dict | None, str | None, str | None]:
+    """Return (pricing_dict, updated_str, error_msg).
+
+    pricing_dict is None when pricing is unavailable. error_msg is set when
+    the file exists but cannot be loaded (missing pyyaml or parse error).
+    """
+    if not PRICING_PATH.is_file():
+        return None, None, None
+    try:
+        import yaml  # type: ignore
+    except ImportError:
+        return None, None, "Install pyyaml for pricing support."
+    try:
+        with PRICING_PATH.open("r", encoding="utf-8") as fh:
+            data = yaml.safe_load(fh) or {}
+    except Exception as exc:
+        return None, None, f"pricing.yml parse error: {exc}"
+    models = data.get("models") if isinstance(data, dict) else None
+    updated = data.get("updated") if isinstance(data, dict) else None
+    if not isinstance(models, dict):
+        return None, None, "pricing.yml missing 'models' map"
+    return models, str(updated) if updated else None, None
+
+
+def _empty_tokens() -> dict:
+    return {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0}
+
+
+def _add_tokens(dst: dict, src: dict) -> None:
+    for k in ("input", "output", "cache_creation", "cache_read"):
+        dst[k] = dst.get(k, 0) + int(src.get(k, 0) or 0)
+
+
+def _filter_events(events: list[dict], filt) -> list[dict]:
+    return [e for e in events if filt(e)]
+
+
+def _aggregate_by_agent(events: list[dict]) -> dict:
+    """Aggregate spawn events by agent name.
+
+    For sessions with spawn_complete events (ticketed /ds-implement-ticket path),
+    count spawn_complete events and skip any co-present hook spawn_start events
+    to avoid double-counting.  For sessions with NO spawn_complete events
+    (ad-hoc sessions), count hook-emitted spawn_start events whose
+    data.source == "hook" with wall_seconds=0 and tokens=0.
+
+    Returns {agent: {spawns, tokens, wall_seconds, models}}.
+    """
+    # Group events by session_uuid so we can apply the double-count guard.
+    # Events without a session_uuid get a synthetic per-event key to avoid
+    # collisions; they are each treated as their own isolated bucket.
+    _synthetic = itertools.count()
+
+    sessions: dict[str, list[dict]] = {}
+    for ev in events:
+        data = ev.get("data") or {}
+        uuid = data.get("session_uuid") or f"__nosession_{next(_synthetic)}__"
+        sessions.setdefault(uuid, []).append(ev)
+
+    agg: dict = {}
+    for _uuid, session_events in sessions.items():
+        has_complete = any(
+            e.get("event") == "spawn_complete" for e in session_events
+        )
+        for ev in session_events:
+            ev_type = ev.get("event")
+            data = ev.get("data") or {}
+
+            if ev_type == "spawn_complete":
+                # Ticketed path: always count.
+                agent = ev.get("agent") or "(unknown)"
+                tokens = data.get("tokens") or {}
+                wall = float(data.get("wall_seconds") or 0)
+                model = data.get("model")
+                bucket = agg.setdefault(
+                    agent,
+                    {"spawns": 0, "tokens": _empty_tokens(),
+                     "wall_seconds": 0.0, "models": {}},
+                )
+                bucket["spawns"] += 1
+                _add_tokens(bucket["tokens"], tokens)
+                bucket["wall_seconds"] += wall
+                if model:
+                    mb = bucket["models"].setdefault(model, _empty_tokens())
+                    _add_tokens(mb, tokens)
+
+            elif (
+                ev_type == "spawn_start"
+                and data.get("source") == "hook"
+                and not has_complete
+            ):
+                # Ad-hoc path: session has no spawn_complete events so use hook
+                # spawn_start as the spawn signal.  Tokens and wall_seconds are
+                # unavailable from the hook; record zeros so the renderer shows n/a.
+                agent = ev.get("agent") or "(unknown)"
+                bucket = agg.setdefault(
+                    agent,
+                    {"spawns": 0, "tokens": _empty_tokens(),
+                     "wall_seconds": 0.0, "models": {}},
+                )
+                bucket["spawns"] += 1
+                # tokens remain zero; wall_seconds remains 0.0
+
+    return agg
+
+
+def _price_row(
+    pricing: dict, models_used: dict
+) -> tuple[dict | None, list[str]]:
+    """Compute dollar breakdown for a single agent row keyed by model.
+
+    Returns ({in,out,cache_cr,cache_rd,total} or None when any model is
+    unpriced, list_of_missing_model_names).
+    """
+    dollars = {"input": 0.0, "output": 0.0,
+               "cache_creation": 0.0, "cache_read": 0.0}
+    missing: list[str] = []
+    for model, toks in models_used.items():
+        rates = pricing.get(model)
+        if not isinstance(rates, dict):
+            missing.append(model)
+            continue
+        for k in ("input", "output", "cache_creation", "cache_read"):
+            r = rates.get(k)
+            if r is None:
+                missing.append(f"{model}.{k}")
+                continue
+            dollars[k] += (int(toks.get(k, 0) or 0) / 1_000_000) * float(r)
+    if missing:
+        return None, missing
+    dollars["total"] = sum(dollars.values())
+    return dollars, missing
+
+
+def _render_table(
+    agg: dict,
+    pricing: dict | None,
+    pricing_updated: str | None,
+    pricing_error: str | None,
+    skipped: int,
+) -> str:
+    lines: list[str] = []
+    if pricing is not None:
+        header = (
+            f"{'agent':<12}{'spawns':>8}{'tokens':>10}"
+            f"{'$in':>8}{'$out':>8}{'$cache_cr':>11}{'$cache_rd':>11}"
+            f"{'$total':>9}{'wall(s)':>10}"
+        )
+        lines.append(header)
+        total_tokens = 0
+        total_dollars = {"input": 0.0, "output": 0.0,
+                         "cache_creation": 0.0, "cache_read": 0.0,
+                         "total": 0.0}
+        total_wall = 0.0
+        total_spawns = 0
+        all_missing: set[str] = set()
+        for agent in sorted(agg.keys()):
+            b = agg[agent]
+            t = b["tokens"]
+            tok_sum = (t["input"] + t["output"]
+                       + t["cache_creation"] + t["cache_read"])
+            dollars, missing = _price_row(pricing, b["models"])
+            for m in missing:
+                all_missing.add(m)
+            if dollars is None:
+                row = (
+                    f"{agent:<12}{b['spawns']:>8}{tok_sum:>10}"
+                    f"{'?':>8}{'?':>8}{'?':>11}{'?':>11}{'?':>9}"
+                    f"{b['wall_seconds']:>10.1f}"
+                )
+            else:
+                row = (
+                    f"{agent:<12}{b['spawns']:>8}{tok_sum:>10}"
+                    f"{dollars['input']:>8.3f}{dollars['output']:>8.3f}"
+                    f"{dollars['cache_creation']:>11.3f}"
+                    f"{dollars['cache_read']:>11.3f}"
+                    f"{dollars['total']:>9.3f}{b['wall_seconds']:>10.1f}"
+                )
+                for k in total_dollars:
+                    total_dollars[k] += dollars[k]
+            lines.append(row)
+            total_tokens += tok_sum
+            total_wall += b["wall_seconds"]
+            total_spawns += b["spawns"]
+        lines.append(
+            f"{'TOTAL':<12}{total_spawns:>8}{total_tokens:>10}"
+            f"{total_dollars['input']:>8.3f}{total_dollars['output']:>8.3f}"
+            f"{total_dollars['cache_creation']:>11.3f}"
+            f"{total_dollars['cache_read']:>11.3f}"
+            f"{total_dollars['total']:>9.3f}{total_wall:>10.1f}"
+        )
+        lines.append("")
+        if pricing_updated:
+            lines.append(
+                f"Rates as of {pricing_updated} from ~/.agentic/pricing.yml."
+            )
+            try:
+                d = _dt.date.fromisoformat(pricing_updated)
+                if (_dt.date.today() - d).days > 90:
+                    lines.append(
+                        "Rates are >90 days old; verify before quoting."
+                    )
+            except ValueError:
+                pass
+        if all_missing:
+            lines.append(
+                "Missing rates for: " + ", ".join(sorted(all_missing))
+            )
+    else:
+        header = (
+            f"{'agent':<12}{'spawns':>8}{'in':>10}{'out':>10}"
+            f"{'cache_cr':>11}{'cache_rd':>11}{'wall(s)':>10}"
+        )
+        lines.append(header)
+        totals = _empty_tokens()
+        total_wall = 0.0
+        total_spawns = 0
+        for agent in sorted(agg.keys()):
+            b = agg[agent]
+            t = b["tokens"]
+            tok_sum = t["input"] + t["output"] + t["cache_creation"] + t["cache_read"]
+            # Render n/a for token columns when all tokens are zero (hook-spawn with
+            # unavailable token data). Wall-time also renders n/a when wall_seconds
+            # is 0 to stay consistent with the token treatment.
+            if tok_sum == 0:
+                wall_str = "n/a" if b["wall_seconds"] == 0.0 else f"{b['wall_seconds']:.1f}"
+                lines.append(
+                    f"{agent:<12}{b['spawns']:>8}{'n/a':>10}"
+                    f"{'n/a':>10}{'n/a':>11}"
+                    f"{'n/a':>11}{wall_str:>10}"
+                )
+            else:
+                lines.append(
+                    f"{agent:<12}{b['spawns']:>8}{t['input']:>10}"
+                    f"{t['output']:>10}{t['cache_creation']:>11}"
+                    f"{t['cache_read']:>11}{b['wall_seconds']:>10.1f}"
+                )
+            _add_tokens(totals, t)
+            total_wall += b["wall_seconds"]
+            total_spawns += b["spawns"]
+        total_tok_sum = (
+            totals["input"] + totals["output"]
+            + totals["cache_creation"] + totals["cache_read"]
+        )
+        if total_tok_sum == 0:
+            total_wall_str = "n/a" if total_wall == 0.0 else f"{total_wall:.1f}"
+            lines.append(
+                f"{'TOTAL':<12}{total_spawns:>8}{'n/a':>10}"
+                f"{'n/a':>10}{'n/a':>11}"
+                f"{'n/a':>11}{total_wall_str:>10}"
+            )
+        else:
+            lines.append(
+                f"{'TOTAL':<12}{total_spawns:>8}{totals['input']:>10}"
+                f"{totals['output']:>10}{totals['cache_creation']:>11}"
+                f"{totals['cache_read']:>11}{total_wall:>10.1f}"
+            )
+        lines.append("")
+        if pricing_error:
+            lines.append(pricing_error)
+        else:
+            lines.append(
+                "Pricing not configured. Create ~/.agentic/pricing.yml "
+                "to enable dollar columns."
+            )
+    if skipped:
+        lines.append(f"{skipped} events skipped due to malformed lines.")
+    lines.append(V1_FOOTER)
+    return "\n".join(lines) + "\n"
+
+
+def cmd_session(args: argparse.Namespace) -> int:
+    events, skipped = _load_events()
+    target = args.session_uuid
+    if target:
+        events = _filter_events(
+            events,
+            lambda e: (e.get("data") or {}).get("session_uuid") == target,
+        )
+    pricing, updated, perr = _load_pricing()
+    agg = _aggregate_by_agent(events)
+    sys.stdout.write(_render_table(agg, pricing, updated, perr, skipped))
+    return 0
+
+
+def cmd_task(args: argparse.Namespace) -> int:
+    events, skipped = _load_events()
+    target = args.task_id
+    events = _filter_events(events, lambda e: e.get("task_id") == target)
+    pricing, updated, perr = _load_pricing()
+    agg = _aggregate_by_agent(events)
+    sys.stdout.write(_render_table(agg, pricing, updated, perr, skipped))
+    return 0
+
+
+def cmd_project(args: argparse.Namespace) -> int:
+    events, skipped = _load_events()
+    if args.since:
+        try:
+            cutoff = _dt.date.fromisoformat(args.since)
+        except ValueError:
+            print(f"agentic-cost: invalid --since date: {args.since}",
+                  file=sys.stderr)
+            return 2
+        def keep(e: dict) -> bool:
+            ts = e.get("ts") or ""
+            try:
+                d = _dt.datetime.fromisoformat(
+                    ts.replace("Z", "+00:00")
+                ).date()
+            except ValueError:
+                return False
+            return d >= cutoff
+        events = _filter_events(events, keep)
+    pricing, updated, perr = _load_pricing()
+    agg = _aggregate_by_agent(events)
+    sys.stdout.write(_render_table(agg, pricing, updated, perr, skipped))
+    return 0
+
+
+def _load_jsonl_dir(log_dir: Path) -> tuple[list[dict], int]:
+    """Load all JSONL lines from <log_dir>/*.jsonl (non-recursive).
+
+    Returns (records, skipped_count). Each record is the parsed JSON object
+    from a single session-log line. Malformed lines are skipped and counted.
+    The caller is responsible for ensuring log_dir exists before calling.
+    """
+    if not log_dir.is_dir():
+        return [], 0
+    records: list[dict] = []
+    skipped = 0
+    for jsonl_file in sorted(log_dir.glob("*.jsonl")):
+        try:
+            with jsonl_file.open("r", encoding="utf-8", errors="replace") as fh:
+                for raw in fh:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        records.append(json.loads(raw))
+                    except json.JSONDecodeError:
+                        skipped += 1
+        except OSError:
+            pass
+    return records, skipped
+
+
+def _load_session_logs() -> tuple[list[dict], int]:
+    """Load all JSONL lines from .agentic/session-log/*.jsonl.
+
+    Returns (records, skipped_count). Each record is the parsed JSON object
+    from a single session-log line. Malformed lines are skipped and counted.
+    """
+    return _load_jsonl_dir(SESSION_LOG_DIR)
+
+
+def _aggregate_team(records: list[dict]) -> dict:
+    """Aggregate session-log records by developer_id.
+
+    Returns:
+      {developer_id: {sessions, wall_seconds, tokens: {in,out,cache_cr,cache_rd},
+                      by_agent: {agent: {spawns, wall_seconds, tokens_total}}}}
+    """
+    agg: dict = {}
+    for rec in records:
+        dev = rec.get("developer_id")
+        if not dev:
+            continue
+        data = rec.get("data") or {}
+        bucket = agg.setdefault(dev, {
+            "sessions": 0,
+            "wall_seconds": 0.0,
+            "tokens": {"input": 0, "output": 0, "cache_creation": 0, "cache_read": 0},
+            "by_agent": {},
+        })
+        bucket["sessions"] += 1
+        bucket["wall_seconds"] += float(data.get("wall_seconds") or 0)
+        toks = data.get("tokens") or {}
+        for k in ("input", "output", "cache_creation", "cache_read"):
+            bucket["tokens"][k] += int(toks.get(k) or 0)
+        for agent, agent_data in (data.get("by_agent") or {}).items():
+            ab = bucket["by_agent"].setdefault(agent, {
+                "spawns": 0, "wall_seconds": 0.0, "tokens_total": 0,
+            })
+            ab["spawns"] += int(agent_data.get("spawns") or 0)
+            ab["wall_seconds"] += float(agent_data.get("wall_seconds") or 0)
+            ab["tokens_total"] += int(agent_data.get("tokens_total") or 0)
+    return agg
+
+
+def _render_team_table(agg: dict) -> str:
+    """Render fixed-width table of team telemetry sorted by total tokens desc."""
+    lines: list[str] = []
+    header = (
+        f"{'developer':<20}{'sessions':>9}{'in_tok':>10}{'out_tok':>10}"
+        f"{'cache_cr':>10}{'cache_rd':>10}{'wall(s)':>10}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+
+    def _tok_total(b: dict) -> int:
+        t = b["tokens"]
+        return t["input"] + t["output"] + t["cache_creation"] + t["cache_read"]
+
+    sorted_devs = sorted(agg.keys(), key=lambda d: _tok_total(agg[d]), reverse=True)
+    for dev in sorted_devs:
+        b = agg[dev]
+        t = b["tokens"]
+        lines.append(
+            f"{dev:<20}{b['sessions']:>9}{t['input']:>10}{t['output']:>10}"
+            f"{t['cache_creation']:>10}{t['cache_read']:>10}{b['wall_seconds']:>10.1f}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def cmd_team(args: argparse.Namespace) -> int:
+    records, skipped = _load_session_logs()
+    if not records and not SESSION_LOG_DIR.is_dir():
+        print(
+            "No team telemetry yet. Developers run: agentic-identity init <handle>"
+        )
+        return 0
+    if not records:
+        print(
+            "No team telemetry yet. Developers run: agentic-identity init <handle>"
+        )
+        return 0
+
+    agg = _aggregate_team(records)
+
+    if getattr(args, "json", False):
+        sys.stdout.write(json.dumps(agg, indent=2) + "\n")
+        return 0
+
+    sys.stdout.write(_render_team_table(agg))
+    if skipped:
+        print(f"{skipped} lines skipped due to malformed JSONL.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# operator helpers
+# ---------------------------------------------------------------------------
+
+
+def _aggregate_operator(records: list[dict]) -> dict:
+    """Aggregate global session-log records by (developer_id, project_slug).
+
+    Returns:
+      {(developer_id, project_slug): {sessions, wall_seconds,
+                                       tokens: {input, output,
+                                                cache_creation, cache_read}}}
+    """
+    agg: dict = {}
+    for rec in records:
+        dev = rec.get("developer_id")
+        if not dev:
+            continue
+        project = rec.get("project_slug") or "(unknown)"
+        data = rec.get("data") or {}
+        key = (dev, project)
+        bucket = agg.setdefault(key, {
+            "sessions": 0,
+            "wall_seconds": 0.0,
+            "tokens": {"input": 0, "output": 0,
+                       "cache_creation": 0, "cache_read": 0},
+        })
+        bucket["sessions"] += 1
+        bucket["wall_seconds"] += float(data.get("wall_seconds") or 0)
+        toks = data.get("tokens") or {}
+        for k in ("input", "output", "cache_creation", "cache_read"):
+            bucket["tokens"][k] += int(toks.get(k) or 0)
+    return agg
+
+
+def _render_operator_table(agg: dict) -> str:
+    """Render fixed-width operator rollup table sorted by total tokens desc."""
+    lines: list[str] = []
+    lines.append("Operator rollup (all projects)")
+    header = (
+        f"{'developer/project':<24}{'sessions':>9}{'in_tok':>10}{'out_tok':>10}"
+        f"{'cache_cr':>10}{'cache_rd':>10}{'wall(s)':>10}"
+    )
+    lines.append(header)
+    lines.append("-" * len(header))
+
+    def _tok_total(b: dict) -> int:
+        t = b["tokens"]
+        return t["input"] + t["output"] + t["cache_creation"] + t["cache_read"]
+
+    sorted_keys = sorted(
+        agg.keys(),
+        key=lambda k: _tok_total(agg[k]),
+        reverse=True,
+    )
+    for (dev, project) in sorted_keys:
+        b = agg[(dev, project)]
+        t = b["tokens"]
+        label = f"{dev}/{project}"
+        lines.append(
+            f"{label:<24}{b['sessions']:>9}{t['input']:>10}{t['output']:>10}"
+            f"{t['cache_creation']:>10}{t['cache_read']:>10}"
+            f"{b['wall_seconds']:>10.1f}"
+        )
+    return "\n".join(lines) + "\n"
+
+
+def _filter_records_since(records: list[dict], since: str) -> list[dict]:
+    """Return records whose ts >= since (YYYY-MM-DD). Drops records without ts."""
+    try:
+        cutoff = _dt.date.fromisoformat(since)
+    except ValueError:
+        return records
+    filtered = []
+    for rec in records:
+        ts = rec.get("ts") or ""
+        try:
+            d = _dt.datetime.fromisoformat(
+                ts.replace("Z", "+00:00")
+            ).date()
+        except ValueError:
+            continue
+        if d >= cutoff:
+            filtered.append(rec)
+    return filtered
+
+
+def cmd_operator(args: argparse.Namespace) -> int:
+    """Cross-project rollup from ~/.agentic/session-log/*.jsonl."""
+    GLOBAL_SESSION_LOG_DIR.mkdir(parents=True, exist_ok=True)
+    records, skipped = _load_jsonl_dir(GLOBAL_SESSION_LOG_DIR)
+
+    if not records:
+        print(
+            "No operator session data. "
+            "Run sessions with a confirmed identity to populate."
+        )
+        return 0
+
+    since = getattr(args, "since", None)
+    if since:
+        records = _filter_records_since(records, since)
+        if not records:
+            print(
+                "No operator session data. "
+                "Run sessions with a confirmed identity to populate."
+            )
+            return 0
+
+    agg = _aggregate_operator(records)
+
+    if getattr(args, "json", False):
+        json_out: dict = {}
+        for (dev, project), b in agg.items():
+            json_out.setdefault(dev, {})[project] = {
+                "sessions": b["sessions"],
+                "wall_seconds": b["wall_seconds"],
+                "tokens": b["tokens"],
+            }
+        sys.stdout.write(json.dumps(json_out, indent=2) + "\n")
+        return 0
+
+    sys.stdout.write(_render_operator_table(agg))
+    if skipped:
+        print(f"{skipped} lines skipped due to malformed JSONL.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# retro helpers
+# ---------------------------------------------------------------------------
+
+_TICKET_RE = re.compile(r"\b([A-Z]{2,10})-(\d+)\b")
+_RETRO_WARNING = (
+    "WARNING: External-source reconstruction. NOT Stage 1 telemetry.\n"
+    "         No per-agent attribution. No token counts. "
+    "Wall-time is PR-merge proxy only."
+)
+
+
+def _run(cmd: list[str], timeout: int = 30) -> tuple[str, str, int]:
+    """Run a subprocess. Returns (stdout, stderr, returncode). Never raises."""
+    try:
+        r = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return r.stdout, r.stderr, r.returncode
+    except FileNotFoundError:
+        return "", f"{cmd[0]}: command not found", 127
+    except subprocess.TimeoutExpired:
+        return "", f"{cmd[0]}: timed out after {timeout}s", 1
+
+
+def _is_git_repo() -> bool:
+    _, _, rc = _run(["git", "rev-parse", "--git-dir"])
+    return rc == 0
+
+
+def _repo_basename() -> str:
+    out, _, rc = _run(["git", "rev-parse", "--show-toplevel"])
+    if rc != 0 or not out.strip():
+        return "(unknown)"
+    return Path(out.strip()).name
+
+
+def _gh_available() -> bool:
+    """True if gh is installed and authenticated."""
+    _, _, rc = _run(["gh", "auth", "status"])
+    return rc == 0
+
+
+def _parse_iso(s: str) -> _dt.datetime | None:
+    """Parse ISO8601 datetime string, return None on failure."""
+    if not s:
+        return None
+    try:
+        return _dt.datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def _fetch_git_log(since: str, until: str, author: str | None) -> list[dict]:
+    """Fetch commit data from git log. Returns list of commit dicts."""
+    cmd = [
+        "git", "log",
+        f"--since={since}",
+        f"--until={until}",
+        "--no-color",
+        "--pretty=format:%H|%aN|%aI|%s",
+        "--shortstat",
+    ]
+    if author:
+        cmd.append(f"--author={author}")
+    out, _, rc = _run(cmd)
+    if rc != 0 or not out.strip():
+        return []
+
+    commits: list[dict] = []
+    # git --shortstat interleaves commit lines with blank lines and stat lines:
+    # <hash>|<author>|<date>|<subject>
+    # (blank)
+    #  N files changed, M insertions(+), K deletions(-)
+    lines = out.splitlines()
+    i = 0
+    while i < len(lines):
+        line = lines[i].strip()
+        if "|" in line and not line.startswith(" "):
+            parts = line.split("|", 3)
+            if len(parts) == 4:
+                commit_hash, author_name, date_str, subject = parts
+                files_changed = 0
+                # look ahead for the shortstat line
+                j = i + 1
+                while j < len(lines) and not lines[j].strip():
+                    j += 1
+                if j < len(lines) and "changed" in lines[j]:
+                    stat_line = lines[j]
+                    m = re.search(r"(\d+) file", stat_line)
+                    if m:
+                        files_changed = int(m.group(1))
+                    i = j
+                commits.append({
+                    "hash": commit_hash.strip(),
+                    "author": author_name.strip(),
+                    "date": date_str.strip(),
+                    "subject": subject.strip(),
+                    "files_changed": files_changed,
+                })
+        i += 1
+    return commits
+
+
+def _fetch_gh_prs(
+    since: str, until: str, author_filter: str | None = None
+) -> tuple[list[dict], str | None]:
+    """Fetch PR data from gh. Returns (prs, warning_or_none).
+
+    When author_filter is set, passes --author to gh pr list so the 500-result
+    cap applies only to the filtered set, preventing silent truncation in repos
+    with >500 PRs in the date range.
+    """
+    # gh pr list search uses merged: qualifier
+    search_q = f"merged:{since}..{until}"
+    cmd = [
+        "gh", "pr", "list",
+        "--state", "all",
+        "--search", search_q,
+        "--json", "number,author,createdAt,mergedAt,additions,deletions,files",
+        "--limit", "500",
+    ]
+    if author_filter:
+        cmd += ["--author", author_filter]
+    out, _, rc = _run(cmd)
+    if rc != 0:
+        return [], "gh pr list failed; PR data omitted."
+    if not out.strip():
+        return [], None
+    try:
+        prs = json.loads(out)
+    except json.JSONDecodeError:
+        return [], "gh pr list: could not parse JSON output."
+    return prs, None
+
+
+def _aggregate_retro(
+    commits: list[dict],
+    prs: list[dict],
+    author_filter: str | None,
+) -> dict:
+    """Aggregate commit and PR data per author.
+
+    Returns {author: {commits, files_touched, prs, merged, merge_times_days,
+                      ticket_prefixes: {prefix: {count, tickets: set}}}}
+    """
+    agg: dict = {}
+
+    for c in commits:
+        a = c["author"]
+        if author_filter and a.lower() != author_filter.lower():
+            continue
+        b = agg.setdefault(a, {
+            "commits": 0, "files_touched": 0,
+            "prs": 0, "merged": 0, "merge_times_days": [],
+            "ticket_prefixes": {},
+        })
+        b["commits"] += 1
+        b["files_touched"] += c["files_changed"]
+        for m in _TICKET_RE.finditer(c["subject"]):
+            prefix = m.group(1)
+            ticket_id = m.group(0)
+            pb = b["ticket_prefixes"].setdefault(prefix, {"count": 0, "tickets": set()})
+            pb["count"] += 1
+            pb["tickets"].add(ticket_id)
+
+    for pr in prs:
+        pr_author = (pr.get("author") or {})
+        if isinstance(pr_author, dict):
+            pr_author = pr_author.get("login") or pr_author.get("name") or ""
+        if author_filter and pr_author.lower() != author_filter.lower():
+            continue
+        b = agg.setdefault(pr_author, {
+            "commits": 0, "files_touched": 0,
+            "prs": 0, "merged": 0, "merge_times_days": [],
+            "ticket_prefixes": {},
+        })
+        b["prs"] += 1
+        merged_at = pr.get("mergedAt")
+        if merged_at:
+            b["merged"] += 1
+            created_at = pr.get("createdAt")
+            dt_merged = _parse_iso(merged_at)
+            dt_created = _parse_iso(created_at)
+            if dt_merged and dt_created:
+                delta = (dt_merged - dt_created).total_seconds() / 86400
+                b["merge_times_days"].append(delta)
+        # files changed from PR
+        files_list = pr.get("files") or []
+        if isinstance(files_list, list):
+            b["files_touched"] += len(files_list)
+
+    return agg
+
+
+def _format_days(values: list[float]) -> str:
+    if not values:
+        return "    n/a"
+    avg = sum(values) / len(values)
+    return f"{avg:>6.1f} d"
+
+
+def _render_retro_table(
+    agg: dict,
+    repo: str,
+    since: str,
+    until: str,
+    warnings: list[str],
+) -> str:
+    lines: list[str] = []
+    lines.append(f"Retro rollup for {repo} ({since} -> {until})")
+    lines.append(_RETRO_WARNING)
+    if warnings:
+        for w in warnings:
+            lines.append(f"WARNING: {w}")
+    lines.append("")
+
+    if not agg:
+        lines.append("No activity in range.")
+        return "\n".join(lines) + "\n"
+
+    lines.append("Per-author:")
+    header = (
+        f"  {'AUTHOR':<20}{'COMMITS':>8}{'PRS':>6}"
+        f"{'MERGED':>8}{'AVG_MERGE_TIME':>16}{'FILES_TOUCHED':>14}"
+    )
+    lines.append(header)
+
+    total_commits = 0
+    total_prs = 0
+    total_merged = 0
+    all_merge_times: list[float] = []
+    total_files = 0
+
+    for author in sorted(agg.keys()):
+        b = agg[author]
+        avg_merge = _format_days(b["merge_times_days"])
+        lines.append(
+            f"  {author:<20}{b['commits']:>8}{b['prs']:>6}"
+            f"{b['merged']:>8}{avg_merge:>16}{b['files_touched']:>14}"
+        )
+        total_commits += b["commits"]
+        total_prs += b["prs"]
+        total_merged += b["merged"]
+        all_merge_times.extend(b["merge_times_days"])
+        total_files += b["files_touched"]
+
+    total_avg = _format_days(all_merge_times)
+    lines.append(
+        f"  {'TOTAL':<20}{total_commits:>8}{total_prs:>6}"
+        f"{total_merged:>8}{total_avg:>16}{total_files:>14}"
+    )
+    lines.append("")
+
+    # Ticket prefix summary (across all authors)
+    all_prefixes: dict = {}
+    no_prefix_count = 0
+    for b in agg.values():
+        for prefix, pd in b["ticket_prefixes"].items():
+            entry = all_prefixes.setdefault(prefix, {"count": 0, "tickets": set()})
+            entry["count"] += pd["count"]
+            entry["tickets"] |= pd["tickets"]
+        # no-prefix commits: total commits minus those matching any ticket
+        matched = sum(pd["count"] for pd in b["ticket_prefixes"].values())
+        no_prefix_count += max(0, b["commits"] - matched)
+
+    if all_prefixes or no_prefix_count:
+        lines.append("Top ticket prefixes (from commit messages):")
+        for prefix in sorted(all_prefixes.keys(),
+                             key=lambda p: all_prefixes[p]["count"],
+                             reverse=True):
+            pd = all_prefixes[prefix]
+            ticket_count = len(pd["tickets"])
+            lines.append(
+                f"  {prefix:<12}{pd['count']:>4} commits across"
+                f" {ticket_count:>3} ticket{'s' if ticket_count != 1 else ' '}"
+            )
+        if no_prefix_count:
+            lines.append(f"  {'(no prefix)':<12}{no_prefix_count:>4} commits")
+        lines.append("")
+
+    lines.append(
+        "Stage 1 telemetry: agentic-cost team for accurate per-agent breakdown"
+    )
+    lines.append(
+        "                   from sessions starting when Stage 1 was active here."
+    )
+    return "\n".join(lines) + "\n"
+
+
+def cmd_retro(args: argparse.Namespace) -> int:
+    """Reconstruct per-author work rollup from git log and gh pr list."""
+    # Date setup
+    today = _dt.date.today()
+    default_since = (today - _dt.timedelta(days=30)).isoformat()
+    default_until = today.isoformat()
+
+    since_str = args.since or default_since
+    until_str = args.until or default_until
+
+    try:
+        _dt.date.fromisoformat(since_str)
+    except ValueError:
+        print(
+            f"agentic-cost retro: invalid --since date: {since_str!r} "
+            "(expected YYYY-MM-DD)",
+            file=sys.stderr,
+        )
+        return 1
+
+    try:
+        _dt.date.fromisoformat(until_str)
+    except ValueError:
+        print(
+            f"agentic-cost retro: invalid --until date: {until_str!r} "
+            "(expected YYYY-MM-DD)",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not _is_git_repo():
+        print(
+            "agentic-cost retro: not a git repository. "
+            "Run from within a git repo.",
+            file=sys.stderr,
+        )
+        return 1
+
+    repo = _repo_basename()
+    warnings: list[str] = []
+    author_filter: str | None = getattr(args, "author", None)
+
+    # Fetch git log
+    commits = _fetch_git_log(since_str, until_str, author_filter)
+
+    # Fetch PR data (optional)
+    prs: list[dict] = []
+    if _gh_available():
+        prs, pr_warn = _fetch_gh_prs(since_str, until_str, author_filter)
+        if pr_warn:
+            warnings.append(pr_warn)
+    else:
+        warnings.append("gh not available or not authenticated; PR data omitted.")
+
+    agg = _aggregate_retro(commits, prs, author_filter)
+
+    if getattr(args, "json", False):
+        # Serialize sets to sorted lists for JSON
+        json_agg: dict = {}
+        for author, b in agg.items():
+            json_agg[author] = {
+                "commits": b["commits"],
+                "files_touched": b["files_touched"],
+                "prs": b["prs"],
+                "merged": b["merged"],
+                "avg_merge_time_days": (
+                    round(sum(b["merge_times_days"]) / len(b["merge_times_days"]), 2)
+                    if b["merge_times_days"] else None
+                ),
+                "ticket_prefixes": {
+                    prefix: {
+                        "commit_count": pd["count"],
+                        "ticket_count": len(pd["tickets"]),
+                        "tickets": sorted(pd["tickets"]),
+                    }
+                    for prefix, pd in b["ticket_prefixes"].items()
+                },
+            }
+        out = {
+            "repo": repo,
+            "since": since_str,
+            "until": until_str,
+            "warning": _RETRO_WARNING,
+            "warnings": warnings,
+            "authors": json_agg,
+        }
+        sys.stdout.write(json.dumps(out, indent=2) + "\n")
+        return 0
+
+    sys.stdout.write(
+        _render_retro_table(agg, repo, since_str, until_str, warnings)
+    )
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="agentic-cost",
+        description="Token / wall-time rollups from .agentic/events.jsonl",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+    p_s = sub.add_parser("session", help="rollup for one session")
+    p_s.add_argument("session_uuid", nargs="?", default=None)
+    p_s.set_defaults(func=cmd_session)
+    p_t = sub.add_parser("task", help="rollup for one task_id")
+    p_t.add_argument("task_id")
+    p_t.set_defaults(func=cmd_task)
+    p_p = sub.add_parser("project", help="rollup across the project")
+    p_p.add_argument("--since", default=None,
+                     help="YYYY-MM-DD lower bound on event timestamp")
+    p_p.set_defaults(func=cmd_project)
+    p_team = sub.add_parser("team", help="per-developer rollup from .agentic/session-log/")
+    p_team.add_argument("--json", action="store_true",
+                        help="emit machine-readable JSON instead of a table")
+    p_team.set_defaults(func=cmd_team)
+    p_operator = sub.add_parser(
+        "operator",
+        help="cross-project rollup from ~/.agentic/session-log/ (all projects)",
+    )
+    p_operator.add_argument(
+        "--since", default=None,
+        help="YYYY-MM-DD lower bound on session timestamp",
+    )
+    p_operator.add_argument(
+        "--json", action="store_true",
+        help="emit machine-readable JSON instead of a table",
+    )
+    p_operator.set_defaults(func=cmd_operator)
+    p_retro = sub.add_parser(
+        "retro",
+        help=(
+            "historical rollup from git log + gh pr list "
+            "(pre-telemetry escape hatch)"
+        ),
+    )
+    p_retro.add_argument(
+        "--since", default=None,
+        help="YYYY-MM-DD lower bound (default: 30 days ago)",
+    )
+    p_retro.add_argument(
+        "--until", default=None,
+        help="YYYY-MM-DD upper bound (default: today)",
+    )
+    p_retro.add_argument(
+        "--author", default=None,
+        help="filter to a single git author name or handle",
+    )
+    p_retro.add_argument(
+        "--json", action="store_true",
+        help="emit machine-readable JSON instead of a table",
+    )
+    p_retro.set_defaults(func=cmd_retro)
+    args = p.parse_args(argv[1:])
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

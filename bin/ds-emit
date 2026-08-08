@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# Purpose: Append a single JSON event line to .agentic/events.jsonl, called
+#          inline by the conductor at orchestration boundaries (spawn_start,
+#          spawn_complete, conductor_direct). Resolves phase from the caller's
+#          per-ticket keyed loop-state file, falling back to the legacy
+#          .agentic/loop-state.json, per the six-row order below.
+#
+# Public API: agentic-emit <event> <agent_or_-> <task_id_or_-> <json_data>
+#             - event:    event type (spawn_start|spawn_complete|conductor_direct|...)
+#             - agent:    agent name, or "-" for null
+#             - task_id:  task id, or "-" for null
+#             - json_data: compact JSON object as a single string
+#
+#             Env seams (both optional):
+#             - AGENTIC_DIR:      state directory, default ".agentic"
+#             - AGENTIC_LOOP_KEY: the caller's resolved LOOP_KEY, selecting
+#                                 $AGENTIC_DIR/loop-state-$AGENTIC_LOOP_KEY.json
+#
+#             PHASE RESOLUTION ORDER (binding - each row is exclusive):
+#               1. AGENTIC_LOOP_KEY set AND that keyed file exists -> use it
+#               2. AGENTIC_LOOP_KEY set AND that file is ABSENT     -> "unknown"
+#               3. env unset, EXACTLY ONE loop-state-*.json         -> use it
+#               4. env unset, 2+ keyed files                        -> "unknown"
+#               5. env unset, zero keyed, legacy file exists        -> use legacy
+#               6. otherwise                                        -> "unknown"
+#             Row 2 deliberately does NOT fall through to legacy, and row 4
+#             deliberately has no newest-mtime tiebreak: AGENTIC_LOOP_KEY is an
+#             LLM-honored convention, not a guarantee, so when the caller has
+#             declared a key whose file is absent - or when the key is unset and
+#             the choice is ambiguous - the only honest answer is "unknown".
+#             Attributing the event to whatever unrelated ticket's file happens
+#             to be present is confidently-wrong telemetry, which is worse than
+#             honestly-absent telemetry.
+#
+# Upstream deps: bash, date (GNU or BSD), python3 (stdlib only) for safe
+#                JSON assembly. Reads the resolved loop-state file if present -
+#                either $AGENTIC_DIR/loop-state-<LOOP_KEY>.json or the legacy
+#                .agentic/loop-state.json.
+#
+# Downstream consumers: content/commands/ds-implement-ticket.md (Phase 6, 6b);
+#                       content/rules/agent-methodology.md trivial-path edits;
+#                       any future command that reaches an instrumented
+#                       boundary.
+#
+# Failure modes: best-effort. Missing .agentic/ directory is created. Append
+#                failure on events.jsonl is swallowed silently (consistent
+#                with hooks/stop-context.js failure model). Malformed
+#                json_data argument falls through python3 with a stderr note
+#                and exit 0. Never raises to the caller.
+#
+# Performance: ~5-15 ms per call; one date subprocess + one python3 process
+#              + one append.
+
+set -u
+
+if [ "$#" -lt 4 ]; then
+  echo "agentic-emit: usage: agentic-emit <event> <agent|-> <task_id|-> <json_data>" >&2
+  exit 0
+fi
+
+event="$1"
+agent_arg="$2"
+task_id_arg="$3"
+data_json="$4"
+
+agentic_dir="${AGENTIC_DIR:-.agentic}"
+events_file="$agentic_dir/events.jsonl"
+legacy_loop_state_file="$agentic_dir/loop-state.json"
+
+mkdir -p "$agentic_dir" 2>/dev/null || exit 0
+
+# Resolve which loop-state file (if any) this event's phase comes from, per the
+# six-row order in the manifest above. Empty result => phase stays "unknown".
+loop_state_file=""
+loop_key="${AGENTIC_LOOP_KEY:-}"
+if [ -n "$loop_key" ]; then
+  # Rows 1 and 2. An absent keyed file resolves to "" ("unknown") and MUST NOT
+  # fall through to the legacy path - see the manifest.
+  if [ -f "$agentic_dir/loop-state-$loop_key.json" ]; then
+    loop_state_file="$agentic_dir/loop-state-$loop_key.json"
+  fi
+else
+  # Rows 3-5. Count keyed files without relying on glob-expansion side effects
+  # (an unmatched glob stays literal under bash's default nullglob-off).
+  keyed_count=0
+  keyed_single=""
+  for candidate in "$agentic_dir"/loop-state-*.json; do
+    [ -f "$candidate" ] || continue
+    keyed_count=$((keyed_count + 1))
+    keyed_single="$candidate"
+  done
+  if [ "$keyed_count" -eq 1 ]; then
+    loop_state_file="$keyed_single"            # row 3
+  elif [ "$keyed_count" -eq 0 ] && [ -f "$legacy_loop_state_file" ]; then
+    loop_state_file="$legacy_loop_state_file"  # row 5
+  fi
+  # row 4 (2+ keyed) and row 6 (nothing) both leave loop_state_file empty.
+fi
+
+# ISO8601 UTC with millisecond precision.
+ts="$(python3 -c 'import datetime,sys; print(datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%S.") + f"{datetime.datetime.utcnow().microsecond // 1000:03d}Z")' 2>/dev/null || date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+# Resolve phase (last_phase field) from the file resolved above, if any. The
+# path is passed as argv rather than interpolated into the python source: it is
+# derived from AGENTIC_LOOP_KEY, which is caller-supplied.
+phase="unknown"
+if [ -n "$loop_state_file" ] && [ -f "$loop_state_file" ]; then
+  phase="$(python3 - "$loop_state_file" <<'PYEOF' 2>/dev/null || echo unknown
+import json,sys
+try:
+    with open(sys.argv[1]) as f:
+        d = json.load(f)
+    p = d.get('last_phase')
+    print(p if isinstance(p, str) and p else 'unknown')
+except Exception:
+    print('unknown')
+PYEOF
+)"
+  [ -n "$phase" ] || phase="unknown"
+fi
+
+# Convert "-" sentinels to JSON null inside python below.
+line="$(python3 - "$ts" "$phase" "$event" "$agent_arg" "$task_id_arg" "$data_json" <<'PYEOF' 2>/dev/null
+import json, sys
+ts, phase, event, agent_arg, task_id_arg, data_raw = sys.argv[1:7]
+agent = None if agent_arg == "-" else agent_arg
+task_id = None if task_id_arg == "-" else task_id_arg
+try:
+    data = json.loads(data_raw) if data_raw else {}
+    if not isinstance(data, dict):
+        data = {"_raw": data}
+except Exception:
+    data = {"_raw": data_raw}
+print(json.dumps({
+    "ts": ts, "phase": phase, "event": event,
+    "agent": agent, "task_id": task_id, "data": data,
+}, separators=(",", ":")))
+PYEOF
+)"
+
+if [ -n "$line" ]; then
+  printf '%s\n' "$line" >> "$events_file" 2>/dev/null || true
+fi
+
+exit 0

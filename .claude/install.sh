@@ -307,8 +307,8 @@ SETTINGS="$AE_CONFIG_DIR/settings.json"
 #     - it IS a symlink (never touch real files), AND
 #     - its current target is broken OR resolves under a methodology checkout
 #       (path contains a component equal to "DinoStack" or ending with "-DinoStack").
-#   Intentionally more conservative than agentic-doctor on broken symlinks:
-#   agentic-doctor reclaims ALL broken symlinks in managed dirs regardless of
+#   Intentionally more conservative than ds-doctor on broken symlinks:
+#   ds-doctor reclaims ALL broken symlinks in managed dirs regardless of
 #   origin, while this predicate only reclaims broken symlinks whose target
 #   string contains a /DinoStack/ or -DinoStack/ component (i.e., was clearly
 #   a methodology path). Non-methodology broken symlinks are left untouched.
@@ -1219,7 +1219,7 @@ fi
 # Clobber-guard: ONLY writes when the config is absent, has no repo_dir key,
 # has an invalid (non-git-repo) repo_dir, or already equals REPO_DIR.
 # A valid DIFFERENT repo_dir is NEVER overwritten - a warning is printed
-# instead. Use agentic-doctor or set repo_dir manually if the intent is to
+# instead. Use ds-doctor or set repo_dir manually if the intent is to
 # switch canonical checkouts.
 # ---------------------------------------------------------------------------
 
@@ -1316,7 +1316,7 @@ except Exception:
         echo "  = repo_dir already set to this checkout (keeping)"
       else
         # Valid DIFFERENT repo_dir - do NOT overwrite.
-        echo "  warning: existing canonical repo_dir '$_existing_repo_dir' differs from this checkout '$REPO_DIR'; not overwriting. Run agentic-doctor or set repo_dir manually if this is intended." >&2
+        echo "  warning: existing canonical repo_dir '$_existing_repo_dir' differs from this checkout '$REPO_DIR'; not overwriting. Run ds-doctor or set repo_dir manually if this is intended." >&2
       fi
     fi
   fi
