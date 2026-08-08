@@ -4,19 +4,22 @@ Purpose: Single source of truth for the "Skill Loading" table that .claude/insta
          so a resident-budget CI check and the installer can both read one canonical copy
          instead of drifting independently.
 
-Public API: intended to be consumed verbatim (as markdown prose) by .claude/install.sh when
-            it assembles the managed_content Python string, and by any CI budget check that
-            needs to account for this content without duplicating it inline. Not yet wired -
-            .claude/install.sh still carries this table inline; a later unit of DS-143 points
-            the installer at this file.
+Public API: consumed verbatim (as markdown prose, manifest header stripped) by
+            .claude/install.sh when it assembles the managed_content Python string, and by
+            scripts/check-resident-budget.sh, which measures the post-manifest body of this
+            file as the sole methodology content resident in every Claude Code session.
 
 Upstream deps: none (leaf content file; no imports or code dependencies).
 
-Downstream consumers: none yet (.claude/install.sh does not read this file as of this unit -
-                      see Public API). Deliberately omits the three @-import lines
+Downstream consumers: .claude/install.sh (reads this file at template_path and strips the
+                      manifest header before writing the managed block to ~/.claude/CLAUDE.md);
+                      scripts/check-resident-budget.sh (measures the post-manifest body).
+                      Deliberately omits the three @-import lines
                       (METHODOLOGY.md, rules/code-standards.md, rules/conventions.md): the
                       trigger-loaded design removes those lines from the managed block
-                      entirely rather than moving them here.
+                      entirely rather than moving them here. install.sh still appends them
+                      as a fallback when the skill symlink does not resolve (SKILL_LINK_OK
+                      != true).
 
 Failure modes: none (static content file; no execution).
 
