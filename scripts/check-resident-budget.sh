@@ -27,10 +27,14 @@
 #          (STABLE_CONTENT_PHRASE below) is present in the measured body.
 #
 #          As of this unit, .claude/install.sh still emits three separate
-#          @-import lines (METHODOLOGY.md, content/rules/conventions.md,
-#          content/rules/code-standards.md) into the managed block in
-#          addition to this table - see .claude/install.sh around the
-#          managed_content assembly. DS-143's plan is to remove those
+#          @-import lines into the managed block in addition to this table
+#          (@skills/agentic-engineering/METHODOLOGY.md,
+#          @skills/agentic-engineering/rules/conventions.md,
+#          @skills/agentic-engineering/rules/code-standards.md - sourced
+#          from content/rules/conventions.md and
+#          content/rules/code-standards.md respectively) - see
+#          .claude/install.sh around the managed_content assembly.
+#          DS-143's plan is to remove those
 #          @-imports and make that content trigger-loaded instead (via the
 #          SKILL.md embed, budgeted separately by
 #          scripts/check-skill-embed-budget.sh), but that removal has NOT
@@ -67,7 +71,13 @@
 #                from the body) -> exit 1 with a distinct "table content
 #                missing" message - this catches same-size content
 #                replacement that a byte-count bound alone cannot see.
-#                Read-only; no side effects on the repo.
+#                Structural assertion failure (no table header row, or no
+#                row with a non-empty signal cell routing to
+#                STABLE_CONTENT_PHRASE) -> exit 1 with a distinct "table
+#                structure broken" message - this catches a table that is
+#                present-and-sized-correctly but functionally gutted (e.g.
+#                the signal column emptied). Read-only; no side effects on
+#                the repo.
 #
 # Compatible with both bash and zsh invocation of the containing shell; CI
 # always invokes it as `bash scripts/check-resident-budget.sh`, but a
@@ -103,12 +113,21 @@ THRESHOLD=600
 # "manifest survives, payload gone."
 MIN_PLAUSIBLE_BYTES=100
 
-# Content assertion: a byte-count bound cannot tell real table content
-# apart from same-size filler. This phrase is the skill-invocation cell of
-# the Skill Loading table itself - content-bearing, not incidental
-# formatting (not "##", not a table pipe) - and must survive any edit that
-# keeps the table doing its job.
+# Content assertions: a byte-count bound cannot tell real table content
+# apart from same-size filler, or apart from a structurally broken table
+# (e.g. the signal column emptied while the skill cell survives) that is
+# still technically the right size and still technically contains the
+# phrase. Two checks, both required:
+#   1. STABLE_CONTENT_PHRASE - the skill-invocation cell of the Skill
+#      Loading table itself must appear somewhere in the body.
+#   2. STRUCTURAL_ROW_PATTERN - at least one pipe-delimited table row must
+#      have a non-empty signal cell (contains a letter) AND route to
+#      STABLE_CONTENT_PHRASE in its skill cell - this is what a table row
+#      that can actually match and route a task looks like, not just
+#      "the phrase is present somewhere in the file."
 STABLE_CONTENT_PHRASE='/agentic-engineering'
+TABLE_HEADER_ROW='| Signal | Skill |'
+STRUCTURAL_ROW_PATTERN='^\|[^|]*[A-Za-z][^|]*\|[^|]*/agentic-engineering'
 
 MANAGED_CONTENT_FILE="$REPO_DIR/content/templates/claude-managed-content.md"
 
@@ -118,18 +137,26 @@ if [ ! -f "$MANAGED_CONTENT_FILE" ]; then
 fi
 
 # Measure only the shipped body - everything after the manifest comment's
-# closing "-->", when a manifest comment is present. Split on the first
-# occurrence of "-->" via awk's record separator and take the second
-# record; write it to a temp file rather than a shell variable so trailing
-# newlines are preserved exactly (a $(...) capture would strip them and
-# shift the byte count). If no "-->" is found, treat the whole file as the
-# body rather than failing on an empty match - the manifest comment is a
-# convention, not a structural requirement of the shipped content.
+# FIRST closing "-->", when a manifest comment is present. Splitting with
+# RS="-->" and taking NR==2 alone is wrong: RS splits on EVERY occurrence,
+# so a second "-->" anywhere in the body (e.g. a stray HTML comment added
+# later) would silently truncate the measurement at record 2 and let
+# everything past it ship unmeasured. Instead: NR==1 is discarded (text
+# before the first marker), NR==2 starts the body, and every record from
+# NR==3 onward is the literal "-->" text (stripped as the separator)
+# reinserted ahead of that record - this reconstructs everything after the
+# first marker byte-for-byte, including any subsequent "-->" occurrences,
+# rather than treating them as further splits. Written to a temp file
+# rather than a shell variable so trailing newlines are preserved exactly
+# (a $(...) capture would strip them and shift the byte count). If no
+# "-->" is found at all, treat the whole file as the body rather than
+# failing on an empty match - the manifest comment is a convention, not a
+# structural requirement of the shipped content.
 body_file="$(mktemp)"
 trap 'rm -f "$body_file"' EXIT
 
 if grep -q -- '-->' "$MANAGED_CONTENT_FILE"; then
-  awk 'BEGIN{RS="-->"} NR==2{printf "%s", $0; exit}' "$MANAGED_CONTENT_FILE" > "$body_file"
+  awk 'BEGIN{RS="-->"} NR==1{next} NR==2{printf "%s", $0; next} {printf "-->%s", $0}' "$MANAGED_CONTENT_FILE" > "$body_file"
 else
   cat "$MANAGED_CONTENT_FILE" > "$body_file"
 fi
@@ -160,6 +187,20 @@ if ! grep -qF -- "$STABLE_CONTENT_PHRASE" "$body_file"; then
   echo "  Loading table's content was replaced or corrupted, not just" >&2
   echo "  resized. Investigate content/templates/claude-managed-content.md" >&2
   echo "  directly." >&2
+  exit 1
+fi
+
+if ! grep -qF -- "$TABLE_HEADER_ROW" "$body_file" || ! grep -qE -- "$STRUCTURAL_ROW_PATTERN" "$body_file"; then
+  echo "check-resident-budget.sh: TABLE STRUCTURE BROKEN, not a budget problem." >&2
+  echo "  The shipped body of" >&2
+  echo "  content/templates/claude-managed-content.md is $body_bytes B and" >&2
+  echo "  contains '$STABLE_CONTENT_PHRASE' somewhere, but does not have both" >&2
+  echo "  the table header row '$TABLE_HEADER_ROW' and at least one row with" >&2
+  echo "  a non-empty signal cell routing to '$STABLE_CONTENT_PHRASE'. This" >&2
+  echo "  catches a table that is present-but-broken: e.g. the signal column" >&2
+  echo "  emptied while the skill cell survives, or the phrase appearing in" >&2
+  echo "  prose rather than in a working table row. Investigate" >&2
+  echo "  content/templates/claude-managed-content.md directly." >&2
   exit 1
 fi
 
