@@ -16,9 +16,12 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~55 s wall time (21 install.sh invocations after the DS-143
-#              follow-up fix pass added cases (o) and (p), up from 19; each
-#              runs two full adapter builds against the real checkout).
+# Performance: roughly 1-2 min wall time, machine-load dependent (22
+#              install.sh invocations after the DS-143 follow-up fix pass
+#              added cases (o) and (p), up from 19 - 20 single-shot call
+#              sites plus case (o)'s one call site executed twice inside its
+#              two-iteration order loop; each invocation runs two full
+#              adapter builds against the real checkout).
 #
 # Regression coverage:
 #   - Change 1: stale "ours" symlink (target under .../DinoStack/...) is
