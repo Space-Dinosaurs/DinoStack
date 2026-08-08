@@ -131,7 +131,7 @@ fi
 # module-manifest.md) via one function to avoid duplicating this logic
 # twice.
 _check_embedded_set() {
-  local dir="$1" pattern="$2" exclude="$3" expected_count="$4" label="$5"
+  local dir="$1" pattern="$2" exclude="$3" expected_count="$4" label="$5" constant_name="$6"
   local files file_count f heading
   if [ -n "$exclude" ]; then
     files="$(LC_ALL=C find "$dir" -maxdepth 1 -type f -name "$pattern" ! -name "$exclude" | LC_ALL=C sort)"
@@ -147,20 +147,19 @@ _check_embedded_set() {
     echo "check-skill-embed-budget.sh: embed incomplete" >&2
     echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
     echo "  a new $label source file was added - this is likely intentional." >&2
-    echo "  If so, bump EXPECTED_SECTION_COUNT or EXPECTED_RULES_COUNT above" >&2
-    echo "  in the same commit that adds the file. If not, an extra file" >&2
-    echo "  landed under $dir unexpectedly - investigate before bumping the" >&2
-    echo "  count." >&2
+    echo "  If so, bump $constant_name above in the same commit that adds the" >&2
+    echo "  file. If not, an extra file landed under $dir unexpectedly -" >&2
+    echo "  investigate before bumping the count." >&2
     exit 1
   fi
   if [ "$file_count" -lt "$expected_count" ]; then
     echo "check-skill-embed-budget.sh: embed incomplete" >&2
     echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
     echo "  a $label source file went missing from $dir. This is the deleted-" >&2
-    echo "  file case the pinned EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT" >&2
-    echo "  constants exist to catch (see their comment above) - restore the" >&2
-    echo "  missing file. Do NOT lower the expected count to make this pass" >&2
-    echo "  unless the removal was deliberate." >&2
+    echo "  file case the pinned $constant_name constant exists to catch (see" >&2
+    echo "  its comment above) - restore the missing file. Do NOT lower the" >&2
+    echo "  expected count to make this pass unless the removal was" >&2
+    echo "  deliberate." >&2
     exit 1
   fi
   while IFS= read -r f; do
@@ -168,6 +167,10 @@ _check_embedded_set() {
     if [ -z "$heading" ]; then
       echo "check-skill-embed-budget.sh: embed incomplete" >&2
       echo "  $f has no top-level '## ' heading to check against" >&2
+      echo "  every embedded $label source file needs its own distinct" >&2
+      echo "  top-level '## Heading' line for this check to verify its" >&2
+      echo "  presence in the built SKILL.md - add one (e.g. a '# ' opener" >&2
+      echo "  demoted to '## ', or a missing heading added outright)." >&2
       exit 1
     fi
     if ! grep -qxF "$heading" "$SKILL_FILE"; then
@@ -187,8 +190,8 @@ _check_embedded_set() {
 }
 
 ALL_HEADINGS=""
-_check_embedded_set "$REPO_DIR/content/sections" '[0-9][0-9]-*.md' '' "$EXPECTED_SECTION_COUNT" 'section'
-_check_embedded_set "$REPO_DIR/content/rules" '*.md' 'module-manifest.md' "$EXPECTED_RULES_COUNT" 'rules'
+_check_embedded_set "$REPO_DIR/content/sections" '[0-9][0-9]-*.md' '' "$EXPECTED_SECTION_COUNT" 'section' 'EXPECTED_SECTION_COUNT'
+_check_embedded_set "$REPO_DIR/content/rules" '*.md' 'module-manifest.md' "$EXPECTED_RULES_COUNT" 'rules' 'EXPECTED_RULES_COUNT'
 
 # Duplicate-heading guard: `grep -qxF "$heading" "$SKILL_FILE"` above matches
 # presence ANYWHERE in the built output, not per-file. If two source files
