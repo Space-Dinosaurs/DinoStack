@@ -93,10 +93,15 @@
 #   - Case (n) (Skeptic loop 3, MAJOR): update-path reproduction - a fresh
 #     install (Run 1) followed by a Run 2 against the same FAKE_HOME after an
 #     embedded skill input (content/rules/conventions.md) is mutated with a
-#     canary. CLAUDE.md's managed block is byte-identical across both runs,
-#     but SKILL.md is regenerated with the canary and the registry-refresh
-#     restart notice must still fire on Run 2 - the exact steady-state
-#     `/ds-update` scenario the notice exists to cover.
+#     canary. Run 1's CLAUDE.md is first asserted non-empty and carrying the
+#     managed-block BEGIN marker, so the byte-identical comparison against
+#     Run 2 cannot pass vacuously on two empty strings. CLAUDE.md's managed
+#     block is byte-identical across both runs, but SKILL.md is regenerated
+#     with the canary and the registry-refresh restart notice must still fire
+#     on Run 2 - the exact steady-state `/ds-update` scenario the notice
+#     exists to cover. If the post-case adapter rebuild
+#     (scripts/build-all.sh) fails, a loud warning is printed naming the
+#     possible canary contamination instead of failing silently.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -1023,7 +1028,23 @@ cp "$CONVENTIONS_PATH" "$CONVENTIONS_BACKUP"
 _case_n_restore() {
   cp "$CONVENTIONS_BACKUP" "$CONVENTIONS_PATH"
   rm -f "$CONVENTIONS_BACKUP"
-  bash "$REPO_DIR/scripts/build-all.sh" > /dev/null 2>&1 || true
+  local _n_rebuild_out
+  _n_rebuild_out="$(bash "$REPO_DIR/scripts/build-all.sh" 2>&1)"
+  local _n_rebuild_status=$?
+  if [[ "$_n_rebuild_status" -ne 0 ]]; then
+    echo "" >&2
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+    echo "WARNING: case (n)'s adapter rebuild (scripts/build-all.sh) FAILED" >&2
+    echo "(exit $_n_rebuild_status) after restoring content/rules/conventions.md." >&2
+    echo "Tracked, shippable generated adapter files (SKILL.md, .cursor rules," >&2
+    echo "etc.) may still contain the case-n-canary marker. Re-run" >&2
+    echo "\`bash scripts/build-all.sh\` and check \`git status\` before trusting" >&2
+    echo "this checkout." >&2
+    echo "--- build-all.sh output (tail) ---" >&2
+    echo "$_n_rebuild_out" | tail -n 40 >&2
+    echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
+    echo "" >&2
+  fi
 }
 trap '_case_n_restore; _cleanup' EXIT
 
@@ -1046,6 +1067,12 @@ _n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
 # above, into the shell variables, before restoring.
 _case_n_restore
 trap _cleanup EXIT
+
+if [[ -n "$_n_claude_md_run1" && "$_n_claude_md_run1" == *"<!-- BEGIN managed-by-agentic-engineering -->"* ]]; then
+  _pass "case (n): run 1's CLAUDE.md is non-empty and carries the managed block (comparison below is not vacuous)"
+else
+  _fail "case (n): run 1's CLAUDE.md is empty or missing the managed-block BEGIN marker"
+fi
 
 if [[ "$_n_claude_md_run1" == "$_n_claude_md_run2" ]]; then
   _pass "case (n): update-path run's CLAUDE.md managed block is byte-identical across runs (no-op rewrite)"
