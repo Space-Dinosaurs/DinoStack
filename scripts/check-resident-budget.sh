@@ -29,7 +29,10 @@
 #
 # Upstream deps: content/templates/claude-managed-content.md; python3 (used
 #                for a deterministic byte-offset search of the manifest
-#                comment terminator).
+#                comment terminator); scripts/lib/budget-gate.sh (shared
+#                repo-dir resolution, byte measurement, and OK/OVER-BUDGET
+#                report shape - see that file for the two sibling gates it
+#                also backs).
 #
 # Downstream consumers: .github/workflows/resident-budget.yml.
 #
@@ -53,9 +56,12 @@ set -euo pipefail
 # BASH_SOURCE is unset under zsh. CI always invokes this script as `bash
 # scripts/check-resident-budget.sh` (see resident-budget.yml), but a
 # contributor or reviewer may run it under zsh locally - fall back to $0 so
-# REPO_DIR resolves correctly under both interpreters instead of collapsing
-# to "//".
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
+# SCRIPT_DIR resolves correctly under both interpreters instead of
+# collapsing to "//".
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# shellcheck source=lib/budget-gate.sh
+source "$SCRIPT_DIR/lib/budget-gate.sh"
+REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 
 # Ratchet: 401 B measured for the post-manifest body on this branch
 # 2026-08-07 (DS-143 - the Skill Loading table is the sole remaining
@@ -79,7 +85,7 @@ if [ ! -f "$MANAGED_CONTENT_FILE" ]; then
   exit 1
 fi
 
-file_bytes="$(wc -c < "$MANAGED_CONTENT_FILE" | tr -d '[:space:]')"
+file_bytes="$(budget_file_bytes "$MANAGED_CONTENT_FILE")"
 
 # Locate the byte offset of the manifest comment's closing "-->" and measure
 # only what follows it. Using python3 for a single deterministic byte-offset
@@ -116,24 +122,14 @@ if [ "$body_bytes" -lt "$MIN_PLAUSIBLE_BODY_BYTES" ]; then
   exit 1
 fi
 
-if [ "$body_bytes" -le "$THRESHOLD" ]; then
-  headroom=$(( THRESHOLD - body_bytes ))
-  echo "resident budget check: OK"
-  echo "  claude-managed-content.md (body only): $body_bytes B"
-  echo "  file total (incl. manifest):           $file_bytes B"
-  echo "  threshold: $THRESHOLD B"
-  echo "  headroom:  $headroom B"
-  exit 0
-fi
+remediation="The always-loaded resident set grew past its budget.
+Trim content or, if the growth is deliberate and justified, raise
+THRESHOLD in scripts/check-resident-budget.sh in the same PR."
 
-overage=$(( body_bytes - THRESHOLD ))
-echo "resident budget check: OVER BUDGET" >&2
-echo "  claude-managed-content.md (body only): $body_bytes B" >&2
-echo "  file total (incl. manifest):           $file_bytes B" >&2
-echo "  threshold: $THRESHOLD B" >&2
-echo "  overage:   $overage B" >&2
-echo "" >&2
-echo "The always-loaded resident set grew past its budget." >&2
-echo "Trim content or, if the growth is deliberate and justified, raise" >&2
-echo "THRESHOLD in scripts/check-resident-budget.sh in the same PR." >&2
-exit 1
+budget_report \
+  "resident budget check" \
+  "claude-managed-content.md (body only)" \
+  "$body_bytes" \
+  "$THRESHOLD" \
+  "$remediation" \
+  "file total (incl. manifest):           $file_bytes B"

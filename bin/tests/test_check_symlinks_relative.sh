@@ -15,7 +15,9 @@
 #                directory - never touches the real checkout's HEAD or refs.
 #
 # Downstream consumers: developer running locally before commit; CI
-#                        (bin-sh-tests.yml auto-discovers bin/tests/test_*.sh).
+#                        (the bin-sh-tests job in
+#                        .github/workflows/bin-tests.yml auto-discovers
+#                        bin/tests/test_*.sh).
 #
 # Failure modes: gate script missing -> immediate FAIL. Gate does not exit 1
 #                on an absolutized fixture, or does not exit 0 on a relative
