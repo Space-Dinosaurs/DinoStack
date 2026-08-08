@@ -749,14 +749,14 @@ def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencin
 # more than one sentence - a bare "twenty in text" presence check would stay
 # green even if only one of the two sentences were bumped.
 TOGGLE_COUNT_FILES = [
-    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty methodology toggles"),
-    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty methodology toggles (one reserved/inert"),
-    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-toggle project config catalog"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty toggles"),
-    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty methodology toggles"),
-    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 20 behavioral toggles"),
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-one methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-one methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-one project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-one-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-one project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-one toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-one methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 21 behavioral toggles"),
 ]
 
 TOGGLE_SEED_FILES = [
@@ -919,6 +919,77 @@ def test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations():
     ds_config_pending_row_idx = ds_config_text.index("| Pending-merge sweep |")
     ds_config_tracker_row_idx = ds_config_text.index("| Tracker state diagnostic |")
     assert ds_config_tracker_row_idx > ds_config_pending_row_idx
+
+
+# Every catalog the toggle COUNT governs, as (path, anchor-for-the-predecessor,
+# anchor-for-the-new-toggle). The predecessor is `commit_telemetry`, which is
+# where all six catalogs place the new entry.
+#
+# This is MEMBERSHIP coverage, and it is deliberately separate from
+# TOGGLE_COUNT_FILES above, which is COUNT coverage. The distinction is the
+# whole point: a count sweep verifies the numeral in each of its four
+# grammatical forms and reports all-clear while a catalog is short an entry -
+# exactly how `knowledge_commit_on_pr` reached README.md's "twenty-one"
+# sentence with only 20 bullets under it. A numeral and its list are two
+# different claims and need two different assertions.
+_KNOWLEDGE_TOGGLE_CATALOGS = [
+    # (path, predecessor anchor, new-toggle anchor)
+    (REPO_ROOT / "README.md", "- `commit_telemetry`", "- `knowledge_commit_on_pr`"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md",
+     "- `commit_telemetry`", "- `knowledge_commit_on_pr`"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md",
+     "- `commit_telemetry`", "- `knowledge_commit_on_pr`"),
+    (REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+     "- `commit_telemetry`", "- `knowledge_commit_on_pr`"),
+    (REPO_ROOT / "docs" / "components.md",
+     "`commit_telemetry` (", "`knowledge_commit_on_pr` ("),
+    (REPO_ROOT / "docs" / "configuration-reference.md",
+     "| `commit_telemetry` |", "| `knowledge_commit_on_pr` |"),
+    (REPO_ROOT / "content" / "templates" / ".agentic" / "config.json",
+     '"commit_telemetry": true,', '"knowledge_commit_on_pr": true,'),
+    (REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+     '"commit_telemetry": true,', '"knowledge_commit_on_pr": true,'),
+]
+
+
+def test_toggle_catalog_has_knowledge_commit_on_pr_entry_in_all_locations():
+    """Membership + position for `knowledge_commit_on_pr` in every catalog the
+    toggle count governs - the four TOGGLE_BULLET_FILES bullet catalogs, the
+    two prose/table catalogs, and both seed JSONs.
+
+    Same shape as
+    test_toggle_catalog_has_tracker_state_diagnostic_bullet_in_all_locations
+    above. Asserted per-file with the path in the message, so a catalog that is
+    short the entry names ITSELF rather than failing anonymously."""
+    bullet_paths = {p for p, _, _ in _KNOWLEDGE_TOGGLE_CATALOGS}
+    for path in TOGGLE_BULLET_FILES:
+        assert path in bullet_paths, (
+            f"{path.relative_to(REPO_ROOT)} is in TOGGLE_BULLET_FILES but is not "
+            "covered by this membership check - every bullet catalog the count "
+            "governs must be checked, or the next toggle repeats the README miss"
+        )
+
+    for path, predecessor, entry in _KNOWLEDGE_TOGGLE_CATALOGS:
+        text = path.read_text(encoding="utf-8")
+        rel = path.relative_to(REPO_ROOT)
+        assert entry in text, (
+            f"{rel}: missing the `knowledge_commit_on_pr` entry ({entry!r}). "
+            "The toggle count in this file (or governing it) says 21 - a "
+            "catalog with 20 entries makes that numeral false."
+        )
+        assert text.count(entry) == 1, (
+            f"{rel}: `knowledge_commit_on_pr` entry appears {text.count(entry)} "
+            f"times ({entry!r}); expected exactly 1 - a duplicate inflates the "
+            "catalog against its own count."
+        )
+        assert predecessor in text, (
+            f"{rel}: predecessor anchor {predecessor!r} not found - this check's "
+            "position assertion cannot be evaluated, so it must not silently pass"
+        )
+        assert text.index(entry) > text.index(predecessor), (
+            f"{rel}: the `knowledge_commit_on_pr` entry must follow "
+            f"`commit_telemetry`, matching its position in every other catalog"
+        )
 
 
 def test_agentic_config_settings_registers_tracker_state_diagnostic():
