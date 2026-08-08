@@ -1,0 +1,24 @@
+name: command-file-budget
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  check-command-file-budget:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Run command file budget check
+        # Advisory: this job must surface a warning on overage but never
+        # block merge - continue-on-error keeps the check neutral (yellow)
+        # in the checks UI instead of failing the run. Promotion to a
+        # required, blocking check on the main ruleset is a separate
+        # operator decision, not made by this workflow.
+        continue-on-error: true
+        run: bash scripts/check-command-file-budget.sh
