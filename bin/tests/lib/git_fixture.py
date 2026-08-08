@@ -368,7 +368,7 @@ def _seed_session_log(repo_dir: Path, developer: str) -> Path:
     return log_path
 
 
-def _stub_agentic_identity(
+def _stub_ds_identity(
     bin_dir: Path, env: dict[str, str], developer: Optional[str], provisional: bool = False
 ) -> None:
     """Install a PATH-shadowing fake `ds-identity` executable so the
@@ -407,7 +407,7 @@ def build_dinostack_shape(tmp_path: Path) -> Fixture:
     _init_repo(repo_dir, branch_name, env)
     _write_gitignore(repo_dir, DINOSTACK_GITIGNORE, env)
     _seed_session_log(repo_dir, developer)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = ""
@@ -428,7 +428,7 @@ def build_consumer_shape(tmp_path: Path) -> Fixture:
     _write_gitignore(repo_dir, CONSUMER_GITIGNORE, env)
     _seed_session_log(repo_dir, developer)
     _run(["git", "worktree", "add", "-q", str(worktree_dir), "-b", branch_name], cwd=repo_dir, env=env)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = str(worktree_dir)
@@ -456,7 +456,7 @@ def build_worktree_shape(tmp_path: Path) -> Fixture:
         f"fixture invariant violated: {dest} must not exist before the "
         f"block runs (required for the D2 mutant to be a valid no-op test)"
     )
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = str(worktree_dir)
@@ -476,7 +476,7 @@ def build_fanout_shape(tmp_path: Path) -> Fixture:
     _init_repo(repo_dir, branch_name, env)
     _write_gitignore(repo_dir, CONSUMER_GITIGNORE, env)
     _seed_session_log(repo_dir, developer)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = ""
@@ -495,7 +495,7 @@ def build_no_identity_shape(tmp_path: Path) -> Fixture:
     _write_gitignore(repo_dir, CONSUMER_GITIGNORE, env)
     # No session-log seeded - DEVELOPER never resolves, so SESSION_LOG_SRC is
     # never referenced (nothing to seed against).
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer=None)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer=None)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = ""
@@ -524,7 +524,7 @@ def build_identity_no_gitconfig_shape(tmp_path: Path) -> Fixture:
     _init_repo(repo_dir, branch_name, env)
     _write_gitignore(repo_dir, CONSUMER_GITIGNORE, env)
     _seed_session_log(repo_dir, developer)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     env["REPO"] = str(repo_dir)
     env["BRANCH_NAME"] = branch_name
     env["WORKTREE_PATH"] = ""
@@ -877,7 +877,7 @@ def _build_knowledge_base(
     env = _base_env(tmp_path, DUMMY_NAME, DUMMY_EMAIL)
     _init_repo(repo_dir, branch_name, env)
     _write_gitignore(repo_dir, gitignore, env)
-    _stub_agentic_identity(tmp_path / "stub-bin", env, developer)
+    _stub_ds_identity(tmp_path / "stub-bin", env, developer)
     _knowledge_env(env, repo_dir)
     return Fixture(repo_dir, None, branch_name, developer, env)
 
