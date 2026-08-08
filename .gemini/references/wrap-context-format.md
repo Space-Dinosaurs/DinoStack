@@ -33,6 +33,25 @@ This is what the **second-line** discriminator tests - in step 3 of the merge al
 
 "Second line" means the literal second line of the file. A `/ds-wrap`-produced file always starts with `# Session Context` on line 1 and `*Written by /ds-wrap on ...` on line 2.
 
+## Atomic write discipline (NORMATIVE)
+
+Every write site cited below follows this mechanism, regardless of target file:
+
+1. Compose the full new file content in-memory (the merge/edit/append work described at the citing site).
+2. Write it to a temp path via the Write tool: `<target>.tmp.<token>` - **never** the fixed literal `.tmp` suffix, because a fixed suffix lets a second concurrent write collide on the same staging file (mirrors `tmpPathFor` in `hooks/lib/context-rollup.js`). `<token>` is `$CLAUDE_CODE_SESSION_ID` when available, otherwise the current UTC time as `HHMMSS` plus a random 4-hex suffix. Where the target's documented name is itself a placeholder (`FILE.md`, `FILE.original.md`, `FILE.pre-YYYY-MM-DD-HHMMSS.md`), reproduce the placeholder verbatim in the temp path (`FILE.original.md.tmp.<token>`), rather than inventing a concrete filename the source prose never commits to.
+3. Publish via Bash, using the variant the citing site specifies:
+   - **Conditional publish** - when the site's prose conditions creation of the target file itself ("create X if missing", "never overwrite X"), i.e. the whole write is skipped when the target already exists:
+     `if [ -e <target> ]; then rm -f <target>.tmp.<token>; else mv <target>.tmp.<token> <target>; fi`
+   - **Unconditional publish** - when the prose conditions only content within a file that may already exist (read-modify-write: read current content if present, compute the new full content, always write it back):
+     `mv <target>.tmp.<token> <target>`
+
+   The conditional check-then-act is not independently atomic against a concurrent writer, but `/ds-wrap`'s writes are already serialized by `.agentic/wrap/lock`; concurrency beyond that lock is out of scope.
+4. On failure at step 2 or 3: `rm -f <target>.tmp.<token>`, print a one-line warning naming the target and the error, and treat the write as failed. No retry; the caller's soft-fail contract applies.
+
+**Marker requirement.** Each citing site includes, as part of its citation sentence, the literal compound substring `Atomic write discipline <!-- aw-site: <id> -->` - the phrase, one space, then an HTML comment carrying that site's marker id (e.g. `Atomic write discipline <!-- aw-site: <id> -->`, with `<id>` replaced by the site's own id). It renders invisibly in markdown but is a greppable literal, and is the sole cross-reference the regression test uses to verify each site independently.
+
+Consumers (17 sites, each carrying a unique marker id): 3 in this reference's own rolling-session-label merge algorithm below (`wrap-md-fresh`, `wrap-md-nonauthored`, `wrap-md-merge`), and 14 in `content/commands/ds-wrap.md` (`claude-md-root`, `memory-md-seed`, `claude-md-track`, `stub-creation`, `settings-json`, `gitignore`, `memory-pending`, `memory-md-fresh`, `memory-md-merge`, `agents-md-pending`, `agents-md-write`, `original-md`, `rolling-snapshot`, `compressed-overwrite`).
+
 ## `.agentic/wrap/last-wrap` write contract (NORMATIVE)
 
 A single line containing the `session_id` of the session whose `/ds-wrap` (sync, background enrichment, or `/ds-wrap-deferred`) last successfully wrote `_wrap.md`. Atomic write (tmp + rename). This sentinel fully replaces any header-date parsing - no site parses the `_wrap.md` header date to decide "was this session wrapped." Consumers: (a) the Stop hook's marker-staging suppression (do not stage a marker if the current `session_id` equals `last-wrap`), and (b) the OpenCode plugin's equivalent suppression. It is written ONLY after a successful Part A `_wrap.md` write - never staged early (writing it during marker-staging would suppress that very session's own recovery marker). Note: a same-session `done` tombstone stamped `wrapped_at` ALSO suppresses `stagePending` (covering the case where `last-wrap` has rolled to a different session), so `last-wrap` is not the sole staging-suppression mechanism - the retained tombstone is the durable backstop when `last-wrap` no longer names this session.
@@ -61,9 +80,9 @@ The merged write always begins with the pinned header prefix above (the matcher 
 
 1. Read the file at the `_wrap.md` output path (`.agentic/_wrap.md`).
 
-2. **If the file does not exist**: write the new draft content directly to the output path. Result: "Wrote fresh context to [path] (no existing file)."
+2. **If the file does not exist**: write the new draft content directly to the output path, per Atomic write discipline <!-- aw-site: wrap-md-fresh --> (unconditional publish). Result: "Wrote fresh context to [path] (no existing file)."
 
-3. **If the file exists but is empty, or its second line does not begin with `*Written by /ds-wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file. Result: "Wrote fresh context to [path] (replaced non-/ds-wrap file)."
+3. **If the file exists but is empty, or its second line does not begin with `*Written by /ds-wrap`**: the existing file was written by the Stop hook or another source and cannot be meaningfully merged. Write the new draft content directly, overwriting the existing file, per Atomic write discipline <!-- aw-site: wrap-md-nonauthored --> (unconditional publish). Result: "Wrote fresh context to [path] (replaced non-/ds-wrap file)."
 
 4. **If the file exists and its second line begins with `*Written by /ds-wrap`** (i.e. it was produced by a previous `/ds-wrap` run): proceed to the merge step below.
 
@@ -102,4 +121,4 @@ First, check how many session labels are already present in the existing file's 
 - **Watch Out For**: union both lists. Remove exact duplicate lines. If one had "None" and the other has real entries, use only the real entries.
 - **Tools Used**: combine both comma-separated lists, split by comma, trim whitespace, deduplicate, re-join as a single comma-separated list.
 
-Write the merged result to disk. Result: "Merged context written to [path] (combined sessions)."
+Write the merged result to disk, per Atomic write discipline <!-- aw-site: wrap-md-merge --> (unconditional publish). Result: "Merged context written to [path] (combined sessions)."

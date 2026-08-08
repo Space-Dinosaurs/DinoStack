@@ -2101,7 +2101,7 @@
       </div>
       <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
         <strong>Protocol fit:</strong>
-        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/ds-wrap</code> should then promote the durable parts of those decisions into <code>AGENTS.md</code> and <code>MEMORY.md</code> so future sessions inherit the outcome without rereading every planning file.
+        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/ds-wrap</code> then promotes the durable parts of those decisions into <code>AGENTS.md</code>; durable facts destined for <code>MEMORY.md</code> are captured by <code>wrap-ticket</code> or a manual <code>/ds-memory-update</code>, not by <code>/ds-wrap</code> - so future sessions inherit the outcome without rereading every planning file.
       </div>
     </div>
   </div>
