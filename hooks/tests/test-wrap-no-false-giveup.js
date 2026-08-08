@@ -374,7 +374,7 @@ async function caseE() {
 // Case F: prose -> producer -> predicate round trip
 // ---------------------------------------------------------------------------
 async function caseF() {
-  const PREFLIGHT_CMD = 'agentic-wrap-acquire-lock "$cwd" --role=agent --no-wait';
+  const PREFLIGHT_CMD = 'ds-wrap-acquire-lock "$cwd" --role=agent --no-wait';
   const md = fs.readFileSync(DS_WRAP_MD_PATH, 'utf8');
 
   // (1) the doc contains the literal preflight command.

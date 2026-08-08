@@ -673,8 +673,8 @@ def test_config_cmd_out_of_scope_names_agentic_tracker():
     identity_idx = text.index(
         "identity (owned by `/ds-identity`)", out_of_scope_idx
     )
-    tracker_idx = text.index("agentic-tracker", out_of_scope_idx)
+    tracker_idx = text.index("ds-tracker", out_of_scope_idx)
     assert out_of_scope_idx < identity_idx < tracker_idx, (
-        "agentic-tracker must be named in the ds-config.md Out-of-scope "
+        "ds-tracker must be named in the ds-config.md Out-of-scope "
         "clause, after the identity clause it extends"
     )
