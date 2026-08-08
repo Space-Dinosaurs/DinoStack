@@ -23,22 +23,21 @@ Purpose: Permanent regression corpus for hooks/enforce-no-abdication.py. This
               built, never reached a measurable shape. Hard-gate/surface-
               and-proceed suppression and code-fence/blockquote exclusion
               must be present from first authoring, not bolted on after
-              review. Zero of this corpus's 34 rows contain an
-              "## Operator decisions" heading or a "(recommended)"/
-              "Recommendation:" marker, so none exercise a ballot
-              classifier's path, leaving Groups 3/5/7 as the floor for
-              the OTHER rejected attempts only; a revival must add a
-              compliant ALLOW row and a genuine co-equal-ballot BLOCK row,
-              and must route through a dedicated reason constant that
-              does not carry an unconditional "proceed now" directive.
-              This does NOT cover a per-item, fence-masking classifier with
-              a dedicated non-"proceed now" reason - feat/prose-ballot-guard
-              (PR #519) is that design, per its PR body 0 Critical findings
-              across three Skeptic rounds, and it passes this corpus - but
-              it deliberately exempts its ballot check from the negative
-              gate and does not handle ">"-blockquote headings, so it does
-              not itself satisfy the two requirements above; that tension
-              is unresolved.
+              review. A revival needed to add a compliant ALLOW row and a
+              genuine co-equal-ballot BLOCK row to this corpus, and to
+              route through a dedicated reason constant that does not
+              carry an unconditional "proceed now" directive. A per-item,
+              fence-masking design with a dedicated non-"proceed now"
+              reason (_is_prose_ballot / _BALLOT_REASON) shipped in
+              a950bdd4 (PR #519) - per its PR body, 0 Critical findings
+              across three Skeptic rounds, and it passes this corpus.
+              Groups 3/5/7 remain the floor for the OTHER rejected
+              attempts; Group 8 below now carries the compliant ALLOW row
+              and the genuine co-equal-ballot BLOCK row this revival
+              required, closing that gap. Two limitations remain, both
+              deliberate and known: the negative-gate exemption
+              (self-documented at _is_prose_ballot's own docstring) and
+              the absent ">"-blockquote heading handling.
            4. Widening the destructive negative gate with
               `drop/alter table|column|index|database|schema`: measured
               13/13 FALSE SUPPRESSIONS - it stops catching real abdication on
@@ -376,6 +375,49 @@ CORPUS.append((
     "g7-01",
     "ordinary_completion_allow",
     "Filed the two follow-up tickets as DS-201 and DS-202. Learnings captured to memory.",
+    False,
+))
+
+# --- Group 8: prose-ballot classifier (_is_prose_ballot / _BALLOT_REASON) --
+# Closes the gap rejected attempt #3 left open (see the Purpose docstring
+# above): this classifier shipped in a950bdd4 (PR #519) and, until these
+# rows, nothing in this corpus exercised its "## Operator decisions" +
+# unmarked-item path at all. All three values below are MEASURED against
+# the real hook, not assumed - see the header comment on each row.
+#
+# g8-00: a genuine co-equal ballot - 2 items, neither carries a
+# "(Recommended)" or "Recommendation:" marker. Measured to BLOCK.
+CORPUS.append((
+    "g8-00",
+    "prose_ballot_block",
+    "Fixed the login bug and added a regression test.\n\n"
+    "## Operator decisions\n\n"
+    "- Proceed with approach A for the retry policy - unclear which is preferred.\n"
+    "- Proceed with approach B for the cache eviction window - unclear which is preferred.",
+    True,
+))
+# g8-01: a compliant block - 2 items, each carries a recommendation marker
+# (one "(Recommended)" suffix, one "Recommendation:" lead-in). Measured to
+# ALLOW - a compliant author is never punished by this check.
+CORPUS.append((
+    "g8-01",
+    "prose_ballot_compliant_allow",
+    "Fixed the login bug and added a regression test.\n\n"
+    "## Operator decisions\n\n"
+    "- Proceed with approach A for the retry policy (Recommended) - matches the existing pattern in src/foo.ts.\n"
+    "- Proceed with approach B for the cache eviction window. Recommendation: use a 5 minute TTL to match the session cache.",
+    False,
+))
+# g8-02: a single decision item with a marker. Pins that a lone recommended
+# decision never trips the ballot check (the rule bans co-equal ballots,
+# not surfacing one genuine decision - see _is_prose_ballot's docstring).
+# Measured to ALLOW.
+CORPUS.append((
+    "g8-02",
+    "prose_ballot_single_item_allow",
+    "Fixed the login bug and added a regression test.\n\n"
+    "## Operator decisions\n\n"
+    "- Proceed with approach A for the retry policy (Recommended) - matches the existing pattern in src/foo.ts.",
     False,
 ))
 
