@@ -13,7 +13,7 @@ alwaysApply: false
 
 ## Activation preflight
 
-Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `agentic-identity resolve-hook --cwd <cwd>` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `bin/agentic-migrate` scaffolding sync.
+Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `ds-identity resolve-hook --cwd <cwd>` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `bin/ds-migrate` scaffolding sync.
 
 1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default` (see the deprecated legacy preset subsection below for the fallback path when `profile` is genuinely absent rather than merely invalid).
 
@@ -487,7 +487,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 | Topic | Trigger | Reference |
 |---|---|---|
-| **Activation detail (Steps 5-6)** | Step 4 of the activation preflight resolves to active | `content/references/activation-detail.md` §Step 5: First-Activation Notice, §Step 6: Scaffolding-Sync Check - sentinel write contract, TTY/QUIET gate, `agentic-migrate` flow |
+| **Activation detail (Steps 5-6)** | Step 4 of the activation preflight resolves to active | `content/references/activation-detail.md` §Step 5: First-Activation Notice, §Step 6: Scaffolding-Sync Check - sentinel write contract, TTY/QUIET gate, `ds-migrate` flow |
 | **Planning artifacts (Brief and Plan tiers)** | authoring a Brief or Plan after orchestration-planner returns 2+ Elevated-or-above units | `content/sections/03-planning-artifacts.md` for blocking/non-blocking rules. Full ordering, trigger table, gate-semantics authoring sequences, Brief template, Plan-tier directory, verification-gate template, promotion mechanics, product-intent layer, canonical `qa_default_skip` definition: `content/references/planning-artifacts.md` |
 | **Delegation detail** | consulting the full Worker autonomy contract, stop-frequency planning signal, investigator-before-architect rules, or a detected instruction-layer contradiction | `content/references/delegation-detail.md` §Worker Autonomy Contract, §Stop-Frequency as Planning Signal, §Investigator-Before-Architect Rules, §Learnings Pipeline, §Worker Preamble and Execution Contract Template, §Digest-Return Discipline, §Decision Stability and Contradiction Resolution, §Harness-Injected Instruction Conflicts, §Orchestration Enforcement Hooks and Fan-out Detail, §Background-Spawn Enforcement Detail |
 | **Risk config and tiers** | consulting config toggles, the graph-derived risk signal, or tier declaration detail | `content/references/risk-config-and-tiers.md` §Config Toggle Catalog (behavioral), §Graph-derived risk signal, §Tier Declaration Detail |

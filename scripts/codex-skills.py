@@ -1015,7 +1015,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
 
     literal_rules = [
         (
-            r"agentic-identity resolve-hook --cwd <cwd>",
+            r"ds-identity resolve-hook --cwd <cwd>",
             "codex-profile-identity-command",
             'AGENTIC_CONFIG_DIR="$AE_CODEX_CONFIG_DIR" ds-identity '
             'resolve-hook --cwd "$AE_PROJECT_DIR"',
@@ -1072,8 +1072,8 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
             "codex-config-directory",
         ),
         (
-            r"  Confirm: agentic-identity confirm --scope <scope>\n"
-            r"  Correct: agentic-identity init <handle> --force --scope <scope>",
+            r"  Confirm: ds-identity confirm --scope <scope>\n"
+            r"  Correct: ds-identity init <handle> --force --scope <scope>",
             "codex-profile-identity-command",
             "  Confirm (global/project): ds-identity confirm --scope "
             "<global|project>\n"

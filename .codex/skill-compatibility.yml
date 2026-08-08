@@ -32,16 +32,6 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "02970ff3f55ce89962ae49abdcf9aad3e6ce68c0b4852f9af45725c80d86b1eb",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": ".agentic/worktrees/*",
       "generated_token": "$AE_PROJECT_DIR/.agentic/worktrees/*",
       "kind": "operational",
@@ -110,6 +100,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "METHODOLOGY.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "0dd18a05007f8bc7d7fd6cba658f3199975f6673bea83ed8ff645d6478b24d40",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
     },
     {
       "expected_target": "implement-ticket",
@@ -242,6 +242,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "AE_CODEX_CONFIG_DIR",
+      "generated_token": "AGENTIC_CONFIG_DIR=\"$AE_CODEX_CONFIG_DIR\" ds-identity resolve-hook --cwd \"$AE_PROJECT_DIR\"",
+      "kind": "operational",
+      "occurrence_hash": "19266c2a6355c6b4f93e9a244d298572d53e6620bf43a0944b5293ccb98abaa4",
+      "resolution_mode": "validated-config-path",
+      "scope": "codex-config-directory",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "ds-identity resolve-hook --cwd <cwd>"
+    },
+    {
       "expected_target": "agentic-engineering",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -260,16 +270,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "AskUserQuestion"
-    },
-    {
-      "expected_target": "bin/agentic-migrate",
-      "generated_token": "$AE_REPO_DIR/bin/agentic-migrate",
-      "kind": "operational",
-      "occurrence_hash": "1e0bbd2c49b327cb1ab0d2f6c5e54a1d339961a502f629f5f39a1606a1664739",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "bin/agentic-migrate"
     },
     {
       "expected_target": "Agent",
@@ -462,16 +462,6 @@
       "source_token": "content/references/worktree-lifecycle.md"
     },
     {
-      "expected_target": "content/references/activation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "3dc001debc0747573c36c9c75c96b800e3857120c03454a6b779794ada13f667",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/activation-detail.md"
-    },
-    {
       "expected_target": "content/sections/04-risk-classification.md",
       "generated_token": "$AE_REPO_DIR/content/sections/04-risk-classification.md",
       "kind": "operational",
@@ -560,16 +550,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
-    },
-    {
-      "expected_target": "AE_CODEX_CONFIG_DIR",
-      "generated_token": "AGENTIC_CONFIG_DIR=\"$AE_CODEX_CONFIG_DIR\" ds-identity resolve-hook --cwd \"$AE_PROJECT_DIR\"",
-      "kind": "operational",
-      "occurrence_hash": "4820d81844ed4be0a1b1ce3ffbc6151b3309a22926ff96c6d55e0268b0a4b7e2",
-      "resolution_mode": "validated-config-path",
-      "scope": "codex-config-directory",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "agentic-identity resolve-hook --cwd <cwd>"
     },
     {
       "expected_target": "content/references/activation-detail.md",
@@ -1612,6 +1592,16 @@
       "source_token": ".agentic/tasks.jsonl"
     },
     {
+      "expected_target": "content/references/activation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "bc05b92d0df023c6e9ea63a19d3fb77d16a0fa63af531292615bd5d31baa239e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/activation-detail.md"
+    },
+    {
       "expected_target": "content/references/capture-classification.md",
       "generated_token": "$AE_REPO_DIR/content/references/capture-classification.md",
       "kind": "operational",
@@ -2090,6 +2080,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/capture-classification.md"
+    },
+    {
+      "expected_target": "bin/ds-migrate",
+      "generated_token": "$AE_REPO_DIR/bin/ds-migrate",
+      "kind": "operational",
+      "occurrence_hash": "ff86f16b66b6ac6395fcf7ff8d914c0807cb45d2959dd7e9e84d7fa03ddc90fa",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-migrate"
     },
     {
       "expected_target": "content/commands/ds-status.md",

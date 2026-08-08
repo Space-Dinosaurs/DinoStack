@@ -1,6 +1,6 @@
 ## Activation preflight
 
-Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `agentic-identity resolve-hook --cwd <cwd>` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `bin/agentic-migrate` scaffolding sync.
+Run this check once at the first skill invocation (and every `/`-command). Read activation config and the project marker directly; resolve identity exactly once with `ds-identity resolve-hook --cwd <cwd>` (3-second timeout, 64 KiB output cap). Do not spawn or use LLM reasoning. Resolver failure means identity `none` and never blocks activation. **Exception:** Step 6 may run the bounded, fail-open `bin/ds-migrate` scaffolding sync.
 
 1. **Read the global mode and profile.** Load `~/.claude/agentic-engineering.json`. If missing or unreadable, assume `mode=opt-out` and `profile=default` (back-compat). Expected shape: `{ "mode": "opt-out" | "opt-in", "profile": "relaxed" | "default" | "strict", "set_at": "<ISO8601>" }`. Any `mode` value other than `opt-in` is treated as `opt-out`. Any `profile` value other than `relaxed` or `strict` is treated as `default` (see the deprecated legacy preset subsection below for the fallback path when `profile` is genuinely absent rather than merely invalid).
 
