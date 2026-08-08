@@ -1,0 +1,35 @@
+{
+  "_manifest": "Single source of truth for the update flow constants shared across scripts/update.js, bin/agentic-update, and install-all.sh. Editing this file is the ONLY way to change any of these - do not reintroduce a local literal in any consumer. skip_dirs: dot-directories at repo root excluded from adapter discovery. rebuild_triggers: path prefixes/exact-paths that force an adapter rebuild after a pull (see needsRebuild()/_needs_rebuild()). display_names: adapter-dir-name (without leading dot) -> human-readable label, used by scripts/update.js's displayName(); content/commands/ds-update.md carries a prose copy for the agent flow (markdown cannot load JSON at doc-render time) - bin/tests/test_update_shared_constants.sh gates that prose copy for parity against this file.",
+  "skip_dirs": [
+    ".",
+    "..",
+    ".git",
+    ".github",
+    ".vscode",
+    ".idea",
+    ".cache",
+    ".venv",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".ruff_cache"
+  ],
+  "rebuild_triggers": [
+    "content/",
+    "scripts/build-all.sh",
+    "scripts/build-methodology.sh",
+    "scripts/build-slides.sh",
+    "hooks/",
+    ".claude/install.sh",
+    "bin/"
+  ],
+  "display_names": {
+    "claude": "Claude",
+    "codex": "Codex",
+    "cursor": "Cursor",
+    "gemini": "Gemini",
+    "openclaw": "OpenClaw",
+    "opencode": "OpenCode",
+    "kimi": "Kimi",
+    "omp": "Pi"
+  }
+}

@@ -9,6 +9,8 @@ Purpose: From-anywhere, non-interactive updater for agentic-engineering
          run (because that script requires a TTY for its TUI).
 
 Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
+                           [--mode=opt-in|opt-out] [--profile=relaxed|default|strict]
+                           [--identity=<handle>|--no-identity]
              --check        Report how far behind origin/main the local main
                             branch is, then exit 0. Does NOT pull. Works from
                             any branch.
@@ -16,6 +18,29 @@ Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
              --adapters=X   Comma-separated list of adapter dirs to refresh
                             (e.g. --adapters=.claude,.cursor). .claude is
                             always prepended (LOCKED_ADAPTERS invariant).
+             --mode=X       Forwarded verbatim to each adapter's install.sh
+                            as --mode=X (activation mode).
+             --profile=X    Forwarded verbatim to each adapter's install.sh
+                            as --profile=X (risk profile).
+             --identity=X   Forwarded verbatim to each adapter's install.sh
+                            as --identity=X (developer handle).
+             --no-identity  Forwarded verbatim to each adapter's install.sh
+                            as --no-identity. Mutually exclusive with
+                            --identity (argparse enforces this).
+            All four --mode/--profile/--identity/--no-identity flags are
+            optional passthroughs: when omitted, install.sh runs with no
+            corresponding flag and falls back to its own defaults, exactly
+            as before this option existed. When any of the four IS supplied,
+            the adapter install loop always runs, even if old_head==new_head
+            (already up to date) or _needs_rebuild() is False (no adapter
+            source changed) - a confirmed configuration change must reach
+            install.sh, never silently no-op behind a rebuild-skip early
+            return. An explicit --adapters selection is the same kind of
+            forcing signal even with no --mode/--profile/--identity flag
+            present: it also forces the adapter install loop on both
+            rebuild-skip early returns, since a caller who named a specific
+            adapter set must not have that request silently skipped. See
+            the forced_install check in main().
             Environment:
              AGENTIC_CONFIG_PATH  Override path to agentic-engineering-config.json
                                   (useful for tests; default ~/.agentic/...).
@@ -27,7 +52,10 @@ Public API: agentic-update [--check] [--no-doctor] [--adapters=a,b,...]
 
 Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
                subprocess, sys, tempfile, time). Reads
-               ~/.agentic/agentic-engineering-config.json (repo_dir, adapters).
+               ~/.agentic/agentic-engineering-config.json (repo_dir, adapters)
+               and scripts/lib/update-shared.json (SKIP_DIRS, REBUILD_TRIGGERS
+               - single source of truth shared with scripts/update.js and
+               install-all.sh; do not reintroduce a local literal for either).
                Invokes: git (fetch, pull, rev-parse, diff, status, etc.),
                bash <adapter>/install.sh, agentic-doctor.
 
@@ -74,11 +102,33 @@ from pathlib import Path
 # Mirrors LOCKED_ADAPTERS in scripts/update.js.
 LOCKED_ADAPTERS: tuple[str, ...] = (".claude",)
 
+
+def _load_shared_config() -> dict:
+    """Load scripts/lib/update-shared.json - the single source of truth for
+    SKIP_DIRS and REBUILD_TRIGGERS, shared with scripts/update.js and
+    install-all.sh. Do not reintroduce a local literal for either list here.
+
+    Resolved relative to THIS file's own location (not the config-driven
+    repo_dir the updater operates on) - bin/agentic-update lives inside the
+    same repo that ships scripts/lib/update-shared.json, so the shared file
+    is always exactly two directories up regardless of which repo the tool
+    is pointed at. Path(__file__).resolve() (not .parent alone) is required:
+    install.sh symlinks this file into ~/.local/bin, and an unresolved
+    __file__ would resolve the shared path against the symlink location
+    instead of the real checkout.
+    """
+    shared_path = Path(__file__).resolve().parent.parent / "scripts" / "lib" / "update-shared.json"
+    try:
+        return json.loads(shared_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"fatal: failed to load shared config at {shared_path}: {exc}", file=sys.stderr)
+        sys.exit(1)
+
+
+_SHARED_CONFIG = _load_shared_config()
+
 # Dot-dirs under repo root excluded from adapter discovery.
-SKIP_DIRS: frozenset[str] = frozenset([
-    ".", "..", ".git", ".github", ".vscode", ".idea",
-    ".cache", ".venv", ".mypy_cache", ".pytest_cache", ".ruff_cache",
-])
+SKIP_DIRS: frozenset[str] = frozenset(_SHARED_CONFIG["skip_dirs"])
 
 # ---------------------------------------------------------------------------
 # Config resolution
@@ -174,17 +224,12 @@ def _discover_adapters(repo_dir: Path) -> list[str]:
 # Rebuild decision
 # ---------------------------------------------------------------------------
 
-# Ported from scripts/update.js:252-281 (needsRebuild). Keep in sync -
-# REBUILD_TRIGGERS and the */build.sh catch-all are the source of truth there.
-REBUILD_TRIGGERS: tuple[str, ...] = (
-    "content/",
-    "scripts/build-all.sh",
-    "scripts/build-methodology.sh",
-    "scripts/build-slides.sh",
-    "hooks/",
-    ".claude/install.sh",
-    "bin/",
-)
+# Loaded from scripts/lib/update-shared.json - single source of truth shared
+# with scripts/update.js and install-all.sh. Only the matching ALGORITHM
+# below (needsRebuild/*/build.sh catch-all) is ported by hand and stays
+# language-duplicated (JS vs Python); a cross-language parity test in
+# bin/tests/test_agentic_update.sh covers that algorithm-level drift risk.
+REBUILD_TRIGGERS: tuple[str, ...] = tuple(_SHARED_CONFIG["rebuild_triggers"])
 
 
 def _needs_rebuild(old_head: str, new_head: str, changed_paths: list[str]) -> bool:
@@ -342,7 +387,45 @@ def main() -> int:
             ".claude is always included (LOCKED_ADAPTERS invariant)."
         ),
     )
+    parser.add_argument(
+        "--mode",
+        default=None,
+        help="Forwarded verbatim to each adapter's install.sh as --mode=<value>.",
+    )
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Forwarded verbatim to each adapter's install.sh as --profile=<value>.",
+    )
+    identity_group = parser.add_mutually_exclusive_group()
+    identity_group.add_argument(
+        "--identity",
+        default=None,
+        help="Forwarded verbatim to each adapter's install.sh as --identity=<handle>.",
+    )
+    identity_group.add_argument(
+        "--no-identity",
+        action="store_true",
+        dest="no_identity",
+        help="Forwarded verbatim to each adapter's install.sh as --no-identity.",
+    )
     args = parser.parse_args()
+
+    # ------------------------------------------------------------------
+    # Build the passthrough flag list forwarded to every adapter install.sh
+    # invocation (Step 12 below). Empty when none of --mode/--profile/
+    # --identity/--no-identity were supplied - install.sh then falls back to
+    # its own defaults exactly as before this option existed.
+    # ------------------------------------------------------------------
+    install_flags: list[str] = []
+    if args.mode is not None:
+        install_flags.append(f"--mode={args.mode}")
+    if args.profile is not None:
+        install_flags.append(f"--profile={args.profile}")
+    if args.identity is not None:
+        install_flags.append(f"--identity={args.identity}")
+    if args.no_identity:
+        install_flags.append("--no-identity")
 
     # ------------------------------------------------------------------
     # Step 2: resolve repo_dir
@@ -462,7 +545,38 @@ def main() -> int:
 
     old_short = old_head[:8] if old_head else "unknown"
 
+    # A non-empty install_flags means the caller confirmed a configuration
+    # change (--mode/--profile/--identity/--no-identity) that must actually
+    # reach install.sh. An explicit --adapters selection is the same kind of
+    # signal - the caller named a specific adapter set they want refreshed,
+    # so a no-op skip would silently ignore that request. Neither rebuild-skip
+    # early return below is allowed to exit 0 without running the adapter
+    # loop when either is true - see bin/tests/test_agentic_update.sh T15/T16
+    # for the regression coverage (both early-return paths: already-up-to-date
+    # and no-rebuild-needed).
+    forced_install = bool(install_flags) or bool(args.adapters.strip())
+
+    # Human-readable reason for the "forcing adapter install" messages below.
+    # install_flags can be empty when the only forcing signal is an explicit
+    # --adapters selection - fall back to describing that instead of joining
+    # an empty list into a blank reason. forced_reason_label names the actual
+    # trigger (a --mode/--profile/--identity config change vs a bare adapter
+    # selection) so the printed message never calls an --adapters-only run
+    # a "config change" when no config flag was supplied.
+    if install_flags:
+        forced_reason = ' '.join(install_flags)
+        forced_reason_label = "a config change was requested"
+    else:
+        forced_reason = f"--adapters={args.adapters.strip()}"
+        forced_reason_label = "an adapter selection was requested"
+
     if old_head and new_head and old_head == new_head:
+        if forced_install:
+            print(
+                f"Already up to date ({old_short}), but forcing adapter install "
+                f"because {forced_reason_label}: {forced_reason}."
+            )
+            return _run_adapter_installs(repo_dir, args, install_flags)
         print(f"Already up to date ({old_short}).")
         _reset_version_check_cache()
         # Skip to doctor
@@ -503,6 +617,13 @@ def main() -> int:
     rebuild = _needs_rebuild(old_head, new_head, changed_paths)
 
     if not rebuild:
+        if forced_install:
+            print(
+                f"Updated {old_short}..{new_short} ({commits_pulled} commit(s)). "
+                f"No adapter source changed, but forcing adapter install because "
+                f"{forced_reason_label}: {forced_reason}."
+            )
+            return _run_adapter_installs(repo_dir, args, install_flags)
         print("No rebuild needed (no adapter source changed).")
         _reset_version_check_cache()
         if not args.no_doctor:
@@ -522,6 +643,24 @@ def main() -> int:
         f"Rebuild triggered by: {', '.join(triggering_paths) or '(unknown)'}."
     )
 
+    return _run_adapter_installs(repo_dir, args, install_flags)
+
+
+def _run_adapter_installs(
+    repo_dir: Path,
+    args: argparse.Namespace,
+    install_flags: list[str],
+) -> int:
+    """Step 12-14: adapter selection + install + cache reset + doctor.
+
+    Shared by all three callers that must actually run the adapter loop:
+    the normal rebuild-triggered path, and the two forced-install paths
+    (old_head==new_head and not-rebuild) that fire when install_flags is
+    non-empty OR args.adapters is non-empty (an explicit --adapters
+    selection alone also forces the loop, even with no --mode/--profile/
+    --identity flag) - see the Critical-fix comment at the forced_install
+    check above main(). Extracted so none of the three call sites can drift.
+    """
     # ------------------------------------------------------------------
     # Step 12: adapter selection + install
     # ------------------------------------------------------------------
@@ -557,8 +696,9 @@ def main() -> int:
         if not install_sh.is_file():
             print(f"warning: {install_sh} not found, skipping.", file=sys.stderr)
             continue
-        print(f">>> bash {install_sh}")
-        rc = subprocess.call(["bash", str(install_sh)], cwd=str(repo_dir))
+        cmd = ["bash", str(install_sh)] + install_flags
+        print(f">>> {' '.join(cmd)}")
+        rc = subprocess.call(cmd, cwd=str(repo_dir))
         if rc != 0:
             failures.append(f"{adapter}/install.sh (exit {rc})")
 

@@ -5,7 +5,9 @@
  *          multi-select menu of adapters, runs git pull --ff-only
  *          origin main, and executes each selected adapter's install.sh.
  *          Skips adapter rebuilds when no adapter-source paths changed,
- *          making pure consumer daily updates near-instant.
+ *          making pure consumer daily updates near-instant. Runs
+ *          `agentic-doctor --fix` at the end as a best-effort self-heal
+ *          step, mirroring bin/agentic-update.
  *
  * Public API:
  *   main()        - CLI entry point. Called directly when the file is
@@ -21,10 +23,23 @@
  *                   SHARED hook snapshot in place, so other already-open
  *                   sessions against this checkout pick up the change on
  *                   their next tool call. Exported for unit tests via
- *                   module.exports.
+ *                   module.exports, along with SKIP_DIRS and REBUILD_TRIGGERS
+ *                   (loaded from scripts/lib/update-shared.json) for
+ *                   cross-language parity testing against bin/agentic-update.
  *
  * Upstream deps: Node built-ins (fs, path, child_process, readline). No
- *                external packages.
+ *                external packages. Reads scripts/lib/update-shared.json for
+ *                SKIP_DIRS, REBUILD_TRIGGERS, and DISPLAY_NAMES - the single
+ *                source of truth shared with bin/agentic-update and
+ *                install-all.sh (DISPLAY_NAMES has no Python consumer, but
+ *                is still single-sourced here rather than duplicated as a
+ *                local literal). Do not reintroduce a local literal for any
+ *                of the three. content/commands/ds-update.md carries a
+ *                necessary prose copy of DISPLAY_NAMES for the agent flow
+ *                (markdown cannot load JSON at doc-render time) - that copy
+ *                is gated for parity against this file by
+ *                bin/tests/test_update_shared_constants.sh, not single-
+ *                sourced.
  *
  * Downstream consumers: update.sh (shell shim that delegates here).
  *
@@ -45,6 +60,22 @@ const fs = require('fs');
 const path = require('path');
 const { spawn, spawnSync } = require('child_process');
 const readline = require('readline');
+
+// ---------------------------------------------------------------------------
+// Shared constants (single source of truth: scripts/lib/update-shared.json)
+// ---------------------------------------------------------------------------
+
+function loadSharedConfig() {
+  const configPath = path.join(__dirname, 'lib', 'update-shared.json');
+  try {
+    return JSON.parse(fs.readFileSync(configPath, 'utf8'));
+  } catch (err) {
+    console.error(`fatal: failed to load shared config at ${configPath}: ${err.message}`);
+    process.exit(1);
+  }
+}
+
+const SHARED_CONFIG = loadSharedConfig();
 
 // ---------------------------------------------------------------------------
 // Config
@@ -124,10 +155,7 @@ function resetVersionCheckCache() {
 // Adapter discovery
 // ---------------------------------------------------------------------------
 
-const SKIP_DIRS = new Set([
-  '.', '..', '.git', '.github', '.vscode', '.idea',
-  '.cache', '.venv', '.mypy_cache', '.pytest_cache', '.ruff_cache'
-]);
+const SKIP_DIRS = new Set(SHARED_CONFIG.skip_dirs);
 
 function discoverAdapters(repoDir) {
   const adapters = [];
@@ -156,16 +184,14 @@ function discoverAdapters(repoDir) {
 // Display names
 // ---------------------------------------------------------------------------
 
-const DISPLAY_NAMES = {
-  claude:   'Claude',
-  codex:    'Codex',
-  cursor:   'Cursor',
-  gemini:   'Gemini',
-  openclaw: 'OpenClaw',
-  opencode: 'OpenCode',
-  kimi:     'Kimi',
-  omp:      'Pi',
-};
+// Loaded from scripts/lib/update-shared.json - single source of truth for
+// the JS/prose split (see the loadSharedConfig() comment above main()).
+// content/commands/ds-update.md's prose copy is NOT loaded from this file
+// (markdown cannot load JSON at doc-render time); it is instead gated for
+// parity against SHARED_CONFIG.display_names by
+// bin/tests/test_update_shared_constants.sh, which fails the build (not
+// just a comment) if the two drift.
+const DISPLAY_NAMES = SHARED_CONFIG.display_names;
 
 function displayName(raw) {
   const stripped = raw.replace(/^\./, '');
@@ -239,15 +265,7 @@ function getDirtyFiles(repoDir) {
 
 // Prefixes/paths that require a full adapter rebuild when any changed file
 // starts with one of these strings (after normalising to forward slashes).
-const REBUILD_TRIGGERS = [
-  'content/',
-  'scripts/build-all.sh',
-  'scripts/build-methodology.sh',
-  'scripts/build-slides.sh',
-  'hooks/',
-  '.claude/install.sh',
-  'bin/',
-];
+const REBUILD_TRIGGERS = SHARED_CONFIG.rebuild_triggers;
 
 // Normalise a repo-relative path for prefix/exact-match comparisons:
 // convert backslashes to forward slashes (Windows safety) and strip exactly
@@ -791,6 +809,32 @@ async function main() {
     console.warn('  If they should be tracked, run: git add <files> && git commit');
     console.warn('  If they are generated files that should not be tracked, add them to .gitignore.');
   }
+
+  // Self-heal: run agentic-doctor --fix, mirroring bin/agentic-update's
+  // _run_doctor() step. Best-effort - a missing binary or non-fatal exit is
+  // warned, never raised, so the TUI update still reports success.
+  runDoctor();
+}
+
+// Runs `agentic-doctor --fix` with inherited stdio. Mirrors _run_doctor() in
+// bin/agentic-update - kept as a separate ported function (not shared code)
+// since the two implementations are in different languages; see
+// scripts/lib/update-shared.json for the constants that ARE shared.
+function runDoctor() {
+  const result = spawnSync('agentic-doctor', ['--fix'], { stdio: 'inherit' });
+  if (result.error) {
+    if (result.error.code === 'ENOENT') {
+      console.warn('\nwarning: agentic-doctor not found on PATH; skipping health check.');
+    } else {
+      console.warn(`\nwarning: agentic-doctor failed: ${result.error.message}; continuing.`);
+    }
+    return;
+  }
+  if (result.status === 2) {
+    console.warn('\nWARNING: health check found issues that could not be auto-fixed; run \'agentic-doctor\' for details');
+  } else if (result.status !== 0) {
+    console.warn(`\nwarning: agentic-doctor --fix exited ${result.status}; continuing (non-critical).`);
+  }
 }
 
 // Export pure helpers for unit tests. Guard the main() call so that requiring
@@ -801,5 +845,5 @@ if (require.main === module) {
     process.exit(1);
   });
 } else {
-  module.exports = { needsRebuild, hooksTouched };
+  module.exports = { needsRebuild, hooksTouched, SKIP_DIRS, REBUILD_TRIGGERS, DISPLAY_NAMES };
 }
