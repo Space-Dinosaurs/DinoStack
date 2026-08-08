@@ -15,17 +15,22 @@
 #
 # Upstream deps: .claude/build.sh (rebuilds SKILL.md from content/ sources,
 #                see its own side-effects below); content/sections/[0-9][0-9]-*.md
-#                (section-heading completeness check); content/rules/conventions.md
-#                (tail-phrase completeness check).
+#                and content/rules/{code-standards.md,conventions.md} (heading
+#                completeness checks against EXPECTED_SECTION_COUNT and
+#                EXPECTED_RULES_COUNT below).
 #
 # Downstream consumers: intended for a CI job wired by a later DS-143 unit
 #                        (not this one - see the ticket note below).
 #
-# Failure modes: embed incomplete (a whole section or rules file silently
-#                dropped from assembly, landing inside the FLOOR..CEILING
-#                dead zone where the byte band alone can't see it) -> exit 1
-#                with a distinct "embed incomplete" message, separate from
-#                and checked before the bound violations below. Under FLOOR
+# Failure modes: embed incomplete (a whole content/sections/*.md or
+#                content/rules/*.md source file silently dropped from
+#                assembly, or a file count mismatch against
+#                EXPECTED_SECTION_COUNT/EXPECTED_RULES_COUNT indicating a
+#                file was added or deleted outright - see those constants'
+#                own comments for why an outright deletion needs a pinned
+#                count rather than a re-derived one) -> exit 1 with a
+#                distinct "embed incomplete" message, separate from and
+#                checked before the bound violations below. Under FLOOR
 #                -> exit 1, most likely means the embed block in
 #                .claude/build.sh regressed to a pointer-only SKILL.md or the
 #                build truncated. Over CEILING -> exit 1, means the embedded
@@ -54,15 +59,26 @@
 # Performance: not a `stat` - runs a full adapter build (`bash
 #              .claude/build.sh`, which itself invokes
 #              scripts/build-methodology.sh) plus a fixed-size loop over the
-#              12 content/sections/*.md files, on every invocation. Expect
-#              build-script latency (sub-second on a warm checkout), not
-#              filesystem-metadata latency; this is surprising for something
-#              named check-*-budget.sh and worth calling out explicitly.
+#              12 content/sections/*.md files and 2 content/rules/*.md files,
+#              on every invocation. Expect build-script latency (sub-second
+#              on a warm checkout), not filesystem-metadata latency; this is
+#              surprising for something named check-*-budget.sh and worth
+#              calling out explicitly.
 #
 # Note: SKILL.md is measured by running .claude/build.sh fresh, NOT by
 #       statting whatever happens to be on disk - a PR that edits content/
 #       sources without rebuilding adapters would otherwise be measured
 #       against a stale artifact and could slip a regression past this gate.
+#
+# Detection boundary: the heading-completeness check (below) proves each
+# source file's own top-level heading is PRESENT somewhere in the built
+# output - it is a presence check, not a completeness digest, so partial
+# corruption or truncation of a section's BODY (heading intact, content
+# gutted or duplicated) is only caught if it pushes total bytes outside
+# FLOOR..CEILING; small sections can be truncated or duplicated internally
+# and still land inside the band undetected. A content-integrity digest is
+# out of scope for this script - that is scripts/check-methodology-drift.sh's
+# job for METHODOLOGY.md itself.
 #
 # Compatible with both bash and zsh invocation of the containing shell; a
 # contributor, reviewer, or this file's own regression test may invoke it as
@@ -105,6 +121,29 @@ FLOOR=100000
 # reflexively.
 CEILING=139160
 
+# EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT: pinned counts, ratcheted
+# the same way FLOOR/CEILING/THRESHOLD are elsewhere in this repo (see
+# scripts/check-resident-budget.sh). Update the same commit that adds,
+# removes, or renumbers a content/sections/*.md file, or adds/removes a
+# content/rules/*.md file other than module-manifest.md (excluded from the
+# embed by .claude/build.sh, and from this count).
+#
+# Deliberately a fixed constant, NOT derived from the working tree at check
+# time (e.g. re-running the same find/glob build-methodology.sh itself
+# uses): deriving the expected set from the working tree makes the expected
+# side and the actual side move together, so an outright file deletion
+# removes it from both what is expected AND what is checked - the loss
+# becomes invisible (reproduced: `rm content/sections/04-risk-
+# classification.md` still passed before this fix). A `git ls-files`
+# derivation was also considered and rejected: it adds a real git
+# dependency to a script that is otherwise pure filesystem + build, and
+# behaves surprisingly against an uncommitted new section file (passes the
+# count but git doesn't know about it yet) or a staged-but-uncommitted
+# deletion (git ls-files still lists the file). A pinned constant has
+# neither surprise and matches this repo's established ratchet idiom.
+EXPECTED_SECTION_COUNT=12
+EXPECTED_RULES_COUNT=2
+
 if [ ! -f "$BUILD_SCRIPT" ]; then
   echo "check-skill-embed-budget.sh: missing file: $BUILD_SCRIPT" >&2
   exit 1
@@ -118,55 +157,61 @@ if [ ! -f "$SKILL_MD" ]; then
 fi
 
 # Embed-completeness check (distinct from the FLOOR/CEILING bound check
-# below): a whole embedded file - one content/sections/*.md section, or the
-# content/rules/conventions.md tail - can go missing from assembly and still
-# land inside the FLOOR..CEILING byte band, where the two-sided bound check
-# alone cannot see it (verified: dropping content/sections/04-risk-
-# classification.md from assembly, or dropping content/rules/conventions.md
-# from the .claude/build.sh embed loop, both still land inside the band and
-# both must fail here instead). A single arbitrary head/tail phrase pair
-# cannot detect a dropped *middle* section, so this checks a phrase from
-# EVERY content/sections/*.md file, not just one - each section's own first
-# top-level heading, derived dynamically so a renamed or newly added section
-# is covered automatically without maintaining a hardcoded list here.
-SECTIONS_DIR="$REPO_DIR/content/sections"
-section_files="$(LC_ALL=C find "$SECTIONS_DIR" -maxdepth 1 -type f -name '[0-9][0-9]-*.md' | LC_ALL=C sort)"
-if [ -z "$section_files" ]; then
-  echo "check-skill-embed-budget.sh: no section files found in $SECTIONS_DIR" >&2
-  exit 1
-fi
-while IFS= read -r section_file; do
-  heading="$(grep -m1 '^## ' "$section_file" || true)"
-  if [ -z "$heading" ]; then
-    echo "check-skill-embed-budget.sh: embed incomplete" >&2
-    echo "  $section_file has no top-level '## ' heading to check against" >&2
+# below): a whole embedded source file can go missing from assembly and
+# still land inside the FLOOR..CEILING byte band, where the two-sided bound
+# check alone cannot see it (verified: dropping content/sections/04-risk-
+# classification.md from build-methodology.sh's assembly, or dropping
+# content/rules/code-standards.md or content/rules/conventions.md from the
+# .claude/build.sh embed loop, all three still land inside the band and
+# must all fail here instead). A single arbitrary head/tail phrase pair
+# cannot detect a dropped file in the middle of either set, so this checks
+# a phrase from EVERY file in both sets - each file's own first top-level
+# heading, derived dynamically so a renamed file is covered automatically
+# without maintaining a hardcoded phrase list here. Shared between the two
+# sets (content/sections/*.md and content/rules/*.md, excluding module-
+# manifest.md) via one function to avoid duplicating this logic twice.
+_check_embedded_set() {
+  local dir="$1" pattern="$2" exclude="$3" expected_count="$4" label="$5"
+  local files file_count f heading
+  if [ -n "$exclude" ]; then
+    files="$(LC_ALL=C find "$dir" -maxdepth 1 -type f -name "$pattern" ! -name "$exclude" | LC_ALL=C sort)"
+  else
+    files="$(LC_ALL=C find "$dir" -maxdepth 1 -type f -name "$pattern" | LC_ALL=C sort)"
+  fi
+  if [ -z "$files" ]; then
+    echo "check-skill-embed-budget.sh: no $label files found in $dir" >&2
     exit 1
   fi
-  if ! grep -qxF "$heading" "$SKILL_MD"; then
+  file_count="$(wc -l <<< "$files" | tr -d '[:space:]')"
+  if [ "$file_count" -ne "$expected_count" ]; then
     echo "check-skill-embed-budget.sh: embed incomplete" >&2
-    echo "  missing section heading from $(basename "$section_file"): $heading" >&2
-    echo "  this section is not present in the built SKILL.md - assembly" >&2
-    echo "  silently dropped a whole embedded file, which the FLOOR/CEILING" >&2
-    echo "  byte band alone cannot detect." >&2
+    echo "  $label file count mismatch: expected $expected_count, found $file_count" >&2
+    echo "  a $label source file was added or deleted outright (a pinned-count" >&2
+    echo "  check on purpose - see EXPECTED_SECTION_COUNT / EXPECTED_RULES_COUNT" >&2
+    echo "  above for why). Update the expected count deliberately if" >&2
+    echo "  intentional, or restore the missing file if not." >&2
     exit 1
   fi
-done <<< "$section_files"
+  while IFS= read -r f; do
+    heading="$(grep -m1 '^## ' "$f" || true)"
+    if [ -z "$heading" ]; then
+      echo "check-skill-embed-budget.sh: embed incomplete" >&2
+      echo "  $f has no top-level '## ' heading to check against" >&2
+      exit 1
+    fi
+    if ! grep -qxF "$heading" "$SKILL_MD"; then
+      echo "check-skill-embed-budget.sh: embed incomplete" >&2
+      echo "  missing $label heading from $(basename "$f"): $heading" >&2
+      echo "  this file is not present in the built SKILL.md - assembly" >&2
+      echo "  silently dropped a whole embedded file, which the FLOOR/CEILING" >&2
+      echo "  byte band alone cannot detect." >&2
+      exit 1
+    fi
+  done <<< "$files"
+}
 
-# Tail-phrase check: content/rules/conventions.md sorts last (alphabetically)
-# among the content/rules/*.md files .claude/build.sh embeds (module-
-# manifest.md is deliberately excluded from the embed), so a stable phrase
-# from its own last heading confirms the rules-file embed loop actually
-# reached and completed its last file - catching a whole rules file
-# silently dropped from the embed the same way the section-heading loop
-# above catches a dropped section.
-TAIL_PHRASE='## External Comment Discipline'
-if ! grep -qxF "$TAIL_PHRASE" "$SKILL_MD"; then
-  echo "check-skill-embed-budget.sh: embed incomplete" >&2
-  echo "  missing tail phrase from content/rules/conventions.md: $TAIL_PHRASE" >&2
-  echo "  this heading is not present in the built SKILL.md - the rules-file" >&2
-  echo "  embed loop in .claude/build.sh did not complete." >&2
-  exit 1
-fi
+_check_embedded_set "$REPO_DIR/content/sections" '[0-9][0-9]-*.md' '' "$EXPECTED_SECTION_COUNT" 'section'
+_check_embedded_set "$REPO_DIR/content/rules" '*.md' 'module-manifest.md' "$EXPECTED_RULES_COUNT" 'rules'
 
 skill_bytes="$(wc -c < "$SKILL_MD" | tr -d '[:space:]')"
 
