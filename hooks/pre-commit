@@ -177,6 +177,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
   git add \
     "$REPO_DIR/.claude/commands/"*.md \
     "$REPO_DIR/.claude/skills/agentic-engineering/METHODOLOGY.md" \
+    "$REPO_DIR/.claude/skills/agentic-engineering/SKILL.md" \
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/agents/"*.toml \
     "$REPO_DIR/.codex/skills" \

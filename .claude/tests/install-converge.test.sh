@@ -16,9 +16,9 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~40 s wall time (15 install.sh invocations after DS-143, up
-#              from 12; each runs two full adapter builds against the real
-#              checkout).
+# Performance: ~44 s wall time (17 install.sh invocations after the DS-143
+#              Skeptic loop 2 fix pass, up from 15; each runs two full adapter
+#              builds against the real checkout).
 #
 # Regression coverage:
 #   - Change 1: stale "ours" symlink (target under .../DinoStack/...) is
@@ -75,7 +75,19 @@
 #   - Case (k): negative migration control - an already-migrated (lean)
 #     block plus a user-set skill_auto_load:false stays false (the
 #     migration self-disarms once the old @-import marker is gone from
-#     disk).
+#     disk). Also asserts (MINOR-4, Skeptic loop 2) that the
+#     registry-refresh restart notice does NOT fire on this idempotent
+#     no-op rewrite, contrasting with case (a)'s fresh create/strip where
+#     it must.
+#   - Case (l) (Skeptic loop 2, MAJOR-2): the UserPromptSubmit
+#     skill-auto-load-check command written into settings.json carries the
+#     AE_ADAPTER=claude tag, immunizing it against an ambient AE_ADAPTER env
+#     var accidentally routing it into the shared hook script's codex|gemini
+#     exit-0 no-op path.
+#   - Case (m) (Skeptic loop 2, MINOR-3): a template file missing its
+#     manifest comment terminator ("-->") makes install.sh fail loudly and
+#     leave CLAUDE.md untouched, instead of silently shipping the whole
+#     file (manifest included) into the user's managed block.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -877,6 +889,92 @@ if [[ "$_k_auto_load" == "False" ]]; then
   _pass "case (k): already-migrated block with user-set skill_auto_load=false stays false (self-disarmed)"
 else
   _fail "case (k): expected skill_auto_load to stay False, got '$_k_auto_load'"
+fi
+
+# MINOR-4 (DS-143 Skeptic loop 2): re-writing an already-lean block with
+# identical content is a no-op rewrite (updated == existing) - the
+# registry-refresh restart notice must NOT fire, unlike case (a)'s fresh
+# create/strip where it must.
+if grep -Fq "IMPORTANT: skill definitions changed" "$FAKE_HOME/.install_out"; then
+  _fail "case (k): registry-refresh restart notice fired on an idempotent no-op rewrite"
+else
+  _pass "case (k): registry-refresh restart notice does NOT fire on an idempotent no-op rewrite"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (l): Skeptic loop 2 fix (MAJOR-2, DS-143) - the UserPromptSubmit
+#           skill-auto-load-check command install.sh writes into
+#           settings.json must carry the AE_ADAPTER=claude tag. Without it,
+#           an ambient AE_ADAPTER env var (e.g. left over from a Gemini/Codex
+#           run in the same shell) would silently turn Claude's skill-load
+#           nudge into a no-op via the shared hook script's codex|gemini
+#           exit-0 case. Mirrors the shape of the AE_ADAPTER=gemini assertion
+#           in bin/tests/test_gemini_skill_auto_load_hook.sh.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+
+_run_install "$FAKE_HOME" || true
+
+_l_skill_cmd="$(python3 -c "
+import json
+with open('$FAKE_HOME/.claude/settings.json') as f:
+    d = json.load(f)
+for block in d.get('hooks', {}).get('UserPromptSubmit', []):
+    for h in block.get('hooks', []):
+        command = h.get('command', '')
+        if 'skill-auto-load-check.sh' in command:
+            print(command)
+            raise SystemExit(0)
+raise SystemExit('skill-auto-load-check command not found')
+" 2>/dev/null)"
+
+if [[ "$_l_skill_cmd" == *"AE_ADAPTER=claude"* ]]; then
+  _pass "case (l): claude UserPromptSubmit skill-auto-load-check command carries the AE_ADAPTER=claude tag"
+else
+  _fail "case (l): claude UserPromptSubmit skill-auto-load-check command missing AE_ADAPTER=claude tag: $_l_skill_cmd"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (m): Skeptic loop 2 fix (MINOR-3, DS-143) - if
+#           content/templates/claude-managed-content.md loses its manifest
+#           comment terminator ("-->"), install.sh must fail loudly (not
+#           silently ship the whole file, manifest comment included, into
+#           the user's CLAUDE.md) AND must not touch CLAUDE.md at all.
+#           Mutates the REAL template file in this checkout for the
+#           duration of the case only; always restored via trap-adjacent
+#           cleanup below, mirroring the canary-mutation pattern used
+#           elsewhere in this repo for gate verification.
+# ---------------------------------------------------------------------------
+
+TEMPLATE_PATH="$REPO_DIR/content/templates/claude-managed-content.md"
+TEMPLATE_BACKUP="$(mktemp)"
+cp "$TEMPLATE_PATH" "$TEMPLATE_BACKUP"
+printf 'no manifest comment here, no terminator either\n' > "$TEMPLATE_PATH"
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+
+_run_install "$FAKE_HOME" || true
+
+cp "$TEMPLATE_BACKUP" "$TEMPLATE_PATH"
+rm -f "$TEMPLATE_BACKUP"
+
+if grep -Fq "could not find manifest comment terminator" "$FAKE_HOME/.install_out"; then
+  _pass "case (m): install.sh fails loudly when the template's manifest terminator is missing"
+else
+  _fail "case (m): install.sh did not report the missing manifest terminator"
+fi
+
+if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
+  _pass "case (m): CLAUDE.md was NOT created when the template's manifest terminator is missing"
+else
+  _fail "case (m): CLAUDE.md was created despite the template's manifest terminator being missing"
 fi
 
 rm -rf "$FAKE_HOME"
