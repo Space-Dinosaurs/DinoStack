@@ -3142,6 +3142,253 @@ fi
 
 ---
 
+## Phase 11e: Knowledge commit onto the PR branch (soft-fail)
+
+**Purpose.** A ticket session that produced durable knowledge - root `MEMORY.md`, `decisions.md`, `.agentic/learnings.md` - currently leaves it in the operator's local checkout only, where it never rides the PR. The isolation worktree that carried this ticket's code is removed at Phase 8, well before Phase 9 opens the PR, and `wrap-ticket` does not write those files until Phase 11b - so the write can never happen "inside the worktree." Phase 11e moves the **commit** instead of the write: it builds a commit from a temporary index plus `git commit-tree`, then pushes the resulting SHA straight to `refs/heads/$BRANCH_NAME`. No checkout, no worktree, and HEAD is never touched.
+
+**Trigger.** Runs on every ticket where Phase 9 actually opened a PR. Skip when Phase 9 was skipped for any reason, including the open-goal `dry_run` path (no PR branch exists to commit onto). Skip when `knowledge_commit_on_pr` is `false` in `.agentic/config.json` (boolean, default `true`).
+
+**This phase does NOT inherit Phase 11b's Trivial skip.** Phase 11b skips Trivial tickets, but `learning-extractor` at Phase 6 and the mid-session `learnings-agent` may both have written `.agentic/learnings.md` on a Trivial ticket. Gating Phase 11e on risk tier would silently drop exactly that content - the case where the knowledge exists and nothing else will ship it.
+
+**Reads from disk, never from an agent return value.** The candidate files are read off the filesystem at the moment this phase runs. This is deliberate: the deleted predecessor of this phase read only `wrap-ticket`'s return JSON, so every `learnings-agent` write was invisible to it and it produced zero commits over its entire lifetime.
+
+**`auto_merge_on_ci_green` is re-read from config here, not inherited.** Phase 11e runs as a separate Bash invocation from the preflight that set `$AUTO_MERGE_ON_CI_GREEN`; no shell state crosses that boundary, so the value is re-derived from `.agentic/config.json`.
+
+**Checkout-free and worktree-free.** Phase 8's telemetry commit needs a HEAD-branch guard because it commits inside a checkout that could be on the wrong branch. Phase 11e has no analogue and needs none: it never checks anything out and never moves HEAD, so there is no branch state to guard.
+
+**The real index is never touched - including by `update-index`.** Every index operation in the block below targets `$KC_IDX`, a temporary index file under the git dir. `git update-index --refresh` rewrites whichever index it is pointed at, so refreshing the real `$REPO/.git/index` would trade the conductor-checkout-untouched guarantee for the correctness guarantee below. Refreshing the temp index gives both.
+
+**Push safety.** The push is an ordinary fast-forward push to the branch ref - not a force push. If a concurrent session advanced the branch between the `read-tree` and the push, the push is **rejected**, not applied over the top; the rejection is reported and the knowledge is simply not shipped on this PR.
+
+A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `origin/$BRANCH_NAME` - Phase 8 committed telemetry on that branch inside the checkout, and Phase 11e never moves the local ref. This is harmless and needs no reconciliation: a later push from that stale local branch is rejected non-fast-forward rather than silently overwriting the knowledge commit, and the branch is deleted at merge.
+
+**DCO.** `git commit-tree` takes no `-s`, so the `Signed-off-by:` trailer is written literally into the commit message. This is the one sanctioned exception to the repo rule "build commits with porcelain `git commit -s`, never `git commit-tree`" - the exception exists because Phase 11e must commit without a checkout, and it inherits that plumbing command's pre-commit-hook bypass along with it.
+
+**Portability.** The block is written for both bash and zsh. zsh does not word-split unquoted expansions, so no list is ever built by splitting a variable; `awk` receives `$BRANCH_NAME` via `-v` rather than `ENVIRON[...]` (the variable is conductor-substituted, not exported, so `ENVIRON` resolves empty under both shells); and no variable is named `path` or `status`, both of which collide with zsh specials.
+
+**Absolute soft-fail.** Nothing in Phase 11e can block Phase 12 or fail the ticket. The block contains zero `exit` statements by contract; every failure branch prints a warning and continues.
+
+**Candidate set**, in this fixed order: `MEMORY.md`, `decisions.md`, `.agentic/learnings.md`. **There is no path-prefix floor.** A categorical refusal to touch anything under `.agentic/*` is precisely the defect that made this phase's deleted predecessor ship zero commits - `.agentic/learnings.md` is a first-class candidate here.
+
+**Per-file gating.** Each check skips THAT FILE ONLY and never aborts the sweep:
+- File absent from disk -> skip silently.
+- `git check-ignore -q -- <f>` succeeds -> skip, and print a VISIBLE diagnostic quoting the matched rule from `git check-ignore -v -- <f>`. **Never redirect this to `/dev/null`.** This gate is load-bearing for correctness, not merely for diagnostics: `git add` refuses an ignored path without `-f`, so the gate is what keeps the staging step from failing on a path that was never committable. In DinoStack itself all three candidates are gitignored, which makes Phase 11e a deliberate and **audible** no-op in this repo; consumer projects track all three and get the commit.
+- `git cat-file -e origin/$BRANCH_NAME:<f>` fails (the path is absent from the tip) -> the file **survives gating**; it is new content. This probe must run BEFORE the diff, because a path absent from the tip is equally absent from the temp index and `diff-index` would report no difference for it.
+- Path present at the tip -> refresh the temp index for that path, then `git diff-index --quiet`. Identical -> skip. Different -> stage.
+
+**The index refresh is mandatory and load-bearing.** `git diff-index --quiet` trusts stat data over content for entries outside git's racily-clean window, so a byte-identical file that was rewritten with a newer mtime is misclassified as changed (measured at roughly 30% of runs before the condition was forced). Refreshing the temp index for that path first is what makes the comparison content-accurate.
+
+**Idempotency.** A second run over unchanged state stages nothing and, if it somehow stages something whose resulting tree equals the branch tip's tree, short-circuits on the tree comparison. Neither path produces an empty commit.
+
+**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` records the gitignore-gate skips regardless of overall status. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
+
+```bash
+# @harness:phase11e-knowledge-commit
+# Phase 11e: commit this session's knowledge files onto the PR branch.
+# Checkout-free and worktree-free: builds the commit with a temporary index plus
+# commit-tree and pushes the SHA straight to the branch ref, so HEAD is never
+# touched and the Phase-8-removed isolation worktree is not needed.
+#
+# PORTABILITY (bash + zsh): zsh does not word-split unquoted expansions. Never
+# write `git add -- $KC_SURVIVORS`; never build a list with `echo $VAR | tr`;
+# never use awk ENVIRON[...] (BRANCH_NAME is substituted, not exported, so
+# ENVIRON resolves empty under BOTH shells) - pass it with -v. Never name a
+# variable `path` or `status` (zsh collisions). ALWAYS brace an expansion that
+# is followed by a literal `:` - zsh applies history-style modifiers to an
+# UNBRACED `$VAR:...` even inside double quotes, so "$KC_SHA:refs/heads/..."
+# silently becomes the `:r` (remove-extension) form of the SHA followed by
+# "efs/heads/...", and the push fails with a bogus "src refspec ... does not
+# match any". Measured, not theoretical.
+#
+# DIAGNOSTIC / FAIL-CLOSED: no `2>/dev/null` on check-ignore, read-tree,
+# update-index, add, push, or diff-index. Any guard failure or unparseable
+# guard result counts as RISK PRESENT, never as risk absent.
+#
+# INDEX: every index operation targets $KC_IDX. The real $REPO/.git/index is
+# never read for staging and never written - including by update-index.
+#
+# Soft-fail throughout - zero `exit` statements by contract.
+KC_STATUS="no-changes"
+KC_LIST=""          # comma-joined staged paths, for the commit subject
+KC_JSON_STAGED=""   # files_staged (staging time)
+KC_JSON_FILES=""    # files_committed (push success ONLY)
+KC_JSON_IGN=""      # files_skipped_ignored
+KC_SHA=""
+KC_DELETED=0
+KC_REVERT_RISK="no"
+KC_N=0
+
+KC_ENABLED=$(python3 -c "
+import json
+try:
+  cfg = json.load(open('$REPO/.agentic/config.json'))
+  print('true' if cfg.get('knowledge_commit_on_pr', True) else 'false')
+except Exception: print('true')
+" 2>/dev/null || echo 'true')
+
+# Re-read here, NOT inherited: Phase 11e is a separate Bash invocation.
+KC_AUTOMERGE=$(python3 -c "
+import json
+try:
+  cfg = json.load(open('$REPO/.agentic/config.json'))
+  print('true' if cfg.get('auto_merge_on_ci_green', False) else 'false')
+except Exception: print('false')
+" 2>/dev/null || echo 'false')
+
+if [ "$KC_ENABLED" != "true" ]; then
+  KC_STATUS="disabled"
+  echo "[phase: knowledge-commit | status=disabled | knowledge_commit_on_pr=false]"
+else
+  # Fetch failure and ref-absence are SEPARATE conditions: a transient network
+  # failure must not be reported as "branch not found" when the ref exists
+  # locally and the push would have worked.
+  KC_FETCH_ERR=$(git -C "$REPO" fetch origin "$BRANCH_NAME" 2>&1 >/dev/null)
+  if [ $? -ne 0 ]; then
+    echo "WARNING: [phase: knowledge-commit] git fetch origin $BRANCH_NAME failed: $KC_FETCH_ERR - continuing against the local remote-tracking ref, which may be stale."
+  fi
+
+  if ! git -C "$REPO" rev-parse --verify -q "origin/$BRANCH_NAME" >/dev/null 2>&1; then
+    # DISTINCT from "no-changes": the WARNING below goes to stdout, which is not
+    # durable. Left at the "no-changes" initializer, events.jsonl could not tell
+    # "there was no PR branch to commit onto" from "nothing changed" - and that
+    # exact ambiguity is what let this phase's deleted predecessor ship zero
+    # commits for its entire lifetime without anyone noticing.
+    KC_STATUS="no-branch"
+    echo "WARNING: [phase: knowledge-commit] origin/$BRANCH_NAME does not resolve - no PR branch to commit onto; /ds-wrap Part G remains the fallback."
+  else
+    KC_GITDIR=$(git -C "$REPO" rev-parse --absolute-git-dir)
+    KC_IDX="$KC_GITDIR/knowledge-commit-index-$$"
+    KC_READ_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" read-tree "origin/$BRANCH_NAME" 2>&1 >/dev/null)
+    if [ $? -ne 0 ]; then
+      echo "WARNING: [phase: knowledge-commit] read-tree origin/$BRANCH_NAME failed: $KC_READ_ERR"
+      KC_STATUS="commit-failed"
+    else
+      # Single LITERAL-list loop: gate and stage in one pass (zsh-safe).
+      for KC_F in MEMORY.md decisions.md .agentic/learnings.md; do
+        if [ -f "$REPO/$KC_F" ]; then
+          if git -C "$REPO" check-ignore -q -- "$KC_F"; then
+            KC_RULE=$(git -C "$REPO" check-ignore -v -- "$KC_F")
+            echo "[phase: knowledge-commit] $KC_F is gitignored (rule: $KC_RULE) - not committed."
+            if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
+          else
+            KC_SKIP_THIS="no"
+            if git -C "$REPO" cat-file -e "origin/${BRANCH_NAME}:${KC_F}" 2>/dev/null; then
+              # Refresh the TEMP index for this path before comparing. Without
+              # this, diff-index trusts stat data over content and a
+              # byte-identical file with a newer mtime is misclassified as
+              # changed. A non-zero exit here means "needs update" and is
+              # expected; stderr is left visible on purpose.
+              GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" update-index -q --refresh -- "$KC_F" >/dev/null || true
+              if GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --quiet "origin/$BRANCH_NAME" -- "$KC_F"; then
+                KC_SKIP_THIS="yes"
+              fi
+            fi
+            if [ "$KC_SKIP_THIS" = "no" ]; then
+              KC_ADD_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" add -- "$KC_F" 2>&1 >/dev/null)
+              if [ $? -ne 0 ]; then
+                echo "WARNING: [phase: knowledge-commit] git add $KC_F failed: $KC_ADD_ERR - this file is not included."
+              else
+                KC_N=$((KC_N + 1))
+                if [ -z "$KC_LIST" ]; then KC_LIST="$KC_F"; else KC_LIST="$KC_LIST,$KC_F"; fi
+                if [ -z "$KC_JSON_STAGED" ]; then KC_JSON_STAGED="\"$KC_F\""; else KC_JSON_STAGED="$KC_JSON_STAGED,\"$KC_F\""; fi
+              fi
+            fi
+          fi
+        fi
+      done
+
+      if [ "$KC_N" -eq 0 ]; then
+        echo "[phase: knowledge-commit | status=no-changes | branch=$BRANCH_NAME]"
+      else
+        # --- Revert guard: ONE diff-index run against the TEMP index. Stdout to
+        #     a file (reused for the per-file warning), stderr to a variable.
+        #     FAILS CLOSED. ---
+        KC_NUMSTAT_ERR=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" diff-index --cached --numstat "origin/$BRANCH_NAME" 2>&1 >"$KC_IDX.numstat")
+        if [ $? -ne 0 ]; then
+          echo "WARNING: [phase: knowledge-commit] diff-index failed: $KC_NUMSTAT_ERR - treating as REVERT RISK PRESENT (fail-closed; the guard cannot be verified)."
+          KC_REVERT_RISK="yes"
+          KC_DELETED=-1
+        else
+          # awk emits 0 (not empty) for an empty input file under bash, zsh, and
+          # sh, so the '' arm below is reachable only if awk itself fails to run
+          # or the numstat file is unreadable. Keep it for exactly that case.
+          KC_DELETED=$(awk '{s += $2} END {print s+0}' "$KC_IDX.numstat")
+          case "$KC_DELETED" in
+            ''|*[!0-9]*)
+              echo "WARNING: [phase: knowledge-commit] deleted-line count is empty or non-numeric ('$KC_DELETED') - awk did not run or its output is unusable; treating as REVERT RISK PRESENT (fail-closed)."
+              KC_REVERT_RISK="yes"
+              KC_DELETED=-1
+              ;;
+            0) : ;;
+            *)
+              KC_REVERT_RISK="yes"
+              awk -v kc_branch="$BRANCH_NAME" '$2 > 0 {printf "WARNING: [phase: knowledge-commit] %s has %s deleted line(s) vs origin/%s - this commit may revert content another session already merged. Review the PR diff before merging.\n", $3, $2, kc_branch}' "$KC_IDX.numstat"
+              ;;
+          esac
+        fi
+
+        KC_NAME=$(git -C "$REPO" config user.name 2>/dev/null || true)
+        KC_EMAIL=$(git -C "$REPO" config user.email 2>/dev/null || true)
+
+        if [ "$KC_REVERT_RISK" = "yes" ] && [ "$KC_AUTOMERGE" = "true" ]; then
+          echo "WARNING: [phase: knowledge-commit] auto_merge_on_ci_green is true and this commit carries revert risk (deleted_lines=$KC_DELETED) - skipping. No human would read the PR diff before merge. Run /ds-wrap so Part G ships this content on a reviewable branch."
+          KC_STATUS="revert-risk-skipped"
+        elif [ -z "$KC_NAME" ] || [ -z "$KC_EMAIL" ]; then
+          echo "WARNING: [phase: knowledge-commit] git user.name/user.email not configured - skipping knowledge commit to avoid a malformed DCO trailer."
+          KC_STATUS="failed"
+        else
+          KC_TREE=$(GIT_INDEX_FILE="$KC_IDX" git -C "$REPO" write-tree 2>/dev/null || true)
+          KC_BASE_TREE=$(git -C "$REPO" rev-parse "origin/$BRANCH_NAME^{tree}" 2>/dev/null || true)
+          if [ -z "$KC_TREE" ]; then
+            echo "WARNING: [phase: knowledge-commit] write-tree failed - skipping knowledge commit."
+            KC_STATUS="commit-failed"
+          elif [ "$KC_TREE" = "$KC_BASE_TREE" ]; then
+            echo "[phase: knowledge-commit | status=no-changes | tree-identical]"
+          else
+            KC_MSG=$(printf 'chore(knowledge): capture %s from ticket session\n\nSigned-off-by: %s <%s>' "$KC_LIST" "$KC_NAME" "$KC_EMAIL")
+            KC_SHA=$(git -C "$REPO" commit-tree "$KC_TREE" -p "origin/$BRANCH_NAME" -m "$KC_MSG" 2>/dev/null || true)
+            if [ -z "$KC_SHA" ]; then
+              echo "WARNING: [phase: knowledge-commit] commit-tree failed - skipping knowledge commit."
+              KC_STATUS="commit-failed"
+            else
+              KC_PUSH_ERR=$(git -C "$REPO" push origin "${KC_SHA}:refs/heads/${BRANCH_NAME}" 2>&1 >/dev/null)
+              if [ $? -eq 0 ]; then
+                KC_STATUS="committed"
+                # files_committed is populated HERE and ONLY here.
+                KC_JSON_FILES="$KC_JSON_STAGED"
+                mkdir -p "$REPO/.agentic" 2>/dev/null || true
+                printf '{"branch":"%s","commit":"%s","files":[%s],"deleted_lines":%s,"ts":"%s"}\n' \
+                  "$BRANCH_NAME" "$KC_SHA" "$KC_JSON_FILES" "$KC_DELETED" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                  > "$REPO/.agentic/knowledge-commit-state.json.tmp" 2>/dev/null &&
+                  mv "$REPO/.agentic/knowledge-commit-state.json.tmp" "$REPO/.agentic/knowledge-commit-state.json" 2>/dev/null || true
+                echo "[phase: knowledge-commit | status=committed | branch=$BRANCH_NAME | commit=$KC_SHA | files=$KC_LIST]"
+                echo "NOTE: [phase: knowledge-commit] CI is re-running against this new tip. Phase 10a cannot re-fire, so a red result on this commit needs manual attention."
+              else
+                echo "WARNING: [phase: knowledge-commit] push to $BRANCH_NAME rejected: $KC_PUSH_ERR - knowledge not shipped on this PR; /ds-wrap Part G remains the fallback."
+                KC_STATUS="push-failed"
+              fi
+            fi
+          fi
+        fi
+      fi
+    fi
+    rm -f "$KC_IDX" "$KC_IDX.numstat" 2>/dev/null || true
+  fi
+fi
+
+agentic-emit knowledge_commit - "${TICKET_ID:--}" "{\"site\":\"phase-11e\",\"status\":\"$KC_STATUS\",\"files_staged\":[$KC_JSON_STAGED],\"files_committed\":[$KC_JSON_FILES],\"files_skipped_ignored\":[$KC_JSON_IGN],\"branch\":\"$BRANCH_NAME\",\"commit\":\"$KC_SHA\",\"deleted_lines\":$KC_DELETED}" 2>/dev/null || true
+```
+
+`GIT_INDEX_FILE="$KC_IDX" git ...` is a **per-command assignment, not an export**, in both bash and zsh - the value is scoped to that one invocation and cannot reach `$REPO/.git/index`. Do not convert it to an `export ... ; unset ...` pair, and do not remove it from the `update-index` call.
+
+**CI interaction.** With `auto_merge_on_ci_green: false` (the default) there is no interaction to reason about: the PR stays open, CI re-runs against the new tip, and the human merges when it is green. With `auto_merge_on_ci_green: true`, Phase 12 re-derives the knowledge-commit condition from `gh` and queues GitHub's own auto-merge, which completes only once the checks are green.
+
+**The honest residual: Phase 10a cannot re-fire.** By the time Phase 11e runs, Phases 10b, 11, 11b, and 11d have all executed, and nothing revisits the CI-wait phase. If the knowledge commit turns a required check red, no phase notices and the PR is left red for a human to resolve. Three things bound the exposure and none of them eliminates it: the commit touches at most three markdown files; the `NOTE:` line above announces the re-run at the moment it happens; and `knowledge_commit_on_pr: false` disables the phase outright. A "re-enter Phase 10a" loop was considered and rejected as out of scope - it would need its own iteration cap, a convergence short-circuit, and an escalation path, which is a feature of its own rather than a clause of this one.
+
+**Per-unit attribution is out of reach and is not attempted.** Fan-out unit branches are merged and `git branch -d`'d at the Phase 5/6 boundary, before Phase 6 fires; `findings_log` entries carry no unit tag; and neither `wrap-ticket` nor `learning-extractor` accepts a unit identifier. What Phase 11e delivers is therefore per-**ticket** attribution. The minimal change that would make per-unit attribution possible - propagate the orchestration planner's per-unit slug into each per-unit Skeptic `findings_log` entry as a `unit` field, and add a `unit` key to `learning-extractor`'s LRN schema - is recorded here as a separate ticket's scope, not built as part of this phase.
+
+---
+
 ## Phase 12: Loop state cleanup
 
 After the PR is open (Phase 9 complete) and Phase 11b has run (or been skipped), set `.agentic/loop-state-$LOOP_KEY.json` to `status: "complete"` using atomic write (tmp+rename), or delete the file. This prevents the next `/ds-implement-ticket` invocation on this project from presenting a stale completed loop as a resume candidate. The write applies Contract A (per-write `session_id` gate); abort with the verbatim warning on mismatch.
@@ -3159,18 +3406,47 @@ rm -f .agentic/qa.md.snapshot-<ticket_id> 2>/dev/null || true
 **Conditional auto-merge** (only when `auto_merge_on_ci_green: true` in `.agentic/config.json`):
 
 ```bash
+# @harness:phase12-auto-merge
 if [ "$AUTO_MERGE_ON_CI_GREEN" = "true" ]; then
   PR_STATE=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json isDraft,mergeable,reviewDecision 2>/dev/null)
   IS_DRAFT=$(echo "$PR_STATE" | jq -r '.isDraft')
   MERGEABLE=$(echo "$PR_STATE" | jq -r '.mergeable')
   REVIEW_DECISION=$(echo "$PR_STATE" | jq -r '.reviewDecision // "NONE"')
 
+  # Re-derived HERE, never inherited: Phase 11e ran in a SEPARATE Bash
+  # invocation and no shell state crosses that boundary. On any gh failure this
+  # yields false and the block behaves exactly as it did before Phase 11e existed.
+  KC_TIP=$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json commits -q '.commits[-1].messageHeadline' 2>/dev/null || true)
+  case "$KC_TIP" in
+    "chore(knowledge):"*) KC_KNOWLEDGE_PUSHED=true ;;
+    *)                    KC_KNOWLEDGE_PUSHED=false ;;
+  esac
+
   if [ "$IS_DRAFT" = "false" ] && [ "$MERGEABLE" = "MERGEABLE" ] && [ "$REVIEW_DECISION" != "CHANGES_REQUESTED" ]; then
-    if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
+    if [ "$KC_KNOWLEDGE_PUSHED" = "true" ]; then
+      if gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch --auto 2>/dev/null; then
+        echo "[phase: auto-merge-queued | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun]"
+        # W7 does NOT fire: --auto exiting 0 means QUEUED, not MERGED. The
+        # dev-complete transition is pushed by the session-start pending-merge
+        # sweep within one session boot of the actual merge - the same mechanism
+        # the default auto_merge_on_ci_green=false path relies on.
+      elif [ "$(gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
+        echo "[phase: auto-merged | pr=$PR_NUMBER]"
+        # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
+        # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
+        # Fire-and-forget. Fires ONLY when the PR is confirmed MERGED (this branch).
+        # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
+      else
+        echo "[phase: auto-merge-deferred | pr=$PR_NUMBER | reason=knowledge-commit-ci-rerun - merge when checks are green]"
+      fi
+    elif gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch 2>/dev/null; then
       echo "[phase: auto-merged | pr=$PR_NUMBER]"
       # Tracker writeback (W7): if TRACKER != none, invoke Tracker Writeback Helper
       # with target_state: $TRACKER_STATE_DEV_COMPLETE, forward_only_guard: true.
-      # Fire-and-forget. Fires ONLY when merge succeeded (this branch).
+      # Fire-and-forget. Fires ONLY when merge succeeded (this branch). No
+      # `gh pr view --json state` precondition is added here: on this path an
+      # exit-0 merge already means MERGED, and an extra gh call would add a
+      # silent-drop mode on transient failure.
       # [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
     else
       echo "[phase: auto-merge-failed | pr=$PR_NUMBER]"
@@ -3184,13 +3460,21 @@ else
 fi
 ```
 
-**Tracker writeback (W7):** fires only if `gh pr merge` exits 0 (inside the `AUTO_MERGE_ON_CI_GREEN` gate and the isDraft/mergeable/reviewDecision inner check). If `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DEV_COMPLETE`, `forward_only_guard: true`. Fire-and-forget.
+**Knowledge-commit branch (the `--auto` path).** When Phase 11e pushed a `chore(knowledge):` commit onto the PR tip, CI is re-running, so an immediate `gh pr merge` would fail on pending checks. That case instead queues GitHub's own auto-merge with `--auto`. Three consequences worth stating plainly:
+
+- **`--auto` exiting 0 means QUEUED, not MERGED**, so W7 must not fire on that branch. The dev-complete transition is pushed instead by the session-start pending-merge sweep, within one session boot of the actual merge - the same mechanism the default `auto_merge_on_ci_green: false` path already relies on.
+- **W7's ordinary path is deliberately unchanged.** No `gh pr view --json state` precondition was added to the non-knowledge-commit merge branch: on that path an exit-0 `gh pr merge` already means MERGED, and an extra `gh` call would introduce a silent-drop mode whenever that call fails transiently.
+- **`--auto` requires "Allow auto-merge" to be enabled on the repository.** Where it is not, the `--auto` call fails, the fallback `gh pr view --json state` check runs, and - if the PR is not already merged - the run reports `auto-merge-deferred` and leaves the PR for a human.
+
+A total `gh pr view` failure leaves `PR_STATE` empty, which fails the `IS_DRAFT` gate and prints `auto-merge-skipped` without ever invoking `gh pr merge`. That is pre-existing behavior, unchanged by Phase 11e.
+
+**Tracker writeback (W7):** fires only if `gh pr merge` exits 0 (inside the `AUTO_MERGE_ON_CI_GREEN` gate and the isDraft/mergeable/reviewDecision inner check), or - on the knowledge-commit branch - only if the fallback `gh pr view` confirms the PR is already `MERGED`. If `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_DEV_COMPLETE`, `forward_only_guard: true`. Fire-and-forget.
 
 [phase: tracker-writeback | site: W7 | target: $TRACKER_STATE_DEV_COMPLETE | trigger: auto-merge-success]
 
 Note: W7 fires ONLY on the auto-merge success path (`AUTO_MERGE_ON_CI_GREEN=true` AND merge succeeds). On the default human-merge path (`AUTO_MERGE_ON_CI_GREEN=false`), W7 does NOT fire here - the dev-complete transition is pushed automatically by the session-start pending-merge sweep instead (see `content/rules/conventions.md` §Session Context and Memory) within one session boot of the merge. AE never fires the terminal `TRACKER_STATE_DONE` state automatically at any site; `TRACKER_STATE_DEV_COMPLETE` inherits the resolved `TRACKER_STATE_DONE` value when undeclared, so a project that declares no post-merge lane is unaffected. The sweep is driven by the ticket ledger, so when `rework_detection` is `false` there are no candidates and no automatic dev-complete transition - run `/ds-ticket-status-sync <TICKET_ID>` after merge in that configuration. `/ds-ticket-status-sync <TICKET_ID>` also remains available to force the transition immediately.
 
-**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - skip the "Conditional auto-merge" block entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
+**Dry-run note (open-goal only).** When `batch-state.json.open_goal.dry_run == true`, `$PR_NUMBER` was never set (Phase 9 skipped) - Phase 11e is skipped for the same reason (no PR branch to commit onto), and the "Conditional auto-merge" block is skipped entirely (no PR). `loop-state-$LOOP_KEY.json` cleanup and qa.md snapshot cleanup run unmodified (both local-only).
 
 **Post-merge local sync (unconditional).** Runs once at the end of every Phase 12, independent of `auto_merge_on_ci_green` and independent of whether this ticket's own PR merged - it also catches a *different* PR (this ticket's or any other) that merged asynchronously since the session started. See `content/references/base-branch-sync.md`. A non-zero exit never blocks Phase 12 completion - `status=skipped-dirty`/`diverged`/`refused-unknown`/`ref-locked-elsewhere`/`fetch-failed` are all operator-visible breadcrumbs/warnings, matching every other soft-fail convention in this phase (qa.md snapshot cleanup, tracker writeback).
 
