@@ -2242,6 +2242,16 @@
       "source_token": ".claude/build.sh"
     },
     {
+      "expected_target": "bin/ds-models",
+      "generated_token": "$AE_REPO_DIR/bin/ds-models",
+      "kind": "operational",
+      "occurrence_hash": "ab5cd606d73ad0cf14d732728ce5350b3034cd61688badf7c2456f74f3b29b6d",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/SKILL.md",
+      "source_token": "bin/ds-models"
+    },
+    {
       "expected_target": "content/commands/ds-update.md",
       "generated_token": "manual workflow 'ds-update' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-update`",
       "kind": "operational",
@@ -2280,16 +2290,6 @@
       "scope": "dinostack-repository",
       "source": "content/SKILL.md",
       "source_token": ".claude/skills/agentic-engineering"
-    },
-    {
-      "expected_target": "bin/agentic-models",
-      "generated_token": "$AE_REPO_DIR/bin/agentic-models",
-      "kind": "operational",
-      "occurrence_hash": "d854e0a9dc45f2a999516d4631c32b4fb05bde4750343c72175f54567326eb94",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/SKILL.md",
-      "source_token": "bin/agentic-models"
     },
     {
       "expected_target": ".claude",

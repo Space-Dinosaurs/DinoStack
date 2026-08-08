@@ -42,19 +42,29 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              current tuples: a `literal_rules` tuple's PATTERN (index 0) is
              legitimately ALLOWED to contain an old name, because its job
              is to MATCH un-renamed `content/**` text, not to assert that
-             none exists. As of the completion of Units 1-4 (bin/, content/
-             sections/, content/rules/, content/commands/, and content/
-             agents/), an AST parse of the current 14 tuples finds ZERO
-             PATTERNs that still retain an old tool name - every tuple that
-             once matched pre-rename prose was updated in lockstep when its
-             target file was renamed. `content/references/**` (Unit 5, not
-             yet done) is the only tree this program has not yet touched;
-             it is therefore the only place a future `literal_rules`
-             PATTERN could still legitimately retain an old name, and only
-             for as long as Unit 5 remains outstanding - this statement is
-             written to stay true regardless of what Unit 5 does, since it
-             names the invariant (no un-renamed source left to match) and
-             not a specific instance. But the REPLACEMENT is entirely
+             none exists. As of the completion of Units 1-5 (bin/, content/
+             sections/, content/rules/, content/commands/, content/agents/,
+             and content/references/), an AST parse of the current 14
+             tuples finds ZERO PATTERNs that still retain an old tool
+             name - every tuple that once matched pre-rename prose was
+             updated in lockstep when its target file was renamed. The
+             general invariant this program maintains: a `literal_rules`
+             PATTERN may legitimately retain an old name ONLY for as long
+             as some file under `content/**` that the pattern is meant to
+             match still contains un-renamed prose - the moment the last
+             such file in a given tree is renamed, any PATTERN still
+             citing the old name becomes dead weight (not a bug, but a
+             signal the pattern's target text tree is now fully migrated).
+             `content/project-scaffolding.yml` is the sole known exception
+             to full `content/**` migration: it is copied verbatim as an
+             operator-facing resource and is deliberately never
+             pattern-matched by `scripts/codex-skills.py`, so its five
+             `bin/agentic-migrate` references (Unit 5 scope note, not
+             renamed) do not feed any `literal_rules` PATTERN and are
+             outside this test's concern. This statement is written to
+             name the invariant, not a specific file-by-file instance, so
+             it stays true regardless of future renames. But the
+             REPLACEMENT is entirely
              codex-authored: it is hand-written prose/command text that
              ships into the generated Codex harness, and none of the 14
              current tuples' replacements has any legitimate reason to
@@ -94,16 +104,17 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              narrow and tied to the exact bug instance (not a generic
              sweep of the rendered tree - see the module docstring
              discussion of why a generic content-derivation boundary on
-             rendered output is fragile: unrenamed `content/**` trees can
-             legitimately still say an old tool name verbatim (as of this
-             writing, "agentic-cost team" and "bin/agentic-migrate" in
-             `content/references/**`, Unit 5 scope, not yet done), and a
-             window/diff-based exclusion boundary against that
-             prose produces false positives whenever codex-skills.py's own
-             (legitimate) path-qualification logic inserts a nearby
-             `$AE_*` token - check (2) above is the robust, general
-             mechanism; this check (3) is a targeted sensor confirming the
-             actual shipped bytes match what (2) implies).
+             rendered output is fragile: an unrenamed file under
+             `content/**` can legitimately still say an old tool name
+             verbatim - as of this writing the sole such file is
+             `content/project-scaffolding.yml` (out of program scope; see
+             check (2)'s discussion above) - and a window/diff-based
+             exclusion boundary against that prose produces false
+             positives whenever codex-skills.py's own (legitimate)
+             path-qualification logic inserts a nearby `$AE_*` token -
+             check (2) above is the robust, general mechanism; this check
+             (3) is a targeted sensor confirming the actual shipped bytes
+             match what (2) implies).
 
          The protected skill noun "agentic-engineering", the protected
          config filenames/markers (~/.claude/agentic-engineering.json,
