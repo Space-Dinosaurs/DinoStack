@@ -126,19 +126,24 @@
 #     then a rename-based reclaim that still raced the liveness check, plus a
 #     Critical where the lock's own test case mutated the real, shared
 #     lockdir): the lock is DELETED entirely, along with the temp-file backup
-#     it protected. `_with_mutated_source` now (1) pre-checks the target is
-#     both git-tracked and clean (`git diff --quiet`) before touching it -
+#     it protected. `_with_mutated_source` now (1) pre-checks the target has
+#     no pending changes at all (`git status --porcelain`, covering staged,
+#     unstaged, and untracked state in one predicate) before touching it -
 #     refusing loudly, via `_fail`, if it is dirty (either a concurrent run of
 #     this suite or the developer's own uncommitted edit); and (2) restores
-#     the mutation by `git checkout -- <path>`, not from a temp copy - git
-#     already holds the pristine content, and a checkout can never write back
-#     corruption the way a stale-backup restore could. No lock is needed:
-#     whichever run's pre-check loses the race sees a dirty target and
-#     declines to mutate, so the worst case is a loud, counted failure, never
-#     silent permanent corruption of a tracked file. Case (m)'s no-rebuild
-#     restore and case (n)'s rebuild-with-soft-fail-warning restore are both
-#     preserved via the helper's optional restore-hook argument, run after
-#     the git-checkout restore.
+#     the mutation by `git checkout -- <path>`, not from a temp copy - the
+#     pre-check guarantees the index already matches HEAD, so restoring from
+#     the index can never write back corruption the way a stale-backup
+#     restore could. No lock is needed: whichever run's pre-check loses the
+#     race sees a dirty target and declines to mutate, so for the two guarded
+#     targets (the two `_with_mutated_source` call sites below) the worst
+#     case is a loud, counted failure, never silent permanent corruption -
+#     this does not extend to unrelated adapter artifacts, which
+#     `scripts/build-all.sh` regenerates from whatever is on disk and can
+#     still be left modified by a concurrent or interrupted run. Case (m)'s
+#     no-rebuild restore and case (n)'s rebuild-with-soft-fail-warning
+#     restore are both preserved via the helper's optional restore-hook
+#     argument, run after the git-checkout restore.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -190,31 +195,54 @@ trap _cleanup EXIT
 #
 # Instead: git already holds the pristine content, and a corrupt backup is
 # detectable rather than unavoidable.
-#   1. Pre-check: <path> must be git-tracked and clean (no diff against
-#      HEAD). If it is not, this case is skipped WITHOUT mutating and
-#      WITHOUT restoring - it calls `_fail` (loud, counted, never silent) and
-#      returns, naming the file and noting the two possible causes (a
-#      concurrent run of this suite, or the developer's own uncommitted
-#      edit). Failing here - rather than only skipping under CI - keeps the
-#      failure loud and reachable in every environment, matching this repo's
-#      existing convention of hard-failing a guarded check rather than
-#      letting it silently pass with nothing asserted (see
-#      `bin/tests/test_check_resident_budget.sh`'s `command -v` guard
-#      discipline). CI always starts from a clean tree, so in practice this
-#      only ever fires locally against a dirty working copy; if it ever
-#      fires in CI, that is a real bug worth seeing, not a case to skip past
-#      quietly.
-#   2. <case_fn> mutates <path> and runs its assertions.
-#   3. Restore is `git -C "$REPO_DIR" checkout -- <path>`, never a temp-file
-#      backup. A git checkout restores the exact committed content and is
-#      idempotent - it cannot write back corruption the way restoring from a
-#      backup file could, which is the entire failure mode this closes.
+#   1. Pre-check: <path> must have NO pending changes of any kind - staged,
+#      unstaged, or untracked - via a single `git status --porcelain`
+#      predicate. This is deliberately not `git diff --quiet HEAD -- <path>`:
+#      that compares the WORKTREE against HEAD and is blind to a dirty INDEX
+#      whose worktree copy happens to match HEAD (e.g. a staged edit that was
+#      then manually reverted on disk) - `git checkout -- <path>` restores
+#      from the index, not HEAD, so that reachable state would let the
+#      restore silently materialize staged content the suite never wrote.
+#      `git status --porcelain` catches staged, unstaged, AND untracked state
+#      in one predicate (an untracked path shows as `??`), so it also
+#      subsumes a separate tracked-check - no case reaches `_mut_restore_now`
+#      without first proving the index equals HEAD. If it is not clean, this
+#      case is skipped WITHOUT mutating and WITHOUT restoring - it calls
+#      `_fail` (loud, counted, never silent) and returns, naming the file and
+#      noting the two possible causes (a concurrent run of this suite, or the
+#      developer's own uncommitted edit). Failing here - rather than only
+#      skipping under CI - keeps the failure loud and reachable in every
+#      environment, matching this repo's existing convention of hard-failing
+#      a guarded check rather than letting it silently pass with nothing
+#      asserted (see `bin/tests/test_check_resident_budget.sh`'s
+#      `command -v` guard discipline). CI always starts from a clean tree, so
+#      in practice this only ever fires locally against a dirty working
+#      copy; if it ever fires in CI, that is a real bug worth seeing, not a
+#      case to skip past quietly.
+#   2. Pre-check: <path> must have exactly one hard link. `git checkout --`
+#      unlinks and recreates the file rather than truncating it in place, so
+#      if <path> is ever hardlinked into an adapter destination (this repo
+#      documents that some `content/` files are - see root AGENTS.md), the
+#      checkout would leave the sibling holding the mutated content while
+#      <path> itself is "restored". Neither of the two current targets is
+#      hardlinked today, but refusing loudly here closes the hazard for any
+#      future target instead of relying on that staying true.
+#   3. <case_fn> mutates <path> and runs its assertions.
+#   4. Restore is `git -C "$REPO_DIR" checkout -- <path>`, never a temp-file
+#      backup. This restores from the INDEX, not directly from HEAD - the
+#      pre-check in step 1 guarantees the index already matches HEAD before
+#      any mutation happens, so the restored content is byte-identical to
+#      HEAD as a consequence of that precondition, not because `checkout`
+#      reads HEAD directly. It is idempotent - it cannot write back
+#      corruption the way restoring from a backup file could, which is the
+#      entire failure mode this closes.
 #
-# The pre-check strictly precedes the mutation and the restore is reachable
-# only through the code path that follows a passing pre-check, so a
-# developer's own uncommitted edit can never be silently discarded: the only
-# way `git checkout -- <path>` runs is if this case itself verified <path>
-# was clean and then mutated it. <path> is restored unconditionally via a
+# The pre-checks strictly precede the mutation and the restore is reachable
+# only through the code path that follows passing pre-checks, so a
+# developer's own uncommitted edit - staged, unstaged, or untracked - can
+# never be silently discarded: the only way `git checkout -- <path>` runs is
+# if this case itself verified <path> was fully clean (index == HEAD ==
+# worktree) and then mutated it. <path> is restored unconditionally via a
 # real `trap ... EXIT`, so an ordinary interrupt (SIGINT/SIGTERM) mid-case
 # cannot leave the tracked source mutated on disk - `git checkout --` is
 # also the recovery command a developer would run by hand. That does not
@@ -225,13 +253,19 @@ _with_mutated_source() {
   local target="$1" case_fn="$2" restore_hook="${3:-}"
   local rel="${target#"$REPO_DIR"/}"
 
-  if ! git -C "$REPO_DIR" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
-    _fail "$case_fn: $target is not tracked by git - refusing to mutate an untracked path"
+  if [[ -n "$(git -C "$REPO_DIR" status --porcelain -- "$rel" 2>/dev/null)" ]]; then
+    _fail "$case_fn: $target has uncommitted changes (staged, unstaged, or untracked) - refusing to mutate it. This is either a concurrent run of this suite against the same checkout, or your own uncommitted edit; commit/stash it and re-run. Note: a dirty run of this suite can also leave unrelated adapter artifacts modified (e.g. .claude/skills/agentic-engineering/SKILL.md, .cursor/rules/conventions.mdc) since install.sh's build step regenerates those from whatever is on disk regardless of this guard - check 'git -C $REPO_DIR status' for those too before re-running."
     return 1
   fi
 
-  if ! git -C "$REPO_DIR" diff --quiet HEAD -- "$rel" 2>/dev/null; then
-    _fail "$case_fn: $target has uncommitted changes - refusing to mutate it. This is either a concurrent run of this suite against the same checkout, or your own uncommitted edit; commit/stash it and re-run."
+  local link_count
+  link_count="$(stat -f%l "$target" 2>/dev/null || stat -c%h "$target" 2>/dev/null)"
+  if [[ -z "$link_count" ]]; then
+    _fail "$case_fn: could not determine hard-link count of $target (stat failed) - refusing to mutate it"
+    return 1
+  fi
+  if [[ "$link_count" -gt 1 ]]; then
+    _fail "$case_fn: $target has $link_count hard links - refusing to mutate it. 'git checkout --' unlinks and recreates the file rather than truncating it in place, so a hardlinked sibling would be left holding the mutated content after 'restore'. Resolve manually before re-running."
     return 1
   fi
 
