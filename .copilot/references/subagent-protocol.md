@@ -410,7 +410,7 @@ When a Worker returns to the main agent under this protocol, the main agent expe
 
 **Side effects:** Workers must not apply irreversible changes (file overwrites, database mutations, published state) without informing the main agent that sign-off is required before those changes are safe. Workers that must stage irreversible changes as part of their implementation must include a revert procedure in their return output.
 
-**Spawning Workers:** The main agent must include the project context file content (`~/.claude/projects/[hash]/context.md`) in each Worker's spawn prompt. Workers must not be expected to self-direct context reads — they may not have reliable access to the path or the protocol. The main agent is responsible for providing session context at spawn time.
+**Spawning Workers:** The main agent must include the project context file content (`.agentic/context.md`) in each Worker's spawn prompt. Workers must not be expected to self-direct context reads - they may not have reliable access to the path or the protocol, and a worktree-isolated Worker cannot reach `.agentic/context.md` at all (`.agentic/` is gitignored, so it is absent from a fresh worktree checkout). The main agent is responsible for providing session context at spawn time.
 
 **Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
 

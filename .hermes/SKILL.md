@@ -1058,7 +1058,7 @@ When spawning `engineer`, include:
 - The Architect's plan (if one was produced)
 - Relevant file paths or codebase root
 - Acceptance criteria
-- Session context (`~/.claude/projects/[hash]/context.md`)
+- Session context (`.agentic/context.md` content, supplied verbatim by the main agent - a worktree-isolated Worker cannot read this path directly, since its worktree branches from `origin/main`, where `.agentic/` is untracked)
 - For Elevated-path spawns: the execution contract block from `METHODOLOGY.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
 When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
@@ -3212,7 +3212,7 @@ The Skeptic Protocol (`content/references/skeptic-protocol.md`) operationalizes 
 
 Context is managed in three complementary tiers, each with different characteristics:
 
-1. **Ephemeral turn-level context** (`~/.claude/projects/[hash]/context.md`) — written automatically by the Stop hook after every agent turn. Contains: recent user messages, files touched, tools used. No LLM call; pure text extraction from the session payload. Always current because it is overwritten on every turn — never stale. Workers read this at task start to orient without needing the full session history in their prompt.
+1. **Ephemeral turn-level context** (`.agentic/context.md`) - the Stop hook writes this session's own `.agentic/context.d/<session_id>.md` shard after every agent turn; `.agentic/context.md` is then recomposed as a derived rollup of `.agentic/_wrap.md` plus the shard set. Contains: recent user messages, files touched, tools used. No LLM call; pure text extraction from the session payload. Always current because it is a derived rollup recomposed on every turn - never stale. The main agent reads this at session start and supplies its content to Workers at spawn time; a worktree-isolated Worker cannot read the path directly, since `.agentic/` is gitignored.
 
 2. **Decision log** (`.claude/rules/decisions.md`) — persistent, version-controlled, auto-loaded by Claude Code at startup. Contains architectural choices, technology decisions, scope resolutions, and deliberate tradeoffs. Updated via `/ds-memory-update`, which spawns a background Worker with its own Skeptic loop to ensure accuracy before writing. Decisions are curated: a new entry that contradicts a prior one updates the prior one rather than appending a conflicting record.
 
@@ -6411,7 +6411,7 @@ When a Worker returns to the main agent under this protocol, the main agent expe
 
 **Side effects:** Workers must not apply irreversible changes (file overwrites, database mutations, published state) without informing the main agent that sign-off is required before those changes are safe. Workers that must stage irreversible changes as part of their implementation must include a revert procedure in their return output.
 
-**Spawning Workers:** The main agent must include the project context file content (`~/.claude/projects/[hash]/context.md`) in each Worker's spawn prompt. Workers must not be expected to self-direct context reads — they may not have reliable access to the path or the protocol. The main agent is responsible for providing session context at spawn time.
+**Spawning Workers:** The main agent must include the project context file content (`.agentic/context.md`) in each Worker's spawn prompt. Workers must not be expected to self-direct context reads - they may not have reliable access to the path or the protocol, and a worktree-isolated Worker cannot reach `.agentic/context.md` at all (`.agentic/` is gitignored, so it is absent from a fresh worktree checkout). The main agent is responsible for providing session context at spawn time.
 
 **Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
 

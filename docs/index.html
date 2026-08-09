@@ -1923,7 +1923,7 @@
         <div style="font-family: 'Nunito Sans', sans-serif; font-size: 16px; font-weight: 300; color: var(--text-secondary);">How cross-session continuity actually works</div>
       </div>
     </div>
-    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Every project's AGENTS.md, MEMORY.md, session history, and <code>/ds-wrap</code> outputs live under <code>~/.claude/projects/[slug-of-cwd]/</code>. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
+    <p class="desc" style="margin-bottom: 12px;">Claude Code derives a project's persistence directory from the <strong>current working directory</strong> it was launched in. Session history (conversation transcripts) lives under <code>~/.claude/projects/[slug-of-cwd]/</code>. AGENTS.md, MEMORY.md, <code>.agentic/context.md</code> (a derived rollup, not a direct write), and <code>/ds-wrap</code> outputs (<code>.agentic/_wrap.md</code>, etc.) live directly in the project repo itself, under <code>&lt;cwd&gt;/</code> - keyed just as directly to the working directory. The only thing you need to do to return to the same persistent state is start <code>claude</code> from the same directory.</p>
     <div style="margin-bottom: 16px;">
       <div style="font-family: 'JetBrains Mono', monospace; font-size: 12px; font-weight: 500; color: var(--text-muted); margin-bottom: 6px; letter-spacing: 0.01em;">The command:</div>
       <div class="code-block">
@@ -1939,7 +1939,7 @@
       </div>
     </div>
     <ul>
-      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>context.md stacks</strong> - the Stop hook writes to the same <code>~/.claude/projects/[cwd-slug]/context.md</code> every time. <code>/ds-wrap</code>'s rolling-window merge works because the project slug is stable as long as you launch from the same directory.</li>
+      <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>context.md stacks</strong> - the Stop hook writes each session's shard under the same <code>&lt;cwd&gt;/.agentic/context.d/</code>, recomposed into <code>&lt;cwd&gt;/.agentic/context.md</code>, keyed directly to the project directory rather than to Claude Code's session-history slug. <code>/ds-wrap</code>'s rolling-window merge works because that directory is stable as long as you launch from the same directory.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>MEMORY.md compounds</strong> - same cwd means the same project directory means the same memory files. Stable facts accumulate in one place rather than starting fresh each time.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>The harness improves itself</strong> - this is the <code>/ds-init-project</code> -&gt; work -&gt; <code>/ds-wrap</code> feedback loop. Each session reads richer AGENTS.md files and memory than the last because every session starts from the same directory and therefore loads the same files.</li>
       <li style="font-size: 14.5px; color: var(--text-secondary); padding: 4px 0 4px 18px; position: relative; line-height: 1.65;"><span style="position:absolute;left:0;color:var(--text-dim);">&rarr;</span><strong>Multi-project coordination</strong> - different projects live under different cwds, so each gets cleanly separated persistence automatically. Running <code>/ds-wrap</code> on one project does not touch the other's state.</li>
@@ -2620,7 +2620,7 @@
         <tr><td><strong>Slash commands</strong></td><td><code>~/.cursor/commands/*.md</code> - slash commands work natively in Cursor</td></tr>
         <tr><td><strong>Agents</strong></td><td>Not available - Cursor has no native sub-agent system</td></tr>
         <tr><td><strong>Hooks</strong></td><td><code>.cursor/hooks.json</code> - <code>beforeSubmitPrompt</code> event for the risk-reminder equivalent</td></tr>
-        <tr><td><strong>Stop hook / context save</strong></td><td>Stop hook writes to the Claude Code path (<code>~/.claude/projects/...</code>) - not surfaced in Cursor sessions. Rely on manual <code>context.md</code> maintenance.</td></tr>
+        <tr><td><strong>Stop hook / context save</strong></td><td>Stop hook writes <code>&lt;cwd&gt;/.agentic/context.md</code> via the Claude Code Stop event - not surfaced in Cursor sessions. Rely on manual <code>context.md</code> maintenance.</td></tr>
         <tr><td><strong>Activation config</strong></td><td>Shared: <code>~/.claude/agentic-engineering.json</code></td></tr>
         <tr><td><strong>Tier resolution</strong></td><td>Inherits the session model - no tier-map lookup</td></tr>
       </tbody>

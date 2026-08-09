@@ -183,7 +183,7 @@ When spawning `engineer`, include:
 - The Architect's plan (if one was produced)
 - Relevant file paths or codebase root
 - Acceptance criteria
-- Session context (`~/.claude/projects/[hash]/context.md`)
+- Session context (`.agentic/context.md` content, supplied verbatim by the main agent - a worktree-isolated Worker cannot read this path directly, since its worktree branches from `origin/main`, where `.agentic/` is untracked)
 - For Elevated-path spawns: the execution contract block from `METHODOLOGY.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
 When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
