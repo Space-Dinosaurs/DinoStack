@@ -75,6 +75,10 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 SPEC="$REPO_DIR/content/commands/ds-implement-ticket.md"
+# Phase 6b's QA loop contract body (including the three QA_STATUS literals
+# below) was extracted to this reference file by the DS-143 Unit 5 split -
+# see content/references/qa-loop-state.md.
+SPEC_QA_LOOP_STATE="$REPO_DIR/content/references/qa-loop-state.md"
 
 PASS=0
 FAIL=0
@@ -446,6 +450,18 @@ _present() { # _present <label> <pattern>
     _fail "$1 - spec no longer contains: /$2/"
   fi
 }
+_present_any() { # _present_any <label> <pattern> <file1> [file2...]
+  # Like _present, but the pattern may live in any of the given files - used
+  # for the three QA_STATUS literals whose sole match moved from SPEC to
+  # content/references/qa-loop-state.md in the DS-143 Unit 5 split.
+  local label="$1" pattern="$2"
+  shift 2
+  if grep -qiE "$pattern" "$@"; then
+    _pass "$label"
+  else
+    _fail "$label - none of [$*] contain: /$pattern/"
+  fi
+}
 
 # The retracted clause: it named Trivial and qa_skip as null-writing paths,
 # directly contradicting the sentence before it and the merged reference doc
@@ -458,12 +474,12 @@ _absent "no 'Null on two paths' claim for qa_status" \
 # The contract that replaced it must still be stated.
 _present "both non-QA paths documented as writing the rationale" \
          'Both non-QA paths .* write the rationale, not null'
-_present "Phase 6b skip branch sets QA_STATUS" \
-         'QA_STATUS="skipped:<rationale>"'
-_present "Phase 6b PASS exit sets QA_STATUS" \
-         'QA_STATUS="PASS"'
-_present "every other terminal QA verdict sets QA_STATUS (incl. INCONCLUSIVE)" \
-         'QA_STATUS="INCONCLUSIVE"'
+_present_any "Phase 6b skip branch sets QA_STATUS" \
+         'QA_STATUS="skipped:<rationale>"' "$SPEC" "$SPEC_QA_LOOP_STATE"
+_present_any "Phase 6b PASS exit sets QA_STATUS" \
+         'QA_STATUS="PASS"' "$SPEC" "$SPEC_QA_LOOP_STATE"
+_present_any "every other terminal QA verdict sets QA_STATUS (incl. INCONCLUSIVE)" \
+         'QA_STATUS="INCONCLUSIVE"' "$SPEC" "$SPEC_QA_LOOP_STATE"
 
 # Major A: the contract above is only real if a Trivial ticket can REACH a
 # definition site. Phase 6b is unreachable on the Trivial path, so a

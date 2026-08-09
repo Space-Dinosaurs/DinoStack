@@ -215,6 +215,28 @@ def test_tracker_writeback_site_ordering(implement_ticket_text):
     )
 
 
+def test_w3_tag_colocated_with_qa_loop_state_pointer(implement_ticket_text):
+    """Regression guard for the DS-143 Unit 5 split (content/references/
+    qa-loop-state.md): the 'site: W3' structured tag must stay in
+    content/commands/ds-implement-ticket.md - test_tracker_writeback_site_
+    ordering above locates it with an unguarded text.index(), which raises
+    ValueError rather than failing cleanly if the tag ever leaves this file.
+    The tag's surrounding Phase 6b body moved to content/references/
+    qa-loop-state.md; a pointer to that file must stay immediately adjacent
+    to the tag so a future edit cannot separate them without this test
+    going red.
+    """
+    text = implement_ticket_text
+    w3_idx = text.index("site: W3")
+    pointer_idx = text.index("content/references/qa-loop-state.md", w3_idx)
+    between = text[w3_idx:pointer_idx]
+    assert between.count("\n") <= 4, (
+        "the content/references/qa-loop-state.md pointer must sit within a "
+        f"few lines of the 'site: W3' tag, not merely later in the file "
+        f"(found {between.count(chr(10))} newlines between them)"
+    )
+
+
 def test_no_path_trivial_fire_site_remains(implement_ticket_text):
     assert "path: trivial" not in implement_ticket_text, (
         "the deleted Trivial-path W1 fire site ('path: trivial') must not "

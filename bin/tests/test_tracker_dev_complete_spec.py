@@ -224,6 +224,7 @@ EXPECTED_TRACKER_STATE_FILES = {
     "content/commands/ds-ticket-status-sync.md",
     "content/commands/ds-wrap.md",
     "content/references/conventions-detail.md",
+    "content/references/qa-loop-state.md",
     "content/references/risk-config-and-tiers.md",
     "content/references/tracker-writeback.md",
 }
