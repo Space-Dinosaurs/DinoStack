@@ -124,7 +124,7 @@ git branch -D <branch-name>
 
 ## Step 5: Prune stale local branches
 
-Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)`. It targets three classes of stale local branch with safe signals only - branches with no upstream and not merged into `origin/main` are left alone and reported to the user for manual review.
+Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)` - `bin/ds-branch-prune` (DS-153). It deletes a local branch only when a four-layer, first-match-wins subsumption predicate (ancestry, squash-patch equivalence, tip-subsumption, content-on-main) proves that branch's tip content is on `origin/main`; absence of proof is always `SKIP_UNPROVEN`, reported for manual review, never force-deleted. When `gh` is unavailable or errors, the predicate degrades to ancestry and content-on-main evidence only (L1/L4) - a strict subset, never a superset, of what a full run would delete - and the run names the degradation rather than staying silent.
 
 ---
 
@@ -145,7 +145,7 @@ Report a summary:
 ## Notes
 
 - **Safety first:** never remove a worktree with uncommitted changes without explicit user confirmation. The status check in Step 3 is not optional.
-- Never remove a feature worktree whose PR is still OPEN. Only MERGED PRs are safe to clean up automatically.
+- Never remove a feature worktree whose PR is still OPEN. For a live worktree's own removal (Steps 3/4, `disposition_for`), a MERGED PR alone remains sufficient evidence - `git worktree remove` does not destroy commits, so the worst case is already covered by `SKIP_DIRTY`/`SKIP_LOCKED` (DS-153 Amendment B1). This does NOT extend to local branch DELETION: `bin/ds-branch-prune` (Step 5, `disposition_for_orphan_branch`) treats a bare MERGED PR as terminally insufficient (`SKIP_PR_MERGED_UNPROVEN`) and requires the subsumption predicate to prove the tip's content is on `origin/main` before deleting.
 - The main worktree (first entry in `git worktree list`) is always skipped.
 - Works on the repository in the current working directory - not project-specific.
 - If `gh` is not available, flag feature worktrees for manual review and continue.

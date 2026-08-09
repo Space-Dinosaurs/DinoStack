@@ -494,7 +494,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 **Feature worktrees** (`.agentic/worktrees/*`) are removed after the PR is merged. See `content/references/worktree-lifecycle.md` §Feature worktree cleanup commands. Classified by **path, not branch name** (`bin/tests/worktree_model.py`, normative).
 
-**Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune removes stale local branches via safe signals: `[gone]`-upstream branches, branches merged into `origin/main`, and orphaned `worktree-agent-*` branches.
+**Worktree prune and branch prune run ONCE at session start**, not before every subagent spawn. Base-branch resolution's non-interactive checks (declaration / `develop` / `development`) may run then too, but its step-4 prompt is deferred - resolved lazily on first shippable need (see `content/rules/conventions.md`, "Base branch resolution"). Cache the resolved base branch in-context for the session. Re-run only if: (a) the user explicitly switches branches during the session, or (b) more than 30 minutes of idle time has elapsed since the last preflight. See `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune for the command blocks. The branch prune (`bin/ds-branch-prune`) deletes a branch only when a subsumption predicate proves its tip on `origin/main`; absence of proof is a skip.
 
 Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Per Claude Code's own worktree documentation and its v2.1.157 changelog, once the agent finishes the harness releases the lock and then auto-cleans the worktree via `git worktree remove` (not a raw directory delete) if it is unchanged, and a periodic orphan sweep also skips any still-locked worktree. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
@@ -7180,11 +7180,13 @@ Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
                The --delete-branch flag on gh pr merge may not auto-delete in
                all gh CLI versions; the explicit git branch -D is the fallback.
-               The branch prune block never force-deletes unproven work - see
-               Safe boundary note in that section. A locked-but-dir-missing
-               worktree admin entry survives a bare `git worktree prune` - the
-               isolation-cleanup and session-start-prune paths both unlock
-               before pruning to reclaim it.
+               The branch prune step (bin/ds-branch-prune, DS-153) proves
+               subsumption before deleting - absence of proof is always a
+               skip, never a force-delete; see Safe boundary note in that
+               section. A locked-but-dir-missing worktree admin entry survives
+               a bare `git worktree prune` - the isolation-cleanup and
+               session-start-prune paths both unlock before pruning to
+               reclaim it.
 
 Performance: Standard.
 -->
@@ -7250,24 +7252,16 @@ git worktree list --porcelain | awk '
 done
 git worktree prune
 # Base branch (BASE_BRANCH) is NOT resolved here - it is resolved lazily on first shippable need; see content/rules/conventions.md, "Base branch resolution".
-# Delete any worktree-agent-* branches not currently checked out in a worktree.
-# NOTE: `git branch` prefixes a branch checked out in ANOTHER linked worktree with `+`
-# (not just `*` for the current one) - the sed must strip both, or the guard below
-# silently misparses the name and the liveness check/delete operate on a malformed string:
-git branch | grep 'worktree-agent-' | sed 's/^[*+ ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" && continue
-  # Gate the delete via disposition_for_orphan_branch's evidence order
-  # (bin/tests/worktree_model.py) rather than deleting unconditionally -
-  # `merge_evidence` (ancestry) first, then `pr_state`, then
-  # `ls_remote_status` last, mirroring §Branch prune bullets 1/2 below.
-  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
-    git branch -D "$b"
-  elif command -v gh >/dev/null 2>&1 && [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
-    git branch -D "$b"
-  else
-    echo "SKIP (unproven merge): $b - needs manual review" >&2
-  fi
-done
+# Local branch prune (four-layer subsumption predicate - ancestry, squash-patch
+# equivalence, tip-subsumption, content-on-main; see §Branch prune below) runs
+# here via bin/ds-branch-prune (DS-153), covering worktree-agent-* branches
+# and every other stale local branch in one pass. PATH-guarded, non-blocking
+# on any exit - absence must not mean no pruning at all this session:
+if command -v ds-branch-prune >/dev/null 2>&1; then
+  ds-branch-prune
+else
+  echo "WARNING: ds-branch-prune not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local branch prune skipped this session." >&2
+fi
 ```
 
 ## Guardrail: never force-override the harness lock
@@ -7278,12 +7272,12 @@ No cleanup or prune path in this document may call `git worktree remove -f -f` (
 
 These are authorized once, for every session, and are never an operator choice:
 
-- Deleting a local branch on any merge signal already defined in §Branch prune
-  below - the `[gone]` upstream marker, ancestry into `origin/main`, or a MERGED
-  PR state. `[gone]` is an inferred rather than proven merge signal and is
-  authorized anyway, exactly as §Branch prune bullet 1 already treats it. (A
-  remote branch deleted without merging also reads `[gone]`; this is a known and
-  accepted property, not an oversight.)
+- Deleting a local branch that `bin/ds-branch-prune`'s four-layer subsumption
+  predicate (§Branch prune below) proves DELETE-eligible - ancestry, squash-
+  patch equivalence, tip-subsumption, or content-on-main, first match wins.
+  Absence of proof is always a skip; a bare "a PR merged" signal is never
+  sufficient on its own (see the predicate's terminal `SKIP_PR_MERGED_UNPROVEN`
+  outcome in §Branch prune below).
 - Deleting the corresponding remote branch as part of `gh pr merge --delete-branch`.
 - Removing an isolation or feature worktree per §Isolation worktree cleanup
   commands / §Feature worktree cleanup commands above.
@@ -7303,44 +7297,68 @@ Parent clause: `content/sections/02-delegation.md` §Standing authorizations.
 
 ## Branch prune (stale local branches)
 
-Run at session start alongside the session-start prune script. Targets three classes of stale local branch with safe signals only - never force-deletes work that cannot be proven merged.
+Run at session start alongside the session-start prune script, via
+`bin/ds-branch-prune` (DS-153) - never inline shell. The script proves, for
+each local branch, that its tip's content is subsumed by `origin/main` via a
+four-layer, first-match-wins predicate (ancestry, squash-patch equivalence,
+tip-subsumption, content-on-main); absence of proof is always a skip, never
+a force-delete. See the script's own module docstring (`bin/ds-branch-prune`)
+and `.agentic/ds-153-plan.md` (DS-153) for the full normative predicate.
 
-Bullets 1/2's existing selection filters below are pre-model guards, confirmed sound and left unchanged by this ticket - each is already equivalent to the `merge_evidence`/`ls_remote_status` signal `disposition_for_orphan_branch()` (`bin/tests/worktree_model.py`) would compute from the same underlying facts, so no command change was needed to bring them into agreement with the model.
-
-**Bullet 3 targets the identical `worktree-agent-*`-with-no-live-worktree population as the session-start prune script above, at the same session-start phase - it now runs the same merge-evidence gate, not a separate unconditional delete.** An earlier revision of this ticket left bullet 3 ungated on the claim that "no genuine merge-evidence source exists for a bare branch name here" - that claim was false the moment the session-start prune script above gained exactly that source (ancestry, then PR state); shipping the gate in one script and not the other produced zero behavior change (bullet 3 unconditionally deleted whatever the gate above had just skipped) plus new stderr noise. Both scripts now apply the identical check, so a branch either survives both or is deleted by whichever runs first - never gated by one and swept unconditionally by the other.
+Every branch's outcome additionally routes through
+`disposition_for_orphan_branch()` (`bin/tests/worktree_model.py`) so this
+script and every other branch-deletion caller share one normative
+ELIGIBLE/`SKIP_PR_MERGED_UNPROVEN` definition rather than two representations
+that can silently disagree - see that module's docstring. A bare
+`pr_state == "MERGED"` alone is never sufficient: reaching the PR-state check
+means ancestry and content-subsumption were both already inconclusive, so
+`disposition_for_orphan_branch` resolves it to the terminal
+`SKIP_PR_MERGED_UNPROVEN`, not `ELIGIBLE`.
 
 ```bash
-# Prune stale LOCAL branches. Safe signals only; never force-delete unproven work.
-git fetch origin --prune                       # drop stale remote-tracking refs
-
-# 1. Branches whose upstream is gone (merged + remote deleted via squash + --delete-branch):
-#    - equivalent to disposition_for_orphan_branch's ls_remote_status="not_pushed"-adjacent
-#      signal (the remote ref is gone because it WAS pushed and then merged+deleted).
-git for-each-ref --format '%(refname:short) %(upstream:track)' refs/heads \
-  | awk '$2=="[gone]"{print $1}' | xargs -r -n1 git branch -D
-
-# 2. Branches fully merged into origin/main, excluding main/master themselves:
-#    - equivalent to disposition_for_orphan_branch's merge_evidence="merged" resolution,
-#      with the main/master exclusion mirroring DEFAULT_BASE_BRANCHES / SKIP_BASE_BRANCH.
-git branch --merged origin/main | grep -vE '^[*+]|(^| )(main|master)$' | xargs -r -n1 git branch -d
-
-# 3. worktree-agent-* branches whose worktree no longer exists - same merge-evidence
-#    gate as the session-start prune script above (ancestry, then PR state):
-#    (a branch checked out in a live worktree is protected by git and will be skipped)
-for b in $(git for-each-ref --format='%(refname:short)' 'refs/heads/worktree-agent-*'); do
-  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
-    git branch -D "$b" 2>/dev/null || true
-  elif command -v gh >/dev/null 2>&1 && [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
-    git branch -D "$b" 2>/dev/null || true
-  else
-    echo "SKIP (unproven merge): $b - needs manual review" >&2
-  fi
-done
+if command -v ds-branch-prune >/dev/null 2>&1; then
+  ds-branch-prune
+else
+  echo "WARNING: ds-branch-prune not found on PATH - re-run your harness's DinoStack install script (<repo>/.claude/install.sh for Claude Code, the equivalent script under your adapter directory otherwise) to wire bin/ onto PATH. Local branch prune skipped this session." >&2
+fi
 ```
 
-**Safe boundary:** any branch that has no upstream AND is not merged into `origin/main` is left alone. Its work cannot be proven merged and force-deleting it would risk loss. Report such branches for manual review rather than deleting them automatically.
+Pass `--explain` for a per-branch reason list, `--dry-run` to compute and
+report without deleting anything, or `--no-gh` to force the degraded mode
+(only ancestry and content-on-main evidence, when `gh` is unavailable or
+errors - degradation can only delete FEWER branches than a full run, never
+more, and the run always names the condition rather than staying silent).
 
-**Why `[gone]` is the reliable signal:** after a history rewrite (such as the 2026-06-14 pre-OSS filter-repo purge) squash-merged pre-rewrite branches are not ancestors of the rewritten `main`, so ancestry checks alone miss them. The `[gone]` upstream marker - set when `git fetch --prune` drops the deleted remote ref - is the reliable "was merged and remote-cleaned" signal, which is why step 1 keys on `[gone]` rather than ancestry alone. Deletions performed by this block are recoverable via `git reflog` for the duration of the reflog retention window (default 90 days).
+**Safe boundary:** a branch the predicate cannot prove subsumed resolves to
+`SKIP_UNPROVEN` - reported, never force-deleted. This includes a branch
+whose only evidence is "a PR merged": that proves the PR merged, not that
+THIS local tip's content is on `origin/main` - precisely the predicate this
+script was built to eliminate (see the plan's Core decision).
+
+**Recovery (Amendment B3):** `git branch -D` deletes the branch's own reflog
+(`.git/logs/refs/heads/<branch>`) outright, so the default 90-day
+`gc.reflogExpire` does NOT govern recovery here - that setting applies to
+REACHABLE reflog entries, and a deleted branch's own reflog does not survive
+the deletion. What actually governs a deleted branch's now-dangling commit is
+`gc.reflogExpireUnreachable` (default 30 days) and `gc.pruneExpire` (default
+2 weeks) - and for a branch created inside an isolation worktree since
+pruned, the per-worktree `HEAD` reflog may be gone too, leaving no reflog
+entry anywhere. The real recovery path is the deletion ledger every
+successful `ds-branch-prune` run writes: `<branch> <tip-sha>`, appended to
+both stdout and `.agentic/branch-prune-ledger.txt`, so recovery is always
+`git branch <name> <sha>` regardless of reflog state.
+
+**Why this supersedes the old `[gone]` signal:** after a history rewrite
+(such as the 2026-06-14 pre-OSS filter-repo purge), squash-merged
+pre-rewrite branches are not ancestors of the rewritten `main`, so ancestry
+alone misses them - the same gap the old `[gone]`-upstream-marker fallback
+existed to paper over. `[gone]` is an inferred signal (the remote ref is
+gone, not proof of content) and cannot distinguish a branch that predates a
+rewrite from one simply deleted without merging. The squash-patch-equivalence
+and tip-subsumption layers close this gap with actual proof instead of
+inference: they compare the branch's own diff, or its tip's ancestry, against
+a known-merged PR's squash commit - independent of both local-`main`
+ancestry and upstream-tracking state.
 
 ## Version floor: isolated-worktree own-file edits (load-bearing)
 
@@ -12518,7 +12536,7 @@ git branch -D <branch-name>
 
 ## Step 5: Prune stale local branches
 
-Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)`. It targets three classes of stale local branch with safe signals only - branches with no upstream and not merged into `origin/main` are left alone and reported to the user for manual review.
+Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)` - `bin/ds-branch-prune` (DS-153). It deletes a local branch only when a four-layer, first-match-wins subsumption predicate (ancestry, squash-patch equivalence, tip-subsumption, content-on-main) proves that branch's tip content is on `origin/main`; absence of proof is always `SKIP_UNPROVEN`, reported for manual review, never force-deleted. When `gh` is unavailable or errors, the predicate degrades to ancestry and content-on-main evidence only (L1/L4) - a strict subset, never a superset, of what a full run would delete - and the run names the degradation rather than staying silent.
 
 ---
 
@@ -12539,7 +12557,7 @@ Report a summary:
 ## Notes
 
 - **Safety first:** never remove a worktree with uncommitted changes without explicit user confirmation. The status check in Step 3 is not optional.
-- Never remove a feature worktree whose PR is still OPEN. Only MERGED PRs are safe to clean up automatically.
+- Never remove a feature worktree whose PR is still OPEN. For a live worktree's own removal (Steps 3/4, `disposition_for`), a MERGED PR alone remains sufficient evidence - `git worktree remove` does not destroy commits, so the worst case is already covered by `SKIP_DIRTY`/`SKIP_LOCKED` (DS-153 Amendment B1). This does NOT extend to local branch DELETION: `bin/ds-branch-prune` (Step 5, `disposition_for_orphan_branch`) treats a bare MERGED PR as terminally insufficient (`SKIP_PR_MERGED_UNPROVEN`) and requires the subsumption predicate to prove the tip's content is on `origin/main` before deleting.
 - The main worktree (first entry in `git worktree list`) is always skipped.
 - Works on the repository in the current working directory - not project-specific.
 - If `gh` is not available, flag feature worktrees for manual review and continue.
