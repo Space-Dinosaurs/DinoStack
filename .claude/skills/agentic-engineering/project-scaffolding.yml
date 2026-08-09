@@ -1,6 +1,6 @@
 # Purpose: Canonical project scaffolding manifest. Defines the additive gitignore
 #          patterns and seed files that every agentic-engineering project should have.
-#          Consumed by bin/agentic-migrate (apply/check/diff subcommands) and surfaced
+#          Consumed by bin/ds-migrate (apply/check/diff subcommands) and surfaced
 #          at preflight Step 6 to auto-apply drift.
 #          v2: adds !.agentic/learnings.md negation + learnings.md seed so fix-patterns
 #              are committed and shared across operators by default.
@@ -12,14 +12,14 @@
 #              negations. These three tool-agnostic config files were already
 #              declared committed by /ds-init-project Step 9, but this manifest
 #              never carried a matching negation, so a repo that adopted the
-#              .agentic/* umbrella via agentic-migrate (rather than /ds-init-project)
+#              .agentic/* umbrella via ds-migrate (rather than /ds-init-project)
 #              silently ignored all three.
-# Public API: read by bin/agentic-migrate; version field (scaffolding_version) compared
+# Public API: read by bin/ds-migrate; version field (scaffolding_version) compared
 #             against <project>/.agentic/config.json scaffolding_version stamp.
 # Upstream: none (this is the canonical source)
-# Downstream: bin/agentic-migrate, content/sections/01-activation-preflight.md (Step 6),
+# Downstream: bin/ds-migrate, content/sections/01-activation-preflight.md (Step 6),
 #             content/commands/ds-migrate-project.md
-# Failure modes: if malformed or missing, agentic-migrate exits 2 and skips migration;
+# Failure modes: if malformed or missing, ds-migrate exits 2 and skips migration;
 #                preflight swallows the error silently and proceeds with methodology active.
 
 scaffolding_version: 5

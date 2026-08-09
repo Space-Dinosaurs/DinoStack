@@ -9,10 +9,10 @@ Public API: Referenced by content/agents/engineer.md (## Implementation process,
             "Context economy: evidence-on-disk" step) and by
             content/references/delegation-detail.md (§Worker Preamble and
             Execution Contract Template). The sketch line format is a shared
-            binding contract with bin/agentic-evidence - the worked example
+            binding contract with bin/ds-evidence - the worked example
             below must match the CLI's emitted sketch lines byte-for-byte.
 
-Upstream deps: bin/agentic-evidence (spill/sketch/get/prune CLI). Correctness
+Upstream deps: bin/ds-evidence (spill/sketch/get/prune CLI). Correctness
                of the CLI is gated by bin/tests/test_agentic_evidence.py
                (required bin-tests CI check).
 
@@ -79,25 +79,25 @@ the map itself become a context burden.
 
 ## The Three-Step Loop
 
-1. **Spill** the output to the evidence store: `agentic-evidence spill`.
+1. **Spill** the output to the evidence store: `ds-evidence spill`.
 2. **Keep the printed sketch line in your context.** Each spill prints one line
    of the form `- n<seq> | label: <label> | tool: <tool> | chars: <N> | ts: <ts> | status: <status>`.
    That line is the permanent in-context pointer to the node.
 3. **`get <node-id>` on demand** when the raw text is needed again. The raw text
    is rehydrated into the tool result exactly as spilled.
 
-Re-run `agentic-evidence sketch` to refresh the map as nodes accumulate. The
+Re-run `ds-evidence sketch` to refresh the map as nodes accumulate. The
 sketch command lists every live node; replacing the in-context sketch with a
 fresh one keeps the node-ID map accurate.
 
 ## Teardown
 
-Run `agentic-evidence prune --all` at worker end. This mirrors the
+Run `ds-evidence prune --all` at worker end. This mirrors the
 temp-file-ownership rule in `content/rules/conventions.md` - agents that write
 temp files are responsible for deleting them in teardown, and
 `.agentic/evidence/` is a temp store in exactly that sense.
 
-Use `agentic-evidence prune --older-than HOURS` for mid-run housekeeping - for
+Use `ds-evidence prune --older-than HOURS` for mid-run housekeeping - for
 example, pruning nodes older than the current phase before re-pasting a fresh
 sketch under the ~40-line cap.
 
@@ -114,7 +114,7 @@ Consequences:
   the conductor or a follow-up worker in the same worktree can `get` the raw
   text while the store still exists.
 - **They are also useful for PRE-cleanup conductor access** via
-  `bin/agentic-resolve-worktree`, which locates the live worktree so the
+  `bin/ds-resolve-worktree`, which locates the live worktree so the
   conductor can read evidence before it is torn down.
 - **There is NO post-merge evidence retrieval.** Once the branch is pushed or
   merged and the worktree is removed, node IDs point at nothing. Do not cite
@@ -158,16 +158,16 @@ will need them again while patching. It spills each to the evidence store, keeps
 the printed sketch in context, and rehydrates the stack trace on demand.
 
 ```
-$ agentic-evidence spill /tmp/route-search.txt --label "route-search" --tool Bash
-$ agentic-evidence spill /tmp/stack-trace.txt --label "stack-trace" --tool Bash
-$ agentic-evidence spill /tmp/file-dump.txt --label "file-dump" --tool Bash
+$ ds-evidence spill /tmp/route-search.txt --label "route-search" --tool Bash
+$ ds-evidence spill /tmp/stack-trace.txt --label "stack-trace" --tool Bash
+$ ds-evidence spill /tmp/file-dump.txt --label "file-dump" --tool Bash
 
-$ agentic-evidence sketch
+$ ds-evidence sketch
 - n1 | label: route-search | tool: Bash | chars: 45230 | ts: 2026-08-05T09:14:02Z | status: ok
 - n2 | label: stack-trace | tool: Bash | chars: 8341 | ts: 2026-08-05T09:15:47Z | status: ok
 - n3 | label: file-dump | tool: Bash | chars: 2110 | ts: 2026-08-05T09:16:11Z | status: ok
 
-$ agentic-evidence get n2
+$ ds-evidence get n2
 <the raw stack-trace text rehydrated verbatim, 8,341 chars>
 ```
 

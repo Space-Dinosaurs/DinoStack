@@ -12,17 +12,17 @@ Public API: Read-only reference. Load when configuring team.yml, deciding
 
 Upstream deps: content/sections/02-delegation.md (delegation decision table);
                content/sections/04-risk-classification.md (Tier/role layer);
-               bin/agentic-team (discover|dispatch|status|collect);
+               bin/ds-team (discover|dispatch|status|collect);
                bin/_role_spec.py (shared role-spec normalizer).
 
 Downstream consumers: content/sections/02-delegation.md (pointer);
                       content/sections/04-risk-classification.md (pointer);
-                      bin/agentic-team (schema section);
-                      bin/agentic-configure (team subcommand).
+                      bin/ds-team (schema section);
+                      bin/ds-configure (team subcommand).
 
 Failure modes: Prose reference; not auto-executed. The most common error path
                is a stale team.yml referencing a harness binary that was
-               uninstalled - agentic-team discover catches this and marks the
+               uninstalled - ds-team discover catches this and marks the
                harness absent. A PATH guardrail shim that erroneously blocks the
                worker's own binary is caught by the dispatch test suite; workers
                that hang (cursor-agent known bug) are bounded by the per-run
@@ -30,7 +30,7 @@ Failure modes: Prose reference; not auto-executed. The most common error path
 
 Performance: Standard. Dispatch is background shell-out per worker; no blocking
              network call on the conductor's critical path. Web enrichment in
-             agentic-configure is opt-in and cached.
+             ds-configure is opt-in and cached.
 -->
 
 # Cross-harness agent teams
@@ -53,7 +53,7 @@ spawn path, not a replacement for it. Apply it when all of the following hold:
 2. `team.yml` is present and `enabled: true` for this project or globally.
 3. The role being dispatched has a `roles[<role>]` entry in `team.yml` with a
    `harness` value other than the conductor's own harness.
-4. `agentic-team discover` confirms that harness is installed and reachable.
+4. `ds-team discover` confirms that harness is installed and reachable.
 
 When `team.yml` is absent or `enabled: false`, or when the harness is not
 installed, the conductor falls back to native delegation unchanged -- no error,
@@ -68,7 +68,7 @@ no prompt, no degraded mode. Cross-harness is additive and fully opt-in.
   directly.
 - Any spawn that the conductor would classify as direct-action (Low or
   diagnostic-only) -- those stay conductor-direct.
-- Spawns where `agentic-team discover` marks the target harness absent.
+- Spawns where `ds-team discover` marks the target harness absent.
   (Authentication errors are not a discover state -- they surface at dispatch
   time from the harness's own stderr/exit code.)
 
@@ -92,7 +92,7 @@ key):**
 enabled: true
 default_harness: codex          # where a role goes if no per-role harness is set;
                                 # validated same as roles[*].harness -- unknown value
-                                # produces a non-zero exit from agentic-team
+                                # produces a non-zero exit from ds-team
 roles:
   engineer:        { harness: codex,         model: gpt-5.3-codex }
   qa-engineer:     { harness: gemini,        model: gemini-2.5-flash }
@@ -116,7 +116,7 @@ dispatch:
 | `dispatch.output_format` | string | no | `"json"` | `json` or `text`. Governs the `collect` demux path. |
 
 The scalar-or-mapping normalize logic for role-spec entries is shared with
-`bin/agentic-configure` via `bin/_role_spec.py`. Both tools import the same
+`bin/ds-configure` via `bin/_role_spec.py`. Both tools import the same
 normalizer; there is no inline copy.
 
 Role names are the 9 known roles in `bin/_role_spec.py:KNOWN_ROLES`:
@@ -127,12 +127,12 @@ regardless.
 
 ## Per-harness dispatch table
 
-`bin/agentic-team dispatch` builds the worker invocation from this table. All 7
+`bin/ds-team dispatch` builds the worker invocation from this table. All 7
 harnesses now have **confirmed** (not probed) non-interactive flags, verified
 live against each CLI -- not hardcoded model IDs, just binary names and flag
 spellings, consistent with the "no hardcoded model IDs" stance anchored in
 `bin/_role_spec.py` (single source of harness/role labels) and the binary-name
-map in `bin/agentic-team` (the one allowed per-harness hardcoded fact).
+map in `bin/ds-team` (the one allowed per-harness hardcoded fact).
 
 | Harness | Non-interactive incantation | Model flag | Output flag | Notes / gotchas |
 |---|---|---|---|---|
@@ -146,7 +146,7 @@ map in `bin/agentic-team` (the one allowed per-harness hardcoded fact).
 | **copilot** | `copilot -p "<brief>" --allow-all-tools --allow-all-paths` | `--model <model>` | raw stdout | `--allow-all-tools --allow-all-paths` required for non-interactive file writes (see RISK-ACCEPTED note below); `--model` forwarded only when configured; final message is raw stdout (no demux). |
 | **claude (worker)** | `claude -p "<brief>"` | `--model <model>` | `--output-format json` | Only as a *dispatched leaf worker*, never re-entering OMC. Harness label is `claude`; binary is `claude`. |
 
-Discovery (`agentic-team discover`) best-effort populates a `models: [...]`
+Discovery (`ds-team discover`) best-effort populates a `models: [...]`
 list per harness: omp via `omp models ls --json` (stdout parsed, stderr
 extension-load warnings tolerated) and cursor-agent via `cursor-agent
 --list-models` (line-per-model text). claude/codex/gemini/kimi/pi/opencode/copilot
@@ -219,7 +219,7 @@ boundary.
 ### 2. Harness-native sandbox (strongest per-worker fence, where available)
 
 Where the harness exposes a sandbox flag, it is applied at dispatch time. For
-codex this is `--sandbox read-only`. The `agentic-team discover` output records
+codex this is `--sandbox read-only`. The `ds-team discover` output records
 `native_subagent_disable_flag` per harness; dispatch sets it when non-null.
 This is stronger than the PATH guardrail because it is enforced by the harness
 process itself, not by a wrapper script.
@@ -256,12 +256,12 @@ suppression described below (active only after a run is in flight).
 
 **Proactive team-routing enforcement (fixes the chicken-and-egg bug):** the
 sentinel-only suppression below has a gap - the sentinel is created by the
-*first* `agentic-team dispatch`, so if the conductor never dispatches (e.g. it
+*first* `ds-team dispatch`, so if the conductor never dispatches (e.g. it
 keeps using native `Task`/`Agent` because nothing is stopping it), a `team.yml`
 with `enabled: true` was previously silently ignored. `hooks/enforce-background-
 spawn.py` closes this gap with a branch that runs BEFORE the sentinel check: it
 loads the effective `team.yml` (global + project, project wins, same merge
-semantics as `bin/agentic-team`; PyYAML imported opportunistically, fails open
+semantics as `bin/ds-team`; PyYAML imported opportunistically, fails open
 if unavailable) and, when `enabled: true` and the spawned `subagent_type` is one
 of the five dispatchable roles (`engineer`, `debugger`, `qa-engineer`,
 `skeptic`, `security-auditor`) whose resolved harness (role entry, else
@@ -269,7 +269,7 @@ of the five dispatchable roles (`engineer`, `debugger`, `qa-engineer`,
 with an actionable instruction, e.g.:
 
 > `cross-harness team active: role 'engineer' is assigned to harness 'omp'.
-> Dispatch with: bin/agentic-team dispatch --harness omp --role engineer
+> Dispatch with: bin/ds-team dispatch --harness omp --role engineer
 > --brief <file> --workdir <dir> --model <model-from-team.yml> - then poll
 > status/collect.`
 
@@ -295,14 +295,14 @@ contains a sentinel-suppression branch: when `.active` exists and is live
 (conductor PID present + not dead, mtime < 2 h), the hook denies any `Task` or
 `Agent` call outright and denies any Skill call whose `skill` argument starts
 with `oh-my-claudecode:`. The denial message instructs the conductor to dispatch
-via `agentic-team` instead.
+via `ds-team` instead.
 
 Stale-sentinel guard: the hook treats `.active` as expired when its recorded
 PID is dead OR its mtime is more than 2 hours old, so a crashed conductor does
 not permanently suppress native Task. The sentinel self-expires when its conductor PID is dead or its mtime exceeds 2 h; there is no manual clear command.
 
-Sentinel lifecycle: created by `agentic-team dispatch` on first run (carries
-conductor PID); removed by `agentic-team collect` when the last run in the
+Sentinel lifecycle: created by `ds-team dispatch` on first run (carries
+conductor PID); removed by `ds-team collect` when the last run in the
 batch completes.
 
 **On all other harnesses:** Agents running on non-Claude harnesses MUST treat
@@ -333,7 +333,7 @@ mechanical enforcement as a guarantee.
 
 Cross-harness workers are leaf processes. They write their output to
 `<workdir>/.agentic/teamrun/<run-id>/stdout` (and `stderr`, `exit`).
-`agentic-team collect <run-id>` demuxes the per-harness output shape and
+`ds-team collect <run-id>` demuxes the per-harness output shape and
 returns the final message text:
 
 | Harness | Output shape | collect extraction |
@@ -365,10 +365,10 @@ boundary is transparent to the Skeptic/QA layer.
 
 **Cross-harness teams (opt-in) - harness-neutral conductor contract.** When `team.yml` is present and `enabled: true`, the conductor - regardless of which CLI harness it is running on (Claude Code, Codex, Gemini, Cursor, Kimi, Pi, omp, OpenClaw, OpenCode, Copilot, Hermes) - follows the same four-step dispatch contract for any dispatchable role (`engineer`, `debugger`, `qa-engineer`, `skeptic`, `security-auditor`) whose `team.yml` entry resolves to a harness other than its own:
 
-1. **Discover** - run `bin/agentic-team discover` to confirm the target harness binary is installed and its native sandbox flag (if any). Missing binary -> fall back to native delegation unchanged, no error, no prompt.
-2. **Dispatch** - run `bin/agentic-team dispatch --role <role> --brief <path>` to spawn the worker in its own throwaway workdir (worktree or directory copy). The conductor never runs git inside the worker's workdir; the conductor remains sole git owner of the live repo.
-3. **Status poll** - run `bin/agentic-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block synchronously past the configured `dispatch.timeout_seconds` watchdog.
-4. **Collect** - run `bin/agentic-team collect <run-id>` to demux the harness-specific output shape and extract the final message text.
+1. **Discover** - run `bin/ds-team discover` to confirm the target harness binary is installed and its native sandbox flag (if any). Missing binary -> fall back to native delegation unchanged, no error, no prompt.
+2. **Dispatch** - run `bin/ds-team dispatch --role <role> --brief <path>` to spawn the worker in its own throwaway workdir (worktree or directory copy). The conductor never runs git inside the worker's workdir; the conductor remains sole git owner of the live repo.
+3. **Status poll** - run `bin/ds-team status <run-id>` until the run reaches a terminal state (`done`/`failed`/`timeout`). Poll, do not block synchronously past the configured `dispatch.timeout_seconds` watchdog.
+4. **Collect** - run `bin/ds-team collect <run-id>` to demux the harness-specific output shape and extract the final message text.
 
 Once `collect` returns, its output re-enters the Skeptic/QA gates exactly as described above under "How collected worker output re-enters the Skeptic/QA gates" - same adversarial review, same `qa_criteria` triggers, same re-route limits, no new gate or bypass for cross-harness origin.
 

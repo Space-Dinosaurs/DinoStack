@@ -149,14 +149,14 @@ Run manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds
 
 - **references/model-discovery.md** - Pi/oh-my-pi model selection paths (ask-user
   wizard, harness-native, pin-by-hand) and the per-role ranking heuristics in
-  `$AE_REPO_DIR/bin/agentic-models`; read when seeding `role-models.yml`.
+  `$AE_REPO_DIR/bin/ds-models`; read when seeding `role-models.yml`.
 
 - **references/evidence-on-disk.md** - spill/sketch/rehydrate protocol for large
   tool output; when to spill, the three-step loop, teardown, and ephemerality.
 
-- **references/cross-harness-teams.md** - `agentic-team` CLI and `team.yml` schema for
+- **references/cross-harness-teams.md** - `ds-team` CLI and `team.yml` schema for
   orchestrating parallel agent teams across multiple AI harnesses; read when using
-  `agentic-team` or configuring cross-harness dispatch with `team.yml`.
+  `ds-team` or configuring cross-harness dispatch with `team.yml`.
 
 - **references/digest-return-pattern.md** - digest-return discipline: when a background
   loop-running spawn (multi-iteration Skeptic/QA, long investigation) returns, the conductor

@@ -42,19 +42,46 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              current tuples: a `literal_rules` tuple's PATTERN (index 0) is
              legitimately ALLOWED to contain an old name, because its job
              is to MATCH un-renamed `content/**` text, not to assert that
-             none exists. As of the completion of Units 1-4 (bin/, content/
-             sections/, content/rules/, content/commands/, and content/
-             agents/), an AST parse of the current 14 tuples finds ZERO
-             PATTERNs that still retain an old tool name - every tuple that
-             once matched pre-rename prose was updated in lockstep when its
-             target file was renamed. `content/references/**` (Unit 5, not
-             yet done) is the only tree this program has not yet touched;
-             it is therefore the only place a future `literal_rules`
-             PATTERN could still legitimately retain an old name, and only
-             for as long as Unit 5 remains outstanding - this statement is
-             written to stay true regardless of what Unit 5 does, since it
-             names the invariant (no un-renamed source left to match) and
-             not a specific instance. But the REPLACEMENT is entirely
+             none exists. As of the completion of Units 1-5 (bin/, content/
+             sections/, content/rules/, content/commands/, content/agents/,
+             and content/references/), an AST parse of the current 14
+             tuples finds ZERO PATTERNs that still retain an old tool
+             name - every tuple that once matched pre-rename prose was
+             updated in lockstep when its target file was renamed. The
+             general invariant this program maintains: a `literal_rules`
+             PATTERN may legitimately retain an old name ONLY for as long
+             as some file under `content/**` that the pattern is meant to
+             match still contains un-renamed prose - the moment the last
+             such file in a given tree is renamed, any PATTERN still
+             citing the old name becomes dead weight (not a bug, but a
+             signal the pattern's target text tree is now fully migrated).
+             `content/project-scaffolding.yml` is copied verbatim as an
+             operator-facing resource, so nothing it contains feeds any
+             `literal_rules` PATTERN and is outside this test's concern
+             regardless of whether its own prose has been renamed - as of
+             the fix for MINOR 3 in the same review round that added this
+             test (DS-90 Unit 5 review), it has been: its manifest header
+             now says `bin/ds-migrate` throughout, not `bin/agentic-migrate`.
+             This paragraph is written to name the invariant, not a
+             specific file's rename status, so it stays true regardless of
+             future renames - `test_content_residue_set_pinned_to_known_exceptions`
+             below is what actually enforces the exact residue set (which
+             file, which token), so this paragraph never has to.
+             `content/project-scaffolding.yml` not feeding `literal_rules`
+             was never an exceptional property of that one file - stated
+             precisely, `scripts/codex-skills.py`'s `documents()` function
+             (codex-skills.py:608-614) pattern-matches only THREE things:
+             `content/SKILL.md`, the assembled METHODOLOGY from
+             `content/sections/**`, and the 3 `WORKFLOWS` command files.
+             Everything else under `content/**` - including all of
+             `content/references/**`, `content/rules/**`,
+             `content/agents/**`, and every non-WORKFLOWS file in
+             `content/commands/**`, not just `project-scaffolding.yml` - is
+             equally outside pattern-match scope; `safe_link()` (not
+             `transform()`) is what routes `project-scaffolding.yml`
+             specifically, but the same non-pattern-matched outcome holds
+             for the rest of the tree via other routing. But the
+             REPLACEMENT is entirely
              codex-authored: it is hand-written prose/command text that
              ships into the generated Codex harness, and none of the 14
              current tuples' replacements has any legitimate reason to
@@ -94,16 +121,20 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              narrow and tied to the exact bug instance (not a generic
              sweep of the rendered tree - see the module docstring
              discussion of why a generic content-derivation boundary on
-             rendered output is fragile: unrenamed `content/**` trees can
-             legitimately still say an old tool name verbatim (as of this
-             writing, "agentic-cost team" and "bin/agentic-migrate" in
-             `content/references/**`, Unit 5 scope, not yet done), and a
-             window/diff-based exclusion boundary against that
-             prose produces false positives whenever codex-skills.py's own
-             (legitimate) path-qualification logic inserts a nearby
-             `$AE_*` token - check (2) above is the robust, general
-             mechanism; this check (3) is a targeted sensor confirming the
-             actual shipped bytes match what (2) implies).
+             rendered output is fragile: an unrenamed file under
+             `content/**` could legitimately still say an old tool name
+             verbatim (as of the MINOR 3 fix in the same review round,
+             none currently do - `content/project-scaffolding.yml` was
+             the last one and is now renamed - but the pattern-matching
+             boundary this test avoids still has to hold generally, not
+             just for today's zero-file case; see check (2)'s discussion
+             above) - and a window/diff-based exclusion boundary against
+             that prose produces false
+             positives whenever codex-skills.py's own (legitimate)
+             path-qualification logic inserts a nearby `$AE_*` token -
+             check (2) above is the robust, general mechanism; this check
+             (3) is a targeted sensor confirming the actual shipped bytes
+             match what (2) implies).
 
          The protected skill noun "agentic-engineering", the protected
          config filenames/markers (~/.claude/agentic-engineering.json,
@@ -145,11 +176,13 @@ Performance: < 2 s wall time (pure filesystem/AST reads, no subprocess).
 from __future__ import annotations
 
 import ast
+import re
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 BIN_DIR = REPO_ROOT / "bin"
+CONTENT_DIR = REPO_ROOT / "content"
 CODEX_SKILLS_PY = REPO_ROOT / "scripts" / "codex-skills.py"
 CODEX_AGENTS_MD = REPO_ROOT / ".codex" / "AGENTS.md"
 CODEX_METHODOLOGY_MD = REPO_ROOT / ".codex" / "skills" / "agentic-engineering" / "METHODOLOGY.md"
@@ -287,10 +320,84 @@ def test_codex_generated_identity_commands_use_ds_identity() -> None:
     )
 
 
+# The pinned residue set the module docstring's "known exception" claim
+# depends on: (file, token) pairs for any `agentic-<word>` string under
+# content/** that is NOT the protected "agentic-engineering" skill noun or
+# one of its protected marker extensions (agentic-engineering-config,
+# agentic-engineering-profile, agentic-engineering-preset). Independently
+# re-derived, not copied from OLD_NAMES above.
+#
+# `content/project-scaffolding.yml`'s `bin/agentic-migrate` occurrences
+# (all 5, across its Purpose/Public API/Downstream/Failure modes manifest
+# fields) were renamed to `bin/ds-migrate` as part of the MINOR 3 fix in
+# the same review round that added this test (DS-90 Unit 5 review) - its
+# applied content (gitignore patterns, seed files below the header) never
+# referenced the old name, so nothing was deferred there. That file
+# therefore no longer appears in this residue set.
+#
+# `agentic-factory` is unrelated to the bin/agentic-* rename program
+# entirely - it is the sibling `agentic-factory/` track name in the
+# parent ai-tools repo, referenced as a worked example in
+# planning-artifacts.md - and is expected to remain indefinitely.
+RESIDUE_TOKEN_PATTERN = re.compile(r"agentic-[a-zA-Z][a-zA-Z0-9-]*")
+# Exact protected token set - NOT a prefix check. A prefix check
+# (`token.startswith("agentic-engineering")`) silently drops any token
+# that merely BEGINS with the protected noun, e.g. a hypothetical
+# `agentic-engineering-doctor` would be masked even though it is not one
+# of the actually-protected markers. Verified empirically: injecting
+# `agentic-engineering-doctor` into content/ left the old prefix-based
+# check GREEN.
+PROTECTED_TOKENS = {
+    "agentic-engineering",
+    "agentic-engineering-profile",
+    "agentic-engineering-preset",
+    "agentic-engineering-config",
+}
+EXPECTED_RESIDUE_SET = {
+    ("content/references/planning-artifacts.md", "agentic-factory"),
+}
+
+
+def test_content_residue_set_pinned_to_known_exceptions() -> None:
+    """Scans every file under content/** for `agentic-<word>` tokens,
+    excludes the protected `agentic-engineering` skill noun and its marker
+    extensions, and asserts the remaining (file, token) set is exactly
+    EXPECTED_RESIDUE_SET - no more, no fewer. A third stray old name
+    anywhere under content/** turns this RED; renaming either of the two
+    known exceptions (or removing them) also turns it RED until this set
+    is updated to match, which is the point: the residue set can no
+    longer silently drift out of sync with what the docstring claims."""
+    assert CONTENT_DIR.is_dir(), f"{CONTENT_DIR} is missing"
+
+    found: set[tuple[str, str]] = set()
+    for path in CONTENT_DIR.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:  # pragma: no cover - defensive
+            continue
+        rel = str(path.relative_to(REPO_ROOT))
+        for match in RESIDUE_TOKEN_PATTERN.finditer(text):
+            token = match.group(0)
+            if token in PROTECTED_TOKENS:
+                continue
+            found.add((rel, token))
+
+    assert found == EXPECTED_RESIDUE_SET, (
+        "content/** residue set of unprotected agentic-* tokens has drifted from the "
+        f"pinned expectation.\nExpected: {sorted(EXPECTED_RESIDUE_SET)}\n"
+        f"Found:    {sorted(found)}\n"
+        f"Added:    {sorted(found - EXPECTED_RESIDUE_SET)}\n"
+        f"Missing:  {sorted(EXPECTED_RESIDUE_SET - found)}"
+    )
+
+
 EXTRA_TESTS = [
     test_bin_scripts_do_not_self_identify_with_old_names,
     test_codex_literal_rules_replacements_never_contain_old_names,
     test_codex_generated_identity_commands_use_ds_identity,
+    test_content_residue_set_pinned_to_known_exceptions,
 ]
 
 
