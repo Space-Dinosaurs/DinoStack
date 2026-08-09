@@ -7233,6 +7233,8 @@ git branch -D <branch-name>   # if not auto-deleted by --delete-branch
 git worktree prune             # clean up any stale metadata
 ```
 
+This `git branch -D` is likewise exempt from the general disposition model (as the isolation-worktree pattern above is): it runs only as a fallback AFTER `gh pr merge --delete-branch` has already succeeded on this exact branch, so the merge itself - not a bare "a PR merged" signal - is the proof of subsumption.
+
 ## Session-start prune script
 
 Run at session start (conductor preflight) - ONCE per session, not before every subagent spawn:
@@ -12484,7 +12486,7 @@ git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 
 where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune. Do **not** delete the branch here: an admin-only worktree entry with a missing directory is not merge evidence, and `git branch -D` at this point would run on zero proof of subsumption - strictly weaker evidence than either MERGED-PR route above. The orphaned branch is left for Step 5's `ds-branch-prune` subsumption predicate to evaluate under its own four-layer proof, ledgered on deletion:
+**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune. Do **not** delete the branch here: an admin-only worktree entry with a missing directory is not merge evidence, and `git branch -D` at this point would run on zero proof of subsumption - strictly weaker evidence than either MERGED-PR route below. The orphaned branch is left for Step 5's `ds-branch-prune` subsumption predicate to evaluate under its own four-layer proof, ledgered on deletion:
 
 ```bash
 git worktree unlock "$WORKTREE_PATH" 2>/dev/null || true

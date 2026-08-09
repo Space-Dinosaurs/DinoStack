@@ -935,12 +935,16 @@ def test_ledger_write_failure_halts_further_deletions_but_exits_zero(tmp_path, m
     going) produce IDENTICAL observable behavior here - a `continue` mutant
     would ALSO delete nothing, because the second branch's ledger write
     would raise too and its `git branch -D` would never be reached either.
-    The two branches sort as "feat" < "ff-branch-again"
-    (`sorted(branches)`), so "feat" fails first; the fake now raises ONLY on
-    that first call and delegates to the real `_append_ledger` afterward,
-    so a `continue` mutant would let "ff-branch-again"'s ledger write
-    succeed and its `git branch -D` actually run - which the assertions
-    below catch by requiring "ff-branch-again" to still exist.
+    The two branches sort as "feat" < "ff-branch" (`sorted(branches)`), so
+    "feat" fails first; the fake now raises ONLY on that first call and
+    delegates to the real `_append_ledger` afterward, so a `continue`
+    mutant would let "ff-branch"'s ledger write succeed and its
+    `git branch -D` actually run - which the assertion below catches by
+    requiring "ff-branch" to still exist. ("ff-branch-again" is the
+    currently-checked-out branch at test invocation, so it is
+    SKIP_CHECKED_OUT and never a delete candidate under either code path -
+    asserting its presence is vacuous and does not discriminate; the real
+    discriminators are `call_count["n"] == 1` and "ff-branch" surviving.)
     """
     repo, pr_path, _, _ = build_clean_squash(tmp_path)
 
@@ -987,10 +991,14 @@ def test_ledger_write_failure_halts_further_deletions_but_exits_zero(tmp_path, m
     ).stdout.splitlines()
     # Neither DELETE-eligible branch was actually deleted - the halt fired
     # before the very first `git branch -D` was attempted. Under a
-    # `continue` mutant, "ff-branch-again" (the second, non-failing branch)
-    # WOULD be deleted here - this is the assertion that actually
-    # distinguishes halt-and-stop from skip-and-proceed.
+    # `continue` mutant, "ff-branch" (the second, non-failing DELETE
+    # candidate) WOULD be deleted here - this is the assertion that
+    # actually distinguishes halt-and-stop from skip-and-proceed.
+    # ("ff-branch-again" is the checked-out branch and is never a delete
+    # candidate under either code path, so asserting its presence alone
+    # would be vacuous.)
     assert "feat" in branches
+    assert "ff-branch" in branches
     assert "ff-branch-again" in branches
     assert call_count["n"] == 1
     assert not (repo / ".agentic" / "branch-prune-ledger.txt").exists()

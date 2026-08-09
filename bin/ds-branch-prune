@@ -109,13 +109,6 @@ Upstream deps: Python 3 stdlib only (argparse, json, subprocess, shutil,
                bin/tests/worktree_model.py (DispositionFacts, Disposition,
                DEFAULT_BASE_BRANCHES, disposition_for_orphan_branch,
                parse_porcelain - imported by path, not installed).
-               bin/_lib.py (atomic_write only, for the deletion ledger -
-               Amendment B7: the recorded symlink-resolution defect this
-               script's sibling CLIs once hit is fixed, per MEMORY.md
-               2026-07-02, so `_lib` is safe to import here; imported via
-               the same `Path(__file__).resolve().parent / "_lib.py"`
-               SourceFileLoader pattern as bin/ds-feedback, which follows
-               a PATH symlink back to the real bin/ directory).
 
 Downstream consumers: content/references/worktree-lifecycle.md (§Session-
                       start prune script and §Branch prune, DS-153 unit 2 -
@@ -159,8 +152,6 @@ Performance: one bulk `gh pr list` call (or one file read via --pr-data)
 from __future__ import annotations
 
 import argparse
-import importlib.machinery as _ilm
-import importlib.util as _ilu
 import json
 import shutil
 import subprocess
@@ -170,10 +161,10 @@ from pathlib import Path
 from typing import Dict, List, Optional, Set, Tuple
 
 # --------------------------------------------------------------------------
-# Shared helpers: worktree_model.py (bin/tests/) and _lib.py (bin/), both
-# imported by resolved path so a bare PATH-symlink invocation
+# Shared helpers: worktree_model.py (bin/tests/), imported by resolved path
+# so a bare PATH-symlink invocation
 # (~/.local/bin/ds-branch-prune -> repo bin/ds-branch-prune) still finds
-# them - .resolve() follows the symlink back to the real bin/ directory,
+# it - .resolve() follows the symlink back to the real bin/ directory,
 # matching the pattern established in bin/ds-feedback.
 # --------------------------------------------------------------------------
 _BIN_DIR = Path(__file__).resolve().parent
@@ -186,19 +177,6 @@ from worktree_model import (  # noqa: E402
     disposition_for_orphan_branch,
     parse_porcelain,
 )
-
-_LIB_PATH = _BIN_DIR / "_lib.py"
-if "_lib" in sys.modules:
-    _lib_mod = sys.modules["_lib"]
-else:
-    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
-    _spec = _ilu.spec_from_loader("_lib", _loader)
-    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
-    _loader.exec_module(_lib_mod)
-    sys.modules["_lib"] = _lib_mod
-    del _loader, _spec
-atomic_write = _lib_mod.atomic_write
-del _lib_mod
 
 PR_LIST_LIMIT = 500
 LEDGER_RELATIVE_PATH = ".agentic/branch-prune-ledger.txt"

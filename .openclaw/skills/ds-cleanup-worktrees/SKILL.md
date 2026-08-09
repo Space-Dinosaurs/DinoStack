@@ -58,7 +58,7 @@ git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 
 where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune. Do **not** delete the branch here: an admin-only worktree entry with a missing directory is not merge evidence, and `git branch -D` at this point would run on zero proof of subsumption - strictly weaker evidence than either MERGED-PR route above. The orphaned branch is left for Step 5's `ds-branch-prune` subsumption predicate to evaluate under its own four-layer proof, ledgered on deletion:
+**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune. Do **not** delete the branch here: an admin-only worktree entry with a missing directory is not merge evidence, and `git branch -D` at this point would run on zero proof of subsumption - strictly weaker evidence than either MERGED-PR route below. The orphaned branch is left for Step 5's `ds-branch-prune` subsumption predicate to evaluate under its own four-layer proof, ledgered on deletion:
 
 ```bash
 git worktree unlock "$WORKTREE_PATH" 2>/dev/null || true

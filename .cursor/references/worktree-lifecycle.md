@@ -82,6 +82,8 @@ git branch -D <branch-name>   # if not auto-deleted by --delete-branch
 git worktree prune             # clean up any stale metadata
 ```
 
+This `git branch -D` is likewise exempt from the general disposition model (as the isolation-worktree pattern above is): it runs only as a fallback AFTER `gh pr merge --delete-branch` has already succeeded on this exact branch, so the merge itself - not a bare "a PR merged" signal - is the proof of subsumption.
+
 ## Session-start prune script
 
 Run at session start (conductor preflight) - ONCE per session, not before every subagent spawn:
