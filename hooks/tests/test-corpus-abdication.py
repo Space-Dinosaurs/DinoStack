@@ -86,11 +86,12 @@ Performance: subprocess-per-row; a couple dozen rows complete in well under
 
 IMPORTANT for future editors of hooks/enforce-no-abdication.py: any NEW
 classifier added to that hook should route its injected directive through
-_STALL_REASON's two-exit pattern (proceed with the stated default now, OR
-explicitly wait for authorization) rather than _ABDICATION_REASON's
-unconditional "proceed now" - a false positive on the latter is
-unrecoverable once emitted, whereas the two-exit wording gives the
-conductor a compliant way out even when the classifier guesses wrong.
+the two-exit pattern (proceed now OR explicitly wait for authorization)
+shared by _STALL_REASON and _ABDICATION_REASON - never an unconditional
+"proceed now" directive. A false positive on an unconditional directive
+forces an irreversible action with no escape on that turn, whereas the
+two-exit wording gives the conductor a compliant way out even when the
+classifier guesses wrong.
 """
 
 from __future__ import annotations
@@ -223,8 +224,8 @@ for _i, _text in enumerate(_GROUP1_BLOCK_PINS):
 # but the cure (rejected attempt #4) was measured worse than the disease
 # (13/13 false suppressions on Group 1's shape), so current behavior is
 # pinned deliberately. The block message itself instructs the model to
-# re-surface genuinely destructive questions (see _ABDICATION_REASON's "(1)
-# genuinely irreversible/destructive actions not pre-authorized" carve-out),
+# re-surface genuinely destructive questions (see _ABDICATION_REASON's "(1) a
+# genuinely irreversible/destructive action not pre-authorized" carve-out),
 # so this is self-correcting in practice, not a silent trap. DO NOT "fix"
 # this by widening the destructive gate - see rejected attempt #4 above.
 CORPUS.append((

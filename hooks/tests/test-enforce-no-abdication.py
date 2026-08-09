@@ -1363,6 +1363,88 @@ def test_reason_precedence(tmp_dir: str) -> int:
     return failed
 
 
+def test_abdication_reason_two_exit_wording(tmp_dir: str) -> int:
+    """Skeptic Major 1 regression guard: commit 088071327 rerouted
+    _ABDICATION_REASON from an unconditional "proceed now ... everything else:
+    proceed" directive to a two-exit directive mirroring _STALL_REASON - exit
+    (A) proceed now when a default is derivable, exit (B) decline and wait for
+    operator authorization when it genuinely requires it. A false positive on
+    the old unconditional wording forced an irreversible action with no
+    escape on that turn; nothing pinned the two-exit property before this
+    test, and the Skeptic proved this by substituting the old text back in
+    and finding every gate still green. Pins the wording so a future edit
+    that silently drops exit B (reverting to the unconditional directive)
+    fails this test."""
+    print("\n  [MUST BLOCK + WORDING: abdication reason offers two compliant exits, not one command]")
+    failed = 0
+
+    reason_dir = os.path.join(tmp_dir, "abdication_reason_two_exit_wording_cwd")
+    os.makedirs(reason_dir, exist_ok=True)
+    make_config_file(reason_dir, enabled=True)
+
+    rc, stdout, _ = run_hook(make_payload(reason_dir, last_assistant_message=ABDICATING_MSG))
+    ok = is_block(rc, stdout)
+    print(f"    [{'PASS' if ok else 'FAIL'}] Abdication block -> reason JSON is well-formed and present")
+    if not ok:
+        failed += 1
+        return failed
+
+    reason = get_reason(rc, stdout) or ""
+    reason_lower = reason.lower()
+
+    # Exit A: proceed now, in this same turn, when a default is derivable.
+    exit_a_present = (
+        "proceed with the next" in reason_lower
+        and "now" in reason_lower
+        and "this same turn" in reason_lower
+    )
+    print(f"  [{'PASS' if exit_a_present else 'FAIL'}] Reason states exit A (proceed now, this same turn)")
+    if not exit_a_present:
+        failed += 1
+
+    # Exit B: explicit wait-for-authorization is offered as a compliant
+    # response, not a loophole.
+    exit_b_present = (
+        "do not" in reason_lower
+        and "authorization" in reason_lower
+        and "not a loophole" in reason_lower
+    )
+    print(f"  [{'PASS' if exit_b_present else 'FAIL'}] Reason states exit B (wait for authorization, not a loophole)")
+    if not exit_b_present:
+        failed += 1
+
+    # The old unconditional-command phrasing must not appear verbatim - that
+    # phrasing gave no compliant path to stop and forced an irreversible
+    # action with no escape on a false positive.
+    old_phrase_1_absent = "everything else: proceed" not in reason_lower
+    print(f"  [{'PASS' if old_phrase_1_absent else 'FAIL'}] Old phrase 'Everything else: proceed' no longer present verbatim")
+    if not old_phrase_1_absent:
+        failed += 1
+
+    # Old wording continued "...now. Do not ask" (a period, ending the
+    # unconditional command as its own sentence). New wording continues
+    # "...now, in this same turn - do not ask" (a comma, folding it into
+    # the exit-(A) conditional clause). The bare phrase "proceed with the
+    # next logical step now" is a substring of BOTH and cannot discriminate
+    # them, so pin the distinguishing continuation instead.
+    old_phrase_2_absent = "proceed with the next logical step now. do not ask" not in reason_lower
+    print(f"  [{'PASS' if old_phrase_2_absent else 'FAIL'}] Old phrase 'Proceed with the next logical step now.' (unconditional sentence) no longer present verbatim")
+    if not old_phrase_2_absent:
+        failed += 1
+
+    # The closing counter-pressure sentence: choosing exit (B) for a genuine
+    # exit (A) is itself the abdication this guard exists to catch.
+    counter_pressure_present = (
+        "genuinely exit (a)" in reason_lower
+        and "abdication this guard exists to catch" in reason_lower
+    )
+    print(f"  [{'PASS' if counter_pressure_present else 'FAIL'}] Reason states the exit-(B)-for-exit-(A) counter-pressure closer")
+    if not counter_pressure_present:
+        failed += 1
+
+    return failed
+
+
 def test_transcript_fallback(tmp_dir: str) -> int:
     """Test transcript_path fallback when last_assistant_message is absent."""
     print("\n  [Transcript fallback tests]")
@@ -1509,6 +1591,9 @@ def main() -> None:
         # Reason-precedence pin.
         total_failed += test_reason_precedence(tmp_dir)
 
+        # Abdication-reason two-exit wording pin (Skeptic Major 1).
+        total_failed += test_abdication_reason_two_exit_wording(tmp_dir)
+
         # Transcript fallback.
         total_failed += test_transcript_fallback(tmp_dir)
 
@@ -1525,6 +1610,7 @@ def main() -> None:
         + 1   # corrupt counter
         + 1   # unwritable counter + #54360 conjunction regression
         + 4   # reason-precedence pin
+        + 5   # abdication-reason two-exit wording pin
         + 2   # transcript fallback
         + 3   # smoke checks
     )
