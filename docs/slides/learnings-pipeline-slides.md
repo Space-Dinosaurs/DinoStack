@@ -315,8 +315,8 @@ If either gate fails, drop to SHOULD or SKIP. MUST is genuinely rare.
 Three distinct knowledge stores - each with a different writer and lifecycle:
 
 - **`.agentic/learnings.md`** - primary destination. Committed to git. Written by `learning-extractor` (LRN) and `learnings-agent` (LRN + KNW). Teammates inherit it on pull after merge.
-- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. learnings-agent appends at most one entry directly, in the same invocation, when the event is project-affecting - not a later promotion, and not `/ds-wrap`.
-- **`.agentic/memory.md`** - `/ds-wrap`-internal rolling scratch only. Gitignored. NOT auto-injected. NOT the same as root `MEMORY.md`.
+- **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. Written by `learnings-agent` (at most one entry per invocation, when the event is project-affecting - not a later promotion) and, as of DS-90, by `/ds-wrap` Part B (staging-drain promotion, capped 3/run).
+- **`.agentic/memory.md`** - deferred-wrap daemon staging only, written exclusively by `/ds-wrap-deferred`. Gitignored. NOT auto-injected. NOT the same as root `MEMORY.md`; drained into it by the next synchronous `/ds-wrap`.
 
 ```
 learning-extractor ──> LRN entry ──> .agentic/learnings.md (committed)
