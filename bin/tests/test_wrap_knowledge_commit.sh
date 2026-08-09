@@ -237,19 +237,27 @@ else
   _pass "$CONVENTIONS no longer duplicates the tracker-key derivation prose (relocated, not copied)"
 fi
 
-# 11. Skeptic Major (final round) - the Part E clause in the deletion warning
-#     is provably dead (Part E's target set and Part G's candidate set are
-#     disjoint) and must be gone. The MEMORY-archive.md clause (DS-130) was a
-#     DinoStack-local convention that leaked into the shipped methodology -
-#     /ds-init-project never scaffolds a MEMORY-archive.md for consumer
-#     projects, so the caveat was unreachable for every consumer and has been
-#     retired; the deletion warning now prints unconditionally with no
-#     archive-specific carve-out.
-COUNT_PART_E_CLAUSE=$(grep -c 'Part E ran earlier\|Part E compressed' "$WRAP" || true)
-if [ "$COUNT_PART_E_CLAUSE" -eq 0 ]; then
-  _pass "the dead 'Part E ran earlier'/'Part E compressed' clause is absent from $WRAP (count=0)"
+# 11. Skeptic Major (final round), REVISED by DS-90 (v2 retarget) - the Part E
+#     clause in the deletion warning was provably dead on origin/main (Part
+#     E's target set - `.agentic/memory.md` + `[cwd]/CLAUDE.md` - and Part
+#     G's candidate set - root `MEMORY.md`, `decisions.md`,
+#     `.agentic/learnings.md` - were disjoint there: Part B wrote
+#     `.agentic/memory.md`, not root MEMORY.md, so Part E never touched a
+#     Part G candidate). DS-90 v2 retargets Part B to write root `MEMORY.md`
+#     and ADDS root `MEMORY.md` to Part E's target list (see
+#     content/commands/ds-wrap.md's Part E "Targets:" block) - so the two
+#     sets now OVERLAP at root MEMORY.md, and the clause is reachable again:
+#     a same-session Part E compression of root MEMORY.md legitimately
+#     explains deleted lines Part G's revert-risk check would otherwise flag
+#     as a possible revert. The clause must therefore be PRESENT, not absent -
+#     inverted from the prior round's assertion. The MEMORY-archive.md clause
+#     (DS-130) remains retired and is asserted separately below; that
+#     premise is unaffected by this reversal.
+COUNT_PART_E_CLAUSE=$(grep -c 'Part E compressed this file this session' "$WRAP" || true)
+if [ "$COUNT_PART_E_CLAUSE" -ge 1 ]; then
+  _pass "the compression-explained Part E clause is present in $WRAP (count=$COUNT_PART_E_CLAUSE) - DS-90 v2 made Part E's and Part G's target sets overlap at root MEMORY.md, so the clause is load-bearing again."
 else
-  _fail "'Part E ran earlier'/'Part E compressed' still appears $COUNT_PART_E_CLAUSE time(s) in $WRAP - the provably-dead Part E clause was not removed."
+  _fail "the compression-explained Part E clause is absent from $WRAP - DS-90 v2 added root MEMORY.md to Part E's targets, which now overlaps Part G's candidate set, so this clause is reachable and must be present to explain a same-session compression instead of misreporting it as a possible revert."
 fi
 
 if grep -qF 'moved verbatim to `MEMORY-archive.md`' "$WRAP"; then
