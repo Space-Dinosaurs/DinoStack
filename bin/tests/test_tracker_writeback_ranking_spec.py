@@ -120,14 +120,19 @@ CANONICAL_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
 HELPER_PATH = REPO_ROOT / "content" / "references" / "tracker-writeback.md"
 
 # All adapter copies expected to carry a byte-identical extraction of the
-# "## Tracker Writeback Helper" block, post-split. Verified against the
-# built tree: .cursor/, .gemini/, and .copilot/ references/ files are
-# same-inode HARDLINKS of content/references/ (identical git blob SHA);
+# "## Tracker Writeback Helper" block, post-split. .cursor/build.sh,
+# .gemini/build.sh, and .copilot/build.sh each hardlink their references/
+# files from content/references/ via `ln` (same-inode ONLY after that
+# build.sh has run locally - git itself does not track hardlinks, so a
+# fresh clone or a git worktree checkout gives content/references/,
+# .cursor/references/, .gemini/references/, and .copilot/references/ four
+# distinct inodes carrying an identical git blob until rebuilt);
 # .codex/references/ files are per-file SYMLINKS into content/references/
-# (git mode 120000). Kept as separate entries because the aliasing
+# (git mode 120000) instead. Kept as separate entries because the aliasing
 # mechanism is a build-time property that could change, not because these
-# are 5 independent surfaces - Path.read_text() transparently follows
-# symlinks, so either mechanism resolves to the same content either way.
+# are 5 independent surfaces - all five entries resolve to a single
+# build-time source (content/references/), so this list asserts over
+# exactly one independent surface.
 # .claude/skills/agentic-engineering/references/ is a symlink DIR (not a
 # per-file symlink) and is deliberately excluded.
 ADAPTER_PATHS = [
@@ -144,7 +149,14 @@ ADAPTER_PATHS = [
 # both operands come from the same build run, so a build regression that
 # drops the pointer produces identical operands and stays green; this
 # assertion tests the property that gate structurally cannot.
-POINTER_TEXT = "content/references/tracker-writeback.md"
+#
+# POINTER_TEXT is anchored on the extraction-site sentence fragment, not the
+# bare "content/references/tracker-writeback.md" path - that path string
+# recurs 8x (14x in .hermes/SKILL.md) across other cross-references inside
+# each mirror's canonical block, so a literal-path anchor cannot go false
+# even when the extraction-site pointer line itself is deleted. Verified
+# unique (exactly 1 occurrence per mirror) before adoption.
+POINTER_TEXT = "Full reference (invocation contract"
 
 COMMAND_MIRROR_PATHS = [
     REPO_ROOT / ".claude" / "commands" / "ds-implement-ticket.md",
