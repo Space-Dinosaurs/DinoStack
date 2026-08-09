@@ -19,7 +19,8 @@ Purpose: Extracts durable fix-pattern LRN learnings from resolved Skeptic
          is learnings-agent's responsibility via the mandatory triggers defined
          in content/references/conductor-operating-rules.md §learnings-agent.
          A finding's residual (the non-testable WHY) is still recorded as LRN
-         here; promotion to KNW or MEMORY.md happens at /ds-wrap.
+         here; promotion to KNW, and any MEMORY.md append, is learnings-agent's
+         responsibility (1/event) - not this agent's, and not /ds-wrap's.
 
 Public API: Spawn brief contract documented in "Reading your spawn prompt" below.
             Required inputs: ticket_id, findings_log, merged_diff.

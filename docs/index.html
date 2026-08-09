@@ -2005,7 +2005,7 @@
         <h4 style="color: var(--violet);">What it produces (4 outputs)</h4>
         <ul>
           <li><strong>context.md</strong> - session state: task focus, next steps, file paths, uncommitted changes, stashes, gotchas</li>
-          <li><strong>memory.md entries</strong> - stable facts: architecture decisions, conventions, persistent gotchas</li>
+          <li><strong>MEMORY.md entries (max 3/run)</strong> - stable facts: architecture decisions, conventions, persistent gotchas, written directly to root <code>MEMORY.md</code></li>
           <li><strong>AGENTS.md updates</strong> - proposed additions to root and track AGENTS.md files (decisions, conventions, stack)</li>
           <li><strong>knowledge-file commit (Part G)</strong> - a pushed <code>chore(knowledge):</code> branch carrying verbatim copies of any changed <code>MEMORY.md</code>, <code>decisions.md</code>, or <code>.agentic/learnings.md</code>, with a ready-to-paste <code>gh pr create</code> line - never opened automatically. Part G skips, per file, anything <code>/ds-implement-ticket</code> Phase 11e already committed onto a ticket PR branch; it still covers ticket sessions where Phase 11e did not run or did not ship (toggle off, no PR opened, push rejected)</li>
         </ul>
@@ -2016,7 +2016,7 @@
           <li>Compiles session data (files touched, errors, decisions)</li>
           <li>Worker drafts all 3 outputs from raw session data</li>
           <li>Skeptic reviews for accuracy and completeness</li>
-          <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for memory.md) - subagents cannot reliably get write permissions</li>
+          <li>Main agent merges drafts into existing files inline (rolling window for context.md, semantic dedup for MEMORY.md - draining any pending <code>.agentic/memory.md</code> staging first) - subagents cannot reliably get write permissions</li>
           <li>Compresses always-loaded memory files when they grow past a size threshold (Worker + Skeptic loop guards against fact loss, with rolling backups as a safety net)</li>
           <li>Cleans up stale worktrees as final step - backed by the <code>/ds-cleanup-worktrees</code> skill</li>
           <li>Commits and pushes any changed knowledge files to a fresh branch (Part G, soft-fail, outside the wrap lock) - closing the gap where conductor-authored MEMORY.md/decisions.md/learnings.md edits previously stranded on the base branch with no shippable commit; for ticket sessions, <code>/ds-implement-ticket</code> Phase 11e commits that knowledge onto the PR branch itself, and Part G skips a file Phase 11e already captured</li>
@@ -2102,7 +2102,7 @@
       </div>
       <div class="note" style="border-left-color: var(--gold); margin-top: 10px;">
         <strong>Protocol fit:</strong>
-        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/ds-wrap</code> then promotes the durable parts of those decisions into <code>AGENTS.md</code>; durable facts destined for <code>MEMORY.md</code> are captured by <code>wrap-ticket</code> or a manual <code>/ds-memory-update</code>, not by <code>/ds-wrap</code> - so future sessions inherit the outcome without rereading every planning file.
+        Architect plans, orchestration plans, and proposal docs belong in <code>planning/</code> while they are still decision-driving artifacts. <code>/ds-wrap</code> then promotes the durable parts of those decisions into <code>AGENTS.md</code> and, capped at 3/run, into <code>MEMORY.md</code>; <code>wrap-ticket</code> and a manual <code>/ds-memory-update</code> remain the other two writers - so future sessions inherit the outcome without rereading every planning file.
       </div>
     </div>
   </div>
@@ -2135,7 +2135,7 @@
         <span class="flow-arrow">&rarr;</span>
         <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">context.md (session state)</span>
         <span class="flow-arrow">+</span>
-        <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">memory.md (stable facts)</span>
+        <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">MEMORY.md (stable facts)</span>
         <span class="flow-arrow">+</span>
         <span class="flow-box" style="background: rgba(24,224,255,0.07); color:#18E0FF; border:1px solid rgba(24,224,255,0.25);">AGENTS.md updates</span>
       </div>
@@ -2154,7 +2154,7 @@
     <strong>Separation of concerns:</strong>
     <ul>
       <li><code>context.md</code> holds temporary session state (what's in progress, what's next).</li>
-      <li><code>memory.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
+      <li><code>MEMORY.md</code> holds stable facts (architecture decisions, gotchas that persist).</li>
       <li><code>AGENTS.md</code> files hold the canonical project description (structure, tools, conventions).</li>
       <li>The Stop hook auto-writes this session's activity shard every turn and recomposes <code>context.md</code> from it; <code>/ds-wrap</code> produces the enriched curated half (<code>_wrap.md</code>) when detail matters.</li>
       <li>Close the session cleanly so the Stop hook can finish writing <code>context.md</code>: in the terminal CLI, use <code>/exit</code> rather than ctrl+c (ctrl+c can interrupt the hook and lose session state); in the desktop or web app, <code>/exit</code> is not available - just close the window or tab normally rather than force-quitting.</li>
@@ -2267,7 +2267,7 @@
     "defaultMode": "bypassPermissions"
   }
 }</code></pre>
-        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/ds-init-project</code> and <code>/ds-wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, memory.md, findings.md, deploy.md, compression-state.json, plus their rolling snapshots). The exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>, <code>.agentic/qa.md</code>, <code>.agentic/findings.md</code>) exist because the <code>**/</code> prefix in the broader glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> or <code>.agentic/</code> dir don't match - without these, <code>/ds-init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-top: 8px;">Drop into your global settings. The broad <code>Write</code> / <code>Edit</code> rules handle most tool calls; the file-specific globs silence overwrite confirmations for the files <code>/ds-init-project</code> and <code>/ds-wrap</code> touch most often (AGENTS.md, CLAUDE.md, context.md, lowercase <code>memory*.md</code> staging/scratch files, findings.md, deploy.md, compression-state.json, plus their rolling snapshots). The uppercase root <code>MEMORY.md</code> is deliberately not listed in the <code>**/memory*.md</code> glob above - that omission is intentional, not an oversight: root <code>MEMORY.md</code> is the canonical, human-reviewed durable-facts store, and the confirm-before-overwrite prompt on it is a guard worth keeping by default. Add <code>Write(**/MEMORY.md)</code> / <code>Edit(**/MEMORY.md)</code> yourself if you want it silenced too. The exact-path rules at the bottom (<code>.claude/qa.md</code>, <code>.claude/findings.md</code>, <code>.agentic/qa.md</code>, <code>.agentic/findings.md</code>) exist because the <code>**/</code> prefix in the broader glob requires at least one parent directory segment, so files directly under a project-root <code>.claude/</code> or <code>.agentic/</code> dir don't match - without these, <code>/ds-init-project</code> prompts on every fresh scaffold. Adjust the denylist to match the commands your workflow actually uses - if you force-push feature branches regularly, narrow that entry to <code>main</code> specifically.</p>
       </div>
     </div>
   </div>

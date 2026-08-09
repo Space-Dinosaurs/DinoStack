@@ -163,17 +163,17 @@ console.log('\n[2] ds-wrap.md documents the wrap-ticket writer carve-out (DS-128
     'ds-wrap.md does NOT contain the pre-fix "already writes root `MEMORY.md`, `decisions.md`, and `.agentic/learnings.md` inline" claim');
 }
 
-console.log('\n[2] conventions.md MEMORY.md routing bullet reflects stub-seed-only ownership (DS-128 Unit 1b)');
+console.log('\n[2] conventions.md MEMORY.md routing bullet reflects DS-90 Part B promotion ownership (supersedes DS-128 Unit 1b\'s stub-seed-only text)');
 {
   const postFixBullet =
-    'written by `/ds-wrap` (stub seed only), wrap-ticket, `/ds-memory-update`.';
+    'written by `/ds-wrap` (Part B promotion, capped 3/run, plus a one-time migration stub seed), wrap-ticket, `/ds-memory-update`.';
   assert(conventionsText.includes(postFixBullet),
-    'conventions.md contains the post-fix "written by `/ds-wrap` (stub seed only), wrap-ticket, `/ds-memory-update`." bullet');
+    'conventions.md contains the DS-90 "written by `/ds-wrap` (Part B promotion, capped 3/run, plus a one-time migration stub seed), wrap-ticket, `/ds-memory-update`." bullet');
 
   const preFixBullet =
-    'written by `/ds-wrap`, wrap-ticket, `/ds-memory-update`.';
+    'written by `/ds-wrap` (stub seed only), wrap-ticket, `/ds-memory-update`.';
   assert(!conventionsText.includes(preFixBullet),
-    'conventions.md does NOT contain the pre-fix "written by `/ds-wrap`, wrap-ticket, `/ds-memory-update`." bullet');
+    'conventions.md does NOT contain the pre-DS-90 "written by `/ds-wrap` (stub seed only), wrap-ticket, `/ds-memory-update`." bullet - Part B now writes real entries, not just a migration stub');
 
   assert(conventionsText.includes('(exception: see conventions-detail.md)'),
     'conventions.md still cites the "(exception: see conventions-detail.md)" cross-reference');
