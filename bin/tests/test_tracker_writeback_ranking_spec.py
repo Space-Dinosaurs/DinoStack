@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Spec tests for the Tracker Writeback Helper's forward-only guard ranking rule
-(content/commands/ds-implement-ticket.md ## Tracker Writeback Helper).
+Spec tests for the Tracker Writeback Helper's forward-only guard ranking rule.
+
+DS split unit 1: the "## Tracker Writeback Helper" block itself moved out of
+content/commands/ds-implement-ticket.md into content/references/tracker-
+writeback.md behind a trigger-pointer. Tests that examine the block's own
+content now read HELPER_PATH; tests that examine content that stayed inline
+(Setup, Phase 2c, Phase 11's own Inputs list) still read CANONICAL_PATH.
 
 Covers:
   - (a) the canonical block contains the pipeline sub-rank prose, the fixed
@@ -105,20 +110,46 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# CANONICAL_PATH still holds content that was NOT moved out of
+# ds-implement-ticket.md (Setup, Phase 2c, Phase 11's own Inputs list) -
+# tests that examine those sections keep reading it. HELPER_PATH is the
+# split destination for the "## Tracker Writeback Helper" block itself
+# (content/references/tracker-writeback.md, DS split unit 1) - tests that
+# examine the block's own content read HELPER_PATH instead.
 CANONICAL_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+HELPER_PATH = REPO_ROOT / "content" / "references" / "tracker-writeback.md"
 
 # All adapter copies expected to carry a byte-identical extraction of the
-# "## Tracker Writeback Helper" block. .pi/prompts/ds-implement-ticket.md is
-# deliberately excluded - it is a 7-line pointer stub with no such block.
+# "## Tracker Writeback Helper" block, post-split. .cursor/, .gemini/, and
+# .copilot/ references/ files are same-inode HARDLINKS of
+# content/references/ (verified) - kept as separate entries because the
+# aliasing is a build-time property that could change, not because they are
+# 5 independent surfaces; only .codex/references/ is an independent copy.
+# .claude/skills/agentic-engineering/references/ is a symlink DIR and is
+# deliberately excluded.
 ADAPTER_PATHS = [
-    REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md",
+    HELPER_PATH,
+    REPO_ROOT / ".codex" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".cursor" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".gemini" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".copilot" / "references" / "tracker-writeback.md",
+]
+
+# The 7 command mirrors that no longer carry the "## Tracker Writeback
+# Helper" block itself (it moved out to HELPER_PATH) but must still carry a
+# pointer to it. check-adapter-sync diffs regenerated-vs-committed content -
+# both operands come from the same build run, so a build regression that
+# drops the pointer produces identical operands and stays green; this
+# assertion tests the property that gate structurally cannot.
+POINTER_TEXT = "content/references/tracker-writeback.md"
+
+COMMAND_MIRROR_PATHS = [
     REPO_ROOT / ".claude" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".codex" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".cursor" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".opencode" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".github" / "prompts" / "ds-implement-ticket.prompt.md",
     REPO_ROOT / ".openclaw" / "skills" / "ds-implement-ticket" / "SKILL.md",
-    REPO_ROOT / ".gemini" / "commands" / "ds-implement-ticket.toml",
     REPO_ROOT / ".hermes" / "SKILL.md",
 ]
 
@@ -154,7 +185,7 @@ def _extract_block(text: str) -> str:
 
 @pytest.fixture(scope="module")
 def canonical_block() -> str:
-    return _extract_block(CANONICAL_PATH.read_text(encoding="utf-8"))
+    return _extract_block(HELPER_PATH.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +455,47 @@ def test_block_byte_identical_across_adapters(canonical_block):
     )
 
 
+def test_command_mirrors_carry_pointer_to_helper_reference():
+    """The 7 command mirrors no longer carry the '## Tracker Writeback
+    Helper' block itself post-split - it moved to HELPER_PATH. check-
+    adapter-sync diffs regenerated-vs-committed content, so both operands
+    come from the same build run: a build regression that silently drops
+    the trigger-pointer produces identical operands on both sides and stays
+    green. This assertion tests the property that gate structurally cannot -
+    that the pointer (the literal path string, not just prose naming the
+    helper) actually propagated to every mirror."""
+    missing = [p for p in COMMAND_MIRROR_PATHS if not p.exists()]
+    assert not missing, f"expected command mirror files missing: {missing}"
+
+    without_pointer = [
+        str(p.relative_to(REPO_ROOT))
+        for p in COMMAND_MIRROR_PATHS
+        if POINTER_TEXT not in p.read_text(encoding="utf-8")
+    ]
+    assert not without_pointer, (
+        f"missing the '{POINTER_TEXT}' pointer literal: {without_pointer}"
+    )
+
+
+def test_helper_block_survives_in_hermes_aggregate(canonical_block):
+    """`.hermes/SKILL.md` re-embeds every content/references/*.md file, each
+    wrapped in `### <name>` (`.hermes/build.sh:100-107`), NOT `## `.
+    `_extract_block` terminates on `## ` and therefore over-runs past this
+    block's end into the alphabetically-next reference doc. Containment is
+    the correct property here, not block-boundary equality.
+
+    FORBIDDEN REPAIRS - do not reach for either instead:
+      1. Deleting this assertion. The block genuinely survives here and that
+         must stay tested.
+      2. Weakening `_extract_block` to also stop on `### `. That function is
+         shared by tests scanning the canonical file and the command mirrors,
+         none of which use `### ` as a delimiter; narrowing its termination
+         condition for one aggregate silently narrows correctness elsewhere.
+    """
+    text = (REPO_ROOT / ".hermes" / "SKILL.md").read_text(encoding="utf-8")
+    assert canonical_block in text
+
+
 # ---------------------------------------------------------------------------
 # (c) spelling heuristic on the canonical block
 # ---------------------------------------------------------------------------
@@ -578,7 +650,7 @@ def test_return_payload_schema_has_new_status_and_diagnostic_field():
 
 
 def test_line_508_failure_logging_has_both_forms():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     failure_logging_lines = [
         l for l in text.splitlines() if l.strip().startswith("**Failure logging:**")
     ]
@@ -600,7 +672,7 @@ def test_phase_2c_warning_updated_without_stale_silently_skipped_claim():
 
 
 def test_phase_11_line_510_notes_qa_transition_unaffected():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     anchor = "For full details of the Phase 11 writeback subagent brief shape"
     idx = text.index(anchor)
     window = text[idx:idx + 700]
@@ -1236,7 +1308,7 @@ def test_phase_11_inputs_list_includes_pipeline_order():
 
 
 def test_phase_11_summary_sentence_names_pipeline_order():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     anchor = "For full details of the Phase 11 writeback subagent brief shape"
     idx = text.index(anchor)
     window = text[idx:idx + 300]

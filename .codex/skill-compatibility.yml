@@ -3382,16 +3382,6 @@
       "source_token": "WORKTREE_PATH"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "0c6cb5f2d998023b26216fd0a90eb618477c4ebeaa1e2038371543f9941cca04",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -4602,16 +4592,6 @@
       "source_token": "-C"
     },
     {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "2416262dbdea56dc777e1c97b2ca8b4c1218c0cf59411beec0c0e62b9b4e066d",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-ticket-status-sync`"
-    },
-    {
       "expected_target": "printf",
       "generated_token": "printf",
       "kind": "operational",
@@ -5280,6 +5260,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "2e701ba82ccd33c1225c90dca88cc037f1f8b04fe3811b9349bb7f6f6012904e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -6442,6 +6432,16 @@
       "source_token": "Skeptic"
     },
     {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "43818d2c15e526168f31a140904908c937ac4b775ba0aa83bc2f74bd057739e1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": "implement-ticket",
       "generated_token": "$implement-ticket",
       "kind": "operational",
@@ -7370,16 +7370,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
-    },
-    {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "5629b31a12e226b27c6867ae34412569fb310fccdc9c21edff755606051cf9cb",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-ticket-status-sync`"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -8852,6 +8842,16 @@
       "source_token": "bin/tests/test_loop_key_derivation.sh"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "6cb49a8f9abb236bb8f3cf992d6cfca0f63c4de5568e634b01596f04b1c79176",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -9252,16 +9252,6 @@
       "source_token": "if"
     },
     {
-      "expected_target": ".agentic/tracker-states.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker-states.json",
-      "kind": "operational",
-      "occurrence_hash": "7592c7cc916b5c523c349e5f48df9f8e90b9cdfac9823b5c5be5dc358c127b84",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/tracker-states.json"
-    },
-    {
       "expected_target": "gh",
       "generated_token": "gh",
       "kind": "operational",
@@ -9532,6 +9522,16 @@
       "source_token": "then"
     },
     {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "7ac041110bc5ebc418af5694d634b6b66652a4f72a70b884877ceffccec50fe2",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "pr",
       "kind": "display-only",
@@ -9740,16 +9740,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "7f5c343ae1f17585240eb540dc369a7359a59845556d893b11cd38cb8c68a730",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "then",
@@ -10150,6 +10140,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "887ca2f0bc1265f831ae40cb845831e49c123cba5e829755a3b5a63636b5b45f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/config.json"
     },
     {
       "expected_target": "if",
@@ -10882,16 +10882,6 @@
       "source_token": "printf"
     },
     {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "957b493c39d2a9b7b7a1b89a83ec093c1500d7a58dcaba681be78f6281732df6",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-ticket-status-sync`"
-    },
-    {
       "expected_target": "cat",
       "generated_token": "cat",
       "kind": "operational",
@@ -11242,16 +11232,6 @@
       "source_token": "KC_STATUS"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "9bf6f6e62525db018e4b772100ea2ac4b1a54968fd8b187d29c7a36fb8654191",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "status",
       "kind": "display-only",
@@ -11360,6 +11340,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/issues"
+    },
+    {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
+      "kind": "operational",
+      "occurrence_hash": "9e59c892074b76eae91cec23ab4ffd268972abb55ec4a1a1d91914a7cf6b5817",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "`/ds-ticket-status-sync`"
     },
     {
       "expected_target": "if",
@@ -11572,14 +11562,14 @@
       "source_token": "Read"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
       "kind": "operational",
-      "occurrence_hash": "a2502c7c37976ce7618c02bfa7d03dfe84ecc7bacc7ef64d9500b9b0061e2022",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
+      "occurrence_hash": "a2610a65308dc5893313500c51f182d3188158c9bf0da8f5f9b24f107b85a428",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-wrap"
+      "source_token": "content/references/tracker-writeback.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -12002,6 +11992,16 @@
       "source_token": "content/references/cross-session-loop-resume.md"
     },
     {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "a636754d0cb38e8c0d8f3a9d340a90e9e4a1d306912afef75f09823beccfb635",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": "echo",
       "generated_token": "echo",
       "kind": "operational",
@@ -12262,6 +12262,16 @@
       "source_token": "content/references/qa-gate.md"
     },
     {
+      "expected_target": ".agentic/tracker-states.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker-states.json",
+      "kind": "operational",
+      "occurrence_hash": "aadef90634c976afdcbf8d15bf7b35067ae49c884e3ab310b09fc6ef53c48c1d",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker-states.json"
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -12340,6 +12350,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "print"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "ac896abfb9e8cdeb0fab793b9be81f2ff145cf4e94bea8e1cbf93435e85af4fd",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "bin/ds-emit",
@@ -13182,16 +13202,6 @@
       "source_token": "then"
     },
     {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "bd471bda7db299011d76268fa58015f7da3164752176c331efbc2ca77b743ca6",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-ticket-status-sync`"
-    },
-    {
       "expected_target": "sed",
       "generated_token": "sed",
       "kind": "operational",
@@ -13490,16 +13500,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "echo"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "c20e1e6d4daee2cec4a31807b5ba2558012f661ccb3e1ed5c1fc25ac53c83d17",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -13840,16 +13840,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/context.md"
-    },
-    {
-      "expected_target": ".agentic/tracker-states.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker-states.json",
-      "kind": "operational",
-      "occurrence_hash": "c7105e3c7b7b0cdc7863bf246d474f93759c41ec6dabe4c666cf2098e1d27922",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/tracker-states.json"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -14510,6 +14500,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/learnings.md"
+    },
+    {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "d4e89362adc9fdbe4633b2cc3bbbed385f501b21c688f48e4daed851ef397945",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
     },
     {
       "expected_target": "content/references/ticket-rework.md",
@@ -15522,6 +15522,16 @@
       "source_token": ".agentic/loop-state-"
     },
     {
+      "expected_target": ".agentic/tracker-states.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker-states.json",
+      "kind": "operational",
+      "occurrence_hash": "e45b2f375c95415905183c2a52875fbe33aa3585cb48cb6a89b4b39e72632aca",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker-states.json"
+    },
+    {
       "expected_target": "then",
       "generated_token": "then",
       "kind": "operational",
@@ -15530,16 +15540,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
-    },
-    {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "e4d68f96b96d78e55f494d09178a9f5ba2032b9c382069a0946174a721bba5b0",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-ticket-status-sync`"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -16312,6 +16312,16 @@
       "source_token": "/tmp"
     },
     {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "f0902afc03368f778e7e7574897b0d5df4bccb783bdbe284b58e2f3460d4eb0e",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
@@ -16340,6 +16350,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "true"
+    },
+    {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "f1247e2db7dd739c3a2f53702d01df35a7b2c6057254aec9f5caa934884912e3",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/tracker-writeback.md"
     },
     {
       "expected_target": "then",
@@ -17092,16 +17112,6 @@
       "source_token": ".agentic/loop-state-"
     },
     {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "fdd4e14db2c5dac7c88f426522a03f495b94943a20c85d9cbe8da7aad9ce5378",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/config.json"
-    },
-    {
       "expected_target": ".agentic/phase0-classifiers.yml",
       "generated_token": "$AE_PROJECT_DIR/.agentic/phase0-classifiers.yml",
       "kind": "operational",
@@ -17160,16 +17170,6 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/ds-implement-ticket"
-    },
-    {
-      "expected_target": ".agentic/tracker-states.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker-states.json",
-      "kind": "operational",
-      "occurrence_hash": "ff0996707bb8bb70d05a42115abcf0afe3af3876d56e20ab818c5a28f82b5de8",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/tracker-states.json"
     },
     {
       "expected_target": "if",
@@ -17350,6 +17350,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Write"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "0d24cf39fcd53cfc57cba1678d9cd12df8af07b09f1707dd14c067ac82d96ca0",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "wrap",
@@ -19322,6 +19332,26 @@
       "source_token": "- Do NOT write `_wrap.md` (the Stop hook already writes a raw activity shard after every turn, and the rollup already carries it - running /ds-wrap on a zero-substance session duplicates that work with a hand-curated version of nothing)"
     },
     {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
+      "kind": "operational",
+      "occurrence_hash": "807d1a8f763ac310b5ae50c73456927ed484a4f4412254258c03652edcc8fa8d",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-ticket-status-sync`"
+    },
+    {
+      "expected_target": "content/references/tracker-writeback.md",
+      "generated_token": "$AE_REPO_DIR/content/references/tracker-writeback.md",
+      "kind": "operational",
+      "occurrence_hash": "80a6cb5e84f615467f0de076502f84b5689c4ea6a7431fb563f7b2c45fa213b4",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/tracker-writeback.md"
+    },
+    {
       "expected_target": ".agentic/deploy.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/deploy.md",
       "kind": "operational",
@@ -19642,6 +19672,16 @@
       "source_token": ".agentic/wrap/last-wrap"
     },
     {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "$AE_REPO_DIR/content/commands/ds-ticket-status-sync.md",
+      "kind": "operational",
+      "occurrence_hash": "9b8e66ee281fc328f236032417d9191b448fb053180e1abba8a92ae06765aaf8",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/commands/ds-ticket-status-sync.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "2",
       "kind": "display-only",
@@ -19712,6 +19752,16 @@
       "source_token": "content/references/wrap-context-format.md"
     },
     {
+      "expected_target": "content/commands/ds-ticket-status-sync.md",
+      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
+      "kind": "operational",
+      "occurrence_hash": "a251e3f257bdbb60bfa4e3db302b62ffc5acae797cf6bce0bde244cae775b944",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-ticket-status-sync`"
+    },
+    {
       "expected_target": "apply_patch",
       "generated_token": "Write",
       "kind": "semantic-reference",
@@ -19740,16 +19790,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/wrap/lock"
-    },
-    {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "a68df6581f4803eb84fcbf4c793b597792d5ee8233de4d5b96950cf81d3fa97b",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "`/ds-ticket-status-sync`"
     },
     {
       "expected_target": "content/commands/ds-implement-ticket.md",
@@ -19862,16 +19902,6 @@
       "source_token": ".agentic/wrap/memory-backups/"
     },
     {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "$AE_REPO_DIR/content/commands/ds-ticket-status-sync.md",
-      "kind": "operational",
-      "occurrence_hash": "aed957d28b22af9dd441de7cb7be763bd92fed4508baed27e8f484ce2660eb90",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/commands/ds-ticket-status-sync.md"
-    },
-    {
       "expected_target": "exec_command + conditional session polling + write_stdin",
       "generated_token": "3. **On busy: do not read the owner file, do not classify it, and do not abort.** There is no separate unreadable-owner or stale-owner branch to evaluate here - both are progress conditions the helper itself handles, not give-up conditions for the conductor to decide. Start the helper with Codex `exec_command`; if `exec_command` yields a session ID, keep the conductor responsive and poll that session with `write_stdin` until completion; if it returns a terminal result, branch on that result immediately, letting it wait: `ds-wrap-acquire-lock \"$cwd\" --role=agent --session-id=\"$AE_SESSION_ID\"`. It polls in-process (jittered ~5s interval) and exits once the lock is acquired or after 20 minutes; non-blocking, so the conductor stays available until notified of completion. On the completion notification, branch on exactly three outcomes:\n   - **0** - acquired; the lock is now held by /ds-wrap. Proceed normally.\n   - **2** - timeout. Report the helper's final `timeout ...` line verbatim (it already carries role, pid, start time, and an `rm -rf` recovery command). Then abort.\n   - **1** - unexpected failure. Surface the WARNING line from stdout, then abort.\n   - **any other exit code** - surface it verbatim, then abort.\n\n   Exit codes 3 (unreadable owner) and 4 (stale-needs-manual) no longer exist, deliberately: an unreadable owner and an old-looking timestamp are progress conditions, not give-up conditions. A lock whose owner looks old may be held by a /ds-wrap that is legitimately still working - the timestamp alone cannot distinguish that from an abandoned lock, so the waiter keeps waiting and only tells the operator how to unwedge it manually (the HINT's `rm -rf` command) if the operator judges it stuck.\n",
       "kind": "operational",
@@ -19940,16 +19970,6 @@
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
       "source_token": "/ds-wrap"
-    },
-    {
-      "expected_target": "content/commands/ds-implement-ticket.md",
-      "generated_token": "$AE_REPO_DIR/content/commands/ds-implement-ticket.md",
-      "kind": "operational",
-      "occurrence_hash": "b2b029bd081deacd07fca0ac4091f2abaf575ac926a554d3881f8ca98a69f6df",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/commands/ds-implement-ticket.md"
     },
     {
       "expected_target": ".claude/context.md",
@@ -20492,16 +20512,6 @@
       "source_token": ".agentic/config.json"
     },
     {
-      "expected_target": "content/commands/ds-ticket-status-sync.md",
-      "generated_token": "manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync`",
-      "kind": "operational",
-      "occurrence_hash": "d36d753b42da4f27472f70baddb9e0761f6dc3ef8080c3893a509145f6c1aa42",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "`/ds-ticket-status-sync`"
-    },
-    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -21010,16 +21020,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/qa.md"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "f320cbca7e32ac078e5115ff84f2f49ae216b9058cdafbf93aaecb68230fc406",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "fi",
