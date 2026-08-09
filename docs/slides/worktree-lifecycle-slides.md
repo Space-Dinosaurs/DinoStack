@@ -311,28 +311,20 @@ Run **once at session start** in the conductor preflight - not before every suba
 ```bash
 git fetch origin
 git worktree prune
-# Orphaned worktree-agent-* branches not checked out in a live worktree:
-# gated on merge evidence (ancestry, then PR state) before deleting.
-git branch | grep 'worktree-agent-' | sed 's/^[* ]*//' | while read b; do
-  git worktree list | grep -qF "[$b]" && continue
-  if git merge-base --is-ancestor "$b" origin/main 2>/dev/null; then
-    git branch -D "$b"
-  elif [ "$(gh pr view "$b" --json state -q .state 2>/dev/null)" = "MERGED" ]; then
-    git branch -D "$b"
-  else
-    echo "SKIP (unproven merge): $b" >&2
-  fi
-done
+# Local branch prune - bin/ds-branch-prune (DS-153), covering
+# worktree-agent-* branches and every other stale local branch:
+command -v ds-branch-prune >/dev/null 2>&1 && ds-branch-prune
 ```
 
-The **branch prune** runs alongside it. Three safe signals only - never force-deletes unproven work:
+The **branch prune** (`bin/ds-branch-prune`) runs alongside it - a four-layer, first-match-wins subsumption predicate, never force-deletes unproven work:
 
-1. `[gone]`-upstream branches (merged + remote-deleted via squash + `--delete-branch`)
-2. Branches fully merged into `origin/main`
-3. Orphaned `worktree-agent-*` branches whose worktree no longer exists
+1. Ancestry - every commit is literally on `origin/main`
+2. Squash-patch equivalence - the branch's cumulative delta matches a merged PR's squash commit
+3. Tip-subsumption - the tip carries no commit beyond the head that was squashed
+4. Content-on-main - every file the branch touched is byte-identical to `origin/main`
 
 - Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time
-- `[gone]` is the reliable merged-and-cleaned signal after a history rewrite; ancestry alone misses squash-merged branches
+- Absence of proof is always a skip (`SKIP_UNPROVEN`) - a bare "a PR merged" signal is never sufficient on its own
 
 <div class="callout">
 The aggressive per-session prune is a complement to Claude Code's own 30-day orphan sweep, not a replacement. Stale worktrees accumulate between sweeps.

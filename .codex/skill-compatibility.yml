@@ -52,16 +52,6 @@
       "source_token": "content/references/conductor-operating-rules.md"
     },
     {
-      "expected_target": "content/rules/conventions.md",
-      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
-      "kind": "operational",
-      "occurrence_hash": "09a37af72a1ce84c7877abb4b0741fa827b45f17a0348b1ccbc07056807ed7bd",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/rules/conventions.md"
-    },
-    {
       "expected_target": ".agentic/config.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
       "kind": "operational",
@@ -1012,16 +1002,6 @@
       "source_token": ".agentic/presets.yml"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "7f8f8f204486f3a0f4c3c935fa55562fc39c5bafebd3903aa8272eafa78b2c68",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": ".codex/skill-compatibility.yml",
       "generated_token": "$AE_REPO_DIR/.codex/skill-compatibility.yml",
       "kind": "operational",
@@ -1360,6 +1340,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "a909bf5521a4e457db2a46f997807757f0354d5e23ff1237d32640567ad5fc7f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -1912,6 +1902,16 @@
       "source_token": "Read"
     },
     {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "e0ddc635afcf7bc57e1a93ad67a36126dcebb594a27dd7ce379db5c11b791f32",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
+    },
+    {
       "expected_target": "dinostack",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -2030,6 +2030,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "bin/ds-branch-prune",
+      "generated_token": "$AE_REPO_DIR/bin/ds-branch-prune",
+      "kind": "operational",
+      "occurrence_hash": "f36816cc409859274df9fbf042e3450bd67642eba6996738b647416472989aa2",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "bin/ds-branch-prune"
     },
     {
       "expected_target": "wrap",
