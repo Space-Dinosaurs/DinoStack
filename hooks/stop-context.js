@@ -815,23 +815,29 @@ function computeSessionTotals(cwd, sessionId, cachedRaw) {
 
 /**
  * Generate a UUID v4 using crypto.randomUUID when available (Node 14.17+),
- * falling back to a Math.random-based implementation for older runtimes.
+ * falling back to a crypto.randomBytes-derived v4 construction for older
+ * runtimes. Both paths draw from a cryptographically secure random source -
+ * never Math.random, which is not suitable for identifier generation.
  *
  * @returns {string} UUID v4 string.
  */
 function generateUuid() {
-  try {
-    const crypto = require('crypto');
-    if (typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-  } catch (_) { /* no crypto module */ }
-  // Fallback: RFC 4122 v4 via Math.random
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  const crypto = require('crypto');
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback: RFC 4122 v4 via crypto.randomBytes
+  const bytes = crypto.randomBytes(16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10
+  const hex = bytes.toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-');
 }
 
 /**

@@ -127,8 +127,9 @@
  *   __dirname-relative require so a symlinked bin still loads the repo lib, NOT a
  *   cwd-relative copy). Exports used: acquireWrapLock, wrapLockVerdict,
  *   clearAbandonedWrapLock, wrapLockPath.
- *   Node built-ins: path, crypto (for a UUID token; falls back to a Math.random
- *   v4 generator on runtimes without crypto.randomUUID). No npm dependencies.
+ *   Node built-ins: path, crypto (for a UUID token; falls back to a
+ *   crypto.randomBytes-derived v4 generator on runtimes without
+ *   crypto.randomUUID). No npm dependencies.
  *
  * Downstream consumers: content/commands/ds-wrap.md's Pre-flight lock acquisition
  *   step (BOTH the initial acquisition attempt and the live-lock contention
@@ -157,19 +158,27 @@
 
 const path = require('path');
 
-/** UUID v4 via crypto.randomUUID (Node 14.17+), falling back to Math.random. */
+/**
+ * UUID v4 via crypto.randomUUID (Node 14.17+), falling back to a
+ * crypto.randomBytes-derived v4 construction. Never Math.random - that
+ * source is not suitable for identifier/token generation.
+ */
 function generateUuid() {
-  try {
-    const crypto = require('crypto');
-    if (typeof crypto.randomUUID === 'function') {
-      return crypto.randomUUID();
-    }
-  } catch (_) { /* no crypto module */ }
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
-    const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
-    return v.toString(16);
-  });
+  const crypto = require('crypto');
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  const bytes = crypto.randomBytes(16);
+  bytes[6] = (bytes[6] & 0x0f) | 0x40; // version 4
+  bytes[8] = (bytes[8] & 0x3f) | 0x80; // variant 10
+  const hex = bytes.toString('hex');
+  return [
+    hex.slice(0, 8),
+    hex.slice(8, 12),
+    hex.slice(12, 16),
+    hex.slice(16, 20),
+    hex.slice(20, 32),
+  ].join('-');
 }
 
 const VALID_ROLES = ['agent', 'daemon', 'commit'];
