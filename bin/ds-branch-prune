@@ -27,6 +27,24 @@ Public API (CLI):
                             when the session-start call site does not pass
                             --base (see content/rules/conventions.md Base
                             branch resolution).
+                            n3 disclosure: G0 is NAME-based, and the
+                            session-start call site passes no --base at
+                            all (by design - see the M3 comment in main()
+                            below). A project declaring a non-develop
+                            BASE_BRANCH in AGENTS.md (e.g. "integration",
+                            "staging", "release") has that branch deleted
+                            via L1 once it is fully merged into
+                            origin/main, same as any other stale branch -
+                            after which base-branch resolution can no
+                            longer find it locally. This is not data loss
+                            (the ref still exists on origin, and the
+                            deletion ledger records the tip SHA), but it is
+                            a residual worth knowing about. Passing
+                            --base <the resolved BASE_BRANCH> explicitly at
+                            the call site would close this, but that is a
+                            deliberate design decision this script does not
+                            make on its own - see the plan's Amendment
+                            discussion in `.agentic/ds-153-plan.md` (DS-153).
   --explain                Print one line per branch with its outcome
                             (default: aggregate counts only).
   --dry-run                Compute and report; delete nothing, write no
@@ -325,21 +343,43 @@ def _content_signature(diff_text: str) -> str:
     these path/hash lines restores non-decay while still rejecting a
     genuine whitespace-only divergence, because whitespace differences live
     in the hunk content lines this function keeps untouched.
+
+    n1 fix (Skeptic round 3): the header-line filter is POSITIONAL, not a
+    blanket prefix match. `line.startswith("--- ")`/`"+++ "` applied to
+    every line also swallows hunk CONTENT lines that happen to start with
+    the same three characters - e.g. a deleted line whose text begins
+    `-- ` renders as `--- <text>` in the raw diff (the diff's own leading
+    `-` plus the two-dash content), and an added line beginning `++ `
+    renders as `+++ <text>`. Both would previously be dropped from the
+    signature, silently reopening the whitespace/content hole this
+    function exists to close for that line class. Each header line
+    (`index `, `--- `, `+++ `) is now consumed at most ONCE per file
+    block, immediately following the `diff --git` line that opens it, and
+    the consume-flags are cleared the moment a `@@` hunk header is seen -
+    after which no further line in that file's diff can be mistaken for a
+    header line.
     """
     out = []
+    consume_index = consume_minus = consume_plus = False
     for line in diff_text.splitlines():
+        if line.startswith("diff --git "):
+            consume_index = consume_minus = consume_plus = True
+            continue
         if line.startswith("@@"):
+            consume_index = consume_minus = consume_plus = False
             idx = line.find("@@", 2)
             out.append("@@" + line[idx + 2 :] if idx != -1 else "@@")
-        elif (
-            line.startswith("diff --git ")
-            or line.startswith("index ")
-            or line.startswith("--- ")
-            or line.startswith("+++ ")
-        ):
             continue
-        else:
-            out.append(line)
+        if consume_index and line.startswith("index "):
+            consume_index = False
+            continue
+        if consume_minus and line.startswith("--- "):
+            consume_minus = False
+            continue
+        if consume_plus and line.startswith("+++ "):
+            consume_plus = False
+            continue
+        out.append(line)
     return "\n".join(out)
 
 

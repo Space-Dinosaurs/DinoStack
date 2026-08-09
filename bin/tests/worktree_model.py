@@ -65,36 +65,31 @@ Downstream consumers: test_worktree_model.py (pytest suite);
                       worktree-lifecycle.md (both point at this file as the
                       normative classification/disposition definition rather
                       than restating the algorithm in prose);
-                      content/references/worktree-lifecycle.md
-                      §Session-start prune script (its worktree-agent-*
-                      branch delete is gated on a merge-evidence check
-                      before deleting - ancestry then PR state, mirroring
-                      disposition_for_orphan_branch's evidence order,
-                      though not a literal function call from this bash
-                      context); §Branch prune bullets 1/2 (their existing
-                      selection filters are pre-model guards, annotated as
-                      equivalent to what disposition_for_orphan_branch would
-                      compute - left unchanged, not a literal call site);
-                      §Branch prune bullet 3 now applies the identical
-                      merge-evidence gate as the session-start prune script
-                      above it (ancestry, then PR state) - it targets the
-                      same worktree-agent-*-with-no-live-worktree population
-                      at the same session-start phase, so leaving it
-                      ungated while the script above was gated produced
-                      zero behavior change plus stderr noise; both are now
-                      consistently gated, not a literal call site;
+                      content/references/worktree-lifecycle.md §Session-start
+                      prune script and §Branch prune (both now delegate local
+                      branch deletion entirely to `bin/ds-branch-prune`
+                      (DS-153) rather than restating the evidence gate
+                      inline - no branch-deleting shell remains in either
+                      block for this module to be checked against);
                       content/commands/ds-cleanup-worktrees.md Steps 2/3/4
                       (classify_entry is the normative classification Step 2
                       describes; disposition_for is the normative gate Steps
                       3/4 describe, in disposition_for's own locked -> dirty
                       -> merge-evidence order - Step 4's dirty check, absent
                       before this ticket, was added to close that gap).
-                      None of these prose consumers literally import or
-                      shell out to this module at conductor runtime - as
-                      with fold_model.py (DS-108), the model is the
-                      normative definition the prose is checked against and
-                      kept in sync with; where prose and this module
-                      disagree, this module wins.
+                      **`bin/ds-branch-prune` DOES literally import this
+                      module at runtime** (`DEFAULT_BASE_BRANCHES`,
+                      `Disposition`, `DispositionFacts`,
+                      `disposition_for_orphan_branch`, `parse_porcelain`,
+                      resolved via `Path(__file__).resolve().parent /
+                      "tests"` so a PATH-symlink invocation still finds it) -
+                      it is a live code consumer, not merely a prose one. The
+                      remaining prose consumers above do not literally import
+                      or shell out to this module - as with fold_model.py
+                      (DS-108), for those the model is the normative
+                      definition the prose is checked against and kept in
+                      sync with; where prose and this module disagree, this
+                      module wins.
 
 Failure modes: `parse_porcelain` raises ValueError on a block missing the
                `worktree` key unconditionally, and (for a non-bare block

@@ -184,6 +184,19 @@ whose only evidence is "a PR merged": that proves the PR merged, not that
 THIS local tip's content is on `origin/main` - precisely the predicate this
 script was built to eliminate (see the plan's Core decision).
 
+**Residual: G0's base-branch guard is name-based, and the session-start
+call site above passes no `--base`.** A project declaring a non-develop
+`BASE_BRANCH` in `AGENTS.md` (e.g. `integration`, `staging`, `release`) has
+that branch deleted via L1 like any other stale branch once it is fully
+merged into `origin/main` - after which base-branch resolution can no
+longer find it locally. Not data loss (the ref survives on origin, and the
+deletion ledger records the tip SHA), but disclosed here because the
+develop/development guard is unconditional while a custom `BASE_BRANCH` is
+not. Passing the resolved `BASE_BRANCH` explicitly via `--base` at the call
+site would close this; deliberately not done here, since `BASE_BRANCH` is
+resolved lazily and this script runs unconditionally at session start (see
+the `content/rules/conventions.md` Base branch resolution note above).
+
 **Recovery (Amendment B3):** `git branch -D` deletes the branch's own reflog
 (`.git/logs/refs/heads/<branch>`) outright, so the default 90-day
 `gc.reflogExpire` does NOT govern recovery here - that setting applies to

@@ -928,6 +928,19 @@ def test_ledger_write_failure_halts_further_deletions_but_exits_zero(tmp_path, m
     stderr, and (c) still exit 0 per the script's own documented contract
     ("exit 1 ONLY on an internal/usage error" - a ledger-write failure at
     session start must not look like a hard failure).
+
+    n2 fix (Skeptic round 3): the previous version of this fixture raised
+    `_append_ledger` on EVERY call, not just the first. That made `break`
+    (halt on first failure) and `continue` (skip the failed branch, keep
+    going) produce IDENTICAL observable behavior here - a `continue` mutant
+    would ALSO delete nothing, because the second branch's ledger write
+    would raise too and its `git branch -D` would never be reached either.
+    The two branches sort as "feat" < "ff-branch-again"
+    (`sorted(branches)`), so "feat" fails first; the fake now raises ONLY on
+    that first call and delegates to the real `_append_ledger` afterward,
+    so a `continue` mutant would let "ff-branch-again"'s ledger write
+    succeed and its `git branch -D` actually run - which the assertions
+    below catch by requiring "ff-branch-again" to still exist.
     """
     repo, pr_path, _, _ = build_clean_squash(tmp_path)
 
@@ -945,8 +958,18 @@ def test_ledger_write_failure_halts_further_deletions_but_exits_zero(tmp_path, m
     # fresh branch name pointing at the same tip so it, too, resolves DELETE
     # via L1 independently of ff-branch's own fate.
 
+    real_append_ledger = ds_branch_prune._append_ledger
+    call_count = {"n": 0}
+
     def fake_append_ledger(repo_arg, line):
-        raise PermissionError("[Errno 13] Permission denied (simulated)")
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise PermissionError("[Errno 13] Permission denied (simulated)")
+        # Only reached if the run did NOT halt after the first failure -
+        # i.e. under a `continue` mutant. Delegate to the real
+        # implementation so the second branch's deletion actually proceeds,
+        # making the mutant's divergence observable in git state below.
+        return real_append_ledger(repo_arg, line)
 
     monkeypatch.setattr(ds_branch_prune, "_append_ledger", fake_append_ledger)
 
@@ -963,9 +986,13 @@ def test_ledger_write_failure_halts_further_deletions_but_exits_zero(tmp_path, m
         text=True,
     ).stdout.splitlines()
     # Neither DELETE-eligible branch was actually deleted - the halt fired
-    # before the very first `git branch -D` was attempted.
+    # before the very first `git branch -D` was attempted. Under a
+    # `continue` mutant, "ff-branch-again" (the second, non-failing branch)
+    # WOULD be deleted here - this is the assertion that actually
+    # distinguishes halt-and-stop from skip-and-proceed.
     assert "feat" in branches
     assert "ff-branch-again" in branches
+    assert call_count["n"] == 1
     assert not (repo / ".agentic" / "branch-prune-ledger.txt").exists()
 
 
