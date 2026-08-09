@@ -21229,7 +21229,7 @@ Zero-substance procedure:
 - Skip Part D and Part D.5 (no session activity to extract skill-candidate or feedback signals from)
 - Skip Part E **only if no target is over its size gate** (see Part E's own Gate below) - a target that crossed its gate from prior-session drift, with no session change here, still needs to compress; citing `bin/tests/reach_model.py` invariant R2.
 - Skip Part F (no session activity means no ticket-referencing commits to detect)
-- Skip Part G **only if Part B did not write this run** - see Part G's own skip condition below, which turns on this-run write activity rather than which route was taken; a staging drain writes root `MEMORY.md` even on the zero-substance route, and that write still needs a commit.
+- Skip Part G (no session activity means no knowledge-file changes to commit) **unless Part B wrote this run** - see Part G's own skip condition below, which turns on this-run write activity rather than which route was taken; a staging drain writes root `MEMORY.md` even on the zero-substance route, and that write still needs a commit.
 - Still run Step 5 (worktree cleanup) - that is always useful
 - **Step 6 confirmation.** If Part B did not run (staging area was absent or empty, the common case): "zero-substance path - nothing new to capture this session; ran worktree cleanup only". If Part B DID run and write (staging drain, per the exception above): the mandated literal above does not apply - instead report per the general Step 6/Part G confirmation requirements (all paths written, which Skeptic round(s) ran, and the Part G outcome), same as the standard path.
 
