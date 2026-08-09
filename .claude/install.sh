@@ -1136,14 +1136,39 @@ if os.path.exists(target):
 else:
     existing = ""
 
-# One-time migration: if the CLAUDE.md content ON DISK BEFORE this rewrite
-# still carried the old always-loaded @-import, AND this run is actually
-# stripping it (skill_link_ok), force skill_auto_load=true so users are not
-# left with neither the always-on imports nor the trigger-loaded skill.
-# Self-disarming: once the old marker is gone from disk (this run migrates
-# it away, or a user removes it by hand), this condition can never fire
-# again for this installation.
-if skill_link_ok and old_import_marker in existing and config_path:
+# Compiled once - used both by the migration detection below and by the
+# managed-block rewrite further down.
+pattern = re.compile(
+    r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
+    re.DOTALL
+)
+
+# One-time migration: if a MANAGED BLOCK'S OWN CONTENT ON DISK BEFORE this
+# rewrite still carried the old always-loaded @-import, AND this run is
+# actually stripping it (skill_link_ok), force skill_auto_load=true so users
+# are not left with neither the always-on imports nor the trigger-loaded
+# skill. Detection is scoped to the managed block(s) only, not the whole
+# file - a user's own prose elsewhere in CLAUDE.md that happens to contain
+# the import string (their own notes, a hand-restored old block outside the
+# markers, etc.) must never trigger this.
+#
+# Checked ALL matches, not just the first: the rewrite below (pattern.sub,
+# no count=) replaces every managed block in the file, so detection must
+# scan every one too - a file with two well-formed blocks (new-format first,
+# old-format second) would otherwise strip the second block's imports while
+# migrating stayed False, since a first-match-only check only inspects the
+# first block.
+#
+# Self-disarming: the rewrite below replaces EVERY matched block with the
+# same new-format managed_content, so once this run (or a user editing by
+# hand) has removed the marker string from every managed block on disk,
+# this condition can never fire again for this installation.
+old_block_matches = list(pattern.finditer(existing))
+migrating = skill_link_ok and config_path and any(
+    old_import_marker in m.group(0) for m in old_block_matches
+)
+
+if migrating:
     try:
         if os.path.islink(config_path):
             raise OSError(f"refusing to write through symlink: {config_path}")
@@ -1168,10 +1193,6 @@ if os.path.islink(target):
     sys.exit(1)
 
 if begin_marker in existing and end_marker in existing:
-    pattern = re.compile(
-        r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
-        re.DOTALL
-    )
     # Use a callable replacement, not a string one: pattern.sub() interprets
     # backslash escapes (e.g. \1, \g<name>) in a string replacement, and the
     # template body is a markdown table where a literal pipe is written as
