@@ -19,7 +19,7 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             a bracketed phase tag). A missing/malformed identity line is
             flagged.
 
-         2. Warrant classification (RUNS FIRST relative to checks 3-4
+         2. Warrant classification (RUNS FIRST relative to checks 3-5
             below, and is AUTHORITATIVE over them): classifies which of
             four warrants justify the turn's content -
               - decision:   an "## Operator decisions" heading is present.
@@ -34,6 +34,13 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
               - answer:     a quoted fragment of the operator's immediately
                              preceding message. Best-effort and deliberately
                              the weakest of the four detectors.
+            DS-151: the detection domain is restricted to the identity line
+            plus UNFENCED body lines only (see _segment/_classify_warrants
+            below) - a warrant token that appears only inside a fenced code
+            block or pasted diff is an example being discussed, not a live
+            warrant, and must not launder pasted content into a false
+            decision/stoppage/completion/answer claim. The identity line
+            stays in the domain because it carries "[phase: complete]".
 
          3a. Status-only flag: fires when the message has MORE than ~1-2
              lines of prose outside the identity line AND has NONE of the
@@ -49,91 +56,191 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
              warrant, this check is skipped entirely - no flag, regardless
              of how much other prose accompanies it.
 
-         4. Volume check (DS-151): a mechanical backstop for the "1-3
-            status lines per turn" promise in
+            Known implementation seam (DS-151 amendment A7): 3a and 3b
+            still operate on the raw, unsegmented body-line list
+            (_body_after_identity_line), NOT on _segment's fence-aware
+            structure that checks 4 and 5 below consume. This is a
+            deliberate scope boundary, not an oversight: neither check's
+            correctness depends on fence-awareness (a fenced "Waiting:"
+            line inside a code block is already extremely unlikely prose,
+            and status-only's blunt >2-line threshold has no reported
+            fence-sensitive failure mode), and bringing them onto _segment
+            was out of scope for the DS-151 charge-model rewrite. If a
+            fence-related false positive/negative is ever reported against
+            either check, migrate it onto _segment then.
+
+         4. Turn-charge volume check (DS-151): a mechanical backstop for
+            the "1-3 status lines per turn" promise in
             content/references/conductor-turn-format.md, which was
-            previously enforced by prose only - no prior check in this
-            file measured turn LENGTH at all, so a verbose model could
-            pass every other check while still violating the operator's
-            scan-and-rely guarantee. Counts non-blank "core body" lines
-            (everything after the identity line, EXCLUDING up to
-            MAX_EXCLUDED_FENCE_LINES lines per fenced code block - excess
-            fenced lines beyond that cap count at full weight, and an
-            UNCLOSED fence at EOF gets no exclusion at all, since it was
-            never validly closed - and EXCLUDING the "## Operator
-            decisions" block and everything after it - counting stops the
-            instant the decisions heading is seen). That count is compared
-            against a per-warrant budget (BODY_LINE_BUDGETS below); when
-            multiple warrants are present the MOST GENEROUS applicable
-            budget wins, so a turn that legitimately combines e.g.
-            completion + decision is never punished for carrying more
-            content than either warrant alone would need - EXCEPT the
-            `answer` warrant, which never contributes its own (generous)
-            budget on the strength of the weak quoted-fragment detector
-            alone; it contributes BODY_BUDGET_ANSWER_WEAK_FALLBACK instead
-            (see that constant's comment for the full rationale). The
-            check is SKIPPED ENTIRELY when zero warrants are present -
-            that case is already exclusively owned by the status-only flag
-            (3a) - and ALSO skipped entirely when `stoppage` is the SOLE
-            warrant present, i.e. exactly the condition under which the
-            forced-yield shape check (3b) applies: a forced-yield turn's
-            "Waiting:" line COUNT is deliberately unbounded by
-            content/references/conductor-turn-format.md:31, and
-            _forced_yield_flag already owns that shape (bounding line
-            TYPE, not count) - re-capping the count here would silently
-            contradict the "unbounded" promise the prose spec makes. The
-            decisions block's total line count itself is deliberately
-            NEVER bounded here: content/sections/02-delegation.md forbids
-            a numeric cap on decision-item COUNT, and bounding the block's
-            total line count would be the same contradiction restated in
-            another axis. Per-item line count IS bounded, by check 5 below
-            - a different axis than item count.
+            previously enforced by prose only. Rewritten from a
+            three-region EXCLUSION model (status / fenced / decisions each
+            independently "excluded" from the count, subject to per-warrant
+            budgets) to a single whole-message non-negative CHARGE model -
+            see "Charge model" below. The single comparison
+            `charge(message) > BASE_BODY_BUDGET` replaces the deleted
+            per-warrant BODY_BUDGET_* table entirely. Skipped entirely when
+            zero warrants are present - that case is already exclusively
+            owned by the status-only flag (3a).
 
-         5. Operator-decisions item-sprawl check (DS-151): flags any
-            single "## Operator decisions" item (a numbered or bulleted
-            top-level line, with continuation lines folded in) that
-            exceeds MAX_LINES_PER_DECISION_ITEM lines. Item COUNT stays
-            completely unbounded, per the same kernel rule cited above;
-            this checks per-item SHAPE against the "recommended action,
-            one line of why, and the reversal offer" format that same rule
-            mandates - a different axis from the banned count cap, not a
-            restatement of it.
+         5. Operator-decisions item-sprawl check: flags any single
+            "## Operator decisions" item (a numbered or bulleted top-level
+            line, with continuation lines - INCLUDING fenced content,
+            amendment A2 - folded in) whose line count exceeds
+            ITEM_FREE_LINES (aliased MAX_LINES_PER_DECISION_ITEM). Item
+            COUNT stays completely unbounded, per
+            content/sections/02-delegation.md's ban on a numeric item-count
+            cap; this checks per-item SHAPE against the "recommended
+            action, one line of why, and the reversal offer" format that
+            same rule mandates - a different axis from the banned count
+            cap, not a restatement of it.
 
-         This ordering (warrant classification is authoritative; the shape
-         check is strictly subordinate to it) is the whole design. Two
-         prior review rounds rejected an earlier version of this hook that
-         fired on correct, fully-warranted turns - a guard that fires on
-         correct behavior trains the conductor to ignore its own feedback
-         channel, which is worse than no hook at all.
+         Checks 4 and 5 both consume the shared _segment/_regions/
+         _decision_items helpers - the single source of truth for fence and
+         region structure. This is deliberate: two independent parsers
+         drifting apart (the old _count_core_body_lines and the old
+         _decision_item_sprawl_flag each re-parsed the text separately) is
+         exactly what produced the DS-151 CF-2 convergence failure.
 
-         Four residual false positives are ACCEPTED and INTENTIONAL, not
-         bugs to chase:
-           (1) a stoppage-only turn with a separate explanatory sentence
-               next to the "Waiting:" line is flagged (the fix is to fold
-               the reason into the "Waiting:" line itself, not to relax
-               this check).
-           (2) a "Waiting:" turn that also answers the operator, where the
-               weak `answer` heuristic fails to detect the answer, is
-               flagged.
-           (3) (DS-151) a genuinely long, single-warrant `answer` turn -
-               one real paragraph honestly answering the operator's
-               question, with no other warrant present - is judged against
-               BODY_BUDGET_ANSWER_WEAK_FALLBACK (6 lines) rather than the
-               more generous BODY_BUDGET_ANSWER (10), because the only
-               implemented answer-evidence detector cannot distinguish a
-               genuine answer from an incidental quote. This is the
-               accepted cost of closing the bypass finding 3 fixed: any
-               design that could tell a genuine answer apart from an
-               incidental one would need a materially better detector,
-               which does not exist yet.
-           (4) (DS-151) a single fenced code block or diff paste longer
-               than MAX_EXCLUDED_FENCE_LINES lines has its excess lines
-               counted against the volume budget even when it is
-               legitimate pasted content, not sprawling prose - the cap
-               exists specifically to close the "wrap it in a fence"
-               bypass finding 2 fixed, and there is no mechanical way to
-               distinguish a legitimately long paste from an abusive one
-               without the cap losing its purpose.
+         ---------------------------------------------------------------
+         Charge model (DS-151 rewrite; replaces the deleted per-warrant
+         exclusion model entirely)
+         ---------------------------------------------------------------
+
+         Core decision: replace the three-region exclusion model with a
+         single whole-message non-negative CHARGE model. Every non-blank
+         body line contributes a charge of 0 or 1, or participates in a
+         bounded free pool; nothing is ever subtracted below zero, and no
+         line's presence ever reduces another line's charge. Both DS-151
+         convergence failures were "a region was subtracted out and the
+         subtraction had no aggregate bound" - under a charge model there
+         is nothing to subtract, so that defect class has no
+         representation. Every free line must be attributable to one of
+         exactly three named, individually-capped allowances (fenced
+         content, well-formed sole-stoppage Waiting: lines, decision-item
+         shape) plus the always-free "## Operator decisions" heading line
+         itself - adding a new free region is a visible, reviewable act
+         (see hooks/tests/test-turn-charge-model.py invariant I6).
+
+         charge = status_charge + fence_charge + decisions_charge
+
+         status_charge    = count of unfenced, non-blank status-region
+                             lines that are NOT a well-formed Waiting: line.
+                             well-formed = matches the Waiting: shape AND is
+                             <= WAITING_LINE_MAX_CHARS characters. A
+                             well-formed Waiting: line charges 0 ONLY when
+                             `stoppage` is the SOLE warrant present
+                             (amendment A1) - otherwise it charges 1 like
+                             any other line. The "unbounded Waiting: line
+                             count" promise
+                             (content/references/conductor-turn-format.md:31)
+                             is scoped to the sole-stoppage forced-yield
+                             shape, not to every turn that happens to
+                             mention a Waiting: line: an unconditional
+                             exclusion here would reopen an unbounded
+                             per-instance free pool inside a
+                             fully-warranted turn (identity + 40
+                             short-but-well-formed Waiting: lines + a
+                             decision heading previously charged 0 under an
+                             earlier, unamended draft of this model - the
+                             same defect class the charge model exists to
+                             close).
+         fence_charge     = max(0, fenced_nonblank_lines_in_status_region -
+                             FENCE_FREE_LINES). The free pool is AGGREGATE
+                             across every fence in the status region, not
+                             per-fence - this is what makes CF-1 (multiplying
+                             free lines by pasting many separate fences)
+                             structurally impossible: there is one scalar
+                             pool, computed once, not one pool per fence.
+                             Splitting one long fence into many short ones
+                             therefore gains nothing (verified,
+                             hooks/tests/test-turn-charge-model.py
+                             invariant I7). Scoped to the STATUS region
+                             specifically, not literally "every fence in
+                             the message": fenced content INSIDE a decision
+                             item is charged through decisions_charge
+                             instead (next paragraph). An aggregate pool
+                             spanning both regions would double-charge that
+                             content and could push `charge` above
+                             `nonblank_body_lines`, violating invariant I8.
+                             An unmatched trailing fence opener is never
+                             validly closed, so its lines are ordinary
+                             unfenced prose per _segment - no special case
+                             needed; a previously-latched "unclosed fence
+                             swallows everything to EOF" bug is
+                             structurally impossible here.
+         decisions_charge = non_item_line_count (every non-blank line under
+                             the heading not folded into a recognized item -
+                             fenced or not, full weight, no free pool: non-
+                             recognition fails toward charging, not toward
+                             free, which is why all three DS-151 CF-2
+                             verified escapes close at once)
+                             + sum(max(0, item_line_count - ITEM_FREE_LINES)
+                             for each item). item_line_count folds in every
+                             non-blank line after an item-start marker,
+                             INCLUDING fenced lines (amendment A2 - a prior
+                             draft of this rewrite silently excluded fenced
+                             continuation lines from an item's count, which
+                             reopened an unbounded-fenced-content-inside-an-
+                             item bypass). A fenced paste inside a decision
+                             item is not a way to grow that item for free;
+                             it is, however, still charged only once (via
+                             decisions_charge, not fence_charge - see above).
+
+         Free pools are named, bounded, and NOT uniformly "aggregate per
+         message" (amendment A5, correcting an earlier draft's overly broad
+         claim to that effect): the fence pool (FENCE_FREE_LINES) is
+         aggregate across the status region; the item allowance
+         (ITEM_FREE_LINES) is PER ITEM, with an unbounded item count
+         (disclosed below); the well-formed-Waiting: allowance
+         (WAITING_LINE_MAX_CHARS) is PER LINE, also with an unbounded line
+         count when stoppage is the sole warrant (by design). The
+         "## Operator decisions" heading line itself is always free (0
+         charge, counted in neither region).
+
+         Warrant-keyed budgets are deleted as unsound, not merely replaced:
+         every warrant token is conductor-authored, so a warrant-keyed
+         budget was self-serviceable; the deleted `answer` budget was worse
+         than self-serviceable, since its only detector
+         (_QUOTED_FRAGMENT_RE) fires on any incidental 8+ char quoted
+         fragment, so most substantive turns acquired the most generous
+         budget by accident. Replacement: a flat BASE_BODY_BUDGET plus
+         structurally-verified free pools - the only way to write more
+         without charge is to write the shapes the spec mandates. Warrant
+         classification survives for _status_only_flag and
+         _forced_yield_flag, and (via amendment A1) to gate the
+         sole-stoppage Waiting: free pool inside _turn_charge.
+
+         Named accepted limits (must be stated, never claimed closed):
+           - Item-shaped status prose is undetectable by any line-counting
+             model: a conductor can move status narration below the
+             heading, format it as <=ITEM_FREE_LINES-line items, and buy
+             unbounded free lines, because item COUNT is unbounded by
+             design. content/sections/02-delegation.md forbids this by
+             CONTENT ("Nothing follows the heading: no status line, no next
+             steps, no caveats") - a semantic rule no mechanical check can
+             enforce.
+           - A legitimate paste over FENCE_FREE_LINES aggregate lines in
+             the status region charges its excess (a 40-line diff pasted
+             into the status region charges 20 and fires). Spec-aligned,
+             not a defect: content/references/conductor-turn-format.md:44
+             routes that content to the PR body, plan artifact, or memory
+             file instead.
+           - (amendment A10) No character bound exists on ordinary prose
+             lines: a verbose turn written as long paragraphs still charges
+             1 per non-blank line regardless of that line's length -
+             inherited from the underlying line-counting model, not
+             introduced by this rewrite. Only Waiting: lines carry a
+             character bound (WAITING_LINE_MAX_CHARS), because only
+             Waiting: lines can ever be unboundedly free; an ordinary prose
+             line is never free regardless of length, so a character cap on
+             it would add complexity without closing any bypass.
+
+         This ordering (warrant classification is authoritative; checks
+         3a/3b/4/5 are all downstream of it) is the whole design. Two prior
+         review rounds rejected an earlier version of this hook that fired
+         on correct, fully-warranted turns - a guard that fires on correct
+         behavior trains the conductor to ignore its own feedback channel,
+         which is worse than no hook at all.
 
          `background_tasks[]` in the Stop payload is deliberately NOT read
          at all. An earlier design used it and was rejected: harness state
@@ -268,108 +375,39 @@ COUNTER_FILENAME = ".turn-shape-guard-fire-count"
 # State file format: single JSON object {"count": N, "last_user_msg_count": M}
 
 # ---------------------------------------------------------------------------
-# Volume-check budgets (DS-151)
+# Turn-charge model constants (DS-151 rewrite)
 # ---------------------------------------------------------------------------
 #
-# Per-warrant "core body" line budgets (see _count_core_body_lines and
-# _volume_flag below). Each budget is a named constant, not an inline magic
-# number, so it can be tuned without re-reading the check logic. Measured
-# against the existing test fixtures in hooks/tests/test-enforce-turn-shape.py
-# and the worked examples in content/references/conductor-turn-format.md:
+# See the module docstring's "Charge model" section for the normative
+# charge definition and the amendment (A1-A10) rationale behind each value.
+# Grounding for each constant (from the DS-151 architect plan's "Budget
+# grounding" table):
 #
-#   - DECISION and STOPPAGE share the same value as the "1-3 status lines"
-#     cap that content/references/conductor-turn-format.md:31 already
-#     imposes on the State/Running/Blocked slots for a normal or
-#     forced-yield turn - the worked "normal turn" example there uses
-#     exactly 3 (State/Running/Blocked), and existing fixture `decision_msg`
-#     in the test file uses exactly 3 body lines before its decisions
-#     heading. BODY_BUDGET_STOPPAGE only ever matters when stoppage
-#     combines with another warrant: a forced-yield turn (stoppage as SOLE
-#     warrant) is EXEMPT from the volume check entirely (see
-#     _volume_flag's `stoppage_sole` gate below, DS-151 Skeptic Critical
-#     finding 1) - conductor-turn-format.md:31 states the forced-yield
-#     "Waiting:" count is "unbounded, not re-capped at 1-3", and
-#     _forced_yield_flag only bounds line TYPE (every non-blank line must
-#     itself be a "Waiting:" line), never line COUNT. An earlier version of
-#     this comment claimed _forced_yield_flag's type check already made the
-#     volume check redundant for the sole-stoppage case "in combination" -
-#     that was false, and reasoning from it is exactly what produced
-#     finding 1's bug (a 5-agent fan-out turn tripped "budget is 3 for a
-#     stoppage turn" even though the shape was fully compliant).
-#   - COMPLETION gets headroom above the 3-line status cap because a
-#     completion turn legitimately summarizes "what shipped, where it
-#     landed, what is left" per conductor-turn-format.md's "Length
-#     discipline" section - existing fixture `completion_explicit_msg` uses
-#     3 lines; 6 gives room for a slightly larger final summary without
-#     licensing genuine sprawl.
-#   - ANSWER exists specifically so a direct operator question never goes
-#     unanswered (conductor-turn-format.md §2, warrant 4), and a genuine
-#     answer can legitimately run longer than a status update. BUT the only
-#     currently-implemented answer-evidence detector is
-#     _QUOTED_FRAGMENT_RE, which matches any incidental 8+ char
-#     double-quoted fragment or blockquote line anywhere in the turn (a PR
-#     title, a file path, an error string) - it cannot verify the quote is
-#     actually answering the operator. Granting the full ANSWER budget on
-#     that evidence alone let ANY turn buy the most generous budget with a
-#     single incidental quote, and because _volume_flag previously took
-#     max() across present warrants, that one quote silently raised the
-#     ceiling for the WHOLE turn (DS-151 Skeptic Major finding 3). Two
-#     changes fix this:
-#       (a) BODY_BUDGET_ANSWER is lowered from the prior 15 to 10 - 15 sat
-#           exactly at the reported failure boundary ("15+ line prose
-#           turns" is the literal symptom in the DS-151 problem report), so
-#           a budget set at the symptom threshold could never catch it.
-#       (b) _volume_flag never actually grants BODY_BUDGET_ANSWER when the
-#           only answer evidence is the quoted-fragment detector (which is
-#           always true today - there is no stronger detector implemented
-#           yet). It substitutes BODY_BUDGET_ANSWER_WEAK_FALLBACK (the
-#           next-highest of the OTHER three budgets, i.e. COMPLETION's 6)
-#           instead. BODY_BUDGET_ANSWER therefore stays defined and
-#           documented - not dead code - as the ceiling a future, stronger
-#           answer-signal detector would be entitled to use; until one
-#           exists, every "answer" warrant is deliberately judged against
-#           the stricter fallback.
-BODY_BUDGET_DECISION = 3
-BODY_BUDGET_STOPPAGE = 3
-BODY_BUDGET_COMPLETION = 6
-BODY_BUDGET_ANSWER = 10
+#   - BASE_BODY_BUDGET=10: round-2 verified realistic 7-line completion and
+#     7-line answer turns both fired at 6 under the old model; 10 leaves 3
+#     lines margin. The ticket symptom ("15+ line prose turns") fires at 10
+#     with 5 lines margin. >= the old largest budget (6), so nothing quiet
+#     today becomes noisy.
+#   - FENCE_FREE_LINES=20 (aggregate, was 20 PER FENCE under the old model):
+#     bounded by two pinned fixtures - a 20-line fence must stay QUIET
+#     (F >= 14) and a 30-line fence must stay ADVISORY (F <= 23); 20 sits
+#     inside [14, 23] and is the incumbent value, so this is a scope change
+#     (per-fence -> aggregate), not a magnitude change.
+#   - ITEM_FREE_LINES=3: content/sections/02-delegation.md via
+#     content/references/conductor-turn-format.md - "the recommended
+#     action, one line of why, and the reversal offer" is three
+#     conceptual components, one line each.
+#   - WAITING_LINE_MAX_CHARS=120: measured from worked examples (44 and 47
+#     chars) and a test fixture (38 chars) in conductor-turn-format.md -
+#     ~2.5x the longest honest example.
+BASE_BODY_BUDGET = 10  # flat; warrant-independent
+FENCE_FREE_LINES = 20  # AGGREGATE across the status region's fences
+ITEM_FREE_LINES = 3  # per Operator-decisions item
+WAITING_LINE_MAX_CHARS = 120  # a Waiting: line longer than this is prose
 
-# "Next-highest applicable budget" (DS-151 finding 3a) substituted for
-# BODY_BUDGET_ANSWER whenever the only answer evidence is the weak
-# quoted-fragment detector - see the ANSWER bullet above. Currently always
-# equal to BODY_BUDGET_COMPLETION (the highest of the three non-answer
-# budgets); kept as its own named constant rather than an inline reference
-# so the substitution's intent reads standalone in _volume_flag.
-BODY_BUDGET_ANSWER_WEAK_FALLBACK = BODY_BUDGET_COMPLETION
-
-# Fixed warrant name ordering, reused for both budget lookup and the
-# human-readable "<warrant>+<warrant>" label in the finding message.
-_WARRANT_ORDER = ("decision", "stoppage", "completion", "answer")
-
-_BODY_LINE_BUDGETS = {
-    "decision": BODY_BUDGET_DECISION,
-    "stoppage": BODY_BUDGET_STOPPAGE,
-    "completion": BODY_BUDGET_COMPLETION,
-    "answer": BODY_BUDGET_ANSWER,
-}
-
-# Fenced-content exclusion cap (DS-151 Skeptic Major finding 2a). Fenced
-# code/diff content is still excluded from the volume count up to this many
-# lines per fence - beyond it, the excess lines count at full weight so a
-# fence can no longer be used to paste unlimited prose at zero cost.
-MAX_EXCLUDED_FENCE_LINES = 20
-
-# Per-decision-item line cap (DS-151 Skeptic Major finding 4).
-# content/sections/02-delegation.md bans a numeric CAP on the NUMBER of
-# `## Operator decisions` items and affirmatively specifies each item's
-# SHAPE: "the recommended action, one line of why, and the reversal offer"
-# (content/references/conductor-turn-format.md:34, quoting the kernel
-# rule) - three conceptual components. Bounding per-item line count is not
-# the same axis as bounding item count, so it does not contradict that ban;
-# it mechanically enforces the shape the kernel rule already mandates. Item
-# COUNT stays completely unbounded - only an individual item's line count
-# is checked.
-MAX_LINES_PER_DECISION_ITEM = 3
+# Kept as its own name (rather than inlining ITEM_FREE_LINES everywhere) so
+# external references to the per-item cap keep a stable, descriptive name.
+MAX_LINES_PER_DECISION_ITEM = ITEM_FREE_LINES
 
 # ---------------------------------------------------------------------------
 # Classifier patterns
@@ -436,11 +474,12 @@ _COMPLETION_RE = re.compile(
 _QUOTED_FRAGMENT_RE = re.compile(r'"[^"\n]{8,}"|^>\s*\S.{6,}', re.MULTILINE)
 
 # Start of a "## Operator decisions" item: a numbered ("1.", "2)") or
-# bulleted ("-", "*") TOP-LEVEL line - anchored with NO leading whitespace,
-# deliberately, so an indented continuation/sub-bullet ("   - reason line")
-# is grouped into the item above it rather than misread as a new item.
-# Used by _decision_item_sprawl_flag (DS-151 finding 4).
-_DECISION_ITEM_START_RE = re.compile(r"^(?:\d+[.)]|-|\*)\s+\S")
+# bulleted ("-", "*", "+") line, allowing up to 3 leading spaces (DS-151:
+# was column-0 anchored, which let an indented item escape recognition -
+# CF-2's indented-item bypass) followed by whitespace then non-whitespace.
+# Used by _decision_items (consumed by both _turn_charge and
+# _decision_item_sprawl_flag).
+_DECISION_ITEM_START_RE = re.compile(r"^ {0,3}(?:\d+[.)]|[-*+])\s+\S")
 
 
 def _first_nonblank_line(text: str) -> str:
@@ -451,7 +490,14 @@ def _first_nonblank_line(text: str) -> str:
 
 
 def _body_after_identity_line(text: str) -> list:
-    """Return all lines AFTER the first non-blank (identity) line."""
+    """Return all lines AFTER the first non-blank (identity) line.
+
+    Raw-line path, deliberately NOT fence-aware - used only by
+    _status_only_flag and _forced_yield_flag. See the module docstring's
+    "Known implementation seam" note (DS-151 amendment A7) for why those
+    two checks stay on this path rather than _segment's fence-aware
+    structure.
+    """
     lines = text.splitlines()
     seen_identity = False
     body = []
@@ -464,18 +510,105 @@ def _body_after_identity_line(text: str) -> list:
     return body
 
 
+# ---------------------------------------------------------------------------
+# Shared structural helpers (DS-151): single source of truth for fence and
+# region structure, consumed by _classify_warrants, _turn_charge, and
+# _decision_item_sprawl_flag.
+# ---------------------------------------------------------------------------
+
+
+def _segment(text: str) -> tuple:
+    """(identity_line, [(line, is_fenced), ...]) for lines AFTER the
+    identity line. Fenced = inside a MATCHED ``` pair, inclusive of both
+    delimiters. An unmatched trailing opener is NOT fenced (fail closed).
+    Single source of truth for fence structure - _regions, _decision_items,
+    _classify_warrants, and _turn_charge all consume this; none re-parses
+    fence structure independently."""
+    lines = text.splitlines()
+    idx = len(lines)
+    identity_line = ""
+    for i, line in enumerate(lines):
+        if line.strip():
+            identity_line = line
+            idx = i + 1
+            break
+    body_lines = lines[idx:]
+
+    fence_positions = [i for i, ln in enumerate(body_lines) if ln.strip().startswith("```")]
+    matched = set()
+    i = 0
+    while i + 1 < len(fence_positions):
+        open_i, close_i = fence_positions[i], fence_positions[i + 1]
+        for k in range(open_i, close_i + 1):
+            matched.add(k)
+        i += 2
+
+    return identity_line, [(ln, idx2 in matched) for idx2, ln in enumerate(body_lines)]
+
+
+def _regions(body: list) -> tuple:
+    """Split body at the first UNFENCED '## Operator decisions' heading.
+    (status_lines, decisions_lines, heading_present). The heading line
+    belongs to neither region."""
+    for i, (line, is_fenced) in enumerate(body):
+        if not is_fenced and _OPERATOR_DECISIONS_HEADING_RE.match(line):
+            return body[:i], body[i + 1:], True
+    return body, [], False
+
+
+def _decision_items(decisions: list) -> tuple:
+    """([(label, line_count), ...], non_item_line_count).
+
+    An item starts at an unfenced non-blank line matching
+    _DECISION_ITEM_START_RE; every subsequent non-blank line - fenced OR
+    unfenced (DS-151 amendment A2: fenced content inside an item folds
+    into that item's line count, it does not escape for free) - folds into
+    it until the next unfenced item-start line. Non-blank lines BEFORE the
+    first item start, and any when no item exists at all, are counted in
+    non_item_line_count - never silently ignored (this is exactly the gap
+    that produced the DS-151 CF-2 convergence failure).
+    """
+    items = []
+    label = None
+    count = 0
+    non_item = 0
+    for line, is_fenced in decisions:
+        if not line.strip():
+            continue
+        if not is_fenced and _DECISION_ITEM_START_RE.match(line):
+            if label is not None:
+                items.append((label, count))
+            label = line.strip()
+            count = 1
+        elif label is not None:
+            count += 1
+        else:
+            non_item += 1
+    if label is not None:
+        items.append((label, count))
+    return items, non_item
+
+
 def _classify_warrants(text: str) -> dict:
+    """Unchanged signature. Detection domain is the identity line plus
+    UNFENCED body lines only (DS-151) - a warrant token inside a fence is
+    an example being discussed, not a warrant. The identity line carries
+    "[phase: complete]", so it MUST remain in the domain."""
+    identity_line, body = _segment(text)
+    unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
+    domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
     return {
-        "decision": bool(_OPERATOR_DECISIONS_HEADING_RE.search(text)),
-        "stoppage": any(_WAITING_LINE_RE.match(line) for line in text.splitlines()),
-        "completion": bool(_COMPLETION_RE.search(text)),
-        "answer": bool(_QUOTED_FRAGMENT_RE.search(text)),
+        "decision": bool(_OPERATOR_DECISIONS_HEADING_RE.search(domain_text)),
+        "stoppage": any(_WAITING_LINE_RE.match(ln) for ln in unfenced_lines),
+        "completion": bool(_COMPLETION_RE.search(domain_text)),
+        "answer": bool(_QUOTED_FRAGMENT_RE.search(domain_text)),
     }
 
 
 def _status_only_flag(text: str, warrants: dict) -> bool:
     """Fires when the message exceeds ~1-2 lines of prose outside the
-    identity line AND carries none of the four warrants."""
+    identity line AND carries none of the four warrants. Raw-line path -
+    see the module docstring's "Known implementation seam" note."""
     if any(warrants.values()):
         return False
     body_lines = [ln for ln in _body_after_identity_line(text) if ln.strip()]
@@ -483,7 +616,8 @@ def _status_only_flag(text: str, warrants: dict) -> bool:
 
 
 def _forced_yield_flag(text: str, warrants: dict):
-    """Return a finding string, or None.
+    """Return a finding string, or None. Raw-line path - see the module
+    docstring's "Known implementation seam" note.
 
     Runs ONLY when `stoppage` is the SOLE warrant present. When that gate
     passes, every non-blank line after the identity line must itself be a
@@ -503,113 +637,116 @@ def _forced_yield_flag(text: str, warrants: dict):
     return None
 
 
-def _count_core_body_lines(text: str) -> int:
-    """Count non-blank "core body" lines for the volume check (DS-151).
+def _turn_charge(text: str) -> tuple:
+    """(charge, breakdown). breakdown keys: status, fence, decisions,
+    fence_lines, items, waiting_ok, nonblank.
 
-    Core body = every line after the identity line, EXCLUDING:
-      - fenced code block contents AND the ``` fence markers themselves,
-        UP TO MAX_EXCLUDED_FENCE_LINES per fence (DS-151 Skeptic Major
-        finding 2a). A long pasted diff or command output inside a fence
-        should not count against the prose budget in full - only line
-        count OR character count alone would either be gameable by long
-        lines or unfairly punish a legitimately-quoted table/code block.
-        But excluding fenced content WITHOUT a cap is itself an
-        unconditional bypass: 30 lines of ordinary prose wrapped in a
-        closed fence previously counted as 0. Lines within a single fence
-        beyond the cap count at FULL weight (one count per excess line),
-        so a fence can still carry a reasonably-sized paste for free but
-        can no longer smuggle unlimited prose past the check.
-      - EXCEPTION to the above: an UNCLOSED fence (the message ends while
-        `in_code` is still true) is never a validly-closed exclusion at
-        all (DS-151 Skeptic Major finding 2b) - a previous version of this
-        function let an unbalanced ``` latch `in_code = True` to EOF,
-        silently zeroing every line after it, closed or not. Every line
-        collected since the unmatched opener counts at full weight, with
-        NO exclusion cap applied (not even the first
-        MAX_EXCLUDED_FENCE_LINES), because the exclusion was never validly
-        closed in the first place.
-      - the "## Operator decisions" heading and everything from that point
-        to the end of the message (counting simply stops there) - the
-        decisions block is measured and governed separately (see
-        _decision_item_sprawl_flag and content/sections/02-delegation.md's
-        ban on a decision-item COUNT cap).
-      - blank lines.
+    See the module docstring's "Charge model" section for the normative
+    charge definition, including why fence_charge is scoped to the status
+    region rather than literally "every fence in the message" (required to
+    satisfy invariant I8 in hooks/tests/test-turn-charge-model.py - an
+    aggregate pool spanning both regions would double-charge fenced content
+    inside a decision item, since that content is already charged via
+    decisions_charge).
     """
-    lines = text.splitlines()
-    seen_identity = False
-    in_code = False
-    count = 0
-    fence_buffer = []
-    for line in lines:
-        if not seen_identity:
-            if line.strip():
-                seen_identity = True
+    identity_line, body = _segment(text)
+    status_lines, decisions_lines, heading_present = _regions(body)
+    warrants = _classify_warrants(text)
+    stoppage_sole = warrants["stoppage"] and not (
+        warrants["decision"] or warrants["completion"] or warrants["answer"]
+    )
+
+    status_charge = 0
+    waiting_ok = 0
+    fenced_nonblank_status = 0
+    for line, is_fenced in status_lines:
+        if not line.strip():
             continue
-        if _OPERATOR_DECISIONS_HEADING_RE.match(line):
-            in_code = False
-            fence_buffer = []
-            break
+        if is_fenced:
+            fenced_nonblank_status += 1
+            continue
         stripped = line.strip()
-        if stripped.startswith("```"):
-            if in_code:
-                # Fence validly closed: exclude up to the cap, count the
-                # rest at full weight.
-                count += max(0, len(fence_buffer) - MAX_EXCLUDED_FENCE_LINES)
-                fence_buffer = []
-                in_code = False
-            else:
-                in_code = True
-                fence_buffer = []
+        well_formed_waiting = (
+            bool(_WAITING_LINE_RE.match(line)) and len(stripped) <= WAITING_LINE_MAX_CHARS
+        )
+        if well_formed_waiting and stoppage_sole:
+            waiting_ok += 1
             continue
-        if in_code:
-            fence_buffer.append(line)
-            continue
-        if stripped:
-            count += 1
-    if in_code:
-        # Unclosed fence at EOF: never validly closed, so no exclusion cap
-        # applies at all - every buffered line counts at full weight.
-        count += len(fence_buffer)
-    return count
+        status_charge += 1
+
+    fence_charge = max(0, fenced_nonblank_status - FENCE_FREE_LINES)
+
+    items, non_item_count = _decision_items(decisions_lines)
+    decisions_charge = non_item_count + sum(max(0, count - ITEM_FREE_LINES) for _, count in items)
+
+    nonblank = sum(1 for line, _ in body if line.strip())
+
+    charge = status_charge + fence_charge + decisions_charge
+    breakdown = {
+        "status": status_charge,
+        "fence": fence_charge,
+        "decisions": decisions_charge,
+        "fence_lines": fenced_nonblank_status,
+        "items": len(items),
+        "waiting_ok": waiting_ok,
+        "nonblank": nonblank,
+    }
+    return charge, breakdown
+
+
+def _volume_flag(text: str, warrants: dict):
+    """Return a finding string, or None.
+
+    Returns None when zero warrants are present - that case is already
+    exclusively owned by _status_only_flag, and a second finding for the
+    same defect would just be noise. Otherwise flags iff
+    _turn_charge(text)[0] > BASE_BODY_BUDGET - see the module docstring's
+    "Charge model" section for the definition.
+    """
+    if not any(warrants.get(name) for name in ("decision", "stoppage", "completion", "answer")):
+        return None
+
+    charge, breakdown = _turn_charge(text)
+    if charge <= BASE_BODY_BUDGET:
+        return None
+
+    return (
+        "turn volume exceeded: charge is {charge}, budget is {budget} "
+        "(status {status}, fenced overflow {fence} of {fence_lines} fenced "
+        "lines, decisions {decisions}; {waiting_ok} well-formed Waiting: "
+        "lines and the first {free_fence} fenced lines are free)"
+    ).format(
+        charge=charge,
+        budget=BASE_BODY_BUDGET,
+        status=breakdown["status"],
+        fence=breakdown["fence"],
+        fence_lines=breakdown["fence_lines"],
+        decisions=breakdown["decisions"],
+        waiting_ok=breakdown["waiting_ok"],
+        free_fence=FENCE_FREE_LINES,
+    )
 
 
 def _decision_item_sprawl_flag(text: str):
-    """Return a finding string, or None (DS-151 Skeptic Major finding 4).
+    """Return a finding string, or None.
 
-    Item COUNT under "## Operator decisions" stays completely unbounded -
-    content/sections/02-delegation.md forbids a numeric cap there. This
-    checks per-ITEM SHAPE instead: each item (a numbered or bulleted
-    top-level line, with any indented/continuation lines folded into it)
-    must fit within MAX_LINES_PER_DECISION_ITEM lines, matching the
-    mandated "recommended action, one line of why, and the reversal offer"
-    shape (content/references/conductor-turn-format.md:34). A single
-    over-long item is flagged by name (its first line, truncated) and line
-    count; bounding count and bounding shape are different axes, so this
-    does not reintroduce the banned item-count cap.
+    Consumes the shared _segment/_regions/_decision_items helpers instead
+    of re-slicing text[m.end():]. Item COUNT under "## Operator decisions"
+    stays completely unbounded - content/sections/02-delegation.md forbids
+    a numeric cap there. This checks per-ITEM SHAPE instead (folding in
+    fenced content per amendment A2): each item must fit within
+    ITEM_FREE_LINES (aliased MAX_LINES_PER_DECISION_ITEM) lines, matching
+    the mandated "recommended action, one line of why, and the reversal
+    offer" shape (content/references/conductor-turn-format.md:34). Stays
+    ADDITIONAL to the volume check: a lone over-long item can be under the
+    whole-message BASE_BODY_BUDGET while still violating per-item shape.
     """
-    m = _OPERATOR_DECISIONS_HEADING_RE.search(text)
-    if not m:
+    _, body = _segment(text)
+    _, decisions_lines, heading_present = _regions(body)
+    if not heading_present:
         return None
 
-    after = text[m.end():]
-    lines = [ln for ln in after.splitlines() if ln.strip()]
-
-    items = []
-    current_label = None
-    current_count = 0
-    for line in lines:
-        if _DECISION_ITEM_START_RE.match(line):
-            if current_label is not None:
-                items.append((current_label, current_count))
-            current_label = line.strip()
-            current_count = 1
-        elif current_label is not None:
-            current_count += 1
-        # Stray preamble lines before the first item marker are ignored -
-        # not itemized, out of scope for this check.
-    if current_label is not None:
-        items.append((current_label, current_count))
-
+    items, _ = _decision_items(decisions_lines)
     for label, count in items:
         if count > MAX_LINES_PER_DECISION_ITEM:
             short_label = label if len(label) <= 60 else label[:57] + "..."
@@ -620,66 +757,6 @@ def _decision_item_sprawl_flag(text: str):
                 "COUNT stays unbounded, only per-item shape is bounded)"
             ).format(label=short_label, count=count, budget=MAX_LINES_PER_DECISION_ITEM)
     return None
-
-
-def _volume_flag(text: str, warrants: dict):
-    """Return a finding string, or None.
-
-    Skipped entirely when no warrant is present - that case is already
-    exclusively owned by _status_only_flag, and a second finding for the
-    same defect would just be noise.
-
-    Also skipped entirely when `stoppage` is the SOLE warrant present
-    (DS-151 Skeptic Critical finding 1) - that is exactly the condition
-    under which _forced_yield_flag applies (see its own docstring): a
-    forced-yield turn's "Waiting:" line COUNT is deliberately unbounded
-    per content/references/conductor-turn-format.md:31 ("the count is
-    unbounded, not re-capped at 1-3"), and _forced_yield_flag already
-    bounds line TYPE (every non-blank line must itself be a "Waiting:"
-    line) - the two checks are not the same axis, but for the sole-
-    stoppage case the volume check has nothing left to add: a clean
-    shape is unbounded by design, and a dirty shape is already flagged by
-    _forced_yield_flag itself.
-
-    When one or more warrants ARE present (and stoppage is not the sole
-    one), the applicable budget is the MOST GENEROUS of the present
-    warrants' budgets (see _BODY_LINE_BUDGETS) - a turn that legitimately
-    combines warrants (e.g. completion + decision) is never punished for
-    carrying more content than the narrowest warrant alone would need.
-    EXCEPTION: the `answer` warrant never contributes its own
-    BODY_BUDGET_ANSWER here (DS-151 Skeptic Major finding 3a) - the only
-    currently-implemented answer-evidence detector is the weak
-    quoted-fragment regex, which cannot verify the quote is actually
-    answering the operator, so it contributes BODY_BUDGET_ANSWER_WEAK_FALLBACK
-    instead. See the BODY_BUDGET_ANSWER comment block above for the full
-    rationale.
-    """
-    present = [name for name in _WARRANT_ORDER if warrants.get(name)]
-    if not present:
-        return None
-
-    stoppage_sole = warrants.get("stoppage") and not any(
-        warrants.get(w) for w in ("decision", "completion", "answer")
-    )
-    if stoppage_sole:
-        return None
-
-    effective_budgets = [
-        BODY_BUDGET_ANSWER_WEAK_FALLBACK if name == "answer" else _BODY_LINE_BUDGETS[name]
-        for name in present
-    ]
-    budget = max(effective_budgets)
-    count = _count_core_body_lines(text)
-    if count <= budget:
-        return None
-
-    label = "+".join(present)
-    return (
-        "turn volume exceeded: body is {count} lines, budget is {budget} for "
-        "a {label} turn (measures non-blank lines after the identity line, "
-        "excluding up to {fence_cap} fenced-code-block lines per fence and "
-        "the Operator decisions block)"
-    ).format(count=count, budget=budget, label=label, fence_cap=MAX_EXCLUDED_FENCE_LINES)
 
 
 # ---------------------------------------------------------------------------
@@ -939,18 +1016,25 @@ def main() -> None:
         if forced_yield_finding:
             findings.append(forced_yield_finding)
 
-        # 4. Volume check (DS-151). Skipped when no warrant is present -
-        # that case is already exclusively owned by the status-only flag -
-        # and skipped when stoppage is the sole warrant (forced-yield shape
-        # owns that case; see _volume_flag's docstring).
+        # 4. Turn-charge volume check (DS-151). Skipped when no warrant is
+        # present - that case is already exclusively owned by the
+        # status-only flag. Unlike the deleted exclusion model, a
+        # sole-stoppage forced-yield turn is NOT unconditionally skipped
+        # here any more: constraint 1 (the Waiting: line count is
+        # unbounded) is now satisfied structurally inside _turn_charge
+        # itself (well-formed Waiting: lines charge 0 when stoppage is the
+        # sole warrant), so a clean forced-yield turn charges 0 regardless
+        # of how many Waiting: lines it has, and a dirty one is already
+        # caught by _forced_yield_flag above.
         volume_finding = _volume_flag(msg_text, warrants)
         if volume_finding:
             findings.append(volume_finding)
 
-        # 5. Operator-decisions per-item sprawl check (DS-151 finding 4).
-        # Independent of the volume check above (which stops counting at
-        # the decisions heading) - item COUNT stays unbounded, only
-        # per-item line count is checked.
+        # 5. Operator-decisions per-item sprawl check (DS-151). Independent
+        # of the volume check above - item COUNT stays unbounded, only
+        # per-item line count is checked, and a single sprawling item can
+        # be under the whole-message charge budget while still violating
+        # per-item shape.
         decision_sprawl_finding = _decision_item_sprawl_flag(msg_text)
         if decision_sprawl_finding:
             findings.append(decision_sprawl_finding)
