@@ -188,7 +188,7 @@ run_security_tests() {
 run_security_tests
 
 if [[ "$FAILS" -gt 0 ]]; then
-	echo "FAILED: $FAILS assertion(s) (including security regression tests)"
-	exit 1
+  echo "FAILED: $FAILS assertion(s) (including security regression tests)"
+  exit 1
 fi
 echo "All install-profiles tests (including security regressions) passed."
