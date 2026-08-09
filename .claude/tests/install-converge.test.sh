@@ -15,6 +15,13 @@
 # Failure modes: failures print the failing test name and exit 1.
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
+#                EXCEPTION: install.sh resolves the git hooks dir via
+#                `git -C REPO_DIR rev-parse --git-path hooks`, which is
+#                independent of $HOME - every _run_install/_run_uninstall
+#                call in this suite writes/repoints THIS repo's REAL
+#                .git/hooks/pre-commit. Guarded via
+#                bin/tests/lib/precommit-hook-guard.sh (save once at top,
+#                restore via the EXIT/INT/TERM traps).
 #
 # Performance: roughly 1-2 min wall time, machine-load dependent (22
 #              install.sh invocations after the DS-143 follow-up fix pass
@@ -153,7 +160,8 @@ _cleanup() {
   fi
   precommit_hook_guard_restore
 }
-trap _cleanup EXIT INT TERM
+trap _cleanup EXIT
+trap '_cleanup; exit 130' INT TERM
 
 # ---------------------------------------------------------------------------
 # Helper: run install.sh with a temp HOME, capturing output.
@@ -1015,6 +1023,7 @@ TEMPLATE_BACKUP="$(mktemp)"
 cp "$TEMPLATE_PATH" "$TEMPLATE_BACKUP"
 _case_m_restore() { cp "$TEMPLATE_BACKUP" "$TEMPLATE_PATH"; rm -f "$TEMPLATE_BACKUP"; }
 trap '_case_m_restore; _cleanup' EXIT
+trap '_case_m_restore; _cleanup; exit 130' INT TERM
 printf 'no manifest comment here, no terminator either\n' > "$TEMPLATE_PATH"
 
 FAKE_HOME="$(mktemp -d)"
@@ -1024,6 +1033,7 @@ _run_install "$FAKE_HOME" || true
 
 _case_m_restore
 trap _cleanup EXIT
+trap '_cleanup; exit 130' INT TERM
 
 if grep -Fq "could not find manifest comment terminator" "$FAKE_HOME/.install_out"; then
   _pass "case (m): install.sh fails loudly when the template's manifest terminator is missing"
@@ -1086,6 +1096,7 @@ _case_n_restore() {
   fi
 }
 trap '_case_n_restore; _cleanup' EXIT
+trap '_case_n_restore; _cleanup; exit 130' INT TERM
 
 FAKE_HOME="$(mktemp -d)"
 mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
@@ -1106,6 +1117,7 @@ _n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
 # above, into the shell variables, before restoring.
 _case_n_restore
 trap _cleanup EXIT
+trap '_cleanup; exit 130' INT TERM
 
 if [[ -n "$_n_claude_md_run1" && "$_n_claude_md_run1" == *"<!-- BEGIN managed-by-agentic-engineering -->"* ]]; then
   _pass "case (n): run 1's CLAUDE.md is non-empty and carries the managed block (comparison below is not vacuous)"

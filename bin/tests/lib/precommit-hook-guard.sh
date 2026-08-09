@@ -37,7 +37,13 @@
 #
 # Downstream consumers: bin/tests/test_uninstall_ds_prefix.sh,
 #   bin/tests/test_hooks_snapshot_migration.sh (both invoke a real
-#   .claude/uninstall.sh against the live checkout with only $HOME faked).
+#   .claude/uninstall.sh against the live checkout with only $HOME faked);
+#   .claude/tests/install-converge.test.sh and
+#   .cursor/tests/install-converge.test.sh (both invoke a real
+#   .claude/install.sh or .cursor/install.sh / .opencode/install.sh against
+#   the live checkout with only $HOME faked); bin/tests/test_local_bin_ds_prefix_install.sh
+#   (Test 2 invokes a real .claude/install.sh against the live checkout with
+#   only $HOME faked).
 #
 # Failure modes: if `git rev-parse --git-path hooks` fails to resolve (not
 #   a git repo, git missing), save/restore are no-ops - there is nothing to

@@ -60,8 +60,8 @@ fi
 if [[ "$has_marker" == "true" ]]; then
   >&2 echo ""
   >&2 echo "┌─────────────────────────────────────────────────────────────────────┐"
-  >&2 echo "│  dinostack: ACTIVE in this project                        │"
-  >&2 echo "│  Load the skill: /skill:dinostack                         │"
+  >&2 echo "│  dinostack: ACTIVE in this project                                  │"
+  >&2 echo "│  Load the skill: /skill:dinostack                                   │"
   >&2 echo "│  Classify risk first. Main session is the conductor.                │"
   >&2 echo "│  Shippable edits go to named engineer Workers; Elevated also        │"
   >&2 echo "│  requires a fresh Skeptic. Low-risk direct action remains OK.       │"

@@ -16,6 +16,13 @@
 # Failure modes: each failing test is printed to stderr; exits 1 if any fail.
 #                All side effects use TEMP HOME dirs; the real ~/.cursor,
 #                ~/.config/opencode, and ~/.local/bin are NEVER touched.
+#                EXCEPTION: install.sh resolves the git hooks dir via
+#                `git -C REPO_DIR rev-parse --git-path hooks`, which is
+#                independent of $HOME - every _run_install call in this
+#                suite writes/repoints THIS repo's REAL
+#                .git/hooks/pre-commit. Guarded via
+#                bin/tests/lib/precommit-hook-guard.sh (save once at top,
+#                restore via the EXIT/INT/TERM traps).
 #
 # Performance: ~10 s wall time (runs install.sh multiple times with fake HOME).
 #
@@ -41,6 +48,18 @@ REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 CURSOR_INSTALL="$REPO_DIR/.cursor/install.sh"
 OPENCODE_INSTALL="$REPO_DIR/.opencode/install.sh"
 
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+# .cursor/install.sh and .opencode/install.sh (invoked below via _run_install
+# helpers) run scripts/lib/precommit.sh against REPO_DIR - this checkout -
+# with only $HOME faked, the same hazard documented at length in
+# .claude/tests/install-converge.test.sh: git hooks-dir resolution is
+# independent of $HOME, so every install run in this suite writes/repoints
+# this repo's REAL .git/hooks/pre-commit. Save the real hook's state ONCE,
+# before the first install call below, and restore it ONCE via the EXIT/
+# INT/TERM traps.
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
+
 PASS=0
 FAIL=0
 FAKE_HOME=""
@@ -52,8 +71,10 @@ _cleanup() {
   if [[ -n "$FAKE_HOME" && -d "$FAKE_HOME" ]]; then
     rm -rf "$FAKE_HOME"
   fi
+  precommit_hook_guard_restore
 }
 trap _cleanup EXIT
+trap '_cleanup; exit 130' INT TERM
 
 # ---------------------------------------------------------------------------
 # Source for a concrete fixture .mdc file (cursor rules directory).
