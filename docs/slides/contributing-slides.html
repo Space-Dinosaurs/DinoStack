@@ -566,7 +566,7 @@ code {
 <p>The <code>content/</code> directory is the single source of truth. Adapter files (<code>.claude/</code>, <code>.cursor/</code>, etc.) are generated outputs - never edit them directly.</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code>content/
   rules/        3 rule files (module-manifest, code-standards, conventions)
-  references/   35 reference docs (agent-team, base-branch-sync, skeptic-protocol,
+  references/   36 reference docs (agent-team, base-branch-sync, skeptic-protocol,
                     qa-gate, capability-preflight, events-log, planning-artifacts, ...)
   commands/     25 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
   agents/       18 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
@@ -1145,7 +1145,7 @@ code {
 <ol>
 <li>Create <code>.&lt;toolname&gt;/</code> matching the tool's config directory convention</li>
 <li>Convert the 3 rules into the tool's native rule format (from <code>content/rules/</code>)</li>
-<li>Copy or symlink the 35 reference docs (from <code>content/references/</code>)</li>
+<li>Copy or symlink the 36 reference docs (from <code>content/references/</code>)</li>
 <li>Convert the 25 commands into the tool's command format (from <code>content/commands/</code>)</li>
 <li>Wire up lifecycle hooks - risk reminder (before prompt) and context save (on stop)</li>
 <li>Write <code>.&lt;toolname&gt;/README.md</code> with setup instructions</li>
