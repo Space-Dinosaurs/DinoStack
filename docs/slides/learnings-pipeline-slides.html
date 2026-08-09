@@ -1173,8 +1173,8 @@ hr {
 <p>Three distinct knowledge stores - each with a different writer and lifecycle:</p>
 <ul>
 <li><strong><code>.agentic/learnings.md</code></strong> - primary destination. Committed to git. Written by <code>learning-extractor</code> (LRN) and <code>learnings-agent</code> (LRN + KNW). Teammates inherit it on pull after merge.</li>
-<li><strong><code>MEMORY.md</code></strong> (root <code>&lt;cwd&gt;/MEMORY.md</code>) - canonical durable facts. Committed. Loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. learnings-agent appends at most one entry directly, in the same invocation, when the event is project-affecting - not a later promotion, and not <code>/ds-wrap</code>.</li>
-<li><strong><code>.agentic/memory.md</code></strong> - <code>/ds-wrap</code>-internal rolling scratch only. Gitignored. NOT auto-injected. NOT the same as root <code>MEMORY.md</code>.</li>
+<li><strong><code>MEMORY.md</code></strong> (root <code>&lt;cwd&gt;/MEMORY.md</code>) - canonical durable facts. Committed. Loaded at session start via the <code>@MEMORY.md</code> import in the project root <code>CLAUDE.md</code>. Written by <code>learnings-agent</code> (at most one entry per invocation, when the event is project-affecting - not a later promotion) and, as of DS-90, by <code>/ds-wrap</code> Part B (staging-drain promotion, capped 3/run).</li>
+<li><strong><code>.agentic/memory.md</code></strong> - deferred-wrap daemon staging only, written exclusively by <code>/ds-wrap-deferred</code>. Gitignored. NOT auto-injected. NOT the same as root <code>MEMORY.md</code>; drained into it by the next synchronous <code>/ds-wrap</code>.</li>
 </ul>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code>learning-extractor ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)
 learnings-agent    ──&gt; LRN entry ──&gt; .agentic/learnings.md (committed)

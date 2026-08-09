@@ -29,7 +29,9 @@ Upstream deps: None (no external libraries; only Read/Edit/Write tools).
 
 Downstream consumers: None (append-only writes; wrap-ticket may later read
                       .agentic/learnings.md at Phase 11b for LRN->MEMORY
-                      promotion; KNW->MEMORY promotion also happens at /ds-wrap).
+                      promotion; KNW->MEMORY promotion happens directly here,
+                      in the same invocation, capped at 1/event - not at
+                      /ds-wrap).
 
 Failure modes:
 - Soft-fail on any error - returning a JSON object with skipped_reason populated
