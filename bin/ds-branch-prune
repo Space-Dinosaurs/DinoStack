@@ -19,8 +19,14 @@ Public API (CLI):
   --repo <path>            Repository to operate on. Default: cwd.
   --base <ref>             Base ref to prove subsumption against. Default:
                             "origin/main". A local guard set of
-                            {"main", "master", <local name of --base>} is
-                            never eligible for deletion (guard G0).
+                            {"main", "master", "develop", "development",
+                            <local name of --base>} is never eligible for
+                            deletion (guard G0) - develop/development are
+                            included unconditionally so a develop-based
+                            workflow's integration branch is protected even
+                            when the session-start call site does not pass
+                            --base (see content/rules/conventions.md Base
+                            branch resolution).
   --explain                Print one line per branch with its outcome
                             (default: aggregate counts only).
   --dry-run                Compute and report; delete nothing, write no
@@ -93,11 +99,14 @@ Upstream deps: Python 3 stdlib only (argparse, json, subprocess, shutil,
                SourceFileLoader pattern as bin/ds-feedback, which follows
                a PATH symlink back to the real bin/ directory).
 
-Downstream consumers: none yet at conductor-invocation time (Amendment
-                      B9/step 5 - the prose call site in
-                      content/references/worktree-lifecycle.md is DS-153
-                      unit 2's scope, not this script's). CI:
-                      bin/tests/test_branch_prune.py (pytest, auto-
+Downstream consumers: content/references/worktree-lifecycle.md (§Session-
+                      start prune script and §Branch prune, DS-153 unit 2 -
+                      the PATH-guarded `if command -v ds-branch-prune`
+                      invocation, Amendment B9), content/commands/ds-cleanup-
+                      worktrees.md Step 5 (the same invocation, referenced by
+                      pointer), and docs/slides/worktree-lifecycle-slides.md
+                      (the built-deck copy of the session-start prune block).
+                      CI: bin/tests/test_branch_prune.py (pytest, auto-
                       collected by `python3 -m pytest bin/tests/`).
                       `bin/agentic-branch-prune` is a plain symlink to this
                       file for naming consistency with the established
@@ -257,7 +266,22 @@ def _diff(repo: str, rev_a: str, rev_b: str) -> str:
 
 
 def _diff_names(repo: str, rev_a: str, rev_b: str) -> Set[str]:
-    proc = _run(["git", "-C", repo, "diff", "--name-only", "--no-renames", f"{rev_a}..{rev_b}"])
+    # Amendment B2 item 1 (m3 fix): pinned identically to _diff() above -
+    # L4 is the sole surviving degraded-mode layer and its own file-name
+    # comparison must not depend on the invoking user's ~/.gitconfig either.
+    proc = _run(
+        [
+            "git",
+            "-C",
+            repo,
+            *_DIFF_CONFIG_PIN,
+            "diff",
+            "--no-ext-diff",
+            "--name-only",
+            "--no-renames",
+            f"{rev_a}..{rev_b}",
+        ]
+    )
     return {line for line in proc.stdout.splitlines() if line}
 
 
@@ -279,16 +303,41 @@ def _content_signature(diff_text: str) -> str:
     only by whitespace (e.g. "X  Y" vs "X Y") produce the IDENTICAL patch
     id. This function strips ONLY the line-number portion of each `@@`
     hunk header (preserving L2's non-decay property, which comes from
-    line-number insensitivity) and leaves every content line - including
-    whitespace - untouched, so two diffs that patch-id-match but differ in
-    actual content (including whitespace-only differences) produce
-    different signatures here.
+    line-number insensitivity) and leaves every hunk CONTENT line -
+    including whitespace - untouched, so two diffs that patch-id-match but
+    differ in actual content (including whitespace-only differences)
+    produce different signatures here.
+
+    m1 fix (Skeptic round 2): also drops `diff --git a/... b/...`,
+    `index <old>..<new> ...`, `--- a/...`, and `+++ b/...` lines. Those
+    lines are NOT hunk content - `index` in particular encodes the blob
+    hashes of the file's PRE- and POST-image, which are a function of the
+    surrounding file's full text at each comparison point, not of the
+    delta itself. Two diffs applying the IDENTICAL logical change at
+    different surrounding-file states (e.g. one repo state has three lines
+    prepended relative to the other) are legitimately non-decaying per L2's
+    own proof, but previously produced different signatures here solely
+    because their `index` blob hashes differed - a false SKIP_UNPROVEN that
+    silently defeated L2's stated non-decay property (reproduced: a branch
+    changing `line5` off an older `main`, whose identical change is squashed
+    onto a `main` that has since gained 3 prepended lines, patch-id-matches
+    at `line8` but previously failed this discrimination check). Excluding
+    these path/hash lines restores non-decay while still rejecting a
+    genuine whitespace-only divergence, because whitespace differences live
+    in the hunk content lines this function keeps untouched.
     """
     out = []
     for line in diff_text.splitlines():
         if line.startswith("@@"):
             idx = line.find("@@", 2)
             out.append("@@" + line[idx + 2 :] if idx != -1 else "@@")
+        elif (
+            line.startswith("diff --git ")
+            or line.startswith("index ")
+            or line.startswith("--- ")
+            or line.startswith("+++ ")
+        ):
+            continue
         else:
             out.append(line)
     return "\n".join(out)
@@ -511,11 +560,29 @@ def evaluate_branch(
 # --------------------------------------------------------------------------
 
 
-def _append_ledger(repo: str, lines: List[str]) -> None:
+def _append_ledger(repo: str, line: str) -> None:
+    """Append ONE `<branch> <tip-sha>\\n` line to the ledger, true append
+    mode (Skeptic round-2 M1/m4 fix). Two changes from the original
+    design:
+
+    1. Called ONCE PER BRANCH, immediately BEFORE that branch's own
+       `git branch -D` (write-ahead), never batched after the fact - a
+       crash or ledger-write failure partway through a run can now only
+       ever cost the branches not yet reached, not every branch already
+       processed.
+    2. True `open(..., "a")` append, not `_lib.atomic_write`'s
+       read-then-write-whole-file pattern. `atomic_write` is safe for a
+       single writer but is a last-write-wins race for two CONCURRENT
+       writers targeting the same path (its own docstring says so) - two
+       overlapping session-start prunes could each read the same "prior"
+       content and one process's write would silently discard the other's
+       entries. POSIX `O_APPEND` (which `"a"` mode maps to) is what
+       actually avoids that race for a shared append-only log.
+    """
     ledger_path = Path(repo) / LEDGER_RELATIVE_PATH
     ledger_path.parent.mkdir(parents=True, exist_ok=True)
-    existing = ledger_path.read_text(encoding="utf-8") if ledger_path.exists() else ""
-    atomic_write(ledger_path, existing + "".join(lines), mode=None)
+    with open(ledger_path, "a", encoding="utf-8") as fh:
+        fh.write(line)
 
 
 # --------------------------------------------------------------------------
@@ -548,7 +615,17 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 1
 
     base_local = args.base.split("/", 1)[1] if args.base.startswith("origin/") else args.base
-    base_branches = set(DEFAULT_BASE_BRANCHES) | {base_local}
+    # M3 fix (Skeptic round 2): G0 in the plan's normative predicate protects
+    # "B == resolved BASE_BRANCH", but the shipped session-start call site
+    # (content/references/worktree-lifecycle.md) invokes this script with no
+    # --base at all, by design - BASE_BRANCH is deliberately not resolved at
+    # that point (see the adjacent comment there). Without this, a repo using
+    # a develop-based workflow (content/rules/conventions.md Base branch
+    # resolution step 2/3) would have its `develop`/`development` branch
+    # deleted as soon as it is fully merged into origin/main, after which
+    # base-branch resolution can no longer find it and silently falls
+    # through to prompting for `main`.
+    base_branches = set(DEFAULT_BASE_BRANCHES) | {"develop", "development", base_local}
 
     try:
         merged_prs, degraded, truncated = _load_merged_prs(repo, args.pr_data, args.no_gh)
@@ -606,12 +683,33 @@ def main(argv: Optional[List[str]] = None) -> int:
                 print(f"{r['branch']}: {r['outcome']}")
 
     if not args.dry_run and delete_results:
-        ledger_lines = []
         for r in delete_results:
+            # M1 fix (Skeptic round 2): the ledger entry is written BEFORE
+            # the destructive `git branch -D`, one branch at a time, never
+            # batched after every delete. `git branch -D` destroys the
+            # branch's own reflog outright, so the ledger is the SOLE
+            # durable recovery record - it must exist before the act it
+            # documents, not after. A ledger-write failure is therefore a
+            # HARD STOP on any further deletion this run (not a crash): the
+            # branches already deleted above remain deleted with their
+            # entries safely recorded; nothing after this point in
+            # `delete_results` is touched.
+            ledger_line = f"{r['branch']} {r['tip_sha']}\n"
+            try:
+                _append_ledger(repo, ledger_line)
+            except OSError as exc:
+                print(
+                    f"ds-branch-prune: ERROR: failed to write the deletion ledger entry "
+                    f"for {r['branch']} before deleting it - halting further deletions "
+                    f"this run ({exc}). git branch -D was NOT attempted for {r['branch']} "
+                    "or any branch after it in this run's ordering.",
+                    file=sys.stderr,
+                )
+                break
+
             proc = _run(["git", "-C", repo, "branch", "-D", r["branch"]])
             if proc.returncode == 0:
                 print(f"{r['branch']} {r['tip_sha']}")
-                ledger_lines.append(f"{r['branch']} {r['tip_sha']}\n")
             else:
                 # Amendment B11: report and continue, exit 0.
                 print(
@@ -619,8 +717,6 @@ def main(argv: Optional[List[str]] = None) -> int:
                     f"{proc.returncode}): {proc.stderr.strip()}",
                     file=sys.stderr,
                 )
-        if ledger_lines:
-            _append_ledger(repo, ledger_lines)
 
     return 0
 

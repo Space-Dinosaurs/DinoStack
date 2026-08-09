@@ -443,6 +443,51 @@ def test_base_branch_never_deleted_even_with_fabricated_merged_pr(tmp_path):
     assert result["main"] == "SKIP_BASE_BRANCH"
 
 
+def test_develop_and_development_never_deleted_even_when_not_the_configured_base(tmp_path):
+    """M3 fix (Skeptic round 2): G0 must protect `develop`/`development`
+    UNCONDITIONALLY, not only the local name of whatever `--base` happens to
+    be passed. Reproduces the shipped session-start call site
+    (content/references/worktree-lifecycle.md, content/commands/
+    ds-cleanup-worktrees.md Step 5), which invokes `ds-branch-prune` with NO
+    `--base` at all by design - a repo using a develop-based workflow
+    (content/rules/conventions.md Base branch resolution) needs `develop`
+    protected even when `--base` resolves to something else entirely. Here
+    `--base main` is passed explicitly (matching this suite's other tests,
+    which need a local ref to compute merge-base against), with both
+    `develop` and `development` fully merged into `main` and a fabricated
+    merged-PR record "proving" each - the exact shape the old
+    `pr_state == "MERGED"` predicate, and the pre-fix guard set (main,
+    master, and only the local name of --base), would have deleted.
+    """
+    repo = init_repo(tmp_path)
+    for name in ("develop", "development"):
+        _git(repo, "checkout", "-q", "-b", name, "main")
+        write_file(repo, f"{name}.txt", f"{name} content\n")
+        _git(repo, "add", f"{name}.txt")
+        _git(repo, "commit", "-q", "-m", f"{name} work")
+        _git(repo, "checkout", "-q", "main")
+        _git(repo, "merge", "-q", "--ff-only", name)
+
+    develop_tip = _rev_parse(repo, "develop")
+    development_tip = _rev_parse(repo, "development")
+    prs = [
+        {"number": 9, "headRefName": "develop", "headRefOid": develop_tip, "mergeCommit": {"oid": develop_tip}},
+        {
+            "number": 10,
+            "headRefName": "development",
+            "headRefOid": development_tip,
+            "mergeCommit": {"oid": development_tip},
+        },
+    ]
+    pr_path = pr_data_file(tmp_path, prs)
+
+    proc = run_prune(repo, pr_data=pr_path, base="main")
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result["develop"] == "SKIP_BASE_BRANCH"
+    assert result["development"] == "SKIP_BASE_BRANCH"
+
+
 # --------------------------------------------------------------------------
 # 13. unrelated root history -> SKIP_NO_MERGE_BASE
 # --------------------------------------------------------------------------
@@ -522,6 +567,95 @@ def test_patch_id_whitespace_collision_is_empirically_real():
     sig_a = ds_branch_prune._content_signature(diff_double_space)
     sig_b = ds_branch_prune._content_signature(diff_single_space)
     assert sig_a != sig_b
+
+
+def test_content_signature_matches_shifted_hunk_and_still_rejects_whitespace(tmp_path):
+    """m1 fix (Skeptic round 2): the pre-fix `_content_signature` compared
+    the WHOLE diff text (including `diff --git`/`index`/`---`/`+++`
+    lines), not just hunk content. `index <old>..<new>` encodes the blob
+    hashes of the file's pre/post image, which are a function of the
+    surrounding file text at each comparison point - NOT of the delta
+    itself. Two diffs applying the byte-identical logical change at a
+    shifted hunk position (because the surrounding file differs, e.g. 3
+    lines prepended) legitimately patch-id-match (git patch-id already
+    ignores this) but previously produced DIFFERENT `_content_signature`
+    values purely because of the differing index hashes - a false SKIP
+    that defeated L2's stated non-decay property. Reproduces the Skeptic's
+    exact scenario: a branch changes line 5 of a 5-line file forked off
+    main; before that branch's own squash lands, main gains 3 prepended
+    lines to the SAME file, so the squash commit's diff shows the
+    identical edit at line 8 instead of line 5.
+    """
+    repo = init_repo(tmp_path)
+    write_file(repo, "f.txt", "l1\nl2\nl3\nl4\nl5\n")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "-m", "add f.txt")
+    base_sha = _rev_parse(repo, "main")  # the 5-line state feat forks from
+
+    _git(repo, "checkout", "-q", "-b", "feat", base_sha)
+    write_file(repo, "f.txt", "l1\nl2\nl3\nl4\nl5-changed\n")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "-m", "change line 5")
+    feat_tip = _rev_parse(repo, "feat")
+
+    # main diverges BEFORE the squash lands: 3 lines prepended to the SAME
+    # file feat touched, shifting where the identical edit lands.
+    _git(repo, "checkout", "-q", "main")
+    write_file(repo, "f.txt", "p1\np2\np3\nl1\nl2\nl3\nl4\nl5\n")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "-m", "prepend 3 lines")
+
+    mc = squash_merge(repo, "feat", "squash feat")
+
+    diff_branch = ds_branch_prune._diff(str(repo), base_sha, feat_tip)
+    diff_mc = ds_branch_prune._diff(str(repo), f"{mc}^", mc)
+
+    # Pin the patch-id equality this test relies on BEFORE asserting the
+    # fix - if this stops holding, the test below would pass vacuously.
+    assert ds_branch_prune._patch_id(diff_branch) == ds_branch_prune._patch_id(diff_mc), (
+        "fixture setup error: the shifted-hunk diffs no longer patch-id-match"
+    )
+    assert ds_branch_prune._content_signature(diff_branch) == ds_branch_prune._content_signature(diff_mc), (
+        "m1 regression: a byte-identical logical change applied at a "
+        "shifted hunk position must not be rejected by the discrimination "
+        "check merely because the surrounding file's blob hashes differ"
+    )
+
+    # The genuine whitespace-only case (X  Y vs X Y, same file, same
+    # position) must still be rejected - the fix must not over-correct.
+    diff_double_space = (
+        "diff --git a/f.txt b/f.txt\n"
+        "index 0000000..1111111 100644\n"
+        "--- a/f.txt\n"
+        "+++ b/f.txt\n"
+        "@@ -1 +1 @@\n"
+        "-X\n"
+        "+X  Y\n"
+    )
+    diff_single_space = (
+        "diff --git a/f.txt b/f.txt\n"
+        "index 0000000..2222222 100644\n"
+        "--- a/f.txt\n"
+        "+++ b/f.txt\n"
+        "@@ -1 +1 @@\n"
+        "-X\n"
+        "+X Y\n"
+    )
+    assert ds_branch_prune._content_signature(diff_double_space) != ds_branch_prune._content_signature(
+        diff_single_space
+    )
+
+    # End-to-end proof: the shifted-hunk branch must actually DELETE via L2
+    # now (it previously resolved SKIP_UNPROVEN despite a real patch-id
+    # match, because of this exact discrimination-check bug).
+    prs = [{"number": 1, "headRefName": "feat", "headRefOid": feat_tip, "mergeCommit": {"oid": mc}}]
+    pr_path = pr_data_file(tmp_path, prs)
+    proc = run_prune(repo, pr_data=pr_path)
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result["feat"] == "DELETE via L2", (
+        "m1 regression: shifted-hunk identical squash content must delete via L2, not SKIP_UNPROVEN"
+    )
 
 
 def test_l2_fabricated_merge_commit_not_on_main_is_skipped(tmp_path):
@@ -771,6 +905,67 @@ def test_failed_branch_delete_is_reported_and_run_continues(tmp_path, monkeypatc
         text=True,
     ).stdout
     assert "feat" in branches.splitlines()
+
+    # M1 fix (Skeptic round 2): the ledger entry is now written BEFORE the
+    # `git branch -D` attempt (write-ahead), not only after a confirmed
+    # success - so a failed delete still leaves a ledger entry behind. This
+    # is deliberate and harmless: the branch still exists (the delete
+    # failed), so the entry simply over-records intent rather than ever
+    # under-recording a successful, unrecoverable deletion.
+    ledger = repo / ".agentic" / "branch-prune-ledger.txt"
+    assert ledger.exists()
+    assert any(line.startswith("feat ") for line in ledger.read_text().splitlines())
+
+
+def test_ledger_write_failure_halts_further_deletions_but_exits_zero(tmp_path, monkeypatch, capsys):
+    """M1 fix (Skeptic round 2): a ledger-write failure must be a HARD STOP
+    on any further deletion this run - not an uncaught crash (the original
+    reproduction: `.agentic/` at mode 500 raised an uncaught PermissionError
+    traceback and exited 1 AFTER a branch had already been deleted). This
+    test drives two DELETE-eligible branches through one run and simulates
+    the ledger write failing on the FIRST one: the run must (a) never
+    attempt `git branch -D` for either branch, (b) print the halt reason to
+    stderr, and (c) still exit 0 per the script's own documented contract
+    ("exit 1 ONLY on an internal/usage error" - a ledger-write failure at
+    session start must not look like a hard failure).
+    """
+    repo, pr_path, _, _ = build_clean_squash(tmp_path)
+
+    # A second, independently DELETE-eligible branch (L1: trivial ancestor
+    # fast-forward merge) so the run has more than one delete_results entry
+    # to prove the halt actually stops BOTH, not just the one that failed.
+    _git(repo, "checkout", "-q", "-b", "ff-branch")
+    write_file(repo, "ff.txt", "ff content\n")
+    _git(repo, "add", "ff.txt")
+    _git(repo, "commit", "-q", "-m", "ff commit")
+    _git(repo, "checkout", "-q", "main")
+    _git(repo, "merge", "-q", "--ff-only", "ff-branch")
+    _git(repo, "checkout", "-q", "-b", "ff-branch-again", "ff-branch")
+    # ff-branch itself is now an ancestor of main (fast-forwarded); use a
+    # fresh branch name pointing at the same tip so it, too, resolves DELETE
+    # via L1 independently of ff-branch's own fate.
+
+    def fake_append_ledger(repo_arg, line):
+        raise PermissionError("[Errno 13] Permission denied (simulated)")
+
+    monkeypatch.setattr(ds_branch_prune, "_append_ledger", fake_append_ledger)
+
+    rc = ds_branch_prune.main(["--repo", str(repo), "--base", "main", "--pr-data", pr_path])
+    assert rc == 0
+
+    err = capsys.readouterr().err
+    assert "ERROR" in err
+    assert "halting further deletions" in err
+
+    branches = subprocess.run(
+        ["git", "-C", str(repo), "for-each-ref", "--format=%(refname:short)", "refs/heads/"],
+        capture_output=True,
+        text=True,
+    ).stdout.splitlines()
+    # Neither DELETE-eligible branch was actually deleted - the halt fired
+    # before the very first `git branch -D` was attempted.
+    assert "feat" in branches
+    assert "ff-branch-again" in branches
     assert not (repo / ".agentic" / "branch-prune-ledger.txt").exists()
 
 

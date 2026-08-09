@@ -75,14 +75,15 @@ HEAD_SHA=$(git -C "$WORKTREE_PATH" rev-parse HEAD)
 git merge-base --is-ancestor "$HEAD_SHA" origin/main 2>/dev/null && MERGE_EVIDENCE=merged || MERGE_EVIDENCE=unmerged
 ```
 
-- `MERGE_EVIDENCE=merged` (`ELIGIBLE`): remove the worktree and delete the branch:
+- `MERGE_EVIDENCE=merged` (`ELIGIBLE`): remove the worktree only - do **not** delete the branch here:
 
 ```bash
 git worktree remove "$WORKTREE_PATH"
-git branch -D "$b"
 ```
 
-- `MERGE_EVIDENCE=unmerged`: fall back to PR state, if `gh` is available - `gh pr view "$b" --json state -q .state`. `OPEN` skips (`SKIP_PR_OPEN`, report to the user); `MERGED` is `ELIGIBLE` (remove as above - covers a squash-merge ancestry missed). `CLOSED`/no PR/`gh` unavailable falls through to push status: `git ls-remote --exit-code --heads origin "$b"` - absent -> `SKIP_NOT_PUSHED`, command error -> `SKIP_LS_REMOTE_ERROR`, present -> `SKIP_AMBIGUOUS_NO_PR`. Every skip outcome here reports the branch to the user for manual review - never delete on an inconclusive read.
+Branch deletion is deferred to Step 5's `ds-branch-prune` subsumption predicate: a bare `MERGE_EVIDENCE=merged` read is sufficient to reclaim the worktree (`git worktree remove` does not destroy commits) but is NOT sufficient evidence for `git branch -D` (DS-153 Amendment B1 - see the Notes section below).
+
+- `MERGE_EVIDENCE=unmerged`: fall back to PR state, if `gh` is available - `gh pr view "$b" --json state -q .state`. `OPEN` skips (`SKIP_PR_OPEN`, report to the user); `MERGED` is `ELIGIBLE` (remove the worktree only, as above - covers a squash-merge ancestry missed; do not delete the branch here either). `CLOSED`/no PR/`gh` unavailable falls through to push status: `git ls-remote --exit-code --heads origin "$b"` - absent -> `SKIP_NOT_PUSHED`, command error -> `SKIP_LS_REMOTE_ERROR`, present -> `SKIP_AMBIGUOUS_NO_PR`. Every skip outcome here reports the branch to the user for manual review - never delete on an inconclusive read.
 
 ---
 
@@ -106,16 +107,17 @@ Any output: skip removal, list the dirty files, and report to the user.
 gh pr list --state all --head <branch-name> --json number,state,title
 ```
 
-**If state is `MERGED`:** remove the worktree and delete the branch:
+**If state is `MERGED`:** remove the worktree only - do **not** delete the branch here:
 
 ```bash
 git worktree remove <worktree-path>
-git branch -D <branch-name>
 ```
+
+Branch deletion is deferred to Step 5's `ds-branch-prune` subsumption predicate (DS-153 Amendment B1) - see the Notes section below.
 
 **If state is `OPEN` or `CLOSED` (not merged):** skip removal (`SKIP_PR_OPEN` / inconclusive). Report the branch name, PR number, and state to the user so they can decide.
 
-**If no PR exists:** fall back to ancestry (`git merge-base --is-ancestor <head> origin/main`). Merged -> `ELIGIBLE`, remove as above. Still unmerged -> `SKIP_AMBIGUOUS_NO_PR`. Report the branch as needing manual review.
+**If no PR exists:** fall back to ancestry (`git merge-base --is-ancestor <head> origin/main`). Merged -> `ELIGIBLE`, remove the worktree only (as above; do not delete the branch here). Still unmerged -> `SKIP_AMBIGUOUS_NO_PR`. Report the branch as needing manual review.
 
 **If `gh` is not available:** skip the PR check for all feature worktrees; fall back to the ancestry check alone. Report each feature worktree still unmerged as "needs manual review - gh CLI not available". Do not block or error.
 
