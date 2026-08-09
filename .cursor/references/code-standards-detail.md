@@ -12,7 +12,12 @@ Public API: Read-only reference document. Cross-referenced from:
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
                Context Window Management, Module Manifests, DRY, Code
-               Quality Gates preamble, and Package Management rules).
+               Quality Gates preamble, and Package Management rules);
+               agent-browser.json (project-root config file consumed via
+               --config by the Browser Verification section below - seeded
+               by /ds-init-project for web-UI projects (see
+               content/commands/ds-init-project.md); supplies the
+               --disable-blink-features=AutomationControlled stealth flag).
 
 Downstream consumers: engineer agents (run per-language quality gates
                       after every implementation); content/sections/
@@ -42,12 +47,41 @@ Performance: Standard.
 
 `agent-browser` is installed globally. Use it via Bash for all browser verification tasks instead of MCP browser tools.
 
+Every invocation carries two things, resolved once per run and reused for every call: a project-config flag that turns on bot-evasion (`$CONFIG_FLAG`), and a `--session` name that isolates this run's browser state from any concurrent run (`$SESSION`).
+
 ```bash
-agent-browser open <url>      # navigate
-agent-browser snapshot        # get page structure with element refs
-agent-browser click @e1       # click by ref
-agent-browser fill @e2 "text" # fill input by ref
-agent-browser close           # close the session when done (close --all closes every session)
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+CONFIG_FLAG=()
+[ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/agent-browser.json" ] && CONFIG_FLAG=(--config "$REPO_ROOT/agent-browser.json")
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" <subcommand> [args...]
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
+Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"` form, when the surrounding script runs under `set -u`/`set -o nounset` - expanding an empty array via the bare form throws `unbound variable` on macOS's stock bash 3.2. The `+` form is a no-op on non-empty arrays and safe under nounset either way.
+
+`$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
+
+**Resolve `$SESSION` once per run:**
+1. `$REPO_ROOT` non-empty -> `verify-<sanitize(basename "$REPO_ROOT")>-<epoch-seconds>-<pid>`
+2. `$REPO_ROOT` empty -> `verify-<epoch-seconds>-<pid>`
+
+`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized basename only, before the `-<epoch-seconds>-<pid>` suffix is appended - truncation can never eat the suffix, which is why the name stays unique even when the basename itself collapses.
+
+**Why the suffix is unconditional:** the sanitized basename alone does not guarantee uniqueness. The ~40-char cap can collapse two distinct basenames to the same truncated value - e.g. two worktree slugs differing only in a trailing unit index both truncate to the same prefix - and two checkouts can share a basename by construction, not coincidence: AE's own worktree-naming conventions generate exactly that (`.agentic/worktrees/<branch-name>`, `qa-<branch>`, per-unit slugs).
+
+The main cost of the suffix: the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including teardown - **do not re-run the resolution block on a later call to get it again.** Harness shell state does not persist between Bash tool calls, so re-deriving produces a different name every time and silently orphans the previous session: a blank result with no error on the next call, and the scoped `close` swallowing the evidence. A second cost: `agent-browser` keys session state under `~/.agent-browser/` by session name, so a per-run name accumulates one artifact per run, where the old deterministic name reused a single artifact per repo instead - no documented teardown path reaps them.
+
+```bash
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" open <url>                # navigate
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" snapshot                  # get page structure with element refs
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" click @e1                 # click by ref
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" fill @e2 "text"           # fill input by ref
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" close 2>/dev/null || true # scoped close - never `close --all` in automatic teardown
+```
+
+`$SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
+
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always scoped-close it when verification is done - otherwise the browser lingers open after the task. `agent-browser close --all` closes every session on the machine, including a concurrently-running sibling's - reserve it for manual, deliberate operator cleanup, never an automatic teardown path.
+
+**Escape hatch** (to observe the raw, non-stealth fingerprint): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically against `agent-browser 0.25.4`: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`; re-verify this override-vs-merge behavior if the installed version has moved on). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - args are resolved per-session at (re)launch, so editing the file while any session (this run's or a concurrent sibling's) may be live risks a silent, destructive relaunch that destroys that session's cookies, auth state, and navigation position with no error surfaced.
+
+`agent-browser session list` is eventually consistent for a few seconds after a scoped `close` returns - a just-closed session briefly still appearing in the list is not a teardown failure.

@@ -1787,7 +1787,12 @@ Public API: Read-only reference document. Cross-referenced from:
 Upstream deps: content/rules/code-standards.md (parent rules file; read
                that file first for Documentation Lookups, Tool Discipline,
                Context Window Management, Module Manifests, DRY, Code
-               Quality Gates preamble, and Package Management rules).
+               Quality Gates preamble, and Package Management rules);
+               agent-browser.json (project-root config file consumed via
+               --config by the Browser Verification section below - seeded
+               by /ds-init-project for web-UI projects (see
+               content/commands/ds-init-project.md); supplies the
+               --disable-blink-features=AutomationControlled stealth flag).
 
 Downstream consumers: engineer agents (run per-language quality gates
                       after every implementation); content/sections/
@@ -1817,15 +1822,44 @@ Performance: Standard.
 
 `agent-browser` is installed globally. Use it via Bash for all browser verification tasks instead of MCP browser tools.
 
+Every invocation carries two things, resolved once per run and reused for every call: a project-config flag that turns on bot-evasion (`$CONFIG_FLAG`), and a `--session` name that isolates this run's browser state from any concurrent run (`$SESSION`).
+
 ```bash
-agent-browser open <url>      # navigate
-agent-browser snapshot        # get page structure with element refs
-agent-browser click @e1       # click by ref
-agent-browser fill @e2 "text" # fill input by ref
-agent-browser close           # close the session when done (close --all closes every session)
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+CONFIG_FLAG=()
+[ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/agent-browser.json" ] && CONFIG_FLAG=(--config "$REPO_ROOT/agent-browser.json")
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" <subcommand> [args...]
 ```
 
-After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always close it when verification is done (`agent-browser close`, or `close --all` to close every session) - otherwise the browser lingers open after the task.
+Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"` form, when the surrounding script runs under `set -u`/`set -o nounset` - expanding an empty array via the bare form throws `unbound variable` on macOS's stock bash 3.2. The `+` form is a no-op on non-empty arrays and safe under nounset either way.
+
+`$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
+
+**Resolve `$SESSION` once per run:**
+1. `$REPO_ROOT` non-empty -> `verify-<sanitize(basename "$REPO_ROOT")>-<epoch-seconds>-<pid>`
+2. `$REPO_ROOT` empty -> `verify-<epoch-seconds>-<pid>`
+
+`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized basename only, before the `-<epoch-seconds>-<pid>` suffix is appended - truncation can never eat the suffix, which is why the name stays unique even when the basename itself collapses.
+
+**Why the suffix is unconditional:** the sanitized basename alone does not guarantee uniqueness. The ~40-char cap can collapse two distinct basenames to the same truncated value - e.g. two worktree slugs differing only in a trailing unit index both truncate to the same prefix - and two checkouts can share a basename by construction, not coincidence: AE's own worktree-naming conventions generate exactly that (`.agentic/worktrees/<branch-name>`, `qa-<branch>`, per-unit slugs).
+
+The main cost of the suffix: the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including teardown - **do not re-run the resolution block on a later call to get it again.** Harness shell state does not persist between Bash tool calls, so re-deriving produces a different name every time and silently orphans the previous session: a blank result with no error on the next call, and the scoped `close` swallowing the evidence. A second cost: `agent-browser` keys session state under `~/.agent-browser/` by session name, so a per-run name accumulates one artifact per run, where the old deterministic name reused a single artifact per repo instead - no documented teardown path reaps them.
+
+```bash
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" open <url>                # navigate
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" snapshot                  # get page structure with element refs
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" click @e1                 # click by ref
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" fill @e2 "text"           # fill input by ref
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$SESSION" close 2>/dev/null || true # scoped close - never `close --all` in automatic teardown
+```
+
+`$SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
+
+After editing code with a preview server running, always verify with `agent-browser` - open the relevant URL, snapshot to check structure and content, interact with key elements to confirm behavior. `agent-browser` holds a persistent session, so always scoped-close it when verification is done - otherwise the browser lingers open after the task. `agent-browser close --all` closes every session on the machine, including a concurrently-running sibling's - reserve it for manual, deliberate operator cleanup, never an automatic teardown path.
+
+**Escape hatch** (to observe the raw, non-stealth fingerprint): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically against `agent-browser 0.25.4`: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`; re-verify this override-vs-merge behavior if the installed version has moved on). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - args are resolved per-session at (re)launch, so editing the file while any session (this run's or a concurrent sibling's) may be live risks a silent, destructive relaunch that destroys that session's cookies, auth state, and navigation position with no error surfaced.
+
+`agent-browser session list` is eventually consistent for a few seconds after a scoped `close` returns - a just-closed session briefly still appearing in the list is not a teardown failure.
 
 ---
 
@@ -4570,6 +4604,8 @@ fi
 ```
 
 Serial multi-PR QA is reserved for cases where the parallel path is structurally blocked (e.g. only one preview environment available). Default is parallel.
+
+Each qa-engineer's `--session` name carries a per-run disambiguator (see `content/agents/qa-engineer.md` §Session naming) - this is what prevents same-ticket concurrent siblings from colliding on the underlying `agent-browser` session, a separate axis from the `PORT=$((3000 + N))` dev-server-port offset shown above.
 
 ## Architect-plan-driven scenarios
 
@@ -10057,14 +10093,16 @@ for i in $(seq 1 30); do nc -z localhost <port> && break; sleep 1; done
 
 If the port doesn't respond within 30 seconds, report BLOCKED with: "Dev server failed to start. Check /tmp/qa_devserver.log."
 
-**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session otherwise lingers (visibly) after the run:
+**Teardown (run on every exit path - PASS, FAIL, BLOCKED, INCONCLUSIVE, or error).** After QA completes, close the browser session AND kill the dev server. Run both unconditionally, even when verification was blocked or bailed early - a leaked `agent-browser` session otherwise lingers (visibly) after the run. Close is scoped to this run's own session (`$CONFIG_FLAG`/`$QA_SESSION`, resolved once per run - see Session naming below) - never `close --all`, which would tear down a concurrently-running sibling's session too:
 
 ```bash
-agent-browser close --all 2>/dev/null || true   # close every agent-browser session
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" close 2>/dev/null || true   # scoped close - this run's session only
 kill $(lsof -ti:<port>) 2>/dev/null || true      # kill the dev server
 ```
 
-The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it.
+`$QA_SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
+
+The `|| true` guards ensure an already-closed session or unbound port never errors the run. Playwright needs no separate teardown: the `with sync_playwright()` context manager plus `browser.close()` in the Playwright snippet below handles it. `agent-browser close --all` remains available as a manually-invoked operator cleanup command - it must never appear in an automatic per-agent teardown path.
 
 **Temp-file cleanup.** `qa-engineer` is responsible for the temp files it creates. Run this in teardown after the browser/dev-server steps above, choosing the branch that matches the result you are about to report:
 
@@ -10101,9 +10139,41 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 - `story-url` entries: override the Storybook base URL for this project; used by the Storybook scenarios section. Format: `story-url: http://localhost:9009`
 - `motion` entries: operator-declared route and element list that overrides the scenario's `route` and `elements` fields when both are present. Format: `motion: /route [selector,selector,...]` or `motion: /route auto`
 
+## Session naming
+
+Every `agent-browser` invocation in this file carries a project-config flag (stealth) and a `--session` name (isolation), resolved once per run and reused for every call:
+
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)"
+CONFIG_FLAG=()
+[ -n "$REPO_ROOT" ] && [ -f "$REPO_ROOT/agent-browser.json" ] && CONFIG_FLAG=(--config "$REPO_ROOT/agent-browser.json")
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" <subcommand> [args...]
+```
+
+Use `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"`, not the bare `"${CONFIG_FLAG[@]}"` form, when the surrounding script runs under `set -u`/`set -o nounset` - expanding an empty array via the bare form throws `unbound variable` on macOS's stock bash 3.2. The `+` form is a no-op on non-empty arrays and safe under nounset either way.
+
+`$CONFIG_FLAG` **must** be a bash array, never a quoted string - a quoted-string form breaks on repo paths containing a space, and naive re-quoting breaks the unseeded-project case instead. The existence guard (`[ -f "$REPO_ROOT/agent-browser.json" ]`) is required: passing `--config` unconditionally on a project with no seeded `agent-browser.json` hard-fails every call.
+
+**Resolve `$QA_SESSION` once per run:**
+1. `$REPO_ROOT` non-empty -> session name = `sanitize(basename "$REPO_ROOT")-<epoch-seconds>-<pid>` - **no added `qa-` prefix in this branch.** (`qa-gate.md`'s own worktree-fan-out recipe already names the worktree directory `qa-<branch>`, so `basename "$REPO_ROOT"` in that scenario is already `qa-<branch>`; prefixing another `qa-` would produce `qa-qa-<branch>`. The bare basename plus the per-run suffix below is already a sufficiently unique, recognizable session name - no semantic prefix is needed for uniqueness.)
+2. `$REPO_ROOT` empty AND `ticket_id` present -> `qa-<sanitize(ticket_id)>-<epoch-seconds>-<pid>`
+3. neither -> `qa-<epoch-seconds>-<pid>`
+
+`sanitize(x)`: lowercase; replace characters outside `[a-z0-9-]` with `-`; collapse repeats; strip leading/trailing `-`; cap ~40 chars. The cap applies to the sanitized value only, before the `-<epoch-seconds>-<pid>` suffix is appended in branches 1 and 2 - truncation can never eat the suffix, which is why the name stays unique even when the sanitized basename or ticket ID collapses.
+
+Why worktree-root-path, not branch name: `git branch --show-current` is empty in detached HEAD, so it cannot serve as a session-name input; `git rev-parse --show-toplevel` is populated whenever the caller is inside a git repo (branches 2 and 3 above cover the case where it is not), which is why the basename derives from it instead. Uniqueness itself comes from the per-run suffix in the Resolve steps above, not from the worktree directory's own name - so this holds regardless of what the caller names the worktree.
+
+**The main cost of the suffix:** the resolved name is no longer re-derivable from the environment alone, so the literal from the first resolution must be carried through every later call, including the teardown close mandated in the Workflow section below - **do not re-run the resolution block on a later call to get it again.** Harness shell state does not persist between Bash tool calls, so re-deriving produces a different name every time and silently orphans the previous session: a blank `snapshot` with no error, and the scoped `close 2>/dev/null || true` swallowing the evidence. A second cost: `agent-browser` keys session state under `~/.agent-browser/` by session name, so a per-run name accumulates one artifact per run, where the old deterministic name reused a single artifact per repo instead - no documented teardown path reaps them.
+
+**Escape hatch** (to observe the raw, non-stealth fingerprint - e.g. a scenario deliberately testing bot-detection behavior): omitting `--config` does **not** disable stealth by itself - `agent-browser` auto-discovers a committed `agent-browser.json` from its own exact invocation CWD when `--config` is not passed, so a call from the repo root still picks it up and `navigator.webdriver` stays `false`. Instead, point `--config` explicitly at a throwaway empty-JSON file (`{}`) - CLI flags override the auto-discovered project config rather than merging with it (confirmed empirically against `agent-browser 0.25.4`: an empty `--config` file cleanly restores the default, non-stealth fingerprint even when run from a directory containing the real `agent-browser.json`; re-verify this override-vs-merge behavior if the installed version has moved on). Open a fresh, never-used `--session <name>` with that override from its first `open` onward, or explicitly `close` an existing session and reopen the same name with the same override. Never edit the committed `agent-browser.json` in place to toggle this - see the mid-run-edit warning in the Workflow section below.
+
+`agent-browser session list` is eventually consistent for a few seconds after a scoped `close` returns - a just-closed session briefly still appearing in the list is not a teardown failure.
+
 ## Workflow
 
-> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the teardown from the Dev server section (`agent-browser close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional. This also includes the temp-file cleanup block: delete `/tmp/qa_*` (except PASS screenshots) and `/tmp/qa_devserver.log` on every exit path.
+> **Teardown obligation.** Once you have opened an `agent-browser` session, you MUST run the scoped-close teardown from the Project configuration section (`agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" close`, never `close --all`) before returning - including on any BLOCKED, INCONCLUSIVE, or early-exit return in the steps and scenario sections below. The teardown is unconditional. This also includes the temp-file cleanup block: delete `/tmp/qa_*` (except PASS screenshots) and `/tmp/qa_devserver.log` on every exit path.
+
+> **Mid-run `agent-browser.json` edit hazard.** Never create or edit the project's `agent-browser.json` while any session from this run (or a concurrently-running sibling run) may be live - the next command against an affected session silently relaunches the browser, destroying its cookies, auth state, and navigation position with no error surfaced. This is especially dangerous after an authenticated login was established via the Auth handling section's cookie-injection path - a silent relaunch there manifests as an inexplicable FAIL or BLOCKED. Treat `agent-browser.json` as fixed for the duration of any active run.
 
 ### 1. Pre-flight
 
@@ -10131,14 +10201,16 @@ If the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallba
 
 Two tools are available. Choose based on complexity:
 
-**agent-browser** (globally installed CLI) - for navigation, visual checks, simple interactions:
+**agent-browser** (globally installed CLI) - for navigation, visual checks, simple interactions. Every call carries `"${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}"` and `--session "$QA_SESSION"` (resolved once per run - see Session naming above):
 ```bash
-agent-browser open <url>          # navigate to a page
-agent-browser snapshot            # get page structure with element refs (@e1, @e2, ...)
-agent-browser click @e1           # click an element by ref
-agent-browser fill @e2 "text"     # fill an input field by ref
-agent-browser screenshot          # capture visual state
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" open <url>          # navigate to a page
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" snapshot            # get page structure with element refs (@e1, @e2, ...)
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" click @e1           # click an element by ref
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" fill @e2 "text"     # fill an input field by ref
+agent-browser "${CONFIG_FLAG[@]+"${CONFIG_FLAG[@]}"}" --session "$QA_SESSION" screenshot          # capture visual state
 ```
+
+`$QA_SESSION` above stands for the literal resolved name - substitute it inline. Unlike `$CONFIG_FLAG`, it must not be re-derived in a later Bash call.
 
 **Playwright** (Python) - for multi-step flows, form interaction, console error capture, network inspection:
 ```python
@@ -10358,6 +10430,7 @@ Return this exact structure. Replace all brackets with real content. If a sectio
 - Auth: authenticated | not required | blocked (reason)
 - Verification method: browser | source-fallback | mixed
 - Tool: agent-browser | Playwright | both
+- Browser session: [name used]
 
 ## Acceptance Criteria Results
 
@@ -17342,6 +17415,7 @@ Before writing any files, check which files already exist. The full set of files
 - `.claude/settings.local.json`
 - `.agentic/qa.md` (only if web UI confirmed in Step 1)
 - `tests/visual-baselines/.gitkeep` (only if web UI confirmed in Step 1)
+- `agent-browser.json` (root) - agent-browser stealth launch-arg default; only if web UI confirmed in Step 1
 - `.agentic/deploy.md` (only if release signals detected in Step 0)
 - `.agentic/tracking.md` (only if a tracker was confirmed in Step 1)
 - `.agentic/learnings.md` — durable fix-pattern learnings from resolved Skeptic findings; always created (committed, not gitignored)
@@ -18012,6 +18086,20 @@ Read `package.json` (if present) and scan all dependency fields (`dependencies`,
 Mixed-version installs (framework adapter on SB7+ with legacy addon packages on SB6) are supported - the framework adapter version is authoritative.
 
 This file is committed (NOT gitignored) - the `.agentic/` umbrella ignore carves it out via `!.agentic/config.json` in `.gitignore` (added in Step 9) so the project's methodology toggles are portable and travel with the repo, the same way `qa.md` and `deploy.md` do. It is optional and graceful: if absent, every toggle takes its default and nothing breaks - seeding it here just gives the conductor a stable file to read and the operator a discoverable place to tune.
+
+### 6h. Create `agent-browser.json`
+
+Only create if the user confirmed a web UI in Step 1 AND the user did not decline web UI in Step 1 (`no web UI` / `skip web UI`). Only create if the file does not already exist at the project root — never overwrite an existing file. If web UI was declined, skip this step entirely.
+
+Content:
+
+```json
+{
+  "args": "--disable-blink-features=AutomationControlled"
+}
+```
+
+This file is committed (NOT gitignored) — it lives at the project root, outside `.agentic/`, so it has no interaction with the `.agentic/` umbrella ignore in `.gitignore`. It is read natively by `agent-browser`'s own project-config layer (a globally-installed third-party browser-automation CLI agents use for browser verification, distinct from `qa-engineer`'s Playwright-based checks) via an explicit `--config <repo-root>/agent-browser.json` flag on every invocation. The seeded `args` value flips `navigator.webdriver` from `true` to `false`, closing a bot-detection gap present in `agent-browser`'s default launch. This step adds no `.agentic/config.json` key and involves no `bin/agentic-config` change — `agent-browser` resolves this file entirely on its own, with no AE-side toggle plumbing.
 
 ### 7. Create `.claude/settings.local.json`
 
