@@ -1980,7 +1980,7 @@ Fires exactly once per ticket per `/ds-implement-ticket` invocation.
 
 ## Phase 6b: QA Gate (conditional)
 
-For the full QA Gate procedure - trigger conditions, the `qa_skip` enum, the QA loop contract (loop-state schema, the per-iteration Step 1-5 sequence, screenshot evidence capture), and the QA regressions curator - see `content/references/qa-loop-state.md` §"Phase 6b: QA Gate (conditional)". `content/references/qa-gate.md` documents the general QA-gate procedure this command's loop-state bookkeeping wraps.
+For the full QA Gate procedure - trigger conditions, the `qa_skip` enum, the QA loop contract (loop-state schema, the per-iteration Step 1-5 sequence, screenshot evidence capture), and the QA regressions curator - see `content/references/qa-loop-state.md` §"Phase 6b: QA Gate (conditional)". `content/references/qa-gate.md` documents the general QA-gate procedure this command's loop-state bookkeeping wraps. The QA loop contract's qa-engineer spawn resolves the project's qa.md config from `.agentic/qa.md` (preferred) or legacy `.claude/qa.md` (fallback) - see the reference file for the full spawn brief.
 
 **Tracker writeback (W3)** fires on iteration 1 only: if `TRACKER != none` AND this is the first qa-engineer spawn in Phase 6b, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_QA`, `forward_only_guard: true`. Fire-and-forget.
 
