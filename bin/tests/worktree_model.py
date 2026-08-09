@@ -37,6 +37,24 @@ Public API:
   DEFAULT_BASE_BRANCHES                                  -> ("main", "master")
                                                             default guard set
 
+  DS-153 / plan Amendment B1: `disposition_for` (LIVE WORKTREE REMOVAL,
+  `git worktree remove`) and `disposition_for_orphan_branch` (BRANCH
+  DELETION, `git branch -D`) now resolve `pr_state == "MERGED"`
+  differently, via an explicit `strict_pr_state` parameter threaded through
+  the shared `_resolve_merge_evidence` helper - never an implicit caller
+  convention. `disposition_for` passes `strict_pr_state=False` (unchanged
+  legacy behavior: a bare MERGED PR is ELIGIBLE) because `git worktree
+  remove` does not destroy commits - the branch and its objects survive,
+  so the worst case is already covered by SKIP_DIRTY/SKIP_LOCKED.
+  `disposition_for_orphan_branch` passes `strict_pr_state=True` (new
+  behavior: a bare MERGED PR alone is `SKIP_PR_MERGED_UNPROVEN`, a
+  TERMINAL skip - only `content_subsumption == "subsumed"` can still earn
+  ELIGIBLE) because `git branch -D` is a data-loss-capable operation and
+  the plan's subsumption predicate is calibrated for it. See the plan
+  Skeptic's Amendment B1 (`.agentic/ds-153-plan.md`, DS-153) for the full
+  rationale: applying the branch-deletion bar to worktree removal strands
+  every squash-merged LIVE worktree permanently.
+
 Upstream deps: none (stdlib only, no I/O). Pure functions throughout -
                callers gather live facts (via `git`, `gh`) and pass them in.
 
@@ -368,6 +386,7 @@ class Disposition(Enum):
     SKIP_NOT_PUSHED = "SKIP_NOT_PUSHED"
     SKIP_LS_REMOTE_ERROR = "SKIP_LS_REMOTE_ERROR"
     SKIP_PR_OPEN = "SKIP_PR_OPEN"
+    SKIP_PR_MERGED_UNPROVEN = "SKIP_PR_MERGED_UNPROVEN"
     SKIP_AMBIGUOUS_NO_PR = "SKIP_AMBIGUOUS_NO_PR"
     SKIP_UNREFERENCED_COMMIT = "SKIP_UNREFERENCED_COMMIT"
     SKIP_BASE_BRANCH = "SKIP_BASE_BRANCH"
@@ -386,6 +405,7 @@ class DispositionFacts:
     head_reachable: str  # "reachable" | "unreachable" | "not_checked"
     ls_remote_status: str  # "pushed" | "not_pushed" | "error" | "not_checked"
     merge_evidence: str  # "merged" | "unmerged" | "not_checked"
+    content_subsumption: str  # "subsumed" | "not_subsumed" | "not_checked" (DS-153 B1)
     pr_state: str  # "OPEN" | "MERGED" | "CLOSED" | "NONE" | "not_checked"
 
 
@@ -395,11 +415,45 @@ def _check_merge_evidence(facts: DispositionFacts) -> Optional[Disposition]:
     return None  # "unmerged" / "not_checked": inconclusive, try the next source
 
 
-def _check_pr_state(facts: DispositionFacts) -> Optional[Disposition]:
+def _check_content_subsumption(facts: DispositionFacts) -> Optional[Disposition]:
+    """DS-153 B1: proves the LOCAL TIP's content is on the base branch via
+    the plan's four-layer subsumption predicate (computed entirely by the
+    caller - `bin/ds-branch-prune` - and passed in as a fact, exactly like
+    every other field on this dataclass). `"not_checked"` and
+    `"not_subsumed"` are both inconclusive here, never a green light.
+    """
+    if facts.content_subsumption == "subsumed":
+        return Disposition.ELIGIBLE
+    return None
+
+
+def _check_pr_state_lenient(facts: DispositionFacts) -> Optional[Disposition]:
+    """Legacy/unchanged semantics, used ONLY by `disposition_for` (live
+    worktree REMOVAL). `git worktree remove` does not destroy commits - the
+    branch and its objects survive - so a bare MERGED PR is still treated
+    as sufficient evidence. See DS-153 Amendment B1.
+    """
     if facts.pr_state == "OPEN":
         return Disposition.SKIP_PR_OPEN
     if facts.pr_state == "MERGED":
         return Disposition.ELIGIBLE
+    return None  # "CLOSED" / "NONE" / "not_checked": inconclusive
+
+
+def _check_pr_state_strict(facts: DispositionFacts) -> Optional[Disposition]:
+    """DS-153 B1: used ONLY by `disposition_for_orphan_branch` (BRANCH
+    DELETION, `git branch -D`). Reaching this check means `merge_evidence`
+    and `content_subsumption` were both already inconclusive, so a bare
+    MERGED PR is now affirmatively INSUFFICIENT - it proves a PR merged,
+    not that this local tip's content is on the base branch. Returns the
+    TERMINAL `SKIP_PR_MERGED_UNPROVEN`, not an inconclusive `None`: this is
+    intentionally NOT a fall-through to `ls_remote_status`, since "pushed"
+    says nothing that would rescue a MERGED-but-unproven PR.
+    """
+    if facts.pr_state == "OPEN":
+        return Disposition.SKIP_PR_OPEN
+    if facts.pr_state == "MERGED":
+        return Disposition.SKIP_PR_MERGED_UNPROVEN
     return None  # "CLOSED" / "NONE" / "not_checked": inconclusive
 
 
@@ -416,17 +470,34 @@ def _check_ls_remote(facts: DispositionFacts) -> Optional[Disposition]:
 #: source is definitive on its own. ORDER IS LOAD-BEARING (this is the
 #: mutation-switch QA scenario 6 exercises): `merge_evidence` first because
 #: it is the strongest, most direct signal (proof the branch's content
-#: landed on the base branch); `pr_state` second because `OPEN` is a hard
-#: safety override that must win over an unrelated push-status signal, and
+#: landed on the base branch); `content_subsumption` second (DS-153 B1) -
+#: the plan's four-layer subsumption predicate, itself a stronger-than-PR
+#: proof that a squashed/rebased branch's delta is on the base branch, so it
+#: is checked before a mere PR-merged signal; `pr_state` third because
+#: `OPEN` is a hard safety override that must win over an unrelated
+#: push-status signal, and (for the lenient/worktree-removal caller only)
 #: `MERGED` is corroborating evidence when ancestry-based `merge_evidence`
 #: could not be computed (e.g. after a history rewrite); `ls_remote_status`
 #: last because "pushed" alone says nothing about merge status - it only
 #: ever produces a SKIP_* here, never an ELIGIBLE.
-MERGE_EVIDENCE_ORDER: Tuple[str, ...] = ("merge_evidence", "pr_state", "ls_remote_status")
+MERGE_EVIDENCE_ORDER: Tuple[str, ...] = (
+    "merge_evidence",
+    "content_subsumption",
+    "pr_state",
+    "ls_remote_status",
+)
 
-_EVIDENCE_CHECKS: Dict[str, Callable[[DispositionFacts], Optional[Disposition]]] = {
+_EVIDENCE_CHECKS_LENIENT: Dict[str, Callable[[DispositionFacts], Optional[Disposition]]] = {
     "merge_evidence": _check_merge_evidence,
-    "pr_state": _check_pr_state,
+    "content_subsumption": _check_content_subsumption,
+    "pr_state": _check_pr_state_lenient,
+    "ls_remote_status": _check_ls_remote,
+}
+
+_EVIDENCE_CHECKS_STRICT: Dict[str, Callable[[DispositionFacts], Optional[Disposition]]] = {
+    "merge_evidence": _check_merge_evidence,
+    "content_subsumption": _check_content_subsumption,
+    "pr_state": _check_pr_state_strict,
     "ls_remote_status": _check_ls_remote,
 }
 
@@ -434,9 +505,22 @@ _EVIDENCE_CHECKS: Dict[str, Callable[[DispositionFacts], Optional[Disposition]]]
 def _resolve_merge_evidence(
     facts: DispositionFacts,
     merge_evidence_order: Tuple[str, ...],
+    *,
+    strict_pr_state: bool,
 ) -> Disposition:
+    """DS-153 B1: `strict_pr_state` is an explicit, required-by-keyword
+    parameter - not an implicit caller convention - selecting which
+    `pr_state` check function participates in evidence resolution.
+    `strict_pr_state=False` (used by `disposition_for`, live worktree
+    removal) keeps the legacy MERGED-is-sufficient behavior.
+    `strict_pr_state=True` (used by `disposition_for_orphan_branch`, branch
+    deletion) makes a bare MERGED PR terminally insufficient absent
+    `content_subsumption == "subsumed"`. Both variants share every other
+    evidence source unchanged.
+    """
+    checks = _EVIDENCE_CHECKS_STRICT if strict_pr_state else _EVIDENCE_CHECKS_LENIENT
     for source in merge_evidence_order:
-        verdict = _EVIDENCE_CHECKS[source](facts)
+        verdict = checks[source](facts)
         if verdict is not None:
             return verdict
     # Every source was inconclusive: fail closed rather than default ELIGIBLE.
@@ -482,7 +566,11 @@ def disposition_for(
             return Disposition.ELIGIBLE
         return Disposition.SKIP_UNREFERENCED_COMMIT
 
-    return _resolve_merge_evidence(facts, merge_evidence_order)
+    # DS-153 B1: strict_pr_state=False - this is the WORKTREE-REMOVAL path
+    # (`git worktree remove`, which does not destroy commits), so a bare
+    # MERGED PR remains sufficient evidence, unchanged from pre-DS-153
+    # behavior. See _resolve_merge_evidence's docstring and Amendment B1.
+    return _resolve_merge_evidence(facts, merge_evidence_order, strict_pr_state=False)
 
 
 #: Default `base_branches` for `disposition_for_orphan_branch` - matches the
@@ -527,9 +615,25 @@ def disposition_for_orphan_branch(
     `grep -vE`), so this guard is a defense-in-depth floor for any FUTURE
     caller that forgets to - not a behavior change for the callers that
     exist today.
+
+    DS-153 Amendment B1: this function ALWAYS resolves evidence with
+    `strict_pr_state=True` - a bare `pr_state == "MERGED"` is TERMINAL
+    (`SKIP_PR_MERGED_UNPROVEN`), not `ELIGIBLE`. Reaching the `pr_state`
+    check means both `merge_evidence` (ancestry) and `content_subsumption`
+    (the plan's four-layer subsumption predicate) were already
+    inconclusive, so "a PR merged" is affirmatively insufficient proof that
+    THIS local tip's content is on the base branch - the exact forbidden
+    predicate the plan was written to eliminate for a `git branch -D` call
+    site. This is a deliberate divergence from `disposition_for` (live
+    worktree removal), which stays lenient because `git worktree remove`
+    does not destroy commits. See `_resolve_merge_evidence`'s docstring for
+    the shared mechanism and `.agentic/ds-153-plan.md` Amendment B1 for the
+    full rationale (a worktree-removal-strength bar applied to a
+    data-loss-capable branch deletion is unsafe in one direction; applied
+    the other way around, it strands every squash-merged live worktree).
     """
     if branch in base_branches:
         return Disposition.SKIP_BASE_BRANCH
     del branch  # beyond the guard above, identifies the branch to the
     # caller/audit trail only - the remaining logic depends solely on `facts`.
-    return _resolve_merge_evidence(facts, merge_evidence_order)
+    return _resolve_merge_evidence(facts, merge_evidence_order, strict_pr_state=True)

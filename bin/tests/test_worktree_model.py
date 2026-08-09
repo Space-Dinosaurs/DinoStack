@@ -392,6 +392,7 @@ class TestDispositionFailClosed:
                 head_reachable="reachable",
                 ls_remote_status="pushed",
                 merge_evidence="merged",
+                content_subsumption="not_checked",
             )
 
     def test_fail_closed_dirty_not_checked_skips(self):
@@ -400,6 +401,7 @@ class TestDispositionFailClosed:
             head_reachable="reachable",
             ls_remote_status="pushed",
             merge_evidence="merged",
+            content_subsumption="not_checked",
             pr_state="MERGED",
         )
         result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
@@ -411,6 +413,7 @@ class TestDispositionFailClosed:
             head_reachable="not_checked",
             ls_remote_status="not_checked",
             merge_evidence="not_checked",
+            content_subsumption="not_checked",
             pr_state="not_checked",
         )
         result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
@@ -429,6 +432,7 @@ class TestDispositionFailClosed:
             head_reachable="not_checked",
             ls_remote_status="not_checked",
             merge_evidence="not_checked",
+            content_subsumption="not_checked",
             pr_state="not_checked",
         )
         result = disposition_for(entry, WorktreeClass.ISOLATION, facts)
@@ -440,6 +444,7 @@ class TestDispositionFailClosed:
             head_reachable="reachable",
             ls_remote_status="pushed",
             merge_evidence="merged",
+            content_subsumption="not_checked",
             pr_state="MERGED",
         )
         result = disposition_for(_clean_branched_entry(locked=True), WorktreeClass.ISOLATION, facts)
@@ -451,6 +456,7 @@ class TestDispositionFailClosed:
             head_reachable="reachable",
             ls_remote_status="pushed",
             merge_evidence="merged",
+            content_subsumption="not_checked",
             pr_state="MERGED",
         )
         entry = _clean_branched_entry()
@@ -463,7 +469,30 @@ class TestDispositionFailClosed:
             head_reachable="reachable",
             ls_remote_status="not_checked",
             merge_evidence="merged",
+            content_subsumption="not_checked",
             pr_state="not_checked",
+        )
+        result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
+        assert result is Disposition.ELIGIBLE
+
+    def test_disposition_for_squash_merged_live_worktree_stays_reclaimable(self):
+        # DS-153 Amendment B1 - the decisive regression this split exists to
+        # prevent: a LIVE worktree (`disposition_for`, `git worktree
+        # remove`) whose only evidence is a bare `pr_state == "MERGED"` -
+        # `merge_evidence` inconclusive (squash merge breaks ancestry) and
+        # `content_subsumption` never computed for a worktree (G1 in
+        # ds-branch-prune skips worktree-checked-out branches; nothing
+        # computes the subsumption predicate for a live worktree). Under
+        # the pre-B1 shared-checker design this would have hit the new
+        # terminal skip and stranded every squash-merged live worktree
+        # permanently. `disposition_for` must remain ELIGIBLE.
+        facts = DispositionFacts(
+            dirty_status="clean",
+            head_reachable="reachable",
+            ls_remote_status="pushed",
+            merge_evidence="not_checked",
+            content_subsumption="not_checked",
+            pr_state="MERGED",
         )
         result = disposition_for(_clean_branched_entry(), WorktreeClass.ISOLATION, facts)
         assert result is Disposition.ELIGIBLE
@@ -481,6 +510,7 @@ class TestDispositionForOrphanBranch:
             head_reachable="not_checked",  # irrelevant - no worktree
             ls_remote_status="not_checked",
             merge_evidence="merged",
+            content_subsumption="not_checked",
             pr_state="not_checked",
         )
         assert disposition_for_orphan_branch("some-branch", facts) is Disposition.ELIGIBLE
@@ -491,6 +521,7 @@ class TestDispositionForOrphanBranch:
             head_reachable="not_checked",
             ls_remote_status="pushed",
             merge_evidence="not_checked",
+            content_subsumption="not_checked",
             pr_state="OPEN",
         )
         assert disposition_for_orphan_branch("some-branch", facts) is Disposition.SKIP_PR_OPEN
@@ -501,6 +532,7 @@ class TestDispositionForOrphanBranch:
             head_reachable="not_checked",
             ls_remote_status="not_checked",
             merge_evidence="not_checked",
+            content_subsumption="not_checked",
             pr_state="not_checked",
         )
         assert disposition_for_orphan_branch("some-branch", facts) is Disposition.SKIP_AMBIGUOUS_NO_PR
@@ -515,6 +547,7 @@ class TestDispositionForOrphanBranch:
             head_reachable="not_checked",
             ls_remote_status="not_checked",
             merge_evidence="merged",
+            content_subsumption="not_checked",
             pr_state="MERGED",
         )
         assert disposition_for_orphan_branch("main", facts) is Disposition.SKIP_BASE_BRANCH
@@ -530,6 +563,7 @@ class TestDispositionForOrphanBranch:
             head_reachable="not_checked",
             ls_remote_status="not_checked",
             merge_evidence="merged",
+            content_subsumption="not_checked",
             pr_state="not_checked",
         )
         assert disposition_for_orphan_branch("develop", facts) is Disposition.ELIGIBLE
@@ -537,6 +571,77 @@ class TestDispositionForOrphanBranch:
             disposition_for_orphan_branch("develop", facts, base_branches=("develop",))
             is Disposition.SKIP_BASE_BRANCH
         )
+
+    def test_orphan_branch_pr_merged_alone_is_terminal_skip(self):
+        # DS-153 B1: the single most important line in the change. A bare
+        # MERGED PR is affirmatively insufficient for BRANCH DELETION
+        # (`git branch -D`) - it proves a PR merged, not that this local
+        # tip's content is on the base branch. Both merge_evidence and
+        # content_subsumption are inconclusive here, so reaching pr_state
+        # must produce SKIP_PR_MERGED_UNPROVEN, never ELIGIBLE.
+        facts = DispositionFacts(
+            dirty_status="not_checked",
+            head_reachable="not_checked",
+            ls_remote_status="pushed",
+            merge_evidence="not_checked",
+            content_subsumption="not_checked",
+            pr_state="MERGED",
+        )
+        result = disposition_for_orphan_branch("some-branch", facts)
+        assert result is Disposition.SKIP_PR_MERGED_UNPROVEN
+        assert result is not Disposition.ELIGIBLE
+
+    def test_orphan_branch_content_subsumed_is_eligible_despite_bare_merged_pr(self):
+        # DS-153 B1: content_subsumption == "subsumed" (the plan's
+        # four-layer predicate having proven the tip's content is on the
+        # base branch) rescues an otherwise-terminal bare MERGED PR -
+        # content_subsumption is checked BEFORE pr_state in
+        # MERGE_EVIDENCE_ORDER, so ELIGIBLE is reached without ever
+        # consulting the (still bare) MERGED pr_state.
+        facts = DispositionFacts(
+            dirty_status="not_checked",
+            head_reachable="not_checked",
+            ls_remote_status="pushed",
+            merge_evidence="not_checked",
+            content_subsumption="subsumed",
+            pr_state="MERGED",
+        )
+        result = disposition_for_orphan_branch("some-branch", facts)
+        assert result is Disposition.ELIGIBLE
+
+    def test_orphan_branch_content_not_checked_fails_closed_to_terminal_skip(self):
+        # Companion to the two tests above: "not_checked" (the caller could
+        # not compute the predicate at all - e.g. degraded mode with no gh
+        # candidate data) is inconclusive, not a green light, and falls
+        # through to the same terminal pr_state check as "not_subsumed".
+        facts = DispositionFacts(
+            dirty_status="not_checked",
+            head_reachable="not_checked",
+            ls_remote_status="pushed",
+            merge_evidence="not_checked",
+            content_subsumption="not_checked",
+            pr_state="MERGED",
+        )
+        result = disposition_for_orphan_branch("some-branch", facts)
+        assert result is Disposition.SKIP_PR_MERGED_UNPROVEN
+
+    def test_orphan_branch_squash_merged_live_worktree_evidence_is_skipped(self):
+        # DS-153 B1, the direct counterpart of
+        # test_disposition_for_squash_merged_live_worktree_stays_reclaimable:
+        # feeding the IDENTICAL evidence shape (bare MERGED PR, no ancestry,
+        # no subsumption computed) through the BRANCH-DELETION function
+        # must yield the opposite verdict, proving the split is real and
+        # testable rather than accidental.
+        facts = DispositionFacts(
+            dirty_status="not_checked",
+            head_reachable="not_checked",
+            ls_remote_status="pushed",
+            merge_evidence="not_checked",
+            content_subsumption="not_checked",
+            pr_state="MERGED",
+        )
+        result = disposition_for_orphan_branch("some-branch", facts)
+        assert result is Disposition.SKIP_PR_MERGED_UNPROVEN
 
     def test_orphan_branch_never_produces_worktree_only_dispositions(self):
         # Source-level guarantee: disposition_for_orphan_branch has no
@@ -555,21 +660,24 @@ class TestDispositionForOrphanBranch:
         reach_values = ["reachable", "unreachable", "not_checked"]
         ls_values = ["pushed", "not_pushed", "error", "not_checked"]
         merge_values = ["merged", "unmerged", "not_checked"]
+        subsumption_values = ["subsumed", "not_subsumed", "not_checked"]
         pr_values = ["OPEN", "MERGED", "CLOSED", "NONE", "not_checked"]
         seen = set()
         for d in dirty_values:
             for r in reach_values:
                 for ls in ls_values:
                     for m in merge_values:
-                        for pr in pr_values:
-                            facts = DispositionFacts(
-                                dirty_status=d,
-                                head_reachable=r,
-                                ls_remote_status=ls,
-                                merge_evidence=m,
-                                pr_state=pr,
-                            )
-                            seen.add(disposition_for_orphan_branch("b", facts))
+                        for cs in subsumption_values:
+                            for pr in pr_values:
+                                facts = DispositionFacts(
+                                    dirty_status=d,
+                                    head_reachable=r,
+                                    ls_remote_status=ls,
+                                    merge_evidence=m,
+                                    content_subsumption=cs,
+                                    pr_state=pr,
+                                )
+                                seen.add(disposition_for_orphan_branch("b", facts))
         assert seen.isdisjoint(unreachable)
 
 
@@ -580,7 +688,12 @@ class TestDispositionForOrphanBranch:
 
 class TestMergeEvidenceOrdering:
     def test_ordering_default_precedence_is_merge_evidence_first(self):
-        assert MERGE_EVIDENCE_ORDER == ("merge_evidence", "pr_state", "ls_remote_status")
+        assert MERGE_EVIDENCE_ORDER == (
+            "merge_evidence",
+            "content_subsumption",
+            "pr_state",
+            "ls_remote_status",
+        )
 
     def test_ordering_mutation_switch_proves_order_load_bearing(self):
         # A branch whose PR is OPEN (a hard safety signal) but whose local
@@ -597,6 +710,7 @@ class TestMergeEvidenceOrdering:
             head_reachable="not_checked",
             ls_remote_status="not_pushed",
             merge_evidence="not_checked",
+            content_subsumption="not_checked",
             pr_state="OPEN",
         )
         normative = disposition_for_orphan_branch("b", facts, merge_evidence_order=MERGE_EVIDENCE_ORDER)

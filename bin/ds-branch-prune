@@ -1,0 +1,629 @@
+#!/usr/bin/env python3
+"""
+Purpose: Squash-aware local branch prune (DS-153). Deletes only local
+         branches whose LOCAL TIP content is PROVEN to be on the base
+         branch, via a four-layer, first-match-wins subsumption predicate
+         (ancestry, squash-patch equivalence, tip-subsumption, content-on-
+         main), rather than the forbidden "a PR merged" predicate. Absence
+         of proof is always a skip, never a delete - the failure mode this
+         ticket forbids (deleting sole-copy work) is structurally
+         unreachable by the predicate itself; see the module docstring of
+         bin/tests/worktree_model.py and `.agentic/ds-153-plan.md`
+         (DS-153) for the full rationale and the Skeptic amendments (B1-B14)
+         this implementation follows.
+
+Public API (CLI):
+  ds-branch-prune [--repo <path>] [--base <ref>] [--explain] [--dry-run]
+                  [--pr-data <file>] [--no-gh] [--nudge-threshold <int>]
+
+  --repo <path>            Repository to operate on. Default: cwd.
+  --base <ref>             Base ref to prove subsumption against. Default:
+                            "origin/main". A local guard set of
+                            {"main", "master", <local name of --base>} is
+                            never eligible for deletion (guard G0).
+  --explain                Print one line per branch with its outcome
+                            (default: aggregate counts only).
+  --dry-run                Compute and report; delete nothing, write no
+                            ledger entries.
+  --pr-data <file>         Read merged-PR JSON from this file instead of
+                            invoking `gh` (test-injection seam; also usable
+                            for caching). A missing or malformed file is a
+                            usage error (exit 1) - never silently degrades.
+  --no-gh                  Force degraded mode (empty candidate set; only
+                            L1/L4 evidence can fire) without attempting to
+                            invoke `gh` at all.
+  --nudge-threshold <int>  SKIP_UNPROVEN count at/above which a one-line
+                            "accumulating" hint is printed. Default: 20.
+
+The predicate (guards, then layers, first match wins - see
+`.agentic/ds-153-plan.md` "The predicate (normative)" for the full
+normative table):
+  G0 SKIP_BASE_BRANCH      - branch is main/master/--base's local name
+  G1 SKIP_CHECKED_OUT      - branch is checked out in any linked worktree
+  G2 SKIP_NO_MERGE_BASE    - no merge-base against --base
+  L1 ancestor               - `merge-base --is-ancestor B M` (DELETE)
+  L2 squash-patch-equiv     - patch-id(diff(base,O)) == patch-id(diff(MC^,MC))
+                              for a candidate merged PR's mergeCommit MC on
+                              M, PLUS a byte-for-byte hunk-content
+                              discrimination check (Amendment B2 - closes
+                              git patch-id's whitespace-insensitivity hole)
+                              (DELETE)
+  L3 tip-subsumed            - candidate PR's mergeCommit MC on M, head H
+                              local, and O is an ancestor of H (DELETE)
+  L4 content-on-main         - files B changed (base..O) are a non-empty
+                              set disjoint from files changed M..O
+                              (two-dot, per Amendment B8) (DELETE)
+  otherwise SKIP_UNPROVEN
+
+Every branch's guard/layer decision is additionally resolved through
+`disposition_for_orphan_branch` (bin/tests/worktree_model.py) so this
+script and every other branch-deletion caller share one normative
+ELIGIBLE/SKIP_PR_MERGED_UNPROVEN definition (DS-153 Amendment B1) rather
+than two representations that can silently disagree - see that module's
+docstring. `SKIP_PR_MERGED_UNPROVEN` and the model's final-fallback
+`SKIP_AMBIGUOUS_NO_PR` both display here as `SKIP_UNPROVEN`, matching the
+plan's own outcome vocabulary; a bare `pr_state == "MERGED"` alone is
+never sufficient for deletion (this is the model's TERMINAL skip - see
+worktree_model.py Amendment B1).
+
+Deletion mechanism: `git branch -D` (not `-d` - `-d`'s own ancestry safety
+check is exactly the signal proven inert on squash-merged branches here;
+`-D` is safe at this call site ONLY because the predicate above has
+already established subsumption). Amendment B3: `git branch -D` deletes
+the branch's own reflog outright (`.git/logs/refs/heads/<b>`), so the
+recovery path is NOT the 90-day reflog default - every successful deletion
+is recorded as `<branch> <tip-sha>` to BOTH stdout and an append-only
+ledger file (`.agentic/branch-prune-ledger.txt` under --repo), so recovery
+is always `git branch <name> <sha>` regardless of reflog state. Amendment
+B11: a branch whose `-D` fails (e.g. git refuses a branch checked out or
+being rebased in another worktree it did not already know about) is
+reported to stderr and the run continues - never a hard failure.
+
+Upstream deps: Python 3 stdlib only (argparse, json, subprocess, shutil,
+               sys, pathlib, collections). `git` (CLI) and, unless
+               --no-gh/--pr-data, `gh` (CLI, for the bulk merged-PR list).
+               bin/tests/worktree_model.py (DispositionFacts, Disposition,
+               DEFAULT_BASE_BRANCHES, disposition_for_orphan_branch,
+               parse_porcelain - imported by path, not installed).
+               bin/_lib.py (atomic_write only, for the deletion ledger -
+               Amendment B7: the recorded symlink-resolution defect this
+               script's sibling CLIs once hit is fixed, per MEMORY.md
+               2026-07-02, so `_lib` is safe to import here; imported via
+               the same `Path(__file__).resolve().parent / "_lib.py"`
+               SourceFileLoader pattern as bin/ds-feedback, which follows
+               a PATH symlink back to the real bin/ directory).
+
+Downstream consumers: none yet at conductor-invocation time (Amendment
+                      B9/step 5 - the prose call site in
+                      content/references/worktree-lifecycle.md is DS-153
+                      unit 2's scope, not this script's). CI:
+                      bin/tests/test_branch_prune.py (pytest, auto-
+                      collected by `python3 -m pytest bin/tests/`).
+                      `bin/agentic-branch-prune` is a plain symlink to this
+                      file for naming consistency with the established
+                      `bin/ds-base-sync` primary-name-plus-symlink pattern
+                      (Amendment B14: NOT back-compat - no prior name for
+                      this tool existed before DS-153).
+
+Failure modes: exit 0 on success INCLUDING partial degradation (gh
+               unavailable/erroring/--no-gh, individual `git branch -D`
+               failures) - this is designed to run at session start and
+               must never look like a failure merely because branches were
+               skipped or one delete was refused elsewhere. Exit 1 ONLY on
+               an internal/usage error: --repo is not a directory or not a
+               git repository, --pr-data is missing or not valid JSON, or
+               an unhandled exception during evidence computation. A
+               `gh pr list` result whose row count equals the internal
+               500-row limit prints a one-line truncation NOTE (Amendment
+               B13 - this fires on effectively every run against this
+               repo's PR history today; expected, not exceptional) and is
+               never treated as proof that an unmatched branch is
+               unmerged - a truncated or entirely absent candidate set can
+               only cause MORE skips, never a false delete.
+
+Performance: one bulk `gh pr list` call (or one file read via --pr-data)
+             plus a handful of `git` invocations per local branch
+             (merge-base, is-ancestor, diff, patch-id). Sub-second on this
+             repo's ~49-branch checkout; not designed for repositories with
+             very large branch counts (see the plan's Known limitations
+             for a deferred `.agentic/`-cached-PR-JSON follow-up).
+"""
+
+from __future__ import annotations
+
+import argparse
+import importlib.machinery as _ilm
+import importlib.util as _ilu
+import json
+import shutil
+import subprocess
+import sys
+from collections import Counter
+from pathlib import Path
+from typing import Dict, List, Optional, Set, Tuple
+
+# --------------------------------------------------------------------------
+# Shared helpers: worktree_model.py (bin/tests/) and _lib.py (bin/), both
+# imported by resolved path so a bare PATH-symlink invocation
+# (~/.local/bin/ds-branch-prune -> repo bin/ds-branch-prune) still finds
+# them - .resolve() follows the symlink back to the real bin/ directory,
+# matching the pattern established in bin/ds-feedback.
+# --------------------------------------------------------------------------
+_BIN_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(_BIN_DIR / "tests"))
+
+from worktree_model import (  # noqa: E402
+    DEFAULT_BASE_BRANCHES,
+    Disposition,
+    DispositionFacts,
+    disposition_for_orphan_branch,
+    parse_porcelain,
+)
+
+_LIB_PATH = _BIN_DIR / "_lib.py"
+if "_lib" in sys.modules:
+    _lib_mod = sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
+atomic_write = _lib_mod.atomic_write
+del _lib_mod
+
+PR_LIST_LIMIT = 500
+LEDGER_RELATIVE_PATH = ".agentic/branch-prune-ledger.txt"
+
+# Amendment B2: every diff invocation is pinned to a config-independent
+# option set. `diff.algorithm=myers` and `diff.noprefix=false` neutralize a
+# caller's ~/.gitconfig; `--no-ext-diff` neutralizes diff.external;
+# `--no-renames` is determinism per the plan's original spec.
+_DIFF_CONFIG_PIN = ["-c", "diff.algorithm=myers", "-c", "diff.noprefix=false"]
+
+
+# --------------------------------------------------------------------------
+# git plumbing (thin wrappers; every call pins options per Amendment B2)
+# --------------------------------------------------------------------------
+
+
+def _run(args: List[str], cwd: Optional[str] = None, input_text: Optional[str] = None) -> subprocess.CompletedProcess:
+    return subprocess.run(args, cwd=cwd, input=input_text, capture_output=True, text=True)
+
+
+def _resolve_repo(path: str) -> str:
+    p = Path(path).expanduser()
+    if not p.is_dir():
+        raise ValueError(f"not a directory: {path}")
+    proc = _run(["git", "-C", str(p), "rev-parse", "--show-toplevel"])
+    if proc.returncode != 0:
+        raise ValueError(f"not a git repository: {path}")
+    return proc.stdout.strip()
+
+
+def _list_local_branches(repo: str) -> List[str]:
+    proc = _run(["git", "-C", repo, "for-each-ref", "--format=%(refname:short)", "refs/heads/"])
+    if proc.returncode != 0:
+        raise RuntimeError(f"git for-each-ref failed: {proc.stderr.strip()}")
+    return [line for line in proc.stdout.splitlines() if line]
+
+
+def _checked_out_branches(repo: str) -> Set[str]:
+    proc = _run(["git", "-C", repo, "worktree", "list", "--porcelain"])
+    if proc.returncode != 0:
+        raise RuntimeError(f"git worktree list failed: {proc.stderr.strip()}")
+    entries = parse_porcelain(proc.stdout)
+    return {e.branch for e in entries if e.branch}
+
+
+def _rev_parse(repo: str, ref: str) -> Optional[str]:
+    proc = _run(["git", "-C", repo, "rev-parse", ref])
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def _merge_base(repo: str, a: str, b: str) -> Optional[str]:
+    proc = _run(["git", "-C", repo, "merge-base", a, b])
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.strip()
+
+
+def _is_ancestor(repo: str, ancestor: str, descendant: str) -> bool:
+    proc = _run(["git", "-C", repo, "merge-base", "--is-ancestor", ancestor, descendant])
+    return proc.returncode == 0
+
+
+def _commit_exists(repo: str, sha: str) -> bool:
+    proc = _run(["git", "-C", repo, "cat-file", "-e", f"{sha}^{{commit}}"])
+    return proc.returncode == 0
+
+
+def _upstream(repo: str, branch: str) -> Optional[str]:
+    proc = _run(["git", "-C", repo, "for-each-ref", "--format=%(upstream:short)", f"refs/heads/{branch}"])
+    val = proc.stdout.strip()
+    return val or None
+
+
+def _diff(repo: str, rev_a: str, rev_b: str) -> str:
+    # Amendment B8: two-dot explicitly (`rev_a..rev_b`) - never three-dot,
+    # which would silently make L4 inert (own ∩ cur == own, never empty).
+    proc = _run(
+        ["git", "-C", repo, *_DIFF_CONFIG_PIN, "diff", "--no-ext-diff", "-U3", "--no-renames", f"{rev_a}..{rev_b}"]
+    )
+    return proc.stdout
+
+
+def _diff_names(repo: str, rev_a: str, rev_b: str) -> Set[str]:
+    proc = _run(["git", "-C", repo, "diff", "--name-only", "--no-renames", f"{rev_a}..{rev_b}"])
+    return {line for line in proc.stdout.splitlines() if line}
+
+
+def _patch_id(diff_text: str) -> Optional[str]:
+    if not diff_text.strip():
+        return None
+    # Amendment B2 item 2: --stable specified explicitly, never the default.
+    proc = _run(["git", "patch-id", "--stable"], input_text=diff_text)
+    line = proc.stdout.strip()
+    if not line:
+        return None
+    return line.split()[0]
+
+
+def _content_signature(diff_text: str) -> str:
+    """Amendment B2 item 3: the whitespace-hole discrimination check.
+
+    `git patch-id` strips whitespace before hashing - two diffs differing
+    only by whitespace (e.g. "X  Y" vs "X Y") produce the IDENTICAL patch
+    id. This function strips ONLY the line-number portion of each `@@`
+    hunk header (preserving L2's non-decay property, which comes from
+    line-number insensitivity) and leaves every content line - including
+    whitespace - untouched, so two diffs that patch-id-match but differ in
+    actual content (including whitespace-only differences) produce
+    different signatures here.
+    """
+    out = []
+    for line in diff_text.splitlines():
+        if line.startswith("@@"):
+            idx = line.find("@@", 2)
+            out.append("@@" + line[idx + 2 :] if idx != -1 else "@@")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _l2_match(repo: str, base_sha: str, tip_sha: str, mc: str) -> bool:
+    diff_branch = _diff(repo, base_sha, tip_sha)
+    diff_mc = _diff(repo, f"{mc}^", mc)
+    pid_branch = _patch_id(diff_branch)
+    pid_mc = _patch_id(diff_mc)
+    if pid_branch is None or pid_mc is None:
+        return False
+    if pid_branch != pid_mc:
+        return False
+    return _content_signature(diff_branch) == _content_signature(diff_mc)
+
+
+def _l4_match(repo: str, base_sha: str, tip_sha: str, base_ref: str) -> bool:
+    own = _diff_names(repo, base_sha, tip_sha)
+    if not own:
+        return False
+    on_main = _diff_names(repo, base_ref, tip_sha)  # two-dot, per B8
+    return own.isdisjoint(on_main)
+
+
+# --------------------------------------------------------------------------
+# Candidate-PR set (bulk, never per-branch - see the plan's "Candidate-PR
+# set for B" section)
+# --------------------------------------------------------------------------
+
+
+def _extract_merge_commit_oid(pr: Dict) -> Optional[str]:
+    mc = pr.get("mergeCommit")
+    if isinstance(mc, dict):
+        return mc.get("oid")
+    if isinstance(mc, str):
+        return mc or None
+    return None
+
+
+def _load_merged_prs(
+    repo: str, pr_data_file: Optional[str], no_gh: bool
+) -> Tuple[List[Dict], bool, bool]:
+    """Returns (merged_prs, degraded, truncated).
+
+    degraded  - True when no PR data was fetched at all (gh absent,
+                unauthenticated, erroring, or --no-gh). L2/L3 cannot fire.
+    truncated - True when the fetched row count equals PR_LIST_LIMIT -
+                the window may be truncated (Amendment B13).
+    """
+    if pr_data_file:
+        path = Path(pr_data_file)
+        if not path.is_file():
+            raise ValueError(f"--pr-data file not found: {pr_data_file}")
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"--pr-data file is not valid JSON: {pr_data_file}: {exc}") from exc
+        if not isinstance(data, list):
+            raise ValueError(f"--pr-data file must contain a JSON array: {pr_data_file}")
+        return data, False, False
+
+    if no_gh or shutil.which("gh") is None:
+        return [], True, False
+
+    try:
+        proc = _run(
+            [
+                "gh",
+                "pr",
+                "list",
+                "--state",
+                "merged",
+                "--limit",
+                str(PR_LIST_LIMIT),
+                "--json",
+                "number,headRefName,headRefOid,mergeCommit",
+            ],
+            cwd=repo,
+        )
+    except Exception:
+        return [], True, False
+
+    if proc.returncode != 0:
+        return [], True, False
+
+    try:
+        data = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return [], True, False
+
+    if not isinstance(data, list):
+        return [], True, False
+
+    truncated = len(data) == PR_LIST_LIMIT
+    return data, False, truncated
+
+
+def _candidates_for_branch(
+    branch: str, tip_sha: str, upstream: Optional[str], base_ref: str, merged_prs: List[Dict]
+) -> List[Dict]:
+    upstream_stripped = None
+    if upstream and upstream != base_ref:
+        upstream_stripped = upstream.split("/", 1)[1] if "/" in upstream else upstream
+
+    result = []
+    for pr in merged_prs:
+        mc_oid = _extract_merge_commit_oid(pr)
+        if not mc_oid:
+            continue
+        head_oid = pr.get("headRefOid")
+        head_name = pr.get("headRefName")
+        matches = (
+            head_oid == tip_sha
+            or head_name == branch
+            or (upstream_stripped is not None and head_name == upstream_stripped)
+        )
+        if matches:
+            result.append({"number": pr.get("number"), "headRefName": head_name, "headRefOid": head_oid, "mergeCommit": mc_oid})
+    return result
+
+
+# --------------------------------------------------------------------------
+# Per-branch evidence resolution
+# --------------------------------------------------------------------------
+
+
+def evaluate_branch(
+    repo: str,
+    branch: str,
+    base_ref: str,
+    base_branches: Set[str],
+    checked_out: Set[str],
+    merged_prs: List[Dict],
+    degraded: bool,
+) -> Dict:
+    """Resolves one local branch against the guards and layers, returning a
+    dict with at least a `branch` and `outcome` key. `outcome` is one of
+    SKIP_BASE_BRANCH, SKIP_CHECKED_OUT, SKIP_NO_MERGE_BASE, DELETE,
+    SKIP_UNPROVEN. A DELETE result additionally carries `layer` (which of
+    L1-L4 fired first) and `tip_sha`.
+    """
+    if branch in base_branches:
+        return {"branch": branch, "outcome": "SKIP_BASE_BRANCH"}
+    if branch in checked_out:
+        return {"branch": branch, "outcome": "SKIP_CHECKED_OUT"}
+
+    tip_sha = _rev_parse(repo, branch)
+    if tip_sha is None:
+        return {"branch": branch, "outcome": "SKIP_NO_MERGE_BASE"}
+
+    base_sha = _merge_base(repo, branch, base_ref)
+    if base_sha is None:
+        return {"branch": branch, "outcome": "SKIP_NO_MERGE_BASE"}
+
+    layer: Optional[str] = None
+    merge_evidence = "unmerged"
+    if _is_ancestor(repo, branch, base_ref):
+        merge_evidence = "merged"
+        layer = "L1"
+
+    upstream = _upstream(repo, branch)
+    candidates = _candidates_for_branch(branch, tip_sha, upstream, base_ref, merged_prs)
+    if candidates:
+        pr_state = "MERGED"
+    else:
+        pr_state = "not_checked" if degraded else "NONE"
+
+    if layer is None:
+        for cand in candidates:
+            mc = cand["mergeCommit"]
+            if not _commit_exists(repo, mc):
+                continue
+            if not _is_ancestor(repo, mc, base_ref):
+                continue
+            if _l2_match(repo, base_sha, tip_sha, mc):
+                layer = "L2"
+                break
+
+    if layer is None:
+        for cand in candidates:
+            mc = cand["mergeCommit"]
+            head_oid = cand["headRefOid"]
+            if not head_oid:
+                continue
+            if not _is_ancestor(repo, mc, base_ref):
+                continue
+            if not _commit_exists(repo, head_oid):
+                continue
+            if _is_ancestor(repo, tip_sha, head_oid):
+                layer = "L3"
+                break
+
+    if layer is None and _l4_match(repo, base_sha, tip_sha, base_ref):
+        layer = "L4"
+
+    content_subsumed = layer is not None and layer != "L1"
+
+    facts = DispositionFacts(
+        dirty_status="not_checked",
+        head_reachable="not_checked",
+        ls_remote_status="not_checked",
+        merge_evidence=merge_evidence,
+        content_subsumption="subsumed" if content_subsumed else "not_subsumed",
+        pr_state=pr_state,
+    )
+    disposition = disposition_for_orphan_branch(branch, facts, base_branches=tuple(base_branches))
+
+    if disposition is Disposition.ELIGIBLE:
+        return {"branch": branch, "outcome": "DELETE", "layer": layer or "L1", "tip_sha": tip_sha}
+
+    # SKIP_PR_MERGED_UNPROVEN and the model's final-fallback
+    # SKIP_AMBIGUOUS_NO_PR both display as SKIP_UNPROVEN here, matching the
+    # plan's own outcome vocabulary - see the module docstring.
+    return {"branch": branch, "outcome": "SKIP_UNPROVEN", "tip_sha": tip_sha}
+
+
+# --------------------------------------------------------------------------
+# Ledger (Amendment B3)
+# --------------------------------------------------------------------------
+
+
+def _append_ledger(repo: str, lines: List[str]) -> None:
+    ledger_path = Path(repo) / LEDGER_RELATIVE_PATH
+    ledger_path.parent.mkdir(parents=True, exist_ok=True)
+    existing = ledger_path.read_text(encoding="utf-8") if ledger_path.exists() else ""
+    atomic_write(ledger_path, existing + "".join(lines), mode=None)
+
+
+# --------------------------------------------------------------------------
+# CLI
+# --------------------------------------------------------------------------
+
+
+def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
+    p = argparse.ArgumentParser(
+        prog="ds-branch-prune",
+        description="Squash-aware local branch prune via a four-layer subsumption predicate (DS-153).",
+    )
+    p.add_argument("--repo", default=".")
+    p.add_argument("--base", default="origin/main")
+    p.add_argument("--explain", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--pr-data")
+    p.add_argument("--no-gh", action="store_true")
+    p.add_argument("--nudge-threshold", type=int, default=20)
+    return p.parse_args(argv)
+
+
+def main(argv: Optional[List[str]] = None) -> int:
+    args = parse_args(argv)
+
+    try:
+        repo = _resolve_repo(args.repo)
+    except ValueError as exc:
+        print(f"ds-branch-prune: {exc}", file=sys.stderr)
+        return 1
+
+    base_local = args.base.split("/", 1)[1] if args.base.startswith("origin/") else args.base
+    base_branches = set(DEFAULT_BASE_BRANCHES) | {base_local}
+
+    try:
+        merged_prs, degraded, truncated = _load_merged_prs(repo, args.pr_data, args.no_gh)
+        checked_out = _checked_out_branches(repo)
+        branches = _list_local_branches(repo)
+
+        results = [
+            evaluate_branch(repo, b, args.base, base_branches, checked_out, merged_prs, degraded)
+            for b in sorted(branches)
+        ]
+    except ValueError as exc:
+        print(f"ds-branch-prune: {exc}", file=sys.stderr)
+        return 1
+    except Exception as exc:  # noqa: BLE001 - internal error, report and exit 1
+        print(f"ds-branch-prune: internal error: {exc}", file=sys.stderr)
+        return 1
+
+    delete_results = [r for r in results if r["outcome"] == "DELETE"]
+    skip_counts = Counter(r["outcome"] for r in results if r["outcome"] != "DELETE")
+
+    mode = "degraded (gh unavailable)" if degraded else "live"
+    print(
+        f"ds-branch-prune: base={args.base} mode={mode} branches={len(results)} "
+        f"deletions={len(delete_results)} skips={len(results) - len(delete_results)}"
+    )
+    for outcome in ("SKIP_BASE_BRANCH", "SKIP_CHECKED_OUT", "SKIP_NO_MERGE_BASE", "SKIP_UNPROVEN"):
+        if skip_counts.get(outcome):
+            print(f"  {outcome}: {skip_counts[outcome]}")
+
+    if truncated:
+        print(
+            f"NOTE: gh pr list returned {PR_LIST_LIMIT} rows (the --limit ceiling) - the "
+            "merged-PR window may be truncated; absence of a match is never treated as proof "
+            "a branch is unmerged."
+        )
+    if degraded:
+        print(
+            "NOTE: degraded mode (gh unavailable/erroring/--no-gh) - only ancestry (L1) and "
+            "content-on-main (L4) evidence available; this can only delete FEWER branches than "
+            "a full run, never more."
+        )
+    unproven = skip_counts.get("SKIP_UNPROVEN", 0)
+    if unproven >= args.nudge_threshold:
+        print(
+            f"NOTE: {unproven} branches are accumulating as SKIP_UNPROVEN "
+            f"(>= nudge threshold {args.nudge_threshold}) - consider a manual review pass."
+        )
+
+    if args.explain:
+        print("-- per-branch --")
+        for r in results:
+            if r["outcome"] == "DELETE":
+                print(f"{r['branch']}: DELETE via {r['layer']}")
+            else:
+                print(f"{r['branch']}: {r['outcome']}")
+
+    if not args.dry_run and delete_results:
+        ledger_lines = []
+        for r in delete_results:
+            proc = _run(["git", "-C", repo, "branch", "-D", r["branch"]])
+            if proc.returncode == 0:
+                print(f"{r['branch']} {r['tip_sha']}")
+                ledger_lines.append(f"{r['branch']} {r['tip_sha']}\n")
+            else:
+                # Amendment B11: report and continue, exit 0.
+                print(
+                    f"WARNING: failed to delete {r['branch']} (git branch -D exit "
+                    f"{proc.returncode}): {proc.stderr.strip()}",
+                    file=sys.stderr,
+                )
+        if ledger_lines:
+            _append_ledger(repo, ledger_lines)
+
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

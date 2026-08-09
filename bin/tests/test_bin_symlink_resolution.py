@@ -57,6 +57,7 @@ CASES = [
     ("agentic-configure", ["--help"], 0),
     ("agentic-team", ["--help"], 0),
     ("agentic-tracker", ["--help"], 0),
+    ("agentic-branch-prune", ["--help"], 0),
 ]
 
 # Completeness backstop: every bin/agentic-* python CLI that carries the
