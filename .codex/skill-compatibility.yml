@@ -2142,10 +2142,30 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "agentic-engineering",
+      "generated_token": "$AE_CORE_SKILL_ROOT",
+      "kind": "operational",
+      "occurrence_hash": "25f6bb5c31e1b12fee9d6bce837a3609e7ad6d058f79ec8113b744dba265d77b",
+      "resolution_mode": "mapped-resource",
+      "scope": "dinostack-repository",
+      "source": "content/SKILL.md",
+      "source_token": ".claude/skills/agentic-engineering"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
       "occurrence_hash": "2d9aea0c3a473d8018a2675c8dba7d9648ddfab977bb8a19bee820a0efc45323",
+      "resolution_mode": "mapped-resource",
+      "scope": "canonical-source",
+      "source": "content/SKILL.md",
+      "source_token": "METHODOLOGY.md"
+    },
+    {
+      "expected_target": "METHODOLOGY.md",
+      "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
+      "kind": "operational",
+      "occurrence_hash": "3c5e0871aff4cd5bf66e4cff10da92aa55ca4e6dbeeb7cd0beff27f23c80d551",
       "resolution_mode": "mapped-resource",
       "scope": "canonical-source",
       "source": "content/SKILL.md",
@@ -2222,16 +2242,6 @@
       "source_token": "Glob"
     },
     {
-      "expected_target": ".claude/build.sh",
-      "generated_token": "$AE_REPO_DIR/.claude/build.sh",
-      "kind": "operational",
-      "occurrence_hash": "a1713eb4140aeaba1fba77ce85fb58f482083ece321c34387f8a67906fe3c4fe",
-      "resolution_mode": "validated-repository",
-      "scope": "dinostack-repository",
-      "source": "content/SKILL.md",
-      "source_token": ".claude/build.sh"
-    },
-    {
       "expected_target": "shell",
       "generated_token": "Bash",
       "kind": "semantic-reference",
@@ -2246,6 +2256,16 @@
       "generated_token": "$AE_REPO_DIR/.claude/build.sh",
       "kind": "operational",
       "occurrence_hash": "a6394741ec7cc574deb58c12705e628a3953afb3d3cf983e8e3f53e4c1a6e81f",
+      "resolution_mode": "validated-repository",
+      "scope": "dinostack-repository",
+      "source": "content/SKILL.md",
+      "source_token": ".claude/build.sh"
+    },
+    {
+      "expected_target": ".claude/build.sh",
+      "generated_token": "$AE_REPO_DIR/.claude/build.sh",
+      "kind": "operational",
+      "occurrence_hash": "a9fc2c73f549a713dc72f40a78005b7286ec29a559ac8de6204005930968d68f",
       "resolution_mode": "validated-repository",
       "scope": "dinostack-repository",
       "source": "content/SKILL.md",
@@ -2325,7 +2345,7 @@
       "expected_target": ".claude/build.sh",
       "generated_token": "$AE_REPO_DIR/.claude/build.sh",
       "kind": "operational",
-      "occurrence_hash": "f4696f72ec2dd8dfd896704b1b140f8f25e8aad6bcb6d0b345aa972f9b5cc409",
+      "occurrence_hash": "fc0078b4560b29dc7c1edee4eb60a636a614d6e3f7f3ec9606438495fe16c44c",
       "resolution_mode": "validated-repository",
       "scope": "dinostack-repository",
       "source": "content/SKILL.md",

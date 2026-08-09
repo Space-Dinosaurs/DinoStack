@@ -4,16 +4,23 @@ Purpose: Canonical body text for the agentic-engineering skill loaded by AI codi
          adapter-specific frontmatter (name, description, trigger conditions) is kept
          separately in each adapter's build directory and prepended at build time.
 
-Public API: consumed as-is by adapter build scripts (e.g. .claude/build.sh) which
-            concatenate <adapter>/SKILL.frontmatter.yaml + this file to produce the
-            final adapter SKILL.md.
+Public API: consumed as-is by adapter build scripts. For Claude, .claude/build.sh
+            strips this manifest comment, prepends SKILL.frontmatter.yaml, and then
+            embeds METHODOLOGY.md plus content/rules/{code-standards,conventions}.md
+            verbatim to produce the final .claude/skills/agentic-engineering/SKILL.md
+            (this file accounts for a fraction of that assembled artifact's size -
+            see check-skill-embed-budget.sh). Other adapters differ: .codex and .kimi
+            embed this file (including this comment) largely unchanged; .cursor and
+            .gemini and .copilot do not consume this file at all (their own
+            build.sh has no SKILL.md/frontmatter concatenation step); the remaining
+            adapters (.opencode, .omp, .pi, .hermes, .openclaw) strip this comment
+            before emitting their own SKILL.md.
 
 Upstream deps: none (leaf content file; no imports or code dependencies).
 
 Downstream consumers: .claude/skills/agentic-engineering/SKILL.md (assembled by
-                      .claude/build.sh). Other adapters (.codex, .cursor, .kimi,
-                      .opencode) maintain their own frontmatter and may derive from
-                      this file if their body content converges.
+                      .claude/build.sh), plus the per-adapter SKILL.md outputs listed
+                      under Public API above.
 
 Failure modes: edits here take effect for .claude after re-running .claude/build.sh.
                Adapters whose SKILL.md is a static committed file will drift silently
