@@ -506,7 +506,7 @@ hr {
 }
 " lang="C" data-marpit-pagination="3" style="--paginate:true;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="11">
-<h2 id="the-5-source-default-hierarchy">The 5-source default hierarchy</h2>
+<h2 id="the-6-source-default-hierarchy">The 6-source default hierarchy</h2>
 
 <p>Every time the conductor is tempted to ask, it first tries to derive a default by consulting, in order:</p>
 <div class="numbered">
@@ -514,7 +514,8 @@ hr {
 <div class="n">2</div><div>Prior decisions in <code>MEMORY.md</code> and the project's decision log</div>
 <div class="n">3</div><div>The architect's plan and any orchestration-planner output</div>
 <div class="n">4</div><div>Established conventions in <code>AGENTS.md</code> and any track-level <code>AGENTS.md</code></div>
-<div class="n">5</div><div>The most conservative interpretation of the ticket text (minimize blast radius, commit to the fewest future decisions)</div>
+<div class="n">5</div><div><code>docs/overview/vision.md</code> and <code>requirements.md</code>, when present - does a stated pillar or requirement already answer this?</div>
+<div class="n">6</div><div>The most conservative interpretation of the ticket text (minimize blast radius, commit to the fewest future decisions)</div>
 </div>
 <p><strong>First-match-wins.</strong> Stop at the first source that yields a default. A later source overrides an earlier one ONLY when it is an <strong>explicit decision record</strong> (MEMORY.md entry, AGENTS.md convention, prior ADR) that supersedes the pattern.</p>
 <div class="callout">
@@ -696,7 +697,7 @@ Never overridden by default-and-proceed. A recommended default may be offered, b
 <div class="card">
 <strong>Surface-and-proceed branch</strong><br />
 Non-irreversible. Used when ALL hold:<br />
-- No default can be derived from the five sources<br />
+- No default can be derived from the six sources<br />
 - Guessing wrong would waste more than 30 minutes<br />
 - The question is specific and bounded<br /><br />
 Surface the question with a recommended default AND proceed with that default in the same turn.

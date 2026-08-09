@@ -111,7 +111,7 @@ Anything else - "should I create the missing endpoint that #271 depends on?", "w
 - Asking permission to fix a broken test discovered during work. Fix it.
 - Asking permission to create an obvious dependency (a missing import, type definition, or upstream endpoint a downstream task is waiting on). Create it.
 - Asking permission to look something up. Look it up.
-- Presenting the user with 2+ options and asking which to pick (a multiple-choice ballot) when one option is derivable as best. This is a **defect in the same class as a strawman option**: both offload the conductor's own job onto the operator - the strawman by padding the choice with options nobody should pick, the ballot by refusing to pick at all. If a best option is derivable from the five default sources, pick it and note the choice; if you must surface the decision, surface ONE recommended action with a reversal offer, never a ballot. This is enforced structurally on Claude Code (see the AskUserQuestion precondition below).
+- Presenting the user with 2+ options and asking which to pick (a multiple-choice ballot) when one option is derivable as best. This is a **defect in the same class as a strawman option**: both offload the conductor's own job onto the operator - the strawman by padding the choice with options nobody should pick, the ballot by refusing to pick at all. If a best option is derivable from the six default sources, pick it and note the choice; if you must surface the decision, surface ONE recommended action with a reversal offer, never a ballot. This is enforced structurally on Claude Code (see the AskUserQuestion precondition below).
 - Returning BLOCKED from a Worker over a design-taste call. Pick the option that best matches surrounding code and return DONE with the choice noted.
 
 **When uncertain whether to ask:** prefer acting. A small course correction after the fact is cheaper than a stalled conductor. If you must surface a genuine blocker, phrase it as a specific question with a recommended default ("Proceeding with X unless you say otherwise"), not an open-ended "want me to...".
@@ -121,11 +121,12 @@ Anything else - "should I create the missing endpoint that #271 depends on?", "w
 2. Prior decisions in MEMORY.md and the project's decision log
 3. The architect's plan and any orchestration-planner output
 4. Established conventions in AGENTS.md and any track-level AGENTS.md
-5. The most conservative interpretation of the ticket text (choose the option that minimizes blast radius and commits to the fewest future decisions)
+5. `docs/overview/vision.md` and `docs/overview/requirements.md`, when present - does a stated North Star pillar or a scoped requirement already answer this? Absent either file, this source yields no default and the chain falls through to source 6 - expected on most projects, not itself a gap to flag.
+6. The most conservative interpretation of the ticket text (choose the option that minimizes blast radius and commits to the fewest future decisions)
 
 Consult the sources in order. Stop at the first source that yields a default. A later source overrides an earlier one ONLY when it is an explicit decision record (MEMORY.md entry, AGENTS.md convention, prior ADR) that supersedes the pattern. Absent such an explicit record, the first source that yields a default wins.
 
-**Decision stability.** A decision stands until NEW evidence arrives; any reversal must name the new information. Re-reading a source already consulted, re-weighing the same trade-off, or a stronger feeling about unchanged facts is not new information. Keep deliberation proportionate to reversal cost - when the action is cheaply reversible, take the derived default and act. **Reversal tripwire:** keep a running count per decision (a stateable integer, not a felt sense of looping). Once you have reversed the same decision twice on unchanged inputs, stop reasoning and take the terminal action: if the deadlock is two instructions contradicting each other, apply the equal-precedence tiebreak below; otherwise take the five-source derived default and note the choice. Either way the next step is an action, never another round.
+**Decision stability.** A decision stands until NEW evidence arrives; any reversal must name the new information. Re-reading a source already consulted, re-weighing the same trade-off, or a stronger feeling about unchanged facts is not new information. Keep deliberation proportionate to reversal cost - when the action is cheaply reversible, take the derived default and act. **Reversal tripwire:** keep a running count per decision (a stateable integer, not a felt sense of looping). Once you have reversed the same decision twice on unchanged inputs, stop reasoning and take the terminal action: if the deadlock is two instructions contradicting each other, apply the equal-precedence tiebreak below; otherwise take the six-source derived default and note the choice. Either way the next step is an action, never another round.
 
 **Equal-precedence tiebreak.** When two instructions at the SAME tier contradict (e.g. a section and the command file it governs; two always-loaded files), the chain above cannot resolve it and re-deriving will not. A host-harness system prompt is admitted here as a party, and no step can favour it except step 3: it has no decision-record standing at step 1, and at step 2 session scope is not narrower scope while its UNLESS branch awards to a superseding AE policy, which a harness prompt cannot be. In order:
 1. An explicit decision record wins - per the default-and-proceed protocol's explicit-decision-record rule above: a MEMORY.md entry, AGENTS.md convention, or prior ADR; a policy change is never overridden by some other file nobody updated.
@@ -139,20 +140,20 @@ If any source yields a reasonable default, the conductor proceeds with that defa
 
 The conductor surfaces a question to the user under one of two branches:
 
-**Hard-stop branch (MUST stop and wait for the user).** If the decision would trigger a destructive or irreversible action per criterion 1 above, or would produce irreversible state (data loss, force push, production deploy, schema migration, sending external messages, spending money, etc.), the conductor MUST stop and wait for an explicit user response. This branch is NEVER overridden by the default-and-proceed protocol. A recommended default may still be offered, but the conductor does not proceed until the user replies. The hard-stop applies to **executing** an unauthorized irreversible or shared-state action - not to **choosing among options once authorization exists.** When the operator has already authorized proceeding (e.g. "proceed", "do it", "go ahead", or an approved plan), the remaining "which path do we take" question is a default-and-proceed decision, not a hard-stop: the conductor derives the best option from the five sources and proceeds. Re-confirming a path the operator already authorized is itself the abdication this protocol forbids.
+**Hard-stop branch (MUST stop and wait for the user).** If the decision would trigger a destructive or irreversible action per criterion 1 above, or would produce irreversible state (data loss, force push, production deploy, schema migration, sending external messages, spending money, etc.), the conductor MUST stop and wait for an explicit user response. This branch is NEVER overridden by the default-and-proceed protocol. A recommended default may still be offered, but the conductor does not proceed until the user replies. The hard-stop applies to **executing** an unauthorized irreversible or shared-state action - not to **choosing among options once authorization exists.** When the operator has already authorized proceeding (e.g. "proceed", "do it", "go ahead", or an approved plan), the remaining "which path do we take" question is a default-and-proceed decision, not a hard-stop: the conductor derives the best option from the six sources and proceeds. Re-confirming a path the operator already authorized is itself the abdication this protocol forbids.
 
 **Standing authorizations.** Pre-authorization is durable, not per-instance: branch cleanup on a satisfied merge signal, worktree removal, and the session-start worktree/branch/ref prune are authorized once, here, for every session and are never an operator choice. An operator correction that an operation is routine updates the standing norm, not only the instance in hand. Full list and boundaries: `content/references/worktree-lifecycle.md` §Standing authorizations.
 
 **Surface-and-proceed branch (non-irreversible).** When ALL of the following hold AND the hard-stop branch does not apply:
-- No default can be derived from the five sources above
+- No default can be derived from the six sources above
 - Guessing wrong would waste more than 30 minutes of work
 - The question is specific and bounded (one decision, not open-ended "what do you want")
 
 the conductor surfaces the question with a recommended default and proceeds with that default in the same turn. Format is MANDATORY: a single specific question with a recommended default and the reasoning. Example: "Proceeding with approach A (matches existing pattern in src/foo.ts) unless you say otherwise." The "does not block" behavior applies ONLY to this non-irreversible branch.
 
-**AskUserQuestion precondition (no multiple-choice ballots).** Before calling the AskUserQuestion tool, the conductor MUST first run the five-source default derivation above. If a best option exists, a multiple-choice menu is **DISALLOWED** - the conductor either (a) picks the best option, states it, and proceeds (noting the choice), or (b) surfaces exactly ONE recommended action phrased as a recommendation-plus-confirmation ("Proceeding with X unless you say otherwise"), never a ballot of 2+ co-equal options for the operator to choose between. When AskUserQuestion IS legitimately used, the recommended option's `label` MUST end with the literal suffix "(Recommended)" - the convention that marks the derived default. The ban applies identically when the same forbidden shape is written as prose instead of the tool call - a `## Operator decisions` block with 2+ items carrying no recommendation marker is the prose form of a co-equal ballot. On Claude Code both forms are mechanically enforced; other adapters rely on this prose rule. Read `content/references/delegation-detail.md` §AskUserQuestion and Operator Decisions Enforcement Mechanics for the hook wiring, detection limits, and kill switch.
+**AskUserQuestion precondition (no multiple-choice ballots).** Before calling the AskUserQuestion tool, the conductor MUST first run the six-source default derivation above. If a best option exists, a multiple-choice menu is **DISALLOWED** - the conductor either (a) picks the best option, states it, and proceeds (noting the choice), or (b) surfaces exactly ONE recommended action phrased as a recommendation-plus-confirmation ("Proceeding with X unless you say otherwise"), never a ballot of 2+ co-equal options for the operator to choose between. When AskUserQuestion IS legitimately used, the recommended option's `label` MUST end with the literal suffix "(Recommended)" - the convention that marks the derived default. The ban applies identically when the same forbidden shape is written as prose instead of the tool call - a `## Operator decisions` block with 2+ items carrying no recommendation marker is the prose form of a co-equal ballot. On Claude Code both forms are mechanically enforced; other adapters rely on this prose rule. Read `content/references/delegation-detail.md` §AskUserQuestion and Operator Decisions Enforcement Mechanics for the hook wiring, detection limits, and kill switch.
 
-**Operator decisions go last in the turn.** When a conductor turn surfaces anything requiring an operator choice, it appears at the very end, under the literal heading `## Operator decisions` - not `## Decisions`. Nothing follows the heading: no status line, no next steps, no caveats, no phase breadcrumb, no "meanwhile", and the turn ends there: no further tool calls. Only genuine choices belong in the block - each item must already have passed the five-source default derivation above and be either a hard-stop item or a surface-and-proceed item with no derivable default; the ban on co-equal ballots above applies identically to prose asks. Mark the recommended action in each item with the same `(Recommended)` suffix (or an equivalent `Recommendation:` lead-in) the AskUserQuestion precondition above requires for the tool path - the token that lets both paths be mechanically distinguished from a ballot. Order items most-blocking first; do not impose a numeric cap. When a turn has nothing to decide, omit the heading entirely. Read `content/references/delegation-detail.md` §Operator Decisions Block Rationale for the full worked rationale on marker necessity, item content, and placement discipline.
+**Operator decisions go last in the turn.** When a conductor turn surfaces anything requiring an operator choice, it appears at the very end, under the literal heading `## Operator decisions` - not `## Decisions`. Nothing follows the heading: no status line, no next steps, no caveats, no phase breadcrumb, no "meanwhile", and the turn ends there: no further tool calls. Only genuine choices belong in the block - each item must already have passed the six-source default derivation above and be either a hard-stop item or a surface-and-proceed item with no derivable default; the ban on co-equal ballots above applies identically to prose asks. Mark the recommended action in each item with the same `(Recommended)` suffix (or an equivalent `Recommendation:` lead-in) the AskUserQuestion precondition above requires for the tool path - the token that lets both paths be mechanically distinguished from a ballot. Order items most-blocking first; do not impose a numeric cap. When a turn has nothing to decide, omit the heading entirely. Read `content/references/delegation-detail.md` §Operator Decisions Block Rationale for the full worked rationale on marker necessity, item content, and placement discipline.
 
 **Fixed-shape, warranted turns.** When authoring or reviewing a conductor status turn: read `content/references/conductor-turn-format.md` §Purpose for the fixed slot order (identity line first, then `State`/`Running`/`Blocked` one line each - 1-3 status lines per turn, the forced-yield shape the sole exception; `## Operator decisions`, when present, is additional and goes last) and the four firing warrants (decision, stoppage, completion, answer) that justify writing anything at all - everything else is a silent continue.
 
@@ -3013,9 +3014,9 @@ stopped.
 
 **Soft round cap.** Two full re-derivation passes of one decision with no new input is tripwire-adjacent: take the terminal action rather than starting a third.
 
-**Routing on tripwire** (mirrors R1's branch). Contradiction between instructions goes to the tiebreak. Everything else - a library choice, a naming call, a design-taste fork with no instruction conflict - takes the five-source derived default (falling to source 5's most-conservative reading if nothing earlier yields), acts, and notes the choice. "Record the conflict" does not apply where there is no conflict; inventing one to satisfy the rule is a defect.
+**Routing on tripwire** (mirrors R1's branch). Contradiction between instructions goes to the tiebreak. Everything else - a library choice, a naming call, a design-taste fork with no instruction conflict - takes the six-source derived default (falling to source 6's most-conservative reading if nothing earlier yields), acts, and notes the choice. "Record the conflict" does not apply where there is no conflict; inventing one to satisfy the rule is a defect.
 
-**What is NOT an equal-precedence contradiction.** A general rule plus a named exception; a specific procedure refining a general convention; two statements resolvable by the five-source ordering or by reading one more file. Read first.
+**What is NOT an equal-precedence contradiction.** A general rule plus a named exception; a specific procedure refining a general convention; two statements resolvable by the six-source ordering or by reading one more file. Read first.
 
 **The anti-inversion test, required before applying step 2.** Does the broad instruction read as a deliberate, recent, or policy-shaped statement the narrow file has not caught up to? Signals the broad file is authoritative and the narrow one stale: the broad text is a decision record or reads as one; it is more specific about intent while the narrow file is merely older; the narrow file's claim is an omission (a missing step) rather than a contrary assertion. When those signals are present, step 2 flips - the broad instruction wins and the narrow file is the defect. **When the staleness question cannot be answered from what is in hand, do not guess: fall to step 3.** A rule that always prefers the narrow file discards deliberate policy changes, which is worse than the loop this section ends.
 
@@ -3023,7 +3024,7 @@ stopped.
 
 **Worked example, both directions (historical - see Scope note).** *Direction A (narrow file correct):* at the time this contradiction existed, `content/rules/conventions.md:46` said root `MEMORY.md` was "written by `/ds-wrap`"; `content/commands/ds-wrap.md` had no promotion step and `content/references/conductor-operating-rules.md:111` (then :87) stated root `MEMORY.md` was not a `/ds-wrap` target. No decision record covered it and the broad line read as an unmaintained summary, so step 2 resolved: the command file governs its own command. Act, declare, record - and do not decide in-session whether `/ds-wrap` *should* promote, which is a feature decision and is ticket-shaped. *Direction B (broad file correct):* had `conventions.md:46` been edited last week as a deliberate policy change with `ds-wrap.md` merely not yet updated, the anti-inversion test flips step 2, the broad instruction governs, and the command file is the defect. Same rule, opposite outcome, decided by staleness and decision-record standing rather than scope alone.
 
-**Why recording is the load-bearing half.** Every session re-encountering an unrecorded contradiction pays the tiebreak again. A recorded KNW entry can promote into root `MEMORY.md`, which is source 2 of the five-source chain, so the next session resolves by first-match-wins with zero deliberation. Recording is cheap and in-session; a doc fix is a shippable edit and is not.
+**Why recording is the load-bearing half.** Every session re-encountering an unrecorded contradiction pays the tiebreak again. A recorded KNW entry can promote into root `MEMORY.md`, which is source 2 of the six-source chain, so the next session resolves by first-match-wins with zero deliberation. Recording is cheap and in-session; a doc fix is a shippable edit and is not.
 
 **Scope note.** The worked example's contradiction is now RESOLVED (DS-90): `/ds-wrap` Part B is a genuine staging-drain promotion step into root `MEMORY.md` (capped 3/run), and `content/references/conductor-operating-rules.md` now states root `MEMORY.md` IS within the `wrap/lock` scope for exactly that reason - both files agree. The worked example above is retained as a historical illustration of the resolution procedure (Direction A / Direction B), not a description of current file state; do not treat it as evidence of a live contradiction.
 
@@ -12114,7 +12115,17 @@ If `/ds-brief` received no topic argument, conductor asks:
 
 > "What are you trying to build or solve? One or two sentences is enough to start."
 
-Operator replies. Write `brief-session.json` with `status: intent_captured`.
+Operator replies.
+
+**Intent-layer read (runs after the reply above, or immediately after a topic argument was given - in EITHER case; this step never gates, delays, or replaces the question above).** If at least one of `docs/overview/vision.md` / `docs/overview/requirements.md` exists, conductor reads whichever exist and derives:
+- Candidate Constraints: any requirements.md non-functional requirement or vision.md stated boundary relevant to the operator's stated (or given) task-level intent.
+- A Problem-framing note: does the stated intent map to a North Star pillar or a scoped requirement already on file.
+
+This does not ask a further question. It is folded, as a brief same-turn note, into the conductor's next response (the Turn 2 gray-area menu presentation, per the amendment below) - never as a standalone message that waits for a reply. The canonical note wording is defined in the Turn 2 amendment; do not restate it here.
+
+When neither file exists: no note is generated; proceed silently.
+
+**State write (unconditional - fires identically whether or not a topic argument was given, and whether or not the intent-layer files exist):** write `brief-session.json` with `status: intent_captured`, `topic: <the operator's reply, or the topic argument>`, and `intent_layer_derived: {problem, constraints, source}` - using `{problem: null, constraints: null, source: []}` when the intent-layer files are absent. This is one write covering all four branches (topic-given x files-present, topic-given x files-absent, no-topic x files-present, no-topic x files-absent); no branch omits any of the three fields.
 
 Run the prior-decisions scan (Section 7) after intent is captured but before presenting
 the gray-area menu.
@@ -12140,6 +12151,8 @@ Examples for "user authentication": session handling, error responses, multi-dev
 policy, recovery flow.
 Examples for "CLI for db backups": output format, flag design, progress reporting,
 error recovery.
+
+When `intent_layer_derived.constraints` is non-null: prepend a note before the menu: "Already noted from docs/overview/vision.md / requirements.md: [derived constraint] - flag if it doesn't apply." Do not generate a gray area for a dimension `intent_layer_derived` already answers - this is the mechanism that reduces re-elicitation; it removes candidate gray areas, never the Turn 1 intent question itself. If suppression would take the menu below 4 items, retain the next-best candidate areas to preserve the stated 4-8 floor.
 
 Present as a numbered menu:
 
@@ -12170,6 +12183,8 @@ in `content/references/planning-artifacts.md` §Brief template, and includes the
 
 - **If `docs/overview/_proposed/outcome-rubric.md` exists** (product-discovery ran before /ds-brief): copy its lines verbatim into the rubric field and note "copied from discovery draft - confirm or adjust."
 - **Otherwise**: prompt the operator inline: "List the 3-6 things that would make this 'done' - one per line, most critical first." For each criterion the operator provides, assign a `verification_type`: `deterministic` if a gate is nameable, `judgment` otherwise. Present the assigned types for confirmation before writing.
+
+When `intent_layer_derived.problem` or `.constraints` is non-null, seed the Problem and Constraints fields from it (merged with anything surfaced in the per-area dialogue) instead of synthesizing those two fields from dialogue alone, and note inline in the draft presentation: "Problem/Constraints derived from docs/overview/vision.md + requirements.md, noted in Turn 2." Success criteria and Non-goals continue to synthesize from dialogue as today.
 
 The outcome rubric is part of the Brief draft and subject to the same iteration rounds (max 3 adjustments). Store the confirmed rubric in `brief-session.json` under the `rubric` array (see Section 8).
 
@@ -12374,7 +12389,12 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
       "verification_type": "<deterministic | judgment>",
       "confirmed": false
     }
-  ]
+  ],
+  "intent_layer_derived": {
+    "problem": "<string or null>",
+    "constraints": "<string or null>",
+    "source": ["<vision.md and/or requirements.md, whichever were read>"]
+  }
 }
 ```
 
@@ -12393,6 +12413,7 @@ Gitignored under the existing `.agentic/` rule. No `.gitignore` change needed.
   `selected: true`.
 - `brief_source` drives Skeptic variant selection per Section 6.
 - `deferred[].status: withdrawn` marks items the operator pushed back and folded in scope.
+- `intent_layer_derived`: written on EVERY Turn 1 completion, unconditionally, in the same `brief-session.json` write as `status: intent_captured` and `topic` - regardless of whether a topic argument was given and regardless of whether the intent-layer files exist. When at least one of `docs/overview/vision.md` / `docs/overview/requirements.md` exists, it carries the derived `problem`/`constraints`/`source`; otherwise it is written as `{problem: null, constraints: null, source: []}` (never omitted). Persists across an interrupted-session resume (Section 2) the same way `draft` and `rubric` do, since resume restores the full state file verbatim.
 
 ---
 
