@@ -3202,6 +3202,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "08000587e5ec5c500b872e33aabace56c212bb3e5849b8babf6acc863ab46824",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "skipping",
       "kind": "display-only",
@@ -4410,16 +4420,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "KC_SKIP_THIS"
-    },
-    {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "20ddada54ade14040c0a742e62cc0344d882121d7082ef4a21c1c65db69f76fd",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "content/references/task-state-file.md",
@@ -11432,16 +11432,6 @@
       "source_token": "then"
     },
     {
-      "expected_target": "hooks/session-end-wrap.js",
-      "generated_token": "$AE_REPO_DIR/hooks/session-end-wrap.js",
-      "kind": "operational",
-      "occurrence_hash": "9f2b9eb7bd456616cd98f57c1011bab77a43915fca264e57fd163e3412087075",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "hooks/session-end-wrap.js"
-    },
-    {
       "expected_target": "printf",
       "generated_token": "printf",
       "kind": "operational",
@@ -13422,6 +13412,16 @@
       "source_token": "**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block (required input - the authoritative test plan), the `ticket_id` (for knowledge attribution), and the resolved qa.md config as supplemental context (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). The Agent tool call MUST set `isolation: \"worktree\"` (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). On iteration 2+, prepend the \"Prior QA failures\" section to the brief:"
     },
     {
+      "expected_target": "content/references/handoff-evaluation.md",
+      "generated_token": "$AE_REPO_DIR/content/references/handoff-evaluation.md",
+      "kind": "operational",
+      "occurrence_hash": "c15251affaeed95792899d6189e52374f3dba473e46179341b17da702c5550fb",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/handoff-evaluation.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "PR_BODY_APPEND_FILE",
       "kind": "display-only",
@@ -13892,16 +13892,6 @@
       "source_token": "echo"
     },
     {
-      "expected_target": ".agentic/loop-state-",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
-      "kind": "operational",
-      "occurrence_hash": "c80e33f10a93011bddc1af5d647589d3f49aeebb133de9394d82dfabc4eb50e0",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/loop-state-"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "KC_STATUS",
       "kind": "display-only",
@@ -14270,16 +14260,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/config.json"
-    },
-    {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "cf455885b523309b80cbdc5e628f9c0732ed853a757e81812931ee7f93acc459",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "do",
