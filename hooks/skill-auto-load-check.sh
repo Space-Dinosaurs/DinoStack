@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Emits a skill-load instruction to stdout when skill_auto_load is enabled in the
-#          agentic-engineering config. Called by Claude Code, Codex, and Gemini hook handlers.
+#          dinostack config. Called by Claude Code, Codex, and Gemini hook handlers.
 #          Codex and Gemini already always-load the full methodology via their own root files
 #          (.codex/AGENTS.md, .gemini/GEMINI.md), so this script gates them out unconditionally
 #          before even reading the flag - the nudge would be pure waste for them.
@@ -45,8 +45,8 @@ except Exception:
 " 2>/dev/null || echo "false")
 
 if [[ "$skill_auto_load" == "true" ]]; then
-  skill_path="$HOME/.claude/skills/agentic-engineering/SKILL.md"
-  echo "SKILL CHECK [agentic-engineering]: skill_auto_load=true."
+  skill_path="$HOME/.claude/skills/dinostack/SKILL.md"
+  echo "SKILL CHECK [dinostack]: skill_auto_load=true."
   echo "Before responding to any software development request, read $skill_path."
   echo "Do not implement directly - follow the delegation and risk classification protocol in that file."
 fi

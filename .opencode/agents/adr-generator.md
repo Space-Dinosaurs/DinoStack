@@ -46,7 +46,7 @@ Create an ADR as a markdown file following the standardized format below with th
 
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Required ADR Structure (template)
 
@@ -63,7 +63,7 @@ supersedes: ""
 superseded_by: ""
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 ```
 
 ### Document Sections
@@ -181,7 +181,7 @@ All ADRs must be saved in: `docs/adr/`
 
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Quality Checklist
 
@@ -219,7 +219,7 @@ Before finalizing the ADR, verify:
 
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 ## Agent Success Criteria
 

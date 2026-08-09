@@ -2,7 +2,7 @@
 description: "Token and wall-time rollups per agent/session/task from .agentic/events.jsonl."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-cost
 
@@ -151,7 +151,7 @@ Data sources (used in order of availability):
 Example output:
 
 ```
-Retro rollup for agentic-engineering (2026-04-01 -> 2026-05-28)
+Retro rollup for dinostack (2026-04-01 -> 2026-05-28)
 WARNING: External-source reconstruction. NOT Stage 1 telemetry.
          No per-agent attribution. No token counts. Wall-time is PR-merge proxy only.
 

@@ -4,7 +4,7 @@ agent: build
 ---
 # /ds-disable
 
-Append the agentic-engineering opt-out marker to the project
+Append the dinostack opt-out marker to the project
 `AGENTS.md` (creating it if absent). Optionally also updates the global
 config. Refuses to overwrite an existing opt-in marker without
 `--force`.

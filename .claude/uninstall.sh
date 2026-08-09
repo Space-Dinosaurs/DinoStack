@@ -6,7 +6,7 @@ export REPO_DIR
 
 AGENTS_DST="$HOME/.claude/agents"
 COMMANDS_DST="$HOME/.claude/commands"
-SKILLS_DST="$HOME/.claude/skills/agentic-engineering"
+SKILLS_DST="$HOME/.claude/skills/dinostack"
 SETTINGS="$HOME/.claude/settings.json"
 
 
@@ -62,22 +62,22 @@ remove_symlinks "$COMMANDS_DST" "commands"
 # Remove skill symlink
 # ---------------------------------------------------------------------------
 
-echo "Removing skill: agentic-engineering..."
+echo "Removing skill: dinostack..."
 
-SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
+SKILLS_SRC="$REPO_DIR/.claude/skills/dinostack"
 
 if [[ -L "$SKILLS_DST" ]]; then
   current_target="$(readlink "$SKILLS_DST")"
   if [[ "$current_target" == "$SKILLS_SRC" ]]; then
     rm "$SKILLS_DST"
-    echo "  - agentic-engineering"
+    echo "  - dinostack"
   else
-    echo "  = agentic-engineering (points to $current_target - not ours, skipping)"
+    echo "  = dinostack (points to $current_target - not ours, skipping)"
   fi
 elif [[ -e "$SKILLS_DST" ]]; then
-  echo "  = agentic-engineering (real file/directory - not removing)"
+  echo "  = dinostack (real file/directory - not removing)"
 else
-  echo "  = agentic-engineering (not found, nothing to remove)"
+  echo "  = dinostack (not found, nothing to remove)"
 fi
 
 
@@ -152,7 +152,7 @@ hooks = settings.get("hooks", {})
 
 RISK_CMD = (
     "echo 'BEFORE ANY ACTION: classify risk first. "
-    "If agentic-engineering is active in this project, the main session is the conductor. "
+    "If dinostack is active in this project, the main session is the conductor. "
     "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
     "Direct action ONLY for: reads, answering from memory, screenshots, "
     "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
@@ -175,14 +175,14 @@ OLD_RISK_CMDS = {
     ),
     (
         "echo 'BEFORE ANY ACTION: classify risk first. "
-        "If agentic-engineering is active in this project, the main session is the conductor. "
+        "If dinostack is active in this project, the main session is the conductor. "
         "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
         "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
         "When in doubt, classify Elevated.'"
     ),
     (
         "echo 'BEFORE ANY ACTION: classify risk first. "
-        "If agentic-engineering is active in this project, the main session is the conductor. "
+        "If dinostack is active in this project, the main session is the conductor. "
         "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
         "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
         "When in doubt, classify Elevated.'"
@@ -251,7 +251,7 @@ if hooks != settings.get("hooks", {}):
         settings.pop("hooks", None)
 
 if not changed:
-    print("  = No agentic-engineering hooks found - nothing removed.")
+    print("  = No dinostack hooks found - nothing removed.")
 else:
     with open(settings_path, "w") as f:
         json.dump(settings, f, indent=2)
@@ -294,8 +294,8 @@ python3 - <<'PYEOF'
 import os, re
 
 target = os.path.expanduser("~/.claude/CLAUDE.md")
-begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
-end_marker = "<!-- END managed-by-agentic-engineering -->"
+begin_marker = "<!-- BEGIN managed-by-dinostack -->"
+end_marker = "<!-- END managed-by-dinostack -->"
 
 if not os.path.exists(target):
     print("  - ~/.claude/CLAUDE.md not found, skipping")
@@ -305,11 +305,11 @@ with open(target, "r") as f:
     existing = f.read()
 
 if begin_marker not in existing or end_marker not in existing:
-    print("  - ~/.claude/CLAUDE.md has no managed-by-agentic-engineering section, skipping")
+    print("  - ~/.claude/CLAUDE.md has no managed-by-dinostack section, skipping")
     raise SystemExit(0)
 
 pattern = re.compile(
-    r'\n?<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->\n?',
+    r'\n?<!-- BEGIN managed-by-dinostack -->.*?<!-- END managed-by-dinostack -->\n?',
     re.DOTALL
 )
 updated = pattern.sub("", existing)
@@ -320,7 +320,7 @@ if not updated:
 else:
     with open(target, "w") as f:
         f.write(updated + "\n")
-    print("  - Removed managed-by-agentic-engineering section from ~/.claude/CLAUDE.md")
+    print("  - Removed managed-by-dinostack section from ~/.claude/CLAUDE.md")
 PYEOF
 
 # ---------------------------------------------------------------------------

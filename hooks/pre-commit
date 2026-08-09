@@ -180,8 +180,8 @@ if git diff --cached --name-only | grep -q "^content/"; then
   # Stage generated files
   git add \
     "$REPO_DIR/.claude/commands/"*.md \
-    "$REPO_DIR/.claude/skills/agentic-engineering/METHODOLOGY.md" \
-    "$REPO_DIR/.claude/skills/agentic-engineering/SKILL.md" \
+    "$REPO_DIR/.claude/skills/dinostack/METHODOLOGY.md" \
+    "$REPO_DIR/.claude/skills/dinostack/SKILL.md" \
     "$REPO_DIR/.codex/AGENTS.md" \
     "$REPO_DIR/.codex/agents/"*.toml \
     "$REPO_DIR/.codex/skills" \
@@ -200,17 +200,17 @@ if git diff --cached --name-only | grep -q "^content/"; then
     "$REPO_DIR/.gemini/agents/"*.md \
     "$REPO_DIR/.hermes/SKILL.md" \
     "$REPO_DIR/.kimi/AGENTS.md" \
-    "$REPO_DIR/.kimi/skills/agentic-engineering/sections" \
-    "$REPO_DIR/.omp/skills/agentic-engineering/references" \
-    "$REPO_DIR/.omp/skills/agentic-engineering/rules" \
-    "$REPO_DIR/.omp/skills/agentic-engineering/commands" \
-    "$REPO_DIR/.omp/skills/agentic-engineering/agents" \
+    "$REPO_DIR/.kimi/skills/dinostack/sections" \
+    "$REPO_DIR/.omp/skills/dinostack/references" \
+    "$REPO_DIR/.omp/skills/dinostack/rules" \
+    "$REPO_DIR/.omp/skills/dinostack/commands" \
+    "$REPO_DIR/.omp/skills/dinostack/agents" \
     "$REPO_DIR/.openclaw/skills" \
-    "$REPO_DIR/.opencode/skills/agentic-engineering/METHODOLOGY.md" \
+    "$REPO_DIR/.opencode/skills/dinostack/METHODOLOGY.md" \
     "$REPO_DIR/.opencode/agents/"*.md \
     "$REPO_DIR/.opencode/commands/"*.md \
-    "$REPO_DIR/.pi/skills/agentic-engineering/METHODOLOGY.md" \
-    "$REPO_DIR/.pi/skills/agentic-engineering/SKILL.md" \
+    "$REPO_DIR/.pi/skills/dinostack/METHODOLOGY.md" \
+    "$REPO_DIR/.pi/skills/dinostack/SKILL.md" \
     "$REPO_DIR/.pi/prompts/"*.md \
     "$REPO_DIR/.github/copilot-instructions.md" \
     "$REPO_DIR/.github/agents/"*.md \

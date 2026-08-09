@@ -728,7 +728,7 @@ def test_main_output_contains_status_header(monkeypatch, tmp_path, capsys):
     monkeypatch.chdir(tmp_path)
     main([])
     out = capsys.readouterr().out
-    assert "agentic-engineering status" in out
+    assert "dinostack status" in out
     assert "What this means" in out
     assert "How to adjust" in out
 

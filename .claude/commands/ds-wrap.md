@@ -3,7 +3,7 @@ model: sonnet
 description: "Summarize the current session into .agentic/_wrap.md."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-wrap — On-Demand Session Context Enrichment
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Purpose: Interactive updater for agentic-engineering. Presents a TUI
+ * Purpose: Interactive updater for dinostack. Presents a TUI
  *          multi-select menu of adapters, runs git pull --ff-only
  *          origin main, and executes each selected adapter's install.sh.
  *          Skips adapter rebuilds when no adapter-source paths changed,
@@ -404,7 +404,7 @@ function runTUI(adapters, preselected) {
     function draw() {
       clearScreen();
       moveCursor(1, 1);
-      console.log('  Update agentic-engineering\n');
+      console.log('  Update dinostack\n');
 
       for (let i = 0; i < adapters.length; i++) {
         const adapter = adapters[i];
@@ -559,7 +559,7 @@ async function main() {
     console.log('Usage: update.sh [--help]');
     console.log('       node scripts/update.js <repo_dir> [--help]');
     console.log('');
-    console.log('Interactive updater for the agentic-engineering repo. Opens a multi-select');
+    console.log('Interactive updater for the dinostack repo. Opens a multi-select');
     console.log("menu of adapters, confirms the plan, then runs");
     console.log("'git pull --ff-only origin main' and each chosen install.sh.");
     console.log('');

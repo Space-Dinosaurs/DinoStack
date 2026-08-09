@@ -149,7 +149,7 @@ Data sources (used in order of availability):
 Example output:
 
 ```
-Retro rollup for agentic-engineering (2026-04-01 -> 2026-05-28)
+Retro rollup for dinostack (2026-04-01 -> 2026-05-28)
 WARNING: External-source reconstruction. NOT Stage 1 telemetry.
          No per-agent attribution. No token counts. Wall-time is PR-merge proxy only.
 

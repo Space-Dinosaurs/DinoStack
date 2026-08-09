@@ -11,7 +11,7 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
          scripts/codex-skills.py's `literal_rules` REPLACEMENT text (index
          2 of each tuple) still said "agentic-identity" instead of
          "ds-identity", so it shipped into four generated Codex artifacts
-         (.codex/AGENTS.md, .codex/skills/agentic-engineering/
+         (.codex/AGENTS.md, .codex/skills/dinostack/
          METHODOLOGY.md, .codex/skill-compatibility.yml) even though every
          other MAJOR/MINOR finding in the same review round had been fixed.
          No prior test asserted this - that absence is precisely why the
@@ -87,7 +87,7 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              current tuples' replacements has any legitimate reason to
              reproduce an old tool name (verified by reading every tuple: 8
              of 14 map to `$AE_*` runtime bindings or the protected
-             `agentic-engineering` skill noun, and the other 6 either match
+             `dinostack` skill noun, and the other 6 either match
              nothing in current content or are literal command text that
              should always use the new `ds-*` form). This closes the
              MAJOR-1 gap directly at its source and generalizes to any
@@ -113,7 +113,7 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
          (3) `test_codex_generated_identity_commands_use_ds_identity` -
              defense-in-depth directly against the two rendered artifacts
              MAJOR 1 named (`.codex/AGENTS.md` and
-             `.codex/skills/agentic-engineering/METHODOLOGY.md`): asserts
+             `.codex/skills/dinostack/METHODOLOGY.md`): asserts
              the specific renamed operational strings that `literal_rules`
              tuples 0 and 5 (the identity resolve-hook and confirm/correct
              block) are supposed to produce are present verbatim, and that
@@ -136,7 +136,7 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              (3) is a targeted sensor confirming the actual shipped bytes
              match what (2) implies).
 
-         The protected skill noun "agentic-engineering", the protected
+         The protected skill noun "dinostack", the protected
          config filenames/markers (~/.claude/agentic-engineering.json,
          agentic-engineering-config.json, "agentic-engineering: opt-in" /
          "opt-out" / "-profile:" / "-preset:"), and any bare "agentic-"
@@ -149,7 +149,7 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
          "agentic-engineering-config.json" - "engineering-" sits between
          them). Check (2) inspects only the REPLACEMENT half of each
          tuple, so a PATTERN that legitimately needs to match
-         "agentic-engineering" or any other protected/un-renamed
+         "dinostack" or any other protected/un-renamed
          content/** string never triggers it.
 
 Public API: python3 -m pytest bin/tests/test_ds_primary_name_sweep.py -q
@@ -159,7 +159,7 @@ Public API: python3 -m pytest bin/tests/test_ds_primary_name_sweep.py -q
 Upstream deps: Python 3 stdlib only (ast, json, os, pathlib). Check (2)
                parses scripts/codex-skills.py source without executing it.
                Check (3) requires `.codex/AGENTS.md` and
-               `.codex/skills/agentic-engineering/METHODOLOGY.md` to exist
+               `.codex/skills/dinostack/METHODOLOGY.md` to exist
                (built by `.codex/build.sh`); if absent, that check fails
                loudly rather than skipping, since a repo that ships
                `.codex/**` without these files is itself a defect.
@@ -185,7 +185,7 @@ BIN_DIR = REPO_ROOT / "bin"
 CONTENT_DIR = REPO_ROOT / "content"
 CODEX_SKILLS_PY = REPO_ROOT / "scripts" / "codex-skills.py"
 CODEX_AGENTS_MD = REPO_ROOT / ".codex" / "AGENTS.md"
-CODEX_METHODOLOGY_MD = REPO_ROOT / ".codex" / "skills" / "agentic-engineering" / "METHODOLOGY.md"
+CODEX_METHODOLOGY_MD = REPO_ROOT / ".codex" / "skills" / "dinostack" / "METHODOLOGY.md"
 
 # The 25 renamed tools (suffix only) - independently re-derived against
 # `ls bin/agentic-*` at review time, same list as
@@ -322,9 +322,9 @@ def test_codex_generated_identity_commands_use_ds_identity() -> None:
 
 # The pinned residue set the module docstring's "known exception" claim
 # depends on: (file, token) pairs for any `agentic-<word>` string under
-# content/** that is NOT the protected "agentic-engineering" skill noun or
+# content/** that is NOT the protected "dinostack" skill noun or
 # one of its protected marker extensions (agentic-engineering-config,
-# agentic-engineering-profile, agentic-engineering-preset). Independently
+# dinostack-profile, dinostack-preset). Independently
 # re-derived, not copied from OLD_NAMES above.
 #
 # `content/project-scaffolding.yml`'s `bin/agentic-migrate` occurrences
@@ -341,16 +341,16 @@ def test_codex_generated_identity_commands_use_ds_identity() -> None:
 # planning-artifacts.md - and is expected to remain indefinitely.
 RESIDUE_TOKEN_PATTERN = re.compile(r"agentic-[a-zA-Z][a-zA-Z0-9-]*")
 # Exact protected token set - NOT a prefix check. A prefix check
-# (`token.startswith("agentic-engineering")`) silently drops any token
+# (`token.startswith("dinostack")`) silently drops any token
 # that merely BEGINS with the protected noun, e.g. a hypothetical
-# `agentic-engineering-doctor` would be masked even though it is not one
+# `dinostack-doctor` would be masked even though it is not one
 # of the actually-protected markers. Verified empirically: injecting
-# `agentic-engineering-doctor` into content/ left the old prefix-based
+# `dinostack-doctor` into content/ left the old prefix-based
 # check GREEN.
 PROTECTED_TOKENS = {
-    "agentic-engineering",
-    "agentic-engineering-profile",
-    "agentic-engineering-preset",
+    "dinostack",
+    "dinostack-profile",
+    "dinostack-preset",
     "agentic-engineering-config",
 }
 EXPECTED_RESIDUE_SET = {
@@ -360,7 +360,7 @@ EXPECTED_RESIDUE_SET = {
 
 def test_content_residue_set_pinned_to_known_exceptions() -> None:
     """Scans every file under content/** for `agentic-<word>` tokens,
-    excludes the protected `agentic-engineering` skill noun and its marker
+    excludes the protected `dinostack` skill noun and its marker
     extensions, and asserts the remaining (file, token) set is exactly
     EXPECTED_RESIDUE_SET - no more, no fewer. A third stray old name
     anywhere under content/** turns this RED; renaming either of the two

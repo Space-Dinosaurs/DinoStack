@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# Purpose: One-shot installer for agentic-engineering. Symlinks agents,
+# Purpose: One-shot installer for dinostack. Symlinks agents,
 #          commands, and the skill directory into ~/.claude/; syncs hook
 #          scripts into a session-stable per-checkout snapshot dir (DS-54,
 #          scripts/lib/hooks-snapshot.sh) and wires hooks in
@@ -229,7 +229,7 @@ config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [Y/n] ")
+            tty.write("Auto-load dinostack skill at session start? [Y/n] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
         config["skill_auto_load"] = answer in ("", "y", "yes")
@@ -251,9 +251,9 @@ echo ""
 echo "Activation mode..."
 if [[ -n "$AE_MODE_FLAG" ]]; then
   ae_write_mode "$AE_MODE_FLAG"
-  echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
+  echo "  + dinostack mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
-  echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
+  echo "  = dinostack mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
 elif [[ -t 0 ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
@@ -290,11 +290,11 @@ fi
 
 AGENTS_SRC="$REPO_DIR/.claude/agents"
 COMMANDS_SRC="$REPO_DIR/.claude/commands"
-SKILLS_SRC="$REPO_DIR/.claude/skills/agentic-engineering"
+SKILLS_SRC="$REPO_DIR/.claude/skills/dinostack"
 
 AGENTS_DST="$AE_CONFIG_DIR/agents"
 COMMANDS_DST="$AE_CONFIG_DIR/commands"
-SKILLS_DST="$AE_CONFIG_DIR/skills/agentic-engineering"
+SKILLS_DST="$AE_CONFIG_DIR/skills/dinostack"
 SETTINGS="$AE_CONFIG_DIR/settings.json"
 
 # ---------------------------------------------------------------------------
@@ -474,7 +474,7 @@ done
 SKILL_LINK_OK=true
 SKILL_LINK_REASON=""
 
-echo "Linking skill: agentic-engineering..."
+echo "Linking skill: dinostack..."
 
 mkdir -p "$(dirname "$SKILLS_DST")"
 
@@ -515,17 +515,17 @@ elif [[ -e "$SKILLS_DST" ]]; then
   fi
 else
   if [[ "$AE_DRY_RUN" == "true" ]]; then
-    echo "  + agentic-engineering (would create)"
+    echo "  + dinostack (would create)"
     SKILL_LINK_OK=false
     SKILL_LINK_REASON="dry-run: symlink not created"
   else
     ln -s "$SKILLS_SRC" "$SKILLS_DST"
-    echo "  + agentic-engineering"
+    echo "  + dinostack"
   fi
 fi
 
 _ae_skill_link_warning() {
-  echo "  WARNING: the agentic-engineering skill is not linked to this checkout ($SKILL_LINK_REASON)."
+  echo "  WARNING: the dinostack skill is not linked to this checkout ($SKILL_LINK_REASON)."
   echo "  CLAUDE.md's managed block may reference the skill; the reference will not resolve"
   echo "  until the link is established. Re-run without --dry-run, or resolve the noted"
   echo "  conflict above and re-run install.sh."
@@ -534,6 +534,29 @@ _ae_skill_link_warning() {
 if [[ "$SKILL_LINK_OK" != "true" ]]; then
   echo ""
   _ae_skill_link_warning
+fi
+
+# ---------------------------------------------------------------------------
+# Remove stale pre-rename skill symlink (agentic-engineering -> dinostack)
+#
+# The skill directory/name was renamed from "agentic-engineering" to
+# "dinostack". A pre-rename install left a symlink node at
+# skills/agentic-engineering pointing into this checkout; without pruning it,
+# every existing install keeps that orphaned skill directory forever. Same
+# ownership discipline as the stale-command prune above: this is a symlink
+# node (unlinking never traverses its target, so no -r is needed), and we
+# only remove it when _ae_is_ours() confirms it points inside a methodology
+# checkout - never a real directory or a symlink pointing elsewhere.
+# ---------------------------------------------------------------------------
+
+_ae_stale_skill_dst="$(dirname "$SKILLS_DST")/agentic-engineering"
+if _ae_is_ours "$_ae_stale_skill_dst"; then
+  if [[ "$AE_DRY_RUN" == "true" ]]; then
+    echo "  ~ agentic-engineering (would remove: stale pre-rename skill symlink)"
+  else
+    rm -f "$_ae_stale_skill_dst"
+    echo "  - removed agentic-engineering (stale pre-rename skill symlink)"
+  fi
 fi
 
 # ---------------------------------------------------------------------------
@@ -617,7 +640,7 @@ def upsert_hook(hook_list, script_basename, expected_entry, label):
 # ---- UserPromptSubmit hook --------------------------------------------------
 RISK_CMD = (
     "echo 'BEFORE ANY ACTION: classify risk first. "
-    "If agentic-engineering is active in this project, the main session is the conductor. "
+    "If dinostack is active in this project, the main session is the conductor. "
     "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
     "Direct action ONLY for: reads, answering from memory, screenshots, "
     "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
@@ -640,7 +663,7 @@ OLD_RISK_CMDS = {
     ),
     (
         "echo 'BEFORE ANY ACTION: classify risk first. "
-        "If agentic-engineering is active in this project, the main session is the conductor. "
+        "If dinostack is active in this project, the main session is the conductor. "
         "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
         "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
         "When in doubt, classify Elevated.'"
@@ -1076,7 +1099,7 @@ fi
 # imports must never be stripped without a working skill symlink to fall
 # back on.
 if [[ "$AE_DRY_RUN" == "true" ]]; then
-  echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md"
+  echo "  [dry-run] would update managed-by-dinostack section in $AE_CONFIG_DIR/CLAUDE.md"
 else
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
@@ -1084,17 +1107,17 @@ AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_REPO_DIR="$REPO_DIR" AE_SKILL_LINK_OK="$SKILL_
 import json, os, re, sys
 
 target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
-begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
-end_marker = "<!-- END managed-by-agentic-engineering -->"
+begin_marker = "<!-- BEGIN managed-by-dinostack -->"
+end_marker = "<!-- END managed-by-dinostack -->"
 
 repo_dir = os.environ.get("AE_REPO_DIR", "")
 skill_link_ok = os.environ.get("AE_SKILL_LINK_OK", "") == "true"
 config_path = os.environ.get("AE_CONFIG_PATH", "")
 
 import_lines = [
-    "@skills/agentic-engineering/METHODOLOGY.md",
-    "@skills/agentic-engineering/rules/code-standards.md",
-    "@skills/agentic-engineering/rules/conventions.md",
+    "@skills/dinostack/METHODOLOGY.md",
+    "@skills/dinostack/rules/code-standards.md",
+    "@skills/dinostack/rules/conventions.md",
 ]
 old_import_marker = import_lines[0]
 
@@ -1139,7 +1162,7 @@ else:
 # Compiled once - used both by the migration detection below and by the
 # managed-block rewrite further down.
 pattern = re.compile(
-    r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
+    r'<!-- BEGIN managed-by-dinostack -->.*?<!-- END managed-by-dinostack -->',
     re.DOTALL
 )
 
@@ -1201,7 +1224,7 @@ if begin_marker in existing and end_marker in existing:
     updated = pattern.sub(lambda _: managed_content, existing)
     with open(target, "w") as f:
         f.write(updated)
-    print("  = Updated managed-by-agentic-engineering section in ~/.claude/CLAUDE.md")
+    print("  = Updated managed-by-dinostack section in ~/.claude/CLAUDE.md")
 else:
     # Append to end of file
     if existing:
@@ -1212,9 +1235,9 @@ else:
     with open(target, "w") as f:
         f.write(updated)
     if existing:
-        print("  + Appended managed-by-agentic-engineering section to ~/.claude/CLAUDE.md")
+        print("  + Appended managed-by-dinostack section to ~/.claude/CLAUDE.md")
     else:
-        print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
+        print("  + Created ~/.claude/CLAUDE.md with managed-by-dinostack section")
 PYEOF
 
 if [[ "$SKILL_LINK_OK" != "true" ]]; then
@@ -1224,7 +1247,7 @@ if [[ "$SKILL_LINK_OK" != "true" ]]; then
 else
   echo ""
   echo "IMPORTANT: skill definitions changed. Start a NEW Claude Code session"
-  echo "before relying on /agentic-engineering - the currently running session's"
+  echo "before relying on /dinostack - the currently running session's"
   echo "skill registry may not reflect this update yet."
 fi
 fi
@@ -1744,7 +1767,7 @@ fi
 echo ""
 echo "Install complete."
 echo ""
-echo "  agentic-engineering is installed. Open a new Claude Code session in any project,"
+echo "  dinostack is installed. Open a new Claude Code session in any project,"
 echo "  add 'agentic-engineering: opt-in' to its AGENTS.md, and the methodology activates."
 _ae_identity_guidance
 echo ""
@@ -1758,7 +1781,7 @@ echo "  Offer the user a quick orientation. Ask which of the following they'd"
 echo "  like to view, then 'open' each one they say yes to (skipping all is fine):"
 echo ""
 echo "    1. $REPO_DIR/docs/slides/how-it-works-slides.html"
-echo "       - what agentic-engineering is and how it works"
+echo "       - what dinostack is and how it works"
 echo "    2. $REPO_DIR/docs/slides/getting-started-slides.html"
 echo "       - install flow and the first focused session"
 echo "    3. $REPO_DIR/docs/slides/context-management-slides.html"

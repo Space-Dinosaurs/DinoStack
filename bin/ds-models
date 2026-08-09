@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: Rank a caller-supplied list of AI model IDs per agentic-engineering
+Purpose: Rank a caller-supplied list of AI model IDs per dinostack
          role and emit a suggestion per role. The caller (conductor, TUI
          wizard, or shell) owns model discovery; this binary purely ranks
          whatever list it receives.
@@ -148,7 +148,7 @@ def main(argv: list[str]) -> int:
     ap = argparse.ArgumentParser(
         prog="ds-models",
         description=(
-            "Rank a list of AI model IDs per agentic-engineering role. "
+            "Rank a list of AI model IDs per dinostack role. "
             "Provide models via positional args, --models-from FILE, or stdin."
         ),
     )

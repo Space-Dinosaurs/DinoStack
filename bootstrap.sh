@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Module Manifest
 #
-# Purpose: One-liner remote installer for agentic-engineering. Clones or
+# Purpose: One-liner remote installer for dinostack. Clones or
 #          updates the repository from GitHub, delegates to .claude/install.sh
 #          for adapter setup, and writes the resolved repo path to
 #          ~/.agentic/agentic-engineering-config.json for use by update.sh and
@@ -18,7 +18,7 @@ set -euo pipefail
 # Upstream deps: git, python3 (required); node (optional, for update.sh TUI)
 #
 # Downstream consumers:
-#   - End users installing agentic-engineering for the first time
+#   - End users installing dinostack for the first time
 #   - .claude/install.sh (delegated to after clone/update)
 #   - ~/.agentic/agentic-engineering-config.json (written with repo_dir key)
 #
@@ -216,7 +216,7 @@ fi
 # Success summary
 # ---------------------------------------------------------------------------
 echo ""
-echo "agentic-engineering installed to: $AE_DEST_DIR"
+echo "dinostack installed to: $AE_DEST_DIR"
 echo "Update anytime via either:"
 echo "  cd $AE_DEST_DIR && ./update.sh"
 echo "  or the /ds-update command inside Claude Code (location-aware)"

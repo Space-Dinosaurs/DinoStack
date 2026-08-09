@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Regression test for .kimi/install.sh dir-symlink write-through guard.
-#          Ensures that when ~/.kimi/skills/agentic-engineering is a directory
+#          Ensures that when ~/.kimi/skills/dinostack is a directory
 #          symlink pointing into the repo, install.sh replaces it with a real
 #          directory and does NOT clobber tracked repo symlinks inside it.
 #
@@ -19,7 +19,7 @@
 # Performance: ~5 s wall time on a developer machine (runs install.sh twice).
 #
 # Regression coverage:
-#   - Major (Skeptic PR-114): a stale dir-symlink at ~/.kimi/skills/agentic-engineering
+#   - Major (Skeptic PR-114): a stale dir-symlink at ~/.kimi/skills/dinostack
 #     pointing into the repo caused install.sh to write individual file-symlinks
 #     through the dir-symlink, corrupting tracked repo symlinks (SKILL.md,
 #     agents, commands, references). The fix detects this and replaces the
@@ -50,7 +50,7 @@ _pass() {
 }
 
 # ---- Setup: save and restore tracked symlinks on exit ----
-SKILL_SRC="$REPO_DIR/.kimi/skills/agentic-engineering"
+SKILL_SRC="$REPO_DIR/.kimi/skills/dinostack"
 TRACKED_TARGETS=()
 for item in SKILL.md agents commands references; do
   if [[ -L "$SKILL_SRC/$item" ]]; then
@@ -85,10 +85,10 @@ _assert_git_clean() {
   local label="$1"
   local dirty
   dirty="$(git -C "$REPO_DIR" status --porcelain \
-    -- ".kimi/skills/agentic-engineering/SKILL.md" \
-       ".kimi/skills/agentic-engineering/agents" \
-       ".kimi/skills/agentic-engineering/commands" \
-       ".kimi/skills/agentic-engineering/references" \
+    -- ".kimi/skills/dinostack/SKILL.md" \
+       ".kimi/skills/dinostack/agents" \
+       ".kimi/skills/dinostack/commands" \
+       ".kimi/skills/dinostack/references" \
     2>&1)"
   if [[ -n "$dirty" ]]; then
     _fail "$label: tracked repo symlinks were clobbered. git status output:"$'\n'"$dirty"
@@ -100,10 +100,10 @@ _assert_git_clean() {
 # ---- Reset tracked symlinks to a known clean state before each run ----
 _reset_repo_symlinks() {
   git -C "$REPO_DIR" checkout -- \
-    ".kimi/skills/agentic-engineering/SKILL.md" \
-    ".kimi/skills/agentic-engineering/agents" \
-    ".kimi/skills/agentic-engineering/commands" \
-    ".kimi/skills/agentic-engineering/references" \
+    ".kimi/skills/dinostack/SKILL.md" \
+    ".kimi/skills/dinostack/agents" \
+    ".kimi/skills/dinostack/commands" \
+    ".kimi/skills/dinostack/references" \
     2>/dev/null || true
 }
 
@@ -130,9 +130,9 @@ _run_install() {
 FAKE_HOME="$(mktemp -d)"
 
 # Create the bug-trigger scenario: a directory symlink at
-# <fakeHOME>/.kimi/skills/agentic-engineering pointing into the repo.
+# <fakeHOME>/.kimi/skills/dinostack pointing into the repo.
 mkdir -p "$FAKE_HOME/.kimi/skills"
-ln -s "$SKILL_SRC" "$FAKE_HOME/.kimi/skills/agentic-engineering"
+ln -s "$SKILL_SRC" "$FAKE_HOME/.kimi/skills/dinostack"
 
 # Ensure the repo symlinks are clean before running.
 _reset_repo_symlinks

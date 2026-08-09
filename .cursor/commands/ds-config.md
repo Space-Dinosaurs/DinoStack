@@ -1,6 +1,6 @@
 # /ds-config
 
-Interactive command to view and change agentic-engineering settings in-session.
+Interactive command to view and change dinostack settings in-session.
 Reads the current resolved state, prompts for which setting to change and the
 new value, writes the correct file, and confirms what changed and when it takes
 effect.

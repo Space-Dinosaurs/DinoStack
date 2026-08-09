@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: Non-interactive CLI writer for agentic-engineering methodology
+Purpose: Non-interactive CLI writer for dinostack methodology
          settings. Accepts a setting name, value, and optional scope flag,
          validates the pair, and atomically writes to the appropriate target
          file (~/.claude/agentic-engineering.json, .agentic/config.json, or
@@ -297,9 +297,9 @@ def _upsert_agents_md_marker(marker_type: str, value: str) -> Path:
     (to avoid seeding a stray AGENTS.md in arbitrary directories).
     """
     if marker_type == "activation":
-        new_line = f"agentic-engineering: {value}"
+        new_line = f"dinostack: {value}"
         match_re = re.compile(
-            r"^\s*(?:-\s+)?agentic-engineering:\s*(opt-in|opt-out)\s*$",
+            r"^\s*(?:-\s+)?dinostack:\s*(opt-in|opt-out)\s*$",
             re.IGNORECASE,
         )
     elif marker_type == "profile":

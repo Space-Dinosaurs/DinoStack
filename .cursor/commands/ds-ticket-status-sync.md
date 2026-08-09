@@ -1,6 +1,6 @@
 # /ds-ticket-status-sync
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 <!--
 Purpose: Reconciles a ticket's tracker column with the actual state of its code. Fires the Done

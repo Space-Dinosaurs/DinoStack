@@ -1,6 +1,6 @@
 <!--
 Purpose: Single source of truth for the "Skill Loading" table that .claude/install.sh
-         writes into ~/.claude/CLAUDE.md's managed-by-agentic-engineering block. Extracted
+         writes into ~/.claude/CLAUDE.md's managed-by-dinostack block. Extracted
          so a resident-budget CI check and the installer can both read one canonical copy
          instead of drifting independently.
 
@@ -32,6 +32,6 @@ Before starting any task, check if a domain skill should be loaded:
 
 | Signal | Skill |
 |---|---|
-| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/dinostack` |
 
 If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.

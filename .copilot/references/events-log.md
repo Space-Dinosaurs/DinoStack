@@ -91,7 +91,7 @@ The Stop hook writes a second target alongside `events.jsonl`. When a developer 
   "task_id": null,
   "developer_id": "tyson",
   "session_uuid": "<uuid-v4>",
-  "project_slug": "agentic-engineering",
+  "project_slug": "dinostack",
   "branch": "main",
   "data": {
     "wall_seconds": 1234,

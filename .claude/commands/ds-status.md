@@ -2,11 +2,11 @@
 description: "Shows the resolved mode/profile, WHERE each value comes from, what behavior it produces, and how to change it."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-status
 
-Read-only inspection of the agentic-engineering activation resolver.
+Read-only inspection of the dinostack activation resolver.
 Dumps the resolved global config, project marker, profile, and
 first-activation sentinel state. Writes nothing. Always exits 0.
 
@@ -29,7 +29,7 @@ No subcommands, no flags. Reads:
 ## Output
 
 ```
-agentic-engineering status
+dinostack status
   global config: /Users/<you>/.claude/agentic-engineering.json (found)
   mode: opt-out (source: global config)
   profile: default (source: global)

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Adapter-neutral core for the "newer version available" SessionStart
-#          notice. Resolves the agentic-engineering clone dir, reads a small
+#          notice. Resolves the dinostack clone dir, reads a small
 #          cache of how far the local clone is behind upstream, and prints a
 #          single generic update notice to stdout when behind. Kicks off a
 #          detached, TTL-throttled background refresh that runs `git fetch` and
@@ -119,7 +119,7 @@ mkdir -p "$HOME/.agentic" >/dev/null 2>&1 || true
 maybe_refresh
 
 if [[ "$behind_count" =~ ^[0-9]+$ ]] && [[ "$behind_count" -gt 0 ]]; then
-  echo "⚠️ agentic-engineering: newer version available. Run: ds-update (shell) or /ds-update (in session). No PATH? ${ae_repo_dir}/update.sh"
+  echo "⚠️ dinostack: newer version available. Run: ds-update (shell) or /ds-update (in session). No PATH? ${ae_repo_dir}/update.sh"
 fi
 
 exit 0

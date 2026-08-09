@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Purpose: Regression guard for DS-104. scripts/check-symlinks-relative.sh is
 #          the CI gate that fails when any of the four
-#          .claude/skills/agentic-engineering/{agents,commands,references,rules}
+#          .claude/skills/dinostack/{agents,commands,references,rules}
 #          symlinks is absolutized in the committed tree. A gate that has
 #          only ever been observed passing has not been verified - this test
 #          exercises both directions: it must FAIL against a constructed
@@ -63,7 +63,7 @@ mkdir -p "$FIXTURE_REPO"
   git config user.name "DS-104 fixture"
 ) || { _fail "could not init fixture repo"; exit 1; }
 
-SKILL_DIR="$FIXTURE_REPO/.claude/skills/agentic-engineering"
+SKILL_DIR="$FIXTURE_REPO/.claude/skills/dinostack"
 mkdir -p "$SKILL_DIR" "$FIXTURE_REPO/content"
 
 build_commit() {
@@ -76,8 +76,8 @@ build_commit() {
     while [[ $# -gt 0 ]]; do
       local name="$1" target="$2"
       shift 2
-      rm -f ".claude/skills/agentic-engineering/$name"
-      ln -s "$target" ".claude/skills/agentic-engineering/$name"
+      rm -f ".claude/skills/dinostack/$name"
+      ln -s "$target" ".claude/skills/dinostack/$name"
     done
     git add -A .claude
     git commit -q -m "$msg"

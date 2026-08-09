@@ -1181,7 +1181,7 @@ def _wrapper(name: str) -> bytes:
         f"description: Run DinoStack workflow {name}\n"
         'argument-hint: "[arguments]"\n'
         "---\n"
-        "Use the `$agentic-engineering` skill. From that loaded skill's physical root, "
+        "Use the `$dinostack` skill. From that loaded skill's physical root, "
         f"read and execute the canonical `commands/{name}.md` workflow with these arguments:\n\n"
         "$ARGUMENTS\n"
     )

@@ -65,7 +65,7 @@ def _find_manifest() -> Path | None:
     """Return the first manifest path that exists, or None."""
     candidates = [
         os.environ.get("AGENTIC_MANIFEST_PATH"),
-        os.path.expanduser("~/.claude/skills/agentic-engineering/project-scaffolding.yml"),
+        os.path.expanduser("~/.claude/skills/dinostack/project-scaffolding.yml"),
         str(SCRIPT_DIR.parent / "content" / "project-scaffolding.yml"),
     ]
     for c in candidates:

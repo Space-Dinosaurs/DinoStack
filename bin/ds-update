@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: From-anywhere, non-interactive updater for agentic-engineering
+Purpose: From-anywhere, non-interactive updater for dinostack
          (DinoStack). Fetches origin, detects whether adapter sources changed
          via the same REBUILD_TRIGGERS logic as scripts/update.js, runs the
          appropriate install.sh scripts, resets the version-check cache, and
@@ -358,7 +358,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="ds-update",
         description=(
-            "Non-interactive updater for agentic-engineering (DinoStack). "
+            "Non-interactive updater for dinostack (DinoStack). "
             "Fetches origin, detects adapter-source changes, runs install scripts, "
             "resets the version-check cache, and optionally runs ds-doctor --fix. "
             "Safe for CI and non-TTY contexts."

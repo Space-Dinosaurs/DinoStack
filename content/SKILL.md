@@ -1,5 +1,5 @@
 <!--
-Purpose: Canonical body text for the agentic-engineering skill loaded by AI coding agents.
+Purpose: Canonical body text for the dinostack skill loaded by AI coding agents.
          This file is the single source of truth for the skill's instructional content;
          adapter-specific frontmatter (name, description, trigger conditions) is kept
          separately in each adapter's build directory and prepended at build time.
@@ -7,7 +7,7 @@ Purpose: Canonical body text for the agentic-engineering skill loaded by AI codi
 Public API: consumed as-is by adapter build scripts. For Claude, .claude/build.sh
             strips this manifest comment, prepends SKILL.frontmatter.yaml, and then
             embeds METHODOLOGY.md plus content/rules/{code-standards,conventions}.md
-            verbatim to produce the final .claude/skills/agentic-engineering/SKILL.md
+            verbatim to produce the final .claude/skills/dinostack/SKILL.md
             (this file accounts for a fraction of that assembled artifact's size -
             see check-skill-embed-budget.sh). Other adapters differ: .codex and .kimi
             embed this file (including this comment) largely unchanged; .cursor and
@@ -18,7 +18,7 @@ Public API: consumed as-is by adapter build scripts. For Claude, .claude/build.s
 
 Upstream deps: none (leaf content file; no imports or code dependencies).
 
-Downstream consumers: .claude/skills/agentic-engineering/SKILL.md (assembled by
+Downstream consumers: .claude/skills/dinostack/SKILL.md (assembled by
                       .claude/build.sh), plus the per-adapter SKILL.md outputs listed
                       under Public API above.
 
@@ -56,7 +56,7 @@ files on every session and the reference docs on the triggers described in METHO
 - `/ds-help` - static, zero-token command reference; lists every slash command with a one-line description.
 - `/ds-status` - read-only resolver dump; shows the resolved mode, profile, and marker with provenance plus a plain-English explainer of what they do and how to change them.
 - `/ds-brief` - interactive planning dialogue; produces the Brief artifact before architect and engineer are spawned. Invoke when operator implies planning intent at session start, or use `/ds-brief --from <path>` to extract a Brief from an existing PRD.
-- `/ds-update` - update an existing agentic-engineering/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall agentic-engineering", or "update my AE install".
+- `/ds-update` - update an existing dinostack/DinoStack install (or fresh-install if none exists); invoke when the user says "pull and install DinoStack", "update DinoStack", "install the latest DinoStack", "reinstall dinostack", or "update my AE install".
 
 Run `/ds-help` for the full command inventory.
 

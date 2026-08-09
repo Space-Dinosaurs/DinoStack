@@ -2,11 +2,11 @@
 description: "This list."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-help
 
-Static, zero-token command reference for the agentic-engineering skill.
+Static, zero-token command reference for the dinostack skill.
 Prints every slash command with a one-line description, grouped by intent,
 plus usage patterns for inspecting, deliberately invoking, and tuning the
 skill. Writes nothing. Always exits 0.

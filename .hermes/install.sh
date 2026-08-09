@@ -99,7 +99,7 @@ PYEOF
 }
 
 echo ""
-echo "agentic-engineering Hermes adapter installer"
+echo "dinostack Hermes adapter installer"
 echo "============================================"
 echo ""
 
@@ -174,7 +174,7 @@ fi
 # Install skill
 # ---------------------------------------------------------------------------
 
-SKILL_DST="$HOME/.hermes/skills/agentic-engineering"
+SKILL_DST="$HOME/.hermes/skills/dinostack"
 SKILL_SRC="$REPO_DIR/.hermes/SKILL.md"
 
 echo ""
@@ -215,13 +215,13 @@ fi
 echo ""
 echo "Installation complete!"
 echo ""
-echo "The agentic-engineering skill is now available to Hermes."
+echo "The dinostack skill is now available to Hermes."
 echo ""
 echo "To verify, start a Hermes session in any project and ask:"
 echo '  "What are the risk tiers in agentic engineering?"'
 echo ""
 echo "The skill auto-loads when tags match. You can also force-load it with:"
-echo '  skill_view(name="agentic-engineering")'
+echo '  skill_view(name="dinostack")'
 echo ""
 echo "Per-project opt-in/opt-out: add to the project's root AGENTS.md:"
 echo "  agentic-engineering: opt-out"

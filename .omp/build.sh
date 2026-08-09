@@ -3,14 +3,14 @@
 # Public API: invoked as `bash .omp/build.sh`; idempotent.
 # Upstream deps: content/commands/, content/references/, content/rules/, content/agents/,
 #               content/sections/, content/SKILL.md, scripts/build-methodology.sh.
-# Downstream consumers: .omp/skills/agentic-engineering/.
+# Downstream consumers: .omp/skills/dinostack/.
 # Failure modes: exits non-zero on missing inputs or assembly failure. Idempotent.
 # Performance: standard.
 
 set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
-SKILL_DST="$REPO_DIR/.omp/skills/agentic-engineering"
+SKILL_DST="$REPO_DIR/.omp/skills/dinostack"
 
 # Portable inode helper (macOS uses -f, Linux uses -c)
 get_inode() {
@@ -48,9 +48,9 @@ bash "$REPO_DIR/scripts/build-methodology.sh" > "$SKILL_DST/METHODOLOGY.md"
 
 ## oh-my-pi (omp) usage
 
-oh-my-pi discovers this skill from `.omp/skills/agentic-engineering/` for project-local use and from `~/.omp/agent/skills/agentic-engineering/` after global install.
+oh-my-pi discovers this skill from `.omp/skills/dinostack/` for project-local use and from `~/.omp/agent/skills/dinostack/` after global install.
 
-**Auto-trigger:** The skill loads automatically when you describe software development work. Ask the agent to "use the agentic-engineering skill" for an explicit load.
+**Auto-trigger:** The skill loads automatically when you describe software development work. Ask the agent to "use the dinostack skill" for an explicit load.
 
 **IMPORTANT:** oh-my-pi does NOT support custom markdown slash commands like `/ds-init-project`, `/ds-wrap`, `/ds-brief`, or any other command referenced in the "Commands (invoke by name)" section above. That section describes Claude Code slash-command conventions - in oh-my-pi, invoke the same commands via natural language (e.g. "run ds-init-project", "do a ds-wrap") or by reading the corresponding `commands/<name>.md` file directly and following its instructions.
 
@@ -58,7 +58,7 @@ Read `METHODOLOGY.md` at skill load before applying the workflow. Read command d
 
 ## oh-my-pi subagent mapping
 
-oh-my-pi provides built-in subagent types. Map agentic-engineering roles to them as follows:
+oh-my-pi provides built-in subagent types. Map dinostack roles to them as follows:
 
 - **`task`** (default) - general implementation work (maps to `engineer`, `debugger`, `qa-engineer`, `perf-analyst`). The standard Worker for Elevated-risk tasks.
 - **`explore`** - fast read-only codebase exploration (maps to `investigator`, `dependency-auditor`, `adr-drift-detector`).

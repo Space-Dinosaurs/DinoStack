@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: Inspect global agentic-engineering install health and (with --fix)
+Purpose: Inspect global dinostack install health and (with --fix)
          converge drift. Checks that managed symlinks under ~/.claude resolve
          into the canonical repo_dir, that ~/.local/bin/ wrappers exist for
          each bin/{agentic-,ds-}* script (BIN_TOOL_PREFIXES), that no stale
@@ -99,7 +99,7 @@ def _managed_link_dirs() -> list[Path]:
     return [
         h / ".claude" / "agents",
         h / ".claude" / "commands",
-        h / ".claude" / "skills" / "agentic-engineering",
+        h / ".claude" / "skills" / "dinostack",
     ]
 
 # Recognized bin/ tool basename prefixes. Both are checked: ds-* is the
@@ -214,7 +214,7 @@ def _is_ours(dst: Path, repo_dir: Path) -> bool:
     """Return True if we own this symlink and may re-point it.
 
     Owned iff ALL of:
-    - dst is under ~/.claude/{agents,commands,skills/agentic-engineering}
+    - dst is under ~/.claude/{agents,commands,skills/dinostack}
       OR under <repo_dir>/.git/hooks OR under LOCAL_BIN
     - dst is a symlink (not a real file)
     - current target is either already under some DinoStack-looking repo_dir
@@ -374,7 +374,7 @@ def check_repo_dir(doc: Doctor) -> None:
 def check_managed_symlinks(doc: Doctor) -> None:
     """Check all entries under the managed ~/.claude dirs resolve into repo_dir."""
     for root in _managed_link_dirs():
-        # If the root itself is a symlink (e.g. skills/agentic-engineering)
+        # If the root itself is a symlink (e.g. skills/dinostack)
         if os.path.islink(str(root)):
             _check_one_link(doc, root, "managed_links")
             continue
@@ -431,8 +431,8 @@ def _expected_target_in_repo(dst: Path, repo_dir: Path) -> Path | None:
     """Compute where dst should point within repo_dir.
 
     Agents/commands: ~/.claude/agents/foo.md -> <repo_dir>/.claude/agents/foo.md
-    Skills dir:      ~/.claude/skills/agentic-engineering ->
-                     <repo_dir>/.claude/skills/agentic-engineering
+    Skills dir:      ~/.claude/skills/dinostack ->
+                     <repo_dir>/.claude/skills/dinostack
 
     Uses parent-realpath to avoid following symlinks on dst itself (which would
     resolve to the broken/stale target, not the symlink's location).
@@ -1035,7 +1035,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(
         prog="ds-doctor",
         description=(
-            "Inspect global agentic-engineering install health. "
+            "Inspect global dinostack install health. "
             "With --fix, re-points drifted symlinks toward the canonical repo_dir "
             "(removing them when the expected in-repo target no longer exists) "
             "and repairs hook paths in ~/.claude/settings.json. "

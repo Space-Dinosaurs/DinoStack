@@ -1,5 +1,5 @@
 # Purpose: Canonical project scaffolding manifest. Defines the additive gitignore
-#          patterns and seed files that every agentic-engineering project should have.
+#          patterns and seed files that every dinostack project should have.
 #          Consumed by bin/ds-migrate (apply/check/diff subcommands) and surfaced
 #          at preflight Step 6 to auto-apply drift.
 #          v2: adds !.agentic/learnings.md negation + learnings.md seed so fix-patterns

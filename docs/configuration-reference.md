@@ -1,6 +1,6 @@
 # Configuration reference
 
-Every user-facing setting in the agentic-engineering methodology, with its
+Every user-facing setting in the dinostack methodology, with its
 default value and where to set it. This is the complete catalog - if you only
 want to tune Skeptic overhead, you need only `profile`. Change settings
 interactively with `/ds-config` (guided prompts). See
@@ -44,7 +44,7 @@ leading `- `.
 
 | Marker | Default (absent) | Valid values | Effect |
 |---|---|---|---|
-| `agentic-engineering:` | none | `opt-in`, `opt-out` | Per-project activation override |
+| `dinostack:` | none | `opt-in`, `opt-out` | Per-project activation override |
 | `agentic-engineering-profile:` | falls to global profile | `relaxed`, `default`, `strict` | Overrides global profile for this project |
 
 If both `opt-in` and `opt-out` appear in the same file, the first one wins and

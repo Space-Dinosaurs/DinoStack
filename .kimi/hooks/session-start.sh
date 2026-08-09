@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Kimi SessionStart hook - Agentic Engineering activation check
 #
-# Prints a visible reminder when entering a project where agentic-engineering
+# Prints a visible reminder when entering a project where dinostack
 # should be active. Kimi CLI SessionStart hook stdout is logged; we print to
 # stderr for visibility in the terminal.
 #
@@ -20,7 +20,7 @@ if [[ -z "$cwd" ]]; then
   exit 0
 fi
 
-# Check if project has agentic-engineering marker or .kimi/AGENTS.md
+# Check if project has dinostack marker or .kimi/AGENTS.md
 has_marker=false
 if [[ -f "$cwd/AGENTS.md" ]]; then
   if grep -qi "agentic-engineering: opt-in" "$cwd/AGENTS.md" 2>/dev/null; then
@@ -55,13 +55,13 @@ except Exception:
 " 2>/dev/null || echo "false")
 fi
 
-# Only show reminder if the project looks like it should use agentic-engineering
+# Only show reminder if the project looks like it should use dinostack
 # (has marker OR has .kimi/AGENTS.md OR mode=opt-out with no explicit opt-out marker)
 if [[ "$has_marker" == "true" ]]; then
   >&2 echo ""
   >&2 echo "┌─────────────────────────────────────────────────────────────────────┐"
-  >&2 echo "│  agentic-engineering: ACTIVE in this project                        │"
-  >&2 echo "│  Load the skill: /skill:agentic-engineering                         │"
+  >&2 echo "│  dinostack: ACTIVE in this project                        │"
+  >&2 echo "│  Load the skill: /skill:dinostack                         │"
   >&2 echo "│  Classify risk first. Main session is the conductor.                │"
   >&2 echo "│  Shippable edits go to named engineer Workers; Elevated also        │"
   >&2 echo "│  requires a fresh Skeptic. Low-risk direct action remains OK.       │"
@@ -74,9 +74,9 @@ fi
 # If stdout is not injected into agent context, this instruction is terminal-only.
 # Update to use the correct channel once confirmed.
 if [[ "$skill_auto_load" == "true" ]]; then
-  echo "SKILL CHECK [agentic-engineering]: skill_auto_load=true."
-  echo "Before responding to any software development request, read ~/.kimi/skills/agentic-engineering/SKILL.md."
-  echo "Classify risk first. If agentic-engineering is active, the main session is the conductor: delegate shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic; Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK."
+  echo "SKILL CHECK [dinostack]: skill_auto_load=true."
+  echo "Before responding to any software development request, read ~/.kimi/skills/dinostack/SKILL.md."
+  echo "Classify risk first. If dinostack is active, the main session is the conductor: delegate shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic; Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK."
 fi
 
 exit 0

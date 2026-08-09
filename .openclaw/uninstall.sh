@@ -62,8 +62,8 @@ python3 - <<'PYEOF'
 import os, re
 
 target = os.path.expanduser("~/.openclaw/AGENTS.md")
-begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
-end_marker = "<!-- END managed-by-agentic-engineering -->"
+begin_marker = "<!-- BEGIN managed-by-dinostack -->"
+end_marker = "<!-- END managed-by-dinostack -->"
 
 if not os.path.exists(target):
     print("  = ~/.openclaw/AGENTS.md not found - nothing to update")
@@ -73,11 +73,11 @@ with open(target, "r") as f:
     existing = f.read()
 
 if begin_marker not in existing or end_marker not in existing:
-    print("  = ~/.openclaw/AGENTS.md has no managed-by-agentic-engineering section - nothing to remove")
+    print("  = ~/.openclaw/AGENTS.md has no managed-by-dinostack section - nothing to remove")
     raise SystemExit(0)
 
 pattern = re.compile(
-    r'\n?<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->\n?',
+    r'\n?<!-- BEGIN managed-by-dinostack -->.*?<!-- END managed-by-dinostack -->\n?',
     re.DOTALL
 )
 updated = pattern.sub("", existing)
@@ -88,7 +88,7 @@ if not updated:
 else:
     with open(target, "w") as f:
         f.write(updated + "\n")
-    print("  - Removed managed-by-agentic-engineering section from ~/.openclaw/AGENTS.md")
+    print("  - Removed managed-by-dinostack section from ~/.openclaw/AGENTS.md")
 PYEOF
 
 # ---------------------------------------------------------------------------

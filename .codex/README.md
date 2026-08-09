@@ -9,7 +9,7 @@ lifecycle hooks, and exactly four native Codex skills.
 
 | Skill | Source and purpose |
 |---|---|
-| `agentic-engineering` | Core engineering methodology generated from `content/SKILL.md` and the assembled methodology. |
+| `dinostack` | Core engineering methodology generated from `content/SKILL.md` and the assembled methodology. |
 | `brief` | Native `$brief` workflow generated from `content/commands/ds-brief.md`. |
 | `wrap` | Native `$wrap` workflow generated from `content/commands/ds-wrap.md`. |
 | `implement-ticket` | Native `$implement-ticket` workflow generated from `content/commands/ds-implement-ticket.md`. |
@@ -37,7 +37,7 @@ The installer runs `.codex/build.sh`, then creates these user-scope skill
 symlinks:
 
 ```text
-~/.agents/skills/agentic-engineering -> <checkout>/.codex/skills/agentic-engineering
+~/.agents/skills/dinostack -> <checkout>/.codex/skills/dinostack
 ~/.agents/skills/brief               -> <checkout>/.codex/skills/brief
 ~/.agents/skills/wrap                -> <checkout>/.codex/skills/wrap
 ~/.agents/skills/implement-ticket    -> <checkout>/.codex/skills/implement-ticket

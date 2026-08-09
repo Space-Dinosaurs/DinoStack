@@ -1,6 +1,6 @@
 # /ds-help
 
-Static, zero-token command reference for the agentic-engineering skill.
+Static, zero-token command reference for the dinostack skill.
 Prints every slash command with a one-line description, grouped by intent,
 plus usage patterns for inspecting, deliberately invoking, and tuning the
 skill. Writes nothing. Always exits 0.

@@ -758,7 +758,7 @@ function appendIdentityNudgeToContextMd(repoRoot, sessionId) {
     const nudge = [
       '',
       '---',
-      '[agentic-engineering] No developer identity set. Session telemetry is local-only.',
+      '[dinostack] No developer identity set. Session telemetry is local-only.',
       'To enable team telemetry: ds-identity init <handle>',
       'Sentinel: ~/.agentic/.identity-nudged (delete to re-nudge)',
     ].join('\n') + '\n';

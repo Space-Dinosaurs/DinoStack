@@ -55,7 +55,7 @@ ds-doctor --dry-run  # same as the default scan - enumerate findings without cha
 What it checks:
 
 - `repo_dir` in `~/.agentic/agentic-engineering-config.json` points to a valid git repo
-- Every managed symlink under `~/.claude/agents/`, `~/.claude/commands/`, and `~/.claude/skills/agentic-engineering/` resolves into `repo_dir`
+- Every managed symlink under `~/.claude/agents/`, `~/.claude/commands/`, and `~/.claude/skills/dinostack/` resolves into `repo_dir`
 - Every hook command path in `~/.claude/settings.json` points into `repo_dir`
 - `~/.local/bin/agentic-*` wrappers exist and point into `repo_dir/bin/`
 - The git pre-commit hook at `<repo_dir>/.git/hooks/pre-commit` is linked to the managed hook

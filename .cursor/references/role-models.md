@@ -1,6 +1,6 @@
 <!--
 Purpose: Defines the Pi / oh-my-pi role-model routing layer for mapping
-         agentic-engineering roles and adversarial reviewers to concrete
+         dinostack roles and adversarial reviewers to concrete
          model strings.
 
 Public API: Read-only reference. Load when authoring `role-models.yml` or

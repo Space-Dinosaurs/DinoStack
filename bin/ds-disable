@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: Append the agentic-engineering opt-out marker to the project
+Purpose: Append the dinostack opt-out marker to the project
          AGENTS.md (creating it if absent) and optionally update
          ~/.claude/agentic-engineering.json with mode=opt-out. Refuses
          to overwrite an existing opt-in marker without --force. The
@@ -21,7 +21,7 @@ Upstream deps: Python 3 stdlib only (argparse, datetime, json, os,
 
 Downstream consumers: content/commands/ds-disable.md (command
                       spec); developers running the command to opt
-                      out a project from agentic-engineering.
+                      out a project from dinostack.
 
 Failure modes: opt-in conflict without --force -> exit 2 with a
                specific error naming the absolute path and line.
@@ -52,11 +52,11 @@ AGENTS_FILENAME = "AGENTS.md"
 CLAUDE_FILENAME = "CLAUDE.md"
 
 OPTIN_RE = re.compile(
-    r"^\s*(?:-\s+)?agentic-engineering:\s*opt-in\s*$",
+    r"^\s*(?:-\s+)?dinostack:\s*opt-in\s*$",
     re.IGNORECASE,
 )
 OPTOUT_RE = re.compile(
-    r"^\s*(?:-\s+)?agentic-engineering:\s*opt-out\s*$",
+    r"^\s*(?:-\s+)?dinostack:\s*opt-out\s*$",
     re.IGNORECASE,
 )
 
@@ -188,7 +188,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="ds-disable",
         description=(
-            "Append the agentic-engineering opt-out marker to the "
+            "Append the dinostack opt-out marker to the "
             "project AGENTS.md."
         ),
     )
@@ -228,7 +228,7 @@ def main(argv: list[str]) -> int:
             line_no, line_idx = optin_hit
             if not args.force:
                 print(
-                    f"agentic-engineering: cannot opt out - existing "
+                    f"dinostack: cannot opt out - existing "
                     f"'opt-in' marker at {abs_path}:{line_no} takes "
                     f"precedence. Remove that line first, or use "
                     f"--force to remove it for you.",
@@ -261,7 +261,7 @@ def main(argv: list[str]) -> int:
                     return 1
                 print(force_removal_note)
             print(
-                f"agentic-engineering: already opted out at "
+                f"dinostack: already opted out at "
                 f"{abs_path}:{line_no}. No further changes."
             )
             if args.global_:

@@ -1103,7 +1103,7 @@
     <h4 style="color: var(--cyan);">Activation mode</h4>
     <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether the methodology runs everywhere by default (opt-out) or stays dormant until a project opts in (opt-in).</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>opt-out</strong></code> / <code>opt-in</code> &nbsp; <strong>Default:</strong> <code>opt-out</code></p>
-    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>mode</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>agentic-engineering:</code> marker in AGENTS.md</p>
+    <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>mode</code> in <code>~/.claude/agentic-engineering.json</code>, or <code>dinostack:</code> marker in AGENTS.md</p>
     <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;set activation mode to opt-out&rdquo;</span></p>
   </div>
 
@@ -1182,7 +1182,7 @@
 
   <p class="desc" style="margin-bottom: 20px; font-size: 13px;">File settings (<code>agentic-engineering.json</code>, <code>.agentic/config.json</code>, AGENTS.md) take effect at the next session start. <code>export</code>ed env vars apply to the current session. Full reference: <a href="configuration-reference.md" style="color: var(--cyan);">configuration-reference.md</a>.</p>
 
-  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/agentic-engineering</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
+  <p class="desc" style="margin-bottom: 16px;">The system uses a <strong>skill-based architecture</strong>. The global <code>~/.claude/[AGENTS|CLAUDE].md</code> is minimal - just personal preferences and pointers to available domain skills. The real entry point is the <code>/dinostack</code> skill, which auto-triggers when engineering tasks are detected and loads all rules and protocol references. This keeps always-loaded context small while giving the full methodology to sessions that need it.</p>
   <div class="two-col">
     <div>
       <div class="rel-card">
@@ -1197,13 +1197,13 @@
     </div>
     <div>
       <div class="rel-card">
-        <h4 style="color: var(--cyan);">~/.claude/skills/agentic-engineering/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
-        <p class="desc">The <code>/agentic-engineering</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/DinoStack/.claude/skills/agentic-engineering/</code>. Content detailed in the Protocol Layer below.</p>
+        <h4 style="color: var(--cyan);">~/.claude/skills/dinostack/SKILL.md <span class="load-badge always">always loaded (on engineering tasks)</span></h4>
+        <p class="desc">The <code>/dinostack</code> skill is the actual entry point. It auto-triggers when engineering tasks are detected and loads the three rules files and reference docs via the skill directory. Canonical source in <code>~/DinoStack/.claude/skills/dinostack/</code>. Content detailed in the Protocol Layer below.</p>
       </div>
     </div>
   </div>
   <div class="note">
-    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/agentic-engineering/METHODOLOGY.md</code> (top-level - delegation, risk classification, task decomposition), <code>~/DinoStack/.claude/skills/agentic-engineering/rules/</code> (code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/agentic-engineering/references/</code> (37 files - skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, frontend-discipline.md, qa-gate.md, and more)<br>
+    <strong>Skill directory layout:</strong> <code>~/DinoStack/.claude/skills/dinostack/METHODOLOGY.md</code> (top-level - delegation, risk classification, task decomposition), <code>~/DinoStack/.claude/skills/dinostack/rules/</code> (code-standards.md, conventions.md, module-manifest.md) and <code>~/DinoStack/.claude/skills/dinostack/references/</code> (37 files - skeptic-protocol.md, subagent-protocol.md, agent-team.md, design-goals.md, frontend-discipline.md, qa-gate.md, and more)<br>
     <strong>Multi-adapter:</strong> The <code>~/DinoStack</code> repo ships adapters for Claude Code (<code>.claude/</code>), Cursor (<code>.cursor/</code>), Codex CLI (<code>.codex/</code>), Gemini CLI (<code>.gemini/</code>), Kimi Code CLI (<code>.kimi/</code>), OpenCode (<code>.opencode/</code>), Pi coding agent (<code>.pi/</code>), oh-my-pi (<code>.omp/</code>), Hermes (<code>.hermes/</code>), OpenClaw (<code>.openclaw/</code>), and VS Code Copilot (<code>.copilot/</code>) - the same methodology in each tool's native format.<br>
     <strong>Per-project override:</strong> Each project has its own root AGENTS.md (~40 lines) + subdirectory AGENTS.md files for deeper context. AGENTS.md files can override any global rule. The global layer provides the foundation; the project layer customizes it.
   </div>
@@ -1277,7 +1277,7 @@
   </div>
 
   <div style="margin-top: 16px;">
-    <div class="section-title"><h3 style="color: var(--violet); font-size: 14px; font-weight: 500; font-style: normal; letter-spacing: 0; font-family: 'JetBrains Mono', monospace;">Referenced Protocol Documents (~/.claude/skills/agentic-engineering/references/)</h3></div>
+    <div class="section-title"><h3 style="color: var(--violet); font-size: 14px; font-weight: 500; font-style: normal; letter-spacing: 0; font-family: 'JetBrains Mono', monospace;">Referenced Protocol Documents (~/.claude/skills/dinostack/references/)</h3></div>
     <div class="node-grid">
       <div class="node node-protocol">skeptic-protocol.md <span class="load-badge on-demand">on demand</span></div>
       <div class="node node-protocol">subagent-protocol.md <span class="load-badge on-demand">on demand</span></div>
@@ -1302,7 +1302,7 @@
 
 <!-- ═══ LAYER 2b: Protocol Document Deep Dives ═══ -->
 <div id="protocol-deep-dive" class="section">
-  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Protocol Documents</h2><h3>Deep dive into the five canonical spec files in ~/DinoStack/.claude/skills/agentic-engineering/references/</h3></div>
+  <div class="section-title" data-num="03"><h2 style="color: var(--violet); font-family: 'Nunito Sans', sans-serif;">Protocol Documents</h2><h3>Deep dive into the five canonical spec files in ~/DinoStack/.claude/skills/dinostack/references/</h3></div>
 
   <!-- design-goals.md -->
   <div>
@@ -1846,7 +1846,7 @@
           <li><strong>/ds-identity</strong> - set up and confirm the per-developer telemetry handle. Auto-derives a provisional handle from GitHub login (<code>ds-identity auto</code>), tags buffered sessions with the winning <code>identity_scope</code>, then confirms only that scope. Supports global, harness-profile, and per-project scope with six-tier confirmation-first precedence and nofollow identity-file safety.</li>
           <li><strong>/ds-disable</strong> - explicit opt-out. Appends <code>agentic-engineering: opt-out</code> to the project <code>AGENTS.md</code> (creating it if absent). Optional <code>--global</code> sets <code>mode=opt-out</code> in <code>~/.claude/agentic-engineering.json</code>.</li>
           <li><strong>/ds-cost</strong> - read-only consumer of <code>.agentic/events.jsonl</code>. Renders per-agent and per-session token and wall-clock tables. Pricing is opt-in via <code>~/.agentic/pricing.yml</code>; without it prints token counts only.</li>
-          <li><strong>/ds-config</strong> - interactive command to view and change agentic-engineering settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>
+          <li><strong>/ds-config</strong> - interactive command to view and change dinostack settings in-session. Reads the current resolved state, prompts for which setting to change and the new value, writes the correct file, and confirms what changed and when it takes effect.</li>
           <li><strong>/ds-configure-team</strong> - set up and verify a cross-harness agent team so any conductor (Claude, Codex, Gemini, Kimi, or other) can dispatch work across multiple AI harnesses with explicit role assignments. Independent of the Pi role-model routing layer.</li>
           <li><strong>/ds-update</strong> - pull the latest DinoStack release and reinstall selected adapters, or perform a fresh clone-and-install if no existing install is detected. Distinct from <code>/ds-update-agentic-engineering</code> (which pushes upstream edits); this command pulls changes down.</li>
           <li><strong>/ds-skill-candidates</strong> - read-only view of the skill-candidate backlog. Displays open and dismissed candidates detected from recurring workflow friction — each with its domain, count, suggested artifact type, and example note. Writes nothing; always exits 0.</li>
@@ -2592,7 +2592,7 @@
       <tbody>
         <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively, no shim needed</td></tr>
         <tr><td><strong>Global instructions</strong></td><td><code>~/.codex/AGENTS.md</code></td></tr>
-        <tr><td><strong>Native skills</strong></td><td>Codex installs exactly four native Codex skills: <code>agentic-engineering</code>, <code>brief</code>, <code>wrap</code>, and <code>implement-ticket</code>. They install under <code>~/.agents/skills/</code>.</td></tr>
+        <tr><td><strong>Native skills</strong></td><td>Codex installs exactly four native Codex skills: <code>dinostack</code>, <code>brief</code>, <code>wrap</code>, and <code>implement-ticket</code>. They install under <code>~/.agents/skills/</code>.</td></tr>
         <tr><td><strong>Workflow invocation</strong></td><td>Invoke the native workflows with <code>$brief</code>, <code>$wrap</code>, and <code>$implement-ticket</code>. Bare <code>/ds-brief</code>, <code>/ds-wrap</code>, and <code>/ds-implement-ticket</code> are not Codex invocation syntax.</td></tr>
         <tr><td><strong>Generation</strong></td><td>The canonical workflow sources are <code>content/commands/ds-brief.md</code>, <code>content/commands/ds-wrap.md</code>, and <code>content/commands/ds-implement-ticket.md</code>. <code>.codex/build.sh</code> runs <code>scripts/codex-skills.py</code> to generate each <code>SKILL.md</code> and <code>RESOURCE-MAP.json</code>, validate relative symlink/resource-map closure, and synchronize the exact allowlist. The read-only check rejects drift.</td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.codex/agents/*.toml</code> - TOML format (different from Claude Code's prompt-based spawn)</td></tr>
@@ -2661,9 +2661,9 @@
       <thead><tr><th>Surface</th><th>Kimi equivalent</th></tr></thead>
       <tbody>
         <tr><td><strong>Project instructions</strong></td><td><code>.kimi/AGENTS.md</code> inside the project's <code>.kimi/</code> directory (loaded by Kimi via <code>$KIMI_AGENTS_MD</code>)</td></tr>
-        <tr><td><strong>Global instructions</strong></td><td>No global AGENTS.md equivalent. Global footprint is the skill at <code>~/.kimi/skills/agentic-engineering/SKILL.md</code> (installed via <code>install.sh</code>)</td></tr>
-        <tr><td><strong>Skill location</strong></td><td><code>~/.kimi/skills/agentic-engineering/SKILL.md</code> - invoke via <code>/skill:agentic-engineering</code> or natural language</td></tr>
-        <tr><td><strong>Slash commands</strong></td><td>No custom slash commands. Use <code>/skill:agentic-engineering &lt;name&gt;</code> or natural language ("run wrap")</td></tr>
+        <tr><td><strong>Global instructions</strong></td><td>No global AGENTS.md equivalent. Global footprint is the skill at <code>~/.kimi/skills/dinostack/SKILL.md</code> (installed via <code>install.sh</code>)</td></tr>
+        <tr><td><strong>Skill location</strong></td><td><code>~/.kimi/skills/dinostack/SKILL.md</code> - invoke via <code>/skill:dinostack</code> or natural language</td></tr>
+        <tr><td><strong>Slash commands</strong></td><td>No custom slash commands. Use <code>/skill:dinostack &lt;name&gt;</code> or natural language ("run wrap")</td></tr>
         <tr><td><strong>Agents</strong></td><td>Built-in types only: coder, explore, plan. Agent files serve as reference prompts mapped to those types.</td></tr>
         <tr><td><strong>Hooks</strong></td><td><code>~/.kimi/config.toml</code> <code>[[hooks]]</code> blocks - fully manual; the installer does not write this</td></tr>
         <tr><td><strong>Stop hook / context save</strong></td><td>Manual - script path must be set by the user in the hooks config</td></tr>
@@ -2685,7 +2685,7 @@
       <tbody>
         <tr><td><strong>Project instructions</strong></td><td><code>AGENTS.md</code> at project root - read natively</td></tr>
         <tr><td><strong>Global instructions</strong></td><td><code>~/.config/opencode/AGENTS.md</code> and/or <code>instructions</code> field in <code>opencode.json</code></td></tr>
-        <tr><td><strong>Skill location</strong></td><td><code>.opencode/skills/agentic-engineering/SKILL.md</code> (project-local) or <code>~/.config/opencode/skills/</code> (global)</td></tr>
+        <tr><td><strong>Skill location</strong></td><td><code>.opencode/skills/dinostack/SKILL.md</code> (project-local) or <code>~/.config/opencode/skills/</code> (global)</td></tr>
         <tr><td><strong>Slash commands</strong></td><td><code>~/.config/opencode/commands/*.md</code> - slash commands work natively</td></tr>
         <tr><td><strong>Agents</strong></td><td><code>~/.config/opencode/agents/*.md</code> with <code>mode: subagent</code> and <code>permission:</code> frontmatter</td></tr>
         <tr><td><strong>Hooks</strong></td><td>Not available - OpenCode has no hook system</td></tr>

@@ -265,7 +265,7 @@ class TestUpsertAgentsMdMarker:
         return p
 
     def test_replace_activation_marker_in_place(self, tmp_path, monkeypatch):
-        """Replaces existing agentic-engineering: line without touching others."""
+        """Replaces existing dinostack: line without touching others."""
         md = self._make_agents_md(
             tmp_path,
             "# Project\nagentic-engineering: opt-out\nsome other line\n",
@@ -713,7 +713,7 @@ class TestParsers:
 # ---------------------------------------------------------------------------
 
 class TestActivationSettingRegression:
-    """activation setting writes agentic-engineering: <value> to AGENTS.md."""
+    """activation setting writes dinostack: <value> to AGENTS.md."""
 
     def test_activation_opt_in_writes_agents_md(self, tmp_path, monkeypatch):
         """[Fix1] main(['activation','opt-in']) writes agentic-engineering: opt-in to AGENTS.md."""
@@ -744,7 +744,7 @@ class TestActivationSettingRegression:
         assert "agentic-engineering: opt-out" in content
 
     def test_activation_replaces_existing_marker(self, tmp_path, monkeypatch):
-        """[Fix1] activation replaces an existing agentic-engineering: line in place."""
+        """[Fix1] activation replaces an existing dinostack: line in place."""
         monkeypatch.chdir(tmp_path)
         (tmp_path / "AGENTS.md").write_text(
             "# Project\nagentic-engineering: opt-out\nagentic-engineering-profile: relaxed\n"

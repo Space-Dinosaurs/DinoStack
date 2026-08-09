@@ -9,6 +9,11 @@ export REPO_DIR
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
 }
 
+# shellcheck source=scripts/lib/prune-stale-skill-dir.sh
+[[ -f "$REPO_DIR/scripts/lib/prune-stale-skill-dir.sh" ]] && . "$REPO_DIR/scripts/lib/prune-stale-skill-dir.sh" || {
+  echo "  ! scripts/lib/prune-stale-skill-dir.sh not found - stale skill dir prune skipped"
+}
+
 # ---------------------------------------------------------------------------
 # Run build first (ensures symlinks)
 # ---------------------------------------------------------------------------
@@ -168,7 +173,7 @@ config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load dinostack skill at session start? [y/N] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
         config["skill_auto_load"] = answer in ("y", "yes")
@@ -190,9 +195,9 @@ echo ""
 echo "Activation mode..."
 if [[ -n "$AE_MODE_FLAG" ]]; then
   ae_write_mode "$AE_MODE_FLAG"
-  echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
+  echo "  + dinostack mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
-  echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
+  echo "  = dinostack mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
 elif [[ -t 0 ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
@@ -235,8 +240,8 @@ fi
 # skill stays valid even when you switch git branches.
 # ---------------------------------------------------------------------------
 
-SKILL_SRC="$REPO_DIR/.omp/skills/agentic-engineering"
-SKILL_DST="$OMP_CONFIG_DIR/skills/agentic-engineering"
+SKILL_SRC="$REPO_DIR/.omp/skills/dinostack"
+SKILL_DST="$OMP_CONFIG_DIR/skills/dinostack"
 
 echo ""
 echo "Global skill install (optional)..."
@@ -248,11 +253,18 @@ echo "Global skill install (optional)..."
 }
 mkdir -p "$SKILL_DST"
 
+# Remove a stale pre-rename skill directory left at skills/agentic-engineering
+# by a pre-rename install. This adapter writes SKILL.md and METHODOLOGY.md as
+# real files alongside symlinked commands/references/rules/agents.
+if command -v ae_prune_stale_skill_dir >/dev/null 2>&1; then
+  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" SKILL.md METHODOLOGY.md || true
+fi
+
 # Copy SKILL.md and METHODOLOGY.md so they survive branch switches
 cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
-echo "  + SKILL.md copied to ~/.omp/agent/skills/agentic-engineering/"
+echo "  + SKILL.md copied to ~/.omp/agent/skills/dinostack/"
 cp "$SKILL_SRC/METHODOLOGY.md" "$SKILL_DST/METHODOLOGY.md"
-echo "  + METHODOLOGY.md copied to ~/.omp/agent/skills/agentic-engineering/"
+echo "  + METHODOLOGY.md copied to ~/.omp/agent/skills/dinostack/"
 
 # Absolute symlinks for content dirs so they resolve from ~/.omp/agent/skills/
 link_abs() {

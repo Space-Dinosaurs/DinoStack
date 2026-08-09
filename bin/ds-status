@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: Read-only inspection of the agentic-engineering activation
+Purpose: Read-only inspection of the dinostack activation
          resolver. Dumps the resolved global config, project marker,
          profile, and first-activation sentinel state to stdout, each
          value annotated with its provenance, followed by a
@@ -119,7 +119,7 @@ def _resolve_agents_md() -> Path | None:
 
 
 _MARKER_RE = re.compile(
-    r"^\s*(?:-\s+)?agentic-engineering:\s*(opt-in|opt-out)\s*$",
+    r"^\s*(?:-\s+)?dinostack:\s*(opt-in|opt-out)\s*$",
     re.IGNORECASE,
 )
 _PROFILE_RE = re.compile(
@@ -699,7 +699,7 @@ def main(_argv: list[str]) -> int:
     active_display = "yes" if res["active"] else "no"
 
     out = []
-    out.append("agentic-engineering status")
+    out.append("dinostack status")
     out.append(f"  global config: {CONFIG_PATH} ({config_status})")
     out.append(f"  mode: {res['mode']} (source: {res['mode_source']})")
     out.append(

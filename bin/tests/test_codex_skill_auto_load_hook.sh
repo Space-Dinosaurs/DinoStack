@@ -64,7 +64,7 @@ else
   fail "expected zero output for codex, got: $out"
 fi
 
-if [[ "$out" != *"$HOME_CODEX/.claude/skills/agentic-engineering/SKILL.md"* ]]; then
+if [[ "$out" != *"$HOME_CODEX/.claude/skills/dinostack/SKILL.md"* ]]; then
   pass "codex skill auto-load output does not point at Claude skill path"
 else
   fail "codex output still points at Claude skill path: $out"
@@ -99,13 +99,13 @@ claude_out="$(HOME="$HOME_CLAUDE" bash "$CLAUDE_SCRIPT_DIR/skill-auto-load-check
 claude_rc=$?
 claude_err="$(cat "$CLAUDE_STDERR")"
 
-if [[ "$claude_out" == *"SKILL CHECK [agentic-engineering]"* ]]; then
+if [[ "$claude_out" == *"SKILL CHECK [dinostack]"* ]]; then
   pass "non-codex/non-gemini invocation (Claude's real shape) still emits the skill-load banner on stdout"
 else
   fail "expected the skill-load banner on stdout for a non-codex/non-gemini invocation, got stdout: $claude_out"
 fi
 
-if [[ "$claude_out" == *"$HOME_CLAUDE/.claude/skills/agentic-engineering/SKILL.md"* ]]; then
+if [[ "$claude_out" == *"$HOME_CLAUDE/.claude/skills/dinostack/SKILL.md"* ]]; then
   pass "non-codex/non-gemini invocation points at the Claude skill path"
 else
   fail "expected the Claude skill path on stdout, got stdout: $claude_out"
