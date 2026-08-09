@@ -195,7 +195,18 @@ trap _cleanup EXIT
 #
 # Instead: git already holds the pristine content, and a corrupt backup is
 # detectable rather than unavoidable.
-#   1. Pre-check: <path> must have NO pending changes of any kind - staged,
+#   1. Pre-check: <path> must be tracked by git, via `git ls-files
+#      --error-unmatch`. This runs BEFORE the status-check below and is not
+#      redundant with it: `git status --porcelain` silently omits an
+#      ignored path (unless `--ignored` is passed) and prints nothing at all
+#      for a path that does not exist, so on its own it would let both slip
+#      through to mutation. A gitignored target is the dangerous case - this
+#      repo gitignores `.agentic/**`, `docs/planning/**`, `evals/`, and root
+#      `MEMORY.md` - because `git checkout -- <path>` cannot restore a path
+#      git holds no copy of, so the mutation would be unrecoverable. If
+#      <path> is not tracked, this case is skipped WITHOUT mutating and
+#      calls `_fail` naming the file, before the status-check runs.
+#   2. Pre-check: <path> must have NO pending changes of any kind - staged,
 #      unstaged, or untracked - via a single `git status --porcelain`
 #      predicate. This is deliberately not `git diff --quiet HEAD -- <path>`:
 #      that compares the WORKTREE against HEAD and is blind to a dirty INDEX
@@ -203,11 +214,11 @@ trap _cleanup EXIT
 #      then manually reverted on disk) - `git checkout -- <path>` restores
 #      from the index, not HEAD, so that reachable state would let the
 #      restore silently materialize staged content the suite never wrote.
-#      `git status --porcelain` catches staged, unstaged, AND untracked state
-#      in one predicate (an untracked path shows as `??`), so it also
-#      subsumes a separate tracked-check - no case reaches `_mut_restore_now`
-#      without first proving the index equals HEAD. If it is not clean, this
-#      case is skipped WITHOUT mutating and WITHOUT restoring - it calls
+#      `git status --porcelain` catches staged, unstaged, AND untracked
+#      state in one predicate (an untracked path shows as `??`), but only
+#      for paths git is not ignoring and that actually exist - it is a
+#      supplement to the tracked-check in step 1, not a replacement for it.
+#      If it is not clean, this case is skipped WITHOUT mutating and calls
 #      `_fail` (loud, counted, never silent) and returns, naming the file and
 #      noting the two possible causes (a concurrent run of this suite, or the
 #      developer's own uncommitted edit). Failing here - rather than only
@@ -219,7 +230,7 @@ trap _cleanup EXIT
 #      in practice this only ever fires locally against a dirty working
 #      copy; if it ever fires in CI, that is a real bug worth seeing, not a
 #      case to skip past quietly.
-#   2. Pre-check: <path> must have exactly one hard link. `git checkout --`
+#   3. Pre-check: <path> must have exactly one hard link. `git checkout --`
 #      unlinks and recreates the file rather than truncating it in place, so
 #      if <path> is ever hardlinked into an adapter destination (this repo
 #      documents that some `content/` files are - see root AGENTS.md), the
@@ -227,8 +238,8 @@ trap _cleanup EXIT
 #      <path> itself is "restored". Neither of the two current targets is
 #      hardlinked today, but refusing loudly here closes the hazard for any
 #      future target instead of relying on that staying true.
-#   3. <case_fn> mutates <path> and runs its assertions.
-#   4. Restore is `git -C "$REPO_DIR" checkout -- <path>`, never a temp-file
+#   4. <case_fn> mutates <path> and runs its assertions.
+#   5. Restore is `git -C "$REPO_DIR" checkout -- <path>`, never a temp-file
 #      backup. This restores from the INDEX, not directly from HEAD - the
 #      pre-check in step 1 guarantees the index already matches HEAD before
 #      any mutation happens, so the restored content is byte-identical to
@@ -252,6 +263,11 @@ trap _cleanup EXIT
 _with_mutated_source() {
   local target="$1" case_fn="$2" restore_hook="${3:-}"
   local rel="${target#"$REPO_DIR"/}"
+
+  if ! git -C "$REPO_DIR" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+    _fail "$case_fn: $target is not tracked by git - refusing to mutate an untracked path"
+    return 1
+  fi
 
   if [[ -n "$(git -C "$REPO_DIR" status --porcelain -- "$rel" 2>/dev/null)" ]]; then
     _fail "$case_fn: $target has uncommitted changes (staged, unstaged, or untracked) - refusing to mutate it. This is either a concurrent run of this suite against the same checkout, or your own uncommitted edit; commit/stash it and re-run. Note: a dirty run of this suite can also leave unrelated adapter artifacts modified (e.g. .claude/skills/agentic-engineering/SKILL.md, .cursor/rules/conventions.mdc) since install.sh's build step regenerates those from whatever is on disk regardless of this guard - check 'git -C $REPO_DIR status' for those too before re-running."
