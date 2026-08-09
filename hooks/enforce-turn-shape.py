@@ -11,7 +11,7 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
          surfaced purely as feedback text so the conductor can self-correct
          on its next turn.
 
-         Three checks, run in this fixed order:
+         Four checks, run in this fixed order:
 
          1. Identity-line check: the first non-blank line of the message
             should loosely match a "<token> . <token> . <token> [phase:
@@ -19,9 +19,9 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             a bracketed phase tag). A missing/malformed identity line is
             flagged.
 
-         2. Warrant classification (RUNS FIRST relative to check 3 below,
-            and is AUTHORITATIVE over it): classifies which of four
-            warrants justify the turn's content -
+         2. Warrant classification (RUNS FIRST relative to checks 3-4
+            below, and is AUTHORITATIVE over them): classifies which of
+            four warrants justify the turn's content -
               - decision:   an "## Operator decisions" heading is present.
               - stoppage:   at least one "Waiting:" line is present.
               - completion: "[phase: complete]" or an unambiguous terminal-
@@ -48,6 +48,32 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
              content". When a "Waiting:" line co-occurs with ANY other
              warrant, this check is skipped entirely - no flag, regardless
              of how much other prose accompanies it.
+
+         4. Volume check (DS-151): a mechanical backstop for the "1-3
+            status lines per turn" promise in
+            content/references/conductor-turn-format.md, which was
+            previously enforced by prose only - no prior check in this
+            file measured turn LENGTH at all, so a verbose model could
+            pass every other check while still violating the operator's
+            scan-and-rely guarantee. Counts non-blank "core body" lines
+            (everything after the identity line, EXCLUDING fenced code
+            block contents and EXCLUDING the "## Operator decisions"
+            block and everything after it - counting stops the instant
+            the decisions heading is seen). That count is compared
+            against a per-warrant budget (BODY_LINE_BUDGETS below); when
+            multiple warrants are present the MOST GENEROUS applicable
+            budget wins, so a turn that legitimately combines e.g.
+            completion + decision is never punished for carrying more
+            content than either warrant alone would need. The check is
+            SKIPPED ENTIRELY when zero warrants are present - that case
+            is already exclusively owned by the status-only flag (3a),
+            and applying a volume budget there too would just be a
+            redundant second finding for the same defect. The decisions
+            block itself is deliberately NEVER length-bounded here:
+            content/sections/02-delegation.md mandates a multi-line
+            format per decision item and explicitly forbids a numeric
+            item cap, and bounding the block's total line count would be
+            the same contradiction restated in another axis.
 
          This ordering (warrant classification is authoritative; the shape
          check is strictly subordinate to it) is the whole design. Two
@@ -199,6 +225,56 @@ COUNTER_FILENAME = ".turn-shape-guard-fire-count"
 # State file format: single JSON object {"count": N, "last_user_msg_count": M}
 
 # ---------------------------------------------------------------------------
+# Volume-check budgets (DS-151)
+# ---------------------------------------------------------------------------
+#
+# Per-warrant "core body" line budgets (see _count_core_body_lines and
+# _volume_flag below). Each budget is a named constant, not an inline magic
+# number, so it can be tuned without re-reading the check logic. Measured
+# against the existing test fixtures in hooks/tests/test-enforce-turn-shape.py
+# and the worked examples in content/references/conductor-turn-format.md:
+#
+#   - DECISION and STOPPAGE share the same value as the "1-3 status lines"
+#     cap that content/references/conductor-turn-format.md:31 already
+#     imposes on the State/Running/Blocked slots for a normal or
+#     forced-yield turn - the worked "normal turn" example there uses
+#     exactly 3 (State/Running/Blocked), and existing fixture `decision_msg`
+#     in the test file uses exactly 3 body lines before its decisions
+#     heading. A forced-yield turn (stoppage as SOLE warrant) is already
+#     bounded far more tightly by _forced_yield_flag (zero non-"Waiting:"
+#     lines tolerated), so BODY_BUDGET_STOPPAGE only matters when stoppage
+#     combines with another warrant and the forced-yield gate is skipped.
+#   - COMPLETION gets headroom above the 3-line status cap because a
+#     completion turn legitimately summarizes "what shipped, where it
+#     landed, what is left" per conductor-turn-format.md's "Length
+#     discipline" section - existing fixture `completion_explicit_msg` uses
+#     3 lines; 6 gives room for a slightly larger final summary without
+#     licensing genuine sprawl.
+#   - ANSWER gets the largest budget: it exists specifically so a direct
+#     operator question never goes unanswered (conductor-turn-format.md
+#     §2, warrant 4), and an honest answer can legitimately run longer than
+#     a status update. No existing fixture exercises a long answer body: 15
+#     is a deliberately generous ceiling chosen to avoid false-positiving on
+#     legitimate explanations while still catching genuine sprawl (the
+#     15+-line verbose turns observed live in the problem report this
+#     ticket fixes).
+BODY_BUDGET_DECISION = 3
+BODY_BUDGET_STOPPAGE = 3
+BODY_BUDGET_COMPLETION = 6
+BODY_BUDGET_ANSWER = 15
+
+# Fixed warrant name ordering, reused for both budget lookup and the
+# human-readable "<warrant>+<warrant>" label in the finding message.
+_WARRANT_ORDER = ("decision", "stoppage", "completion", "answer")
+
+_BODY_LINE_BUDGETS = {
+    "decision": BODY_BUDGET_DECISION,
+    "stoppage": BODY_BUDGET_STOPPAGE,
+    "completion": BODY_BUDGET_COMPLETION,
+    "answer": BODY_BUDGET_ANSWER,
+}
+
+# ---------------------------------------------------------------------------
 # Classifier patterns
 # ---------------------------------------------------------------------------
 
@@ -321,6 +397,73 @@ def _forced_yield_flag(text: str, warrants: dict):
         if not _WAITING_LINE_RE.match(line):
             return "forced-yield: extra content beyond identity + Waiting: lines"
     return None
+
+
+def _count_core_body_lines(text: str) -> int:
+    """Count non-blank "core body" lines for the volume check (DS-151).
+
+    Core body = every line after the identity line, EXCLUDING:
+      - fenced code block contents AND the ``` fence markers themselves
+        (a long pasted diff or command output inside a fence should not
+        count against the prose budget - only line count OR character
+        count alone would either be gameable by long lines or unfairly
+        punish a legitimately-quoted table/code block; excluding fences
+        from the line count is this hook's answer to that trade-off).
+      - the "## Operator decisions" heading and everything from that point
+        to the end of the message (counting simply stops there) - the
+        decisions block is measured and governed separately, never against
+        this budget (see the DS-151 docstring section and
+        content/sections/02-delegation.md's ban on a decision-item cap).
+      - blank lines.
+    """
+    lines = text.splitlines()
+    seen_identity = False
+    in_code = False
+    count = 0
+    for line in lines:
+        if not seen_identity:
+            if line.strip():
+                seen_identity = True
+            continue
+        if _OPERATOR_DECISIONS_HEADING_RE.match(line):
+            break
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code = not in_code
+            continue
+        if in_code:
+            continue
+        if stripped:
+            count += 1
+    return count
+
+
+def _volume_flag(text: str, warrants: dict):
+    """Return a finding string, or None.
+
+    Skipped entirely when no warrant is present - that case is already
+    exclusively owned by _status_only_flag, and a second finding for the
+    same defect would just be noise. When one or more warrants ARE
+    present, the applicable budget is the MOST GENEROUS of the present
+    warrants' budgets (see _BODY_LINE_BUDGETS) - a turn that legitimately
+    combines warrants (e.g. completion + decision) is never punished for
+    carrying more content than the narrowest warrant alone would need.
+    """
+    present = [name for name in _WARRANT_ORDER if warrants.get(name)]
+    if not present:
+        return None
+
+    budget = max(_BODY_LINE_BUDGETS[name] for name in present)
+    count = _count_core_body_lines(text)
+    if count <= budget:
+        return None
+
+    label = "+".join(present)
+    return (
+        "turn volume exceeded: body is {count} lines, budget is {budget} for "
+        "a {label} turn (measures non-blank lines after the identity line, "
+        "excluding fenced code blocks and the Operator decisions block)"
+    ).format(count=count, budget=budget, label=label)
 
 
 # ---------------------------------------------------------------------------
@@ -579,6 +722,12 @@ def main() -> None:
         forced_yield_finding = _forced_yield_flag(msg_text, warrants)
         if forced_yield_finding:
             findings.append(forced_yield_finding)
+
+        # 4. Volume check (DS-151). Skipped when no warrant is present -
+        # that case is already exclusively owned by the status-only flag.
+        volume_finding = _volume_flag(msg_text, warrants)
+        if volume_finding:
+            findings.append(volume_finding)
 
         if not findings:
             # Clean turn - reset the advisory counter (when engaged) and

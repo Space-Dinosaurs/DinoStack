@@ -31,6 +31,10 @@ Test coverage (mirrors the 14-case spec in the DS-122 spawn brief):
      called on a clean turn (patches _load_log_fire directly)
   r. the worked example embedded in the identity-line advisory matches
      _IDENTITY_LINE_RE itself (DS-132)
+  s. DS-151 volume check: each warrant type at budget (QUIET) and one line
+     over budget (ADVISORY "turn volume exceeded"); the decisions-block
+     exemption (unbounded item count does not trip the volume check); a
+     forced-yield turn is unaffected by the volume check
 """
 
 from __future__ import annotations
@@ -543,6 +547,139 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         "o2. transcript fallback, two-block content joined with newline -> ADVISORY (forced-yield)",
         is_advisory(rc, out, "forced-yield"),
     )
+
+
+# ---------------------------------------------------------------------------
+# s. DS-151: volume check. Fixed contract values, mirrors the
+#    BODY_BUDGET_* constants in enforce-turn-shape.py. The hook runs as a
+#    subprocess so we cannot import the constants directly.
+# ---------------------------------------------------------------------------
+
+BODY_BUDGET_DECISION = 3
+BODY_BUDGET_STOPPAGE = 3
+BODY_BUDGET_COMPLETION = 6
+BODY_BUDGET_ANSWER = 15
+
+
+def _nlines(n: int, prefix: str = "Line") -> str:
+    return "\n".join(f"{prefix} {i}." for i in range(1, n + 1)) + "\n"
+
+
+# s1. decision warrant, body AT budget (3 lines) -> QUIET.
+s1_msg = (
+    IDENTITY_OK + "\n" + _nlines(BODY_BUDGET_DECISION) + "\n## Operator decisions\n- Proceed with X (Recommended)\n"
+)
+rc, out, err = run_hook(make_payload(s1_msg))
+check("s1. decision warrant, body at budget (3 lines) -> QUIET", is_quiet(rc, out))
+
+# s2. decision warrant, body ONE line OVER budget (4 lines) -> ADVISORY.
+s2_msg = (
+    IDENTITY_OK
+    + "\n"
+    + _nlines(BODY_BUDGET_DECISION + 1)
+    + "\n## Operator decisions\n- Proceed with X (Recommended)\n"
+)
+rc, out, err = run_hook(make_payload(s2_msg))
+check(
+    "s2. decision warrant, body 1 line over budget -> ADVISORY (turn volume exceeded)",
+    is_advisory(rc, out, "turn volume exceeded"),
+)
+
+# s3. completion warrant, body AT budget (6 lines) -> QUIET.
+s3_msg = IDENTITY_COMPLETE + "\n" + _nlines(BODY_BUDGET_COMPLETION, prefix="Shipped item")
+rc, out, err = run_hook(make_payload(s3_msg))
+check("s3. completion warrant, body at budget (6 lines) -> QUIET", is_quiet(rc, out))
+
+# s4. completion warrant, body ONE line OVER budget (7 lines) -> ADVISORY.
+s4_msg = IDENTITY_COMPLETE + "\n" + _nlines(BODY_BUDGET_COMPLETION + 1, prefix="Shipped item")
+rc, out, err = run_hook(make_payload(s4_msg))
+check(
+    "s4. completion warrant, body 1 line over budget -> ADVISORY (turn volume exceeded)",
+    is_advisory(rc, out, "turn volume exceeded"),
+)
+
+# s5. answer warrant, body AT budget (15 lines, including the quoted line
+# that supplies the warrant itself) -> QUIET.
+s5_msg = (
+    IDENTITY_OK
+    + "\n"
+    + '"Here is the direct answer to your question."\n'
+    + _nlines(BODY_BUDGET_ANSWER - 1, prefix="Detail")
+)
+rc, out, err = run_hook(make_payload(s5_msg))
+check("s5. answer warrant, body at budget (15 lines) -> QUIET", is_quiet(rc, out))
+
+# s6. answer warrant, body ONE line OVER budget (16 lines) -> ADVISORY.
+s6_msg = (
+    IDENTITY_OK
+    + "\n"
+    + '"Here is the direct answer to your question."\n'
+    + _nlines(BODY_BUDGET_ANSWER, prefix="Detail")
+)
+rc, out, err = run_hook(make_payload(s6_msg))
+check(
+    "s6. answer warrant, body 1 line over budget -> ADVISORY (turn volume exceeded)",
+    is_advisory(rc, out, "turn volume exceeded"),
+)
+
+# s7. decisions-block exemption: a large number of decision items (10, well
+# beyond any of the above budgets) does NOT count against the volume check -
+# only the 3 core-body lines before the heading are measured. Also pins
+# that content/sections/02-delegation.md's ban on a decision-item cap is
+# respected (no item-count limit is applied anywhere in this hook).
+s7_decision_items = "\n".join(f"{i}. Action {i} - reason. Reply STOP to skip." for i in range(1, 11))
+s7_msg = IDENTITY_OK + "\n" + _nlines(BODY_BUDGET_DECISION) + "\n## Operator decisions\n" + s7_decision_items + "\n"
+rc, out, err = run_hook(make_payload(s7_msg))
+check(
+    "s7. decisions-block exemption: 10 decision items, body at budget -> QUIET",
+    is_quiet(rc, out),
+)
+
+# s8. combo warrant (stoppage + completion): forced-yield is gated OFF
+# because completion is also present, so the volume check is the ONLY
+# mechanism that can catch a sprawling body here. Budget is
+# max(STOPPAGE=3, COMPLETION=6)=6; 9 core-body lines (8 prose + 1 Waiting:)
+# exceeds it -> ADVISORY volume finding, and NOT a forced-yield finding.
+s8_msg = IDENTITY_COMPLETE + "\n" + _nlines(8, prefix="Shipped item") + "Waiting: nothing further.\n"
+rc, out, err = run_hook(make_payload(s8_msg))
+check(
+    "s8. stoppage+completion combo, 9 lines > combo budget 6 -> ADVISORY (turn volume exceeded)",
+    is_advisory(rc, out, "turn volume exceeded"),
+)
+check(
+    "s8b. combo case is NOT flagged as forced-yield (gated off by completion warrant)",
+    "forced-yield" not in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
+)
+
+# s9. same combo, WITHIN the combo budget (5 prose + 1 Waiting: = 6 lines,
+# at the completion budget) -> QUIET.
+s9_msg = IDENTITY_COMPLETE + "\n" + _nlines(5, prefix="Shipped item") + "Waiting: nothing further.\n"
+rc, out, err = run_hook(make_payload(s9_msg))
+check("s9. stoppage+completion combo, at combo budget (6 lines) -> QUIET", is_quiet(rc, out))
+
+# s10. forced-yield turn (stoppage as SOLE warrant) is unaffected by the
+# volume check - the identity + Waiting:-only shape (2 lines, well under
+# even the smallest budget) stays QUIET, same as case g2.
+s10_msg = IDENTITY_OK + "\nWaiting: item A.\nWaiting: item B.\n"
+rc, out, err = run_hook(make_payload(s10_msg))
+check("s10. forced-yield turn (2 Waiting: lines, sole warrant) -> QUIET, volume check inert", is_quiet(rc, out))
+
+# s11. fenced code block content is excluded from the volume count: 10
+# lines of "code" inside a fence plus 2 lines of real prose (well under the
+# 3-line decision budget) -> QUIET, even though the raw line count (12)
+# would exceed every budget above.
+s11_code_lines = "\n".join(f"line_{i} = {i}" for i in range(1, 11))
+s11_msg = (
+    IDENTITY_OK
+    + "\nHere is the diff.\n```python\n"
+    + s11_code_lines
+    + "\n```\nApplied cleanly.\n\n## Operator decisions\n- Proceed with X (Recommended)\n"
+)
+rc, out, err = run_hook(make_payload(s11_msg))
+check(
+    "s11. fenced code block excluded from volume count (2 real body lines) -> QUIET",
+    is_quiet(rc, out),
+)
 
 
 # ---------------------------------------------------------------------------
