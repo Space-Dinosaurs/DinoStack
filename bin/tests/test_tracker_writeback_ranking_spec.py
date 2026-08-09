@@ -120,13 +120,16 @@ CANONICAL_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
 HELPER_PATH = REPO_ROOT / "content" / "references" / "tracker-writeback.md"
 
 # All adapter copies expected to carry a byte-identical extraction of the
-# "## Tracker Writeback Helper" block, post-split. .cursor/, .gemini/, and
-# .copilot/ references/ files are same-inode HARDLINKS of
-# content/references/ (verified) - kept as separate entries because the
-# aliasing is a build-time property that could change, not because they are
-# 5 independent surfaces; only .codex/references/ is an independent copy.
-# .claude/skills/agentic-engineering/references/ is a symlink DIR and is
-# deliberately excluded.
+# "## Tracker Writeback Helper" block, post-split. Verified against the
+# built tree: .cursor/, .gemini/, and .copilot/ references/ files are
+# same-inode HARDLINKS of content/references/ (identical git blob SHA);
+# .codex/references/ files are per-file SYMLINKS into content/references/
+# (git mode 120000). Kept as separate entries because the aliasing
+# mechanism is a build-time property that could change, not because these
+# are 5 independent surfaces - Path.read_text() transparently follows
+# symlinks, so either mechanism resolves to the same content either way.
+# .claude/skills/agentic-engineering/references/ is a symlink DIR (not a
+# per-file symlink) and is deliberately excluded.
 ADAPTER_PATHS = [
     HELPER_PATH,
     REPO_ROOT / ".codex" / "references" / "tracker-writeback.md",
