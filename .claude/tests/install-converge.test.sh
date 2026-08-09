@@ -127,6 +127,19 @@ if [[ ! -f "$INSTALL_SH" ]]; then
   exit 1
 fi
 
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+# Both _run_install (install_precommit_hook) and _run_uninstall
+# (uninstall_precommit_hook) invoke .claude/install.sh|uninstall.sh against
+# REPO_DIR - this checkout - with only $HOME faked. Both helpers resolve the
+# git hooks dir via `git -C REPO_DIR rev-parse --git-path hooks`, which is
+# entirely independent of $HOME, so every _run_install call in this suite
+# (not just case (q)'s _run_uninstall) writes/repoints this repo's REAL
+# .git/hooks/pre-commit. Save the real hook's state ONCE, before the first
+# _run_install call below, and restore it ONCE via the EXIT trap - saving
+# again partway through would just snapshot an already-corrupted state.
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
+
 PASS=0
 FAIL=0
 FAKE_HOME=""
@@ -138,8 +151,9 @@ _cleanup() {
   if [[ -n "$FAKE_HOME" && -d "$FAKE_HOME" ]]; then
     rm -rf "$FAKE_HOME"
   fi
+  precommit_hook_guard_restore
 }
-trap _cleanup EXIT
+trap _cleanup EXIT INT TERM
 
 # ---------------------------------------------------------------------------
 # Helper: run install.sh with a temp HOME, capturing output.
@@ -1336,6 +1350,10 @@ else
   _fail "case (q): expected skill_auto_load=True after migrating a pre-rename block, got '$_q_auto_load' (migration detection disarmed by the skill-dir rename)"
 fi
 
+# uninstall_precommit_hook (.claude/uninstall.sh) resolves the git hooks
+# dir independently of $HOME and would otherwise delete this checkout's
+# real pre-commit hook. The suite-wide save at the top of this script
+# already covers this call; restore happens once, via the EXIT trap.
 _run_uninstall "$FAKE_HOME" || true
 if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]] || ! grep -q "BEGIN managed-by-agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null; then
   _pass "case (q): subsequent uninstall removes the (now-updated) managed block cleanly"

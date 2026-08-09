@@ -8,7 +8,7 @@
 #          skill invocation (see scripts/check-skill-embed-budget.sh for the
 #          budget on THAT payload). The only content still resident in every
 #          session is the Skill Loading table that .claude/install.sh writes
-#          into the managed-by-dinostack block, single-sourced from
+#          into the managed-by-agentic-engineering block, single-sourced from
 #          content/templates/claude-managed-content.md.
 #
 #          That file's own manifest HTML comment is NOT part of the resident

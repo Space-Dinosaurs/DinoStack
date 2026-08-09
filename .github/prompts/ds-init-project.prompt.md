@@ -487,13 +487,13 @@ After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 thro
 
 **3a. Decide whether a change is needed; back up only if so.** Run 3b, 3d-pre, and (when 3d-pre does not fire) 3c first to compute the would-be managed block. If a managed block already exists and the would-be block is byte-for-byte identical to it (idempotent re-run), make NO change - no backup, no write - and report "AGENTS.md: managed block already current - no changes made." Otherwise: obtain a UTC timestamp via `date -u +%Y%m%dT%H%M%SZ`, copy `AGENTS.md` to `AGENTS.md.bak-<timestamp>`, and append the line `AGENTS.md.bak-*` to `.gitignore` if that exact glob is not already present (additive; do not duplicate). Report "Backup created: AGENTS.md.bak-<timestamp>".
 
-**3b. Locate or prepare the managed block.** Use the exact markers (verbatim, copied from `.claude/install.sh`): begin `<!-- BEGIN managed-by-dinostack -->`, end `<!-- END managed-by-dinostack -->`. If absent: the block will be appended at end of file, preceded by one blank line. If present: it will be replaced from begin-marker through end-marker inclusive, via a non-greedy DOTALL match anchored on those exact strings (mirror the `re.sub` in `.claude/install.sh`).
+**3b. Locate or prepare the managed block.** Use the exact markers (verbatim, copied from `.claude/install.sh`): begin `<!-- BEGIN managed-by-agentic-engineering -->`, end `<!-- END managed-by-agentic-engineering -->`. If absent: the block will be appended at end of file, preceded by one blank line. If present: it will be replaced from begin-marker through end-marker inclusive, via a non-greedy DOTALL match anchored on those exact strings (mirror the `re.sub` in `.claude/install.sh`).
 
 **3d-pre. Guard - preserve a user-authored `## Activation` section.** Scan the file OUTSIDE the begin/end block range for a line beginning `## Activation`. If FOUND: do NOT emit a `## Activation` heading inside the managed block; leave the user's `## Activation` section and every marker line inside it completely untouched; the managed block will contain ONLY the profile helper (resolved per 3d); SKIP step 3c entirely; surface "Note: an existing ## Activation section was found and left as authored. The managed block adds only the resolver profile helper." If NOT FOUND: proceed to 3c.
 
 **3c. Resolve the activation marker (only when 3d-pre did not fire).** Choose the activation state by this PRIORITY, highest first:
   1. A bare active `agentic-engineering: opt-in` or `agentic-engineering: opt-out` line OUTSIDE the managed block -> MOVE it: remove that line from the file and use its value.
-  2. Else, an active (uncommented) `dinostack:` marker already INSIDE the existing managed block -> preserve its value (re-emit the same active line on refresh).
+  2. Else, an active (uncommented) `agentic-engineering:` marker already INSIDE the existing managed block -> preserve its value (re-emit the same active line on refresh).
   3. Else, the Step 0a activation decision: if the operator explicitly chose opt-in for this project, use an active `agentic-engineering: opt-in` line (mirror the greenfield template's Step 0a handling).
   4. Else, use the commented `<!-- agentic-engineering: opt-out -->` helper (inert default).
 
@@ -501,7 +501,7 @@ After applying changes, skip to Step 12 (Summary) — do not re-run Steps 3 thro
 
 When 3d-pre did NOT fire, the block contains a `## Activation` heading plus the resolved activation + profile lines, e.g. (base case: no active marker resolved, profile default):
 ```markdown
-<!-- BEGIN managed-by-dinostack -->
+<!-- BEGIN managed-by-agentic-engineering -->
 ## Activation
 <!--
   dinostack governs how work is done in this project.
@@ -517,19 +517,19 @@ When 3d-pre did NOT fire, the block contains a `## Activation` heading plus the 
   Uncomment the line below to override the global setting for this project.
 -->
 <!-- agentic-engineering-profile: default -->
-<!-- END managed-by-dinostack -->
+<!-- END managed-by-agentic-engineering -->
 ```
 If 3c resolved an ACTIVE marker (e.g. a preserved or moved `agentic-engineering: opt-out`/`opt-in`), emit that as an uncommented line in place of the commented helper (never both). Same for an active profile line.
 
 When 3d-pre DID fire, the block omits the `## Activation` heading and the activation line, containing only the profile helper (or active profile line), e.g.:
 ```markdown
-<!-- BEGIN managed-by-dinostack -->
+<!-- BEGIN managed-by-agentic-engineering -->
 <!--
   Optional review strictness: relaxed | default | strict.
   Uncomment the line below to override the global setting for this project.
 -->
 <!-- agentic-engineering-profile: default -->
-<!-- END managed-by-dinostack -->
+<!-- END managed-by-agentic-engineering -->
 ```
 
 **3e. Report.** On change: "AGENTS.md updated: added/refreshed the managed block. All prior content preserved. Backup at AGENTS.md.bak-<timestamp>." On no-op: "AGENTS.md: managed block already current - no changes made."

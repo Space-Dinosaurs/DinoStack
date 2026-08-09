@@ -1,6 +1,6 @@
 <!--
 Purpose: Single source of truth for the "Skill Loading" table that .claude/install.sh
-         writes into ~/.claude/CLAUDE.md's managed-by-dinostack block. Extracted
+         writes into ~/.claude/CLAUDE.md's managed-by-agentic-engineering block. Extracted
          so a resident-budget CI check and the installer can both read one canonical copy
          instead of drifting independently.
 

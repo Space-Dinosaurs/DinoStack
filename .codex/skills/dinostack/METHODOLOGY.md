@@ -25,7 +25,7 @@ Run this check once at the first skill invocation (and every `/`-command). Read 
 3. **Scan for marker lines.** Case-insensitive, whole-line match (allow leading or trailing whitespace, and an optional markdown list prefix `- `):
    - `agentic-engineering: opt-in`
    - `agentic-engineering: opt-out`
-   If both appear, the one that appears FIRST wins; print a one-line warning: `dinostack: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
+   If both appear, the one that appears FIRST wins; print a one-line warning: `agentic-engineering: both opt-in and opt-out markers found in AGENTS.md - using the first one (<value>). Remove the duplicate.`
    Also scan for `agentic-engineering-profile: <value>`. If present, it overrides the global profile. Valid values: `relaxed`, `default`, `strict`. Any other value falls back to the precedence chain in the deprecated legacy preset subsection above (project preset, then global profile, then global preset, then default).
    Also scan for `agentic-engineering-preset: <value>` (deprecated legacy alias). If present, it resolves through the legacy preset table above ONLY when no valid `agentic-engineering-profile:` line is present in the same file - it is a fallback below the project profile, not an override that wins on collision. Any other value falls back to the next step in the precedence chain (global profile, then global preset, then default). Presence of this marker fires a deprecation notice regardless of whether it wins.
 4. **Activation decision.**

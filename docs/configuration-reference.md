@@ -44,7 +44,7 @@ leading `- `.
 
 | Marker | Default (absent) | Valid values | Effect |
 |---|---|---|---|
-| `dinostack:` | none | `opt-in`, `opt-out` | Per-project activation override |
+| `agentic-engineering:` | none | `opt-in`, `opt-out` | Per-project activation override |
 | `agentic-engineering-profile:` | falls to global profile | `relaxed`, `default`, `strict` | Overrides global profile for this project |
 
 If both `opt-in` and `opt-out` appear in the same file, the first one wins and
