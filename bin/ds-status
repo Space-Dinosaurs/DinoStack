@@ -119,7 +119,7 @@ def _resolve_agents_md() -> Path | None:
 
 
 _MARKER_RE = re.compile(
-    r"^\s*(?:-\s+)?dinostack:\s*(opt-in|opt-out)\s*$",
+    r"^\s*(?:-\s+)?agentic-engineering:\s*(opt-in|opt-out)\s*$",
     re.IGNORECASE,
 )
 _PROFILE_RE = re.compile(

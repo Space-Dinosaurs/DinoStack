@@ -174,7 +174,7 @@ const ACTIVITY_REGION_SIGNATURES = [
 /** Leading text of the machine-derived one-time notices stripped on migration. */
 const DERIVED_NOTICE_SIGNATURES = [
   'CAPTURE-GAP:',
-  '[agentic-engineering] No developer identity set.',
+  '[dinostack] No developer identity set.',
   'WRAP-LOCK-STUCK:',
   '[scaffolding-sync] WARNING:',
 ];

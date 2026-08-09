@@ -52,11 +52,11 @@ AGENTS_FILENAME = "AGENTS.md"
 CLAUDE_FILENAME = "CLAUDE.md"
 
 OPTIN_RE = re.compile(
-    r"^\s*(?:-\s+)?dinostack:\s*opt-in\s*$",
+    r"^\s*(?:-\s+)?agentic-engineering:\s*opt-in\s*$",
     re.IGNORECASE,
 )
 OPTOUT_RE = re.compile(
-    r"^\s*(?:-\s+)?dinostack:\s*opt-out\s*$",
+    r"^\s*(?:-\s+)?agentic-engineering:\s*opt-out\s*$",
     re.IGNORECASE,
 )
 

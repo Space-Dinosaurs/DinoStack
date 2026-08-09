@@ -352,6 +352,18 @@ PROTECTED_TOKENS = {
     "dinostack-profile",
     "dinostack-preset",
     "agentic-engineering-config",
+    # As of the skill-namespace rename (agentic-engineering -> dinostack),
+    # "agentic-engineering" itself is a second, deliberately-preserved noun:
+    # the config filename stem (agentic-engineering.json,
+    # agentic-engineering-config.json) and the activation marker strings
+    # (agentic-engineering: opt-in/opt-out, -profile:, -preset:) are
+    # explicitly out of scope for that rename - those markers live in
+    # consumer repos we do not control, so renaming them would silently
+    # change activation state in projects we never touch. The
+    # /ds-update-agentic-engineering command name is likewise unaffected.
+    "agentic-engineering",
+    "agentic-engineering-profile",
+    "agentic-engineering-preset",
 }
 EXPECTED_RESIDUE_SET = {
     ("content/references/planning-artifacts.md", "agentic-factory"),
