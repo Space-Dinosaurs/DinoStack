@@ -16,19 +16,14 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: ~90-140 s wall time, varying by machine load (still 22
-#              install.sh invocations - 20 single-shot call sites plus case
-#              (o)'s one call site executed twice inside its two-iteration
-#              order loop; each invocation runs two full adapter builds
-#              against the real checkout). The DS-148 fix pass added case
-#              (lock), which invokes install.sh zero times - it exercises
-#              `_mut_lock_acquire`/`_mut_lock_release` directly - so it does
-#              not change the invocation count; its own sub-cases add well
-#              under two seconds via short overridden sleep/retry knobs, not
-#              the production 120x1s bound. Measured directly across several
-#              runs after the DS-148 fix pass (89 s, 90 s, 99 s) - do not
-#              re-estimate this figure without timing a real run; it has
-#              drifted from stale estimates before.
+# Performance: ~85-135 s wall time, varying by machine load (22 install.sh
+#              invocations - 20 single-shot call sites plus case (o)'s one
+#              call site executed twice inside its two-iteration order loop;
+#              each invocation runs two full adapter builds against the real
+#              checkout). Measured directly across several runs after the
+#              DS-148 redesign (no lock, no case (lock)) - do not re-estimate
+#              this figure without timing a real run; it has drifted from
+#              stale estimates before.
 #
 # Regression coverage:
 #   - Change 1: stale "ours" symlink (target under .../DinoStack/...) is
@@ -123,39 +118,33 @@
 #     detection is scoped to the managed block's own content, not the
 #     whole file.
 #   - DS-148 (Tier-3 Skeptic Minor x2, hardening the case (m)/(n) scaffold):
-#     both cases now route through the shared `_with_mutated_source` helper
-#     instead of each carrying its own backup/mktemp/trap/restore block, and
-#     the mutating region is guarded by a cross-process `mkdir`-based lock
-#     (`_mut_lock_acquire`/`_mut_lock_release`) so two concurrent runs of this
-#     suite against the SAME checkout can no longer corrupt the tracked
-#     source permanently (run B backing up run A's already-mutated file, then
-#     writing that corruption back as "restored"). The lock is keyed to
-#     REPO_DIR, so separate worktrees never contend with each other - only
-#     two processes racing the same checkout do. Case (m)'s no-rebuild
+#     both cases route through the shared `_with_mutated_source` helper
+#     instead of each carrying its own backup/mktemp/trap/restore block.
+#   - DS-148 REDESIGN (conductor-ordered reversal, two Tier-3 Skeptic rounds
+#     having found the hand-rolled `mkdir`-based cross-process lock's defect
+#     RELOCATED rather than removed - a check-then-delete stale-lock reclaim,
+#     then a rename-based reclaim that still raced the liveness check, plus a
+#     Critical where the lock's own test case mutated the real, shared
+#     lockdir): the lock is DELETED entirely, along with the temp-file backup
+#     it protected. `_with_mutated_source` now (1) pre-checks the target is
+#     both git-tracked and clean (`git diff --quiet`) before touching it -
+#     refusing loudly, via `_fail`, if it is dirty (either a concurrent run of
+#     this suite or the developer's own uncommitted edit); and (2) restores
+#     the mutation by `git checkout -- <path>`, not from a temp copy - git
+#     already holds the pristine content, and a checkout can never write back
+#     corruption the way a stale-backup restore could. No lock is needed:
+#     whichever run's pre-check loses the race sees a dirty target and
+#     declines to mutate, so the worst case is a loud, counted failure, never
+#     silent permanent corruption of a tracked file. Case (m)'s no-rebuild
 #     restore and case (n)'s rebuild-with-soft-fail-warning restore are both
-#     preserved via the helper's optional restore-hook argument.
-#   - DS-148 fix pass (Tier-3 Skeptic 2 Major + 3 Minor): the reclaim of a
-#     stale lock is now atomic (rename, not check-then-delete: only one
-#     racer's `mv` of the stale lockdir can succeed, so only one racer can
-#     ever proceed to recreate the lock), `kill -0` EPERM (owner alive, owned
-#     by another user) is no longer misread as ESRCH/dead and reclaimed, the
-#     lock key uses `pwd -P` (canonical path - a symlinked checkout path no
-#     longer hashes to a different key) and the lock now lives under the
-#     checkout's own gitignored `.agentic/` directory (identity-by-
-#     construction - no hash, no `shasum` dependency, and no more
-#     `${TMPDIR:-/tmp}` per-user split), a dedicated concurrency scenario
-#     (case (lock) below) exercises the lock directly - including the exact
-#     race the Tier-3 Skeptic demonstrated (two waiters both reclaiming the
-#     same stale lock) - and the mutate/restore helper checks `cp`'s exit
-#     status before deleting the backup. See the lock helper and
-#     `_with_mutated_source` comments below for detail.
+#     preserved via the helper's optional restore-hook argument, run after
+#     the git-checkout restore.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-# DS-148: `pwd -P` (not plain `pwd`) so the lock directory below sits at a
-# CANONICAL path - the same checkout reached through a symlinked path
-# component must resolve to the same identity, or two runs against the same
-# checkout never contend.
+# `pwd -P` (not plain `pwd`) so REPO_DIR is a CANONICAL path - the same
+# checkout reached through a symlinked path component still resolves to the
+# same identity, which matters for the git tracked/clean checks below.
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd -P)"
 INSTALL_SH="$REPO_DIR/.claude/install.sh"
 
@@ -179,94 +168,8 @@ _cleanup() {
 trap _cleanup EXIT
 
 # ---------------------------------------------------------------------------
-# DS-148: cross-process lock guarding the mutate-tracked-source region (cases
-# (m) and (n) below). Two concurrent runs of this suite against the SAME
-# checkout would otherwise race: run B backs up run A's already-mutated
-# source, and run B's restore then writes that corruption back as if
-# pristine. Uses `mkdir` (atomic on any POSIX filesystem, no external
-# dependency) rather than `flock` - `flock` is absent by default on macOS and
-# any fallback branch for its absence would either need its own portability
-# story or silently no-op, which is worse than no guard at all.
-#
-# The lock lives INSIDE the checkout it protects, under the checkout's own
-# gitignored `.agentic/` directory, keyed off the canonicalized REPO_DIR
-# (`pwd -P` above). That makes the lock's identity-by-construction: separate
-# worktrees/checkouts each have their own `.agentic/`, so they never contend
-# with each other, while two processes racing the SAME checkout always land
-# on the exact same lockdir path - no hash, no `shasum` dependency (absent by
-# that name on some Linux images), and no `${TMPDIR:-/tmp}` per-user split
-# (macOS scopes TMPDIR per-user, which would otherwise give two users on one
-# checkout two lockdirs and zero protection).
-#
-# `_MUT_LOCK_MAX_TRIES`/`_MUT_LOCK_SLEEP_S` and `_MUT_LOCK_TEST_RACE_DELAY`
-# are test-only override knobs (unset in normal operation, where the bounds
-# are the production defaults below); case (lock) uses them to make the
-# race and timeout scenarios run in well under a second instead of minutes.
-# ---------------------------------------------------------------------------
-mkdir -p "$REPO_DIR/.agentic" 2>/dev/null || true
-_MUT_LOCKDIR="$REPO_DIR/.agentic/ds148-install-converge-mutate.lock"
-
-_mut_lock_acquire() {
-  local tries=0
-  local max_tries="${_MUT_LOCK_MAX_TRIES:-120}"
-  local sleep_s="${_MUT_LOCK_SLEEP_S:-1}"
-  local owner_pid kill_err kill_rc stale_dir
-  while true; do
-    if mkdir "$_MUT_LOCKDIR" 2>/dev/null; then
-      echo "$$" > "$_MUT_LOCKDIR/pid" 2>/dev/null || true
-      return 0
-    fi
-    owner_pid=""
-    if [[ -f "$_MUT_LOCKDIR/pid" ]]; then
-      owner_pid="$(cat "$_MUT_LOCKDIR/pid" 2>/dev/null)"
-    fi
-    if [[ -n "$owner_pid" ]]; then
-      kill_err="$(kill -0 "$owner_pid" 2>&1)"
-      kill_rc=$?
-      if [[ "$kill_rc" -ne 0 ]]; then
-        if [[ "$kill_err" == *"not permitted"* || "$kill_err" == *"Not permitted"* ]]; then
-          # EPERM: the pid IS alive, just owned by another user (e.g. a
-          # shared /tmp on Linux would have hit this - moot now that the
-          # lock lives under the checkout, but a shared checkout across
-          # users is still possible). Do NOT treat as dead; fall through
-          # to the normal wait/retry below.
-          :
-        else
-          # Any other kill -0 failure (ESRCH - no such process) means the
-          # owner is genuinely gone. Reclaim ATOMICALLY: rename the stale
-          # lockdir out of the way first, and only the racer whose `mv`
-          # actually succeeds is allowed to proceed (a second racer's `mv`
-          # fails with ENOENT once the first has already renamed it away).
-          # A prior check-then-delete (`kill -0` decision, then a separate
-          # `rm -rf`) let two racers both pass the check and both `rm -rf`,
-          # so the second could delete the FIRST racer's freshly-acquired
-          # live lock out from under it.
-          if [[ -n "${_MUT_LOCK_TEST_RACE_DELAY:-}" ]]; then
-            sleep "$_MUT_LOCK_TEST_RACE_DELAY"
-          fi
-          stale_dir="${_MUT_LOCKDIR}.stale.$$"
-          if mv "$_MUT_LOCKDIR" "$stale_dir" 2>/dev/null; then
-            rm -rf "$stale_dir" 2>/dev/null || true
-          fi
-          continue
-        fi
-      fi
-    fi
-    tries=$((tries + 1))
-    if [[ "$tries" -ge "$max_tries" ]]; then
-      return 1
-    fi
-    sleep "$sleep_s"
-  done
-}
-
-_mut_lock_release() {
-  rm -rf "$_MUT_LOCKDIR" 2>/dev/null || true
-}
-
-# ---------------------------------------------------------------------------
-# DS-148: shared scaffold for a test case that mutates a real, tracked,
-# shippable source file. Usage:
+# DS-148 REDESIGN: shared scaffold for a test case that mutates a real,
+# tracked, shippable source file. Usage:
 #   _with_mutated_source <path> <case_fn> [restore_hook_fn]
 # <case_fn> is called with no args; it is responsible for performing the
 # mutation itself (at whatever point in its own flow it needs to), running
@@ -275,55 +178,70 @@ _mut_lock_release() {
 # against the restored source) - it must never mask the real exit status, so
 # it only warns on failure, it does not fail the run.
 #
-# The mutating region is protected end-to-end by the DS-148 mkdir-lock above,
-# and <path> is restored unconditionally via a real `trap ... EXIT`, so an
-# interrupt mid-case cannot leave the tracked source (or the lock) corrupted.
+# No lock. The prior design serialized this region with a hand-rolled
+# `mkdir`-based cross-process lock; two Tier-3 Skeptic rounds each found the
+# lock's mutual-exclusion defect RELOCATED rather than removed (a
+# check-then-delete stale-lock reclaim, then a rename-based reclaim that
+# still raced the liveness check), plus a Critical where the lock's own test
+# case mutated the real, shared lockdir. All of that was incidental
+# complexity: the corruption it guarded against - one run backing up
+# another run's already-mutated file, then writing that corruption back as
+# "restored" - does not actually require serialization to prevent.
+#
+# Instead: git already holds the pristine content, and a corrupt backup is
+# detectable rather than unavoidable.
+#   1. Pre-check: <path> must be git-tracked and clean (no diff against
+#      HEAD). If it is not, this case is skipped WITHOUT mutating and
+#      WITHOUT restoring - it calls `_fail` (loud, counted, never silent) and
+#      returns, naming the file and noting the two possible causes (a
+#      concurrent run of this suite, or the developer's own uncommitted
+#      edit). Failing here - rather than only skipping under CI - keeps the
+#      failure loud and reachable in every environment, matching this repo's
+#      existing convention of hard-failing a guarded check rather than
+#      letting it silently pass with nothing asserted (see
+#      `bin/tests/test_check_resident_budget.sh`'s `command -v` guard
+#      discipline). CI always starts from a clean tree, so in practice this
+#      only ever fires locally against a dirty working copy; if it ever
+#      fires in CI, that is a real bug worth seeing, not a case to skip past
+#      quietly.
+#   2. <case_fn> mutates <path> and runs its assertions.
+#   3. Restore is `git -C "$REPO_DIR" checkout -- <path>`, never a temp-file
+#      backup. A git checkout restores the exact committed content and is
+#      idempotent - it cannot write back corruption the way restoring from a
+#      backup file could, which is the entire failure mode this closes.
+#
+# The pre-check strictly precedes the mutation and the restore is reachable
+# only through the code path that follows a passing pre-check, so a
+# developer's own uncommitted edit can never be silently discarded: the only
+# way `git checkout -- <path>` runs is if this case itself verified <path>
+# was clean and then mutated it. <path> is restored unconditionally via a
+# real `trap ... EXIT`, so an ordinary interrupt (SIGINT/SIGTERM) mid-case
+# cannot leave the tracked source mutated on disk - `git checkout --` is
+# also the recovery command a developer would run by hand. That does not
+# cover SIGKILL or a power loss, which can still leave <path> mutated; those
+# are recoverable the same way, by hand, with `git checkout -- <path>`.
 # ---------------------------------------------------------------------------
 _with_mutated_source() {
   local target="$1" case_fn="$2" restore_hook="${3:-}"
-  local backup
+  local rel="${target#"$REPO_DIR"/}"
 
-  # DS-148: the lock MUST be acquired before the backup is taken, not after.
-  # Backing up first would let a second process snapshot the FIRST process's
-  # in-flight mutation as its own "pristine" copy, then faithfully restore
-  # that corruption once its own turn under the lock comes around - this is
-  # the exact concurrency bug the lock exists to close, just moved one line
-  # earlier. Reproduced this by mistake once while proving the lock in DS-148
-  # (see PR body / return summary), which is why this comment exists.
-  if ! _mut_lock_acquire; then
-    _fail "$case_fn: could not acquire mutate-lock for $target"
+  if ! git -C "$REPO_DIR" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+    _fail "$case_fn: $target is not tracked by git - refusing to mutate an untracked path"
     return 1
   fi
 
-  backup="$(mktemp)"
-  if [[ -z "$backup" || ! -f "$backup" ]]; then
-    _fail "$case_fn: mktemp failed to create a backup file for $target"
-    _mut_lock_release
-    return 1
-  fi
-  if ! cp "$target" "$backup"; then
-    _fail "$case_fn: could not back up $target before mutating it - aborting without mutating"
-    rm -f "$backup"
-    _mut_lock_release
+  if ! git -C "$REPO_DIR" diff --quiet HEAD -- "$rel" 2>/dev/null; then
+    _fail "$case_fn: $target has uncommitted changes - refusing to mutate it. This is either a concurrent run of this suite against the same checkout, or your own uncommitted edit; commit/stash it and re-run."
     return 1
   fi
 
-  # DS-148: check `cp`'s exit status before ever deleting the backup. If the
-  # restore copy fails, $target stays mutated, the backup is the ONLY
-  # pristine copy left, and (pre-fix) it was deleted unconditionally while
-  # the lock released quietly - the suite would still report "0 failed"
-  # with a tracked, shippable source file left corrupted on disk. Keep the
-  # backup and fail loudly instead.
   _mut_restore_now() {
-    if cp "$backup" "$target"; then
-      rm -f "$backup"
-    else
-      _fail "$case_fn: restore of $target from backup FAILED - tracked source may still be mutated; backup preserved at $backup"
+    if ! git -C "$REPO_DIR" checkout -- "$rel" 2>&1; then
+      _fail "$case_fn: 'git checkout -- $rel' FAILED during restore - $target may still be mutated; resolve manually with 'git -C $REPO_DIR status -- $rel'"
     fi
     if [[ -n "$restore_hook" ]]; then
       "$restore_hook"
     fi
-    _mut_lock_release
   }
   trap '_mut_restore_now; _cleanup' EXIT
 
@@ -371,110 +289,6 @@ FIXTURE_NAME="$(basename "$FIXTURE_SRC")"
 # ===========================================================================
 # Test cases
 # ===========================================================================
-
-# ---------------------------------------------------------------------------
-# Case (lock): DS-148 fix pass (MAJOR-1, MINOR-2) - direct coverage of the
-#              cross-process mutate-lock, run before any lock use by the
-#              real cases below. Nothing here touches install.sh, FAKE_HOME,
-#              or any tracked source file; it exercises `_mut_lock_acquire`/
-#              `_mut_lock_release` in isolation against a dedicated lockdir
-#              path so it cannot collide with a real case's lock use.
-#
-#              Sub-case 1 reproduces the exact race the Tier-3 Skeptic
-#              demonstrated: pre-seed a stale lockdir (pid already dead),
-#              launch two acquirers concurrently with the reclaim window
-#              artificially widened (`_MUT_LOCK_TEST_RACE_DELAY`), and assert
-#              the two never hold the lock at the same time (a shared
-#              "in-critical-section" flag file that must never be observed
-#              already-set by another holder). Against the pre-fix
-#              check-then-delete reclaim this reliably shows both racers
-#              inside at once; against the atomic-rename fix it never does
-#              (see PR return summary for the pre-fix repro run).
-#
-#              Sub-case 2 pins the bounded-wait/loud-failure behaviour: a
-#              held lock plus a low `_MUT_LOCK_MAX_TRIES`/`_MUT_LOCK_SLEEP_S`
-#              override must make a second acquirer return failure (not
-#              hang, not silently "succeed"). Sub-case 3 is a static pin
-#              that the PRODUCTION defaults (used by every real case below,
-#              where these env overrides are unset) are still the documented
-#              120 tries x 1s sleep - the override knobs exist for this test
-#              only and keep the whole case running in a few seconds instead
-#              of minutes.
-# ---------------------------------------------------------------------------
-
-_LOCK_TEST_DIR="$(mktemp -d)"
-_LOCK_TEST_FLAG="$_LOCK_TEST_DIR/in-cs.flag"
-_LOCK_TEST_RESULT="$_LOCK_TEST_DIR/result.log"
-
-_lock_test_worker() {
-  # Runs in a background subshell (forked from this shell, so it shares the
-  # `_mut_lock_acquire`/`_mut_lock_release` function definitions and the
-  # `_MUT_LOCKDIR` value already in scope).
-  if _mut_lock_acquire; then
-    if [[ -f "$_LOCK_TEST_FLAG" ]]; then
-      echo "OVERLAP" >> "$_LOCK_TEST_RESULT"
-    fi
-    : > "$_LOCK_TEST_FLAG"
-    sleep 0.3
-    rm -f "$_LOCK_TEST_FLAG"
-    _mut_lock_release
-    echo "ENTERED" >> "$_LOCK_TEST_RESULT"
-  else
-    echo "TIMEOUT" >> "$_LOCK_TEST_RESULT"
-  fi
-}
-
-# Sub-case 1: mutual exclusion under a widened reclaim race.
-# Pre-seed a stale lockdir owned by a pid that is provably dead (spawned,
-# then waited-on, so it is reaped - not merely finished-but-zombied).
-mkdir -p "$_MUT_LOCKDIR"
-( : ) & _lock_dead_pid=$!
-wait "$_lock_dead_pid" 2>/dev/null
-echo "$_lock_dead_pid" > "$_MUT_LOCKDIR/pid"
-
-_MUT_LOCK_TEST_RACE_DELAY=0.3 _MUT_LOCK_SLEEP_S=0.1 _lock_test_worker &
-_lock_w1=$!
-_MUT_LOCK_TEST_RACE_DELAY=0.3 _MUT_LOCK_SLEEP_S=0.1 _lock_test_worker &
-_lock_w2=$!
-wait "$_lock_w1" "$_lock_w2"
-
-if grep -q "OVERLAP" "$_LOCK_TEST_RESULT" 2>/dev/null; then
-  _fail "case (lock): two acquirers held the mutate-lock at the same time (reclaim race not closed)"
-else
-  _pass "case (lock): reclaiming a stale lock under a widened race window is mutually exclusive"
-fi
-
-_entered_count="$(grep -c "^ENTERED$" "$_LOCK_TEST_RESULT" 2>/dev/null)"
-if [[ "$_entered_count" -eq 2 ]]; then
-  _pass "case (lock): both racers eventually acquired the lock (reclaim is not permanently stuck)"
-else
-  _fail "case (lock): expected both racers to eventually enter, got $_entered_count"
-fi
-
-_mut_lock_release
-rm -f "$_LOCK_TEST_RESULT" "$_LOCK_TEST_FLAG"
-
-# Sub-case 2: bounded wait fails loudly (does not hang) when the lock is
-# genuinely held by a live process. Low override values keep this fast.
-mkdir -p "$_MUT_LOCKDIR"
-echo "$$" > "$_MUT_LOCKDIR/pid"
-if ( _MUT_LOCK_MAX_TRIES=2 _MUT_LOCK_SLEEP_S=0 _mut_lock_acquire ); then
-  _fail "case (lock): acquire against a live-held lock unexpectedly succeeded"
-else
-  _pass "case (lock): acquire against a live-held lock returns failure within the bounded wait (does not hang)"
-fi
-rm -rf "$_MUT_LOCKDIR"
-
-# Sub-case 3: static pin on the PRODUCTION bounds (no override set) - this
-# is what every real case below actually runs under.
-if grep -q '_MUT_LOCK_MAX_TRIES:-120' "$0" && grep -q '_MUT_LOCK_SLEEP_S:-1' "$0"; then
-  _pass "case (lock): production bound is still 120 tries x 1s sleep (override knobs are test-only)"
-else
-  _fail "case (lock): production bound of 120 tries x 1s sleep has changed - re-verify the bounded-wait behaviour"
-fi
-
-rm -rf "$_LOCK_TEST_DIR"
-unset -f _lock_test_worker
 
 # ---------------------------------------------------------------------------
 # Case (a): stale "ours" symlink (target under fake .../DinoStack/...) gets
