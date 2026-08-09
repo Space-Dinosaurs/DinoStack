@@ -16,12 +16,14 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: roughly 1-2 min wall time, machine-load dependent (22
-#              install.sh invocations after the DS-143 follow-up fix pass
-#              added cases (o) and (p), up from 19 - 20 single-shot call
-#              sites plus case (o)'s one call site executed twice inside its
-#              two-iteration order loop; each invocation runs two full
-#              adapter builds against the real checkout).
+# Performance: ~85-135 s wall time, varying by machine load (22 install.sh
+#              invocations - 20 single-shot call sites plus case (o)'s one
+#              call site executed twice inside its two-iteration order loop;
+#              each invocation runs two full adapter builds against the real
+#              checkout). Measured directly across several runs after the
+#              DS-148 redesign (no lock, no case (lock)) - do not re-estimate
+#              this figure without timing a real run; it has drifted from
+#              stale estimates before.
 #
 # Regression coverage:
 #   - Change 1: stale "ours" symlink (target under .../DinoStack/...) is
@@ -115,10 +117,41 @@
 #     @-import marker string must never force skill_auto_load, since
 #     detection is scoped to the managed block's own content, not the
 #     whole file.
+#   - DS-148 (Tier-3 Skeptic Minor x2, hardening the case (m)/(n) scaffold):
+#     both cases route through the shared `_with_mutated_source` helper
+#     instead of each carrying its own backup/mktemp/trap/restore block.
+#   - DS-148 REDESIGN (conductor-ordered reversal, two Tier-3 Skeptic rounds
+#     having found the hand-rolled `mkdir`-based cross-process lock's defect
+#     RELOCATED rather than removed - a check-then-delete stale-lock reclaim,
+#     then a rename-based reclaim that still raced the liveness check, plus a
+#     Critical where the lock's own test case mutated the real, shared
+#     lockdir): the lock is DELETED entirely, along with the temp-file backup
+#     it protected. `_with_mutated_source` now (1) pre-checks the target is
+#     tracked by git (`git ls-files --error-unmatch`) and has no pending
+#     changes at all (`git status --porcelain`, covering staged, unstaged,
+#     and untracked state in one predicate) before touching it - refusing
+#     loudly, via `_fail`, if it is untracked or dirty (either a concurrent
+#     run of this suite or the developer's own uncommitted edit); and (2) restores
+#     the mutation by `git checkout -- <path>`, not from a temp copy - the
+#     pre-check guarantees the index already matches HEAD, so restoring from
+#     the index can never write back corruption the way a stale-backup
+#     restore could. No lock is needed: whichever run's pre-check loses the
+#     race sees a dirty target and declines to mutate, so for the two guarded
+#     targets (the two `_with_mutated_source` call sites below) the worst
+#     case is a loud, counted failure, never silent permanent corruption -
+#     this does not extend to unrelated adapter artifacts, which
+#     `scripts/build-all.sh` regenerates from whatever is on disk and can
+#     still be left modified by a concurrent or interrupted run. Case (m)'s
+#     no-rebuild restore and case (n)'s rebuild-with-soft-fail-warning
+#     restore are both preserved via the helper's optional restore-hook
+#     argument, run after the git-checkout restore.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
-REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+# `pwd -P` (not plain `pwd`) so REPO_DIR is a CANONICAL path - the same
+# checkout reached through a symlinked path component still resolves to the
+# same identity, which matters for the git tracked/clean checks below.
+REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd -P)"
 INSTALL_SH="$REPO_DIR/.claude/install.sh"
 
 if [[ ! -f "$INSTALL_SH" ]]; then
@@ -139,6 +172,135 @@ _cleanup() {
   fi
 }
 trap _cleanup EXIT
+
+# ---------------------------------------------------------------------------
+# DS-148 REDESIGN: shared scaffold for a test case that mutates a real,
+# tracked, shippable source file. Usage:
+#   _with_mutated_source <path> <case_fn> [restore_hook_fn]
+# <case_fn> is called with no args; it is responsible for performing the
+# mutation itself (at whatever point in its own flow it needs to), running
+# install.sh against a FAKE_HOME, and making its assertions. <restore_hook_fn>,
+# if given, is called once <path> has been restored (e.g. to rebuild adapters
+# against the restored source) - it must never mask the real exit status, so
+# it only warns on failure, it does not fail the run.
+#
+# No lock. The prior design serialized this region with a hand-rolled
+# `mkdir`-based cross-process lock; two Tier-3 Skeptic rounds each found the
+# lock's mutual-exclusion defect RELOCATED rather than removed (a
+# check-then-delete stale-lock reclaim, then a rename-based reclaim that
+# still raced the liveness check), plus a Critical where the lock's own test
+# case mutated the real, shared lockdir. All of that was incidental
+# complexity: the corruption it guarded against - one run backing up
+# another run's already-mutated file, then writing that corruption back as
+# "restored" - does not actually require serialization to prevent.
+#
+# Instead: git already holds the pristine content, and a corrupt backup is
+# detectable rather than unavoidable.
+#   1. Pre-check: <path> must be tracked by git, via `git ls-files
+#      --error-unmatch`. This runs BEFORE the status-check below and is not
+#      redundant with it: `git status --porcelain` silently omits an
+#      ignored path (unless `--ignored` is passed) and prints nothing at all
+#      for a path that does not exist, so on its own it would let both slip
+#      through to mutation. A gitignored target is the dangerous case - this
+#      repo gitignores `.agentic/**`, `docs/planning/**`, `evals/`, and root
+#      `MEMORY.md` - because `git checkout -- <path>` cannot restore a path
+#      git holds no copy of, so the mutation would be unrecoverable. If
+#      <path> is not tracked, this case is skipped WITHOUT mutating and
+#      calls `_fail` naming the file, before the status-check runs.
+#   2. Pre-check: <path> must have NO pending changes of any kind - staged,
+#      unstaged, or untracked - via a single `git status --porcelain`
+#      predicate. This is deliberately not `git diff --quiet HEAD -- <path>`:
+#      that compares the WORKTREE against HEAD and is blind to a dirty INDEX
+#      whose worktree copy happens to match HEAD (e.g. a staged edit that was
+#      then manually reverted on disk) - `git checkout -- <path>` restores
+#      from the index, not HEAD, so that reachable state would let the
+#      restore silently materialize staged content the suite never wrote.
+#      `git status --porcelain` catches staged, unstaged, AND untracked
+#      state in one predicate (an untracked path shows as `??`), but only
+#      for paths git is not ignoring and that actually exist - it is a
+#      supplement to the tracked-check in step 1, not a replacement for it.
+#      If it is not clean, this case is skipped WITHOUT mutating and calls
+#      `_fail` (loud, counted, never silent) and returns, naming the file and
+#      noting the two possible causes (a concurrent run of this suite, or the
+#      developer's own uncommitted edit). Failing here - rather than only
+#      skipping under CI - keeps the failure loud and reachable in every
+#      environment, matching this repo's existing convention of hard-failing
+#      a guarded check rather than letting it silently pass with nothing
+#      asserted (see `bin/tests/test_check_resident_budget.sh`'s
+#      `command -v` guard discipline). CI always starts from a clean tree, so
+#      in practice this only ever fires locally against a dirty working
+#      copy; if it ever fires in CI, that is a real bug worth seeing, not a
+#      case to skip past quietly.
+#   3. Pre-check: <path> must have exactly one hard link. `git checkout --`
+#      unlinks and recreates the file rather than truncating it in place, so
+#      if <path> is ever hardlinked into an adapter destination (this repo
+#      documents that some `content/` files are - see root AGENTS.md), the
+#      checkout would leave the sibling holding the mutated content while
+#      <path> itself is "restored". Neither of the two current targets is
+#      hardlinked today, but refusing loudly here closes the hazard for any
+#      future target instead of relying on that staying true.
+#   4. <case_fn> mutates <path> and runs its assertions.
+#   5. Restore is `git -C "$REPO_DIR" checkout -- <path>`, never a temp-file
+#      backup. This restores from the INDEX, not directly from HEAD - the
+#      pre-check in step 2 guarantees the index already matches HEAD before
+#      any mutation happens, so the restored content is byte-identical to
+#      HEAD as a consequence of that precondition, not because `checkout`
+#      reads HEAD directly. It is idempotent - it cannot write back
+#      corruption the way restoring from a backup file could, which is the
+#      entire failure mode this closes.
+#
+# The pre-checks strictly precede the mutation and the restore is reachable
+# only through the code path that follows passing pre-checks, so a
+# developer's own uncommitted edit - staged, unstaged, or untracked - can
+# never be silently discarded: the only way `git checkout -- <path>` runs is
+# if this case itself verified <path> was fully clean (index == HEAD ==
+# worktree) and then mutated it. <path> is restored unconditionally via a
+# real `trap ... EXIT`, so an ordinary interrupt (SIGINT/SIGTERM) mid-case
+# cannot leave the tracked source mutated on disk - `git checkout --` is
+# also the recovery command a developer would run by hand. That does not
+# cover SIGKILL or a power loss, which can still leave <path> mutated; those
+# are recoverable the same way, by hand, with `git checkout -- <path>`.
+# ---------------------------------------------------------------------------
+_with_mutated_source() {
+  local target="$1" case_fn="$2" restore_hook="${3:-}"
+  local rel="${target#"$REPO_DIR"/}"
+
+  if ! git -C "$REPO_DIR" ls-files --error-unmatch -- "$rel" >/dev/null 2>&1; then
+    _fail "$case_fn: $target is not tracked by git - refusing to mutate an untracked path"
+    return 1
+  fi
+
+  if [[ -n "$(git -C "$REPO_DIR" status --porcelain -- "$rel" 2>/dev/null)" ]]; then
+    _fail "$case_fn: $target has uncommitted changes (staged, unstaged, or untracked) - refusing to mutate it. This is either a concurrent run of this suite against the same checkout, or your own uncommitted edit; commit/stash it and re-run. Note: a dirty run of this suite can also leave unrelated adapter artifacts modified (e.g. .claude/skills/agentic-engineering/SKILL.md, .cursor/rules/conventions.mdc) since install.sh's build step regenerates those from whatever is on disk regardless of this guard - check 'git -C $REPO_DIR status' for those too before re-running."
+    return 1
+  fi
+
+  local link_count
+  link_count="$(stat -f%l "$target" 2>/dev/null || stat -c%h "$target" 2>/dev/null)"
+  if [[ -z "$link_count" ]]; then
+    _fail "$case_fn: could not determine hard-link count of $target (stat failed) - refusing to mutate it"
+    return 1
+  fi
+  if [[ "$link_count" -gt 1 ]]; then
+    _fail "$case_fn: $target has $link_count hard links - refusing to mutate it. 'git checkout --' unlinks and recreates the file rather than truncating it in place, so a hardlinked sibling would be left holding the mutated content after 'restore'. Resolve manually before re-running."
+    return 1
+  fi
+
+  _mut_restore_now() {
+    if ! git -C "$REPO_DIR" checkout -- "$rel" 2>&1; then
+      _fail "$case_fn: 'git checkout -- $rel' FAILED during restore - $target may still be mutated; resolve manually with 'git -C $REPO_DIR status -- $rel'"
+    fi
+    if [[ -n "$restore_hook" ]]; then
+      "$restore_hook"
+    fi
+  }
+  trap '_mut_restore_now; _cleanup' EXIT
+
+  "$case_fn"
+
+  _mut_restore_now
+  trap _cleanup EXIT
+}
 
 # ---------------------------------------------------------------------------
 # Helper: run install.sh with a temp HOME, capturing output.
@@ -985,33 +1147,31 @@ rm -rf "$FAKE_HOME"
 # ---------------------------------------------------------------------------
 
 TEMPLATE_PATH="$REPO_DIR/content/templates/claude-managed-content.md"
-TEMPLATE_BACKUP="$(mktemp)"
-cp "$TEMPLATE_PATH" "$TEMPLATE_BACKUP"
-_case_m_restore() { cp "$TEMPLATE_BACKUP" "$TEMPLATE_PATH"; rm -f "$TEMPLATE_BACKUP"; }
-trap '_case_m_restore; _cleanup' EXIT
-printf 'no manifest comment here, no terminator either\n' > "$TEMPLATE_PATH"
 
-FAKE_HOME="$(mktemp -d)"
-mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+_case_m_body() {
+  printf 'no manifest comment here, no terminator either\n' > "$TEMPLATE_PATH"
 
-_run_install "$FAKE_HOME" || true
+  FAKE_HOME="$(mktemp -d)"
+  mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
 
-_case_m_restore
-trap _cleanup EXIT
+  _run_install "$FAKE_HOME" || true
 
-if grep -Fq "could not find manifest comment terminator" "$FAKE_HOME/.install_out"; then
-  _pass "case (m): install.sh fails loudly when the template's manifest terminator is missing"
-else
-  _fail "case (m): install.sh did not report the missing manifest terminator"
-fi
+  if grep -Fq "could not find manifest comment terminator" "$FAKE_HOME/.install_out"; then
+    _pass "case (m): install.sh fails loudly when the template's manifest terminator is missing"
+  else
+    _fail "case (m): install.sh did not report the missing manifest terminator"
+  fi
 
-if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
-  _pass "case (m): CLAUDE.md was NOT created when the template's manifest terminator is missing"
-else
-  _fail "case (m): CLAUDE.md was created despite the template's manifest terminator being missing"
-fi
+  if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
+    _pass "case (m): CLAUDE.md was NOT created when the template's manifest terminator is missing"
+  else
+    _fail "case (m): CLAUDE.md was created despite the template's manifest terminator being missing"
+  fi
 
-rm -rf "$FAKE_HOME"
+  rm -rf "$FAKE_HOME"
+}
+
+_with_mutated_source "$TEMPLATE_PATH" _case_m_body
 
 # ---------------------------------------------------------------------------
 # Case (n): MAJOR (DS-143 Skeptic loop 3) - update-path reproduction. Run 1
@@ -1036,14 +1196,11 @@ rm -rf "$FAKE_HOME"
 # ---------------------------------------------------------------------------
 
 CONVENTIONS_PATH="$REPO_DIR/content/rules/conventions.md"
-CONVENTIONS_BACKUP="$(mktemp)"
-cp "$CONVENTIONS_PATH" "$CONVENTIONS_BACKUP"
-_case_n_restore() {
-  cp "$CONVENTIONS_BACKUP" "$CONVENTIONS_PATH"
-  rm -f "$CONVENTIONS_BACKUP"
-  local _n_rebuild_out
+
+_case_n_rebuild_hook() {
+  local _n_rebuild_out _n_rebuild_status
   _n_rebuild_out="$(bash "$REPO_DIR/scripts/build-all.sh" 2>&1)"
-  local _n_rebuild_status=$?
+  _n_rebuild_status=$?
   if [[ "$_n_rebuild_status" -ne 0 ]]; then
     echo "" >&2
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
@@ -1059,53 +1216,53 @@ _case_n_restore() {
     echo "" >&2
   fi
 }
-trap '_case_n_restore; _cleanup' EXIT
 
-FAKE_HOME="$(mktemp -d)"
-mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+_case_n_body() {
+  FAKE_HOME="$(mktemp -d)"
+  mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
 
-_run_install "$FAKE_HOME" || true
-_n_claude_md_run1="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+  _run_install "$FAKE_HOME" || true
+  _n_claude_md_run1="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
 
-printf '\n<!-- case-n-canary -->\n' >> "$CONVENTIONS_PATH"
+  printf '\n<!-- case-n-canary -->\n' >> "$CONVENTIONS_PATH"
 
-_run_install "$FAKE_HOME" || true
-_n_claude_md_run2="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
-_n_skill_md_run2="$(cat "$FAKE_HOME/.claude/skills/agentic-engineering/SKILL.md" 2>/dev/null)"
-_n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
+  _run_install "$FAKE_HOME" || true
+  _n_claude_md_run2="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+  _n_skill_md_run2="$(cat "$FAKE_HOME/.claude/skills/agentic-engineering/SKILL.md" 2>/dev/null)"
+  _n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
 
-# Restore + rebuild BEFORE assertions: $FAKE_HOME's skill files are symlinks
-# into the real repo checkout, so once the canary is removed and adapters
-# rebuilt, the symlinked SKILL.md would read back clean too - captured
-# above, into the shell variables, before restoring.
-_case_n_restore
-trap _cleanup EXIT
+  # Assertions below only read the captured shell variables, never the live
+  # file state - so it is safe for the helper's restore+rebuild to happen
+  # after this function returns rather than mid-body.
 
-if [[ -n "$_n_claude_md_run1" && "$_n_claude_md_run1" == *"<!-- BEGIN managed-by-agentic-engineering -->"* ]]; then
-  _pass "case (n): run 1's CLAUDE.md is non-empty and carries the managed block (comparison below is not vacuous)"
-else
-  _fail "case (n): run 1's CLAUDE.md is empty or missing the managed-block BEGIN marker"
-fi
+  if [[ -n "$_n_claude_md_run1" && "$_n_claude_md_run1" == *"<!-- BEGIN managed-by-agentic-engineering -->"* ]]; then
+    _pass "case (n): run 1's CLAUDE.md is non-empty and carries the managed block (comparison below is not vacuous)"
+  else
+    _fail "case (n): run 1's CLAUDE.md is empty or missing the managed-block BEGIN marker"
+  fi
 
-if [[ "$_n_claude_md_run1" == "$_n_claude_md_run2" ]]; then
-  _pass "case (n): update-path run's CLAUDE.md managed block is byte-identical across runs (no-op rewrite)"
-else
-  _fail "case (n): update-path run unexpectedly changed CLAUDE.md's managed block"
-fi
+  if [[ "$_n_claude_md_run1" == "$_n_claude_md_run2" ]]; then
+    _pass "case (n): update-path run's CLAUDE.md managed block is byte-identical across runs (no-op rewrite)"
+  else
+    _fail "case (n): update-path run unexpectedly changed CLAUDE.md's managed block"
+  fi
 
-if [[ "$_n_skill_md_run2" == *"case-n-canary"* ]]; then
-  _pass "case (n): update-path run's regenerated SKILL.md embeds the canary (build actually ran)"
-else
-  _fail "case (n): update-path run's SKILL.md does not contain the canary - build did not regenerate it"
-fi
+  if [[ "$_n_skill_md_run2" == *"case-n-canary"* ]]; then
+    _pass "case (n): update-path run's regenerated SKILL.md embeds the canary (build actually ran)"
+  else
+    _fail "case (n): update-path run's SKILL.md does not contain the canary - build did not regenerate it"
+  fi
 
-if [[ "$_n_install_out_run2" == *"IMPORTANT: skill definitions changed"* ]]; then
-  _pass "case (n): registry-refresh restart notice fires on the update-path run even though CLAUDE.md is a no-op"
-else
-  _fail "case (n): registry-refresh restart notice missing on the update-path run (the exact case it exists for)"
-fi
+  if [[ "$_n_install_out_run2" == *"IMPORTANT: skill definitions changed"* ]]; then
+    _pass "case (n): registry-refresh restart notice fires on the update-path run even though CLAUDE.md is a no-op"
+  else
+    _fail "case (n): registry-refresh restart notice missing on the update-path run (the exact case it exists for)"
+  fi
 
-rm -rf "$FAKE_HOME"
+  rm -rf "$FAKE_HOME"
+}
+
+_with_mutated_source "$CONVENTIONS_PATH" _case_n_body _case_n_rebuild_hook
 
 # ---------------------------------------------------------------------------
 # Case (o): DS-143 follow-up - TWO well-formed managed blocks in one
