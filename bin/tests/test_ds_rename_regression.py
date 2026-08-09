@@ -17,13 +17,14 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* rename
          (proven through a real os.symlink, not an in-process path
          comparison alone); (3) a representative safe subset of tools
          produce identical exit codes when invoked through a real PATH
-         symlink under the OLD name vs. the NEW name directly; (4) the four
+         symlink under the OLD name vs. the NEW name directly; (4) the five
          python bin/ds-* tools that load bin/_lib.py via
-         Path(__file__).resolve().parent (config, feedback, migrate,
-         tracker) resolve it correctly when invoked through a real PATH
-         symlink installed under their OLD agentic-* name (not just their
-         new ds- name, which bin/tests/test_bin_symlink_resolution.py
-         already covers); and (5) a COUNT-DRIVEN sweep - independent of the
+         Path(__file__).resolve().parent (config, defer, feedback, migrate,
+         tracker - see LIB_DEPENDENT_SUFFIXES below) resolve it correctly
+         when invoked through a real PATH symlink installed under their OLD
+         agentic-* name (not just their new ds- name, which
+         bin/tests/test_bin_symlink_resolution.py already covers); and
+         (5) a COUNT-DRIVEN sweep - independent of the
          SUFFIXES list below - that enumerates every real bin/ds-* file on
          disk and asserts each has a working bin/agentic-* alias, so a
          future added tool that is renamed without updating SUFFIXES (or

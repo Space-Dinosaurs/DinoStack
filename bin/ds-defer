@@ -195,8 +195,24 @@ def _ensure_lock_file_only(repo: str) -> None:
     bin/_lib) opens the lock file in 'r' mode and requires it to already
     exist - without this bootstrap, that raises an unhandled
     FileNotFoundError instead of the documented behavior.
+
+    Swallows OSError (e.g. a PermissionError on a mode-555 .agentic/ dir)
+    rather than letting it propagate here - this bootstrap step is
+    best-effort. Note this does NOT make a mode-555 .agentic/ dir a
+    gracefully-handled case: acquire_exclusive_lock's subsequent 'r'-mode
+    open still raises an unhandled FileNotFoundError when the lock file
+    could not be created, and none of list/count/ack catch that. This is
+    NOT a regression, though - the pre-Major-1-fix code raised the exact
+    same unhandled FileNotFoundError in this scenario (it never attempted
+    any lock bootstrap at all). What this try/except DOES prevent is a
+    strictly worse outcome: without it, touch() itself raises an unhandled
+    PermissionError - a second, distinct uncaught-exception shape - before
+    acquire_exclusive_lock is ever reached.
     """
-    _lock_path(repo).touch(exist_ok=True)
+    try:
+        _lock_path(repo).touch(exist_ok=True)
+    except OSError:
+        pass
 
 
 def _read_store(repo: str, warn_on_malformed: bool = False) -> list[dict]:
