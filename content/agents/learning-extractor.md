@@ -5,7 +5,7 @@ description: Per-ticket learning extraction agent. Spawned by /ds-implement-tick
 tools: Read, Edit, Write
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 <!--
 Purpose: Extracts durable fix-pattern LRN learnings from resolved Skeptic

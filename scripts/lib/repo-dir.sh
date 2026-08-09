@@ -1,6 +1,6 @@
 # shellcheck shell=bash
 # ---------------------------------------------------------------------------
-# Purpose: Canonical repo_dir resolver for the agentic-engineering install.
+# Purpose: Canonical repo_dir resolver for the dinostack install.
 #          Centralises the resolution logic previously duplicated inline in
 #          .claude/install.sh, hooks/lib/version-check-core.sh, bootstrap.sh,
 #          and content/commands/ds-update-agentic-engineering.md Step 0a.
@@ -84,11 +84,11 @@ except Exception:
 
   if [[ -z "$AE_REPO_DIR" ]] || ! validate_repo_dir "$AE_REPO_DIR"; then
     if [[ -n "$AE_REPO_DIR" ]] && [[ "$quiet" == "false" ]]; then
-      echo "agentic-engineering: repo_dir '$AE_REPO_DIR' is not a valid git repo - using fallback \$HOME/DinoStack" >&2
+      echo "dinostack: repo_dir '$AE_REPO_DIR' is not a valid git repo - using fallback \$HOME/DinoStack" >&2
     fi
     AE_REPO_DIR="$HOME/DinoStack"
     if [[ "$quiet" == "false" ]] && [[ ! -d "$AE_REPO_DIR" ]]; then
-      echo "agentic-engineering: fallback \$HOME/DinoStack does not exist" >&2
+      echo "dinostack: fallback \$HOME/DinoStack does not exist" >&2
     fi
   fi
 
@@ -115,6 +115,6 @@ assert_canonical_match() {
     return 0
   fi
 
-  echo "agentic-engineering: session root '$session_real' does not match AE_REPO_DIR '$ae_real'" >&2
+  echo "dinostack: session root '$session_real' does not match AE_REPO_DIR '$ae_real'" >&2
   return 2
 }

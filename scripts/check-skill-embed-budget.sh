@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Purpose: Two-sided guard on the generated .claude/skills/agentic-engineering/
+# Purpose: Two-sided guard on the generated .claude/skills/dinostack/
 #          SKILL.md - the artifact Claude Code injects verbatim into context
-#          when the /agentic-engineering skill is invoked, post-DS-143
+#          when the /dinostack skill is invoked, post-DS-143
 #          (trigger-loaded methodology). Three failure classes:
 #            - EMBED INCOMPLETE: a whole content/sections/*.md or
 #              content/rules/*.md source file silently dropped from
@@ -34,7 +34,7 @@
 #             FLOOR <= size <= CEILING. Exits 1 otherwise, or when a
 #             required input is missing.
 #
-# Upstream deps: .claude/skills/agentic-engineering/SKILL.md (built by
+# Upstream deps: .claude/skills/dinostack/SKILL.md (built by
 #                .claude/build.sh; this script does not rebuild it - it
 #                measures whatever is currently on disk, matching how
 #                check-adapter-sync and the runtime skill loader both treat
@@ -83,7 +83,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 source "$SCRIPT_DIR/lib/budget-gate.sh"
 REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 
-SKILL_FILE="$REPO_DIR/.claude/skills/agentic-engineering/SKILL.md"
+SKILL_FILE="$REPO_DIR/.claude/skills/dinostack/SKILL.md"
 
 # Floor: catches a regression to a pointer-only skill (the embed step
 # silently breaking and SKILL.md no longer inlining the methodology body).
@@ -91,7 +91,7 @@ SKILL_FILE="$REPO_DIR/.claude/skills/agentic-engineering/SKILL.md"
 # pointer-only skill would ever measure.
 FLOOR=100000
 
-# Ceiling: 126,509 B measured for .claude/skills/agentic-engineering/SKILL.md
+# Ceiling: 126,509 B measured for .claude/skills/dinostack/SKILL.md
 # on this branch 2026-08-07 (DS-143), + roughly 10% headroom, rounded down.
 # This is a SAFETY BOUNDARY, not a tidiness budget: Claude Code was
 # empirically confirmed to inject a 127,107-byte SKILL.md body verbatim with

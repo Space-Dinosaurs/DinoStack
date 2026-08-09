@@ -4,7 +4,7 @@ agent: build
 ---
 # /ds-status
 
-Read-only inspection of the agentic-engineering activation resolver.
+Read-only inspection of the dinostack activation resolver.
 Dumps the resolved global config, project marker, profile, and
 first-activation sentinel state. Writes nothing. Always exits 0.
 
@@ -27,7 +27,7 @@ No subcommands, no flags. Reads:
 ## Output
 
 ```
-agentic-engineering status
+dinostack status
   global config: /Users/<you>/.claude/agentic-engineering.json (found)
   mode: opt-out (source: global config)
   profile: default (source: global)

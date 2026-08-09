@@ -2,11 +2,11 @@
 description: "View and change methodology settings (profile, mode, .agentic/config.json toggles) with guided prompts."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-config
 
-Interactive command to view and change agentic-engineering settings in-session.
+Interactive command to view and change dinostack settings in-session.
 Reads the current resolved state, prompts for which setting to change and the
 new value, writes the correct file, and confirms what changed and when it takes
 effect.

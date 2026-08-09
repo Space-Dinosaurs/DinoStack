@@ -1,1 +1,1 @@
-{"adapter":"codex","binding":{"kind":"repo-relative","path":".codex/skills"},"magic":"DINOSTACK_CODEX_SKILL_ROOT","schema_version":1,"skills":["agentic-engineering","brief","wrap","implement-ticket"]}
+{"adapter":"codex","binding":{"kind":"repo-relative","path":".codex/skills"},"magic":"DINOSTACK_CODEX_SKILL_ROOT","schema_version":1,"skills":["dinostack","brief","wrap","implement-ticket"]}

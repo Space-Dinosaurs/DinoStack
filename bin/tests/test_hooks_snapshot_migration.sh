@@ -3,7 +3,7 @@
 #          4 in-scope adapters (.claude, .codex, .gemini, .kimi). Seeds each
 #          adapter's config with an OLD checkout-pointing hook entry plus one
 #          unrelated third-party hook entry, runs the real install.sh with a
-#          fake $HOME, and asserts: every agentic-engineering hook entry now
+#          fake $HOME, and asserts: every dinostack hook entry now
 #          points at the hooks snapshot (not the checkout), the third-party
 #          entry survives byte-for-byte, and a second run is a no-op.
 #
@@ -191,8 +191,8 @@ cat > "$HOME_CLAUDE_UNINSTALL/.claude/settings.json" <<'EOF'
   "hooks": {
     "UserPromptSubmit": [
       {"matcher": "*", "hooks": [
-        {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If agentic-engineering is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. When in doubt, classify Elevated.'", "timeout": 5},
-        {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If agentic-engineering is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. When in doubt, classify Elevated.'", "timeout": 5},
+        {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If dinostack is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. When in doubt, classify Elevated.'", "timeout": 5},
+        {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If dinostack is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. When in doubt, classify Elevated.'", "timeout": 5},
         {"type": "command", "command": "python3 /opt/security/prompt-scan.py", "timeout": 10}
       ]}
     ]

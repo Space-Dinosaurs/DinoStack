@@ -26,7 +26,7 @@ Performance: Standard.
 # Role-model routing on Pi / oh-my-pi
 
 Per-role and per-reviewer model assignment for Pi and oh-my-pi harnesses.
-Lets the operator pin a different model for each agentic-engineering role
+Lets the operator pin a different model for each dinostack role
 and force the adversarial reviewer to run on a model that is NOT the one
 that wrote the code under review. Available only when the harness is Pi or
 oh-my-pi; Claude / Codex / Cursor / Gemini ignore this layer entirely.
@@ -58,7 +58,7 @@ harnesses.
 
 ## Set up in three steps
 
-1. **Install the agentic-engineering methods.** If you have not already,
+1. **Install the dinostack methods.** If you have not already,
    follow `docs/safe-configuration.md` and run
    `bash bootstrap.sh` (or your harness-native install path). This puts
    `bin/ds-configure` and `bin/ds-models` on your PATH.

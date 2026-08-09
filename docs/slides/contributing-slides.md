@@ -252,7 +252,7 @@ Never edit generated files directly - the pre-commit hook or CI will overwrite t
 
 11 adapters ship build scripts: `.claude/`, `.codex/`, `.copilot/`, `.cursor/`, `.gemini/`, `.hermes/`, `.kimi/`, `.omp/`, `.openclaw/`, `.opencode/`, `.pi/`. Each `build.sh` transforms `content/` into the tool's native format.
 
-- **`.claude/build.sh`** - prepends the `/agentic-engineering` prerequisite to commands; symlinks rules, references, agents directly into `content/`
+- **`.claude/build.sh`** - prepends the `/dinostack` prerequisite to commands; symlinks rules, references, agents directly into `content/`
 - **`.cursor/build.sh`** - combines YAML frontmatter sidecars with rule content to produce `.mdc` files; copies references and commands
 - **Other adapters** - each converts content into their tool's format per that tool's conventions
 

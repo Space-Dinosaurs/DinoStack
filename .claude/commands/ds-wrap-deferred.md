@@ -2,7 +2,7 @@
 description: "Non-interactive single-pass session enrichment invoked by the deferred-wrap daemon; not for direct use."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-wrap-deferred - Non-Interactive Single-Pass Session Enrichment
 

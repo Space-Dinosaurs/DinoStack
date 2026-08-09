@@ -2,7 +2,7 @@
 description: "Interactive planning dialogue that produces a Brief artifact before architects and engineers are spawned. /ds-brief --from <path> extracts a Brief from an existing PRD."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-brief
 

@@ -4,7 +4,7 @@ set -euo pipefail
 # =============================================================================
 # Module Manifest
 #
-# Purpose: Install agentic-engineering into per-tenant PROFILE config dirs
+# Purpose: Install dinostack into per-tenant PROFILE config dirs
 #          (e.g. ~/.claude-<tenant>, ~/.codex-<tenant>) across the claude/codex/
 #          omp/pi harnesses, plus the single global Cursor install. Each
 #          harness install.sh is invoked with --config-dir pointed at the

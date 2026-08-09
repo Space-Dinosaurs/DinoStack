@@ -11,7 +11,7 @@ Before executing this skill, resolve the physical directory containing this load
 (follow the installed skill-directory symlink) and bind it as `AE_SKILL_ROOT`. Set
 `AE_CORE_SKILL_ROOT` to `resources` beneath that physical root and validate its
 `.dinostack-skill.json` marker has `magic=DINOSTACK_CODEX_SKILL`, `adapter=codex`,
-`name=agentic-engineering`, and `schema_version=1`. Resolve every logical resource through
+`name=dinostack`, and `schema_version=1`. Resolve every logical resource through
 the adjacent `RESOURCE-MAP.json`; reject missing, escaping, symlink-loop, or wrong-type targets.
 Derive `AE_REPO_DIR` from the validated core marker plus its mapped `bin` resource and require the
 repository signature (`content/SKILL.md`, `.codex`, and the dispatch helper); never fall back to

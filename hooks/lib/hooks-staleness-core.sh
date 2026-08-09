@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Purpose: Adapter-neutral core for the "hooks snapshot needs attention"
-#          SessionStart nudge (DS-54). Resolves the agentic-engineering clone
+#          SessionStart nudge (DS-54). Resolves the dinostack clone
 #          dir the same way version-check-core.sh does, then classifies the
 #          methodology checkout's hook-snapshot state into one of four states
 #          and prints at most one line describing it. Never touches the
@@ -77,7 +77,7 @@ meta_file="${snapshot_dir:+$snapshot_dir/.snapshot-meta.json}"
 
 # --- never_migrated: snapshot dir or its metadata is absent ---
 if [[ -z "$snapshot_dir" ]] || [[ ! -d "$snapshot_dir" ]] || [[ -z "$meta_file" ]] || [[ ! -f "$meta_file" ]]; then
-  echo "agentic-engineering: hooks are not yet snapshotted - a bare 'git pull' can silently change a live session's hook behavior. Run install.sh to enable the session-stable hooks snapshot."
+  echo "dinostack: hooks are not yet snapshotted - a bare 'git pull' can silently change a live session's hook behavior. Run install.sh to enable the session-stable hooks snapshot."
   exit 0
 fi
 
@@ -121,7 +121,7 @@ if [[ "$_half_applied" == "false" ]] && [[ -L "$_codex_hooks_json" ]]; then
 fi
 
 if [[ "$_half_applied" == "true" ]]; then
-  echo "agentic-engineering: hooks snapshot is partially applied - one or more adapters still point at the checkout. Re-run install.sh for the affected adapter(s)."
+  echo "dinostack: hooks snapshot is partially applied - one or more adapters still point at the checkout. Re-run install.sh for the affected adapter(s)."
   exit 0
 fi
 
@@ -146,7 +146,7 @@ if [[ -n "$_meta_hash" ]]; then
     "$ae_repo_dir/.kimi/hooks" 2>/dev/null || echo "")"
 
   if [[ -n "$_live_hash" ]] && [[ "$_live_hash" != "$_meta_hash" ]]; then
-    echo "agentic-engineering: hook scripts changed since the last snapshot sync. Run install.sh (or /ds-update) to refresh the live session's hooks."
+    echo "dinostack: hook scripts changed since the last snapshot sync. Run install.sh (or /ds-update) to refresh the live session's hooks."
   fi
 fi
 

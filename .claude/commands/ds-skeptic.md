@@ -2,7 +2,7 @@
 description: "Run the adversarial review loop on a diff or artifact (findings classified Critical/Major/Minor)."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-skeptic - The Skeptic Protocol Invocation
 

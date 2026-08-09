@@ -50,14 +50,14 @@ Performance: Standard (single file write + optional binary shell-out).
 
    **Sentinel body (exactly three lines, plain text):**
    ```
-   # agentic-engineering: first-activation notice has been shown for this project.
+   # dinostack: first-activation notice has been shown for this project.
    # Deleting this file re-arms the notice only; it does not change activation state.
    # To opt out, use /ds-disable.
    ```
 
    **Notice text (verbatim, single line, printed to stdout when create succeeds):**
    ```
-   agentic-engineering: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>). Run /ds-status to inspect, /ds-disable to opt out.
+   dinostack: active (mode=<mode>, marker=<marker or 'none'>, profile=<profile>). Run /ds-status to inspect, /ds-disable to opt out.
    ```
    Values come from the resolver outputs of Steps 1-3.
 

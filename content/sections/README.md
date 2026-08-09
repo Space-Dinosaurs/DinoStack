@@ -1,5 +1,5 @@
 <!--
-Purpose: Documents the section-file authoring contract for the agentic-engineering
+Purpose: Documents the section-file authoring contract for the dinostack
          methodology. Section files in this directory are the source of truth;
          the assembled METHODOLOGY.md (in adapter directories) is a build artifact.
 
@@ -21,7 +21,7 @@ Performance: N/A.
 
 # content/sections/
 
-This directory holds the source-of-truth body of the agentic-engineering methodology, split into one file per top-level (`##`) section. The assembled METHODOLOGY.md that ships in each harness adapter is a build artifact - never edit it directly. Edit the section files here, then re-run the relevant adapter's build.sh.
+This directory holds the source-of-truth body of the dinostack methodology, split into one file per top-level (`##`) section. The assembled METHODOLOGY.md that ships in each harness adapter is a build artifact - never edit it directly. Edit the section files here, then re-run the relevant adapter's build.sh.
 
 ## Naming convention
 
@@ -76,7 +76,7 @@ If you are on the Wave-1 branch, do NOT run those adapter builds. Wave 2 (Codex/
 
 ## Existing-installation upgrade path
 
-If you previously installed the agentic-engineering skill (via `bash .claude/install.sh`), your `~/.claude/CLAUDE.md` contains a managed block with `@skills/agentic-engineering/METHODOLOGY.md`. After pulling Wave 1, that import points at a deleted file. Re-run `bash .claude/install.sh` once - the script's regex sub rewrites the managed block to import `@skills/agentic-engineering/METHODOLOGY.md` cleanly. The skill directory itself is symlinked from the repo, so its content updates automatically on `git pull`; only the `@`-import line in `CLAUDE.md` is stale until install re-runs.
+If you previously installed the dinostack skill (via `bash .claude/install.sh`), your `~/.claude/CLAUDE.md` contains a managed block with `@skills/dinostack/METHODOLOGY.md`. After pulling Wave 1, that import points at a deleted file. Re-run `bash .claude/install.sh` once - the script's regex sub rewrites the managed block to import `@skills/dinostack/METHODOLOGY.md` cleanly. The skill directory itself is symlinked from the repo, so its content updates automatically on `git pull`; only the `@`-import line in `CLAUDE.md` is stale until install re-runs.
 
 ## Baseline SHA semantics
 

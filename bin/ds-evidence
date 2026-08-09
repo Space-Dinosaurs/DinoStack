@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 r"""
-Purpose: Evidence spill/sketch/rehydrate CLI for the agentic-engineering
+Purpose: Evidence spill/sketch/rehydrate CLI for the dinostack
          methodology. Ingest raw tool output (bash, rg, curl, ...) into
          versioned node files under <git-root>/.agentic/evidence/n<seq>.md,
          sketch the node set, and rehydrate individual nodes byte-exact.
@@ -322,7 +322,7 @@ def main(argv: list[str]) -> int:
     parser = argparse.ArgumentParser(
         prog="ds-evidence",
         description=(
-            "Evidence spill/sketch/rehydrate CLI for the agentic-engineering "
+            "Evidence spill/sketch/rehydrate CLI for the dinostack "
             "methodology."
         ),
     )

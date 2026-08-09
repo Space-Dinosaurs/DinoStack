@@ -25,7 +25,7 @@ REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SKILLS_SRC="$REPO_DIR/.codex/skills"
 SKILLS_DST="$HOME/.agents/skills"
 LEGACY_SKILL_SRC="$REPO_DIR/.codex/skill"
-SKILL_NAMES=(agentic-engineering brief wrap implement-ticket)
+SKILL_NAMES=(dinostack brief wrap implement-ticket)
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
 AGENTS_DST="$HOME/.codex/AGENTS.md"
@@ -40,7 +40,7 @@ HOOKS_DST="$HOME/.codex/hooks.json"
 
 CONFIG_FILE="$HOME/.codex/config.toml"
 HOOKS_FLAG_MARKER="$HOME/.codex/.agentic-eng-added-codex-hooks-flag"
-LEGACY_PROMPTS_OLD_SRC_PREFIX="$HOME/agentic-engineering/.codex/prompts"
+LEGACY_PROMPTS_OLD_SRC_PREFIX="$HOME/dinostack/.codex/prompts"
 LEGACY_PROMPTS_DST="$HOME/.codex/prompts"
 
 canonicalize_path() {
@@ -70,7 +70,7 @@ for skill_name in "${SKILL_NAMES[@]}"; do
   if [[ -L "$skill_dst" ]]; then
     current_target="$(readlink "$skill_dst")"
     if [[ "$current_target" == "$skill_src" || \
-          ( "$skill_name" == "agentic-engineering" && "$current_target" == "$LEGACY_SKILL_SRC" ) ]]; then
+          ( "$skill_name" == "dinostack" && "$current_target" == "$LEGACY_SKILL_SRC" ) ]]; then
       rm "$skill_dst"
       echo "  - $skill_name skill symlink removed from $skill_dst"
     else
@@ -90,7 +90,7 @@ for skill_name in "${SKILL_NAMES[@]}"; do
   if [[ -L "$old_skill_dst" ]]; then
     old_target="$(readlink "$old_skill_dst")"
     if [[ "$old_target" == "$skill_src" || \
-          ( "$skill_name" == "agentic-engineering" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
+          ( "$skill_name" == "dinostack" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
       rm "$old_skill_dst"
       echo "  - Removed stale legacy symlink at $old_skill_dst"
     fi

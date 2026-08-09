@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Purpose: Non-interactive CLI writer for agentic-engineering methodology
+Purpose: Non-interactive CLI writer for dinostack methodology
          settings. Accepts a setting name, value, and optional scope flag,
          validates the pair, and atomically writes to the appropriate target
          file (~/.claude/agentic-engineering.json, .agentic/config.json, or

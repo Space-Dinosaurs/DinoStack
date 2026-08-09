@@ -48,7 +48,7 @@ node_modules/
 
 # Generated Kimi per-command skills (built by .kimi/build.sh from content/commands/)
 .kimi/skills/*/
-!.kimi/skills/agentic-engineering/
+!.kimi/skills/dinostack/
 
 # AI assistant adapter directories (local-only, not committed)
 .agents/

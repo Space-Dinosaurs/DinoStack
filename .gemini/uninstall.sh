@@ -139,7 +139,7 @@ for block in ba_list:
             e for e in block.get("hooks", [])
             if not (
                 e.get("name") == "risk-reminder" or
-                ("risk-reminder.sh" in e.get("command", "") and "agentic-engineering" in e.get("command", ""))
+                ("risk-reminder.sh" in e.get("command", "") and "dinostack" in e.get("command", ""))
             )
         ]
         if len(block["hooks"]) < original_len:
@@ -160,7 +160,7 @@ for block in se_list:
             e for e in block.get("hooks", [])
             if not (
                 e.get("name") == "stop-context" or
-                ("stop-context-gemini.js" in e.get("command", "") and "agentic-engineering" in e.get("command", ""))
+                ("stop-context-gemini.js" in e.get("command", "") and "dinostack" in e.get("command", ""))
             )
         ]
         if len(block["hooks"]) < original_len:
@@ -177,7 +177,7 @@ if not hooks:
     changed = True
 
 if not changed:
-    print("  = No agentic-engineering hooks found in settings.json")
+    print("  = No dinostack hooks found in settings.json")
 else:
     with open(settings_path, "w") as f:
         json.dump(settings, f, indent=2)

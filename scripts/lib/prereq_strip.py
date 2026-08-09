@@ -1,5 +1,5 @@
 """
-Purpose: Shared utility that strips the agentic-engineering prerequisite
+Purpose: Shared utility that strips the dinostack prerequisite
          blockquote from markdown content before it is written to an adapter
          output file. Centralises the single-source regex so all python-using
          adapters (opencode, openclaw, hermes) call one implementation.

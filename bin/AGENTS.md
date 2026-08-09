@@ -1,6 +1,6 @@
 # bin/
 
-Sixteen CLI entry points (13 Python, 1 Bash, 2 Node) that the agentic-engineering
+Sixteen CLI entry points (13 Python, 1 Bash, 2 Node) that the dinostack
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description

@@ -525,7 +525,7 @@ const productionImporterIgnoredDirectories = new Set([
   'tests',
 ]);
 const productionImporterIgnoredMirrorDirectories = new Set([
-  '.codex/skills/agentic-engineering/hooks',
+  '.codex/skills/dinostack/hooks',
   '.codex/skills/brief/resources/hooks',
   '.codex/skills/implement-ticket/resources/hooks',
   '.codex/skills/wrap/resources/hooks',
@@ -804,17 +804,17 @@ function testImporterScannerExactRegressions() {
     );
     fs.symlinkSync(fixtureRoot, path.join(fixtureRoot, 'tests/symlink-target/cycle'), 'dir');
     fs.mkdirSync(
-      path.join(fixtureRoot, '.codex/skills/agentic-engineering'),
+      path.join(fixtureRoot, '.codex/skills/dinostack'),
       { recursive: true }
     );
     fs.symlinkSync(
       '../../../hooks',
-      path.join(fixtureRoot, '.codex/skills/agentic-engineering/hooks'),
+      path.join(fixtureRoot, '.codex/skills/dinostack/hooks'),
       'dir'
     );
     fs.mkdirSync(path.join(fixtureRoot, '.codex/skills/brief'), { recursive: true });
     fs.symlinkSync(
-      '../agentic-engineering',
+      '../dinostack',
       path.join(fixtureRoot, '.codex/skills/brief/resources'),
       'dir'
     );
@@ -878,7 +878,7 @@ function testImporterScannerExactRegressions() {
     assert(
       fixtureConsumers.includes('.codex/skills/independent-consumer/importer.cjs')
         && !fixtureConsumers.some(
-          (consumer) => consumer.startsWith('.codex/skills/agentic-engineering/hooks/')
+          (consumer) => consumer.startsWith('.codex/skills/dinostack/hooks/')
             || consumer.startsWith('.codex/skills/brief/resources/hooks/')
         )
         && fixtureConsumers.includes('linked-production/linked.js'),

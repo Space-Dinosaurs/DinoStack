@@ -118,7 +118,7 @@ echo "Rebuilt references/ hardlinks"
 #   description = "<first non-empty non-header line from body>"
 #   prompt = """<full markdown body>"""
 #
-# The /agentic-engineering prerequisite blockquote is NOT added here -
+# The /dinostack prerequisite blockquote is NOT added here -
 # it is Claude Code-specific and never appears in content/commands/*.md.
 #
 # If the command body contains any """ sequences, they are escaped as \"\"\"

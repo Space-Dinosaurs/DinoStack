@@ -45,7 +45,7 @@ from unittest import mock
 REPO = Path(__file__).resolve().parents[2]
 GENERATOR = Path("scripts/codex-skills.py")
 PROMPT_GENERATOR = Path(".codex/lib/prompt-wrappers.py")
-SKILL_NAMES = {"agentic-engineering", "brief", "wrap", "implement-ticket"}
+SKILL_NAMES = {"dinostack", "brief", "wrap", "implement-ticket"}
 ROOT_MARKER = ".dinostack-generated-root.json"
 
 
@@ -271,7 +271,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
             ("skill body", ".codex/skills/brief/SKILL.md", "file"),
             ("marker", ".codex/skills/wrap/.dinostack-skill.json", "file"),
             ("resource map", ".codex/skills/implement-ticket/RESOURCE-MAP.json", "file"),
-            ("core resource link", ".codex/skills/agentic-engineering/rules", "link"),
+            ("core resource link", ".codex/skills/dinostack/rules", "link"),
             ("workflow resource link", ".codex/skills/brief/resources", "link"),
         )
         for label, relative, kind in mutations:
@@ -397,7 +397,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
 
     def test_unexpected_paths_fail_then_build_prunes_and_repairs(self) -> None:
         stale_file = self.repo / ".codex/skills/stale.txt"
-        stale_directory = self.repo / ".codex/skills/agentic-engineering/stale"
+        stale_directory = self.repo / ".codex/skills/dinostack/stale"
         stale_file.write_text("stale", encoding="utf-8")
         stale_directory.mkdir()
         (stale_directory / "old.txt").write_text("old", encoding="utf-8")
@@ -457,7 +457,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
     def test_project_local_paths_keep_invoked_project_scope(self) -> None:
         wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
         ticket = (self.repo / ".codex/skills/implement-ticket/SKILL.md").read_text(encoding="utf-8")
-        core = (self.repo / ".codex/skills/agentic-engineering/SKILL.md").read_text(encoding="utf-8")
+        core = (self.repo / ".codex/skills/dinostack/SKILL.md").read_text(encoding="utf-8")
         for path in (
             ".claude/settings.json",
             ".claude/settings.local.json",
@@ -952,7 +952,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         ticket = (self.repo / ".codex/skills/implement-ticket/SKILL.md").read_text(encoding="utf-8")
         wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
         methodology = (
-            self.repo / ".codex/skills/agentic-engineering/METHODOLOGY.md"
+            self.repo / ".codex/skills/dinostack/METHODOLOGY.md"
         ).read_text(encoding="utf-8")
         self.assertIn('task -> "Task"; omit to accept project default', ticket)
         self.assertIn("### Task-state initialization", ticket)
@@ -1100,9 +1100,9 @@ class CodexSkillGenerationTests(unittest.TestCase):
 
     def test_dispatch_rejects_escaping_and_wrong_type_descriptors(self) -> None:
         dispatcher = self.repo / "bin/agentic-codex-dispatch"
-        map_path = self.repo / ".codex/skills/agentic-engineering/RESOURCE-MAP.json"
+        map_path = self.repo / ".codex/skills/dinostack/RESOURCE-MAP.json"
         original = map_path.read_bytes()
-        hostile = self.repo / ".codex/skills/agentic-engineering/dispatch-fifo"
+        hostile = self.repo / ".codex/skills/dinostack/dispatch-fifo"
         cases = (
             ("absolute", {"path": str((Path(self.temporary.name) / "outside").resolve()), "type": "file"}),
             ("traversal", {"path": "../../../../outside", "type": "file"}),
@@ -1151,7 +1151,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
             str(requested),
         )
         self.assertIn(str((physical / "skills").resolve()), result.stdout)
-        self.assertTrue((physical / "skills/agentic-engineering/SKILL.md").is_file())
+        self.assertTrue((physical / "skills/dinostack/SKILL.md").is_file())
 
     def test_default_and_explicit_symlinked_output_roots_are_rejected_without_target_mutation(
         self,
@@ -1606,7 +1606,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.assertEqual([], offenders)
         readme = (self.repo / ".codex/README.md").read_text(encoding="utf-8")
         self.assertIn("exactly four native Codex skills", readme)
-        self.assertIn("~/.agents/skills/agentic-engineering", readme)
+        self.assertIn("~/.agents/skills/dinostack", readme)
         self.assertIn("~/.agents/skills/brief", readme)
         self.assertIn("~/.agents/skills/wrap", readme)
         self.assertIn("~/.agents/skills/implement-ticket", readme)
@@ -1621,7 +1621,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
             "docs/index.html",
         )
         inventory = (
-            "exactly four native Codex skills: agentic-engineering, brief, wrap, "
+            "exactly four native Codex skills: dinostack, brief, wrap, "
             "and implement-ticket."
         )
         forbidden = (
@@ -1926,7 +1926,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
                     path.is_symlink()
                     and path.relative_to(self.repo).as_posix()
                     == (
-                        ".codex/skills/agentic-engineering/templates/.agentic/"
+                        ".codex/skills/dinostack/templates/.agentic/"
                         "skill-candidates.md"
                     )
                 ):
@@ -1969,7 +1969,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
                     )
         self.assertEqual([], offenders)
         preamble = (
-            self.repo / ".codex/skills/agentic-engineering/SKILL.md"
+            self.repo / ".codex/skills/dinostack/SKILL.md"
         ).read_text(encoding="utf-8")
         self.assertIn(
             "supported inputs (`task_name`, `message`, and `fork_turns`)",
@@ -2157,10 +2157,10 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.addCleanup(sys.modules.pop, module_name, None)
         spec.loader.exec_module(module)
 
-        resource_map = module.resource_map("agentic-engineering", "inventory-hash")
+        resource_map = module.resource_map("dinostack", "inventory-hash")
         resources = resource_map["resources"]
         manifest_descriptor = resources["project-scaffolding.yml"]
-        skill_root = self.repo / ".codex/skills/agentic-engineering"
+        skill_root = self.repo / ".codex/skills/dinostack"
         manifest = skill_root / manifest_descriptor["path"]
         self.assertTrue(manifest.is_file())
         seeds = re.findall(
@@ -2498,7 +2498,7 @@ class CodexPromptWrapperTests(unittest.TestCase):
         self.assertEqual(sorted(inventory), inventory)
         self.assertNotIn("ds-wrap-deferred", inventory)
         self.assertEqual(
-            {"agentic-engineering", "brief", "wrap", "implement-ticket", ROOT_MARKER},
+            {"dinostack", "brief", "wrap", "implement-ticket", ROOT_MARKER},
             {entry.name for entry in (self.repo / ".codex/skills").iterdir()},
         )
         prompts = self.repo / ".codex/prompts"
@@ -2513,7 +2513,7 @@ class CodexPromptWrapperTests(unittest.TestCase):
                 f"description: Run DinoStack workflow {name}\n"
                 'argument-hint: "[arguments]"\n'
                 "---\n"
-                "Use the `$agentic-engineering` skill. From that loaded skill's physical root, "
+                "Use the `$dinostack` skill. From that loaded skill's physical root, "
                 f"read and execute the canonical `commands/{name}.md` workflow with these arguments:\n\n"
                 "$ARGUMENTS\n"
             )

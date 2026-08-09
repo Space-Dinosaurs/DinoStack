@@ -77,7 +77,7 @@ ds-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-v
 
 `ds-migrate` resolves the manifest in this order (first found wins):
 1. `AGENTIC_MANIFEST_PATH` env var
-2. `~/.claude/skills/agentic-engineering/project-scaffolding.yml`
+2. `~/.claude/skills/dinostack/project-scaffolding.yml`
 3. `<script_dir>/../content/project-scaffolding.yml` (dev path)
 
 ## Exit codes from ds-migrate

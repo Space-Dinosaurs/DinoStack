@@ -432,7 +432,7 @@
 - **#271** [strip maintainer eval-harness internals from public MEMORY.md](https://github.com/Space-Dinosaurs/DinoStack/pull/271) - tyson-solara6
 - **#252** [rebuild .openclaw to sync clone-dir refs](https://github.com/Space-Dinosaurs/DinoStack/pull/252) - tyson-solara6
 - **#251** [enforce docs/planning gitignore via tracked-file guard](https://github.com/Space-Dinosaurs/DinoStack/pull/251) - tyson-solara6
-- **#237** [update remaining clone-dir refs from agentic-engineering to DinoStack](https://github.com/Space-Dinosaurs/DinoStack/pull/237) - tyson-solara6
+- **#237** [update remaining clone-dir refs from dinostack to DinoStack](https://github.com/Space-Dinosaurs/DinoStack/pull/237) - tyson-solara6
 
 ### Uncategorized
 
@@ -495,13 +495,13 @@
 
 ### Maintenance
 
-- **#232** [standardize repo checkout dir to DinoStack (from agentic-engineering)](https://github.com/Space-Dinosaurs/DinoStack/pull/232) - tyson-solara6
+- **#232** [standardize repo checkout dir to DinoStack (from dinostack)](https://github.com/Space-Dinosaurs/DinoStack/pull/232) - tyson-solara6
 
 ## 2026-06-14
 
 ### Documentation
 
-- **#226** [trim and relocate the DinoStack/agentic-engineering naming note](https://github.com/Space-Dinosaurs/DinoStack/pull/226) - tyson-solara6
+- **#226** [trim and relocate the DinoStack/dinostack naming note](https://github.com/Space-Dinosaurs/DinoStack/pull/226) - tyson-solara6
 
 ### Maintenance
 
@@ -527,7 +527,7 @@
 
 ### Documentation
 
-- **#222** [clarify DinoStack brand vs agentic-engineering package naming](https://github.com/Space-Dinosaurs/DinoStack/pull/222) - tyson-solara6
+- **#222** [clarify DinoStack brand vs dinostack package naming](https://github.com/Space-Dinosaurs/DinoStack/pull/222) - tyson-solara6
 - **#221** [recategorize commands + restack panels](https://github.com/Space-Dinosaurs/DinoStack/pull/221) - tyson-solara6
 - **#217** [add capture-classification.md [U1]](https://github.com/Space-Dinosaurs/DinoStack/pull/217) - tyson-solara6
 - **#216** [fix staleness across 14 decks + reorder deck index for learner flow](https://github.com/Space-Dinosaurs/DinoStack/pull/216) - tyson-solara6
@@ -573,7 +573,7 @@
 - **#195** [track session-log + add commit_telemetry toggle [DS-15 unit 1]](https://github.com/Space-Dinosaurs/DinoStack/pull/195) - tyson-solara6
 - **#190** [fix stale Live-docs URL -> docs.dinostack.ai](https://github.com/Space-Dinosaurs/DinoStack/pull/190) - tyson-solara6
 - **#188** [fix bare-slug repo refs in AGENTS.md + MEMORY.md [DS-13]](https://github.com/Space-Dinosaurs/DinoStack/pull/188) - tyson-solara6
-- **#187** [update repo URLs agentic-engineering -> DinoStack [DS-13]](https://github.com/Space-Dinosaurs/DinoStack/pull/187) - tyson-solara6
+- **#187** [update repo URLs dinostack -> DinoStack [DS-13]](https://github.com/Space-Dinosaurs/DinoStack/pull/187) - tyson-solara6
 
 ## 2026-06-11
 
@@ -601,7 +601,7 @@
 
 ### Uncategorized
 
-- **#181** [Rename docs hub page agentic-engineering.html → index.html](https://github.com/Space-Dinosaurs/DinoStack/pull/181) - howdiz
+- **#181** [Rename docs hub page dinostack.html → index.html](https://github.com/Space-Dinosaurs/DinoStack/pull/181) - howdiz
 
 ## 2026-06-07
 
@@ -665,7 +665,7 @@
 
 ### Uncategorized
 
-- **#155** [Configuration discoverability for agentic-engineering](https://github.com/Space-Dinosaurs/DinoStack/pull/155) - tristanlee85
+- **#155** [Configuration discoverability for dinostack](https://github.com/Space-Dinosaurs/DinoStack/pull/155) - tristanlee85
 
 ## 2026-05-31
 
@@ -773,7 +773,7 @@
 ### Documentation
 
 - **#115** [correct expected-title string in deploy runbook smoke test](https://github.com/Space-Dinosaurs/DinoStack/pull/115) - tyson-solara6
-- **#111** [add ecosystem comparison section to agentic-engineering.html](https://github.com/Space-Dinosaurs/DinoStack/pull/111) - tyson-solara6
+- **#111** [add ecosystem comparison section to dinostack.html](https://github.com/Space-Dinosaurs/DinoStack/pull/111) - tyson-solara6
 
 ## 2026-05-18
 

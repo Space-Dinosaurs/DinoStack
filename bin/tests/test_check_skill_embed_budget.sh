@@ -126,12 +126,12 @@ fi
 #     real gate script and the shared lib it sources), content/sections/
 #     and content/rules/ (stub source files satisfying the embed-
 #     completeness check - see the fixture design note above), and
-#     .claude/skills/agentic-engineering/SKILL.md embedding every stub's
+#     .claude/skills/dinostack/SKILL.md embedding every stub's
 #     heading, padded to a controlled total size.
 # $1 = fixture dir; $2 = SKILL.md byte count.
 build_fixture() {
   local dir="$1" skill_bytes="$2"
-  mkdir -p "$dir/scripts/lib" "$dir/.claude/skills/agentic-engineering" \
+  mkdir -p "$dir/scripts/lib" "$dir/.claude/skills/dinostack" \
     "$dir/content/sections" "$dir/content/rules"
 
   cp "$GATE_SCRIPT" "$dir/scripts/check-skill-embed-budget.sh"
@@ -172,7 +172,7 @@ if pad_len < 0:
     )
     sys.exit(1)
 
-skill_path = os.path.join(fixture_dir, '.claude', 'skills', 'agentic-engineering', 'SKILL.md')
+skill_path = os.path.join(fixture_dir, '.claude', 'skills', 'dinostack', 'SKILL.md')
 with open(skill_path, 'w') as f:
     f.write(header_block)
     f.write('x' * pad_len)
@@ -300,7 +300,7 @@ build_fixture "$DROPPED_HEADING_DIR" "$midpoint2"
 # live-verified defect (a build-loop exclusion) rather than a count
 # mismatch.
 python3 -c "
-path = '$DROPPED_HEADING_DIR/.claude/skills/agentic-engineering/SKILL.md'
+path = '$DROPPED_HEADING_DIR/.claude/skills/dinostack/SKILL.md'
 with open(path) as f:
     lines = f.readlines()
 lines = [l for l in lines if l.strip() != '## Section 1']

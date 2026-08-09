@@ -2,7 +2,7 @@
 set -euo pipefail
 
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILL_DST="$HOME/.omp/agent/skills/agentic-engineering"
+SKILL_DST="$HOME/.omp/agent/skills/dinostack"
 AE_CONFIG_PATH="$HOME/.claude/agentic-engineering.json"
 
 removed=()
@@ -29,7 +29,7 @@ echo "Uninstalling Pi (oh-my-pi) adapter..."
 
 # Remove global skill directory/symlink
 if [[ -L "$SKILL_DST" ]]; then
-  remove_if_ours "$SKILL_DST" "$REPO_DIR/.omp/skills/agentic-engineering"
+  remove_if_ours "$SKILL_DST" "$REPO_DIR/.omp/skills/dinostack"
 elif [[ -d "$SKILL_DST" ]]; then
   # Remove copied SKILL.md
   if [[ -f "$SKILL_DST/SKILL.md" ]]; then

@@ -3,9 +3,9 @@
 # Public API: invoked as `bash .claude/build.sh`; idempotent.
 # Upstream deps: content/commands/, content/references/, content/rules/, content/sections/,
 #               content/SKILL.md, content/project-scaffolding.yml, content/templates/,
-#               scripts/build-methodology.sh, .claude/skills/agentic-engineering/SKILL.frontmatter.yaml,
+#               scripts/build-methodology.sh, .claude/skills/dinostack/SKILL.frontmatter.yaml,
 #               .claude/commands.frontmatter/ (optional per-command frontmatter sidecars).
-# Downstream consumers: .claude/commands/, .claude/skills/agentic-engineering/{SKILL.md,METHODOLOGY.md,references/,
+# Downstream consumers: .claude/commands/, .claude/skills/dinostack/{SKILL.md,METHODOLOGY.md,references/,
 #                       project-scaffolding.yml,templates/}.
 # Failure modes: exits non-zero on missing inputs, broken hardlinks, or assembly script failure.
 # Side-effects: removes stale .claude/commands/*.md files whose basename no longer matches any
@@ -20,10 +20,10 @@ set -euo pipefail
 REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 CONTENT="$REPO_DIR/content"
 COMMANDS_DST="$REPO_DIR/.claude/commands"
-SKILL_DST="$REPO_DIR/.claude/skills/agentic-engineering"
+SKILL_DST="$REPO_DIR/.claude/skills/dinostack"
 REFS_DST="$SKILL_DST/references"
 
-PREREQ='> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.'
+PREREQ='> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.'
 
 # Portable inode helper (macOS uses -f, Linux uses -c)
 get_inode() {

@@ -25,7 +25,7 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
 
 - **If `mode=opt-in`**: prompt the user before doing any scaffolding:
 
-  > "agentic-engineering is installed in opt-in mode. Activate it for this project? [Y/n]"
+  > "dinostack is installed in opt-in mode. Activate it for this project? [Y/n]"
 
   Accept `y` / `yes` / `1` / empty (Enter) as **yes**. Accept `n` / `no` / `2` as **no**.
 
@@ -35,7 +35,7 @@ Read `~/.claude/agentic-engineering.json`. Expected shape: `{ "mode": "opt-out" 
 
   - On **no**: stop `/ds-init-project` here. Print: "Skipped - no scaffolding written. Rerun `/ds-init-project` to activate later, or set `--mode=opt-out` via a reinstall." Exit.
 
-- **If `mode=opt-out`** (default): proceed as today. Do NOT prompt. Mention in the Step 12 summary: "This project will use agentic-engineering by default. To disable it in this project, uncomment the pre-staged `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment)."
+- **If `mode=opt-out`** (default): proceed as today. Do NOT prompt. Mention in the Step 12 summary: "This project will use dinostack by default. To disable it in this project, uncomment the pre-staged `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment)."
 
 - **If the config file is missing or malformed**: treat as `mode=opt-out` and proceed without prompting (back-compat with pre-feature installs).
 
@@ -57,7 +57,7 @@ config file from here.
 
 - If global mode = opt-out (the default): print, as information only (no prompt):
 
-  > This project will use agentic-engineering automatically (global mode is "opt-out":
+  > This project will use dinostack automatically (global mode is "opt-out":
   > active everywhere unless a project opts out). To turn it OFF for THIS project only,
   > uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of
   > AGENTS.md (the scaffolding writes that section with the marker pre-staged as a comment).
@@ -72,7 +72,7 @@ config file from here.
   "[Y/n]" activation prompt (do not duplicate that prompt - it stays as the single mode
   decision):
 
-  > Global mode is "opt-in": agentic-engineering activates only in projects that
+  > Global mode is "opt-in": dinostack activates only in projects that
   > explicitly opt in. The next question asks whether to opt THIS project in (it writes
   > `agentic-engineering: opt-in` to AGENTS.md if you say yes). To change the global
   > default instead, run `/ds-disable --global` after setup.
@@ -333,7 +333,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    If detected, run a Worker+Skeptic split before Step 2a's other items. If NOT detected (both `AGENTS.md` and a non-pointer `CLAUDE.md` exist, or `CLAUDE.md` is already just the import pointer line(s) (`@AGENTS.md` and/or `@MEMORY.md`), or neither exists), skip item 0 entirely and proceed to item 1.
 
    **Main agent pre-work (inline, before spawning Worker):** read the existing root `CLAUDE.md` and classify its content into three buckets:
-   - **agentic** — content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata. This is agentic-engineering's canonical project-instructions surface.
+   - **agentic** — content that belongs in the scaffolded `AGENTS.md`: project description, `## Decisions`, repo structure map, `## Tools`, `## Docs`, `## Conventions`, `## Session start`, tracker metadata. This is dinostack's canonical project-instructions surface.
    - **project-specific-keep** — content the user may want to keep in a Claude-Code-specific file: user-authored prose addressed specifically to Claude Code ("Claude, when you see X, do Y"), Claude Code MCP conventions, or any explicit Claude-only guidance. Residual `CLAUDE.md` content after the split.
    - **stable-facts** — content that reads as "what we learned" or "here is how it works" (detailed rationale paragraphs, implementation details, setup command sequences, decision alternatives considered, dated observations). Destined for `MEMORY.md` per the `- **YYYY-MM-DD:** [what and why]` format described in Step 3.
 
@@ -342,7 +342,7 @@ This step runs only when Step 2 detects an existing configured `AGENTS.md` (upda
    - The three-bucket classification above, with the main agent's pre-classification notes.
    - The target `AGENTS.md` structure (from Step 3 template).
    - Instruction to produce three artifacts:
-     1. **Proposed `AGENTS.md`** — the agentic-engineering canonical file, conforming to the Step 3 structure, populated from the agentic bucket.
+     1. **Proposed `AGENTS.md`** — the dinostack canonical file, conforming to the Step 3 structure, populated from the agentic bucket.
      2. **Residual `CLAUDE.md`** — contains only the project-specific-keep bucket. If this bucket is empty after the split, the Worker must return `CLAUDE.md: empty` so the conductor can replace the file with the `@AGENTS.md` and `@MEMORY.md` import pointers (root `MEMORY.md` is already ensured by this run's Step 8 seeding, so the import resolves).
      3. **`MEMORY.md` additions** — stable-facts bucket formatted as `- **YYYY-MM-DD:** [what and why, one-two sentences]` entries using today's date.
 
@@ -507,7 +507,7 @@ When 3d-pre did NOT fire, the block contains a `## Activation` heading plus the 
 <!-- BEGIN managed-by-agentic-engineering -->
 ## Activation
 <!--
-  agentic-engineering governs how work is done in this project.
+  dinostack governs how work is done in this project.
   Run /ds-status to see the resolved mode, profile, and whether it is active here.
 
   This project is ACTIVE by default. To turn it off for this project only,
@@ -540,13 +540,13 @@ When 3d-pre DID fire, the block omits the `## Activation` heading and the activa
 **`AGENTS.md` template (use for new files):**
 - H1: project name
 - One-paragraph description. If no description was provided, use `<!-- TODO: Add one-paragraph description -->` as the placeholder.
-- `## Activation` section - **always emitted** (every mode, every profile). It is the first section after the description so a reader sees, immediately, that agentic-engineering governs the project and how to inspect or change that. This section is the **single source of placement truth** for the activation and profile markers: Step 0a-mode and Step 3's risk-profile rule both write their active marker lines *into* this section (see "Conditional assembly" below) rather than as bare lines elsewhere. Use HTML comments (`<!-- -->`) for all explanatory text - chosen deliberately over the `#`-prefixed style used by `## PR Workflow` because a leading `#` renders as an H1 heading.
+- `## Activation` section - **always emitted** (every mode, every profile). It is the first section after the description so a reader sees, immediately, that dinostack governs the project and how to inspect or change that. This section is the **single source of placement truth** for the activation and profile markers: Step 0a-mode and Step 3's risk-profile rule both write their active marker lines *into* this section (see "Conditional assembly" below) rather than as bare lines elsewhere. Use HTML comments (`<!-- -->`) for all explanatory text - chosen deliberately over the `#`-prefixed style used by `## PR Workflow` because a leading `#` renders as an H1 heading.
 
   **Base block (emitted verbatim in the common case - global mode `opt-out`, no project profile override):**
   ```markdown
   ## Activation
   <!--
-    agentic-engineering governs how work is done in this project.
+    dinostack governs how work is done in this project.
     Run /ds-status to see the resolved mode, profile, and whether it is active here.
 
     This project is ACTIVE by default. To turn it off for this project only,
@@ -568,7 +568,7 @@ When 3d-pre DID fire, the block omits the `## Activation` heading and the activa
      ## Activation
      agentic-engineering: opt-in
      <!--
-       agentic-engineering governs how work is done in this project.
+       dinostack governs how work is done in this project.
        Run /ds-status to see the resolved mode, profile, and whether it is active here.
 
        This project is opted in (global mode is opt-in). To turn it off for this
@@ -837,7 +837,7 @@ Because `.agentic/` is gitignored, `.agentic/preferences.json` is per-developer 
 
 ### 6d. Seed `~/.agentic/presets.yml` (spawn preset library)
 
-If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `agentic-engineering` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
+If `~/.agentic/presets.yml` does not already exist, copy `content/references/spawn-presets-example.yml` from the `dinostack` install to `~/.agentic/presets.yml`. **Never overwrite** an existing file - if `~/.agentic/presets.yml` is already present, leave it untouched (the user may have edited it).
 
 Resolution order at spawn time (per `content/references/spawn-presets.md`): the conductor reads `.agentic/presets.yml` (project-local) first, merged shallowly over `~/.agentic/presets.yml` (user-global). Project keys win on collision.
 
@@ -934,7 +934,7 @@ Seed with these documented defaults exactly:
 
 ### 6g. Seed `~/.agentic/role-models.yml` (Pi/omp role-model routing)
 
-Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `agentic-engineering` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. The file is gitignored under the `.agentic/` umbrella; do NOT add a `!.agentic/role-models.yml` carve-out to `.gitignore` (it may hold private model handles). Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
+Only when INIT_ROLEMODELS = seed AND `~/.agentic/role-models.yml` does not already exist: copy `content/references/role-models-example.yml` from the `dinostack` install to `~/.agentic/role-models.yml`. **Never overwrite** an existing file. This is a global write (outside the project tree), idempotent. Do NOT seed a project-local `.agentic/role-models.yml` - leave that to the user. The file is gitignored under the `.agentic/` umbrella; do NOT add a `!.agentic/role-models.yml` carve-out to `.gitignore` (it may hold private model handles). Emit info: "Seeded ~/.agentic/role-models.yml - edit it to map roles to the models you have in Pi. See content/references/role-models.md." When INIT_ROLEMODELS = skip, do nothing and emit nothing for this step.
 
 **Storybook version detection** (run as part of Step 0b project discovery, after Web UI detection):
 
@@ -1279,5 +1279,5 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/ds-implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/ds-init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
 13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context.
-14. *(If global mode from Step 0a was `opt-out`)* This project will use agentic-engineering by default. To disable the methodology here without affecting other projects, uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment). *(If global mode was `opt-in` and the user activated)* This project has an active `agentic-engineering: opt-in` line in the `## Activation` section of `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, uncomment and set the `agentic-engineering-profile:` line in the same `## Activation` section (`relaxed`, `default`, or `strict`), then run `/ds-status` to confirm. Project workflow toggles (auto-merge, model profile, debugger-on-failure, and the rest) live in `.agentic/config.json` - edit that file or re-run `/ds-init-project` to change them. Run `/ds-help` for the full command list.
+14. *(If global mode from Step 0a was `opt-out`)* This project will use dinostack by default. To disable the methodology here without affecting other projects, uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment). *(If global mode was `opt-in` and the user activated)* This project has an active `agentic-engineering: opt-in` line in the `## Activation` section of `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, uncomment and set the `agentic-engineering-profile:` line in the same `## Activation` section (`relaxed`, `default`, or `strict`), then run `/ds-status` to confirm. Project workflow toggles (auto-merge, model profile, debugger-on-failure, and the rest) live in `.agentic/config.json` - edit that file or re-run `/ds-init-project` to change them. Run `/ds-help` for the full command list.
 """

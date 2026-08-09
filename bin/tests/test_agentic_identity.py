@@ -3457,18 +3457,18 @@ def test_activation_preflight_uses_one_bounded_identity_resolver():
     repo = _BIN_PATH.parent.parent
     paths = [
         repo / "content/sections/01-activation-preflight.md",
-        repo / ".claude/skills/agentic-engineering/METHODOLOGY.md",
+        repo / ".claude/skills/dinostack/METHODOLOGY.md",
         repo / ".codex/AGENTS.md",
-        repo / ".codex/skills/agentic-engineering/METHODOLOGY.md",
+        repo / ".codex/skills/dinostack/METHODOLOGY.md",
         repo / ".cursor/rules/agent-methodology.mdc",
         repo / ".gemini/GEMINI.md",
         repo / ".github/copilot-instructions.md",
         repo / ".hermes/SKILL.md",
         repo / ".kimi/AGENTS.md",
-        repo / ".omp/skills/agentic-engineering/METHODOLOGY.md",
-        repo / ".openclaw/skills/agentic-engineering/METHODOLOGY.md",
-        repo / ".opencode/skills/agentic-engineering/METHODOLOGY.md",
-        repo / ".pi/skills/agentic-engineering/METHODOLOGY.md",
+        repo / ".omp/skills/dinostack/METHODOLOGY.md",
+        repo / ".openclaw/skills/dinostack/METHODOLOGY.md",
+        repo / ".opencode/skills/dinostack/METHODOLOGY.md",
+        repo / ".pi/skills/dinostack/METHODOLOGY.md",
     ]
     stale_claims = (
         "Keep it to three file reads",

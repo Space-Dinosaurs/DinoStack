@@ -10,7 +10,7 @@ Public API: ds-codex-dispatch command NAME | agent NAME | path LOGICAL |
             runtime-bindings prints one validated JSON object.
 
 Upstream deps: repository content/SKILL.md signature, content/commands, content/agents,
-               and generated agentic-engineering RESOURCE-MAP.json.
+               and generated dinostack RESOURCE-MAP.json.
 
 Downstream consumers: generated Codex compatibility prose and operator tooling.
 
@@ -63,7 +63,7 @@ def emit(path: Path) -> None:
 
 
 def resolve_logical_resource(root: Path, logical: str) -> Path:
-    map_path = root / ".codex/skills/agentic-engineering/RESOURCE-MAP.json"
+    map_path = root / ".codex/skills/dinostack/RESOURCE-MAP.json"
     try:
         map_mode = os.lstat(map_path).st_mode
         if not stat.S_ISREG(map_mode):

@@ -5,7 +5,7 @@ description: Session-scoped background learnings capture. Spawned by the conduct
 tools: Read, Edit, Write
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 **Required reading before acting.** Read `content/references/conductor-operating-rules.md` §learnings-agent background capture for the mandatory trigger list, session-tracking file behavior (`.agentic/learnings-agent.session`), first-event spawn semantics, dedup and cap discipline, and Stop hook cleanup expectations.
 

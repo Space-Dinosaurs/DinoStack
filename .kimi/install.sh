@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Purpose: Installs the agentic-engineering skill for the Kimi CLI adapter.
+# Purpose: Installs the dinostack skill for the Kimi CLI adapter.
 #          Runs build.sh to generate AGENTS.md and per-command skills, writes
 #          the activation mode/profile to ~/.claude/agentic-engineering.json,
 #          wires up global skill symlinks under ~/.kimi/skills/, and wires
@@ -14,7 +14,7 @@
 #
 # Upstream deps: bash 3.2+, python3 (for JSON config reads/writes and realpath
 #                resolution), git (via build.sh), REPO_DIR layout with content/
-#                tree, .kimi/build.sh, .kimi/skills/agentic-engineering/ as
+#                tree, .kimi/build.sh, .kimi/skills/dinostack/ as
 #                the per-adapter skill source.
 #
 # Downstream consumers: humans installing the adapter manually;
@@ -25,7 +25,7 @@
 # Failure modes: exits non-zero on build.sh failure (propagated). Partial
 #                install is possible if the script exits mid-run; re-running
 #                is safe. The dir-symlink guard prevents write-through
-#                corruption: if ~/.kimi/skills/agentic-engineering is a
+#                corruption: if ~/.kimi/skills/dinostack is a
 #                directory symlink pointing into the repo, the symlink is
 #                removed and replaced with a real directory before any files
 #                are written, ensuring tracked repo symlinks (SKILL.md, agents,
@@ -48,6 +48,11 @@ export REPO_DIR
 # shellcheck source=scripts/lib/identity.sh
 [[ -f "$REPO_DIR/scripts/lib/identity.sh" ]] && . "$REPO_DIR/scripts/lib/identity.sh" || {
   echo "  ! scripts/lib/identity.sh not found - identity setup skipped"
+}
+
+# shellcheck source=scripts/lib/prune-stale-skill-dir.sh
+[[ -f "$REPO_DIR/scripts/lib/prune-stale-skill-dir.sh" ]] && . "$REPO_DIR/scripts/lib/prune-stale-skill-dir.sh" || {
+  echo "  ! scripts/lib/prune-stale-skill-dir.sh not found - stale skill dir prune skipped"
 }
 
 # ---------------------------------------------------------------------------
@@ -163,7 +168,7 @@ config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load dinostack skill at session start? [y/N] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
         config["skill_auto_load"] = answer in ("y", "yes")
@@ -180,9 +185,9 @@ echo ""
 echo "Activation mode..."
 if [[ -n "$AE_MODE_FLAG" ]]; then
   ae_write_mode "$AE_MODE_FLAG"
-  echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
+  echo "  + dinostack mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
-  echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
+  echo "  = dinostack mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
 elif [[ -t 0 ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
@@ -240,8 +245,8 @@ fi
 # doesn't have the .kimi/ adapter yet).
 # ---------------------------------------------------------------------------
 
-SKILL_SRC="$REPO_DIR/.kimi/skills/agentic-engineering"
-SKILL_DST="$HOME/.kimi/skills/agentic-engineering"
+SKILL_SRC="$REPO_DIR/.kimi/skills/dinostack"
+SKILL_DST="$HOME/.kimi/skills/dinostack"
 
 echo ""
 echo "Global skill install (optional)..."
@@ -258,6 +263,14 @@ if [[ -L "$SKILL_DST" ]]; then
   fi
 fi
 mkdir -p "$SKILL_DST"
+
+# Remove a stale pre-rename skill directory left at skills/agentic-engineering
+# by a pre-rename install. Every entry under this adapter's SKILL_DST is a
+# symlink (no real files are written here), so no allowed-real-file names
+# are passed.
+if command -v ae_prune_stale_skill_dir >/dev/null 2>&1; then
+  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" "$REPO_DIR" || true
+fi
 
 # Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/
 # Canonical comparison (realpath both sides) so a no-op install is truly a no-op.
@@ -478,7 +491,7 @@ for cmd_dir in "$REPO_DIR/.kimi/skills/"*/; do
   cmd_name="$(basename "$cmd_dir")"
 
   # Skip the main skill directory
-  if [[ "$cmd_name" == "agentic-engineering" ]]; then
+  if [[ "$cmd_name" == "dinostack" ]]; then
     continue
   fi
 
@@ -637,5 +650,5 @@ echo "content changes instantly, but SKILL.md changes require re-running install
 echo ""
 echo "Invoke commands directly: /skill:<command-name>"
 echo "   Examples: /skill:ds-wrap    /skill:ds-skeptic    /skill:ds-implement-ticket"
-echo "Or load the full skill: /skill:agentic-engineering <command-name>"
+echo "Or load the full skill: /skill:dinostack <command-name>"
 echo "Or just ask: 'run ds-init-project'"

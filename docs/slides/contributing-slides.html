@@ -758,7 +758,7 @@ code {
 
 <p>11 adapters ship build scripts: <code>.claude/</code>, <code>.codex/</code>, <code>.copilot/</code>, <code>.cursor/</code>, <code>.gemini/</code>, <code>.hermes/</code>, <code>.kimi/</code>, <code>.omp/</code>, <code>.openclaw/</code>, <code>.opencode/</code>, <code>.pi/</code>. Each <code>build.sh</code> transforms <code>content/</code> into the tool's native format.</p>
 <ul>
-<li><strong><code>.claude/build.sh</code></strong> - prepends the <code>/agentic-engineering</code> prerequisite to commands; symlinks rules, references, agents directly into <code>content/</code></li>
+<li><strong><code>.claude/build.sh</code></strong> - prepends the <code>/dinostack</code> prerequisite to commands; symlinks rules, references, agents directly into <code>content/</code></li>
 <li><strong><code>.cursor/build.sh</code></strong> - combines YAML frontmatter sidecars with rule content to produce <code>.mdc</code> files; copies references and commands</li>
 <li><strong>Other adapters</strong> - each converts content into their tool's format per that tool's conventions</li>
 </ul>

@@ -16,7 +16,7 @@ pi
 Then use:
 
 ```text
-/skill:agentic-engineering
+/skill:dinostack
 /ds-brief <topic>
 /ds-implement-ticket <ticket>
 /ds-wrap
@@ -44,9 +44,9 @@ bash .pi/install.sh --mode=opt-out --profile=strict
 
 Global install writes:
 
-- `~/.pi/agent/skills/agentic-engineering/SKILL.md`
-- `~/.pi/agent/skills/agentic-engineering/METHODOLOGY.md`
-- symlinks from `~/.pi/agent/skills/agentic-engineering/{commands,references,rules,agents}` to this repo's `content/`
+- `~/.pi/agent/skills/dinostack/SKILL.md`
+- `~/.pi/agent/skills/dinostack/METHODOLOGY.md`
+- symlinks from `~/.pi/agent/skills/dinostack/{commands,references,rules,agents}` to this repo's `content/`
 - symlinks from `~/.pi/agent/prompts/*.md` to `.pi/prompts/*.md`
 - shared activation config at `~/.claude/agentic-engineering.json`
 
@@ -65,7 +65,7 @@ bash .pi/uninstall.sh
   uninstall.sh
   README.md
   prompts/                         # Pi prompt templates generated from content/commands/*.md
-  skills/agentic-engineering/
+  skills/dinostack/
     SKILL.frontmatter.yaml
     SKILL.md                       # generated from content/SKILL.md
     METHODOLOGY.md                 # generated from content/sections/*.md
@@ -91,9 +91,9 @@ Run from the repo root (`~/DinoStack`):
 
 ```bash
 cd ~/DinoStack && bash .pi/build.sh
-test -f ~/DinoStack/.pi/skills/agentic-engineering/SKILL.md
-test -f ~/DinoStack/.pi/skills/agentic-engineering/METHODOLOGY.md
-test -L ~/DinoStack/.pi/skills/agentic-engineering/commands
+test -f ~/DinoStack/.pi/skills/dinostack/SKILL.md
+test -f ~/DinoStack/.pi/skills/dinostack/METHODOLOGY.md
+test -L ~/DinoStack/.pi/skills/dinostack/commands
 test -f ~/DinoStack/.pi/prompts/brief.md
 cd ~/DinoStack && git check-ignore -q .pi/gsd/VERSION
 cd ~/DinoStack && git check-ignore -q .pi/agents/supervisor.md

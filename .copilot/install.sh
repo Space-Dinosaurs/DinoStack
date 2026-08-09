@@ -108,7 +108,7 @@ config["set_at"] = datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load dinostack skill at session start? [y/N] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
         config["skill_auto_load"] = answer in ("y", "yes")
@@ -124,9 +124,9 @@ echo ""
 echo "Activation mode..."
 if [[ -n "$AE_MODE_FLAG" ]]; then
   ae_write_mode "$AE_MODE_FLAG"
-  echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
+  echo "  + dinostack mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
-  echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
+  echo "  = dinostack mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
 elif [[ -t 0 ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"

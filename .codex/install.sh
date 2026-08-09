@@ -81,7 +81,7 @@ fi
 SKILLS_SRC="$REPO_DIR/.codex/skills"
 SKILLS_DST="$HOME/.agents/skills"
 LEGACY_SKILL_SRC="$REPO_DIR/.codex/skill"
-SKILL_NAMES=(agentic-engineering brief wrap implement-ticket)
+SKILL_NAMES=(dinostack brief wrap implement-ticket)
 
 AGENTS_SRC="$REPO_DIR/.codex/AGENTS.md"
 AGENTS_DST="$CODEX_CONFIG_DIR/AGENTS.md"
@@ -325,7 +325,7 @@ AE_FINAL_DESTINATIONS=(
   $'link\t'"$HOOKS_DST"$'\t'"$HOOKS_SNAPSHOT_EXPECTED_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/config/hooks.json"$'\t'"$REPO_DIR/.codex/hooks.json"
 )
 for skill_name in "${SKILL_NAMES[@]}"; do
-  if [[ "$skill_name" == "agentic-engineering" ]]; then
+  if [[ "$skill_name" == "dinostack" ]]; then
     AE_FINAL_DESTINATIONS+=(
       $'link\t'"$SKILLS_DST/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$LEGACY_SKILL_SRC"
       $'link\t'"$CODEX_CONFIG_DIR/skills/$skill_name"$'\t'"$SKILLS_SRC/$skill_name"$'\t'"$LEGACY_SKILL_SRC"
@@ -521,7 +521,7 @@ config["set_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-
 if "skill_auto_load" not in config:
     try:
         with open("/dev/tty", "r+") as tty:
-            tty.write("Auto-load agentic-engineering skill at session start? [y/N] ")
+            tty.write("Auto-load dinostack skill at session start? [y/N] ")
             tty.flush()
             answer = (tty.readline() or "").strip().lower()
         config["skill_auto_load"] = answer in ("y", "yes")
@@ -542,9 +542,9 @@ echo ""
 echo "Activation mode..."
 if [[ -n "$AE_MODE_FLAG" ]]; then
   ae_write_mode "$AE_MODE_FLAG"
-  echo "  + agentic-engineering mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
+  echo "  + dinostack mode set to '$AE_MODE_FLAG' via --mode flag (wrote $AE_CONFIG_PATH)"
 elif [[ -n "$AE_EXISTING_MODE" ]]; then
-  echo "  = agentic-engineering mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
+  echo "  = dinostack mode already set to '$AE_EXISTING_MODE' (keeping $AE_CONFIG_PATH)"
 elif [[ -t 0 ]]; then
   echo "  Activation mode:"
   echo "    [1] opt-out (default) - active on every project unless a project's AGENTS.md opts out"
@@ -590,7 +590,7 @@ for skill_name in "${SKILL_NAMES[@]}"; do
   if [[ -L "$old_skill_dst" ]]; then
     old_target="$(readlink "$old_skill_dst")"
     if [[ "$old_target" == "$skill_src" || \
-          ( "$skill_name" == "agentic-engineering" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
+          ( "$skill_name" == "dinostack" && "$old_target" == "$LEGACY_SKILL_SRC" ) ]]; then
       rm "$old_skill_dst"
       echo "  - Removed stale symlink at $old_skill_dst"
     else
@@ -598,6 +598,31 @@ for skill_name in "${SKILL_NAMES[@]}"; do
     fi
   elif [[ -e "$old_skill_dst" ]]; then
     echo "  ! Real file/directory at $old_skill_dst - not removing (manual cleanup may be needed)"
+  fi
+done
+
+# ---------------------------------------------------------------------------
+# Remove stale pre-rename core skill symlinks (agentic-engineering -> dinostack).
+# The generated source directory moved from .codex/skills/agentic-engineering
+# to .codex/skills/dinostack, so a pre-rename install's symlink at either
+# destination now points at a path that no longer exists on disk (a broken
+# symlink whose target string still names this checkout). Same discipline as
+# the loop above: only removed when the (possibly broken) target resolves
+# inside this methodology checkout.
+# ---------------------------------------------------------------------------
+
+for _ae_stale_skill_dst in "$SKILLS_DST/agentic-engineering" "$CODEX_CONFIG_DIR/skills/agentic-engineering"; do
+  if [[ -L "$_ae_stale_skill_dst" ]]; then
+    _ae_old_target="$(readlink "$_ae_stale_skill_dst")"
+    if [[ "$_ae_old_target" == "$SKILLS_SRC/agentic-engineering" || \
+          "$_ae_old_target" == */DinoStack/* || "$_ae_old_target" == *-DinoStack/* ]]; then
+      rm "$_ae_stale_skill_dst"
+      echo "  - Removed stale pre-rename symlink at $_ae_stale_skill_dst"
+    else
+      echo "  ! $_ae_stale_skill_dst points to $_ae_old_target (not ours - leaving it)"
+    fi
+  elif [[ -e "$_ae_stale_skill_dst" ]]; then
+    echo "  ! Real file/directory at $_ae_stale_skill_dst - not removing (manual cleanup may be needed)"
   fi
 done
 
@@ -621,7 +646,7 @@ for skill_name in "${SKILL_NAMES[@]}"; do
     current_target="$(readlink "$skill_dst")"
     if [[ "$current_target" == "$skill_src" ]]; then
       echo "  = $skill_name (already linked)"
-    elif [[ "$skill_name" == "agentic-engineering" && "$current_target" == "$LEGACY_SKILL_SRC" ]]; then
+    elif [[ "$skill_name" == "dinostack" && "$current_target" == "$LEGACY_SKILL_SRC" ]]; then
       ln -sfn "$skill_src" "$skill_dst"
       echo "  ~ $skill_name (migrated from deleted singular skill source)"
     else
@@ -662,7 +687,7 @@ elif [[ -e "$AGENTS_DST" ]]; then
   echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   echo "  WARNING: ~/.codex/AGENTS.md already exists and is NOT a symlink."
   echo "  Backing it up to: $BACKUP"
-  echo "  The existing file will be REPLACED with the agentic-engineering symlink."
+  echo "  The existing file will be REPLACED with the dinostack symlink."
   echo "  To restore: cp \"$BACKUP\" \"$AGENTS_DST\""
   echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   echo ""
@@ -696,7 +721,7 @@ elif [[ -e "$NAMED_AGENTS_DST" ]]; then
   echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   echo "  WARNING: ~/.codex/agents/ already exists and is NOT a symlink."
   echo "  Backing it up to: $BACKUP"
-  echo "  The existing directory will be REPLACED with the agentic-engineering symlink."
+  echo "  The existing directory will be REPLACED with the dinostack symlink."
   echo "  To restore: mv \"$BACKUP\" \"$NAMED_AGENTS_DST\""
   echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   echo ""
@@ -757,7 +782,7 @@ canonicalize_path() {
 # ---------------------------------------------------------------------------
 # Symlink ~/.codex/hooks.json to the non-auto-discovered source file in
 # .codex/config/. Keeping the canonical source out of .codex/hooks.json avoids
-# double registration when developing agentic-engineering inside this repo.
+# double registration when developing dinostack inside this repo.
 # ---------------------------------------------------------------------------
 
 echo "Linking hooks.json..."
@@ -783,7 +808,7 @@ elif [[ -e "$HOOKS_DST" ]]; then
   echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   echo "  WARNING: ~/.codex/hooks.json already exists and is NOT a symlink."
   echo "  Backing it up to: $BACKUP"
-  echo "  The existing file will be REPLACED with the agentic-engineering symlink."
+  echo "  The existing file will be REPLACED with the dinostack symlink."
   echo "  To restore: cp \"$BACKUP\" \"$HOOKS_DST\""
   echo "  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
   echo ""
@@ -962,7 +987,7 @@ echo "  Safe to run alongside the Claude Code adapter."
 echo ""
 echo "Next steps:"
 echo "  1. Open Codex in a project that uses this methodology."
-echo "  2. The agentic-engineering skill will trigger automatically for software development tasks."
+echo "  2. The dinostack skill will trigger automatically for software development tasks."
 echo "  3. ~/.codex/AGENTS.md loads the full methodology globally in every Codex session."
 echo "  4. The project's AGENTS.md (if present) loads additional project-specific rules."
 echo "  5. Risk reminder hook fires automatically before each prompt."

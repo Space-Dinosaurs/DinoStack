@@ -2,7 +2,7 @@
 description: "Manage the developer identity used for session telemetry attribution (manual, auto-derived, or provisional-to-confirmed)."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-identity
 

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Internal shared helpers for agentic-engineering bin/ CLIs.
+Internal shared helpers for dinostack bin/ CLIs.
 NOT a public CLI - do not invoke directly.
 
 Purpose: Provide two cross-process primitives reused by multiple CLIs:

@@ -32,6 +32,6 @@ Before starting any task, check if a domain skill should be loaded:
 
 | Signal | Skill |
 |---|---|
-| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/dinostack` |
 
 If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.

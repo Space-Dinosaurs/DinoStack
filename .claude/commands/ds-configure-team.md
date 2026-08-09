@@ -2,7 +2,7 @@
 description: "Configure and verify a cross-harness agent team (.agentic/team.yml): discovers installed harnesses and assigns a model per role."
 ---
 
-> **Prerequisite:** If the /agentic-engineering skill has not been loaded in this session, invoke it first before proceeding.
+> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
 # /ds-configure-team - Cross-Harness Team Setup
 
