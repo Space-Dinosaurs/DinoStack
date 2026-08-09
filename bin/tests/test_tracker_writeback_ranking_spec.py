@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 """
-Spec tests for the Tracker Writeback Helper's forward-only guard ranking rule
-(content/commands/ds-implement-ticket.md ## Tracker Writeback Helper).
+Spec tests for the Tracker Writeback Helper's forward-only guard ranking rule.
+
+DS split unit 1: the "## Tracker Writeback Helper" block itself moved out of
+content/commands/ds-implement-ticket.md into content/references/tracker-
+writeback.md behind a trigger-pointer. Tests that examine the block's own
+content now read HELPER_PATH; tests that examine content that stayed inline
+(Setup, Phase 2c, Phase 11's own Inputs list) still read CANONICAL_PATH.
 
 Covers:
   - (a) the canonical block contains the pipeline sub-rank prose, the fixed
@@ -105,20 +110,67 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
+# CANONICAL_PATH still holds content that was NOT moved out of
+# ds-implement-ticket.md (Setup, Phase 2c, Phase 11's own Inputs list) -
+# tests that examine those sections keep reading it. HELPER_PATH is the
+# split destination for the "## Tracker Writeback Helper" block itself
+# (content/references/tracker-writeback.md, DS split unit 1) - tests that
+# examine the block's own content read HELPER_PATH instead.
 CANONICAL_PATH = REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md"
+HELPER_PATH = REPO_ROOT / "content" / "references" / "tracker-writeback.md"
 
 # All adapter copies expected to carry a byte-identical extraction of the
-# "## Tracker Writeback Helper" block. .pi/prompts/ds-implement-ticket.md is
-# deliberately excluded - it is a 7-line pointer stub with no such block.
+# "## Tracker Writeback Helper" block, post-split. .cursor/build.sh,
+# .gemini/build.sh, and .copilot/build.sh each hardlink their references/
+# files from content/references/ via `ln` (same-inode ONLY after that
+# build.sh has run locally - git itself does not track hardlinks, so a
+# fresh clone or a git worktree checkout gives content/references/,
+# .cursor/references/, .gemini/references/, and .copilot/references/ four
+# distinct inodes carrying an identical git blob until rebuilt);
+# .codex/references/ files are per-file SYMLINKS into content/references/
+# (git mode 120000) instead. Kept as separate entries because the aliasing
+# mechanism is a build-time property that could change, not because these
+# are 5 independent surfaces - all five entries resolve to a single
+# build-time source (content/references/), so this list asserts over
+# exactly one independent surface.
+# .claude/skills/dinostack/references/ is a symlink DIR (not a
+# per-file symlink) and is deliberately excluded.
 ADAPTER_PATHS = [
-    REPO_ROOT / "content" / "commands" / "ds-implement-ticket.md",
+    HELPER_PATH,
+    REPO_ROOT / ".codex" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".cursor" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".gemini" / "references" / "tracker-writeback.md",
+    REPO_ROOT / ".copilot" / "references" / "tracker-writeback.md",
+]
+
+# COMMAND_MIRROR_PATHS below lists 7 paths, but only 6 are independent
+# committed mirrors that no longer carry the "## Tracker Writeback Helper"
+# block itself (it moved out to HELPER_PATH) and must still carry a pointer
+# to it: .codex/commands/ds-implement-ticket.md is a git symlink (mode
+# 120000) resolving to content/commands/ds-implement-ticket.md, the same
+# source CANONICAL_PATH already reads - asserting on it re-checks the
+# source, not an independent copy. So this test asserts over 6 independent
+# committed mirrors plus 1 (redundant but harmless) source-file assertion,
+# not "7 mirrors." check-adapter-sync diffs regenerated-vs-committed content -
+# both operands come from the same build run, so a build regression that
+# drops the pointer produces identical operands and stays green; this
+# assertion tests the property that gate structurally cannot.
+#
+# POINTER_TEXT is anchored on the extraction-site sentence fragment, not the
+# bare "content/references/tracker-writeback.md" path - that path string
+# recurs 8x (14x in .hermes/SKILL.md) across other cross-references inside
+# each mirror's canonical block, so a literal-path anchor cannot go false
+# even when the extraction-site pointer line itself is deleted. Verified
+# unique (exactly 1 occurrence per mirror) before adoption.
+POINTER_TEXT = "Full reference (invocation contract"
+
+COMMAND_MIRROR_PATHS = [
     REPO_ROOT / ".claude" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".codex" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".cursor" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".opencode" / "commands" / "ds-implement-ticket.md",
     REPO_ROOT / ".github" / "prompts" / "ds-implement-ticket.prompt.md",
     REPO_ROOT / ".openclaw" / "skills" / "ds-implement-ticket" / "SKILL.md",
-    REPO_ROOT / ".gemini" / "commands" / "ds-implement-ticket.toml",
     REPO_ROOT / ".hermes" / "SKILL.md",
 ]
 
@@ -154,7 +206,7 @@ def _extract_block(text: str) -> str:
 
 @pytest.fixture(scope="module")
 def canonical_block() -> str:
-    return _extract_block(CANONICAL_PATH.read_text(encoding="utf-8"))
+    return _extract_block(HELPER_PATH.read_text(encoding="utf-8"))
 
 
 # ---------------------------------------------------------------------------
@@ -424,6 +476,50 @@ def test_block_byte_identical_across_adapters(canonical_block):
     )
 
 
+def test_command_mirrors_carry_pointer_to_helper_reference():
+    """COMMAND_MIRROR_PATHS enumerates 6 independent committed mirrors plus
+    1 (.codex, a git symlink to the same source CANONICAL_PATH) - see the
+    comment above ADAPTER_PATHS. None of the 7 entries carries the '##
+    Tracker Writeback Helper' block itself post-split - it moved to
+    HELPER_PATH. check-adapter-sync diffs regenerated-vs-committed content,
+    so both operands come from the same build run: a build regression that
+    silently drops the trigger-pointer produces identical operands on both
+    sides and stays green. This assertion tests the property that gate
+    structurally cannot - that the pointer (the literal path string, not
+    just prose naming the helper) actually propagated to every entry in
+    COMMAND_MIRROR_PATHS."""
+    missing = [p for p in COMMAND_MIRROR_PATHS if not p.exists()]
+    assert not missing, f"expected command mirror files missing: {missing}"
+
+    without_pointer = [
+        str(p.relative_to(REPO_ROOT))
+        for p in COMMAND_MIRROR_PATHS
+        if POINTER_TEXT not in p.read_text(encoding="utf-8")
+    ]
+    assert not without_pointer, (
+        f"missing the '{POINTER_TEXT}' pointer literal: {without_pointer}"
+    )
+
+
+def test_helper_block_survives_in_hermes_aggregate(canonical_block):
+    """`.hermes/SKILL.md` re-embeds every content/references/*.md file, each
+    wrapped in `### <name>` (`.hermes/build.sh:100-107`), NOT `## `.
+    `_extract_block` terminates on `## ` and therefore over-runs past this
+    block's end into the alphabetically-next reference doc. Containment is
+    the correct property here, not block-boundary equality.
+
+    FORBIDDEN REPAIRS - do not reach for either instead:
+      1. Deleting this assertion. The block genuinely survives here and that
+         must stay tested.
+      2. Weakening `_extract_block` to also stop on `### `. That function is
+         shared by tests scanning the canonical file and the command mirrors,
+         none of which use `### ` as a delimiter; narrowing its termination
+         condition for one aggregate silently narrows correctness elsewhere.
+    """
+    text = (REPO_ROOT / ".hermes" / "SKILL.md").read_text(encoding="utf-8")
+    assert canonical_block in text
+
+
 # ---------------------------------------------------------------------------
 # (c) spelling heuristic on the canonical block
 # ---------------------------------------------------------------------------
@@ -523,7 +619,7 @@ def test_wrap_part_f_gate_resolves_tracker_state_values():
 
 # ---------------------------------------------------------------------------
 # Tracker-state reconciliation: Gap 1 diagnostic-enrichment mechanism
-# (content/commands/ds-implement-ticket.md ## Tracker Writeback Helper step 5)
+# (content/references/tracker-writeback.md ## Tracker Writeback Helper step 5)
 # ---------------------------------------------------------------------------
 
 def test_canonical_block_step5_diagnostic_runs_after_attempt(canonical_block):
@@ -578,7 +674,7 @@ def test_return_payload_schema_has_new_status_and_diagnostic_field():
 
 
 def test_line_508_failure_logging_has_both_forms():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     failure_logging_lines = [
         l for l in text.splitlines() if l.strip().startswith("**Failure logging:**")
     ]
@@ -600,7 +696,7 @@ def test_phase_2c_warning_updated_without_stale_silently_skipped_claim():
 
 
 def test_phase_11_line_510_notes_qa_transition_unaffected():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     anchor = "For full details of the Phase 11 writeback subagent brief shape"
     idx = text.index(anchor)
     window = text[idx:idx + 700]
@@ -1236,7 +1332,7 @@ def test_phase_11_inputs_list_includes_pipeline_order():
 
 
 def test_phase_11_summary_sentence_names_pipeline_order():
-    text = CANONICAL_PATH.read_text(encoding="utf-8")
+    text = HELPER_PATH.read_text(encoding="utf-8")
     anchor = "For full details of the Phase 11 writeback subagent brief shape"
     idx = text.index(anchor)
     window = text[idx:idx + 300]
