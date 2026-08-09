@@ -23,12 +23,14 @@ Upstream deps: `git grep` (consumer discovery), Python stdlib only
                (re, ast, bisect, dataclasses, json, argparse). No PyPI deps.
 
 Downstream consumers: bin/tests/test_prose_move_impact.py (spec + known-
-                      answer fixtures + mutation test). Intended to be run
-                      ad hoc by a human/architect before authoring a split
-                      plan, not wired into CI as a required gate - its
-                      inputs (proposed move ranges) do not exist yet on
-                      main and there is nothing for a CI job to check
-                      against.
+                      answer fixtures + regression tests + mutation test +
+                      a differential test that simulates the post-move
+                      tree in a scratch git repo and runs the real shell
+                      gates against it). Intended to be run ad hoc by a
+                      human/architect before authoring a split plan, not
+                      wired into CI as a required gate - its inputs
+                      (proposed move ranges) do not exist yet on main and
+                      there is nothing for a CI job to check against.
 
 Failure modes: any consumer file this tool cannot parse into at least one
                resolved assertion, or any assertion whose target-line
@@ -37,7 +39,10 @@ Failure modes: any consumer file this tool cannot parse into at least one
                intentional per the tool's own design constraint ("fail
                loud, never silently skip") - a tool that quietly drops
                what it does not understand reproduces the exact failure
-               mode it exists to prevent. Read-only; no side effects.
+               mode it exists to prevent. A regex-metachar pattern (from a
+               `_present`/`grep -qiE` shell call site) is resolved via an
+               ERE fallback, not just a literal substring match - see
+               `_resolve_literal_in_target`. Read-only; no side effects.
 
 Performance: single pass over `git grep` output plus one parse per
              discovered consumer file (typically a few dozen files, low
@@ -288,7 +293,29 @@ def join_shell_continuations(text: str) -> list[tuple[int, str]]:
 # Literal-string assertion extraction (generic, language-agnostic)
 # ---------------------------------------------------------------------------
 
-_STR_RE = re.compile(r'"([^"\\]{6,300})"|\'([^\'\\]{6,300})\'')
+# The double-quote branch is deliberately restricted to never START a match
+# at a position followed by `$(` (shell command substitution). Without that
+# guard, a line like `G6="$(git grep -cE 'pattern' -- "$DIT" ...)"` lets the
+# double-quote alternative greedily match from the assignment's opening `"`
+# all the way to the NEXT `"` it meets - which here is the opening quote of
+# the nested `"$DIT"`, not the assignment's real closing quote - swallowing
+# the single-quoted grep pattern living in between as unmatched filler and
+# denying the single-quote alternative any chance to see it (finditer never
+# backtracks into a span a prior alternative already consumed). Shell/code
+# syntax like `$(...)` is not itself a content literal we want to extract,
+# so refusing to start a double-quote match there is safe.
+#
+# The single-quote branch deliberately does NOT exclude a backslash from
+# its content class (unlike the double-quote branch): bash single quotes
+# have no escape mechanism at all - `\` is a literal character inside
+# `'...'`, and the closing `'` is always the next single-quote character,
+# full stop. A `grep -qiE '<pattern>'` call site's pattern routinely
+# contains backslash-escaped ERE metacharacters (`\(`, `\)`, `\+`, `\.`) -
+# excluding `\` from the class silently made `_literals_in_line` never
+# extract those patterns AT ALL (not merely fail to resolve them against
+# the target), which is a distinct and more severe drop than the
+# resolution-time literal-vs-ERE gap this module fixes elsewhere.
+_STR_RE = re.compile(r'"((?:(?!\$\()[^"\\]){6,300})"|\'([^\']{6,300})\'')
 
 
 _SHELL_NOISE_RE = re.compile(r"^\s*\$?\(?\s*(echo|cat|grep|awk|sed|printf|true|false)\b")
@@ -334,11 +361,23 @@ def _classify_line(logical_line: str) -> str:
     stripped = l.strip()
     if stripped.startswith("#"):
         return "comment_reference"
-    if "_absent(" in l or re.search(r"\bnot in\b", l) or ".count(" in l and "== 0" in l:
+    # Bash-style helper calls (`_absent "$SPEC" "label" 'pattern'`) have no
+    # parens - shell function invocation syntax never does - so the
+    # `"_absent("`/`"_present("` substring checks below only catch a
+    # Python-style call. Detect the bash form explicitly, or every such
+    # call (the dominant shape across bin/tests/*.sh's `_present`/`_absent`
+    # helpers) silently falls through to the generic "literal_reference"
+    # catch-all below and never gets treated as a load-bearing assertion.
+    is_absent_call = (
+        "_absent(" in l
+        or stripped.startswith("_absent ")
+        or re.search(r"\bnot in\b", l)
+    )
+    if is_absent_call or (".count(" in l and "== 0" in l):
         if ".count(" in l and "== 0" in l:
             return "literal_count"
         return "literal_absent"
-    if "_present(" in l:
+    if "_present(" in l or stripped.startswith("_present "):
         return "literal_presence"
     if ".count(" in l:
         return "literal_count"
@@ -349,7 +388,34 @@ def _classify_line(logical_line: str) -> str:
     return "literal_reference"
 
 
+def _is_shell_call_line(logical_line: str) -> bool:
+    """True only for the bash `_absent`/`_present` test-helper calling
+    convention (`_absent(` / `_present(` as a Python-adjacent form, or the
+    space-separated shell-invocation form `_absent "..." ...`). This
+    convention has a FIXED, verified argument order (`<file>? <label>
+    <pattern>`) with the actual grep pattern always last - a distinct
+    literal-ordering contract from the Python `"phrase" in text` /
+    `assert "phrase" in text, f"error message"` idiom, where the FIRST
+    literal is the search phrase and any LATER literal is part of an
+    error message, not a second pattern to resolve. Conflating the two
+    orderings (treating "last literal" as universally special) mis-selects
+    the error-message string as the assertion payload for every Python
+    consumer and floods the report with spurious UNRESOLVED rows for
+    ordinary human-readable failure text."""
+    l = logical_line
+    stripped = l.strip()
+    return "_absent(" in l or "_present(" in l or stripped.startswith(("_absent ", "_present "))
+
+
+# Matches the 3-arg shell calling convention `_present "$VAR" <label>
+# <pattern>` / `_absent "$VAR" <label> <pattern>` and captures the file
+# variable name (`VAR`) actually passed at THIS call site - see
+# `extract_literal_assertions`'s per-call-site scoping.
+_SHELL_CALL_FILE_ARG_RE = re.compile(r'^\s*_(?:absent|present)\s+"\$(\w+)"')
+
+
 def _target_occurrences(target_text: str, line_starts: list[int], literal: str) -> list[int]:
+    """Exact substring occurrences of `literal` in the live target text."""
     lines = []
     idx = target_text.find(literal)
     while idx != -1:
@@ -358,54 +424,174 @@ def _target_occurrences(target_text: str, line_starts: list[int], literal: str) 
     return lines
 
 
+def _target_regex_occurrences(target_lines: list[str], pattern: str) -> list[int] | None:
+    """Match `pattern` as a case-insensitive ERE against each target line -
+    mirroring `grep -qiE`'s own semantics, exactly like
+    `_count_pattern_in_target` already does correctly for shell floor
+    patterns below. Returns None when `pattern` fails to compile; the
+    caller must treat that as unresolved, never as "no matches"."""
+    try:
+        compiled = re.compile(pattern, re.IGNORECASE)
+    except re.error:
+        return None
+    return [i for i, line in enumerate(target_lines, start=1) if compiled.search(line)]
+
+
+def _resolve_literal_in_target(
+    target_text: str, target_lines: list[str], line_starts: list[int], literal: str
+) -> tuple[list[int], str | None]:
+    """Resolve `literal` against the live target text. Tries an exact
+    substring match first (the common case: a plain quoted phrase); if
+    that finds nothing, `literal` may be an ERE pattern lifted verbatim
+    from a `grep -qiE '<pattern>'` call site - a quoted regex and a quoted
+    plain-text literal are syntactically indistinguishable at extraction
+    time (both are just a quoted string in source), so both get extracted
+    the same way and are only told apart HERE, by which resolution
+    strategy actually finds the content. A naive literal-substring-only
+    match silently drops any pattern containing a regex metacharacter
+    (`.`, `\\+`, `|`, ...) that has zero literal occurrences even though
+    the live gate (`grep -qiE`) matches it fine. Returns
+    (occurrence_lines, method) where method is "literal", "regex", or None
+    (could not resolve either way - the caller must emit UNRESOLVED, never
+    silently drop, per this tool's entire reason to exist)."""
+    occ = _target_occurrences(target_text, line_starts, literal)
+    if occ:
+        return occ, "literal"
+    regex_occ = _target_regex_occurrences(target_lines, literal)
+    if regex_occ:
+        return regex_occ, "regex"
+    return [], None
+
+
+# Kinds whose target-directed literal is a genuine mechanical assertion
+# (matched against the target's content by a live gate) rather than
+# incidental descriptive text.
+_PATTERN_CHECK_KINDS = {"literal_absent", "literal_presence", "literal_count"}
+
+
 def extract_literal_assertions(
     consumer_rel: str,
     consumer_text: str,
     target_text: str,
+    target_lines: list[str],
     line_starts: list[int],
     ranges: list[MoveRange],
-) -> list[Assertion]:
+    target_rel: str,
+) -> tuple[list[Assertion], list[Unresolved]]:
     out: list[Assertion] = []
+    unresolved: list[Unresolved] = []
+    # A consumer's `_present`/`_absent` calls are only actually checking
+    # THIS target when they read from a shell variable whose assignment
+    # resolves to `target_rel` (e.g. `SPEC="$REPO_DIR/.../
+    # ds-implement-ticket.md"`) - some `bin/tests/*.sh` files that are
+    # discovered as consumers (they mention the target file's path
+    # somewhere, e.g. in a comment) run their entire `_present`/`_absent`
+    # suite against a DIFFERENT spec file (verified: test_ticket_rework_
+    # triage_badge.sh and test_ticket_triage_inflight.sh both point `$SPEC`
+    # at content/commands/ds-ticket-triage.md, not this target; and
+    # test_batch_state_timestamp_field.sh itself has TWO spec variables -
+    # `$SPEC` -> this target, `$SPEC2` -> a different reference doc).
+    # `path_vars` resolves the file-scoped default (used by the 2-arg
+    # `_absent <label> <pattern>` form, whose target file is baked into
+    # the helper's own body, not passed per call); `_SHELL_CALL_FILE_ARG_RE`
+    # additionally resolves the 3-arg `_present "$VAR" <label> <pattern>`
+    # form PER CALL SITE, since a file with two spec variables can mix
+    # target-directed and non-target-directed calls in the same file.
+    path_vars = _build_shell_path_vars(consumer_text, target_rel)
     for _lineno, logical in join_shell_continuations(consumer_text):
         literals = _literals_in_line(logical)
         if not literals:
             continue
         kind = _classify_line(logical)
-        for lit in literals:
+        last_idx = len(literals) - 1
+        call_arg_m = _SHELL_CALL_FILE_ARG_RE.match(logical)
+        if call_arg_m:
+            # Explicit 3-arg form: trust the actual variable this call
+            # site passed, even if some OTHER variable in the file also
+            # resolves to the target.
+            is_call_target_scoped = path_vars.get(call_arg_m.group(1)) == target_rel
+        else:
+            # 2-arg form (or unrecognized shape): fall back to "does this
+            # file have a variable resolving to the target at all".
+            is_call_target_scoped = bool(path_vars)
+        is_shell_call = _is_shell_call_line(logical) and is_call_target_scoped
+        for idx, lit in enumerate(literals):
             if not _is_meaningful_literal(lit):
-                continue
-            if lit not in target_text:
                 continue
             # Skip pure noise: path literals that merely re-cite the target
             # path itself carry no content assertion.
             if lit in (DEFAULT_TARGET, Path(DEFAULT_TARGET).name):
                 continue
-            occ = _target_occurrences(target_text, line_starts, lit)
+            # Only the LAST quoted literal on a pattern-check line (the
+            # `<pattern>` slot of `_present <file> <label> <pattern>` /
+            # `_absent <label> <pattern>` / `x.count("...")`) is the actual
+            # payload a live gate matches against the target - a preceding
+            # LABEL argument is documentation, never itself required to
+            # appear verbatim in the target's prose. Only that slot gets
+            # the ERE-fallback + fail-loud treatment; escalating every
+            # quoted string on the line flooded the report with false
+            # UNRESOLVED rows for ordinary label/message text that was
+            # never meant to match the target (confirmed: matching a
+            # single-file test consumer against this file's OWN internal
+            # string literals produced dozens of spurious rows before this
+            # narrowing).
+            is_pattern_slot = kind in _PATTERN_CHECK_KINDS and idx == last_idx and is_shell_call
+            if is_pattern_slot:
+                occ, method = _resolve_literal_in_target(target_text, target_lines, line_starts, lit)
+            else:
+                occ = _target_occurrences(target_text, line_starts, lit)
+                method = "literal" if occ else None
+            if kind == "literal_absent":
+                if not occ:
+                    # Genuinely resolved: neither a literal substring nor
+                    # an ERE match is present in the target, so there is
+                    # nothing for a move to break - a legitimate "absent"
+                    # answer, not an unresolved one.
+                    continue
+                out.append(
+                    Assertion(
+                        consumer=consumer_rel,
+                        kind=kind,
+                        detail=f"asserts {lit!r} is ABSENT from target"
+                        + (
+                            " (currently matches via ERE, independent of this move)"
+                            if method == "regex"
+                            else ""
+                        ),
+                        resolved=True,
+                        breaks=False,
+                        lines=occ,
+                        note="absence assertions cannot be broken by a move away from the target",
+                    )
+                )
+                continue
             if not occ:
+                if is_pattern_slot:
+                    # Fail loud: neither literal-substring nor ERE
+                    # resolution found this pattern in the target. Never
+                    # silently drop - a dropped assertion inside a
+                    # consumer that yielded some OTHER resolved assertion
+                    # is invisible to every other section of the report.
+                    unresolved.append(
+                        Unresolved(
+                            consumer=consumer_rel,
+                            detail=f"{kind}: {lit!r} not found in target as a literal substring or "
+                            "as a case-insensitive ERE match - could not mechanically resolve",
+                        )
+                    )
                 continue
             moved = [ln for ln in occ if range_for_line(ranges, ln) is not None]
+            method_note = " (resolved via ERE match, not literal substring)" if method == "regex" else ""
             if kind == "comment_reference":
                 out.append(
                     Assertion(
                         consumer=consumer_rel,
                         kind=kind,
-                        detail=f"comment cites {lit!r}",
+                        detail=f"comment cites {lit!r}{method_note}",
                         resolved=True,
                         breaks=False,
                         lines=occ,
                         note="informational only; goes stale but does not break a gate",
-                    )
-                )
-            elif kind == "literal_absent":
-                out.append(
-                    Assertion(
-                        consumer=consumer_rel,
-                        kind=kind,
-                        detail=f"asserts {lit!r} is ABSENT from target",
-                        resolved=True,
-                        breaks=False,
-                        lines=occ,
-                        note="absence assertions cannot be broken by a move away from the target",
                     )
                 )
             elif kind == "literal_count":
@@ -413,7 +599,10 @@ def extract_literal_assertions(
                     Assertion(
                         consumer=consumer_rel,
                         kind=kind,
-                        detail=f"counts occurrences of {lit!r} in target ({len(occ)} total, {len(moved)} in a move range)",
+                        detail=(
+                            f"counts occurrences of {lit!r} in target ({len(occ)} total, "
+                            f"{len(moved)} in a move range){method_note}"
+                        ),
                         resolved=True,
                         breaks=bool(moved),
                         lines=occ,
@@ -425,14 +614,14 @@ def extract_literal_assertions(
                     Assertion(
                         consumer=consumer_rel,
                         kind="literal_presence",
-                        detail=f"asserts {lit!r} is present in target",
+                        detail=f"asserts {lit!r} is present in target{method_note}",
                         resolved=True,
                         breaks=bool(moved),
                         lines=occ,
                         note=f"moves to {range_for_line(ranges, moved[0]).dest}" if moved else "",
                     )
                 )
-    return out
+    return out, unresolved
 
 
 # ---------------------------------------------------------------------------
@@ -567,6 +756,38 @@ def extract_regex_assertions(
             if compiled.search(line):
                 matches.append(i)
         moved = [ln for ln in matches if range_for_line(ranges, ln) is not None]
+        if not matches:
+            # Zero occurrences in the PRE-move target, under either
+            # polarity, is mechanically resolvable as non-breaking: the
+            # move only relocates existing target lines verbatim into a
+            # destination file, it cannot conjure a match into existence
+            # on content that already matches nothing. A must-match
+            # assertion with zero matches is already failing independent
+            # of any move (a pre-existing defect out of this tool's
+            # scope); a must-NOT-match assertion with zero matches is
+            # correctly satisfied and stays that way post-move either
+            # way. Report it resolved, not UNRESOLVED - polarity still
+            # can't be confirmed mechanically, but it provably doesn't
+            # change what this move does to the assertion's outcome.
+            assertions.append(
+                Assertion(
+                    consumer=consumer_rel,
+                    kind="regex_pattern",
+                    detail=(
+                        f"regex assertion {name!r} (pattern={pat!r}) matches ZERO "
+                        "lines in the pre-move target"
+                    ),
+                    resolved=True,
+                    breaks=False,
+                    lines=[],
+                    note=(
+                        "polarity (must-match vs must-NOT-match) not mechanically "
+                        "confirmed, but zero pre-move matches means this move "
+                        "cannot change the assertion's outcome either way"
+                    ),
+                )
+            )
+            continue
         # Polarity (should-match vs should-not-match) is not mechanically
         # derivable from the compiled pattern alone - report as UNRESOLVED
         # per the "fail loud" design constraint rather than guessing.
@@ -575,7 +796,7 @@ def extract_regex_assertions(
                 consumer=consumer_rel,
                 detail=(
                     f"regex assertion {name!r} (pattern={pat!r}) currently matches "
-                    f"target lines {matches or '[]'}"
+                    f"target lines {matches}"
                     + (
                         f"; {len(moved)} of those line(s) fall inside a proposed "
                         f"move range {moved} - polarity (must-match vs must-NOT-"
@@ -594,7 +815,16 @@ def extract_regex_assertions(
 # Shell grep -c floor assertions: single "-ge N" style and heredoc tables
 # ---------------------------------------------------------------------------
 
-_VAR_ASSIGN_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)="?\$\((.*)\)"?\s*$')
+# Deliberately NOT `$`-anchored: `VAR="$(git grep -c ...)"` is frequently
+# followed by a trailing statement on the same physical line (e.g.
+# `G6="$(...)"; [ -n "$G6" ] || G6=0` in test_tasks_jsonl_fold.sh) rather
+# than ending the line. `(.*?)` is non-greedy so it stops at the FIRST `)`
+# it meets, which is the assignment's own closing paren for every floor
+# pattern in this repo (none of the `git grep -c` patterns extracted here
+# contain a literal `)` themselves) - a greedy `.*` would instead run to
+# the LAST `)` on the line, which can land past the assignment entirely
+# once a trailing statement is present.
+_VAR_ASSIGN_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)="?\$\((.*?)\)"?')
 _GREP_C_RE = re.compile(r"git grep -c([iE]*)\s+['\"]([^'\"]+)['\"].*?--\s+(\S+)")
 _FLOOR_RE = re.compile(r'\[\s*"\$(\w+)"\s*-(ge|gt|le|lt|eq)\s+"?(\d+)"?\s*\]')
 _PATH_VAR_RE = re.compile(
@@ -673,7 +903,13 @@ def extract_shell_floor_assertions(
         if not gm:
             continue
         flags, pattern, file_tok = gm.group(1), gm.group(2), gm.group(3)
-        file_tok = file_tok.strip('"').strip("'")
+        # Strip the quoting AND the `$`/`${...}` variable-reference syntax
+        # (e.g. `"$DIT"` -> `DIT`) - `varmap`'s keys are the bare variable
+        # names `_build_shell_path_vars` extracted from each assignment
+        # (`DIT=content/commands/...`), never dollar-prefixed. Without
+        # this, `varmap.get("$DIT")` always misses even when `DIT` is
+        # correctly resolved to the target, silently discarding the floor.
+        file_tok = file_tok.strip('"').strip("'").lstrip("$").strip("{}")
         resolved_path = varmap.get(file_tok, file_tok if file_tok == target_rel else None)
         if resolved_path != target_rel:
             continue
@@ -837,6 +1073,32 @@ def analyze(repo_root: Path, target_rel: str, ranges: list[MoveRange]) -> Report
         )
         return report
 
+    if not any(_is_checked_consumer(c) for c in consumers):
+        # Second non-vacuity guard, one level down from the one above: the
+        # first guard only fires when discovery finds literally nothing.
+        # It does NOT fire when discovery finds plenty of doc/prose
+        # consumers but zero *checked* (executable-gate) consumers - every
+        # non-checked file `continue`s past the `found_any` machinery
+        # below without ever touching it, so a `bin/tests/` rename, a gate
+        # moving under `scripts/verify-*.sh`, or any other drift in
+        # `_is_checked_consumer`/`SEARCH_DIRS` silently produces a report
+        # with zero BREAKING rows and zero UNRESOLVED entries - `Verdict:
+        # OK`, having asserted nothing. Report it loudly instead.
+        report.unresolved.append(
+            Unresolved(
+                consumer="<discovery>",
+                detail=(
+                    f"discovery found {len(consumers)} consumer(s) referencing the "
+                    "target file, but ZERO of them match the checked-consumer "
+                    "patterns (bin/tests/**, hooks/tests/**, scripts/check-*.sh) - "
+                    "this is almost certainly _is_checked_consumer()/SEARCH_DIRS "
+                    "drifting out from under a renamed or relocated executable "
+                    "gate, not a target file with no runnable consumers left. "
+                    "Refusing to report OK."
+                ),
+            )
+        )
+
     for rel in consumers:
         path = repo_root / rel
         try:
@@ -865,9 +1127,12 @@ def analyze(repo_root: Path, target_rel: str, ranges: list[MoveRange]) -> Report
 
         found_any = False
 
-        lit_assertions = extract_literal_assertions(rel, text, target_text, line_starts, ranges)
+        lit_assertions, lit_unresolved = extract_literal_assertions(
+            rel, text, target_text, target_lines_raw, line_starts, ranges, target_rel
+        )
         report.assertions.extend(lit_assertions)
-        found_any = found_any or bool(lit_assertions)
+        report.unresolved.extend(lit_unresolved)
+        found_any = found_any or bool(lit_assertions) or bool(lit_unresolved)
 
         hb_assertions = extract_heading_block_assertions(rel, text, headings, ranges)
         report.assertions.extend(hb_assertions)
