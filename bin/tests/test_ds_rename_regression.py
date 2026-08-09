@@ -3,7 +3,14 @@
 Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* rename
          (25 tools: the original 24 plus bin/agentic-evidence, renamed to
          bin/ds-evidence in a follow-up gap-close pass after a concurrent
-         session added it mid-rename). Confirms (1) every bin/ds-<suffix>
+         session added it mid-rename). This 25-tool count (SUFFIXES below)
+         is FIXED to that historical rename batch and is deliberately NOT
+         kept in sync with every tool added to bin/ds-* afterward (e.g.
+         bin/ds-defer, added directly as a ds-* tool with no prior
+         agentic-* name to rename FROM) - see item (5) below for the
+         count-driven sweep that catches those independently of this list.
+         Do not conflate this 25 with `ls bin/ds-*`'s live, growing total.
+         Confirms (1) every bin/ds-<suffix>
          real content file is present and executable; (2) every
          bin/agentic-<suffix> compat name is a symlink whose PATH-installed
          alias resolves to the identical real file as bin/ds-<suffix>
@@ -66,11 +73,15 @@ SUFFIXES = [
     "update", "wrap-acquire-lock", "wrap-release-lock",
 ]
 
-# The 4 real bin/_lib.py dependents (verified by grep against all 25
-# bin/ds-* files: config, feedback, migrate, tracker). bin/ds-evidence is
-# explicitly self-contained (imports no sibling module, per its own module
-# manifest) and is NOT in this list.
-LIB_DEPENDENT_SUFFIXES = ["config", "feedback", "migrate", "tracker"]
+# The 5 real bin/_lib.py dependents (verified by grep against all 26
+# bin/ds-* files currently on disk - a live count, NOT the fixed 25-entry
+# SUFFIXES rename batch above; bin/ds-defer was added directly as a ds-*
+# tool after the rename event and was never itself renamed, so it is
+# intentionally absent from SUFFIXES but IS a genuine _lib.py dependent):
+# config, defer, feedback, migrate, tracker. bin/ds-evidence is explicitly
+# self-contained (imports no sibling module, per its own module manifest)
+# and is NOT in this list.
+LIB_DEPENDENT_SUFFIXES = ["config", "defer", "feedback", "migrate", "tracker"]
 
 # Representative safe-invocation subset for the through-symlink behavioral
 # check: (suffix, args, stdin_devnull). Chosen so invocation is read-only /

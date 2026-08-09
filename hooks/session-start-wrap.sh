@@ -229,15 +229,43 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   # version-check-core.sh, and bootstrap.sh) rather than trusting PATH -
   # ~/.local/bin (where install.sh symlinks ds-defer) is not reliably on
   # the PATH a GUI-launched harness inherits, and grepping hooks/ turns up
-  # zero existing "command -v ds-*" call sites to imitate. ---
+  # zero existing "command -v ds-*" call sites to imitate. This hook runs
+  # from the hooks-snapshot dir in production (~/.agentic/hooks-snapshot/
+  # DinoStack-<hash>/hooks/), which sync_hooks_snapshot only ever populates
+  # with `hooks/` and `bin/` - NOT `scripts/` - so
+  # $SCRIPT_DIR/../scripts/lib/repo-dir.sh is absent in the deployed layout
+  # and the primary branch below is dead there. The inline fallback (mirrors
+  # hooks/lib/version-check-core.sh:59-74's identical precedent, which
+  # exists "so SessionStart is never broken by a missing lib file") is
+  # therefore the branch that actually runs in production, not a rare
+  # degraded path - keep both branches' resolution logic in lockstep. ---
   defer_msg=""
   _REPO_DIR_LIB="$SCRIPT_DIR/../scripts/lib/repo-dir.sh"
+  AE_REPO_DIR=""
   if [[ -f "$_REPO_DIR_LIB" ]]; then
     # shellcheck source=/dev/null
     source "$_REPO_DIR_LIB"
-    if resolve_repo_dir --quiet 2>/dev/null && [[ -x "$AE_REPO_DIR/bin/ds-defer" ]]; then
-      DS_DEFER_BIN="$AE_REPO_DIR/bin/ds-defer"
+    resolve_repo_dir --quiet 2>/dev/null || true
+  else
+    # Inline fallback: used whenever scripts/lib/repo-dir.sh is absent -
+    # the deployed hooks-snapshot layout, or a partial/older checkout.
+    _AE_CONFIG="$HOME/.agentic/agentic-engineering-config.json"
+    if [[ -f "$_AE_CONFIG" ]]; then
+      AE_REPO_DIR="$(python3 -c "
+import json, sys
+try:
+    with open(sys.argv[1]) as f:
+        print(json.load(f).get('repo_dir', ''))
+except Exception:
+    print('')
+" "$_AE_CONFIG" 2>/dev/null || echo "")"
     fi
+    if [[ -z "$AE_REPO_DIR" ]] || ! git -C "$AE_REPO_DIR" rev-parse --git-dir >/dev/null 2>&1; then
+      AE_REPO_DIR="$HOME/DinoStack"
+    fi
+  fi
+  if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-defer" ]]; then
+    DS_DEFER_BIN="$AE_REPO_DIR/bin/ds-defer"
   fi
   if [[ -z "${DS_DEFER_BIN:-}" ]] && command -v ds-defer >/dev/null 2>&1; then
     DS_DEFER_BIN="$(command -v ds-defer)"

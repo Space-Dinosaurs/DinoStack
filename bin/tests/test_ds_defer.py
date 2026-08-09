@@ -35,6 +35,12 @@ Test groups:
   10. test_repo_is_a_locator_not_cwd_dependent - invoking from a different
       process cwd with --repo pointing elsewhere still resolves the store
       under --repo, not under cwd.
+  11. test_list_count_ack_survive_store_present_lock_absent - regression
+      guard for a Skeptic-caught Major: list/count/ack must not raise an
+      unhandled FileNotFoundError when the store file exists but its
+      sibling .lock file does not (a real reachable state for a consumer
+      project that commits <repo>/.agentic/ to git - a fresh clone gets
+      deferred-work.jsonl with no .lock).
 
 Regression test obligation: content/references/regression-test-obligation.md
 Run with: python3 -m pytest bin/tests/test_ds_defer.py -x
@@ -414,6 +420,57 @@ def test_repo_is_a_locator_not_cwd_dependent():
         print("PASS test_repo_is_a_locator_not_cwd_dependent")
 
 
+def test_list_count_ack_survive_store_present_lock_absent():
+    """(11) Regression guard: list/count/ack must not raise an unhandled
+    FileNotFoundError when the store exists but its sibling .lock file
+    does not. Reproduces via `append` (which creates both), then deletes
+    ONLY the .lock file - simulating a consumer project that commits
+    <repo>/.agentic/ to git (a fresh clone ships deferred-work.jsonl with
+    no .lock), a restored backup, or a manually deleted stray lock."""
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = str(Path(tmp) / "repo")
+        Path(repo).mkdir()
+
+        rc, _, err = _run([
+            "append", "--repo", repo, "--description", "pre-existing item",
+            "--reason", "failed_promotion_bar",
+        ])
+        assert rc == 0, err
+
+        store = Path(repo, ".agentic", "deferred-work.jsonl")
+        lock = Path(repo, ".agentic", "deferred-work.jsonl.lock")
+        assert store.is_file() and lock.is_file(), "precondition: append must create both"
+
+        lock.unlink()
+        assert store.is_file() and not lock.exists(), (
+            "precondition: store present, lock absent"
+        )
+
+        rc, out, err = _run(["list", "--repo", repo])
+        assert rc == 0, f"list must survive store-without-lock, got rc={rc} stderr={err}"
+        assert "FileNotFoundError" not in err
+        rows = json.loads(out)
+        assert len(rows) == 1
+
+        # list must re-create the lock file so subsequent invocations don't
+        # keep re-deriving this same edge case on every call.
+        assert lock.exists(), "list must bootstrap the lock file when the store exists"
+        lock.unlink()
+
+        rc, out, err = _run(["count", "--repo", repo])
+        assert rc == 0, f"count must survive store-without-lock, got rc={rc} stderr={err}"
+        assert "FileNotFoundError" not in err
+        assert out.strip() == "1"
+        lock.unlink()
+
+        target_id = rows[0]["id"]
+        rc, out, err = _run(["ack", "--repo", repo, "--id", target_id])
+        assert rc == 0, f"ack must survive store-without-lock, got rc={rc} stderr={err}"
+        assert "FileNotFoundError" not in err
+
+        print("PASS test_list_count_ack_survive_store_present_lock_absent")
+
+
 if __name__ == "__main__":
     test_append_owns_id_ts_status_pattern_hash()
     test_reason_enum_accepts_only_two_values_budget_exceeded_rejected()
@@ -425,4 +482,5 @@ if __name__ == "__main__":
     test_cli_runs_through_path_symlink_resolving_lib()
     test_ack_updates_only_target_status()
     test_repo_is_a_locator_not_cwd_dependent()
+    test_list_count_ack_survive_store_present_lock_absent()
     print("All tests passed.")

@@ -121,8 +121,8 @@ stopped.
    documented path) are recorded the same way:
    `bin/ds-defer append --reason out_of_band_manual_discovery`.
 5. `/ds-feedback-triage` Step 4d is unaffected - its creates are already
-   gated by an explicit per-batch human greenlight (Step 2,
-   `ds-feedback-triage.md:32,68,206`), a stronger control than anything here.
+   gated by an explicit per-batch human greenlight (`ds-feedback-triage.md`
+   §"Step 2 - Group and present"), a stronger control than anything here.
 
 ## Common Rationalizations to Reject
 
