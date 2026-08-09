@@ -713,7 +713,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Knowledge-file routing (three distinct stores):**
 - `<cwd>/MEMORY.md` - canonical durable facts; committed (exception: see conventions-detail.md); loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`; written by `$wrap` (Part B promotion, capped 3/run, plus a one-time migration stub seed), wrap-ticket, manual workflow 'ds-memory-update' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-memory-update`.
-- `$AE_PROJECT_DIR/.agentic/memory.md` - `$wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
+- `$AE_PROJECT_DIR/.agentic/memory.md` - deferred-wrap daemon staging; written exclusively by the daemon (manual workflow 'ds-wrap-deferred' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-wrap-deferred` Step 3); `$wrap` only reads and drains it (Part B), never writes it; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
 - `$AE_PROJECT_DIR/.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (mandatory triggers, conductor-spawned).
 
 **Per-developer session log.** Canonical methodology describes a harness Stop hook that writes `$AE_PROJECT_DIR/.agentic/session-log/<developer_id>.jsonl`. The current Codex Stop hook does not write that project-local telemetry; it writes only `~/.codex/projects/[hash]/context.md`. Codex project-local telemetry migration is deferred to `context-writer-migration`.

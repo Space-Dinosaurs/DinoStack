@@ -660,7 +660,7 @@ Then append the domain (the `## <domain>` heading value, without the `## ` prefi
 
 **Knowledge-file routing (three distinct stores):**
 - `<cwd>/MEMORY.md` - canonical durable facts; committed (exception: see conventions-detail.md); loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`; written by `/ds-wrap` (Part B promotion, capped 3/run, plus a one-time migration stub seed), wrap-ticket, `/ds-memory-update`.
-- `.agentic/memory.md` - `/ds-wrap`-internal rolling scratch only; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
+- `.agentic/memory.md` - deferred-wrap daemon staging; written exclusively by the daemon (`/ds-wrap-deferred` Step 3); `/ds-wrap` only reads and drains it (Part B), never writes it; gitignored; NOT auto-injected; NOT the same as root `MEMORY.md`.
 - `.agentic/learnings.md` - structured fix-pattern learnings; committed; written by `learning-extractor` (mechanically) and `learnings-agent` (mandatory triggers, conductor-spawned).
 
 **Per-developer session log:** `.agentic/session-log/<developer_id>.jsonl` - per-developer session rollup written by the Stop hook. Committed to git via the `.agentic/session-log/` carve-out in `.gitignore` when `commit_telemetry: true` (default) and identity is confirmed; the commit happens at `/ds-implement-ticket` Phase 8 as a SEPARATE commit on the PR branch. Teammates receive it on pull after squash merge. See `content/references/events-log.md` "Per-developer session log". Aggregated via `ds-cost team`.
