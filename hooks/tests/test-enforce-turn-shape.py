@@ -34,7 +34,16 @@ Test coverage (mirrors the 14-case spec in the DS-122 spawn brief):
   s. DS-151 volume check: each warrant type at budget (QUIET) and one line
      over budget (ADVISORY "turn volume exceeded"); the decisions-block
      exemption (unbounded item count does not trip the volume check); a
-     forced-yield turn is unaffected by the volume check
+     forced-yield turn is unaffected by the volume check (finding 1
+     regression: s10c, a 5+ Waiting: line fan-out turn, strictly over
+     BODY_BUDGET_STOPPAGE); the answer warrant no longer buys the generous
+     budget on quoted-fragment evidence alone (finding 3 regression: s5c);
+     fenced-content exclusion is capped, not unconditional (finding 2
+     regressions: s12 closed-fence-over-cap, s13 unclosed-fence-at-EOF)
+  t. DS-151 finding 4: operator-decisions per-item sprawl - item COUNT
+     stays unbounded (t3, many short items) but a single item's LINE COUNT
+     is bounded at MAX_LINES_PER_DECISION_ITEM (t2 regression: one item
+     sprawling to 40 lines; t4: per-item, not aggregate, measurement)
 """
 
 from __future__ import annotations
@@ -558,7 +567,13 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 BODY_BUDGET_DECISION = 3
 BODY_BUDGET_STOPPAGE = 3
 BODY_BUDGET_COMPLETION = 6
-BODY_BUDGET_ANSWER = 15
+BODY_BUDGET_ANSWER = 10
+# "Next-highest applicable budget" substituted for BODY_BUDGET_ANSWER
+# whenever the only answer evidence is the weak quoted-fragment detector
+# (always true today) - see finding 3a in enforce-turn-shape.py.
+BODY_BUDGET_ANSWER_WEAK_FALLBACK = BODY_BUDGET_COMPLETION
+MAX_EXCLUDED_FENCE_LINES = 20
+MAX_LINES_PER_DECISION_ITEM = 3
 
 
 def _nlines(n: int, prefix: str = "Line") -> str:
@@ -598,27 +613,53 @@ check(
     is_advisory(rc, out, "turn volume exceeded"),
 )
 
-# s5. answer warrant, body AT budget (15 lines, including the quoted line
-# that supplies the warrant itself) -> QUIET.
+# s5. answer warrant (weak quoted-fragment evidence only), body AT the
+# WEAK FALLBACK budget (6 lines, including the quoted line that supplies
+# the warrant itself) -> QUIET. Finding 3a: the answer warrant no longer
+# buys the generous BODY_BUDGET_ANSWER (10) on quoted-fragment evidence
+# alone - it is judged against BODY_BUDGET_ANSWER_WEAK_FALLBACK (6)
+# instead.
 s5_msg = (
     IDENTITY_OK
     + "\n"
     + '"Here is the direct answer to your question."\n'
-    + _nlines(BODY_BUDGET_ANSWER - 1, prefix="Detail")
+    + _nlines(BODY_BUDGET_ANSWER_WEAK_FALLBACK - 1, prefix="Detail")
 )
 rc, out, err = run_hook(make_payload(s5_msg))
-check("s5. answer warrant, body at budget (15 lines) -> QUIET", is_quiet(rc, out))
+check("s5. answer warrant (weak evidence), body at fallback budget (6 lines) -> QUIET", is_quiet(rc, out))
 
-# s6. answer warrant, body ONE line OVER budget (16 lines) -> ADVISORY.
+# s6. answer warrant (weak evidence), body ONE line OVER the fallback
+# budget (7 lines) -> ADVISORY, and the message shows the fallback budget
+# (6), not the nominal BODY_BUDGET_ANSWER (10).
 s6_msg = (
     IDENTITY_OK
     + "\n"
     + '"Here is the direct answer to your question."\n'
-    + _nlines(BODY_BUDGET_ANSWER, prefix="Detail")
+    + _nlines(BODY_BUDGET_ANSWER_WEAK_FALLBACK, prefix="Detail")
 )
 rc, out, err = run_hook(make_payload(s6_msg))
 check(
-    "s6. answer warrant, body 1 line over budget -> ADVISORY (turn volume exceeded)",
+    "s6. answer warrant (weak evidence), body 1 line over fallback budget -> ADVISORY (turn volume exceeded)",
+    is_advisory(rc, out, "turn volume exceeded"),
+)
+check("s6b. advisory cites the fallback budget (6), not the nominal ANSWER budget (10)", "budget is 6" in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""))
+
+# s5c. REGRESSION (DS-151 Skeptic Major finding 3, exact adversarial input):
+# an ordinary, otherwise status-only-shaped narration turn that happens to
+# mention an incidental quoted fragment (a PR title) must NOT silently
+# escape under the old generous 15-line ANSWER budget. Before the fix, one
+# incidental quote bought the whole turn the most generous budget via
+# max(); after the fix it is judged against the stricter fallback (6) and
+# a 9-line narration is flagged.
+s5c_msg = (
+    IDENTITY_OK
+    + "\n"
+    + 'Merged "fix: resolve turn-shape gate regression" into main.\n'
+    + _nlines(8, prefix="Also did thing")
+)
+rc, out, err = run_hook(make_payload(s5c_msg))
+check(
+    "s5c. incidental quote in an otherwise-unwarranted narration turn no longer buys the generous budget -> ADVISORY",
     is_advisory(rc, out, "turn volume exceeded"),
 )
 
@@ -664,6 +705,22 @@ s10_msg = IDENTITY_OK + "\nWaiting: item A.\nWaiting: item B.\n"
 rc, out, err = run_hook(make_payload(s10_msg))
 check("s10. forced-yield turn (2 Waiting: lines, sole warrant) -> QUIET, volume check inert", is_quiet(rc, out))
 
+# s10c. REGRESSION (DS-151 Skeptic Critical finding 1, exact adversarial
+# input): a 5-agent fan-out forced-yield turn (5 Waiting: lines, well over
+# BODY_BUDGET_STOPPAGE=3) must stay QUIET - conductor-turn-format.md:31
+# states the Waiting: count is "unbounded, not re-capped at 1-3". Before
+# the fix, this tripped "turn volume exceeded: ... budget is 3 for a
+# stoppage turn" even though the shape was fully compliant. s10 above (2
+# lines) is under budget even without the fix and did not catch this bug -
+# this fixture must be strictly OVER BODY_BUDGET_STOPPAGE to prove the
+# exemption, not just under it.
+s10c_msg = IDENTITY_OK + "\n" + "\n".join(f"Waiting: agent-{i} - unit {i} review." for i in range(1, 6)) + "\n"
+rc, out, err = run_hook(make_payload(s10c_msg))
+check(
+    "s10c. forced-yield turn (5 Waiting: lines, over BODY_BUDGET_STOPPAGE) -> QUIET, volume check exempt",
+    is_quiet(rc, out),
+)
+
 # s11. fenced code block content is excluded from the volume count: 10
 # lines of "code" inside a fence plus 2 lines of real prose (well under the
 # 3-line decision budget) -> QUIET, even though the raw line count (12)
@@ -680,6 +737,172 @@ check(
     "s11. fenced code block excluded from volume count (2 real body lines) -> QUIET",
     is_quiet(rc, out),
 )
+
+# s12. REGRESSION (DS-151 Skeptic Major finding 2a, exact adversarial
+# input): 30 lines of ORDINARY PROSE wrapped in a single closed fence, plus
+# 2 real body lines - under the old unconditional exclusion this counted as
+# 0 and passed silently (QUIET); after the fix, the 10 lines beyond
+# MAX_EXCLUDED_FENCE_LINES=20 count at full weight, pushing the count to
+# 2 + 10 = 12, which exceeds even the largest ordinary (non-answer) budget
+# (COMPLETION=6) -> ADVISORY.
+s12_fence_lines = "\n".join(f"Prose line {i}, not code at all." for i in range(1, 31))
+s12_msg = (
+    IDENTITY_COMPLETE
+    + "\nHere is the summary.\n```\n"
+    + s12_fence_lines
+    + "\n```\nDone reporting.\n"
+)
+rc, out, err = run_hook(make_payload(s12_msg))
+check(
+    "s12. 30 prose lines in a closed fence (over MAX_EXCLUDED_FENCE_LINES) -> ADVISORY (turn volume exceeded)",
+    is_advisory(rc, out, "turn volume exceeded"),
+)
+
+# s12b. Fence content AT the cap (exactly MAX_EXCLUDED_FENCE_LINES lines)
+# stays fully excluded -> QUIET, confirming the cap boundary itself (not
+# just "over the cap").
+s12b_fence_lines = "\n".join(f"Prose line {i}." for i in range(1, MAX_EXCLUDED_FENCE_LINES + 1))
+s12b_msg = (
+    IDENTITY_COMPLETE
+    + "\nHere is the summary.\n```\n"
+    + s12b_fence_lines
+    + "\n```\nDone reporting.\n"
+)
+rc, out, err = run_hook(make_payload(s12b_msg))
+check(
+    "s12b. fence content exactly AT MAX_EXCLUDED_FENCE_LINES -> QUIET (fully excluded)",
+    is_quiet(rc, out),
+)
+
+# s13. REGRESSION (DS-151 Skeptic Major finding 2b, exact adversarial
+# input): an UNCLOSED fence (opened, never closed) at true EOF - no
+# decisions heading, nothing after it. Under the old bug, the unbalanced
+# ``` latched in_code=True to EOF and silently zeroed every line after it.
+# After the fix, every line collected since the unmatched opener counts at
+# FULL weight with no exclusion cap at all: 2 lines of real prose + 5
+# unclosed fence lines = 7, over the completion budget (6) -> ADVISORY.
+s13_msg = (
+    IDENTITY_COMPLETE
+    + "\nHere is the diff.\nMore prose here.\n```python\n"
+    + "\n".join(f"line_{i} = {i}" for i in range(1, 6))
+    + "\n"
+)
+rc, out, err = run_hook(make_payload(s13_msg))
+check(
+    "s13. unclosed fence at true EOF -> every buffered line counts at full weight -> ADVISORY (turn volume exceeded)",
+    is_advisory(rc, out, "turn volume exceeded"),
+)
+
+# s13b. Same unclosed-fence shape, but the buffered count lands exactly AT
+# the applicable budget - sanity check that the unclosed-fence path adds
+# exactly len(fence_buffer), not some larger inflated value. 1 prose line +
+# 5 buffered fence lines = 6, exactly AT the completion budget -> QUIET.
+s13b_msg = (
+    IDENTITY_COMPLETE
+    + "\nOne prose line.\n```\n"
+    + "\n".join(f"fence line {i}" for i in range(1, 6))
+    + "\n"
+)
+rc, out, err = run_hook(make_payload(s13b_msg))
+check(
+    "s13b. unclosed fence, buffered count exactly at budget -> QUIET",
+    is_quiet(rc, out),
+)
+
+
+# ---------------------------------------------------------------------------
+# t. DS-151 finding 4: operator-decisions per-item sprawl check.
+#    MAX_LINES_PER_DECISION_ITEM = 3. Item COUNT stays unbounded (already
+#    covered by s7 above); this section covers per-item SHAPE.
+# ---------------------------------------------------------------------------
+
+# t1. a single item within budget (3 lines) -> QUIET.
+t1_msg = (
+    IDENTITY_OK
+    + "\n"
+    + _nlines(BODY_BUDGET_DECISION)
+    + "\n## Operator decisions\n1. Proceed with X (Recommended)\n   - reason: matches existing pattern\n   - Reply STOP to skip\n"
+)
+rc, out, err = run_hook(make_payload(t1_msg))
+check("t1. single decision item, 3 lines (at budget) -> QUIET", is_quiet(rc, out))
+
+# t2. REGRESSION (DS-151 Skeptic Major finding 4, exact adversarial input):
+# item count stays at 1 (never capped), but the single item sprawls to 40
+# lines of narrative - the reported bug ("40 lines of narrative below it
+# passes"). Must now be flagged as item sprawl, distinct from the volume
+# check (which stops counting at the heading and never sees this content).
+t2_msg = (
+    IDENTITY_OK
+    + "\n"
+    + _nlines(BODY_BUDGET_DECISION)
+    + "\n## Operator decisions\n1. Proceed with X (Recommended)\n"
+    + "\n".join(f"   Extra narrative line {i} that should not be here." for i in range(1, 41))
+    + "\n"
+)
+rc, out, err = run_hook(make_payload(t2_msg))
+check(
+    "t2. single decision item sprawls to 40 lines -> ADVISORY (operator-decisions item sprawl)",
+    is_advisory(rc, out, "operator-decisions item sprawl"),
+)
+check(
+    "t2b. item-sprawl advisory names the item and its line count",
+    "41 lines" in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", "")
+    and "Proceed with X" in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
+)
+
+# t3. many SHORT items (item count unbounded, per-item shape compliant) ->
+# QUIET. Distinguishes "many items" (fine) from "one sprawling item" (t2,
+# flagged) - both interact with the same unbounded-count guarantee but only
+# the latter violates per-item shape.
+t3_items = "\n".join(
+    f"{i}. Action {i} (Recommended) - reason. Reply STOP to skip." for i in range(1, 21)
+)
+t3_msg = IDENTITY_OK + "\n" + _nlines(BODY_BUDGET_DECISION) + "\n## Operator decisions\n" + t3_items + "\n"
+rc, out, err = run_hook(make_payload(t3_msg))
+check("t3. 20 short (1-line) decision items, none over per-item budget -> QUIET", is_quiet(rc, out))
+
+# t4. one item at exactly the per-item budget among several compliant items
+# -> QUIET, and one item ONE line over -> ADVISORY naming that specific item
+# (not a different one), proving per-item (not aggregate) measurement.
+t4_msg = (
+    IDENTITY_OK
+    + "\n"
+    + _nlines(BODY_BUDGET_DECISION)
+    + "\n## Operator decisions\n"
+    + "1. Short item (Recommended) - fine.\n"
+    + "2. Sprawling item (Recommended)\n   - reason line one\n   - reason line two\n   - reason line three\n"
+    + "3. Another short item (Recommended) - fine.\n"
+)
+rc, out, err = run_hook(make_payload(t4_msg))
+check(
+    "t4. one item over budget among compliant items -> ADVISORY naming '2. Sprawling item (Recommended)'",
+    is_advisory(rc, out, "operator-decisions item sprawl")
+    and "2. Sprawling item (Recommended)" in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
+)
+
+
+# ---------------------------------------------------------------------------
+# u. DS-151 finding 3b constant pin: BODY_BUDGET_ANSWER=10 is currently
+#    UNREACHABLE through the hook's observable behavior (finding 3a always
+#    demotes "answer" to BODY_BUDGET_ANSWER_WEAK_FALLBACK for volume
+#    purposes - see s5/s6 above), so no subprocess-level fixture can catch
+#    a regression to the old value of 15. Import the module directly (this
+#    never executes main() - that only runs under `if __name__ ==
+#    "__main__"`) and pin the literal constant values so a revert of
+#    finding 3b is still mechanically caught.
+# ---------------------------------------------------------------------------
+
+_spec = importlib.util.spec_from_file_location("enforce_turn_shape", HOOK_PATH)
+_hook_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_hook_mod)
+
+check("u1. BODY_BUDGET_ANSWER == 10 (lowered from 15, finding 3b)", _hook_mod.BODY_BUDGET_ANSWER == 10)
+check(
+    "u2. BODY_BUDGET_ANSWER_WEAK_FALLBACK == BODY_BUDGET_COMPLETION (6)",
+    _hook_mod.BODY_BUDGET_ANSWER_WEAK_FALLBACK == _hook_mod.BODY_BUDGET_COMPLETION == 6,
+)
+check("u3. MAX_EXCLUDED_FENCE_LINES == 20 (finding 2a)", _hook_mod.MAX_EXCLUDED_FENCE_LINES == 20)
+check("u4. MAX_LINES_PER_DECISION_ITEM == 3 (finding 4)", _hook_mod.MAX_LINES_PER_DECISION_ITEM == 3)
 
 
 # ---------------------------------------------------------------------------
