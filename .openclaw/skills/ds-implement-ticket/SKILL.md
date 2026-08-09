@@ -553,7 +553,7 @@ For full details of the Phase 11 writeback subagent brief shape, see the Phase 1
 
 ## Tracker Create Helper
 
-Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `/ds-implement-ticket`. Called by the ticket-offer gate (cross-ref `content/sections/02-delegation.md` §Ticket-offer gate).
+Reusable SYNCHRONOUS pattern - the conductor waits for the new ticket ID before routing to `/ds-implement-ticket`. Called by the ticket-offer gate (cross-ref `content/sections/02-delegation.md` §Ticket-offer gate). Mid-session discovery tickets (found during an in-progress unit rather than at top-level intake) are governed by a separate carve-out, promotion bar, and absolute batching rule before this Helper is ever invoked: `content/references/delegation-detail.md` §Follow-up Ticket Creation Discipline.
 
 **Invocation contract:**
 

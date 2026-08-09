@@ -1,19 +1,21 @@
 #!/usr/bin/env bash
 # Purpose: Claude Code SessionStart wrapper for the deferred-wrap feature. It
-#          composes FIVE concerns into a single fail-open SessionStart hook:
+#          composes SIX concerns into a single fail-open SessionStart hook:
 #          (a) the "newer version available" notice (delegated to the existing
 #          version-check wrapper); (b) a one-line auth-failed notice when the
 #          daemon previously could not authenticate; (c) a one-time migration of
 #          deferred-wrap artifacts from the old top-level .agentic/ layout to the
 #          new .agentic/wrap/ subdirectory; (d) the self-healing
 #          `.agentic/wrap/claude-host` sentinel write (MAJOR-B) plus a guarded,
-#          detached launch of the deferred-wrap daemon; and (e) a hooks-snapshot
+#          detached launch of the deferred-wrap daemon; (e) a hooks-snapshot
 #          staleness nudge (DS-54, hooks/lib/hooks-staleness-core.sh) when the
 #          methodology checkout has never been snapshotted, is half-migrated
-#          across adapters, or has moved since the last snapshot sync. It is
-#          the FIRST and only SessionStart registration install.sh makes; the
-#          version-check script is no longer wired directly - it is invoked
-#          from here.
+#          across adapters, or has moved since the last snapshot sync; and
+#          (f) a deferred-work open-count nudge (bin/ds-defer count) for the
+#          Follow-up Ticket Creation Discipline's sink
+#          (.agentic/deferred-work.jsonl). It is the FIRST and only
+#          SessionStart registration install.sh makes; the version-check
+#          script is no longer wired directly - it is invoked from here.
 # Public API: bash hooks/session-start-wrap.sh
 #             (reads the SessionStart JSON payload on stdin, extracts `cwd`;
 #              writes a single JSON object to stdout; always exits 0.)
@@ -24,7 +26,16 @@
 #                node + hooks/wrap-daemon.js (detached daemon launch),
 #                .agentic/config.json (`deferred_wrap_daemon` toggle),
 #                AGENTIC_WRAP_DAEMON env var (loop-guard),
-#                hooks/lib/wrap-marker.js (wrapLockProvablyStaleLegacy - migration).
+#                hooks/lib/wrap-marker.js (wrapLockProvablyStaleLegacy - migration),
+#                hooks/lib/repo-dir-fallback.sh (resolve_ae_repo_dir_with_fallback -
+#                  locates bin/ds-defer for the deferred-work nudge; tries
+#                  scripts/lib/repo-dir.sh first, falls back to reading
+#                  $HOME/.agentic/agentic-engineering-config.json via python3
+#                  and validating with git when that lib is absent, e.g. the
+#                  deployed hooks-snapshot layout),
+#                bin/ds-defer (deferred-work open-count query for the nudge;
+#                  optional - a missing/unresolvable binary just yields an
+#                  empty message piece via the `command -v ds-defer` fallback).
 # Downstream consumers: Claude Code SessionStart hook, wired via
 #                       ~/.claude/settings.json by .claude/install.sh.
 # Failure modes: ALWAYS exits 0 (fail-open). A missing field, missing jq,
@@ -34,7 +45,11 @@
 #                (set -euo pipefail safe) and never blocks the session. The
 #                staleness nudge (hooks-staleness-core.sh) is itself fail-open
 #                and always exits 0; a missing script or any internal error
-#                just yields an empty message piece.
+#                just yields an empty message piece. The deferred-work nudge
+#                is likewise fail-open: an unresolvable bin/ds-defer, a
+#                nonzero exit, or non-numeric output all degrade silently to
+#                an empty message piece (`2>/dev/null || true`), never a
+#                blocked session.
 #                There is NO stale-sweep (CRITICAL-A): this script never
 #                promotes a marker, it only relocates old-layout artifacts once
 #                per project, self-heals the sentinel, and conditionally launches
@@ -42,8 +57,12 @@
 # Performance: one subshell to the version-check core (sub-10ms read path, no
 #              blocking network), one defensive stdin parse, a migration sweep
 #              (fast: mv only needed when old-path files exist), one subshell
-#              to the staleness core (a handful of file checks, fail-open), and
-#              at most one detached daemon spawn that the hook never waits on.
+#              to the staleness core (a handful of file checks, fail-open), one
+#              `bin/ds-defer count` subprocess for the deferred-work nudge (a
+#              single-file JSONL read, no network - runs on EVERY session
+#              start for EVERY project, not just when the sink is non-empty),
+#              and at most one detached daemon spawn that the hook never
+#              waits on.
 
 set -euo pipefail
 
@@ -223,10 +242,48 @@ fi
 # user-facing message but still satisfies the SessionStart JSON contract.
 combined=""
 if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
+  # --- Deferred-work open-count nudge (4th contributor). Resolved via
+  # hooks/lib/repo-dir-fallback.sh's resolve_ae_repo_dir_with_fallback
+  # (shared with hooks/lib/version-check-core.sh; tries scripts/lib/
+  # repo-dir.sh's resolve_repo_dir first, falls back inline when that lib
+  # is absent) rather than trusting PATH - ~/.local/bin (where install.sh
+  # symlinks ds-defer) is not reliably on the PATH a GUI-launched harness
+  # inherits, and grepping hooks/ turns up zero existing "command -v ds-*"
+  # call sites to imitate. This hook runs from the hooks-snapshot dir in
+  # production (~/.agentic/hooks-snapshot/DinoStack-<hash>/hooks/), which
+  # sync_hooks_snapshot (scripts/lib/hooks-snapshot.sh:371) copies `hooks/`
+  # wholesale (:423) plus bin/ds-identity (:429-437) and, conditionally,
+  # .codex/config/hooks.json, .codex/hooks, .gemini/hooks, and .kimi/hooks
+  # (:438-465) - NOT the rest of `bin/`, and NOT `scripts/` at all - so
+  # both $SCRIPT_DIR/../scripts/lib/repo-dir.sh AND
+  # $SCRIPT_DIR/../bin/ds-defer are absent in the deployed layout. The
+  # repo-dir-fallback.sh inline branch is therefore what actually resolves
+  # AE_REPO_DIR in production, not a rare degraded path; the DS_DEFER_BIN
+  # existence check right below is what handles ds-defer itself being
+  # absent from the snapshot (falls through to the `command -v ds-defer`
+  # branch). ---
+  defer_msg=""
+  # shellcheck source=./lib/repo-dir-fallback.sh
+  source "$SCRIPT_DIR/lib/repo-dir-fallback.sh"
+  resolve_ae_repo_dir_with_fallback
+  if [[ -n "${AE_REPO_DIR:-}" ]] && [[ -x "$AE_REPO_DIR/bin/ds-defer" ]]; then
+    DS_DEFER_BIN="$AE_REPO_DIR/bin/ds-defer"
+  fi
+  if [[ -z "${DS_DEFER_BIN:-}" ]] && command -v ds-defer >/dev/null 2>&1; then
+    DS_DEFER_BIN="$(command -v ds-defer)"
+  fi
+  if [[ -n "${DS_DEFER_BIN:-}" ]]; then
+    defer_count="$("$DS_DEFER_BIN" count --repo "$cwd" --status open 2>/dev/null || true)"
+    if [[ "$defer_count" =~ ^[0-9]+$ ]] && [[ "$defer_count" -gt 0 ]]; then
+      defer_msg="${defer_count} deferred-work item(s) pending in this project - see .agentic/deferred-work.jsonl or run \`ds-defer list --repo .\`."
+    fi
+  fi
+
   parts=()
   [[ -n "$version_msg" ]] && parts+=("$version_msg")
   [[ -n "$auth_msg" ]] && parts+=("$auth_msg")
   [[ -n "$staleness_msg" ]] && parts+=("$staleness_msg")
+  [[ -n "$defer_msg" ]] && parts+=("$defer_msg")
   if [[ ${#parts[@]} -gt 0 ]]; then
     sep=""
     for part in "${parts[@]}"; do

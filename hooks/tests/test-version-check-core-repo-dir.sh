@@ -180,9 +180,12 @@ write_fake_cache "$TEMP_HOME/.agentic"
 
 # Write a thin wrapper that overrides _REPO_DIR_LIB after vcc computes it.
 # We source vcc; after the _VCC_DIR/_REPO_DIR_LIB lines set their values we
-# can't easily intercept them. Instead, we test the fallback path by calling
-# the inline block directly (copy-equivalent subshell), simulating vcc behavior
-# when the lib is not found, using only AE_CONFIG.
+# can't easily intercept them. Instead, we test the fallback path via a
+# standalone copy-equivalent subshell that reimplements the same semantics
+# vcc now delegates to hooks/lib/repo-dir-fallback.sh's
+# resolve_ae_repo_dir_with_fallback() when scripts/lib/repo-dir.sh is
+# absent - NOT vcc's own inline code (vcc has none left; both AE_CONFIG and
+# the inline block below live only in this test, not in vcc itself).
 FALLBACK_INLINE_RESULT="$(env HOME="$TEMP_HOME" bash -c "
   set -euo pipefail
   AE_CONFIG=\"\$HOME/.agentic/agentic-engineering-config.json\"

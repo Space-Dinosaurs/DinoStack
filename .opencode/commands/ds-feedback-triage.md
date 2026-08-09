@@ -137,6 +137,11 @@ feedback-triage: skipping item [<index>] (<repo>) - <reason>. Left open for a fu
 
 ### 4d. Create the ticket
 
+This step is unaffected by `content/references/delegation-detail.md`
+§Follow-up Ticket Creation Discipline - its creates are already gated by
+an explicit per-batch human greenlight (Step 2), a stronger control than
+anything in that discipline.
+
 Call the Tracker Create Helper (`/ds-implement-ticket` §"Tracker Create
 Helper") by reference - do not reimplement its per-tracker branches here.
 Supply:
