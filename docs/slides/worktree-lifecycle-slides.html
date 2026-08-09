@@ -1143,28 +1143,20 @@ hr {
 <p>Run <strong>once at session start</strong> in the conductor preflight - not before every subagent spawn. Cache the resolved base branch for the session:</p>
 <pre is="marp-pre" data-auto-scaling="downscale-only"><code class="language-bash">git fetch origin
 git worktree prune
-<span class="hljs-comment"># Orphaned worktree-agent-* branches not checked out in a live worktree:</span>
-<span class="hljs-comment"># gated on merge evidence (ancestry, then PR state) before deleting.</span>
-git branch | grep <span class="hljs-string">&#x27;worktree-agent-&#x27;</span> | sed <span class="hljs-string">&#x27;s/^[* ]*//&#x27;</span> | <span class="hljs-keyword">while</span> <span class="hljs-built_in">read</span> b; <span class="hljs-keyword">do</span>
-  git worktree list | grep -qF <span class="hljs-string">&quot;[<span class="hljs-variable">$b</span>]&quot;</span> &amp;&amp; <span class="hljs-built_in">continue</span>
-  <span class="hljs-keyword">if</span> git merge-base --is-ancestor <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span> origin/main 2&gt;/dev/null; <span class="hljs-keyword">then</span>
-    git branch -D <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span>
-  <span class="hljs-keyword">elif</span> [ <span class="hljs-string">&quot;<span class="hljs-subst">$(gh pr view <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span> --json state -q .state 2&gt;/dev/null)</span>&quot;</span> = <span class="hljs-string">&quot;MERGED&quot;</span> ]; <span class="hljs-keyword">then</span>
-    git branch -D <span class="hljs-string">&quot;<span class="hljs-variable">$b</span>&quot;</span>
-  <span class="hljs-keyword">else</span>
-    <span class="hljs-built_in">echo</span> <span class="hljs-string">&quot;SKIP (unproven merge): <span class="hljs-variable">$b</span>&quot;</span> &gt;&amp;2
-  <span class="hljs-keyword">fi</span>
-<span class="hljs-keyword">done</span>
+<span class="hljs-comment"># Local branch prune - bin/ds-branch-prune (DS-153), covering</span>
+<span class="hljs-comment"># worktree-agent-* branches and every other stale local branch:</span>
+<span class="hljs-built_in">command</span> -v ds-branch-prune &gt;/dev/null 2&gt;&amp;1 &amp;&amp; ds-branch-prune
 </code></pre>
-<p>The <strong>branch prune</strong> runs alongside it. Three safe signals only - never force-deletes unproven work:</p>
+<p>The <strong>branch prune</strong> (<code>bin/ds-branch-prune</code>) runs alongside it - a four-layer, first-match-wins subsumption predicate, never force-deletes unproven work:</p>
 <ol>
-<li><code>[gone]</code>-upstream branches (merged + remote-deleted via squash + <code>--delete-branch</code>)</li>
-<li>Branches fully merged into <code>origin/main</code></li>
-<li>Orphaned <code>worktree-agent-*</code> branches whose worktree no longer exists</li>
+<li>Ancestry - every commit is literally on <code>origin/main</code></li>
+<li>Squash-patch equivalence - the branch's cumulative delta matches a merged PR's squash commit</li>
+<li>Tip-subsumption - the tip carries no commit beyond the head that was squashed</li>
+<li>Content-on-main - every file the branch touched is byte-identical to <code>origin/main</code></li>
 </ol>
 <ul>
 <li>Re-run the preflight only if the user explicitly switches branches or after 30+ minutes of idle time</li>
-<li><code>[gone]</code> is the reliable merged-and-cleaned signal after a history rewrite; ancestry alone misses squash-merged branches</li>
+<li>Absence of proof is always a skip (<code>SKIP_UNPROVEN</code>) - a bare &quot;a PR merged&quot; signal is never sufficient on its own</li>
 </ul>
 <div class="callout">
 The aggressive per-session prune is a complement to Claude Code's own 30-day orphan sweep, not a replacement. Stale worktrees accumulate between sweeps.

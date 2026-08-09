@@ -47,7 +47,7 @@ Classify every remaining entry by **path relative to the repo root, never by bra
 
 ## Step 3: Remove isolation worktrees
 
-For each ISOLATION-classified entry, apply `disposition_for()`'s gate order - locked, dirty, then merge-evidence-independent-of-push (`bin/tests/worktree_model.py`; where this prose and `disposition_for` disagree, `disposition_for` wins). (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around - `SKIP_LOCKED`.)
+For each ISOLATION-classified entry, apply `disposition_for()`'s gate order - locked, dirty, then merge-evidence-independent-of-push (`bin/tests/worktree_model.py`; where this prose and `disposition_for` disagree, `disposition_for` wins). (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` below is refused by git automatically; this is expected, not an error to route around - `SKIP_LOCKED`.)
 
 Resolve its path from the branch name and check its status before touching it:
 
@@ -59,12 +59,11 @@ git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 
 where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
+**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune. Do **not** delete the branch here: an admin-only worktree entry with a missing directory is not merge evidence, and `git branch -D` at this point would run on zero proof of subsumption - strictly weaker evidence than either MERGED-PR route below. The orphaned branch is left for Step 5's `ds-branch-prune` subsumption predicate to evaluate under its own four-layer proof, ledgered on deletion:
 
 ```bash
 git worktree unlock "$WORKTREE_PATH" 2>/dev/null || true
 git worktree prune
-git branch -D "$b"
 ```
 
 **Directory exists, dirty (output present)** (`SKIP_DIRTY`): List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
@@ -76,14 +75,15 @@ HEAD_SHA=$(git -C "$WORKTREE_PATH" rev-parse HEAD)
 git merge-base --is-ancestor "$HEAD_SHA" origin/main 2>/dev/null && MERGE_EVIDENCE=merged || MERGE_EVIDENCE=unmerged
 ```
 
-- `MERGE_EVIDENCE=merged` (`ELIGIBLE`): remove the worktree and delete the branch:
+- `MERGE_EVIDENCE=merged` (`ELIGIBLE`): remove the worktree only - do **not** delete the branch here:
 
 ```bash
 git worktree remove "$WORKTREE_PATH"
-git branch -D "$b"
 ```
 
-- `MERGE_EVIDENCE=unmerged`: fall back to PR state, if `gh` is available - `gh pr view "$b" --json state -q .state`. `OPEN` skips (`SKIP_PR_OPEN`, report to the user); `MERGED` is `ELIGIBLE` (remove as above - covers a squash-merge ancestry missed). `CLOSED`/no PR/`gh` unavailable falls through to push status: `git ls-remote --exit-code --heads origin "$b"` - absent -> `SKIP_NOT_PUSHED`, command error -> `SKIP_LS_REMOTE_ERROR`, present -> `SKIP_AMBIGUOUS_NO_PR`. Every skip outcome here reports the branch to the user for manual review - never delete on an inconclusive read.
+Branch deletion is deferred to Step 5's `ds-branch-prune` subsumption predicate: a bare `MERGE_EVIDENCE=merged` read is sufficient to reclaim the worktree (`git worktree remove` does not destroy commits) but is NOT sufficient evidence for `git branch -D` (DS-153 Amendment B1 - see the Notes section below).
+
+- `MERGE_EVIDENCE=unmerged`: fall back to PR state, if `gh` is available - `gh pr view "$b" --json state -q .state`. `OPEN` skips (`SKIP_PR_OPEN`, report to the user); `MERGED` is `ELIGIBLE` (remove the worktree only, as above - covers a squash-merge ancestry missed; do not delete the branch here either). `CLOSED`/no PR/`gh` unavailable falls through to push status: `git ls-remote --exit-code --heads origin "$b"` - absent -> `SKIP_NOT_PUSHED`, command error -> `SKIP_LS_REMOTE_ERROR`, present -> `SKIP_AMBIGUOUS_NO_PR`. Every skip outcome here reports the branch to the user for manual review - never delete on an inconclusive read.
 
 ---
 
@@ -107,16 +107,17 @@ Any output: skip removal, list the dirty files, and report to the user.
 gh pr list --state all --head <branch-name> --json number,state,title
 ```
 
-**If state is `MERGED`:** remove the worktree and delete the branch:
+**If state is `MERGED`:** remove the worktree only - do **not** delete the branch here:
 
 ```bash
 git worktree remove <worktree-path>
-git branch -D <branch-name>
 ```
+
+Branch deletion is deferred to Step 5's `ds-branch-prune` subsumption predicate (DS-153 Amendment B1) - see the Notes section below.
 
 **If state is `OPEN` or `CLOSED` (not merged):** skip removal (`SKIP_PR_OPEN` / inconclusive). Report the branch name, PR number, and state to the user so they can decide.
 
-**If no PR exists:** fall back to ancestry (`git merge-base --is-ancestor <head> origin/main`). Merged -> `ELIGIBLE`, remove as above. Still unmerged -> `SKIP_AMBIGUOUS_NO_PR`. Report the branch as needing manual review.
+**If no PR exists:** fall back to ancestry (`git merge-base --is-ancestor <head> origin/main`). Merged -> `ELIGIBLE`, remove the worktree only (as above; do not delete the branch here). Still unmerged -> `SKIP_AMBIGUOUS_NO_PR`. Report the branch as needing manual review.
 
 **If `gh` is not available:** skip the PR check for all feature worktrees; fall back to the ancestry check alone. Report each feature worktree still unmerged as "needs manual review - gh CLI not available". Do not block or error.
 
@@ -124,7 +125,7 @@ git branch -D <branch-name>
 
 ## Step 5: Prune stale local branches
 
-Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)`. It targets three classes of stale local branch with safe signals only - branches with no upstream and not merged into `origin/main` are left alone and reported to the user for manual review.
+Run the canonical branch prune from `content/references/worktree-lifecycle.md §Branch prune (stale local branches)` - `bin/ds-branch-prune` (DS-153). It deletes a local branch only when a four-layer, first-match-wins subsumption predicate (ancestry, squash-patch equivalence, tip-subsumption, content-on-main) proves that branch's tip content is on `origin/main`; absence of proof is always `SKIP_UNPROVEN`, reported for manual review, never force-deleted. When `gh` is unavailable or errors, the predicate degrades to ancestry and content-on-main evidence only (L1/L4) - a strict subset, never a superset, of what a full run would delete - and the run names the degradation rather than staying silent.
 
 ---
 
@@ -145,7 +146,7 @@ Report a summary:
 ## Notes
 
 - **Safety first:** never remove a worktree with uncommitted changes without explicit user confirmation. The status check in Step 3 is not optional.
-- Never remove a feature worktree whose PR is still OPEN. Only MERGED PRs are safe to clean up automatically.
+- Never remove a feature worktree whose PR is still OPEN. For a live worktree's own removal (Steps 3/4, `disposition_for`), a MERGED PR alone remains sufficient evidence - `git worktree remove` does not destroy commits, so the worst case is already covered by `SKIP_DIRTY`/`SKIP_LOCKED` (DS-153 Amendment B1). This does NOT extend to local branch DELETION: `bin/ds-branch-prune` (Step 5, `disposition_for_orphan_branch`) treats a bare MERGED PR as terminally insufficient (`SKIP_PR_MERGED_UNPROVEN`) and requires the subsumption predicate to prove the tip's content is on `origin/main` before deleting.
 - The main worktree (first entry in `git worktree list`) is always skipped.
 - Works on the repository in the current working directory - not project-specific.
 - If `gh` is not available, flag feature worktrees for manual review and continue.
