@@ -3,12 +3,16 @@
 # Purpose: Shared AE_REPO_DIR resolver for SessionStart-path hook scripts
 #          that run from the deployed hooks-snapshot dir, where
 #          scripts/lib/repo-dir.sh (the canonical resolver) is NOT present.
-#          sync_hooks_snapshot copies `hooks/` wholesale plus exactly one
-#          extra file, bin/ds-identity (scripts/lib/hooks-staleness-core.sh:
-#          423,430) - it never copies scripts/. hooks/lib/, by contrast, IS
-#          copied wholesale as part of `hooks/`, which is what makes this
-#          file (unlike scripts/lib/repo-dir.sh itself) reachable from the
-#          deployed layout.
+#          sync_hooks_snapshot (scripts/lib/hooks-snapshot.sh:371) copies
+#          `hooks/` wholesale (:423) then deletes hooks/tests and
+#          hooks/AGENTS.md from the staged copy (:427-428); copies
+#          bin/ds-identity (:429-437); and conditionally copies
+#          .codex/config/hooks.json (:438-444), .codex/hooks (:445-451),
+#          .gemini/hooks (:452-458), and .kimi/hooks (:459-465) when each
+#          source path exists. It never copies scripts/. hooks/lib/, by
+#          contrast, IS copied wholesale as part of `hooks/`, which is what
+#          makes this file (unlike scripts/lib/repo-dir.sh itself)
+#          reachable from the deployed layout.
 #
 #          Extracted (round-2 Skeptic Major) from two call sites that had
 #          each independently reimplemented this exact inline fallback -

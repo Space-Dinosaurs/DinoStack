@@ -251,10 +251,11 @@ if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
   # inherits, and grepping hooks/ turns up zero existing "command -v ds-*"
   # call sites to imitate. This hook runs from the hooks-snapshot dir in
   # production (~/.agentic/hooks-snapshot/DinoStack-<hash>/hooks/), which
-  # sync_hooks_snapshot only ever populates with `hooks/` wholesale plus
-  # exactly one extra file, bin/ds-identity (scripts/lib/hooks-staleness-
-  # core.sh:423,430) - NOT the rest of `bin/`, and NOT `scripts/` at all -
-  # so both $SCRIPT_DIR/../scripts/lib/repo-dir.sh AND
+  # sync_hooks_snapshot (scripts/lib/hooks-snapshot.sh:371) copies `hooks/`
+  # wholesale (:423) plus bin/ds-identity (:429-437) and, conditionally,
+  # .codex/config/hooks.json, .codex/hooks, .gemini/hooks, and .kimi/hooks
+  # (:438-465) - NOT the rest of `bin/`, and NOT `scripts/` at all - so
+  # both $SCRIPT_DIR/../scripts/lib/repo-dir.sh AND
   # $SCRIPT_DIR/../bin/ds-defer are absent in the deployed layout. The
   # repo-dir-fallback.sh inline branch is therefore what actually resolves
   # AE_REPO_DIR in production, not a rare degraded path; the DS_DEFER_BIN
