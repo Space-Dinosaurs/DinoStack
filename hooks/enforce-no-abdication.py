@@ -5,13 +5,12 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
          non-destructive next step, OR by announcing a surface-and-proceed
          default ("Proceeding with X unless you say otherwise") and then
          stopping without actually proceeding. Detects both shapes in the
-         final assistant message and blocks the stop, injecting a directive:
-         an unconditional "proceed" for the classic abdication shape, and a
-         two-exit directive (proceed with the stated default now, OR state
-         explicitly that authorization is required and wait) for the stall
-         shape - because this gate cannot itself tell a genuine
-         surface-and-proceed item from a hard-stop item wearing the same
-         language; see _STALL_REASON. Mechanizes the prose in
+         final assistant message and blocks the stop, injecting a two-exit
+         directive for either shape (proceed with the stated default now, OR
+         state explicitly that authorization is required and wait) - because
+         this gate cannot itself tell a genuine surface-and-proceed item from
+         a hard-stop item wearing the same language; see _ABDICATION_REASON
+         and _STALL_REASON. Mechanizes the prose in
          content/sections/02-delegation.md
          (Proactive autonomy / default-and-proceed - which requires the
          conductor to act "in the same turn", not merely announce intent),
@@ -80,9 +79,13 @@ Purpose: Stop hook that mechanically reduces conductor abdication - ending a
 
          Detection is precision-biased (false-negative-biased): a missed
          abdication leaves the conductor as-is (status quo); a false positive
-         forces continuation on a turn the conductor genuinely intended to stop,
-         which is recoverable but annoying. Three independent classifiers run
-         per invocation, and a block fires if ANY returns true:
+         is recoverable, not because any gate suppresses it, but because the
+         classic path's injected directive (_ABDICATION_REASON) is now a
+         two-exit reroute rather than an unconditional "proceed now" - exit
+         (B) lets the model decline and wait for operator authorization on
+         the very turn a false positive fires, escapable in the next turn
+         rather than forced. Three independent classifiers run per
+         invocation, and a block fires if ANY returns true:
 
          1. _is_abdication(): the classic permission-seeking interrogative
             check (tier1 phrase + same-sentence "?"). Suppressed by
@@ -230,10 +233,13 @@ Regression corpus: hooks/tests/test-corpus-abdication.py is the permanent
                   drop/alter table|column|index|database|schema: measured
                   13/13 false suppressions.
              Any NEW classifier added here should route its injected
-             directive through _STALL_REASON's two-exit pattern (proceed now
-             OR explicitly wait for authorization), not _ABDICATION_REASON's
-             unconditional "proceed now" - a false positive on the latter is
-             unrecoverable.
+             directive through the two-exit pattern (proceed now OR
+             explicitly wait for authorization) shared by _STALL_REASON and,
+             as of this commit, _ABDICATION_REASON as well - never an
+             unconditional "proceed now" directive. A false positive on an
+             unconditional directive forces an irreversible action with no
+             escape on that turn; the two-exit pattern is what makes a false
+             positive recoverable instead.
 """
 
 import json
@@ -486,9 +492,9 @@ def _is_abdication(text: str) -> bool:
     """Return True if the tail of text looks like a permission-seeking abdication.
 
     Precision-biased (false-negative-biased): only fire when BOTH conditions hold
-    and NO negative-gate token is present. A missed abdication leaves the conductor
-    as-is (status quo); a false positive forces continuation on a legitimately
-    intended stop, which is recoverable but annoying.
+    and NO negative-gate token is present. See the module docstring for the
+    false-positive-cost analysis (why a false positive here is recoverable) -
+    do not restate that justification here; it drifts independently if repeated.
     """
     tail = text[-TAIL_LENGTH:]
 
@@ -954,16 +960,24 @@ def _scan_transcript_tail(transcript_path: str) -> dict:
 
 _ABDICATION_REASON = (
     "ABDICATION GUARD: You ended your turn by asking the user permission "
-    "to proceed with a non-destructive next step. The METHODOLOGY §Delegation "
-    "(Proactive autonomy) rule requires you to act, not ask. Proceed with the "
-    "next logical step now. Do not ask 'want me to', 'should I', 'shall I', "
-    "or similar permission-seeking phrases for non-destructive work. "
-    "Consult the five default sources (codebase patterns, MEMORY.md, "
-    "architect plan, AGENTS.md, conservative ticket interpretation) and act. "
-    "Surface a question ONLY for: (1) genuinely irreversible/destructive "
-    "actions not pre-authorized, (2) information you cannot derive "
-    "(credentials, product judgments), (3) ambiguous acceptance criteria "
-    "with no inferable default. Everything else: proceed."
+    "to proceed with a next step. This block cannot itself tell whether "
+    "that was a genuinely derivable default wearing permission-seeking "
+    "language, or a genuine hard-stop - you must classify it honestly. Two "
+    "compliant exits: (A) If this is non-destructive and a default is "
+    "derivable (METHODOLOGY §Delegation, Proactive autonomy - consult the "
+    "five default sources: codebase patterns, MEMORY.md, architect plan, "
+    "AGENTS.md, conservative ticket interpretation), proceed with the next "
+    "logical step NOW, in this same turn - do not ask 'want me to', "
+    "'should I', 'shall I', or similar permission-seeking phrases. (B) If "
+    "this genuinely requires authorization you do not have - (1) a "
+    "genuinely irreversible/destructive action not pre-authorized, (2) "
+    "information you cannot derive (credentials, product judgments), or "
+    "(3) ambiguous acceptance criteria with no inferable default - do NOT "
+    "proceed. Say so explicitly, state that you are waiting for operator "
+    "authorization, and end the turn; that is an equally compliant "
+    "response to this block, not a loophole. Choosing exit (B) for an item "
+    "that is genuinely exit (A) is itself the abdication this guard "
+    "exists to catch."
 )
 
 _STALL_REASON = (
