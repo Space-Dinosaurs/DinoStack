@@ -25,8 +25,9 @@
 #                (not failed) so contributors without zsh installed can
 #                still run the rest of the suite.
 #
-# Downstream consumers: developer running locally before commit; CI
-#                        (bin-sh-tests.yml auto-discovers bin/tests/test_*.sh).
+# Downstream consumers: developer running locally before commit; CI (the
+#                        bin-sh-tests job in .github/workflows/bin-tests.yml
+#                        auto-discovers bin/tests/test_*.sh).
 #
 # Failure modes: gate script missing -> immediate FAIL. Any scenario's
 #                observed exit code or message does not match the expected
@@ -53,9 +54,15 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 GATE_SCRIPT="$REPO_DIR/scripts/check-skill-embed-budget.sh"
+GATE_LIB="$REPO_DIR/scripts/lib/budget-gate.sh"
 
 if [[ ! -f "$GATE_SCRIPT" ]]; then
   echo "FAIL: $GATE_SCRIPT not found" >&2
+  exit 1
+fi
+
+if [[ ! -f "$GATE_LIB" ]]; then
+  echo "FAIL: $GATE_LIB not found" >&2
   exit 1
 fi
 
@@ -115,18 +122,20 @@ if [[ -z "$EXPECTED_RULES_COUNT" ]]; then
 fi
 
 # --- Build a scratch fixture repo the gate script can run against without
-#     touching the real working tree. It needs: scripts/ (a copy of the
-#     real gate script), content/sections/ and content/rules/ (stub source
-#     files satisfying the embed-completeness check - see the fixture
-#     design note above), and .claude/skills/agentic-engineering/SKILL.md
-#     embedding every stub's heading, padded to a controlled total size.
+#     touching the real working tree. It needs: scripts/ (copies of the
+#     real gate script and the shared lib it sources), content/sections/
+#     and content/rules/ (stub source files satisfying the embed-
+#     completeness check - see the fixture design note above), and
+#     .claude/skills/agentic-engineering/SKILL.md embedding every stub's
+#     heading, padded to a controlled total size.
 # $1 = fixture dir; $2 = SKILL.md byte count.
 build_fixture() {
   local dir="$1" skill_bytes="$2"
-  mkdir -p "$dir/scripts" "$dir/.claude/skills/agentic-engineering" \
+  mkdir -p "$dir/scripts/lib" "$dir/.claude/skills/agentic-engineering" \
     "$dir/content/sections" "$dir/content/rules"
 
   cp "$GATE_SCRIPT" "$dir/scripts/check-skill-embed-budget.sh"
+  cp "$GATE_LIB" "$dir/scripts/lib/budget-gate.sh"
 
   python3 -c "
 import sys, os

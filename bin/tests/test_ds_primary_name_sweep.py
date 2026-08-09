@@ -39,23 +39,29 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              names. This is deliberately a check on the SOURCE that
              PRODUCES the generated tree, not the rendered output itself,
              for a precise reason established by manual audit of all 14
-             current tuples: a `literal_rules` tuple's PATTERN (index 0)
-             is legitimately allowed to contain an old name (it exists to
-             MATCH un-renamed `content/**` text - e.g. `agentic-identity
-             auto`, which `content/commands/ds-identity.md` still says
-             verbatim, since `content/commands/**` is Units 4-5 scope, out
-             of bounds for this program; Unit 3 renamed `content/sections/**`
-             and `content/rules/**` and, where it did, updated the matching
-             PATTERN in lockstep - see the sibling PATTERN/REPLACEMENT pair
-             for the identity resolve-hook command below). But the
-             REPLACEMENT is entirely codex-authored: it
-             is hand-written prose/command text that ships into the
-             generated Codex harness, and none of the 14 current tuples'
-             replacements has any legitimate reason to reproduce an old
-             tool name (verified by reading every tuple: 8 of 14 map to
-             `$AE_*` runtime bindings or the protected `agentic-engineering`
-             skill noun, and the other 6 either match nothing in current
-             content or, like this one, are literal command text that
+             current tuples: a `literal_rules` tuple's PATTERN (index 0) is
+             legitimately ALLOWED to contain an old name, because its job
+             is to MATCH un-renamed `content/**` text, not to assert that
+             none exists. As of the completion of Units 1-4 (bin/, content/
+             sections/, content/rules/, content/commands/, and content/
+             agents/), an AST parse of the current 14 tuples finds ZERO
+             PATTERNs that still retain an old tool name - every tuple that
+             once matched pre-rename prose was updated in lockstep when its
+             target file was renamed. `content/references/**` (Unit 5, not
+             yet done) is the only tree this program has not yet touched;
+             it is therefore the only place a future `literal_rules`
+             PATTERN could still legitimately retain an old name, and only
+             for as long as Unit 5 remains outstanding - this statement is
+             written to stay true regardless of what Unit 5 does, since it
+             names the invariant (no un-renamed source left to match) and
+             not a specific instance. But the REPLACEMENT is entirely
+             codex-authored: it is hand-written prose/command text that
+             ships into the generated Codex harness, and none of the 14
+             current tuples' replacements has any legitimate reason to
+             reproduce an old tool name (verified by reading every tuple: 8
+             of 14 map to `$AE_*` runtime bindings or the protected
+             `agentic-engineering` skill noun, and the other 6 either match
+             nothing in current content or are literal command text that
              should always use the new `ds-*` form). This closes the
              MAJOR-1 gap directly at its source and generalizes to any
              future `literal_rules` entry without needing per-entry
@@ -88,10 +94,11 @@ Purpose: Regression coverage for the bin/agentic-* -> bin/ds-* PRIMARY-NAME
              narrow and tied to the exact bug instance (not a generic
              sweep of the rendered tree - see the module docstring
              discussion of why a generic content-derivation boundary on
-             rendered output is fragile: `content/**` prose legitimately
-             says "agentic-identity auto", "agentic-cost team", and
-             "bin/agentic-migrate" verbatim throughout the generated tree,
-             and a window/diff-based exclusion boundary against that
+             rendered output is fragile: unrenamed `content/**` trees can
+             legitimately still say an old tool name verbatim (as of this
+             writing, "agentic-cost team" and "bin/agentic-migrate" in
+             `content/references/**`, Unit 5 scope, not yet done), and a
+             window/diff-based exclusion boundary against that
              prose produces false positives whenever codex-skills.py's own
              (legitimate) path-qualification logic inserts a nearby
              `$AE_*` token - check (2) above is the robust, general

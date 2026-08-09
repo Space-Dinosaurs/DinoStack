@@ -179,13 +179,13 @@ def _write_config(fixture: git_fixture.Fixture, payload: dict) -> None:
 
 
 def _install_emit_stub(fixture: git_fixture.Fixture) -> Path:
-    """PATH-shadow `agentic-emit` with a stub that captures its 4th argument
+    """PATH-shadow `ds-emit` with a stub that captures its 4th argument
     (the JSON data payload) so a test can read `status` / `files_staged` /
     `files_committed` literally instead of inferring them from stdout."""
     bin_dir = fixture.repo_dir.parent / "emit-stub-bin"
     bin_dir.mkdir(parents=True, exist_ok=True)
     log_path = bin_dir / "emit.json"
-    stub = bin_dir / "agentic-emit"
+    stub = bin_dir / "ds-emit"
     stub.write_text(
         "#!/bin/sh\n"
         f"printf '%s' \"$4\" > '{log_path}'\n"
@@ -198,7 +198,7 @@ def _install_emit_stub(fixture: git_fixture.Fixture) -> Path:
 
 
 def _emit_payload(log_path: Path) -> dict:
-    assert log_path.exists(), "agentic-emit was never invoked - no event payload to inspect"
+    assert log_path.exists(), "ds-emit was never invoked - no event payload to inspect"
     return json.loads(log_path.read_text(encoding="utf-8"))
 
 

@@ -22,8 +22,9 @@
 #                skipped (not failed) so contributors without zsh installed
 #                can still run the rest of the suite.
 #
-# Downstream consumers: developer running locally before commit; CI
-#                        (bin-sh-tests.yml auto-discovers bin/tests/test_*.sh).
+# Downstream consumers: developer running locally before commit; CI (the
+#                        bin-sh-tests job in .github/workflows/bin-tests.yml
+#                        auto-discovers bin/tests/test_*.sh).
 #
 # Failure modes: gate script missing -> immediate FAIL. Any scenario's
 #                observed exit code or message does not match the expected
@@ -38,9 +39,15 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 GATE_SCRIPT="$REPO_DIR/scripts/check-resident-budget.sh"
+GATE_LIB="$REPO_DIR/scripts/lib/budget-gate.sh"
 
 if [[ ! -f "$GATE_SCRIPT" ]]; then
   echo "FAIL: $GATE_SCRIPT not found" >&2
+  exit 1
+fi
+
+if [[ ! -f "$GATE_LIB" ]]; then
+  echo "FAIL: $GATE_LIB not found" >&2
   exit 1
 fi
 
@@ -64,10 +71,11 @@ _cleanup() {
 trap _cleanup EXIT
 
 # --- Build a scratch fixture repo the gate script can run against without
-#     touching the real working tree. It only needs: scripts/ (a copy of the
-#     real gate script) and content/templates/claude-managed-content.md
-#     shaped as a manifest HTML comment followed by a body of controlled
-#     size, so we control body_bytes deterministically.
+#     touching the real working tree. It needs: scripts/ (copies of the
+#     real gate script and the shared lib it sources) and
+#     content/templates/claude-managed-content.md shaped as a manifest
+#     HTML comment followed by a body of controlled size, so we control
+#     body_bytes deterministically.
 #
 # $1 = fixture dir; $2 = body byte count (the literal string NONE means "no
 #      closing --> at all", exercising the missing-terminator path); $3 =
@@ -75,9 +83,10 @@ trap _cleanup EXIT
 #      short fixed manifest).
 build_fixture() {
   local dir="$1" body_bytes="$2" manifest_bytes="${3:-50}"
-  mkdir -p "$dir/scripts" "$dir/content/templates"
+  mkdir -p "$dir/scripts/lib" "$dir/content/templates"
 
   cp "$GATE_SCRIPT" "$dir/scripts/check-resident-budget.sh"
+  cp "$GATE_LIB" "$dir/scripts/lib/budget-gate.sh"
 
   if [[ "$body_bytes" == "NONE" ]]; then
     # No closing "-->" anywhere in the file - exercises the

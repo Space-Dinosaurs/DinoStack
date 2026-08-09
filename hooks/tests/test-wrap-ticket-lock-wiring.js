@@ -12,9 +12,9 @@
  * shell snippet is gone.
  *
  * Assertion (9) additionally guards acquire/release anchor symmetry: both
- * `agentic-wrap-acquire-lock` calls in Phase 11b are explicitly rooted at
+ * `ds-wrap-acquire-lock` calls in Phase 11b are explicitly rooted at
  * `"$REPO"`, and the release call MUST use the same explicit root, never a
- * bare invocation. `agentic-wrap-release-lock` resolves its root from an
+ * bare invocation. `ds-wrap-release-lock` resolves its root from an
  * optional positional argument, falling back to `process.cwd()` when the
  * argument is omitted. A bare release call resolves against the conductor's
  * cwd - if cwd differs from `$REPO`, the release silently no-ops (the
@@ -53,8 +53,8 @@ assert(phase11bText.includes('--timeout-ms=45000'),
   'Phase 11b invokes the bounded background retry with --timeout-ms=45000');
 assert(phase11bText.includes('--no-wait'),
   'Phase 11b invokes the first attempt with --no-wait');
-assert((phase11bText.match(/agentic-wrap-acquire-lock/g) || []).length >= 2,
-  'Phase 11b invokes agentic-wrap-acquire-lock at least twice (both attempts)');
+assert((phase11bText.match(/ds-wrap-acquire-lock/g) || []).length >= 2,
+  'Phase 11b invokes ds-wrap-acquire-lock at least twice (both attempts)');
 
 // (3) All required exit-code branches present
 assert(/\*\*0\*\*\s*-\s*acquired/.test(phase11bText), 'Phase 11b documents exit 0 (acquired)');
@@ -106,20 +106,20 @@ assert(earlyExitMatch && earlyExitMatch[0].includes('resolved_paths'),
 // cwd instead, which silently no-ops the release and leaks the lock when
 // cwd differs from $REPO. See file header for the full failure mode.
 {
-  const acquireRepoCount = (phase11bText.match(/agentic-wrap-acquire-lock "\$REPO"/g) || []).length;
+  const acquireRepoCount = (phase11bText.match(/ds-wrap-acquire-lock "\$REPO"/g) || []).length;
   assert(acquireRepoCount >= 2,
-    'Phase 11b roots both agentic-wrap-acquire-lock calls at an explicit "$REPO" argument');
-  assert(phase11bText.includes('agentic-wrap-release-lock "$REPO"'),
-    'Phase 11b roots the agentic-wrap-release-lock call at an explicit "$REPO" argument');
+    'Phase 11b roots both ds-wrap-acquire-lock calls at an explicit "$REPO" argument');
+  assert(phase11bText.includes('ds-wrap-release-lock "$REPO"'),
+    'Phase 11b roots the ds-wrap-release-lock call at an explicit "$REPO" argument');
   // The paragraph legitimately mentions the bare form once, explanatorily,
-  // to describe the failure mode ("a bare `agentic-wrap-release-lock`
+  // to describe the failure mode ("a bare `ds-wrap-release-lock`
   // resolves against the conductor's cwd instead"). Exclude that specific
   // explanatory phrasing and assert no OTHER bare (unrooted) occurrence
   // exists - in particular, not as the actual invoked release call.
-  const allBareMatches = phase11bText.match(/`agentic-wrap-release-lock`/g) || [];
-  const explanatoryBareMatches = phase11bText.match(/a bare `agentic-wrap-release-lock`/g) || [];
+  const allBareMatches = phase11bText.match(/`ds-wrap-release-lock`/g) || [];
+  const explanatoryBareMatches = phase11bText.match(/a bare `ds-wrap-release-lock`/g) || [];
   assert(allBareMatches.length === explanatoryBareMatches.length,
-    'Phase 11b does not invoke a bare agentic-wrap-release-lock (no root argument) as the actual release call');
+    'Phase 11b does not invoke a bare ds-wrap-release-lock (no root argument) as the actual release call');
 }
 
 console.log(`\n${failed === 0 ? 'ALL PASS' : failed + ' FAILED'}`);

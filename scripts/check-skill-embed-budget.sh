@@ -40,7 +40,11 @@
 #                check-adapter-sync and the runtime skill loader both treat
 #                the file as the artifact of record); content/sections/
 #                [0-9][0-9]-*.md and content/rules/*.md (excluding
-#                module-manifest.md) for the embed-completeness check.
+#                module-manifest.md) for the embed-completeness check;
+#                scripts/lib/budget-gate.sh (shared repo-dir resolution and
+#                byte measurement - the two-sided floor/ceiling report
+#                below stays here, since it does not fit the OK/OVER-BUDGET
+#                shape budget_report shares with the other two gates).
 #
 # Downstream consumers: .github/workflows/resident-budget.yml.
 #
@@ -72,9 +76,12 @@
 
 set -euo pipefail
 
-# BASH_SOURCE is unset under zsh - fall back to $0 so REPO_DIR resolves
+# BASH_SOURCE is unset under zsh - fall back to $0 so SCRIPT_DIR resolves
 # correctly under both interpreters instead of collapsing to "//".
-REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
+# shellcheck source=lib/budget-gate.sh
+source "$SCRIPT_DIR/lib/budget-gate.sh"
+REPO_DIR="$(budget_repo_dir "$SCRIPT_DIR")"
 
 SKILL_FILE="$REPO_DIR/.claude/skills/agentic-engineering/SKILL.md"
 
@@ -213,7 +220,7 @@ if [ -n "$duplicate_headings" ]; then
   exit 1
 fi
 
-skill_bytes="$(wc -c < "$SKILL_FILE" | tr -d '[:space:]')"
+skill_bytes="$(budget_file_bytes "$SKILL_FILE")"
 
 if [ "$skill_bytes" -lt "$FLOOR" ]; then
   echo "check-skill-embed-budget.sh: BELOW FLOOR - embed regression, not a" >&2

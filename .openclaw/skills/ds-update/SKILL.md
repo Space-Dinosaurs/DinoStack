@@ -92,7 +92,7 @@ Ask for activation mode (`opt-in` / `opt-out`, default from saved config or `opt
 
 ### 1c - Developer identity
 
-Run `agentic-identity show --scope effective` to check the current identity state:
+Run `ds-identity show --scope effective` to check the current identity state:
 
 - **Confirmed identity found:** "Identity: `<handle>` (confirmed). Keep or change? [Enter = keep]"
 - **Provisional identity found:** "Identity: `<handle>` (provisional - not yet confirmed). Options: (c)onfirm as-is, (e)dit handle, (s)kip. [c]"
@@ -107,7 +107,7 @@ Resolve to either a handle (pass `--identity=<handle>` to install.sh in Step 4) 
 
 Skip this step for FRESH-CLONE-FLOW.
 
-This step is read-only: it only gathers what Step 3's confirmation display needs to show. **Enforcement of the branch/dirty-tree/divergence safety checks happens inside `agentic-update` at Step 4**, not here - `agentic-update` already implements the branch check, the dirty-tree check, and fails closed on a non-fast-forward (diverged) pull. Reimplementing that enforcement in prose here would be exactly the drift this command collapsed (see PR history: four independent copies of "get the latest methodology" had already diverged before this section was rewritten to delegate).
+This step is read-only: it only gathers what Step 3's confirmation display needs to show. **Enforcement of the branch/dirty-tree/divergence safety checks happens inside `ds-update` at Step 4**, not here - `ds-update` already implements the branch check, the dirty-tree check, and fails closed on a non-fast-forward (diverged) pull. Reimplementing that enforcement in prose here would be exactly the drift this command collapsed (see PR history: four independent copies of "get the latest methodology" had already diverged before this section was rewritten to delegate).
 
 **2a - Fetch:**
 ```bash
@@ -123,7 +123,7 @@ LOCAL_AHEAD="$(echo "$COUNTS" | awk '{print $1}')"
 REMOTE_AHEAD="$(echo "$COUNTS" | awk '{print $2}')"
 DIRTY="$(git -C "$AE_REPO_DIR" status --porcelain)"
 ```
-Use these only to populate the Step 3 "Plan:" display (branch name, "clean"/"has local changes", "origin/main is N commit(s) ahead", and a note when both are ahead - "local and origin have diverged; the update will fail at Step 4 until resolved"). None of these conditions block Step 3 from being shown; `agentic-update` is the actual gate.
+Use these only to populate the Step 3 "Plan:" display (branch name, "clean"/"has local changes", "origin/main is N commit(s) ahead", and a note when both are ahead - "local and origin have diverged; the update will fail at Step 4 until resolved"). None of these conditions block Step 3 from being shown; `ds-update` is the actual gate.
 
 ## Step 3 - Confirm plan
 
@@ -153,9 +153,9 @@ This explicit confirmation is what authorizes the side-effecting Step 4 as a con
 
 ### UPDATE-FLOW
 
-Delegate the mechanical steps - branch/dirty-tree/divergence enforcement, the pull, the hooks-change note, and the adapter loop - to `agentic-update` in a single call rather than reimplementing them here. This is what actually collapses the drift: before this rewrite, this section duplicated `bin/agentic-update`'s branch check, dirty-tree check, pull, and per-adapter install loop line-for-line in prose, and the two copies had already started to diverge.
+Delegate the mechanical steps - branch/dirty-tree/divergence enforcement, the pull, the hooks-change note, and the adapter loop - to `ds-update` in a single call rather than reimplementing them here. This is what actually collapses the drift: before this rewrite, this section duplicated `bin/ds-update`'s branch check, dirty-tree check, pull, and per-adapter install loop line-for-line in prose, and the two copies had already started to diverge.
 
-**4a - Detect `--identity` flag support** (before delegating, so the flag is only passed when the pulled install.sh - as of the START of this step - is known to support it; `agentic-update` re-checks this per-adapter internally as it runs each install.sh after its own pull):
+**4a - Detect `--identity` flag support** (before delegating, so the flag is only passed when the pulled install.sh - as of the START of this step - is known to support it; `ds-update` re-checks this per-adapter internally as it runs each install.sh after its own pull):
 ```bash
 INSTALL_SH="$AE_REPO_DIR/.claude/install.sh"
 if grep -q -- '--identity' "$INSTALL_SH" 2>/dev/null; then
@@ -166,20 +166,20 @@ fi
 ```
 If `IDENTITY_SUPPORTED=0`, skip identity flags and note: "This install.sh version does not support `--identity`. Re-run after a future update to configure identity."
 
-**4b - Delegate to `agentic-update`:**
+**4b - Delegate to `ds-update`:**
 
 ```bash
 # ADAPTERS_CSV: comma-joined SELECTED_ADAPTERS from Step 1a.
 # Only pass --identity/--no-identity when IDENTITY_SUPPORTED=1 (from 4a).
-agentic-update --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity] --adapters=<ADAPTERS_CSV> --no-doctor
+ds-update --mode=<mode> --profile=<profile> [--identity=<handle>|--no-identity] --adapters=<ADAPTERS_CSV> --no-doctor
 UPDATE_STATUS=$?
 ```
 
-`--no-doctor` is passed deliberately: this command's own Step 5 runs a diagnostic-only `agentic-doctor` (no `--fix`) so findings are reported, not silently auto-applied - `agentic-update`'s built-in doctor step defaults to `--fix`, which would change that contract if left enabled here.
+`--no-doctor` is passed deliberately: this command's own Step 5 runs a diagnostic-only `ds-doctor` (no `--fix`) so findings are reported, not silently auto-applied - `ds-update`'s built-in doctor step defaults to `--fix`, which would change that contract if left enabled here.
 
-On non-zero `UPDATE_STATUS`: stop and show `agentic-update`'s stdout/stderr verbatim. `agentic-update` already produces actionable messages for every case this section used to check by hand: non-main branch, dirty tree (lists the dirty files), a failed or diverged (non-fast-forward) pull, and a failed adapter install (fail-soft - every selected adapter is attempted, and the names and exit codes of all that failed are listed together at the end). It also prints the hooks-change note to stderr internally when the pull touched `hooks/`, using the same wording this section used to duplicate - that note surfaces automatically as part of the verbatim output, nothing further to do here.
+On non-zero `UPDATE_STATUS`: stop and show `ds-update`'s stdout/stderr verbatim. `ds-update` already produces actionable messages for every case this section used to check by hand: non-main branch, dirty tree (lists the dirty files), a failed or diverged (non-fast-forward) pull, and a failed adapter install (fail-soft - every selected adapter is attempted, and the names and exit codes of all that failed are listed together at the end). It also prints the hooks-change note to stderr internally when the pull touched `hooks/`, using the same wording this section used to duplicate - that note surfaces automatically as part of the verbatim output, nothing further to do here.
 
-If `agentic-update` is not found on PATH (e.g. this is the very first `/ds-update` run in a fresh shell before `~/.local/bin` was picked up), fall back to running the branch/dirty-tree checks, the pull, and the per-adapter install loop directly. This fallback has no other gate - `agentic-update`'s own branch and dirty-tree checks are unreachable when it isn't found - so both hard blocks below are mandatory here, not optional preview info as in Step 2b:
+If `ds-update` is not found on PATH (e.g. this is the very first `/ds-update` run in a fresh shell before `~/.local/bin` was picked up), fall back to running the branch/dirty-tree checks, the pull, and the per-adapter install loop directly. This fallback has no other gate - `ds-update`'s own branch and dirty-tree checks are unreachable when it isn't found - so both hard blocks below are mandatory here, not optional preview info as in Step 2b:
 
 ```bash
 CURRENT_BRANCH="$(git -C "$AE_REPO_DIR" rev-parse --abbrev-ref HEAD)"
@@ -218,9 +218,9 @@ if [[ "${#FAILED_ADAPTERS[@]}" -gt 0 ]]; then
   exit 1
 fi
 ```
-A non-main branch or a dirty tree can silently fast-forward the branch into a broken state (the same reason `agentic-update` enforces both internally) - never skip these two checks on the fallback path.
+A non-main branch or a dirty tree can silently fast-forward the branch into a broken state (the same reason `ds-update` enforces both internally) - never skip these two checks on the fallback path.
 
-Note "agentic-update not found on PATH; ran the fallback sequence directly. Open a new shell so `agentic-update` is available next time."
+Note "ds-update not found on PATH; ran the fallback sequence directly. Open a new shell so `ds-update` is available next time."
 
 ### FRESH-CLONE-FLOW
 
@@ -252,7 +252,7 @@ Do NOT use anonymous `curl | bash` of bootstrap.sh (fails for private repos) and
 
 **4c - Run adapters (same loop as UPDATE-FLOW):**
 
-After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW's `agentic-update`-not-found fallback (Step 4). Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed. Do NOT delegate this loop to `agentic-update` either: it errors out when `repo_dir` does not yet exist rather than cloning, and even after the clone lands it would misfire - `agentic-update`'s rebuild-skip logic treats `old_head == new_head` (true immediately after a fresh clone, before any pull) as "nothing changed, skip the adapter loop", which would silently skip every adapter on a brand-new install.
+After the clone lands, run the same per-adapter install loop used by UPDATE-FLOW's `ds-update`-not-found fallback (Step 4). Do NOT use bootstrap.sh as the sole adapter installer - bootstrap.sh only wires `.claude`, so users who selected Codex/Cursor/etc. in Step 1a would never have those adapters installed. Do NOT delegate this loop to `ds-update` either: it errors out when `repo_dir` does not yet exist rather than cloning, and even after the clone lands it would misfire - `ds-update`'s rebuild-skip logic treats `old_head == new_head` (true immediately after a fresh clone, before any pull) as "nothing changed, skip the adapter loop", which would silently skip every adapter on a brand-new install.
 
 bootstrap.sh may be invoked for global PATH wiring / config-dir setup if needed, but adapter installation must use the loop below:
 
@@ -283,17 +283,17 @@ On non-zero exit from any adapter: stop immediately, report which adapter failed
 After adapters are installed, run a read-only health check to surface any configuration or wiring issues:
 
 ```bash
-agentic-doctor
+ds-doctor
 ```
 
-`agentic-doctor` is invoked without `--fix` here - this is a diagnostic-only pass; it makes no changes. If the command is not on PATH (e.g. a fresh install before PATH is reloaded), skip this step silently and note "Health check skipped - `agentic-doctor` not found on PATH; open a new shell and run `agentic-doctor` manually."
+`ds-doctor` is invoked without `--fix` here - this is a diagnostic-only pass; it makes no changes. If the command is not on PATH (e.g. a fresh install before PATH is reloaded), skip this step silently and note "Health check skipped - `ds-doctor` not found on PATH; open a new shell and run `ds-doctor` manually."
 
 Parse the exit code and output:
 
 - **Exit 0 (no findings):** print `Health: OK`
-- **Non-zero exit or any finding lines in output:** print `Health: N issue(s) - run agentic-doctor --fix to converge` (where N is the count of finding lines, or "1+" if the count cannot be parsed).
+- **Non-zero exit or any finding lines in output:** print `Health: N issue(s) - run ds-doctor --fix to converge` (where N is the count of finding lines, or "1+" if the count cannot be parsed).
 
-Print the full `agentic-doctor` output below the summary line so the user can see what was found.
+Print the full `ds-doctor` output below the summary line so the user can see what was found.
 
 ## Step 6 - Persist config and report
 
@@ -349,10 +349,10 @@ Done.
   Commits pulled: N  (or "already up to date" / "fresh install")
   Adapters installed: Claude, Codex
   Mode: opt-out | Profile: default | Identity: yourhandle (confirmed)
-  Health: OK  (or "N issue(s) - run agentic-doctor --fix to converge")
+  Health: OK  (or "N issue(s) - run ds-doctor --fix to converge")
 
 Next steps:
   - Run /ds-status to verify the install is active in this project.
-  - Run agentic-identity show --scope effective to confirm your developer identity.
+  - Run ds-identity show --scope effective to confirm your developer identity.
   - Open a new shell if adapters added shell integrations.
 ```
