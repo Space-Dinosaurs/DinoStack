@@ -126,11 +126,12 @@
 #     then a rename-based reclaim that still raced the liveness check, plus a
 #     Critical where the lock's own test case mutated the real, shared
 #     lockdir): the lock is DELETED entirely, along with the temp-file backup
-#     it protected. `_with_mutated_source` now (1) pre-checks the target has
-#     no pending changes at all (`git status --porcelain`, covering staged,
-#     unstaged, and untracked state in one predicate) before touching it -
-#     refusing loudly, via `_fail`, if it is dirty (either a concurrent run of
-#     this suite or the developer's own uncommitted edit); and (2) restores
+#     it protected. `_with_mutated_source` now (1) pre-checks the target is
+#     tracked by git (`git ls-files --error-unmatch`) and has no pending
+#     changes at all (`git status --porcelain`, covering staged, unstaged,
+#     and untracked state in one predicate) before touching it - refusing
+#     loudly, via `_fail`, if it is untracked or dirty (either a concurrent
+#     run of this suite or the developer's own uncommitted edit); and (2) restores
 #     the mutation by `git checkout -- <path>`, not from a temp copy - the
 #     pre-check guarantees the index already matches HEAD, so restoring from
 #     the index can never write back corruption the way a stale-backup
@@ -241,7 +242,7 @@ trap _cleanup EXIT
 #   4. <case_fn> mutates <path> and runs its assertions.
 #   5. Restore is `git -C "$REPO_DIR" checkout -- <path>`, never a temp-file
 #      backup. This restores from the INDEX, not directly from HEAD - the
-#      pre-check in step 1 guarantees the index already matches HEAD before
+#      pre-check in step 2 guarantees the index already matches HEAD before
 #      any mutation happens, so the restored content is byte-identical to
 #      HEAD as a consequence of that precondition, not because `checkout`
 #      reads HEAD directly. It is idempotent - it cannot write back
