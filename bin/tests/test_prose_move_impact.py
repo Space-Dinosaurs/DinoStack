@@ -99,16 +99,36 @@ TARGET = "content/commands/ds-implement-ticket.md"
 # ---------------------------------------------------------------------------
 
 
-def _heading_index() -> dict[str, "pmi.Heading"]:
+def _heading_index() -> tuple[dict[str, "pmi.Heading"], dict[str, int]]:
     target_path = REPO_ROOT / TARGET
     lines = target_path.read_text(encoding="utf-8").split("\n")
-    return {h.text: h for h in pmi.fence_aware_headings(lines)}
+    headings = pmi.fence_aware_headings(lines)
+    # This dict comprehension is last-wins on a duplicate heading text,
+    # while the tool's own extract_heading_block_assertions (line ~672) is
+    # first-wins via `next(...)` - the two disagree on which occurrence a
+    # duplicate heading resolves to. Rather than silently picking either
+    # one, track per-text counts so _range_for_heading can fail loud on any
+    # duplicate instead of guessing which occurrence the fixture meant.
+    counts: dict[str, int] = {}
+    for h in headings:
+        counts[h.text] = counts.get(h.text, 0) + 1
+    return {h.text: h for h in headings}, counts
 
 
-_HEADINGS = _heading_index()
+_HEADINGS, _HEADING_COUNTS = _heading_index()
 
 
 def _range_for_heading(heading_text: str, dest: str) -> "pmi.MoveRange":
+    count = _HEADING_COUNTS.get(heading_text, 0)
+    if count > 1:
+        raise AssertionError(
+            f"heading text {heading_text!r} appears {count} times in the live target - "
+            "ambiguous: this index is last-wins while the tool's own "
+            "extract_heading_block_assertions is first-wins, so picking either occurrence "
+            "here would not provably match what the tool itself resolves. Disambiguate the "
+            "fixture with a more specific heading text, or resolve the duplicate in the "
+            "live target, before using this heading in a proposed range."
+        )
     h = _HEADINGS.get(heading_text)
     if h is None:
         raise AssertionError(
@@ -551,6 +571,61 @@ def test_regression_regex_assertion_matches_across_a_newline():
         "a DOTALL pattern spanning the alpha/beta newline must match against "
         "the whole target text - a per-line scan sees zero matches here"
     )
+
+
+# ---------------------------------------------------------------------------
+# Regression: Major (r3 Skeptic finding) - the zero-match "cannot break"
+# reclassification was unsound whenever this tool's matching granularity
+# (whole-text) differs from the consumer's real granularity. Round 1's fix
+# (compile flags) and round 2's fix (whole-text over per-line) each fixed a
+# DIFFERENT cause of the same false-clean-pass shape without fixing the
+# shape itself - a THIRD cause (an anchored, non-MULTILINE pattern that a
+# consumer applies per-token, e.g. `.match(name)` against an extracted
+# identifier) still produced whole-text zero while the real per-consumer
+# match count was nonzero. This mirrors the live
+# bin/tests/lib/md_shell_extract.py::_IDENTIFIER_RE case: 0 matches
+# whole-text, 29 matches per-line, 7 inside a proposed move range. The fix
+# deletes the reclassification entirely - a zero-match regex assertion is
+# now always UNRESOLVED, never inferred non-breaking.
+# ---------------------------------------------------------------------------
+
+
+def test_regression_zero_whole_text_matches_never_resolved_non_breaking():
+    """A round-3 regression: an anchored (^...$), non-MULTILINE pattern that
+    matches every individual line but zero times against the whole target
+    text (anchors bind to the whole string's start/end, not per-line,
+    without re.MULTILINE). Pre-fix, this whole-text zero was silently
+    reclassified `resolved=True, breaks=False` ('zero pre-move matches
+    means this move cannot change the assertion's outcome either way'),
+    discarding the fact that the consumer applies the pattern with
+    different granularity (e.g. per-token via `.match(name)`) than this
+    tool's own whole-text scan. Confirmed failing pre-fix: the old code
+    appended a resolved, non-breaking Assertion and emitted nothing to
+    `unresolved` for this exact case."""
+    consumer_text = (
+        "import re\n"
+        "_TOKEN_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')\n"
+        "def check(name):\n"
+        "    return bool(_TOKEN_RE.match(name))\n"
+    )
+    # Every individual line is a bare identifier, but the whole text never
+    # matches ^...$ without re.MULTILINE: '^' only binds to offset 0 and
+    # '$' only to the string's end, and there is a newline directly after
+    # 'alpha'.
+    target_text = "alpha\nbeta\ngamma\n"
+    line_starts = pmi.build_line_starts(target_text)
+    ranges = [pmi.MoveRange(start=2, end=2, dest="content/references/scratch.md")]
+    assertions, unresolved = pmi.extract_regex_assertions(
+        "scratch_consumer.py", consumer_text, target_text, line_starts, ranges
+    )
+    assert not assertions, (
+        "a zero-match regex assertion must never be resolved as "
+        "non-breaking - it must always surface as UNRESOLVED so a human "
+        "verifies the consumer's real matching granularity by hand"
+    )
+    hits = [u for u in unresolved if "_TOKEN_RE" in u.detail]
+    assert hits, "expected an UNRESOLVED row for _TOKEN_RE, not a silent resolved pass"
+    assert "ZERO" in hits[0].detail
 
 
 # ---------------------------------------------------------------------------

@@ -832,38 +832,33 @@ def extract_regex_assertions(
         # per-line scan misses any pattern that can span a newline (e.g.
         # `[^.]{0,80}` matches `\n`) - a deletion seam created by the move
         # can create a NEW cross-line match post-move that a per-line scan
-        # would never see either way, silently converting a real break
-        # into a false "zero matches, cannot break" resolution below.
+        # would never see either way. Zero matches under this strategy is
+        # still reported UNRESOLVED below, never inferred as non-breaking -
+        # see the comment at the zero-match branch for why.
         matches = sorted({offset_to_line(line_starts, m.start()) for m in compiled.finditer(target_text)})
         moved = [ln for ln in matches if range_for_line(ranges, ln) is not None]
         if not matches:
-            # Zero occurrences in the PRE-move target, under either
-            # polarity, is mechanically resolvable as non-breaking: the
-            # move only relocates existing target lines verbatim into a
-            # destination file, it cannot conjure a match into existence
-            # on content that already matches nothing. A must-match
-            # assertion with zero matches is already failing independent
-            # of any move (a pre-existing defect out of this tool's
-            # scope); a must-NOT-match assertion with zero matches is
-            # correctly satisfied and stays that way post-move either
-            # way. Report it resolved, not UNRESOLVED - polarity still
-            # can't be confirmed mechanically, but it provably doesn't
-            # change what this move does to the assertion's outcome.
-            assertions.append(
-                Assertion(
+            # Zero occurrences under this tool's own whole-text matching
+            # strategy does NOT mean zero occurrences under the consumer's
+            # real matching strategy - three separate rounds each proved
+            # this inference unsound under a different cause (lost flags,
+            # per-line matching, and now whole-text matching against a
+            # consumer that applies the pattern per-line or per-token, e.g.
+            # `.match(name)` against an extracted identifier rather than
+            # against the whole target text - see
+            # bin/tests/lib/md_shell_extract.py::_IDENTIFIER_RE, which
+            # matches 0 whole-text but 29 per-line, 7 of them inside a move
+            # range). This tool cannot know a consumer's real granularity,
+            # so treat zero matches the same as any other unresolved
+            # polarity: fail loud, never infer "cannot break" from it.
+            unresolved.append(
+                Unresolved(
                     consumer=consumer_rel,
-                    kind="regex_pattern",
                     detail=(
                         f"regex assertion {name!r} (pattern={pat!r}) matches ZERO "
-                        "lines in the pre-move target"
-                    ),
-                    resolved=True,
-                    breaks=False,
-                    lines=[],
-                    note=(
-                        "polarity (must-match vs must-NOT-match) not mechanically "
-                        "confirmed, but zero pre-move matches means this move "
-                        "cannot change the assertion's outcome either way"
+                        "lines under whole-text matching in the pre-move target - "
+                        "this does not prove the consumer's own matching strategy "
+                        "also finds zero, verify by hand"
                     ),
                 )
             )
