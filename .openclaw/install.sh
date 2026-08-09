@@ -311,11 +311,11 @@ python3 - <<'PYEOF'
 import os, re
 
 target = os.path.expanduser("~/.openclaw/AGENTS.md")
-begin_marker = "<!-- BEGIN managed-by-dinostack -->"
-end_marker = "<!-- END managed-by-dinostack -->"
+begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
+end_marker = "<!-- END managed-by-agentic-engineering -->"
 
 managed_content = """\
-<!-- BEGIN managed-by-dinostack -->
+<!-- BEGIN managed-by-agentic-engineering -->
 ## Skill Loading
 
 Before starting any task, check if a domain skill should be loaded:
@@ -325,7 +325,7 @@ Before starting any task, check if a domain skill should be loaded:
 | Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `dinostack` |
 
 If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
-<!-- END managed-by-dinostack -->"""
+<!-- END managed-by-agentic-engineering -->"""
 
 if os.path.exists(target):
     with open(target, "r") as f:
@@ -335,13 +335,13 @@ else:
 
 if begin_marker in existing and end_marker in existing:
     pattern = re.compile(
-        r'<!-- BEGIN managed-by-dinostack -->.*?<!-- END managed-by-dinostack -->',
+        r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
         re.DOTALL
     )
     updated = pattern.sub(managed_content, existing)
     with open(target, "w") as f:
         f.write(updated)
-    print("  = Updated managed-by-dinostack section in ~/.openclaw/AGENTS.md")
+    print("  = Updated managed-by-agentic-engineering section in ~/.openclaw/AGENTS.md")
 else:
     if existing:
         updated = existing.rstrip("\n") + "\n\n" + managed_content + "\n"
@@ -351,9 +351,9 @@ else:
     with open(target, "w") as f:
         f.write(updated)
     if existing:
-        print("  + Appended managed-by-dinostack section to ~/.openclaw/AGENTS.md")
+        print("  + Appended managed-by-agentic-engineering section to ~/.openclaw/AGENTS.md")
     else:
-        print("  + Created ~/.openclaw/AGENTS.md with managed-by-dinostack section")
+        print("  + Created ~/.openclaw/AGENTS.md with managed-by-agentic-engineering section")
 PYEOF
 
 # ---------------------------------------------------------------------------

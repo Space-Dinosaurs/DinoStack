@@ -78,7 +78,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 
 **"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `helios/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
 
-- Worked example A: a repo with `dinostack/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `dinostack/...` is cross-track and triggers Plan + ADR.
+- Worked example A: a repo with `agentic-engineering/AGENTS.md`, `helios/AGENTS.md`, `agentic-factory/AGENTS.md`, `models/AGENTS.md` at depth 1. A unit touching `helios/factory/foo.ts` is in the `helios` track. A change touching both `helios/...` and `agentic-engineering/...` is cross-track and triggers Plan + ADR.
 - Worked example B: a change touching `helios/factory/foo.ts` and `helios/ui/bar.tsx` is single-track (`helios`); the nested `factory/AGENTS.md` does not split the track.
 
 **Other notes:**

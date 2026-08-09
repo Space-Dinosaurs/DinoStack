@@ -13,10 +13,16 @@
 #          instead of three near-identical inline copies.
 #
 # Public API:
-#   ae_prune_stale_skill_dir <dir> [allowed-real-file ...]
+#   ae_prune_stale_skill_dir <dir> <repo_dir> [allowed-real-file ...]
 #     Removes <dir> ONLY when every entry inside it is either:
-#       (a) a symlink whose realpath resolves inside a methodology checkout
-#           (contains a /DinoStack/ or -DinoStack/ path component), or
+#       (a) a symlink whose realpath resolves inside THIS methodology
+#           checkout - i.e. inside realpath(<repo_dir>) - not merely a path
+#           whose name happens to contain "DinoStack"/"-DinoStack". A
+#           checkout cloned under a different directory name (the pre-
+#           DinoStack convention was literally "agentic-engineering", and
+#           bootstrap.sh's AE_DEST_DIR supports arbitrary names) must still
+#           be recognized as owned; an unrelated `~/my-DinoStack/...` clone
+#           must not be, or
 #       (b) an exact-name match against one of the caller-supplied
 #           allowed-real-file basenames (the adapter's own generated real
 #           files, e.g. SKILL.md METHODOLOGY.md).
@@ -40,13 +46,17 @@
 
 ae_prune_stale_skill_dir() {
   local dir="$1"
-  shift
+  local repo_dir="$2"
+  shift 2
   local -a allowed_real_files=("$@")
 
   # Not a real directory (absent, a symlink, or a regular file) -> nothing
   # for this predicate to own; the symlink case is handled by each adapter's
   # own dedicated symlink-prune logic, not this function.
   [[ -d "$dir" && ! -L "$dir" ]] || return 0
+
+  local real_repo_dir
+  real_repo_dir="$(python3 -c "import os.path,sys; print(os.path.realpath(sys.argv[1]))" "$repo_dir" 2>/dev/null)"
 
   local entry name target real_target allowed recognized
   while IFS= read -r entry; do
@@ -55,7 +65,7 @@ ae_prune_stale_skill_dir() {
     if [[ -L "$entry" ]]; then
       target="$(readlink "$entry")"
       real_target="$(python3 -c "import os.path,sys; print(os.path.realpath(sys.argv[1]))" "$entry" 2>/dev/null)"
-      if [[ "$real_target" == */DinoStack/* || "$real_target" == *-DinoStack/* ]]; then
+      if [[ -n "$real_repo_dir" && "$real_target" == "$real_repo_dir"/* ]]; then
         continue
       fi
       echo "  ! $dir: unrecognized symlink entry '$name' -> $target - leaving directory in place"

@@ -120,6 +120,7 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 INSTALL_SH="$REPO_DIR/.claude/install.sh"
+UNINSTALL_SH="$REPO_DIR/.claude/uninstall.sh"
 
 if [[ ! -f "$INSTALL_SH" ]]; then
   echo "FAIL: $INSTALL_SH not found" >&2
@@ -153,6 +154,17 @@ _run_install() {
   # Run install.sh with fake HOME; stdin is /dev/null to skip TTY prompts.
   HOME="$fake_home" bash "$INSTALL_SH" --mode=opt-out --profile=default "$@" \
     < /dev/null > "$fake_home/.install_out" 2>&1
+  return $?
+}
+
+# ---------------------------------------------------------------------------
+# Helper: run uninstall.sh with a temp HOME, capturing output.
+# ---------------------------------------------------------------------------
+_run_uninstall() {
+  local fake_home="$1"
+  shift
+  HOME="$fake_home" bash "$UNINSTALL_SH" "$@" \
+    < /dev/null > "$fake_home/.uninstall_out" 2>&1
   return $?
 }
 
@@ -219,8 +231,8 @@ fi
 # only pre-populated dir is .claude/agents, so $SKILLS_DST is absent and the
 # real `ln -s` runs).
 if [[ -f "$FAKE_HOME/.claude/CLAUDE.md" ]] \
-   && grep -Fq "BEGIN managed-by-dinostack" "$FAKE_HOME/.claude/CLAUDE.md" \
-   && grep -Fq "END managed-by-dinostack" "$FAKE_HOME/.claude/CLAUDE.md"; then
+   && grep -Fq "BEGIN managed-by-agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md" \
+   && grep -Fq "END managed-by-agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md"; then
   _pass "case (a): non-dry-run install still writes CLAUDE.md with both markers"
 else
   _fail "case (a): non-dry-run install did not write a complete managed CLAUDE.md block"
@@ -256,7 +268,7 @@ import re, sys
 with open(sys.argv[1]) as f:
     content = f.read()
 m = re.search(
-    r'<!-- BEGIN managed-by-dinostack -->\n(.*)\n<!-- END managed-by-dinostack -->',
+    r'<!-- BEGIN managed-by-agentic-engineering -->\n(.*)\n<!-- END managed-by-agentic-engineering -->',
     content, re.DOTALL
 )
 sys.stdout.write(m.group(1) if m else '')
@@ -374,9 +386,9 @@ OLD_TARGET="$(readlink "$FAKE_HOME/.claude/agents/$FIXTURE_NAME")"
 # block byte-identical, and must print the CLAUDE.md dry-run intent line.
 mkdir -p "$FAKE_HOME/.claude"
 cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
-<!-- BEGIN managed-by-dinostack -->
+<!-- BEGIN managed-by-agentic-engineering -->
 placeholder managed content
-<!-- END managed-by-dinostack -->
+<!-- END managed-by-agentic-engineering -->
 EOF
 before_sha="$(shasum -a 256 "$FAKE_HOME/.claude/CLAUDE.md" | awk '{print $1}')"
 if [[ -z "$before_sha" ]]; then
@@ -431,7 +443,7 @@ if [[ -n "$before_sha" ]]; then
     _fail "case (e): --dry-run modified CLAUDE.md"
   fi
 fi
-if grep -Fq "[dry-run] would update managed-by-dinostack" "$FAKE_HOME/.install_out"; then
+if grep -Fq "[dry-run] would update managed-by-agentic-engineering" "$FAKE_HOME/.install_out"; then
   _pass "case (e): dry-run output names the CLAUDE.md intent"
 else
   _fail "case (e): dry-run output missing CLAUDE.md intent line"
@@ -449,7 +461,7 @@ _run_install "$FAKE_HOME" --dry-run || true
 # See case (e)'s note re: the rc assertion - DROPPED here per the same
 # empirically-determined A2 decision (scrubbed-PATH pre-check returned
 # rc=1; any doubt means drop from both cases together).
-if grep -Fq "[dry-run] would update managed-by-dinostack" "$FAKE_HOME/.install_out"; then
+if grep -Fq "[dry-run] would update managed-by-agentic-engineering" "$FAKE_HOME/.install_out"; then
   _pass "case (e2): dry-run output names the CLAUDE.md intent (proves the run reached the CLAUDE.md phase)"
 else
   _fail "case (e2): dry-run output missing CLAUDE.md intent line (absence assertion below is unanchored)"
@@ -831,7 +843,7 @@ rm -rf "$FAKE_HOME"
 FAKE_HOME="$(mktemp -d)"
 mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
 cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
-<!-- BEGIN managed-by-dinostack -->
+<!-- BEGIN managed-by-agentic-engineering -->
 ## Skill Loading
 
 Before starting any task, check if a domain skill should be loaded:
@@ -845,7 +857,7 @@ If any signal matches, invoke the skill before proceeding. When in doubt, invoke
 @skills/dinostack/METHODOLOGY.md
 @skills/dinostack/rules/code-standards.md
 @skills/dinostack/rules/conventions.md
-<!-- END managed-by-dinostack -->
+<!-- END managed-by-agentic-engineering -->
 EOF
 python3 - "$FAKE_HOME/.claude/agentic-engineering.json" <<'PYEOF'
 import json, sys
@@ -886,7 +898,7 @@ rm -rf "$FAKE_HOME"
 FAKE_HOME="$(mktemp -d)"
 mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
 cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
-<!-- BEGIN managed-by-dinostack -->
+<!-- BEGIN managed-by-agentic-engineering -->
 ## Skill Loading
 
 Before starting any task, check if a domain skill should be loaded:
@@ -896,7 +908,7 @@ Before starting any task, check if a domain skill should be loaded:
 | Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/dinostack` |
 
 If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
-<!-- END managed-by-dinostack -->
+<!-- END managed-by-agentic-engineering -->
 EOF
 python3 - "$FAKE_HOME/.claude/agentic-engineering.json" <<'PYEOF'
 import json, sys
@@ -1081,7 +1093,7 @@ _n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
 _case_n_restore
 trap _cleanup EXIT
 
-if [[ -n "$_n_claude_md_run1" && "$_n_claude_md_run1" == *"<!-- BEGIN managed-by-dinostack -->"* ]]; then
+if [[ -n "$_n_claude_md_run1" && "$_n_claude_md_run1" == *"<!-- BEGIN managed-by-agentic-engineering -->"* ]]; then
   _pass "case (n): run 1's CLAUDE.md is non-empty and carries the managed block (comparison below is not vacuous)"
 else
   _fail "case (n): run 1's CLAUDE.md is empty or missing the managed-block BEGIN marker"
@@ -1123,7 +1135,7 @@ rm -rf "$FAKE_HOME"
 #           must stay green.
 # ---------------------------------------------------------------------------
 
-OLD_BLOCK_IN_MARKERS='<!-- BEGIN managed-by-dinostack -->
+OLD_BLOCK_IN_MARKERS='<!-- BEGIN managed-by-agentic-engineering -->
 ## Skill Loading
 
 Before starting any task, check if a domain skill should be loaded:
@@ -1137,9 +1149,9 @@ If any signal matches, invoke the skill before proceeding. When in doubt, invoke
 @skills/dinostack/METHODOLOGY.md
 @skills/dinostack/rules/code-standards.md
 @skills/dinostack/rules/conventions.md
-<!-- END managed-by-dinostack -->'
+<!-- END managed-by-agentic-engineering -->'
 
-LEAN_BLOCK_IN_MARKERS='<!-- BEGIN managed-by-dinostack -->
+LEAN_BLOCK_IN_MARKERS='<!-- BEGIN managed-by-agentic-engineering -->
 ## Skill Loading
 
 Before starting any task, check if a domain skill should be loaded:
@@ -1149,7 +1161,7 @@ Before starting any task, check if a domain skill should be loaded:
 | Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/dinostack` |
 
 If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
-<!-- END managed-by-dinostack -->'
+<!-- END managed-by-agentic-engineering -->'
 
 for _case_o_order in lean_then_old old_then_lean; do
   FAKE_HOME="$(mktemp -d)"
@@ -1213,7 +1225,7 @@ cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
 
 I want to remember to re-add this some day: @skills/dinostack/METHODOLOGY.md
 
-<!-- BEGIN managed-by-dinostack -->
+<!-- BEGIN managed-by-agentic-engineering -->
 ## Skill Loading
 
 Before starting any task, check if a domain skill should be loaded:
@@ -1223,7 +1235,7 @@ Before starting any task, check if a domain skill should be loaded:
 | Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/dinostack` |
 
 If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
-<!-- END managed-by-dinostack -->
+<!-- END managed-by-agentic-engineering -->
 EOF
 python3 - "$FAKE_HOME/.claude/agentic-engineering.json" <<'PYEOF'
 import json, sys
@@ -1243,6 +1255,92 @@ if [[ "$_p_auto_load" == "False" ]]; then
   _pass "case (p): prose outside the managed block containing the old import marker does not force skill_auto_load"
 else
   _fail "case (p): skill_auto_load was forced to '$_p_auto_load' by prose outside the managed block (whole-file scan bug)"
+fi
+
+rm -rf "$FAKE_HOME"
+
+# ---------------------------------------------------------------------------
+# Case (q): CRITICAL regression - a genuinely PRE-RENAME managed block. This
+#           checkout kept the managed-by-agentic-engineering BEGIN/END marker
+#           literal unchanged across the skill-directory rename to dinostack
+#           (a deliberate choice: those markers are internal delimiters, not
+#           user-facing names, and consumer CLAUDE.md files we do not control
+#           already carry the OLD marker with no migration path - see the
+#           dinostack rename's own worked precedent for the activation
+#           marker strings). Because the marker itself never changed,
+#           `begin_marker in existing` always matches an old block, so the
+#           update-in-place branch fires - this case is the regression guard
+#           for the OTHER two consequences the CRITICAL finding named: (1) a
+#           genuinely-old block's @-import lines still read
+#           @skills/agentic-engineering/... (pre-rename skill path, no
+#           longer a real directory), which install.sh's DS-143 migration-
+#           detection previously matched only against the CURRENT skill path
+#           literal (import_lines[0], now @skills/dinostack/METHODOLOGY.md) -
+#           silently disarming the one-time skill_auto_load migration for
+#           exactly the pre-rename installs it exists to catch; and (2) the
+#           update-in-place rewrite must leave no stranded reference to the
+#           now-nonexistent @skills/agentic-engineering/... path.
+# ---------------------------------------------------------------------------
+
+FAKE_HOME="$(mktemp -d)"
+mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+cat > "$FAKE_HOME/.claude/CLAUDE.md" <<'EOF'
+<!-- BEGIN managed-by-agentic-engineering -->
+## Skill Loading
+
+Before starting any task, check if a domain skill should be loaded:
+
+| Signal | Skill |
+|---|---|
+| Code edits, debugging, testing, deployment, architecture decisions, git operations, agent orchestration, code review, refactoring, dependency management, project setup | `/agentic-engineering` |
+
+If any signal matches, invoke the skill before proceeding. When in doubt, invoke it.
+
+@skills/agentic-engineering/METHODOLOGY.md
+@skills/agentic-engineering/rules/code-standards.md
+@skills/agentic-engineering/rules/conventions.md
+<!-- END managed-by-agentic-engineering -->
+EOF
+python3 - "$FAKE_HOME/.claude/agentic-engineering.json" <<'PYEOF'
+import json, sys
+with open(sys.argv[1], "w") as f:
+    json.dump({"mode": "opt-out", "profile": "default", "skill_auto_load": False}, f, indent=2)
+    f.write("\n")
+PYEOF
+
+_run_install "$FAKE_HOME" || true
+
+_q_claude_md="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+
+_q_block_count="$(grep -c "BEGIN managed-by-agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+if [[ "$_q_block_count" -eq 1 ]]; then
+  _pass "case (q): pre-rename block is updated in place - exactly one managed block afterward, no stranded append"
+else
+  _fail "case (q): expected exactly 1 managed block after install, found $_q_block_count"
+fi
+
+if [[ "$_q_claude_md" != *"@skills/agentic-engineering/"* ]]; then
+  _pass "case (q): no stranded @skills/agentic-engineering/... import survives the rewrite"
+else
+  _fail "case (q): stranded @skills/agentic-engineering/... import still present after install"
+fi
+
+_q_auto_load="$(python3 -c "
+import json, sys
+with open(sys.argv[1]) as f:
+    print(json.load(f).get('skill_auto_load'))
+" "$FAKE_HOME/.claude/agentic-engineering.json" 2>/dev/null)"
+if [[ "$_q_auto_load" == "True" ]]; then
+  _pass "case (q): one-time skill_auto_load migration fires for a genuinely pre-rename (old skill-path) old-format block"
+else
+  _fail "case (q): expected skill_auto_load=True after migrating a pre-rename block, got '$_q_auto_load' (migration detection disarmed by the skill-dir rename)"
+fi
+
+_run_uninstall "$FAKE_HOME" || true
+if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]] || ! grep -q "BEGIN managed-by-agentic-engineering" "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null; then
+  _pass "case (q): subsequent uninstall removes the (now-updated) managed block cleanly"
+else
+  _fail "case (q): managed block survives uninstall"
 fi
 
 rm -rf "$FAKE_HOME"

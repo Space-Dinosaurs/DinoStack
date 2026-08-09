@@ -257,7 +257,7 @@ mkdir -p "$SKILL_DST"
 # by a pre-rename install. This adapter writes SKILL.md and METHODOLOGY.md as
 # real files alongside symlinked commands/references/rules/agents.
 if command -v ae_prune_stale_skill_dir >/dev/null 2>&1; then
-  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" SKILL.md METHODOLOGY.md || true
+  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" "$REPO_DIR" SKILL.md METHODOLOGY.md || true
 fi
 
 # Copy SKILL.md and METHODOLOGY.md so they survive branch switches

@@ -269,7 +269,7 @@ mkdir -p "$SKILL_DST"
 # symlink (no real files are written here), so no allowed-real-file names
 # are passed.
 if command -v ae_prune_stale_skill_dir >/dev/null 2>&1; then
-  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" || true
+  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" "$REPO_DIR" || true
 fi
 
 # Absolute symlinks for content dirs so they resolve from ~/.kimi/skills/

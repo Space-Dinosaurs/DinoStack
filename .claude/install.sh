@@ -1099,7 +1099,7 @@ fi
 # imports must never be stripped without a working skill symlink to fall
 # back on.
 if [[ "$AE_DRY_RUN" == "true" ]]; then
-  echo "  [dry-run] would update managed-by-dinostack section in $AE_CONFIG_DIR/CLAUDE.md"
+  echo "  [dry-run] would update managed-by-agentic-engineering section in $AE_CONFIG_DIR/CLAUDE.md"
 else
 echo "Updating $AE_CONFIG_DIR/CLAUDE.md..."
 
@@ -1107,8 +1107,8 @@ AE_CONFIG_DIR="$AE_CONFIG_DIR" AE_REPO_DIR="$REPO_DIR" AE_SKILL_LINK_OK="$SKILL_
 import json, os, re, sys
 
 target = os.path.join(os.environ.get("AE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "CLAUDE.md")
-begin_marker = "<!-- BEGIN managed-by-dinostack -->"
-end_marker = "<!-- END managed-by-dinostack -->"
+begin_marker = "<!-- BEGIN managed-by-agentic-engineering -->"
+end_marker = "<!-- END managed-by-agentic-engineering -->"
 
 repo_dir = os.environ.get("AE_REPO_DIR", "")
 skill_link_ok = os.environ.get("AE_SKILL_LINK_OK", "") == "true"
@@ -1119,7 +1119,13 @@ import_lines = [
     "@skills/dinostack/rules/code-standards.md",
     "@skills/dinostack/rules/conventions.md",
 ]
-old_import_marker = import_lines[0]
+# Migration detection must recognize an @-import line written under EITHER
+# skill-directory name: a block on disk from before the skill directory was
+# renamed from agentic-engineering to dinostack still carries the OLD path
+# literal, not import_lines[0]'s current one. Checking only the current
+# literal here would silently disarm the one-time skill_auto_load migration
+# for exactly the pre-rename installs it exists to catch.
+old_import_re = re.compile(r'@skills/(?:agentic-engineering|dinostack)/METHODOLOGY\.md')
 
 template_path = os.path.join(repo_dir, "content", "templates", "claude-managed-content.md")
 try:
@@ -1162,7 +1168,7 @@ else:
 # Compiled once - used both by the migration detection below and by the
 # managed-block rewrite further down.
 pattern = re.compile(
-    r'<!-- BEGIN managed-by-dinostack -->.*?<!-- END managed-by-dinostack -->',
+    r'<!-- BEGIN managed-by-agentic-engineering -->.*?<!-- END managed-by-agentic-engineering -->',
     re.DOTALL
 )
 
@@ -1188,7 +1194,7 @@ pattern = re.compile(
 # this condition can never fire again for this installation.
 old_block_matches = list(pattern.finditer(existing))
 migrating = skill_link_ok and config_path and any(
-    old_import_marker in m.group(0) for m in old_block_matches
+    old_import_re.search(m.group(0)) for m in old_block_matches
 )
 
 if migrating:
@@ -1224,7 +1230,7 @@ if begin_marker in existing and end_marker in existing:
     updated = pattern.sub(lambda _: managed_content, existing)
     with open(target, "w") as f:
         f.write(updated)
-    print("  = Updated managed-by-dinostack section in ~/.claude/CLAUDE.md")
+    print("  = Updated managed-by-agentic-engineering section in ~/.claude/CLAUDE.md")
 else:
     # Append to end of file
     if existing:
@@ -1235,9 +1241,9 @@ else:
     with open(target, "w") as f:
         f.write(updated)
     if existing:
-        print("  + Appended managed-by-dinostack section to ~/.claude/CLAUDE.md")
+        print("  + Appended managed-by-agentic-engineering section to ~/.claude/CLAUDE.md")
     else:
-        print("  + Created ~/.claude/CLAUDE.md with managed-by-dinostack section")
+        print("  + Created ~/.claude/CLAUDE.md with managed-by-agentic-engineering section")
 PYEOF
 
 if [[ "$SKILL_LINK_OK" != "true" ]]; then

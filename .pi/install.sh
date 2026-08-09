@@ -186,8 +186,8 @@ mkdir -p "$SKILL_DST" "$PROMPT_DST" "$EXT_DST"
 # alongside symlinked commands/references/rules/agents; the extension dir
 # holds only a symlinked index.ts.
 if command -v ae_prune_stale_skill_dir >/dev/null 2>&1; then
-  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" SKILL.md METHODOLOGY.md || true
-  ae_prune_stale_skill_dir "$(dirname "$EXT_DST")/agentic-engineering" || true
+  ae_prune_stale_skill_dir "$(dirname "$SKILL_DST")/agentic-engineering" "$REPO_DIR" SKILL.md METHODOLOGY.md || true
+  ae_prune_stale_skill_dir "$(dirname "$EXT_DST")/agentic-engineering" "$REPO_DIR" || true
 fi
 
 cp "$SKILL_SRC/SKILL.md" "$SKILL_DST/SKILL.md"
