@@ -1,0 +1,366 @@
+#!/usr/bin/env python3
+"""
+Purpose: CLI for managing the repo-scoped deferred-work sink
+         (<repo>/.agentic/deferred-work.jsonl) used to record mid-session
+         discoveries that failed the Follow-up Ticket Creation Discipline's
+         promotion bar, or that arrived via a manual out-of-band call -
+         never bar-passing items, which are governed by the absolute
+         batching rule instead (see content/references/delegation-detail.md
+         §Follow-up Ticket Creation Discipline).
+
+Public API:
+  ds-defer append --repo <path> --description <str> --reason
+      {failed_promotion_bar,out_of_band_manual_discovery}
+      [--parent-ticket <id>] [--session-id <id>]
+  ds-defer list --repo <path> [--status {open,acknowledged}]
+  ds-defer count --repo <path> [--status open]      # bare integer to stdout
+  ds-defer ack --repo <path> --id <uuid>
+  ds-defer --help
+
+Data model:
+  <repo>/.agentic/deferred-work.jsonl: one JSON object per line.
+  Fields:
+    id                 (CLI-owned) uuid4, assigned on append.
+    ts                 (CLI-owned) UTC ISO8601, assigned on append.
+    session_id         caller-supplied via --session-id at append time;
+                       nullable (optional).
+    parent_ticket_id   caller-supplied via --parent-ticket at append time;
+                       nullable (optional).
+    description        caller-supplied via --description at append time;
+                       one-line string.
+    reason             caller-supplied via --reason at append time; one of
+                       "failed_promotion_bar", "out_of_band_manual_discovery".
+    status             (CLI-owned) one of "open", "acknowledged"; assigned
+                       "open" on append, changed only via `ack`.
+    pattern_hash        (CLI-owned) sha256[:16] of the lowercase,
+                       whitespace-collapsed description, assigned on append.
+
+  IMPORTANT: id, ts, and status are CLI-owned. On `append`, any id/ts/status
+  values a caller attempts to pass are never read from caller input at all -
+  there is no --id/--ts/--status flag on `append` - so there is nothing to
+  overwrite; the CLI always assigns these three fields itself.
+
+  Enums:
+    reason: failed_promotion_bar | out_of_band_manual_discovery
+      NOTE: "budget_exceeded" was a considered-and-rejected enum value under
+      an earlier design where a budget branch competed with the batching
+      rule; it never shipped and is deliberately absent from this enum, the
+      CLI's validation, and the test suite. There is no branch under which a
+      bar-passing discovery is recorded here - see the batching rule.
+    status: open | acknowledged
+
+--repo is REQUIRED on all four subcommands and is a store LOCATOR (which
+file this invocation reads/writes), not a stamp or a filter - the one
+respect in which this CLI does NOT mirror bin/ds-feedback's exemplar
+(ds-feedback's --repo is a fixed home-dir store's stamp/filter field,
+because ds-feedback's store location is never a function of --repo).
+Store resolves to <repo>/.agentic/deferred-work.jsonl, lock to
+<repo>/.agentic/deferred-work.jsonl.lock. Omitting --repo is a hard
+argparse error on every subcommand - there is no cwd fallback, precisely
+to prevent the cwd-dependence ambiguity a fallback would introduce.
+
+Upstream deps: Python 3 stdlib only (argparse, hashlib, json, os, sys,
+               uuid, datetime, pathlib). Shared helpers: bin/_lib
+               (acquire_exclusive_lock, atomic_write).
+
+Downstream consumers: hooks/session-start-wrap.sh (reads via `count
+                      --status open` for the deferred-work open-count
+                      session-start nudge); content/references/
+                      delegation-detail.md §Follow-up Ticket Creation
+                      Discipline (documents `append` invocation).
+
+Failure modes:
+  append: validation failure (bad --reason value, empty --description) is a
+    hard error - exit 1 with a stderr message, nothing written. Unlike
+    ds-feedback's --file batch model, ds-defer's append writes exactly one
+    record per invocation, so there is no partial-batch soft-fail case.
+    Bootstraps <repo>/.agentic/ (mode 0o700) via _ensure_repo_agentic_dir
+    before acquiring the lock - this is a deliberate documented side
+    effect: append may create <repo>/.agentic/ on a repo that never ran
+    /ds-init-project.
+  list: absent store (no <repo>/.agentic/deferred-work.jsonl) prints "[]"
+    and exits 0 (not an error); no directory is created. Malformed
+    (non-JSON) lines in the store are skipped silently.
+  count: absent store prints "0" and exits 0 (not an error); no directory
+    is created.
+  ack: absent store is a hard error - exit 1 with a stderr message; no
+    directory is created. Exits 1 if no line matches --id. The rewrite is
+    all-or-nothing via atomic_write - a failure mid-rewrite leaves the
+    original file untouched.
+
+  Locking: append/list/count/ack all acquire the same exclusive
+  <repo>/.agentic/deferred-work.jsonl.lock for their full read/modify/write
+  critical section, serializing concurrent invocations against the same
+  repo. acquire_exclusive_lock (from bin/_lib) opens the lock file in 'r'
+  mode and requires it to already exist. append bootstraps the lock file
+  (and its parent dir) before acquiring; list/count/ack do NOT bootstrap -
+  against a bare repo with no .agentic/ dir at all, they short-circuit to
+  the documented absent-store result before ever touching the lock path.
+
+Performance: Standard. Single-file read + append/rewrite; no indexing.
+  Fine at the scale of an individual project's accumulated deferred-work
+  backlog.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-defer -> repo
+# bin/ds-defer, as created by install.sh) back to the real bin/ directory
+# so _lib.py is found on a bare `ds-defer` invocation. The bare `.parent`
+# form (no `.resolve()`) is the DS-66 bug class - it resolves to a missing
+# ~/.local/bin/_lib.py and raises FileNotFoundError.
+import sys as _sys
+import importlib.util as _ilu
+import importlib.machinery as _ilm
+
+_LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
+if "_lib" in _sys.modules:
+    _lib_mod = _sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    _sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
+acquire_exclusive_lock = _lib_mod.acquire_exclusive_lock
+atomic_write = _lib_mod.atomic_write
+del _sys, _ilu, _ilm, _lib_mod
+
+REASON_VALUES = ("failed_promotion_bar", "out_of_band_manual_discovery")
+STATUS_VALUES = ("open", "acknowledged")
+
+STORE_FILENAME = "deferred-work.jsonl"
+LOCK_FILENAME = "deferred-work.jsonl.lock"
+
+
+def _store_path(repo: str) -> Path:
+    return Path(repo, ".agentic", STORE_FILENAME)
+
+
+def _lock_path(repo: str) -> Path:
+    return Path(repo, ".agentic", LOCK_FILENAME)
+
+
+def _pattern_hash(description: str) -> str:
+    """sha256[:16] of the lowercase, whitespace-collapsed description."""
+    collapsed = re.sub(r"\s+", " ", description.strip().lower())
+    return hashlib.sha256(collapsed.encode("utf-8")).hexdigest()[:16]
+
+
+def _ensure_repo_agentic_dir(repo: str) -> None:
+    """Bootstrap <repo>/.agentic/ and the lock file. append-only side effect.
+
+    Deliberate documented side effect: `ds-defer append` may create
+    <repo>/.agentic/ on a repo that never ran /ds-init-project.
+    list/count/ack must NOT call this - a query against a bare repo must
+    not create the directory.
+    """
+    Path(repo, ".agentic").mkdir(mode=0o700, parents=True, exist_ok=True)
+    _lock_path(repo).touch(exist_ok=True)
+
+
+def _read_store(repo: str, warn_on_malformed: bool = False) -> list[dict]:
+    """Read the repo's store and return a list of parsed line dicts.
+
+    Store-absent returns []. Malformed (non-JSON) lines are skipped.
+    """
+    store = _store_path(repo)
+    if not store.is_file():
+        return []
+    rows: list[dict] = []
+    text = store.read_text(encoding="utf-8")
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            rows.append(json.loads(line))
+        except json.JSONDecodeError:
+            if warn_on_malformed:
+                print(
+                    f"ds-defer: skipping malformed line {lineno} in {store.name}",
+                    file=sys.stderr,
+                )
+            continue
+    return rows
+
+
+def cmd_append(args: argparse.Namespace) -> int:
+    description = args.description.strip()
+    if not description:
+        print("ds-defer: --description must be a non-empty string", file=sys.stderr)
+        return 1
+    if args.reason not in REASON_VALUES:
+        print(
+            f"ds-defer: invalid --reason {args.reason!r} (must be one of {REASON_VALUES})",
+            file=sys.stderr,
+        )
+        return 1
+
+    now = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    # CLI-owned fields (id, ts, status, pattern_hash) are always assigned by
+    # the CLI - there are no --id/--ts/--status flags on this subcommand, so
+    # there is no caller-supplied value to overwrite.
+    record = {
+        "id": str(uuid.uuid4()),
+        "ts": now,
+        "session_id": args.session_id,
+        "parent_ticket_id": args.parent_ticket,
+        "description": description,
+        "reason": args.reason,
+        "status": "open",
+        "pattern_hash": _pattern_hash(description),
+    }
+
+    _ensure_repo_agentic_dir(args.repo)
+    lock = _lock_path(args.repo)
+    store = _store_path(args.repo)
+    try:
+        with acquire_exclusive_lock(lock):
+            with open(store, "a", encoding="utf-8") as f:
+                f.write(json.dumps(record, separators=(",", ":")) + "\n")
+    except RuntimeError as exc:
+        print(f"ds-defer: {exc}", file=sys.stderr)
+        return 1
+    except OSError as exc:
+        print(f"ds-defer: write failed: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Appended deferred-work item {record['id']}.")
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    store = _store_path(args.repo)
+    if not store.is_file():
+        # Absent-store result. No directory is created - append is the only
+        # subcommand that bootstraps <repo>/.agentic/.
+        print("[]")
+        return 0
+
+    # append always bootstraps the lock file together with the store's
+    # parent dir before its first write, so a store's presence guarantees
+    # the lock file also exists.
+    lock = _lock_path(args.repo)
+    try:
+        with acquire_exclusive_lock(lock):
+            rows = _read_store(args.repo)
+    except RuntimeError as exc:
+        print(f"ds-defer: {exc}", file=sys.stderr)
+        return 1
+
+    if args.status is not None:
+        rows = [r for r in rows if r.get("status") == args.status]
+
+    print(json.dumps(rows, indent=2))
+    return 0
+
+
+def cmd_count(args: argparse.Namespace) -> int:
+    store = _store_path(args.repo)
+    if not store.is_file():
+        # Absent-store result. No directory is created - append is the only
+        # subcommand that bootstraps <repo>/.agentic/.
+        print("0")
+        return 0
+
+    lock = _lock_path(args.repo)
+    try:
+        with acquire_exclusive_lock(lock):
+            rows = _read_store(args.repo)
+    except RuntimeError as exc:
+        print(f"ds-defer: {exc}", file=sys.stderr)
+        return 1
+
+    if args.status is not None:
+        rows = [r for r in rows if r.get("status") == args.status]
+
+    print(len(rows))
+    return 0
+
+
+def cmd_ack(args: argparse.Namespace) -> int:
+    store = _store_path(args.repo)
+    lock = _lock_path(args.repo)
+    if not store.is_file():
+        print(f"ds-defer: no deferred-work store at {store}", file=sys.stderr)
+        return 1
+
+    try:
+        with acquire_exclusive_lock(lock):
+            rows = _read_store(args.repo, warn_on_malformed=True)
+            matched = False
+            new_lines: list[str] = []
+            for row in rows:
+                if row.get("id") == args.id:
+                    matched = True
+                    row = dict(row)
+                    row["status"] = "acknowledged"
+                new_lines.append(json.dumps(row, separators=(",", ":")))
+
+            if not matched:
+                print(f"ds-defer: no deferred-work item with id {args.id!r}", file=sys.stderr)
+                return 1
+
+            content = "".join(line + "\n" for line in new_lines)
+            try:
+                atomic_write(store, content, mode=0o600)
+            except Exception as exc:
+                print(f"ds-defer: write failed: {exc}", file=sys.stderr)
+                return 1
+    except RuntimeError as exc:
+        print(f"ds-defer: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"Acknowledged {args.id}.")
+    return 0
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(
+        prog="ds-defer",
+        description="Manage the repo-scoped deferred-work sink (<repo>/.agentic/deferred-work.jsonl).",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    p_append = sub.add_parser("append", help="Record a deferred-work item")
+    p_append.add_argument("--repo", required=True, help="Repo path (store locator)")
+    p_append.add_argument("--description", required=True, help="One-line description")
+    p_append.add_argument("--reason", required=True, choices=REASON_VALUES, help="Deferral reason")
+    p_append.add_argument("--parent-ticket", default=None, help="Optional parent ticket id")
+    p_append.add_argument("--session-id", default=None, help="Optional session id")
+    p_append.set_defaults(func=cmd_append)
+
+    p_list = sub.add_parser("list", help="List deferred-work items as a JSON array")
+    p_list.add_argument("--repo", required=True, help="Repo path (store locator)")
+    p_list.add_argument("--status", choices=STATUS_VALUES, default=None, help="Filter by status")
+    p_list.set_defaults(func=cmd_list)
+
+    p_count = sub.add_parser("count", help="Print a bare integer count of deferred-work items")
+    p_count.add_argument("--repo", required=True, help="Repo path (store locator)")
+    p_count.add_argument("--status", choices=STATUS_VALUES, default=None, help="Filter by status")
+    p_count.set_defaults(func=cmd_count)
+
+    p_ack = sub.add_parser("ack", help="Acknowledge a deferred-work item by id")
+    p_ack.add_argument("--repo", required=True, help="Repo path (store locator)")
+    p_ack.add_argument("--id", required=True, help="Deferred-work item id (uuid)")
+    p_ack.set_defaults(func=cmd_ack)
+
+    args = p.parse_args(argv[1:])
+    return args.func(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

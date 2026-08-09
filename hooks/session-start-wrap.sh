@@ -223,10 +223,37 @@ fi
 # user-facing message but still satisfies the SessionStart JSON contract.
 combined=""
 if [[ "${AGENTIC_QUIET:-}" != "1" ]]; then
+  # --- Deferred-work open-count nudge (4th contributor). Resolved via
+  # scripts/lib/repo-dir.sh's resolve_repo_dir (the canonical repo-dir
+  # resolver already centralizing this exact lookup for install.sh,
+  # version-check-core.sh, and bootstrap.sh) rather than trusting PATH -
+  # ~/.local/bin (where install.sh symlinks ds-defer) is not reliably on
+  # the PATH a GUI-launched harness inherits, and grepping hooks/ turns up
+  # zero existing "command -v ds-*" call sites to imitate. ---
+  defer_msg=""
+  _REPO_DIR_LIB="$SCRIPT_DIR/../scripts/lib/repo-dir.sh"
+  if [[ -f "$_REPO_DIR_LIB" ]]; then
+    # shellcheck source=/dev/null
+    source "$_REPO_DIR_LIB"
+    if resolve_repo_dir --quiet 2>/dev/null && [[ -x "$AE_REPO_DIR/bin/ds-defer" ]]; then
+      DS_DEFER_BIN="$AE_REPO_DIR/bin/ds-defer"
+    fi
+  fi
+  if [[ -z "${DS_DEFER_BIN:-}" ]] && command -v ds-defer >/dev/null 2>&1; then
+    DS_DEFER_BIN="$(command -v ds-defer)"
+  fi
+  if [[ -n "${DS_DEFER_BIN:-}" ]]; then
+    defer_count="$("$DS_DEFER_BIN" count --repo "$cwd" --status open 2>/dev/null || true)"
+    if [[ "$defer_count" =~ ^[0-9]+$ ]] && [[ "$defer_count" -gt 0 ]]; then
+      defer_msg="${defer_count} deferred-work item(s) pending in this project - see .agentic/deferred-work.jsonl or run \`ds-defer list --repo .\`."
+    fi
+  fi
+
   parts=()
   [[ -n "$version_msg" ]] && parts+=("$version_msg")
   [[ -n "$auth_msg" ]] && parts+=("$auth_msg")
   [[ -n "$staleness_msg" ]] && parts+=("$staleness_msg")
+  [[ -n "$defer_msg" ]] && parts+=("$defer_msg")
   if [[ ${#parts[@]} -gt 0 ]]; then
     sep=""
     for part in "${parts[@]}"; do

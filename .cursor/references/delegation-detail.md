@@ -89,6 +89,41 @@ When the threshold is exceeded, the conductor stops spawning Workers and surface
 
 Then wait. Do NOT keep spawning Workers against an under-specified plan - that compounds the cost of the missing planning work and produces churn the user has to clean up later.
 
+## Follow-up Ticket Creation Discipline
+
+Applies to ANY decision to create a tracker ticket for work discovered
+mid-session - whether via the Tracker Create Helper, a direct mcp__ tool
+call, or a manual out-of-band call. This is prose discipline with NO
+mechanical enforcement of the carve-out, the bar, or the batching rule
+below - the only mechanical artifacts are the sink
+(`.agentic/deferred-work.jsonl`, via `bin/ds-defer`) and its session-start
+reader. A conductor that ignores this discipline is not mechanically
+stopped.
+
+1. **Execution-scope carve-out.** A discovery made during an in-progress
+   unit (including at wrap/PR-summary time) is not "net-new work" for the
+   Ticket-offer gate. Top-level, operator-raised asks are unaffected by
+   everything below.
+2. **Promotion bar.** A discovery earns a ticket only if (a) it blocks the
+   current unit OR is independently schedulable with standalone value, AND
+   (b) it is not fixable inline in under one Worker spawn's effort - a
+   one-line fix is fixed inline, never deferred. Failing (a) or (b): record
+   via `bin/ds-defer append --reason failed_promotion_bar` and move on.
+3. **Batching is absolute - this is the actual branching-factor control,
+   stronger than the bar above.** When 2 or more discoveries pass the bar
+   in the same session, they are NEVER created as separate tickets. They
+   are batched into exactly ONE ticket (one title, one numbered
+   acceptance-criterion per item). A single bar-passing discovery becomes
+   exactly one ticket. There is no branch under which a bar-passing item
+   goes to the sink - the sink is reserved for bar failures and out-of-band
+   discoveries only (item 4).
+4. Manual/out-of-band discoveries (e.g. a direct API call bypassing every
+   documented path) are recorded the same way:
+   `bin/ds-defer append --reason out_of_band_manual_discovery`.
+5. `/ds-feedback-triage` Step 4d is unaffected - its creates are already
+   gated by an explicit per-batch human greenlight (Step 2,
+   `ds-feedback-triage.md:32,68,206`), a stronger control than anything here.
+
 ## Common Rationalizations to Reject
 
 **Common rationalizations to reject:**

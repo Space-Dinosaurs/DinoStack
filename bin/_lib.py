@@ -28,8 +28,12 @@ Public API:
 
 Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, time, pathlib).
 
-Downstream consumers: bin/ds-identity (both helpers),
-                      bin/ds-migrate (atomic_write).
+Downstream consumers: bin/ds-config (atomic_write), bin/ds-defer (both
+                      helpers), bin/ds-feedback (both helpers),
+                      bin/ds-migrate (atomic_write), bin/ds-tracker
+                      (atomic_write). bin/ds-identity does NOT use this
+                      module - it ships its own _atomic_write_identity and
+                      its own lock contextmanager.
 
 Failure modes:
   acquire_exclusive_lock: raises RuntimeError("lock timeout") after timeout seconds
