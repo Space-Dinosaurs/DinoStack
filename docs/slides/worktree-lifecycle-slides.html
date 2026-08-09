@@ -817,7 +817,7 @@ git branch -D &lt;branch-name&gt; 2&gt;/dev/null || <span class="hljs-literal">t
 <ul>
 <li>The local branch lingers after <code>worktree remove</code> without an explicit <code>branch -D</code></li>
 <li>Force-remove is only safe after confirming nothing important is uncommitted</li>
-<li>Isolation worktrees with changes persist until the conductor explicitly removes them - subagents do not have hooks</li>
+<li>Isolation worktrees with changes persist until the conductor explicitly removes them</li>
 </ul>
 <div class="callout">
 Isolation worktrees with no changes are auto-cleaned by the Agent tool. Those with changes are the conductor's responsibility.

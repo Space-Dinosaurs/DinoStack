@@ -260,7 +260,7 @@ git branch -D <branch-name> 2>/dev/null || true
 
 - The local branch lingers after `worktree remove` without an explicit `branch -D`
 - Force-remove is only safe after confirming nothing important is uncommitted
-- Isolation worktrees with changes persist until the conductor explicitly removes them - subagents do not have hooks
+- Isolation worktrees with changes persist until the conductor explicitly removes them
 
 <div class="callout">
 Isolation worktrees with no changes are auto-cleaned by the Agent tool. Those with changes are the conductor's responsibility.
