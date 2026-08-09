@@ -11,13 +11,18 @@ Purpose: Mechanically enumerate every consumer that would break if a set of
 Public API: CLI. `python3 scripts/prose-move-impact.py --target <path>
             --range START:END:DEST [--range ...] | --config <json>`. Prints a
             human-readable report to stdout. Exit 0 only when every consumer
-            was fully resolved and every resolved assertion still holds after
-            the proposed move; exit 1 when any assertion breaks OR when
+            was fully resolved, every resolved assertion still holds after
+            the proposed move, AND no consumer's scanned set is left behind
+            by the move (see `Report.ok`); exit 1 when any assertion breaks,
             anything could not be resolved (see UNRESOLVED below - this is
             deliberate: an unresolved assertion is treated as a potential
-            break, not a pass). Importable: `analyze(repo_root, target_rel,
-            ranges) -> Report` for callers that want the structured result
-            (used by bin/tests/test_prose_move_impact.py).
+            break, not a pass), or a consumer's hardcoded single-file scan
+            would silently stop covering the moved content post-move (see
+            SCANNED SET below - a consumer whose only finding is
+            `leaves_scanned_set=True` must not exit 0 either). Importable:
+            `analyze(repo_root, target_rel, ranges) -> Report` for callers
+            that want the structured result (used by
+            bin/tests/test_prose_move_impact.py).
 
 Upstream deps: `git grep` (consumer discovery), Python stdlib only
                (re, ast, bisect, dataclasses, json, argparse). No PyPI deps.
@@ -42,7 +47,14 @@ Failure modes: any consumer file this tool cannot parse into at least one
                mode it exists to prevent. A regex-metachar pattern (from a
                `_present`/`grep -qiE` shell call site) is resolved via an
                ERE fallback, not just a literal substring match - see
-               `_resolve_literal_in_target`. Read-only; no side effects.
+               `_resolve_literal_in_target`. A consumer that hardcodes a
+               single-file scan of the target with no `content/**`-wide
+               fallback (see `infer_scanned_set`) forces a non-zero exit
+               too, even when nothing else in the report resolved to a
+               break - `Report.ok` treats `leaves_scanned_set=True` as a
+               failure in its own right, not just an informational row, so
+               a run whose only finding is a left-behind scanned set cannot
+               silently print `Verdict: OK`. Read-only; no side effects.
 
 Performance: single pass over `git grep` output plus one parse per
              discovered consumer file (typically a few dozen files, low
@@ -237,6 +249,8 @@ class Report:
         if self.unresolved:
             return False
         if any(a.breaks for a in self.assertions):
+            return False
+        if any(s.leaves_scanned_set for s in self.scanned_sets):
             return False
         return True
 
@@ -516,12 +530,6 @@ def extract_literal_assertions(
             is_call_target_scoped = bool(path_vars)
         is_shell_call = _is_shell_call_line(logical) and is_call_target_scoped
         for idx, lit in enumerate(literals):
-            if not _is_meaningful_literal(lit):
-                continue
-            # Skip pure noise: path literals that merely re-cite the target
-            # path itself carry no content assertion.
-            if lit in (DEFAULT_TARGET, Path(DEFAULT_TARGET).name):
-                continue
             # Only the LAST quoted literal on a pattern-check line (the
             # `<pattern>` slot of `_present <file> <label> <pattern>` /
             # `_absent <label> <pattern>` / `x.count("...")`) is the actual
@@ -535,7 +543,23 @@ def extract_literal_assertions(
             # single-file test consumer against this file's OWN internal
             # string literals produced dozens of spurious rows before this
             # narrowing).
+            #
+            # This MUST be computed before the `_is_meaningful_literal`
+            # filter below, and the filter must be skipped for a pattern
+            # slot: `_is_meaningful_literal` exists to drop incidental
+            # short-token noise, but a pattern slot is by construction a
+            # deliberate assertion payload (e.g. `'mark-blocked-and-
+            # continue'`, `'fail-open'`, `'<ISO8601>'`) regardless of shape.
+            # Filtering it first silently dropped these with no UNRESOLVED
+            # row - the identical silent-drop class the ERE-fallback fix
+            # above exists to prevent, one filter earlier in this function.
             is_pattern_slot = kind in _PATTERN_CHECK_KINDS and idx == last_idx and is_shell_call
+            if not is_pattern_slot and not _is_meaningful_literal(lit):
+                continue
+            # Skip pure noise: path literals that merely re-cite the target
+            # path itself carry no content assertion.
+            if lit in (DEFAULT_TARGET, Path(DEFAULT_TARGET).name):
+                continue
             if is_pattern_slot:
                 occ, method = _resolve_literal_in_target(target_text, target_lines, line_starts, lit)
             else:
@@ -698,12 +722,52 @@ def _eval_str_expr(node) -> str | None:
     return None
 
 
-def extract_python_regex_patterns(consumer_text: str) -> dict[str, str]:
+# `re.compile`'s own flag constants (the module-level names, plus their
+# single-letter aliases) - resolved from an `ast.Attribute` like
+# `re.IGNORECASE` at a `re.compile(pattern, <flags-expr>)` call site.
+# Combinations via `|` (`re.IGNORECASE | re.DOTALL`) are resolved
+# recursively through the `ast.BinOp`/`ast.BitOr` branch below.
+_RE_FLAG_NAMES = {
+    "IGNORECASE": re.IGNORECASE,
+    "I": re.IGNORECASE,
+    "MULTILINE": re.MULTILINE,
+    "M": re.MULTILINE,
+    "DOTALL": re.DOTALL,
+    "S": re.DOTALL,
+    "VERBOSE": re.VERBOSE,
+    "X": re.VERBOSE,
+    "ASCII": re.ASCII,
+    "A": re.ASCII,
+    "UNICODE": re.UNICODE,
+    "U": re.UNICODE,
+    "LOCALE": re.LOCALE,
+    "L": re.LOCALE,
+}
+
+
+def _eval_flags_expr(node) -> int | None:
+    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name) and node.value.id == "re":
+        return _RE_FLAG_NAMES.get(node.attr)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        left = _eval_flags_expr(node.left)
+        right = _eval_flags_expr(node.right)
+        if left is not None and right is not None:
+            return left | right
+    return None
+
+
+def extract_python_regex_patterns(consumer_text: str) -> dict[str, tuple[str, int]]:
+    """Returns {name: (pattern, flags)}. `flags` reads the actual second
+    positional arg or `flags=` keyword of the `re.compile(...)` call site -
+    a naive re-compile with no flags silently discards `re.IGNORECASE`/
+    `re.DOTALL`/`re.MULTILINE` the consumer actually used, which can make a
+    pattern that genuinely matches the live target (case-insensitively, or
+    across a newline) read as a false non-match here."""
     try:
         tree = ast.parse(consumer_text)
     except SyntaxError:
         return {}
-    out: dict[str, str] = {}
+    out: dict[str, tuple[str, int]] = {}
     for node in ast.walk(tree):
         if not isinstance(node, ast.Assign):
             continue
@@ -722,16 +786,27 @@ def extract_python_regex_patterns(consumer_text: str) -> dict[str, str]:
         pat = _eval_str_expr(call.args[0])
         if pat is None:
             continue
+        flags = 0
+        if len(call.args) >= 2:
+            f = _eval_flags_expr(call.args[1])
+            if f is not None:
+                flags = f
+        for kw in call.keywords:
+            if kw.arg == "flags":
+                f = _eval_flags_expr(kw.value)
+                if f is not None:
+                    flags = f
         for t in node.targets:
             if isinstance(t, ast.Name):
-                out[t.id] = pat
+                out[t.id] = (pat, flags)
     return out
 
 
 def extract_regex_assertions(
     consumer_rel: str,
     consumer_text: str,
-    target_lines: list[str],
+    target_text: str,
+    line_starts: list[int],
     ranges: list[MoveRange],
 ) -> tuple[list[Assertion], list[Unresolved]]:
     assertions: list[Assertion] = []
@@ -739,22 +814,27 @@ def extract_regex_assertions(
     if not consumer_rel.endswith(".py"):
         return assertions, unresolved
     patterns = extract_python_regex_patterns(consumer_text)
-    for name, pat in patterns.items():
+    for name, (pat, flags) in patterns.items():
         # Only meaningful if the compiled name is actually referenced again
         # (search/finditer/match) - a defined-but-unused pattern is noise.
         if not re.search(rf"\b{re.escape(name)}\s*\.\s*(search|finditer|match)\b", consumer_text):
             continue
         try:
-            compiled = re.compile(pat)
+            compiled = re.compile(pat, flags)
         except re.error as e:
             unresolved.append(
                 Unresolved(consumer=consumer_rel, detail=f"{name}: pattern failed to compile: {e}")
             )
             continue
-        matches = []
-        for i, line in enumerate(target_lines, start=1):
-            if compiled.search(line):
-                matches.append(i)
+        # Match against the WHOLE target text, not per-line: a consumer
+        # searches its own whole-text string (this is exactly what the
+        # consumer's own `.search()`/`.finditer()` call does), and a
+        # per-line scan misses any pattern that can span a newline (e.g.
+        # `[^.]{0,80}` matches `\n`) - a deletion seam created by the move
+        # can create a NEW cross-line match post-move that a per-line scan
+        # would never see either way, silently converting a real break
+        # into a false "zero matches, cannot break" resolution below.
+        matches = sorted({offset_to_line(line_starts, m.start()) for m in compiled.finditer(target_text)})
         moved = [ln for ln in matches if range_for_line(ranges, ln) is not None]
         if not matches:
             # Zero occurrences in the PRE-move target, under either
@@ -1138,7 +1218,7 @@ def analyze(repo_root: Path, target_rel: str, ranges: list[MoveRange]) -> Report
         report.assertions.extend(hb_assertions)
         found_any = found_any or bool(hb_assertions)
 
-        regex_assertions, regex_unresolved = extract_regex_assertions(rel, text, target_lines_raw, ranges)
+        regex_assertions, regex_unresolved = extract_regex_assertions(rel, text, target_text, line_starts, ranges)
         report.assertions.extend(regex_assertions)
         report.unresolved.extend(regex_unresolved)
         found_any = found_any or bool(regex_assertions) or bool(regex_unresolved)

@@ -11,8 +11,11 @@ Purpose: Known-answer, regression, mutation, and DIFFERENTIAL tests for
          load-bearing one: it simulates the actual post-move tree in a
          scratch git repo and runs the REAL executable gates against it,
          comparing their real pass/fail to the tool's prediction - the
-         only check here that can catch a NEW under-report class rather
-         than re-confirming a named one.
+         check with the best chance of catching a NEW under-report class
+         rather than re-confirming a named one, though it is currently
+         scoped to only 2 of the 7 tool-clean consumers a manual run can
+         differential-test in ~40s wall time (see SCRATCH_GATES below);
+         the other 5 are not yet covered by this automated check.
 
 Public API: pytest test module. Run with
               python3 -m pytest bin/tests/test_prose_move_impact.py -q
@@ -79,8 +82,54 @@ pmi = _load_module()
 TARGET = "content/commands/ds-implement-ticket.md"
 
 
-def _ranges(*triples):
-    return [pmi.MoveRange(start=s, end=e, dest=d) for (s, e, d) in triples]
+# ---------------------------------------------------------------------------
+# Heading-derived ranges (regression: Major 3, r2 Skeptic finding) - every
+# proposed move range below is now located by HEADING TEXT, never a
+# hardcoded absolute line number. A hardcoded number silently goes stale
+# the moment any unrelated edit lands above it anywhere in the 3600-line
+# target file: the reviewer demonstrated that inserting one sentence at
+# line 20 reddens a hardcoded-number test with a diagnostic about a refactor
+# that hasn't happened, which would block merge on this repo's REQUIRED
+# `python-bin-tests` check for every unrelated PR that happens to touch the
+# target file above the highest hardcoded line. Deriving from
+# `fence_aware_headings()` (the tool's own heading index) instead means the
+# range tracks the heading wherever it lives today - the test only fails
+# when the heading's TEXT genuinely disappears, which is the real structural
+# premise this fixture is pinning.
+# ---------------------------------------------------------------------------
+
+
+def _heading_index() -> dict[str, "pmi.Heading"]:
+    target_path = REPO_ROOT / TARGET
+    lines = target_path.read_text(encoding="utf-8").split("\n")
+    return {h.text: h for h in pmi.fence_aware_headings(lines)}
+
+
+_HEADINGS = _heading_index()
+
+
+def _range_for_heading(heading_text: str, dest: str) -> "pmi.MoveRange":
+    h = _HEADINGS.get(heading_text)
+    if h is None:
+        raise AssertionError(
+            f"proposed range heading no longer exists in the live target: {heading_text!r} "
+            "- the split proposal's structural premise has changed, re-verify against a "
+            "fresh `grep -n '^#' ...` before assuming this fixture is stale for no reason"
+        )
+    return pmi.MoveRange(start=h.line, end=h.end_line, dest=dest)
+
+
+# The 9 proposed-split headings from the ticket brief, by heading text (see
+# module docstring above for why text, not line number).
+_HEADING_TRACKER_WRITEBACK = "## Tracker Writeback Helper"
+_HEADING_OPEN_GOAL_LOOP = "## Phase 0a-open-goal: Open-goal loop init or resume (conditional)"
+_HEADING_BATCH_RESUME_CHECK = "## Phase 0a-pre: Batch resume check"
+_HEADING_BATCH_TRIAGE = "## Phase 0a: Batch triage (Phase 0 produced ≥ 2 entries)"
+_HEADING_ORCHESTRATION_PLAN = "## Phase 3b: Orchestration plan (conditional)"
+_HEADING_PARALLEL_UNITS = "### If parallel independent units were identified:"
+_HEADING_QA_GATE = "## Phase 6b: QA Gate (conditional)"
+_HEADING_QA_EVIDENCE = "## Phase 8.5: QA evidence (conditional)"
+_HEADING_HANDOFF_EVAL = "## Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)"
 
 
 # ---------------------------------------------------------------------------
@@ -99,16 +148,26 @@ def test_fence_aware_headings_skip_fenced_pseudo_headings():
 
 
 def test_known_move_ranges_align_exactly_with_heading_boundaries():
-    """The 9 proposed ranges from the ticket brief, re-verified against the
-    live target: each range's start is a real heading line and its end is
-    the line immediately before the next heading of <= that level."""
-    target_path = REPO_ROOT / TARGET
-    lines = target_path.read_text(encoding="utf-8").split("\n")
-    headings = pmi.fence_aware_headings(lines)
-    proposed_starts = {480, 730, 801, 852, 1369, 1651, 2041, 2367, 3495}
-    heading_starts = {h.line for h in headings}
-    missing = proposed_starts - heading_starts
-    assert not missing, f"proposed range start(s) no longer align with a live heading: {missing}"
+    """The 9 proposed headings from the ticket brief, re-verified against
+    the live target BY TEXT (not a hardcoded line number - see the
+    heading-derived-ranges block above): each named heading must still
+    exist as a live heading. `_range_for_heading` already asserts this
+    per-heading with a specific diagnostic; this test asserts it in one
+    place for all 9 so a single failure enumerates every heading that
+    vanished, not just the first one a fixture happens to touch."""
+    proposed_heading_texts = {
+        _HEADING_TRACKER_WRITEBACK,
+        _HEADING_OPEN_GOAL_LOOP,
+        _HEADING_BATCH_RESUME_CHECK,
+        _HEADING_BATCH_TRIAGE,
+        _HEADING_ORCHESTRATION_PLAN,
+        _HEADING_PARALLEL_UNITS,
+        _HEADING_QA_GATE,
+        _HEADING_QA_EVIDENCE,
+        _HEADING_HANDOFF_EVAL,
+    }
+    missing = proposed_heading_texts - set(_HEADINGS)
+    assert not missing, f"proposed range heading(s) no longer exist in the live target: {missing}"
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +177,7 @@ def test_known_move_ranges_align_exactly_with_heading_boundaries():
 
 
 def test_known_answer_tracker_dev_complete_heading_block_breaks():
-    ranges = _ranges((480, 548, "content/references/tracker-writeback.md"))
+    ranges = [_range_for_heading(_HEADING_TRACKER_WRITEBACK, "content/references/tracker-writeback.md")]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [
         a
@@ -133,7 +192,7 @@ def test_known_answer_tracker_dev_complete_heading_block_breaks():
 def test_known_answer_tracker_dev_complete_heading_block_does_not_break_when_untouched():
     """Sanity control: a move range that does NOT touch 480-548 must not
     falsely flag this consumer's heading_block assertion."""
-    ranges = _ranges((3495, 3551, "content/references/handoff-evaluation.md"))
+    ranges = [_range_for_heading(_HEADING_HANDOFF_EVAL, "content/references/handoff-evaluation.md")]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [
         a
@@ -151,10 +210,10 @@ def test_known_answer_tracker_dev_complete_heading_block_does_not_break_when_unt
 
 
 def test_known_answer_tasks_jsonl_fold_heredoc_floor_breaks():
-    ranges = _ranges(
-        (1369, 1458, "content/references/orchestration-units.md"),
-        (1651, 1763, "content/references/orchestration-units.md"),
-    )
+    ranges = [
+        _range_for_heading(_HEADING_ORCHESTRATION_PLAN, "content/references/orchestration-units.md"),
+        _range_for_heading(_HEADING_PARALLEL_UNITS, "content/references/orchestration-units.md"),
+    ]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [
         a
@@ -182,7 +241,7 @@ def test_known_answer_tasks_jsonl_fold_heredoc_floor_breaks():
 
 
 def test_known_answer_tasks_jsonl_fold_heredoc_floor_stays_green_when_untouched():
-    ranges = _ranges((3495, 3551, "content/references/handoff-evaluation.md"))
+    ranges = [_range_for_heading(_HEADING_HANDOFF_EVAL, "content/references/handoff-evaluation.md")]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [
         a
@@ -254,10 +313,10 @@ def test_known_answer_batch_state_timestamp_field_joiner_actually_joins_continua
 
 
 def test_known_answer_loop_state_site_coverage_leaves_scanned_set():
-    ranges = _ranges(
-        (2041, 2174, "content/references/qa-loop-state.md"),
-        (2367, 2525, "content/references/qa-loop-state.md"),
-    )
+    ranges = [
+        _range_for_heading(_HEADING_QA_GATE, "content/references/qa-loop-state.md"),
+        _range_for_heading(_HEADING_QA_EVIDENCE, "content/references/qa-loop-state.md"),
+    ]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [s for s in report.scanned_sets if s.consumer == "bin/tests/test_loop_state_site_coverage.sh"]
     assert hits, "expected a scanned-set finding for test_loop_state_site_coverage.sh"
@@ -280,17 +339,17 @@ def test_loop_state_site_coverage_hardcodes_file_equals_target():
 # consumers must be present, in one combined run.
 # ---------------------------------------------------------------------------
 
-NINE_RANGES = _ranges(
-    (480, 548, "content/references/tracker-writeback.md"),
-    (730, 800, "content/references/open-goal-loop.md"),
-    (801, 851, "content/references/batch-mode.md"),
-    (852, 940, "content/references/batch-mode.md"),
-    (1369, 1458, "content/references/orchestration-units.md"),
-    (1651, 1763, "content/references/orchestration-units.md"),
-    (2041, 2174, "content/references/qa-loop-state.md"),
-    (2367, 2525, "content/references/qa-loop-state.md"),
-    (3495, 3551, "content/references/handoff-evaluation.md"),
-)
+NINE_RANGES = [
+    _range_for_heading(_HEADING_TRACKER_WRITEBACK, "content/references/tracker-writeback.md"),
+    _range_for_heading(_HEADING_OPEN_GOAL_LOOP, "content/references/open-goal-loop.md"),
+    _range_for_heading(_HEADING_BATCH_RESUME_CHECK, "content/references/batch-mode.md"),
+    _range_for_heading(_HEADING_BATCH_TRIAGE, "content/references/batch-mode.md"),
+    _range_for_heading(_HEADING_ORCHESTRATION_PLAN, "content/references/orchestration-units.md"),
+    _range_for_heading(_HEADING_PARALLEL_UNITS, "content/references/orchestration-units.md"),
+    _range_for_heading(_HEADING_QA_GATE, "content/references/qa-loop-state.md"),
+    _range_for_heading(_HEADING_QA_EVIDENCE, "content/references/qa-loop-state.md"),
+    _range_for_heading(_HEADING_HANDOFF_EVAL, "content/references/handoff-evaluation.md"),
+]
 
 
 def test_nine_range_run_is_not_ok_and_covers_both_known_breaks():
@@ -343,10 +402,10 @@ def test_doc_consumers_are_not_mechanically_gated_as_breaking():
 
 
 def test_regression_ere_metachar_pattern_resolves_via_regex_not_literal_find():
-    ranges = _ranges(
-        (801, 851, "content/references/batch-mode.md"),
-        (852, 940, "content/references/batch-mode.md"),
-    )
+    ranges = [
+        _range_for_heading(_HEADING_BATCH_RESUME_CHECK, "content/references/batch-mode.md"),
+        _range_for_heading(_HEADING_BATCH_TRIAGE, "content/references/batch-mode.md"),
+    ]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [
         a
@@ -374,7 +433,7 @@ def test_regression_ere_pattern_with_backslash_escaped_parens_is_extracted_at_al
     place (its single-quote branch excluded any backslash from quoted
     content) - a distinct, earlier failure than the literal-vs-regex
     resolution gap the other regression test above covers."""
-    ranges = _ranges((801, 851, "content/references/batch-mode.md"))
+    ranges = [_range_for_heading(_HEADING_BATCH_RESUME_CHECK, "content/references/batch-mode.md")]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = [
         a
@@ -386,6 +445,160 @@ def test_regression_ere_pattern_with_backslash_escaped_parens_is_extracted_at_al
 
 
 # ---------------------------------------------------------------------------
+# Regression: Major 1 (r2 Skeptic finding) - `_is_meaningful_literal`'s
+# short-token noise filter ran BEFORE `is_pattern_slot` was computed, so a
+# pattern-slot literal (the actual `<pattern>` payload of a `_present`/
+# `_absent` shell call) that happens to be short with no `[`:/=$]`
+# punctuation was silently dropped with NO Assertion and NO Unresolved row -
+# the identical silent-drop class as r1's Critical, one filter earlier in
+# the same function. Confirmed failing pre-fix: `'mark-blocked-and-
+# continue'`, `'fail-open'`, and `'<ISO8601>'` (three live pattern-slot
+# literals in test_batch_state_timestamp_field.sh, none of which contain a
+# backtick/colon/slash/equals/dollar) produced zero assertions and zero
+# unresolved rows for that consumer under the 9-range run.
+# ---------------------------------------------------------------------------
+
+
+def test_regression_pattern_slot_literal_not_dropped_by_meaningfulness_filter():
+    report = pmi.analyze(REPO_ROOT, TARGET, NINE_RANGES)
+    hits = {
+        a.detail: a
+        for a in report.assertions
+        if a.consumer == "bin/tests/test_batch_state_timestamp_field.sh"
+        and a.kind == "literal_presence"
+        and ("mark-blocked-and-continue" in a.detail or "fail-open" in a.detail or "<ISO8601>" in a.detail)
+    }
+    assert hits, (
+        "expected literal_presence assertions for the 'mark-blocked-and-"
+        "continue' / 'fail-open' / '<ISO8601>' pattern-slot literals - these "
+        "must never be silently dropped by the meaningfulness filter"
+    )
+    mark_blocked = [a for d, a in hits.items() if "mark-blocked-and-continue" in d and d.startswith("asserts")]
+    assert mark_blocked, f"expected a 'mark-blocked-and-continue' hit, got: {list(hits)}"
+    assert any(a.breaks for a in mark_blocked), (
+        "'mark-blocked-and-continue' has 3 of its 11 target occurrences inside "
+        "a move range and must break"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression: Major 2 (r2 Skeptic finding) - `extract_regex_assertions`
+# dropped `re.compile(...)`'s own compile-time FLAGS (re-compiled the
+# pattern with no flags at all) and matched per-line instead of against the
+# consumer's actual whole-text search, so a case-insensitive or newline-
+# spanning pattern could report ZERO pre-move matches (silently
+# reclassified as "cannot break") even though the real, flag-honoring
+# match count is nonzero. Confirmed failing pre-fix via a synthetic
+# consumer mirroring `_STALE_ENFORCER_SUBCOUNT_RE` (compiled
+# `re.IGNORECASE`): matching 'ENFORCE THE SIX GATES' (uppercase) against a
+# lowercase target line resolved to zero matches pre-fix, and a pattern
+# containing `\n` inside a `[^.]{0,80}` character class never matched
+# per-line even when its match spans two adjacent target lines that DO
+# concatenate to a real cross-line match in the consumer's own whole-text
+# `.search()`.
+# ---------------------------------------------------------------------------
+
+
+def test_regression_regex_assertion_honors_compile_flags_and_whole_text_match():
+    """Pre-fix, `re.compile(pat)` re-compiled with no flags at all, so this
+    IGNORECASE pattern found ZERO matches against the mixed-case target
+    line and was reclassified as a resolved, non-breaking Assertion ('...
+    matches ZERO lines in the pre-move target') instead of the correct
+    UNRESOLVED-with-real-matches outcome below - silently converting a
+    genuinely live, move-affected assertion into a false-clean pass."""
+    consumer_text = (
+        "import re\n"
+        "_PATTERN_RE = re.compile(r'enforce the six gates', re.IGNORECASE)\n"
+        "def check(text):\n"
+        "    return bool(_PATTERN_RE.search(text))\n"
+    )
+    target_text = "line one\nEnforce the SIX gates now.\nline three\n"
+    line_starts = pmi.build_line_starts(target_text)
+    ranges = [pmi.MoveRange(start=2, end=2, dest="content/references/scratch.md")]
+    assertions, unresolved = pmi.extract_regex_assertions(
+        "scratch_consumer.py", consumer_text, target_text, line_starts, ranges
+    )
+    assert not assertions, "must not be resolved as a zero-match, non-breaking assertion"
+    hits = [u for u in unresolved if "_PATTERN_RE" in u.detail]
+    assert hits, "expected an UNRESOLVED row for _PATTERN_RE"
+    assert "target lines [2]" in hits[0].detail, (
+        f"expected the IGNORECASE-flagged pattern to actually match line 2, got: {hits[0].detail!r}"
+    )
+    assert "fall inside a proposed move range" in hits[0].detail
+
+
+def test_regression_regex_assertion_matches_across_a_newline():
+    """Pre-fix, a per-line scan never sees a DOTALL pattern that spans the
+    boundary between two target lines - it was reclassified as a resolved,
+    non-breaking 'matches ZERO lines' assertion even though the consumer's
+    own whole-text `.search()` matches it fine."""
+    consumer_text = (
+        "import re\n"
+        "_SPAN_RE = re.compile(r'alpha[^.]{0,20}beta', re.DOTALL)\n"
+        "def check(text):\n"
+        "    return bool(_SPAN_RE.search(text))\n"
+    )
+    target_text = "alpha\nbeta appears on the next line.\n"
+    line_starts = pmi.build_line_starts(target_text)
+    ranges = [pmi.MoveRange(start=2, end=2, dest="content/references/scratch.md")]
+    assertions, unresolved = pmi.extract_regex_assertions(
+        "scratch_consumer.py", consumer_text, target_text, line_starts, ranges
+    )
+    assert not assertions, "must not be resolved as a zero-match, non-breaking assertion"
+    hits = [u for u in unresolved if "_SPAN_RE" in u.detail]
+    assert hits, "expected an UNRESOLVED row for _SPAN_RE"
+    assert "ZERO" not in hits[0].detail, (
+        "a DOTALL pattern spanning the alpha/beta newline must match against "
+        "the whole target text - a per-line scan sees zero matches here"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Regression: Minor (r2 Skeptic finding) - `Report.ok` ignored
+# `scanned_sets` entirely, so a run whose ONLY finding was
+# `leaves_scanned_set=True` (nothing broken, nothing unresolved) exited 0
+# and printed `Verdict: OK` - the exact finding class the scanned-set
+# column exists to surface, silently unenforced. Confirmed failing pre-fix
+# by constructing a Report with zero assertions/unresolved and one
+# leaves_scanned_set=True finding: `.ok` returned True.
+# ---------------------------------------------------------------------------
+
+
+def test_regression_scanned_set_only_finding_is_not_a_silent_ok():
+    report = pmi.Report(
+        target=TARGET,
+        ranges=[],
+        consumers=["bin/tests/test_loop_state_site_coverage.sh"],
+        scanned_sets=[
+            pmi.ScannedSetFinding(
+                consumer="bin/tests/test_loop_state_site_coverage.sh",
+                scope="single-file",
+                detail="leaves scanned set",
+                leaves_scanned_set=True,
+            )
+        ],
+    )
+    assert not report.assertions and not report.unresolved, "test setup sanity: nothing else should be flagging"
+    assert not report.ok, (
+        "a Report whose only finding is a left-behind scanned set must not "
+        "report OK - this is the signature finding class the scanned-set "
+        "column exists to surface"
+    )
+
+
+def test_known_answer_loop_state_site_coverage_makes_nine_range_report_fail():
+    """Non-mocked confirmation of the Minor fix above against the real 9-
+    range run: test_loop_state_site_coverage.sh's own scanned-set finding
+    (already asserted separately above) must, on its own, be sufficient to
+    flip the overall verdict - independent of whatever else in the 9-range
+    run also breaks."""
+    report = pmi.analyze(REPO_ROOT, TARGET, NINE_RANGES)
+    scanned_only = [s for s in report.scanned_sets if s.leaves_scanned_set]
+    assert scanned_only
+    assert not report.ok
+
+
+# ---------------------------------------------------------------------------
 # Regression: Major 4 (r1 Skeptic finding) - analyze() returned a vacuous
 # "OK" report when discovery found consumers but ZERO of them matched
 # `_is_checked_consumer` (e.g. a bin/tests/ rename or SEARCH_DIRS drift).
@@ -394,7 +607,11 @@ def test_regression_ere_pattern_with_backslash_escaped_parens_is_extracted_at_al
 
 def test_regression_zero_checked_consumers_is_not_a_silent_pass():
     with mock.patch.object(pmi, "_is_checked_consumer", return_value=False):
-        report = pmi.analyze(REPO_ROOT, TARGET, _ranges((480, 548, "content/references/tracker-writeback.md")))
+        report = pmi.analyze(
+            REPO_ROOT,
+            TARGET,
+            [_range_for_heading(_HEADING_TRACKER_WRITEBACK, "content/references/tracker-writeback.md")],
+        )
     assert not report.ok, (
         "zero CHECKED consumers (as opposed to zero discovered consumers, "
         "already covered by the mutation test below) must not silently "
@@ -430,7 +647,11 @@ def test_mutation_known_answer_tests_would_fail_under_neutered_discovery():
     discovery and show they lose their evidence entirely (no assertions
     found for that consumer at all), rather than happening to still pass."""
     with mock.patch.object(pmi, "discover_consumers", return_value=[]):
-        report = pmi.analyze(REPO_ROOT, TARGET, _ranges((480, 548, "content/references/tracker-writeback.md")))
+        report = pmi.analyze(
+            REPO_ROOT,
+            TARGET,
+            [_range_for_heading(_HEADING_TRACKER_WRITEBACK, "content/references/tracker-writeback.md")],
+        )
     hits = [a for a in report.assertions if a.consumer == "bin/tests/test_tracker_dev_complete_spec.py"]
     assert not hits, "neutered discovery must find zero evidence for the known-answer consumer"
 
@@ -440,24 +661,32 @@ def test_mutation_known_answer_tests_would_fail_under_neutered_discovery():
 # 9 ranges actually deleted from the target, their content actually
 # written to the 6 destination files) and run the REAL executable gates
 # against it, then compare their real pass/fail to this tool's prediction.
-# This is the only check in this suite that can catch the NEXT under-
-# report class, rather than re-confirming the two named in this ticket -
-# every other test here pins a specific extraction mechanism; this one
-# pins the tool's actual JOB.
+# Every other test here pins a specific extraction mechanism; this one
+# pins the tool's actual JOB - but only for the 2 consumers in
+# SCRATCH_GATES below, not the whole tool-clean set. A change to
+# extraction logic that under-reports one of the other 5 tool-clean
+# consumers (of the 7 the reviewer manually differential-tested) is NOT
+# caught by this automated suite.
 #
 # Scope: the two shell gates that are the ground-truth consumers for this
 # ticket's Critical findings - test_batch_state_timestamp_field.sh
 # (Critical 1: ERE metachar patterns) and test_tasks_jsonl_fold.sh
 # (Critical 2: the G6 floor). Both honor `GATE_REPO`/derive their root
 # from their own `$0`, so they run unmodified against a scratch copy.
-# Intentionally NOT run here: the other 6 shell gates and 7 pytest specs
-# the reviewer additionally used - each has its own path-resolution and
-# environment assumptions (jq availability, REPO_DIR conventions, fixture
-# imports) that would need individual verification to include safely, and
-# the two included here are sufficient to prove the differential-testing
-# APPROACH works and to directly regression-guard the two Critical fixes.
-# Extending SCRATCH_GATES below to cover more consumers is straightforward
-# once each one's assumptions are checked.
+# Intentionally NOT run here: the other 5 tool-clean shell/pytest gates
+# the reviewer additionally differential-tested by hand (6 of 7 candidates
+# qualified automatically - pre-move-red skipped as environment-unfit,
+# post-move rc compared to the tool's prediction for the survivors) - each
+# has its own path-resolution and environment assumptions (jq
+# availability, REPO_DIR conventions, fixture imports) that would need
+# individual verification to include safely here, and the two included
+# are sufficient to prove the differential-testing APPROACH works and to
+# directly regression-guard the two Critical fixes. Extending
+# SCRATCH_GATES below to cover more consumers is straightforward once each
+# one's assumptions are checked - candidates: run each gate against a
+# pre-move scratch copy first, skip any already red as environment-unfit,
+# then compare only the survivors' post-move rc against this tool's
+# prediction, exactly as the reviewer did manually.
 # ---------------------------------------------------------------------------
 
 SCRATCH_GATES = (
