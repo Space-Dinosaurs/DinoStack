@@ -16,12 +16,14 @@
 #                All side effects use TEMP HOME dirs; the real ~/.claude and
 #                ~/.agentic are NEVER touched.
 #
-# Performance: roughly 1-2 min wall time, machine-load dependent (22
-#              install.sh invocations after the DS-143 follow-up fix pass
-#              added cases (o) and (p), up from 19 - 20 single-shot call
-#              sites plus case (o)'s one call site executed twice inside its
-#              two-iteration order loop; each invocation runs two full
-#              adapter builds against the real checkout).
+# Performance: ~105-135 s wall time, varying by machine load (22 install.sh
+#              invocations after the DS-143 follow-up fix pass added cases
+#              (o) and (p) - 20 single-shot call sites plus case (o)'s one
+#              call site executed twice inside its two-iteration order loop;
+#              unchanged by DS-148; each invocation runs two full adapter
+#              builds against the real checkout). Measured directly across
+#              several runs - do not re-estimate this figure without timing a
+#              real run; it has drifted from stale estimates before.
 #
 # Regression coverage:
 #   - Change 1: stale "ours" symlink (target under .../DinoStack/...) is
@@ -115,6 +117,25 @@
 #     @-import marker string must never force skill_auto_load, since
 #     detection is scoped to the managed block's own content, not the
 #     whole file.
+#   - DS-148 (Tier-3 Skeptic Minor x2, hardening the case (m)/(n) scaffold):
+#     both cases now route through the shared `_with_mutated_source` helper
+#     instead of each carrying its own backup/mktemp/trap/restore block, and
+#     the mutating region is guarded by a cross-process `mkdir`-based lock
+#     (`_mut_lock_acquire`/`_mut_lock_release`) so two concurrent runs of this
+#     suite against the SAME checkout can no longer corrupt the tracked
+#     source permanently (run B backing up run A's already-mutated file, then
+#     writing that corruption back as "restored"). The lock is keyed to
+#     REPO_DIR, so separate worktrees never contend with each other - only
+#     two processes racing the same checkout do. Case (m)'s no-rebuild
+#     restore and case (n)'s rebuild-with-soft-fail-warning restore are both
+#     preserved via the helper's optional restore-hook argument.
+#   - DS-148 fix pass (Tier-3 Skeptic 2 Major + 3 Minor): the reclaim of a
+#     stale lock is now atomic (rename, not check-then-delete), `kill -0`
+#     EPERM is no longer misread as ESRCH/dead, the lock key uses `pwd -P`
+#     and lives under the checkout's own gitignored `.agentic/`, a dedicated
+#     concurrency scenario exercises the lock directly, and the mutate/restore
+#     helper checks `cp`'s exit status before deleting the backup. See the
+#     lock helper and `_with_mutated_source` comments below for detail.
 # ---------------------------------------------------------------------------
 set -uo pipefail
 
@@ -139,6 +160,100 @@ _cleanup() {
   fi
 }
 trap _cleanup EXIT
+
+# ---------------------------------------------------------------------------
+# DS-148: cross-process lock guarding the mutate-tracked-source region (cases
+# (m) and (n) below). Two concurrent runs of this suite against the SAME
+# checkout would otherwise race: run B backs up run A's already-mutated
+# source, and run B's restore then writes that corruption back as if
+# pristine. Uses `mkdir` (atomic on any POSIX filesystem, no external
+# dependency) rather than `flock` - `flock` is absent by default on macOS and
+# any fallback branch for its absence would either need its own portability
+# story or silently no-op, which is worse than no guard at all. The lock key
+# is derived from REPO_DIR so separate worktrees/checkouts never contend.
+# ---------------------------------------------------------------------------
+_MUT_LOCK_KEY="$(printf '%s' "$REPO_DIR" | shasum -a 256 | awk '{print $1}')"
+_MUT_LOCKDIR="${TMPDIR:-/tmp}/ds148-install-converge-mutate-${_MUT_LOCK_KEY}.lock"
+
+_mut_lock_acquire() {
+  local tries=0
+  local max_tries=120
+  local owner_pid
+  while true; do
+    if mkdir "$_MUT_LOCKDIR" 2>/dev/null; then
+      echo "$$" > "$_MUT_LOCKDIR/pid" 2>/dev/null || true
+      return 0
+    fi
+    owner_pid=""
+    if [[ -f "$_MUT_LOCKDIR/pid" ]]; then
+      owner_pid="$(cat "$_MUT_LOCKDIR/pid" 2>/dev/null)"
+    fi
+    if [[ -n "$owner_pid" ]] && ! kill -0 "$owner_pid" 2>/dev/null; then
+      # Stale lock - the owning process no longer exists. Reclaim it.
+      rm -rf "$_MUT_LOCKDIR" 2>/dev/null || true
+      continue
+    fi
+    tries=$((tries + 1))
+    if [[ "$tries" -ge "$max_tries" ]]; then
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+_mut_lock_release() {
+  rm -rf "$_MUT_LOCKDIR" 2>/dev/null || true
+}
+
+# ---------------------------------------------------------------------------
+# DS-148: shared scaffold for a test case that mutates a real, tracked,
+# shippable source file. Usage:
+#   _with_mutated_source <path> <case_fn> [restore_hook_fn]
+# <case_fn> is called with no args; it is responsible for performing the
+# mutation itself (at whatever point in its own flow it needs to), running
+# install.sh against a FAKE_HOME, and making its assertions. <restore_hook_fn>,
+# if given, is called once <path> has been restored (e.g. to rebuild adapters
+# against the restored source) - it must never mask the real exit status, so
+# it only warns on failure, it does not fail the run.
+#
+# The mutating region is protected end-to-end by the DS-148 mkdir-lock above,
+# and <path> is restored unconditionally via a real `trap ... EXIT`, so an
+# interrupt mid-case cannot leave the tracked source (or the lock) corrupted.
+# ---------------------------------------------------------------------------
+_with_mutated_source() {
+  local target="$1" case_fn="$2" restore_hook="${3:-}"
+  local backup
+
+  # DS-148: the lock MUST be acquired before the backup is taken, not after.
+  # Backing up first would let a second process snapshot the FIRST process's
+  # in-flight mutation as its own "pristine" copy, then faithfully restore
+  # that corruption once its own turn under the lock comes around - this is
+  # the exact concurrency bug the lock exists to close, just moved one line
+  # earlier. Reproduced this by mistake once while proving the lock in DS-148
+  # (see PR body / return summary), which is why this comment exists.
+  if ! _mut_lock_acquire; then
+    _fail "$case_fn: could not acquire mutate-lock for $target"
+    return 1
+  fi
+
+  backup="$(mktemp)"
+  cp "$target" "$backup"
+
+  _mut_restore_now() {
+    cp "$backup" "$target"
+    rm -f "$backup"
+    if [[ -n "$restore_hook" ]]; then
+      "$restore_hook"
+    fi
+    _mut_lock_release
+  }
+  trap '_mut_restore_now; _cleanup' EXIT
+
+  "$case_fn"
+
+  _mut_restore_now
+  trap _cleanup EXIT
+}
 
 # ---------------------------------------------------------------------------
 # Helper: run install.sh with a temp HOME, capturing output.
@@ -985,33 +1100,31 @@ rm -rf "$FAKE_HOME"
 # ---------------------------------------------------------------------------
 
 TEMPLATE_PATH="$REPO_DIR/content/templates/claude-managed-content.md"
-TEMPLATE_BACKUP="$(mktemp)"
-cp "$TEMPLATE_PATH" "$TEMPLATE_BACKUP"
-_case_m_restore() { cp "$TEMPLATE_BACKUP" "$TEMPLATE_PATH"; rm -f "$TEMPLATE_BACKUP"; }
-trap '_case_m_restore; _cleanup' EXIT
-printf 'no manifest comment here, no terminator either\n' > "$TEMPLATE_PATH"
 
-FAKE_HOME="$(mktemp -d)"
-mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+_case_m_body() {
+  printf 'no manifest comment here, no terminator either\n' > "$TEMPLATE_PATH"
 
-_run_install "$FAKE_HOME" || true
+  FAKE_HOME="$(mktemp -d)"
+  mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
 
-_case_m_restore
-trap _cleanup EXIT
+  _run_install "$FAKE_HOME" || true
 
-if grep -Fq "could not find manifest comment terminator" "$FAKE_HOME/.install_out"; then
-  _pass "case (m): install.sh fails loudly when the template's manifest terminator is missing"
-else
-  _fail "case (m): install.sh did not report the missing manifest terminator"
-fi
+  if grep -Fq "could not find manifest comment terminator" "$FAKE_HOME/.install_out"; then
+    _pass "case (m): install.sh fails loudly when the template's manifest terminator is missing"
+  else
+    _fail "case (m): install.sh did not report the missing manifest terminator"
+  fi
 
-if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
-  _pass "case (m): CLAUDE.md was NOT created when the template's manifest terminator is missing"
-else
-  _fail "case (m): CLAUDE.md was created despite the template's manifest terminator being missing"
-fi
+  if [[ ! -f "$FAKE_HOME/.claude/CLAUDE.md" ]]; then
+    _pass "case (m): CLAUDE.md was NOT created when the template's manifest terminator is missing"
+  else
+    _fail "case (m): CLAUDE.md was created despite the template's manifest terminator being missing"
+  fi
 
-rm -rf "$FAKE_HOME"
+  rm -rf "$FAKE_HOME"
+}
+
+_with_mutated_source "$TEMPLATE_PATH" _case_m_body
 
 # ---------------------------------------------------------------------------
 # Case (n): MAJOR (DS-143 Skeptic loop 3) - update-path reproduction. Run 1
@@ -1036,14 +1149,11 @@ rm -rf "$FAKE_HOME"
 # ---------------------------------------------------------------------------
 
 CONVENTIONS_PATH="$REPO_DIR/content/rules/conventions.md"
-CONVENTIONS_BACKUP="$(mktemp)"
-cp "$CONVENTIONS_PATH" "$CONVENTIONS_BACKUP"
-_case_n_restore() {
-  cp "$CONVENTIONS_BACKUP" "$CONVENTIONS_PATH"
-  rm -f "$CONVENTIONS_BACKUP"
-  local _n_rebuild_out
+
+_case_n_rebuild_hook() {
+  local _n_rebuild_out _n_rebuild_status
   _n_rebuild_out="$(bash "$REPO_DIR/scripts/build-all.sh" 2>&1)"
-  local _n_rebuild_status=$?
+  _n_rebuild_status=$?
   if [[ "$_n_rebuild_status" -ne 0 ]]; then
     echo "" >&2
     echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" >&2
@@ -1059,53 +1169,53 @@ _case_n_restore() {
     echo "" >&2
   fi
 }
-trap '_case_n_restore; _cleanup' EXIT
 
-FAKE_HOME="$(mktemp -d)"
-mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
+_case_n_body() {
+  FAKE_HOME="$(mktemp -d)"
+  mkdir -p "$FAKE_HOME/.claude" "$FAKE_HOME/.agentic"
 
-_run_install "$FAKE_HOME" || true
-_n_claude_md_run1="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+  _run_install "$FAKE_HOME" || true
+  _n_claude_md_run1="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
 
-printf '\n<!-- case-n-canary -->\n' >> "$CONVENTIONS_PATH"
+  printf '\n<!-- case-n-canary -->\n' >> "$CONVENTIONS_PATH"
 
-_run_install "$FAKE_HOME" || true
-_n_claude_md_run2="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
-_n_skill_md_run2="$(cat "$FAKE_HOME/.claude/skills/agentic-engineering/SKILL.md" 2>/dev/null)"
-_n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
+  _run_install "$FAKE_HOME" || true
+  _n_claude_md_run2="$(cat "$FAKE_HOME/.claude/CLAUDE.md" 2>/dev/null)"
+  _n_skill_md_run2="$(cat "$FAKE_HOME/.claude/skills/agentic-engineering/SKILL.md" 2>/dev/null)"
+  _n_install_out_run2="$(cat "$FAKE_HOME/.install_out" 2>/dev/null)"
 
-# Restore + rebuild BEFORE assertions: $FAKE_HOME's skill files are symlinks
-# into the real repo checkout, so once the canary is removed and adapters
-# rebuilt, the symlinked SKILL.md would read back clean too - captured
-# above, into the shell variables, before restoring.
-_case_n_restore
-trap _cleanup EXIT
+  # Assertions below only read the captured shell variables, never the live
+  # file state - so it is safe for the helper's restore+rebuild to happen
+  # after this function returns rather than mid-body.
 
-if [[ -n "$_n_claude_md_run1" && "$_n_claude_md_run1" == *"<!-- BEGIN managed-by-agentic-engineering -->"* ]]; then
-  _pass "case (n): run 1's CLAUDE.md is non-empty and carries the managed block (comparison below is not vacuous)"
-else
-  _fail "case (n): run 1's CLAUDE.md is empty or missing the managed-block BEGIN marker"
-fi
+  if [[ -n "$_n_claude_md_run1" && "$_n_claude_md_run1" == *"<!-- BEGIN managed-by-agentic-engineering -->"* ]]; then
+    _pass "case (n): run 1's CLAUDE.md is non-empty and carries the managed block (comparison below is not vacuous)"
+  else
+    _fail "case (n): run 1's CLAUDE.md is empty or missing the managed-block BEGIN marker"
+  fi
 
-if [[ "$_n_claude_md_run1" == "$_n_claude_md_run2" ]]; then
-  _pass "case (n): update-path run's CLAUDE.md managed block is byte-identical across runs (no-op rewrite)"
-else
-  _fail "case (n): update-path run unexpectedly changed CLAUDE.md's managed block"
-fi
+  if [[ "$_n_claude_md_run1" == "$_n_claude_md_run2" ]]; then
+    _pass "case (n): update-path run's CLAUDE.md managed block is byte-identical across runs (no-op rewrite)"
+  else
+    _fail "case (n): update-path run unexpectedly changed CLAUDE.md's managed block"
+  fi
 
-if [[ "$_n_skill_md_run2" == *"case-n-canary"* ]]; then
-  _pass "case (n): update-path run's regenerated SKILL.md embeds the canary (build actually ran)"
-else
-  _fail "case (n): update-path run's SKILL.md does not contain the canary - build did not regenerate it"
-fi
+  if [[ "$_n_skill_md_run2" == *"case-n-canary"* ]]; then
+    _pass "case (n): update-path run's regenerated SKILL.md embeds the canary (build actually ran)"
+  else
+    _fail "case (n): update-path run's SKILL.md does not contain the canary - build did not regenerate it"
+  fi
 
-if [[ "$_n_install_out_run2" == *"IMPORTANT: skill definitions changed"* ]]; then
-  _pass "case (n): registry-refresh restart notice fires on the update-path run even though CLAUDE.md is a no-op"
-else
-  _fail "case (n): registry-refresh restart notice missing on the update-path run (the exact case it exists for)"
-fi
+  if [[ "$_n_install_out_run2" == *"IMPORTANT: skill definitions changed"* ]]; then
+    _pass "case (n): registry-refresh restart notice fires on the update-path run even though CLAUDE.md is a no-op"
+  else
+    _fail "case (n): registry-refresh restart notice missing on the update-path run (the exact case it exists for)"
+  fi
 
-rm -rf "$FAKE_HOME"
+  rm -rf "$FAKE_HOME"
+}
+
+_with_mutated_source "$CONVENTIONS_PATH" _case_n_body _case_n_rebuild_hook
 
 # ---------------------------------------------------------------------------
 # Case (o): DS-143 follow-up - TWO well-formed managed blocks in one
