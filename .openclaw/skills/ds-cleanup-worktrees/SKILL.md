@@ -46,7 +46,7 @@ Classify every remaining entry by **path relative to the repo root, never by bra
 
 ## Step 3: Remove isolation worktrees
 
-For each ISOLATION-classified entry, apply `disposition_for()`'s gate order - locked, dirty, then merge-evidence-independent-of-push (`bin/tests/worktree_model.py`; where this prose and `disposition_for` disagree, `disposition_for` wins). (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` and `git branch -D` below are refused by git automatically; this is expected, not an error to route around - `SKIP_LOCKED`.)
+For each ISOLATION-classified entry, apply `disposition_for()`'s gate order - locked, dirty, then merge-evidence-independent-of-push (`bin/tests/worktree_model.py`; where this prose and `disposition_for` disagree, `disposition_for` wins). (Note: if a worktree is still locked - its agent actively running, per Claude Code's own lock-while-running behavior - the `git worktree remove` below is refused by git automatically; this is expected, not an error to route around - `SKIP_LOCKED`.)
 
 Resolve its path from the branch name and check its status before touching it:
 
@@ -58,12 +58,11 @@ git -C "$WORKTREE_PATH" status --porcelain 2>/dev/null
 
 where `$b` is the branch name from `git worktree list` for the current isolation worktree.
 
-**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune, then delete the branch:
+**Directory does not exist** (command errors with "not a git repository" or similar): The directory was already removed before this command ran. If the entry is still locked, a bare `git worktree prune` will NOT clear it - unlock first, then prune. Do **not** delete the branch here: an admin-only worktree entry with a missing directory is not merge evidence, and `git branch -D` at this point would run on zero proof of subsumption - strictly weaker evidence than either MERGED-PR route above. The orphaned branch is left for Step 5's `ds-branch-prune` subsumption predicate to evaluate under its own four-layer proof, ledgered on deletion:
 
 ```bash
 git worktree unlock "$WORKTREE_PATH" 2>/dev/null || true
 git worktree prune
-git branch -D "$b"
 ```
 
 **Directory exists, dirty (output present)** (`SKIP_DIRTY`): List the dirty files and skip removal. Report to the user - do not remove without explicit confirmation. Uncommitted work in an agent worktree may be important.
