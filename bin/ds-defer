@@ -32,7 +32,7 @@ Data model:
                        "failed_promotion_bar", "out_of_band_manual_discovery".
     status             (CLI-owned) one of "open", "acknowledged"; assigned
                        "open" on append, changed only via `ack`.
-    pattern_hash        (CLI-owned) sha256[:16] of the lowercase,
+    pattern_hash       (CLI-owned) sha256[:16] of the lowercase,
                        whitespace-collapsed description, assigned on append.
 
   IMPORTANT: id, ts, and status are CLI-owned. On `append`, any id/ts/status
