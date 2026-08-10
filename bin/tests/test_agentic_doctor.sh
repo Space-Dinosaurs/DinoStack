@@ -906,6 +906,27 @@ fi
 # a directory - exactly the git-worktree case. Uses a REAL `git worktree
 # add` linked worktree (not a synthetic stand-in), since only real git
 # plumbing reproduces the file-vs-directory ".git" distinction.
+#
+# PRIMARY_REPO also commits a real, functioning copy of
+# scripts/lib/precommit.sh (resolve_git_hooks_dir + resolve_hook_src +
+# their _precommit_canonical_repo_dir helper) - _resolve_hook_src in
+# bin/ds-doctor needs a real resolve_hook_src to shell into, and this
+# branch's OWN scripts/lib/precommit.sh (out of scope here - a concurrent
+# branch owns it) does not yet define that function, so without this fixed
+# fixture copy every _resolve_hook_src call would silently fall back to
+# the pre-fix hardcode and this test would assert nothing new. This is a
+# fixture-only copy (embedded below), not a change to the real
+# scripts/lib/precommit.sh in this repo.
+#
+# T18 previously asserted the CONFLICTING behavior here: with a hardcoded
+# expected_src, a worktree repo_dir's own hooks/pre-commit and its
+# resolved git-hooks-dir agreed with EACH OTHER (both hardcodes point
+# inside the worktree), so the scan reported OK/FIX and looked healthy
+# while actually repointing the shared hook into an ephemeral worktree -
+# exactly the Major this branch fixes. T18 below keeps asserting "no
+# crash" and "OK/FIX status" (both still true post-fix), but those two
+# assertions alone cannot distinguish the reconciled behavior from the
+# conflicting one - see Test 19, which reads the actual symlink target.
 # ---------------------------------------------------------------------------
 TEMP_HOME="$(mktemp -d)"
 PRIMARY_REPO="$TEMP_HOME/primary-repo"
@@ -915,10 +936,69 @@ mkdir -p "$PRIMARY_REPO"
   git init -q
   git config user.email test@test.com
   git config user.name Test
-  mkdir -p hooks
+  mkdir -p hooks scripts/lib
   printf '#!/usr/bin/env bash\nexit 0\n' > hooks/pre-commit
   chmod +x hooks/pre-commit
-  git add hooks/pre-commit
+  cat > scripts/lib/precommit.sh <<'PRECOMMIT_SH'
+# shellcheck shell=bash
+# Fixture copy of the real resolve_git_hooks_dir/resolve_hook_src pair
+# (DS-58 / PR #640) - see the T18 fixture-setup comment above for why this
+# is embedded here rather than copied from the checkout's own
+# scripts/lib/precommit.sh.
+_precommit_canonical_repo_dir() {
+  local d="$1"
+  if [[ -z "$d" ]]; then
+    echo "$d"
+    return 0
+  fi
+  (cd "$d" 2>/dev/null && pwd -P) || echo "$d"
+}
+
+resolve_git_hooks_dir() {
+  local repo_dir="$1"
+  local hooks_dir
+  if ! hooks_dir="$(git -C "$repo_dir" rev-parse --git-path hooks 2>/dev/null)" || [[ -z "$hooks_dir" ]]; then
+    return 1
+  fi
+  case "$hooks_dir" in
+    /*) : ;;
+    *) hooks_dir="$repo_dir/$hooks_dir" ;;
+  esac
+  echo "$hooks_dir"
+}
+
+resolve_hook_src() {
+  local repo_dir="$1"
+  repo_dir="$(_precommit_canonical_repo_dir "$repo_dir")"
+  local fallback="$repo_dir/hooks/pre-commit"
+
+  local git_dir common_dir
+  if ! git_dir="$(git -C "$repo_dir" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || [[ -z "$git_dir" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+  if ! common_dir="$(git -C "$repo_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || [[ -z "$common_dir" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+
+  if [[ "$git_dir" == "$common_dir" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+
+  local common_worktree candidate
+  common_worktree="$(dirname "$common_dir")"
+  candidate="$common_worktree/hooks/pre-commit"
+  if [[ -z "$common_worktree" || ! -f "$candidate" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+
+  echo "$candidate"
+}
+PRECOMMIT_SH
+  git add hooks/pre-commit scripts/lib/precommit.sh
   git commit -q -m init
 )
 WORKTREE_REPO="$TEMP_HOME/linked-worktree"
@@ -956,6 +1036,48 @@ sys.exit(0 if found and found[0]['status'] in ('OK', 'FIX') else 1)
   _pass "T18 git_precommit on a worktree repo_dir: subsequent scan reports OK/FIX, not FAIL"
 else
   _fail "T18 git_precommit on a worktree repo_dir: subsequent scan did not report OK/FIX\n$OUT2"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 19 (the Major itself): after --fix, the ACTUAL filesystem symlink
+# written for the shared git hook must resolve into PRIMARY_REPO (the
+# real, non-ephemeral checkout) - never into WORKTREE_REPO's own
+# hooks/pre-commit copy. A hardcoded `expected_src = repo_dir /
+# "hooks" / "pre-commit"` (the pre-fix bin/ds-doctor behavior) passes T18's
+# OK/FIX assertions above while still writing a symlink that dangles the
+# instant WORKTREE_REPO is removed - this is the exact Major reproduced
+# against a merged tree in this ticket. Reads the real symlink with
+# os.readlink, not merely test -L (a dangling symlink also satisfies
+# test -L), and fails explicitly, quoting both paths, if the target
+# resolves into the worktree instead of the primary checkout.
+# ---------------------------------------------------------------------------
+if python3 -c "
+import os, sys
+
+git_hooks_dir = '$PRIMARY_REPO/.git/hooks'
+hook = os.path.join(git_hooks_dir, 'pre-commit')
+primary_src = os.path.realpath('$PRIMARY_REPO/hooks/pre-commit')
+worktree_src = os.path.realpath('$WORKTREE_REPO/hooks/pre-commit')
+
+if not os.path.islink(hook):
+    print(f'T19: {hook} is not a symlink at all', file=sys.stderr)
+    sys.exit(1)
+
+target = os.path.realpath(hook)
+
+if target == worktree_src:
+    print(f'T19: hook symlink resolves into the WORKTREE ({target}) - the exact Major (dangles once the worktree is removed)', file=sys.stderr)
+    sys.exit(1)
+
+if target != primary_src:
+    print(f'T19: hook symlink resolves to neither the primary ({primary_src}) nor the worktree ({worktree_src}) - unexpected target {target}', file=sys.stderr)
+    sys.exit(1)
+
+sys.exit(0)
+"; then
+  _pass "T19 --fix repoints the shared hook at PRIMARY_REPO, not the worktree (the Major, closed)"
+else
+  _fail "T19 --fix repointed the shared hook at the wrong checkout - see stderr above"
 fi
 
 rm -rf "$TEMP_HOME"

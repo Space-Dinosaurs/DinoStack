@@ -62,8 +62,18 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, subprocess,
                (repo_dir source), ~/.claude/settings.json (hook
                inspection/repair), ~/.claude/agents/, ~/.claude/commands/,
                ~/.claude/skills/. Reads <repo_dir>/bin/{agentic-,ds-}* (bin
-               wrapper check). Reads <repo_dir>/.git/hooks/pre-commit
-               (pre-commit check). check_hooks_snapshot_staleness shells out
+               wrapper check). check_git_precommit resolves the REAL git
+               hooks dir via _resolve_git_hooks_dir (shells out to `git -C
+               <repo_dir> rev-parse --git-path hooks`, following a
+               worktree's gitdir pointer to the shared hooks dir) and the
+               expected symlink SOURCE via _resolve_hook_src (shells out to
+               bash -c 'source <repo_dir>/scripts/lib/precommit.sh;
+               resolve_hook_src <repo_dir>' - the identical bash function
+               every adapter install/uninstall script already calls, so
+               this check can never independently drift from them on what
+               the expected hook source is; falls back to the historical
+               <repo_dir>/hooks/pre-commit on any resolution failure).
+               check_hooks_snapshot_staleness shells out
                to bash <repo_dir>/hooks/lib/hooks-staleness-core.sh (DS-54;
                reuses its compute_hooks_source_hash-backed classification
                rather than reimplementing hashing/exclusion rules) and, on
@@ -826,22 +836,24 @@ def check_local_bin_stale(doc: Doctor) -> None:
 
 
 def _resolve_git_hooks_dir(repo_dir: Path) -> Path | None:
-    """Resolve the REAL git hooks directory for repo_dir via
+    """Resolve the REAL git hooks DIRECTORY for repo_dir via
     `git -C repo_dir rev-parse --git-path hooks`.
 
     This correctly follows a git WORKTREE's gitdir pointer to the shared
     hooks dir - the hardcoded `repo_dir / ".git" / "hooks"` form this
     replaces raises NotADirectoryError when repo_dir is a worktree, because
     ".git" there is a FILE (a gitdir pointer), not a directory. Aligns with
-    scripts/lib/precommit.sh's resolve_git_hooks_dir (DS-58/DS-152, landing
-    on a separate branch): both call the identical git plumbing command, so
-    the two cannot independently disagree on what "the real hooks dir" is.
-    Does NOT additionally resolve to the PRIMARY checkout's hook source the
-    way that library's resolve_primary_checkout does (DS-152) - out of
-    scope here; ds-doctor's repo_dir is already normally the canonical
-    checkout from ~/.agentic/agentic-engineering-config.json, not an
-    ephemeral worktree, so this divergence is not expected to bite in
-    practice, but is a real, narrower scope than the incoming library.
+    scripts/lib/precommit.sh's resolve_git_hooks_dir (DS-58): both call the
+    identical git plumbing command, so the two cannot independently
+    disagree on what "the real hooks dir" is.
+
+    This function resolves only the DESTINATION directory - where the
+    pre-commit symlink lives. It says nothing about the symlink's SOURCE
+    (the file the symlink should point at); that is _resolve_hook_src's
+    job, a separate resolution because the two can diverge independently
+    (the hooks dir is shared across every worktree of a repo, but a
+    worktree's own working tree - and therefore its own hooks/pre-commit
+    copy - is ephemeral). See check_git_precommit, which calls both.
 
     Returns None on any resolution failure (not a git repo, git missing,
     unreadable output) - callers must degrade gracefully, never crash.
@@ -866,8 +878,53 @@ def _resolve_git_hooks_dir(repo_dir: Path) -> Path | None:
     return Path(os.path.realpath(str(p)))
 
 
+def _resolve_hook_src(repo_dir: Path) -> Path:
+    """Resolve the pre-commit hook's expected symlink SOURCE by shelling
+    out to scripts/lib/precommit.sh's resolve_hook_src - the identical bash
+    function every adapter install/uninstall script already calls (DS-58 /
+    PR #640). This calls that function directly rather than reimplementing
+    its git-dir-vs-git-common-dir comparison in Python, so the two can
+    never independently drift on what "the expected hook source" is - the
+    same shell-out pattern check_hooks_snapshot_staleness already uses
+    against hooks-staleness-core.sh. This is the fix for the NOTE in
+    scripts/lib/precommit.sh's manifest (added by PR #640): once
+    check_git_precommit stopped hardcoding repo_dir/.git/hooks (replaced by
+    _resolve_git_hooks_dir above), the precondition that let the two
+    hardcodes "never actually disagree in a live run" no longer holds, and
+    a hand-copied expected_src here would silently repoint the shared hook
+    into a worktree on --fix.
+
+    Falls back to the historical repo_dir/hooks/pre-commit on any
+    resolution failure (missing scripts/lib/precommit.sh, resolve_hook_src
+    not defined there, non-git repo_dir, subprocess error/timeout) -
+    matching resolve_hook_src's own fallback shape (it never raises; it
+    degrades to the same historical target instead).
+    """
+    lib_script = repo_dir / "scripts" / "lib" / "precommit.sh"
+    fallback = repo_dir / "hooks" / "pre-commit"
+    if not lib_script.is_file():
+        return fallback
+
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["bash", "-c", 'source "$1"; resolve_hook_src "$2"',
+             "_", str(lib_script), str(repo_dir)],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return fallback
+    if result.returncode != 0:
+        return fallback
+    raw = (result.stdout or "").strip()
+    if not raw:
+        return fallback
+    return Path(raw)
+
+
 def check_git_precommit(doc: Doctor) -> None:
-    expected_src = doc.repo_dir / "hooks" / "pre-commit"
+    expected_src = _resolve_hook_src(doc.repo_dir)
 
     git_hooks_dir = _resolve_git_hooks_dir(doc.repo_dir)
     if git_hooks_dir is None:
