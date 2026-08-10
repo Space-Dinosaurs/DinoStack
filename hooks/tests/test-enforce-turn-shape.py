@@ -10,14 +10,19 @@ Each case pipes a JSON payload into the hook via stdin and asserts:
 The hook MUST NEVER emit a blocking decision under any input - there is no
 {"decision": "block", ...} shape this hook can produce.
 
-DS-155 round 3: the identity-line check is REMOVED (operator decision -
-see hooks/enforce-turn-shape.py's module docstring "DS-155 round 3
-history note"). Cases a/a2/b/x (round-1/round-2 identity-check and
+DS-155: the identity-line check is REMOVED (operator decision - see
+hooks/enforce-turn-shape.py's module docstring "DS-155 round 3 history
+note"). Cases a/a2/b/x (round-1/round-2 identity-check and
 ticket-context-exemption coverage) are DELETED with the check they
 tested, not merely renumbered - a deleted check should make this suite
-SMALLER, not just different. `_IDENTITY_LINE_RE` itself survives (see
-that same history note) and is pinned directly by test "q" and by "r"
-below.
+SMALLER, not just different. `_IDENTITY_LINE_RE` itself is ALSO fully
+DELETED (round 4: round 3's "retain it, the forced-yield check depends
+on it" rationale was verified wrong by execution - _forced_yield_flag
+reasons positionally via _body_after_identity_line, with no regex
+dependency at all). It has zero occurrences anywhere in the hook source
+now, and test "q" (which used to pin its catastrophic-backtracking fix)
+is deleted along with it - see "r" below for the surviving regression
+guard, which pins the check's absence rather than the regex's presence.
 
 Test coverage (mirrors the 14-case spec in the DS-122 spawn brief, minus
 the deleted identity-check cases):
@@ -37,23 +42,24 @@ the deleted identity-check cases):
      Waiting: line IS flagged
   n. log_fire() is called exactly once when a finding is emitted, and NOT
      called on a clean turn (patches _load_log_fire directly)
-  q. _IDENTITY_LINE_RE's catastrophic-backtracking fix, pinned by calling
-     the regex directly (DS-155 round 3: retargeted from a subprocess call
-     through the whole hook, since main() no longer has a call site that
-     would exercise it)
-  r. DS-155 round 3: well-formed vs. missing/malformed identity line
-     produce the IDENTICAL verdict - pins that no code path still branches
-     on _IDENTITY_LINE_RE.match() for a live finding (supersedes the
+  r. DS-155: well-formed vs. missing/malformed identity line produce the
+     IDENTICAL verdict - pins that no code path still branches on the
+     identity line's shape for a live finding (supersedes the
      round-1/round-2 versions of this test, which pinned the now-deleted
-     finding's own worked-example text)
+     finding's own worked-example text; test "q", which pinned
+     _IDENTITY_LINE_RE's catastrophic-backtracking fix directly, is
+     DELETED along with the regex itself in round 4 - there is nothing
+     left to pin a performance guard for)
   w. DS-155 answer-warrant transcript bonus (_transcript_answer_bonus):
      genuine-question detection, the recency gate
-     (_has_intervening_assistant_turn) and its round-3 fixes for a false
-     positive (w8: the assistant's own earlier text+tool_use step within
-     the SAME turn must not count as a competing "intervening" turn) and
-     a false negative (w9: the mirror image - when the current turn's own
-     entry is not yet on disk, a genuinely stale-by-one question must
-     still be caught)
+     (_has_intervening_assistant_turn), and its corpus-measured fixes -
+     w8/w8b (round 4: the assistant's own earlier narration-then-tool-call
+     step must not count as a competing "intervening" turn), w9 (round 3:
+     the mirror image - when the current turn's own entry is not yet on
+     disk, a genuinely stale-by-one question must still be caught), and
+     w10 (round 5: message.id-scoped tool_use attribution must not leak
+     past the ONE text entry it explains and excuse an unrelated,
+     genuinely separate completed turn elsewhere in the same window)
   s. DS-151 turn-charge model (rewritten from the deleted per-warrant
      exclusion model - see hooks/enforce-turn-shape.py's "Charge model"
      docstring section): flat BASE_BODY_BUDGET=10 at/over boundary per
@@ -1709,32 +1715,38 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     )
 
     # ---------------------------------------------------------------------
-    # CORPUS-REPLAY GATE (DS-155 round 4, Major 2 - structural requirement,
+    # CORPUS-REPLAY GATE (DS-155 round 5, Major 2 - structural requirement,
     # not optional). Fixtures MUST be corpus-derived, not hand-assumed:
     # this replays every sample in
     # hooks/tests/fixtures/turn-shape-corpus-samples.json - real assistant/
-    # tool-result entry SHAPES (role + content block types only, no real
-    # content) sampled from a genuine question-to-answer span in a local
-    # Claude Code transcript corpus (3,429 files / 169,745 assistant
-    # entries scanned; see the fixture's own "_measurement" block for the
-    # full distribution) - and asserts the answer bonus is GRANTED (QUIET,
-    # not "status-only") for every one. Mutation-tested against the known-
-    # broken round-3 same-entry-only check (see the round-4 commit message
-    # for the measured before/after numbers this gate is designed to
-    # catch): that code passed w8's OWN round-3 fixture while failing most
-    # of THESE corpus-derived ones, which is exactly the defect class this
-    # gate exists to catch structurally rather than by another hand-built
-    # fixture guess.
+    # tool-result entry SHAPES, INCLUDING message.id sharing structure
+    # (relabeled opaque placeholders, not real ids - see the fixture's own
+    # "_purpose" note), STRATIFIED BY SHAPE CLASS (single_direct,
+    # own_message_split, genuinely_separate, deep_chain - see the
+    # fixture's "_measurement.shape_classes_covered") rather than by raw
+    # assistant-entry count. Round 4's count-stratified sampling covered
+    # the genuinely_separate class in only 2 of 8 samples and asserted
+    # QUIET on every sample - structurally blind to the over-permissive
+    # ADVISORY direction, which is the direction ALL of round 4's 43 real
+    # corpus mismatches ran. This gate now asserts each sample's OWN
+    # `expected` verdict (quiet or advisory), covering both directions.
+    # Verified (see the round-5 commit message) to reproduce the expected
+    # direction against BOTH round 3 (1e31bbd9: mismatches B1/B2, the
+    # split-entry shape it never learned) and round 4 (69ef2e7a: mismatches
+    # C1, the genuinely-separate-turn shape its positional-only rule
+    # over-exempts).
     # ---------------------------------------------------------------------
 
     _FIXTURES_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "turn-shape-corpus-samples.json")
     with open(_FIXTURES_PATH, "r", encoding="utf-8") as _f:
         _corpus_fixture = json.load(_f)
 
-    def _build_synthetic_span_entry(block_types: list, tool_id_box: list) -> list:
-        """Build a synthetic (content-free) content-block list matching the
-        given block-type sequence. Never embeds any real corpus content -
-        every string here is a fixed synthetic placeholder."""
+    def _build_synthetic_span_entry(block_types: list, message_id, tool_id_box: list) -> dict:
+        """Build a synthetic (content-free) transcript entry matching the
+        given block-type sequence and message.id. Never embeds any real
+        corpus content - every string here is a fixed synthetic
+        placeholder; `message_id` is the fixture's own relabeled opaque
+        placeholder (e.g. "m1"), never a real API-issued id."""
         blocks = []
         for bt in block_types:
             if bt == "text":
@@ -1756,7 +1768,10 @@ with tempfile.TemporaryDirectory() as tmp_dir:
                 )
             else:
                 blocks.append({"type": bt})
-        return blocks
+        entry = {"content": blocks}
+        if message_id is not None:
+            entry["message"] = {"id": message_id}
+        return entry
 
     def _build_corpus_replay_transcript(tmp_dir_inner: str, sample: dict, final_answer_text: str) -> str:
         tool_id_box = [0]
@@ -1767,15 +1782,21 @@ with tempfile.TemporaryDirectory() as tmp_dir:
             }
         ]
         span = sample["span"]
-        for i, entry in enumerate(span):
+        for i, entry_spec in enumerate(span):
             is_last_final_text = (
-                i == len(span) - 1 and entry["role"] == "assistant" and entry["block_types"] == ["text"]
+                i == len(span) - 1
+                and entry_spec["role"] == "assistant"
+                and entry_spec["block_types"] == ["text"]
             )
+            message_id = entry_spec.get("message_id")
             if is_last_final_text:
-                lines.append({"role": "assistant", "content": [{"type": "text", "text": final_answer_text}]})
+                built = {"role": "assistant", "content": [{"type": "text", "text": final_answer_text}]}
+                if message_id is not None:
+                    built["message"] = {"id": message_id}
             else:
-                blocks = _build_synthetic_span_entry(entry["block_types"], tool_id_box)
-                lines.append({"role": entry["role"], "content": blocks})
+                built = _build_synthetic_span_entry(entry_spec["block_types"], message_id, tool_id_box)
+                built["role"] = entry_spec["role"]
+            lines.append(built)
         return _write_transcript(tmp_dir_inner, lines)
 
     for _sample in _corpus_fixture["samples"]:
@@ -1783,10 +1804,12 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         rc, out, err = run_hook(
             json.dumps({"last_assistant_message": "", "transcript_path": _replay_transcript})
         )
+        _expect_quiet = _sample["expected"] == "quiet"
+        _outcome_ok = is_quiet(rc, out) if _expect_quiet else is_advisory(rc, out, "status-only")
         check(
-            f"corpus-replay {_sample['id']} ({_sample['assistant_entry_count']} assistant entries) "
-            "-> QUIET (answer bonus granted)",
-            is_quiet(rc, out),
+            f"corpus-replay {_sample['id']} ({_sample['shape_class']}) -> "
+            f"{'QUIET' if _expect_quiet else 'ADVISORY'} (expected)",
+            _outcome_ok,
         )
 
 

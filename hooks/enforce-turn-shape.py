@@ -903,6 +903,36 @@ def _assistant_entry_has_tool_use(obj: dict) -> bool:
     return False
 
 
+def _assistant_message_id(obj: dict) -> str:
+    """Return `obj["message"]["id"]` if present and non-empty, else None
+    (DS-155 round 5).
+
+    Every real Claude Code transcript entry carries this field, and
+    entries that are physically split across multiple JSONL lines but
+    belong to ONE logical assistant message share the SAME id - this is
+    the actual delimiter for "these entries are the same message", not
+    proximity in the transcript. Corpus-verified: of 5,480 real adjacent
+    (pure-text entry, tool_use entry) pairs sampled, 5,479 (99.98%) share
+    one message.id; the remaining 1 pair belongs to two DIFFERENT
+    messages that merely happen to be adjacent - exactly the shape that
+    defeated the round-4 purely-positional rule (a genuinely separate,
+    already-completed turn immediately followed by a new turn that opens
+    with a tool call was silently excused). Returns None (not an error) -
+    the caller degrades to a positional fallback - when the field is
+    absent, not a string, or empty; `obj` not being an assistant entry
+    also returns None (obj.get("message") is then typically absent or
+    lacks "id").
+    """
+    if not isinstance(obj, dict):
+        return None
+    msg = obj.get("message")
+    if isinstance(msg, dict):
+        mid = msg.get("id")
+        if isinstance(mid, str) and mid:
+            return mid
+    return None
+
+
 def _last_assistant_text_from_transcript(transcript_path: str) -> str:
     """Best-effort reverse scan for the most recent assistant message text.
 
@@ -968,59 +998,80 @@ def _has_intervening_assistant_turn(transcript_path: str, current_text: str) -> 
     going QUIET under the ORIGINAL question purely because it was still
     the most recent genuine user line in the transcript.
 
-    DS-155 round 4 rewrite (Major fix for round 3's own false positive,
-    corpus-measured, not fixture-assumed - see below). Round 3 already
-    fixed a false positive AND a false negative in round 2's version, both
-    traced to a positional "skip the first non-blank text entry" guess
-    instead of an actual identity check:
-      - Round-2 MAJOR (fixed in round 3): round 2 counted ANY non-blank
-        assistant TEXT entry as a turn-boundary candidate with no
-        exemption at all.
-      - Round-2 MINOR (fixed in round 3): round 2's positional "skip the
-        first one" assumed that entry was always the CURRENT turn's own
-        message, which is wrong when the current turn's own entry has not
-        yet been written to disk at Stop time.
-    Round 3's fix for the round-2 Major used _assistant_entry_has_tool_use
-    to exempt an entry whose content mixes `text` AND `tool_use` in the
-    SAME array - reasoning that "text, then a tool call" is the common
-    substantive-turn shape. THAT WAS MEASURED, ROUND 4, TO BE WRONG:
-    real Claude Code transcripts essentially never write text and
-    tool_use into the same entry (corpus measurement across 3,429 local
-    transcript files / 169,745 assistant entries: 4 mixed entries,
-    0.002%). The shape that actually occurs is a PURE-TEXT entry followed
-    by a SEPARATE pure-`tool_use` entry (measured 30,027 times in the
-    same corpus) - round 3's same-entry check never matched that shape,
-    so it was live dead code and the false positive it was meant to fix
-    remained fully open. Reproduced against real transcripts before this
-    fix: replaying genuine question-to-answer turns from the local corpus
-    withheld the bonus on 5 of 7 sampled turns.
+    History (each round measured against a local Claude Code transcript
+    corpus - 900 files / ~1,623 completed-turn evaluation points, unless
+    noted otherwise - not assumed from a hand-built fixture):
+      - Round 2: introduced this check. Positionally "skip the first
+        non-blank text entry, whatever it is" - two bugs, a false positive
+        (ANY non-blank text entry counted as a boundary candidate, no
+        exemption) and a false negative (the "first one" assumption breaks
+        when the current turn's own entry is not yet on disk).
+      - Round 3: fixed both round-2 bugs. The false-positive fix exempted
+        an entry whose content mixes `text` AND `tool_use` in the SAME
+        array, reasoning that shape is the common "narrate, then call a
+        tool" pattern. MEASURED WRONG round 4: that same-entry shape
+        occurs 4 times in 169,745 real assistant entries (0.002%) - dead
+        code, protecting against a shape that essentially never happens.
+        Round-3 correctness: 1,025 / 1,623 (63.2%).
+      - Round 4: replaced the same-entry check with cross-entry positional
+        tracking - a pure-text entry is transparent scaffolding when a
+        tool_use entry was seen immediately before it (in time) during the
+        reverse scan, consumed by AT MOST one preceding text entry. This
+        matched the REAL shape (a pure-text entry followed by a SEPARATE
+        tool_use entry, measured 30,027 times) and raised correctness to
+        1,580 / 1,623 (97.4%). Still wrong on the remaining 43: pure
+        POSITION cannot distinguish "this text precedes ITS OWN later tool
+        call" from "this text is a genuinely separate, already-completed
+        turn that HAPPENS to be followed by an unrelated turn's tool call"
+        - both look identical by position alone. Demonstrated live: a
+        completed turn immediately followed by new work opening with a
+        tool call was silently excused as if it belonged to that new work.
+      - Round 5 (current): every real transcript entry carries
+        `message.id` (see _assistant_message_id), and entries that
+        genuinely belong to the SAME logical assistant message share one.
+        That is the real delimiter "position" was only ever a proxy for.
+        Scope the tool_use exemption to a SHARED message.id instead of
+        position. Corpus-verified: of 5,480 real adjacent (pure-text,
+        tool_use) entry pairs, 5,479 (99.98%) share one message.id: the
+        id-scoped rule keeps round 4's fix for the common case exact,
+        while separately and correctly rejecting the 1-in-5,480 case where
+        they do not. Correctness: 1,620 / 1,623 (99.8%).
 
-    Round-4 fix: track tool_use presence ACROSS entries during the
-    reverse scan, not just within one. A pure-text entry is transparent
-    MID-TURN scaffolding (not a boundary marker) when a `tool_use`-bearing
-    entry occurs LATER in real time (i.e. is encountered EARLIER in this
-    reverse scan) before that pure-text entry, AND no OTHER pure-text
-    entry sits between them (the tool_use is scoped to the text entry
-    IMMEDIATELY preceding it in time, not to the whole window - this is
-    what stops a genuinely separate, tool-free completed turn from being
-    wrongly excused just because SOME unrelated tool call happened
-    elsewhere in the same window; see hooks/tests/test-enforce-turn-shape.py
-    for the corpus-derived fixtures that pin this distinction).
+    NAMED RESIDUAL (round 5, not rounded to zero): 3 of 1,623 evaluation
+    points remain wrong, all in the same direction (expected stale=True,
+    got False). All 3 share one shape: a pure-text entry and its own later
+    tool_use entry share message.id, but a harness-injected/system
+    bookkeeping line (a system-role entry, or a non-genuine `user`
+    system-reminder) is interleaved BETWEEN them in the transcript. This
+    id-set match does not require the two entries to be CONTIGUOUS, so it
+    still (correctly, in the sense that they genuinely are one API
+    response) treats them as one message and exempts the text entry. A
+    stricter contiguity-tracking refinement is a POSSIBLE further fix
+    (reset id-pending tracking on any interruption by a non-assistant,
+    non-tool_result line) but is NOT implemented here - it was not the
+    validated fix for this round, and the gap is disclosed rather than
+    hidden.
 
     Reverse-scans the transcript. For each line, in order:
       1. A genuine user turn (loop_guard.is_genuine_user_turn) is the
          boundary - stop, no intervening turn found (False).
-      2. Any assistant entry (mixed or pure) whose content includes a
-         tool_use block sets a "tool_use pending" flag and is otherwise
-         transparent - it can never itself be a completed turn's final
-         message (Stop cannot fire mid-tool-call).
+      2. Any assistant entry whose content includes a tool_use block is
+         transparent (it can never be a completed turn's final message -
+         Stop cannot fire mid-tool-call). If it carries a message.id, add
+         that id to a PENDING set (ids are globally unique, so this set
+         never needs an entry removed - a later same-id text entry is
+         unambiguously the same message, not a positional coincidence).
+         If it has NO message.id, set a positional fallback flag instead.
       3. An assistant entry with pure text and no tool_use of its own:
-         - If the "tool_use pending" flag is set, this text entry directly
-           precedes (in time) that tool call - transparent mid-turn
-           scaffolding. Clear the flag (a tool_use explains AT MOST one
-           preceding text entry, not the whole window) and continue.
+         - If its message.id is in the pending set: transparent mid-turn
+           scaffolding (the SAME logical message narrated, then called a
+           tool). The id stays in the set (safe - ids are unique).
+         - Else, if it has NO message.id and the positional fallback flag
+           is set: transparent (FALLBACK for transcripts that never carry
+           message.id - reproduces round 4's own rule exactly for that
+           class of input). Clear the flag (consumed once).
          - Else, if its text matches `current_text` AND the current-turn
-           slot has not been consumed yet, treat it as THIS turn's own
+           slot has not been consumed yet: treat it as THIS turn's own
            entry and skip it (consume the slot, once).
          - Otherwise: a genuinely different, earlier completed turn -
            stale (True).
@@ -1044,7 +1095,8 @@ def _has_intervening_assistant_turn(transcript_path: str, current_text: str) -> 
 
     try:
         consumed_current_turn_slot = False
-        tool_use_pending = False
+        pending_message_ids = set()
+        positional_pending = False
         for raw in reversed(lines):
             raw = raw.strip()
             if not raw:
@@ -1056,18 +1108,41 @@ def _has_intervening_assistant_turn(transcript_path: str, current_text: str) -> 
             if lg.is_genuine_user_turn(obj):
                 return False  # reached the boundary - no intervening turn
             if _assistant_entry_has_tool_use(obj):
-                tool_use_pending = True
+                entry_id = _assistant_message_id(obj)
+                if entry_id is not None:
+                    # PRIMARY mechanism: track the tool_use's message.id.
+                    # IDs are globally unique per assistant message, so
+                    # adding to a set never needs to be "consumed" or reset
+                    # - a later (older, in reverse scan) text entry sharing
+                    # this exact id is unambiguously part of the SAME
+                    # logical message, never a coincidence of position.
+                    pending_message_ids.add(entry_id)
+                else:
+                    # FALLBACK: no message.id on this tool_use entry (a
+                    # transcript shape that predates the id field, or a
+                    # synthetic/hand-built payload). Degrade to the
+                    # positional rule alone.
+                    positional_pending = True
                 continue  # tool_use entry - always mid-turn, never a boundary marker
             assistant_text = _extract_assistant_text(obj)
             if not assistant_text.strip():
                 continue  # empty text, no tool_use - never a boundary marker
             # Pure text, no tool_use of its own.
-            if tool_use_pending:
-                # This text entry directly precedes (in time) a tool call
-                # already seen in this reverse scan - mid-turn scaffolding
-                # ("Let me check the log." right before calling Bash).
-                # The tool_use explains only this ONE text entry.
-                tool_use_pending = False
+            entry_id = _assistant_message_id(obj)
+            if entry_id is not None and entry_id in pending_message_ids:
+                # This text entry shares a message.id with a tool_use entry
+                # already seen in this reverse scan - the SAME logical
+                # assistant message narrated, then called a tool. Mid-turn
+                # scaffolding, never a boundary marker.
+                continue
+            if entry_id is None and positional_pending:
+                # FALLBACK: this text entry has no message.id, so identity
+                # cannot be verified - fall back to the positional rule
+                # (the most recently seen unconsumed tool_use, regardless
+                # of id, explains AT MOST one preceding text entry). This
+                # reproduces the prior (pre-message.id) behavior exactly
+                # for any transcript shape that never carries message.id.
+                positional_pending = False
                 continue
             if not consumed_current_turn_slot and assistant_text.strip() == current_stripped:
                 consumed_current_turn_slot = True
