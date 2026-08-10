@@ -845,6 +845,17 @@ function generateUuid() {
  * Identity resolution is compared again in the helper before any write, so an
  * identity swap between resolution and persistence fails closed. The helper
  * independently reports project/global/pending outcomes for health telemetry.
+ *
+ * DS-158 round 2: this call is deliberately single-shot, not wrapped in its
+ * own retry. The Python helper already retries its flock acquisition with
+ * backoff across its own bounded wall-clock budget (see the spawnSync
+ * `timeout` comment below); a caller-side retry here would re-spawn the
+ * whole subprocess and could double the worst-case Stop-hook latency for no
+ * added chance of success, since a second attempt would race the same
+ * contention the first one just spent its full budget failing to clear.
+ * On a project/global write failure, status is surfaced through
+ * recordHealth() -> flushHealth() (unconditional, not debug-gated) rather
+ * than retried here.
  */
 function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
   const confirmed = Boolean(identity && !identity.provisional);
@@ -872,11 +883,22 @@ function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
     });
     const result = spawnSync(helper, ['write-hook', '--cwd', cwd], {
       encoding: 'utf8',
-      // DS-158: bin/ds-identity's session-log append can wait up to 5000ms
-      // on its own flock (see the comment beside that timeout constant).
-      // This ceiling must stay above that budget with headroom, or a
-      // genuinely-contended write gets SIGKILLed here before it ever gets
-      // to report a graceful failure back to recordHealth().
+      // DS-158 round 2: bin/ds-identity's session-log append now retries its
+      // flock with backoff across SESSION_LOG_LOCK_BUDGET_SECONDS (5.0s) of
+      // total wall clock, capped at SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS
+      // (1.0s) per attempt - the same total ceiling round 1 gave its single
+      // flat attempt (the fix is that a timeout now gets retried within that
+      // ceiling, not that the ceiling grew). Backoff sleeps are themselves
+      // capped by the remaining budget, so worst case is that budget plus a
+      // small (<=0.05s) floor overshoot on the final attempt, not the
+      // budget plus backoff on top of it. This ceiling is derived from that
+      // budget plus headroom for
+      // process startup, imports, and the surrounding read/render/write
+      // work, not chosen independently - raising the Python-side budget
+      // obliges raising this one to match, and vice versa. A genuinely
+      // contended write must exhaust its own retry budget and report a
+      // graceful failure back to recordHealth(), not get SIGKILLed here
+      // first.
       timeout: 6000,
       maxBuffer: 64 * 1024,
       stdio: ['pipe', 'pipe', 'ignore'],

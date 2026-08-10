@@ -135,6 +135,16 @@ PENDING_CAP = 100
 PENDING_SCAN_LIMIT = PENDING_CAP + 1
 PENDING_DIRECTORY_SCAN_LIMIT = (PENDING_CAP * 4) + 1
 PENDING_INTERNAL_STALE_SECONDS = 60
+# DS-158 round 2: total wall-clock budget for the session-log lock retry loop
+# in _write_jsonl_safely, spent across all attempts (not per attempt), not
+# per attempt in isolation. Kept at parity with round 1's flat single-attempt
+# 5.0s wait (not shrunk) - the fix here is that a lock timeout now gets a
+# retry at all within this budget, not that the budget itself grew, since
+# the JS caller's subprocess ceiling (see hooks/stop-context.js
+# writeTelemetrySafely's spawnSync `timeout` comment) sets the same total
+# ceiling either way. Bumping one obliges bumping the other, by construction.
+SESSION_LOG_LOCK_BUDGET_SECONDS = 5.0
+SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS = 1.0
 
 
 def _contains_unicode_control(value: str) -> bool:
@@ -704,6 +714,15 @@ def _acquire_validated_file_lock(
         os.close(parent_fd)
 
 
+class _LockTimeoutError(RuntimeError):
+    """One flock() attempt exhausted its bounded wait.
+
+    DS-158 round 2: kept distinct from a bare RuntimeError so a caller-side
+    retry loop can catch specifically this transient, retryable condition
+    without also absorbing an unrelated RuntimeError it did not anticipate.
+    """
+
+
 def _lock_fd_exclusive(fd: int, *, timeout: float) -> None:
     """Acquire one fd lock with a monotonic bounded retry loop."""
     deadline = time.monotonic() + timeout
@@ -713,7 +732,7 @@ def _lock_fd_exclusive(fd: int, *, timeout: float) -> None:
             return
         except BlockingIOError:
             if time.monotonic() >= deadline:
-                raise RuntimeError(f"lock timeout after {timeout:.0f}s")
+                raise _LockTimeoutError(f"lock timeout after {timeout:.0f}s")
             time.sleep(0.02)
 
 
@@ -1153,7 +1172,18 @@ def _write_jsonl_safely(
         # A pair of legitimate writers can each replace the inode while its
         # peer is performing the post-publication check. Eight bounded passes
         # let that finite handoff converge without weakening rotation checks.
+        # DS-158 round 2: the same attempt budget also backstops a holder that
+        # stalls mid-critical-section (slow fsync, CPU steal on a shared
+        # runner) - that stall previously converted into a permanently,
+        # silently dropped telemetry record because a lock-timeout RuntimeError
+        # from _lock_fd_exclusive escaped this loop's `except FileNotFoundError`
+        # entirely (caught only by the function-level outer except, one shot,
+        # no retry). _LockTimeoutError is now caught here too and retried with
+        # backoff, bounded by SESSION_LOG_LOCK_BUDGET_SECONDS of total wall
+        # clock across every attempt (not per attempt) so a run of unlucky
+        # collisions cannot compound into an unbounded wait.
         max_attempts = 8
+        lock_deadline = time.monotonic() + SESSION_LOG_LOCK_BUDGET_SECONDS
         for attempt in range(max_attempts):
             parent_fd: int | None = None
             log_fd: int | None = None
@@ -1165,16 +1195,14 @@ def _write_jsonl_safely(
             try:
                 parent_fd = _open_directory_nofollow(path.parent, create=True)
                 log_fd = _open_safe_log_at(parent_fd, path.name, create=True)
-                # A holder that stalls mid-critical-section (slow fsync, CPU
-                # steal on a shared runner) blocks a waiter for the full
-                # stall, not just its own tiny read/render/write. DS-158: a
-                # too-tight budget here previously converted that stall into
-                # a permanently, silently dropped telemetry record - nothing
-                # above this call retries or surfaces the loss. The JS caller
-                # (hooks/stop-context.js writeTelemetrySafely) bounds the
-                # whole write-hook subprocess at 6000ms, so this budget must
-                # stay under that with headroom for the surrounding work.
-                _lock_fd_exclusive(log_fd, timeout=5.0)
+                lock_timeout = max(
+                    0.05,
+                    min(
+                        SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS,
+                        lock_deadline - time.monotonic(),
+                    ),
+                )
+                _lock_fd_exclusive(log_fd, timeout=lock_timeout)
                 log_locked = True
                 if not _directory_fd_is_canonical(path.parent, parent_fd):
                     raise FileNotFoundError("session log parent rotated before lock")
@@ -1255,6 +1283,23 @@ def _write_jsonl_safely(
             except FileNotFoundError:
                 if attempt == max_attempts - 1:
                     raise
+            except RuntimeError:
+                # Only _lock_fd_exclusive raises RuntimeError on this path
+                # (as _LockTimeoutError, a RuntimeError subclass); caught by
+                # base class rather than the subclass so this stays correct
+                # if a caller substitutes a differently-typed but still
+                # RuntimeError-based lock helper (e.g. in a test double).
+                remaining = lock_deadline - time.monotonic()
+                if attempt == max_attempts - 1 or remaining <= 0:
+                    raise
+                # Linear backoff (capped) gives a contended writer
+                # successive, increasingly patient chances instead of
+                # hammering the same lock at a fixed interval. Also capped
+                # by the remaining budget so backoff sleeps are spent from
+                # inside SESSION_LOG_LOCK_BUDGET_SECONDS, never added on top
+                # of it - the JS-side spawnSync ceiling is derived from that
+                # budget and must not be exceeded by backoff overhead.
+                time.sleep(min(0.5, 0.05 * (attempt + 1), remaining))
             finally:
                 if temp_fd is not None:
                     os.close(temp_fd)
