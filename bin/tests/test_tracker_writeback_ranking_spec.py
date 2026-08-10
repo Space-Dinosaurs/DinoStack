@@ -911,6 +911,10 @@ def test_toggle_doc_sync_full_eight_site_checklist():
 #                         forces the enumeration to be revisited by hand -
 #                         it is not a count-agnostic pin that tolerates a
 #                         stale number as long as names are unchanged.
+#   enforcement_log.py:39-47 - module manifest's own "Downstream consumers"
+#                         field (was omitted from this sweep entirely, which
+#                         is exactly why it went stale for two fix passes -
+#                         see hooks/lib/enforcement_log.py's own history).
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
@@ -939,6 +943,10 @@ _ENFORCER_SUBCOUNT_SITES = [
         "`enforce-shippable-edit.py`, `enforce-tier.py`, `enforce-worktree-read.py`) "
         'and `"allow_advisory"` '
         "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
+    ),
+    (
+        REPO_ROOT / "hooks" / "lib" / "enforcement_log.py",
+        "Downstream consumers: the eight enforce-*.py PreToolUse/Stop hooks that",
     ),
 ]
 
