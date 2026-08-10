@@ -127,9 +127,15 @@ Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
                              present anywhere in the domain
                              (_has_continuing_work_signal: a non-empty
                              Conductor-template "Running:" field, or one of
-                             three phrases measured from real false
+                             six phrases measured from real false
                              positives - "one to go", "remaining after",
-                             "is/are still running"). This closes the
+                             "is/are still running", the markdown
+                             sub-heading "**In progress:**", "review(s)
+                             running", "running on" (see
+                             _CONTINUING_WORK_PHRASE_RE's own docstring for
+                             the DS-157 round 2 corpus measurement behind
+                             the last three and the "still open" phrase
+                             that measurement dropped). This closes the
                              remaining false-positive shape the
                              identity-line restriction alone could not: a
                              genuinely short, sentence-complete completion
@@ -787,24 +793,56 @@ _COMPLETION_RE = re.compile(
 #      and the broader alternative's measured cost (6 wrongly-suppressed
 #      genuine completions, see above) is worse than this gap's cost. Not
 #      widened without a fresh corpus measurement justifying it.
-# DS-157 additions (see _has_body_completion_declaration's docstring for the
-# corpus method these four phrases were measured against): a turn opening
-# with a genuine leading completion declaration for ONE part of the work can
-# still describe unfinished OTHER work later in the same body - the same
-# "completed sub-item inside a still-in-progress turn" shape DS-156 round 1
-# already found for the identity-line case, reproduced here for the
-# body-paragraph case. Each phrase below traces to a REAL false positive
-# found while measuring the DS-157 corpus (not a hand-written phrase list
-# assumed to generalise, same discipline as the three phrases above):
-#   - "in progress" - a still-open work item labelled with its own
-#     "**In progress:**" sub-heading elsewhere in the body (e.g. "**Done and
-#     independently verified:** the feature works... **In progress:** the
-#     two Majors...").
-#   - "review(s) running" / "running on" - "Review running on #639",
-#     "Two reviews still running" (the bare-noun-subject form the existing
-#     `is|are still running` phrase above does not match, since there is no
-#     is/are).
-#   - "still open" - "Two loose ends still open".
+# DS-157 round 1 added four phrases here; DS-157 round 2 (this version,
+# Skeptic Major 1) narrowed/dropped two of them after a fresh full-corpus
+# both-directions measurement showed the round-1 set broke as much as it
+# fixed on THIS regex specifically (it is shared between
+# `_has_body_completion_declaration`'s advisory-suppression use below and
+# `_classify_warrants`'s `completion` WARRANT-granting use at
+# `_classify_warrants:1113` - round 1's safety analysis reasoned only about
+# the former and never noticed the latter). Full-population corpus method
+# (same ~/.claude/projects extraction as `_LEADING_COMPLETION_RE`'s
+# docstring, main-agent-only, isSidechain absent/false; 3,937 final turns,
+# 324 matching any of the four round-1 candidate phrases): each phrase was
+# measured in isolation against a BASE (pre-DS-157, 3-phrase) regex, on
+# both the `completion` warrant delta and the `_status_only_flag` advisory
+# delta.
+#   - "review(s) running" / "running on" (KEPT, unchanged from round 1) -
+#     "Review running on #639", "Two reviews still running" (the
+#     bare-noun-subject form the existing `is|are still running` phrase
+#     above does not match, since there is no is/are). Measured: 0
+#     completion-warrant false-positive losses, 1 legitimate loss ("A
+#     cleanup pass is running on three Minors" - genuinely this turn's own
+#     unfinished work), 2 correctly-still-advisory newly-firing cases, both
+#     inspected and both genuine (the same "Review running on #639" turn
+#     that motivated the phrase, plus the round-1 "in progress" sub-item
+#     trap below).
+#   - "in progress" (NARROWED, round 2): round 1's bare `\bin\s+progress\b`
+#     was measured causing 7 full-population completion-warrant losses, ALL
+#     traced to a tracker STATUS VALUE describing an OTHER ticket ("AUT-577
+#     still In Progress in another session", "set to In Progress", table
+#     cells, backtick-quoted status values) - not this turn's own remaining
+#     work. Its one genuine motivating case ("**Done and independently
+#     verified:** ... **In progress:** the two remaining Majors...") is a
+#     markdown bold SUB-HEADING, not free prose - narrowing to that exact
+#     shape (`\*\*in\s+progress:?\*\*`) measured 0 of the 7 false positives
+#     (none of them are bold-wrapped as exactly "in progress") while still
+#     catching the motivating case.
+#   - "still open" (DROPPED, round 2) - measured causing 10 full-population
+#     completion-warrant losses, 100% false positives on inspection: every
+#     instance described a backlog/PR/ticket list ("Still open, in priority
+#     order: **THU-85**...", "#414/#422, still open separately", "Still
+#     open from earlier, if you want any of it:") - the same
+#     other-work-not-this-turn's-own-work shape `_CONTINUING_WORK_PHRASE_RE`'s
+#     own docstring above already documents and rejects for the broader
+#     phrase set this regex superseded. Its one real motivating instance
+#     ("Split done. ... Review running on #639 ... Two loose ends still
+#     open.") is already caught by the kept "running on" phrase in the same
+#     message - "still open" was redundant there, not load-bearing. No
+#     narrower form was substituted: unlike "in progress", no single
+#     recurring SHAPE (sub-heading, tracker-value, etc.) separates its true
+#     from false uses in this corpus; the generic "open" is backlog/PR/
+#     issue vocabulary too common to narrow safely without a larger sample.
 _RUNNING_FIELD_ACTIVE_RE = re.compile(
     r"^\s*running\s*:\s*(?!nothing\b)(?!none\b)\S", re.IGNORECASE | re.MULTILINE
 )
@@ -812,10 +850,9 @@ _CONTINUING_WORK_PHRASE_RE = re.compile(
     r"\b(?:is|are)\s+still\s+running\b"
     r"|\bone\s+(?:more\s+)?to\s+go\b"
     r"|\bremaining\s+after\b"
-    r"|\bin\s+progress\b"
+    r"|\*\*in\s+progress:?\*\*"
     r"|\breview(?:s)?\s+running\b"
-    r"|\brunning\s+on\b"
-    r"|\bstill\s+open\b",
+    r"|\brunning\s+on\b",
     re.IGNORECASE,
 )
 
@@ -1176,23 +1213,64 @@ def _has_body_completion_declaration(text: str) -> bool:
     verified:**" as literally paragraph 1, with "**In progress:**" as
     paragraph 2 of the SAME still-in-progress turn).
 
-    Round 3 (current): the tally survivor is closed by `_TALLY_HEADER_RE`
-    (added in this round). The sub-item survivor, plus a THIRD false
-    positive found while re-measuring round 2's fix on the full 970-turn
-    population ("Split done. ... Review running on #639 ... Two loose ends
-    still open."), are closed by extending `_CONTINUING_WORK_PHRASE_RE`
-    with four phrases measured directly from these real false positives:
-    "in progress", "review(s) running", "running on", "still open" (see
-    that regex's own docstring for the phrase-to-instance mapping). Net
-    result on the 970-turn population: 6 newly recognised (0.6%),
-    independently re-labelled all 6 (not sampled) - 0 confirmed false
-    positives. This is a smaller, more conservative fix than the reported
-    symptom alone would suggest is needed; disclosed rather than chased
-    further, matching the discipline `_CONTINUING_WORK_PHRASE_RE`'s
-    docstring already applies to its own narrower phrase list. A completion
-    declared later than the first body paragraph remains a disclosed,
-    unrecognised residual (see `_LEADING_COMPLETION_RE`'s "Known residual
-    gap" comment and case A9 in
+    Round 3: the tally survivor is closed by `_TALLY_HEADER_RE` (added in
+    this round). The sub-item survivor, plus a THIRD false positive found
+    while re-measuring round 2's fix on the full 970-turn population
+    ("Split done. ... Review running on #639 ... Two loose ends still
+    open."), are closed by extending `_CONTINUING_WORK_PHRASE_RE` with four
+    phrases measured directly from these real false positives: "in
+    progress", "review(s) running", "running on", "still open". This round's
+    OWN measurement was one-directional (see below) and missed a defect in
+    its own fix.
+
+    Round 4 / DS-157 round 2 (current, Skeptic Major 1/Minor 1): round 3's
+    measurement above tracked only `_status_only_flag` newly going quiet -
+    it never measured turns that newly START firing, nor (the actual bug)
+    that `_CONTINUING_WORK_PHRASE_RE` is ALSO consumed by
+    `_classify_warrants` (`_classify_warrants:1113`) to veto the
+    `completion` WARRANT itself, a path round 3's safety analysis never
+    mentioned. Re-measured all three directions on the full main-agent
+    population (3,937 final turns, 324 matching any of round 3's four
+    phrases) with each phrase isolated against a pre-DS-157 3-phrase
+    baseline:
+      - "review(s) running" / "running on": 0 status-only newly-quiet, 2
+        newly-firing (both inspected, both genuine ongoing work); 0
+        completion-warrant gains, 1 loss (inspected, genuine - "a cleanup
+        pass is running on three Minors"). KEPT unchanged.
+      - "in progress": 0 status-only newly-quiet, 2 newly-firing; 0
+        completion-warrant gains, 7 losses - ALL 7 inspected and ALL 7
+        false positives (a tracker STATUS VALUE for an OTHER ticket, e.g.
+        "AUT-577 still In Progress in another session", never this turn's
+        own work). NARROWED to the exact bold sub-heading shape the one
+        genuine motivating case actually has (`\\*\\*in\\s+progress:?\\*\\*`) -
+        re-measured at 0 of the 7 false positives while still catching the
+        motivating case.
+      - "still open": 0 status-only newly-quiet, 2 newly-firing; 0
+        completion-warrant gains, 10 losses - ALL 10 inspected and ALL 10
+        false positives (backlog/PR/ticket-list vocabulary describing OTHER
+        work, e.g. "Still open, in priority order: **THU-85** ..."). Its
+        one real motivating instance is already caught by the co-occurring
+        "running on" phrase in the same message, so nothing was lost by
+        dropping it. DROPPED outright, per this file's stated discipline of
+        deletion over a narrowed rewrite when nothing is load-bearing on
+        the claim (no single recurring shape separates "still open" true
+        positives from false positives in this corpus, unlike "in
+        progress"'s bold-heading shape).
+    Net status-only-advisory effect of this round's fix, all four phrases
+    combined vs the round-3 shipped set: 0 change in newly-quiet (dropping
+    "still open"/narrowing "in progress" removes no legitimate suppression,
+    since neither ever independently produced one in this population), 2
+    fewer newly-firing false vetoes eliminated (the "in progress"/"still
+    open" instances that had been vetoing genuine completions on unrelated
+    grounds). Net completion-warrant effect: 17 of 18 measured full-
+    population warrant losses eliminated (7 "in progress" + 10 "still
+    open"), 1 genuine loss ("running on") retained correctly.
+    `_execution_prose_flag` block/pass delta across this same population:
+    0 in both directions (no measured turn's execution-path outcome
+    changed). See `_CONTINUING_WORK_PHRASE_RE`'s own docstring for the
+    phrase-to-instance mapping. A completion declared later than the first
+    body paragraph remains a disclosed, unrecognised residual (see
+    `_LEADING_COMPLETION_RE`'s "Known residual gap" comment and case A9 in
     `hooks/tests/fixtures/turn-shape-completion-corpus.json`).
 
     Why not widen the `completion` WARRANT instead (the blocking-path
