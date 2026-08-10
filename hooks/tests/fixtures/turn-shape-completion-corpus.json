@@ -1,0 +1,212 @@
+{
+  "_purpose": "DS-156 corpus-motivated regression fixture for the completion-warrant widening in hooks/enforce-turn-shape.py (test-enforce-turn-shape.py's 'c-*' block). ROUND 2 REBUILD (Skeptic Major 4 on commit cf6bc9d5): every case's 'source' field states which REAL transcript shape it is derived from (a real main-agent turn, sanitized to structure plus the minimal text the predicate needs; a round-1 regression pin; or an explicitly-labelled Skeptic-constructed adversarial probe) - none is authored by describing which regex branch it is meant to exercise. No literal proprietary content (real PR numbers, ticket IDs, filenames, project names) is reproduced; only the completion-relevant wording is kept, matching the same discipline as turn-shape-corpus-samples.json.",
+  "_round_numbering_note": "This fixture uses a 2-round scheme: 'round 1' = everything shipped in commit cf6bc9d5 (which itself iterated twice internally before shipping - enforce-turn-shape.py's own docstring calls those two internal steps 'round 1' and 'round 2' respectively, so its numbering is one finer-grained than this fixture's); 'round 2' here = the Skeptic-driven correction in THIS commit, which that same hook docstring calls 'round 3'. Both schemes agree on the substance; only the granularity of the label differs.",
+  "_measurement": {
+    "corpus_root": "~/.claude/projects (local developer machine, not committed - this fixture is the sanitized extract)",
+    "files_scanned": 3341,
+    "assistant_entries_scanned": 165965,
+    "assistant_entries_main_agent": 40247,
+    "assistant_entries_sidechain": 125718,
+    "population_note": "hooks/enforce-turn-shape.py is registered on the Stop event only (fires for the main agent); subagent turns fire the unregistered SubagentStop event instead. Every figure below is MAIN-AGENT-ONLY (isSidechain absent/false) - round 1 (commit cf6bc9d5) measured the UNFILTERED corpus (~48% sidechain) and both its headline figures and its 'status: DONE' / 'review complete' sentinels were consequently wrong for this hook's actual consumer.",
+    "candidate_final_turns_main_agent": 3535,
+    "candidate_final_turns_sidechain": 3225,
+    "pre_fix_flagged_status_only_main_agent": 981,
+    "round_1_newly_recognised_main_agent": 103,
+    "round_1_newly_recognised_pct": "10.5% (not the unfiltered-corpus figure of 198/16.1% originally reported)",
+    "round_1_hand_labelled_full_set": "all 103, not a sample - 4 confirmed false positives (3.9%), 7 borderline (Running:-field shape)",
+    "round_1_false_positive_root_cause": "status: DONE / DONE_WITH_CONCERNS contributed 0 of 103 main-agent recognitions (all 72 of its unfiltered-corpus hits were sidechain engineer-role returns); review complete likewise contributed 0. Both deleted outright, not narrowed.",
+    "round_2_fixes": [
+      "delete the status: DONE / DONE_WITH_CONCERNS anywhere-scoped sentinel (0 main-agent contribution, and actively harmful - a conductor relaying a subagent's Status: DONE text must not be read as this turn's own completion)",
+      "delete the review complete anywhere-scoped sentinel (0 main-agent contribution)",
+      "drop the comma from _LEADING_COMPLETION_RE's terminator class - a trailing comma matched a leading CLAUSE, not a sentence, and ignored whatever continuation followed it",
+      "add _has_continuing_work_signal: a non-empty Conductor-template Running: field, or one of three phrases (\"one to go\", \"remaining after\", \"is/are still running\") derived from the 4 confirmed real false positives - vetoes the completion warrant outright when present anywhere in the domain"
+    ],
+    "round_2_result": {
+      "newly_recognised_main_agent": 90,
+      "newly_recognised_pct": "9.2%",
+      "still_flagged_main_agent": 891,
+      "still_flagged_pct": "90.8%",
+      "reverted_from_round_1": 13,
+      "reverted_breakdown": "4 confirmed false positives + 7 Running:-field cases + 2 further instances of the (is|are) still running phrase"
+    },
+    "round_2_precision": "independently hand-labelled all 90 newly-recognised main-agent turns (not sampled): 0 confirmed false positives",
+    "disclosed_residual_over_suppression": "1 of the 13 reverted turns was itself a genuine completion (\"Other Claude Code sessions are still running the pre-refresh hooks\" - an unrelated session, not this turn's own dependency) incorrectly caught by the same (is|are) still running phrase that correctly catches the 3 real false positives using that exact shape. Pinned as case A12 with expected=advisory (the current, imperfect behaviour), not chased further - distinguishing \"my own dependent work\" from \"an unrelated process\" requires semantic understanding this lexical guard does not have.",
+    "disclosed_residual_gap_unchanged_from_round_1": "a completion declared under a markdown sub-heading (e.g. \"## Done\") rather than the identity line is still not recognised - case A9."
+  },
+  "shape_classes_covered": {
+    "leading_bare_declaration": "a short 'X is done/complete' sentence as the very first line of the turn, with NO continuing-work signal anywhere in the turn (cases Q1, Q2, Q6, Q7, Q8)",
+    "structured_field_sentinel": "the Conductor template's own State: field, anywhere-scoped because the field label itself removes the ambiguity, gated by the sibling Running: field being empty (case Q3)",
+    "fixed_workflow_phrase": "this repo's recurring PR-review-run closing phrase (case Q4)",
+    "leading_past_participle": "a leading 'Merged ... cleaned up' declaration (case Q5)",
+    "round_1_false_positive_trap_midbody": "the round-1 false-positive shape (completion-adjacent phrase in the BODY, not the identity line) - regression pins for round 1's identity-line-scoping fix, unaffected by round 2 (cases A1, A2)",
+    "round_2_false_positive_leading_plus_body_signal": "the round-2 false-positive shape: a genuinely short, sentence-complete completion declaration ON the identity line, with the still-in-progress signal appearing SEPARATELY in the body - what identity-line-scoping alone could not catch (cases A3, A4, A5, A6)",
+    "running_field_active": "an anywhere-scoped completion sentinel co-occurring with a non-empty sibling Running: field (case A7)",
+    "status_value_confusable": "a structured Status: field whose VALUE is not the terminal value, even though the terminal word appears later in unrelated prose (case A8)",
+    "disclosed_residual_gap": "a genuine completion declared under a markdown sub-heading rather than the identity line - permanent regression pin, not chased (case A9)",
+    "relayed_subagent_status": "a conductor turn RELAYING a subagent's own Status: DONE text mid-sentence, which must never be read as this turn's own completion (case A10)",
+    "leading_clause_not_sentence": "a leading declaration followed by a comma-joined continuation clause describing unfinished work - regression pin for the comma-removal fix (case A11)",
+    "disclosed_over_suppression_residual": "a genuine completion whose closing aside about an UNRELATED session happens to use the same still-running phrase that correctly identifies the real false positives - accepted trade-off, pinned as currently-advisory (case A12)"
+  },
+  "cases": [
+    {
+      "id": "Q1",
+      "shape_class": "leading_bare_declaration",
+      "template": "Done.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "source": "Real main-agent transcript turn, sanitized: a bare bolded 'Done.' opening an itemized completed-work report - the exact ticket-reported symptom shape."
+    },
+    {
+      "id": "Q2",
+      "shape_class": "leading_bare_declaration",
+      "template": "Cleanup complete.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "source": "Real main-agent transcript turn, sanitized: 'X complete.' opening a completed-cleanup summary."
+    },
+    {
+      "id": "Q3",
+      "shape_class": "structured_field_sentinel",
+      "template": "Conductor\n\nState: complete.\nRunning: nothing.\nBlocked: none.",
+      "filler_lines": 0,
+      "expected": "quiet",
+      "source": "Real main-agent transcript turn (this exact template recurs 7+ times in the corpus): the Conductor template's State: field, fully done, with Running: nothing - the Running:-field-empty control that A7 contrasts against."
+    },
+    {
+      "id": "Q4",
+      "shape_class": "fixed_workflow_phrase",
+      "template": "All state files are written. Run complete.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "source": "Real main-agent transcript turn (the single highest-volume phrase measured, dozens of occurrences): this repo's fixed automated PR-review-run closing phrase."
+    },
+    {
+      "id": "Q5",
+      "shape_class": "leading_past_participle",
+      "template": "Merged and fully cleaned up.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "source": "Real main-agent transcript turn, sanitized: leading past-participle completion declaration."
+    },
+    {
+      "id": "Q6",
+      "shape_class": "leading_bare_declaration",
+      "template": "Both PRs are done and verified.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "source": "Real main-agent transcript turn, sanitized: trailing-modifier leading declaration ('X are done and verified.'), with no continuing-work signal anywhere else in the turn."
+    },
+    {
+      "id": "Q7",
+      "shape_class": "leading_bare_declaration",
+      "template": "Verification complete.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "source": "Real main-agent transcript turn, sanitized: 1-3-leading-word + complete leading declaration, confirmed present in the corpus (an audit/review-complete report)."
+    },
+    {
+      "id": "Q8",
+      "shape_class": "leading_bare_declaration",
+      "template": "Review complete.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "source": "Real main-agent transcript turn, sanitized. NOTE: the bare phrase 'review complete' no longer matches ANYWHERE-scope (that sentinel was deleted round 2, 0 main-agent contribution) - this case is recognised ONLY via the identity-line leading-declaration path, which remains warranted since it is this turn's own opening claim, not a relay or a sub-item."
+    },
+    {
+      "id": "A1",
+      "shape_class": "round_1_false_positive_trap_midbody",
+      "template": "ad-hoc · main · [phase: implementation]\n\nUnit 3 still building.\nI'll report when it's merged and live.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "source": "Round-1 false-positive trap (commit cf6bc9d5's own round-1 sample, idx 17/24/36): completion-adjacent phrase in the BODY, not the identity line, future-tense. Regression pin for round 1's identity-line-scoping fix - unaffected by round 2."
+    },
+    {
+      "id": "A2",
+      "shape_class": "round_1_false_positive_trap_midbody",
+      "template": "ad-hoc · main · [phase: implementation]\n\nUnit 2 merged, pulling main to continue with unit 3.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "source": "The ORIGINAL pre-DS-156 design caution, still holding: a bare past participle mid-prose must never launder into a completion warrant."
+    },
+    {
+      "id": "A3",
+      "shape_class": "round_2_false_positive_leading_plus_body_signal",
+      "template": "Self-hosting is done. Two Phase 5 deliverables down, one to go.\n\nWhat landed so far is summarized below.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "source": "Real main-agent transcript turn (round-2 Skeptic review, confirmed false positive #1), sanitized: a genuinely sentence-complete 'X is done.' opening, immediately followed by 'N down, one to go' signalling the OVERALL multi-step operation is not finished."
+    },
+    {
+      "id": "A4",
+      "shape_class": "round_2_false_positive_leading_plus_body_signal",
+      "template": "Done and moving.\n\n- Unit C running.\n- Remaining after C: unit F's re-review, then tests, CI wiring, doc sync.",
+      "filler_lines": 1,
+      "expected": "advisory",
+      "source": "Real main-agent transcript turn (round-2 Skeptic review, confirmed false positive #2), sanitized: 'Done and moving.' identity line, with the continuing-work signal ('Remaining after C') appearing separately in the body."
+    },
+    {
+      "id": "A5",
+      "shape_class": "round_2_false_positive_leading_plus_body_signal",
+      "template": "Security audit complete.\n\nI will wait for the integration Skeptic to finish, then route fixes.\nSkeptic is still running.",
+      "filler_lines": 1,
+      "expected": "advisory",
+      "source": "Real main-agent transcript turn (round-2 Skeptic review, confirmed false positive #3), sanitized: 'Security audit complete.' identity line, with 'Skeptic is still running' as a separate body sentence."
+    },
+    {
+      "id": "A6",
+      "shape_class": "round_2_false_positive_leading_plus_body_signal",
+      "template": "Done.\n\nThe background agents are still running; I'll fold their results in when they land.\nMeanwhile here is a partial summary.",
+      "filler_lines": 1,
+      "expected": "advisory",
+      "source": "Real main-agent transcript turn (round-2 Skeptic review, confirmed false positive #4), sanitized: bare 'Done.' identity line, with 'are still running' as a separate body sentence."
+    },
+    {
+      "id": "A7",
+      "shape_class": "running_field_active",
+      "template": "Conductor\n\nState: work complete and live.\nRunning: knowledge PR auto-merge watcher.\nBlocked: none.",
+      "filler_lines": 0,
+      "expected": "advisory",
+      "source": "Real main-agent transcript turn (this exact template recurs 7+ times in the corpus): the state: complete anywhere-sentinel matched, but the SAME template's sibling Running: field is non-empty - the shape round 1 missed entirely (fixture c-3 in round 1 pinned Running: nothing only, never testing the non-empty case)."
+    },
+    {
+      "id": "A8",
+      "shape_class": "status_value_confusable",
+      "template": "Status: BLOCKED (partially) - the fix itself is DONE, but cleanup remains.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "source": "Skeptic-constructed adversarial probe (round 1): Status: value is BLOCKED, not DONE - carried forward unchanged into round 2 since the status: DONE sentinel this case exercised is now deleted; the case now instead confirms the leading-declaration pattern does not accidentally match 'BLOCKED ... is DONE' either."
+    },
+    {
+      "id": "A9",
+      "shape_class": "disclosed_residual_gap",
+      "template": "Comment posted. Investigation ongoing.\n\n## Done\n\nSummary of findings below.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "source": "Real main-agent transcript turn, sanitized: DISCLOSED KNOWN GAP carried forward unchanged from round 1 - a completion declared under a markdown sub-heading, not the identity line, is NOT recognised. Permanent regression pin, not chased."
+    },
+    {
+      "id": "A10",
+      "shape_class": "relayed_subagent_status",
+      "template": "The engineer returned Status: DONE, spawning the Skeptic now.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "source": "Skeptic-constructed adversarial probe (DS-156 round 2, Major 3), confirmed by execution against commit cf6bc9d5 to incorrectly go QUIET before this fix: a conductor turn RELAYING a subagent's own 'Status: DONE' text mid-sentence must not itself be read as this turn's own completion. Fixed by deleting the status: DONE sentinel outright (Major 1) rather than trying to distinguish a relay from a genuine self-report lexically."
+    },
+    {
+      "id": "A11",
+      "shape_class": "leading_clause_not_sentence",
+      "template": "Backup is complete, restore still pending.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "source": "Skeptic-constructed adversarial probe (DS-156 round 2, Major 3), confirmed by execution against commit cf6bc9d5 to incorrectly go QUIET before this fix: the pre-round-2 terminator class [.!,:] matched the comma after 'complete', granting the warrant on a leading CLAUSE and ignoring the 'restore still pending' continuation. Regression pin for the comma-removal fix."
+    },
+    {
+      "id": "A12",
+      "shape_class": "disclosed_over_suppression_residual",
+      "template": "Done.\n\nOther Claude Code sessions are still running the pre-refresh hooks in memory; restart them to pick this up.",
+      "filler_lines": 2,
+      "expected": "advisory",
+      "source": "Real main-agent transcript turn (round-2 measurement, sanitized): a genuinely complete turn whose closing aside mentions OTHER, unrelated Claude Code sessions 'still running' - the same (is|are) still running phrase that correctly identifies A5/A6 also over-suppresses this one. DISCLOSED, ACCEPTED TRADE-OFF pinned at its current (imperfect) behaviour: distinguishing 'my own dependent work is still running' from 'an unrelated process is running' requires semantic understanding this lexical guard does not have. If a future change makes this genuinely QUIET again, update this pin deliberately - do not let it drift silently."
+    }
+  ]
+}
