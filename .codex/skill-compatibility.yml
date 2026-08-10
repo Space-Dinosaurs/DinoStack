@@ -17532,16 +17532,6 @@
       "source_token": ".agentic/wrap/lock"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "0fe518290394ebdd7f58c11b15e9a436b7a564e7752ac2fecea1ba5d86a976dc",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": ".agentic/context.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/context.md",
       "kind": "operational",
@@ -18730,6 +18720,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Write"
+    },
+    {
+      "expected_target": "content/references/conductor-operating-rules.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
+      "kind": "operational",
+      "occurrence_hash": "57465dbdd144676578169c70d2a9d648503232eec50663fac68d2d4281c13f80",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/conductor-operating-rules.md"
     },
     {
       "expected_target": "wrap",
@@ -20022,6 +20022,16 @@
       "source_token": "**Pre-flight lock acquisition.** /ds-wrap writes to several shared project-local files. See the Consumers list under the Atomic write discipline (NORMATIVE) section in content/references/wrap-context-format.md: the 17 sites - 3 in the merge algorithm, 14 in ds-wrap.md. The lock window also covers `.agentic/compression-state.json`, which is outside that Consumers list because it is machine state rather than a human-facing document. It does NOT write `context.md` - that file is a derived rollup and is deliberately lock-free. Concurrent /ds-wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:"
     },
     {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "ac2eaef7647db739b8e55f5eacf0fc156e88f554bffeb1f5216dde4c1e531e43",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -20260,6 +20270,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/knowledge-commit-state.json"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "bacd9d04ccc49a0c773a3fdb4795da83136b33b16ea5104e204f4f0c8e3eb54b",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": ".agentic/memory.md",
@@ -20662,6 +20682,16 @@
       "source_token": ".agentic/"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "cfb82279442ab79268e9b9903b499155452167fd1bde9a2c305f1ac2f74b636c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/tmp",
       "kind": "display-only",
@@ -20960,6 +20990,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "if"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "e997d1cf1c0bebd8940b0b4ec3130e4928c895a1d4839e44ca11967d7f5f7dca",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": ".agentic/wrap/pending-<session_id>.json",
@@ -21300,6 +21340,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "fee8dc51aa2ae0c6922b12a2050793ff9254cf30d4d365f57a5a41ddcff2256c",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": ".agentic/learnings.md",
