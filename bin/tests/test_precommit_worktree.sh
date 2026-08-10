@@ -25,7 +25,12 @@
 # Failure modes: any assertion failure prints the failing assertion and exits 1.
 #                All fixtures live under a temporary directory; the real repo
 #                and its .git/hooks are never touched (verified by this test
-#                itself via a before/after checksum of the real hook).
+#                itself via a before/after checksum AND a before/after
+#                `readlink` of the real hook's own symlink target - the
+#                checksum alone is insufficient because `shasum` follows a
+#                symlink and hashes its resolved content, so it cannot
+#                detect a re-point at a byte-identical hooks/pre-commit in
+#                a different checkout; see Test 7).
 #
 # Performance: < 2 s wall time (pure git + shell, no network).
 #
@@ -83,6 +88,17 @@ REAL_HOOK_PATH_FOR_CHECKSUM="$REAL_HOOKS_DIR_FOR_CHECKSUM/pre-commit"
 REAL_HOOK_CHECKSUM_BEFORE=""
 if [[ -n "$REAL_HOOKS_DIR_FOR_CHECKSUM" ]] && [[ -e "$REAL_HOOK_PATH_FOR_CHECKSUM" ]]; then
   REAL_HOOK_CHECKSUM_BEFORE="$(shasum -a 256 "$REAL_HOOK_PATH_FOR_CHECKSUM" 2>/dev/null | awk '{print $1}')"
+fi
+# `shasum` FOLLOWS a symlink and hashes its resolved content, so a checksum
+# alone cannot detect a re-point of the real hook symlink at a
+# byte-identical hooks/pre-commit in a DIFFERENT checkout - precisely this
+# PR's bug shape (a dangling/mis-targeted symlink that still happens to
+# resolve to identical bytes today). Capture the symlink's own TARGET via
+# `readlink` as well, so Test 7 below can assert the link itself, not just
+# its resolved content, is unchanged.
+REAL_HOOK_TARGET_BEFORE=""
+if [[ -L "$REAL_HOOK_PATH_FOR_CHECKSUM" ]]; then
+  REAL_HOOK_TARGET_BEFORE="$(readlink "$REAL_HOOK_PATH_FOR_CHECKSUM")"
 fi
 
 # shellcheck source=scripts/lib/precommit.sh
@@ -414,7 +430,25 @@ fi
 # Test 7: real checkout's actual .git/hooks/pre-commit is never touched by
 #         this test file. All fixtures above use isolated temp repos; this
 #         asserts that invariant directly rather than trusting it.
+#
+#         Verified via TWO independent before/after checks, not one:
+#         a `shasum` of the resolved content, AND a `readlink` of the
+#         symlink's own target. `shasum` follows a symlink and hashes what
+#         it resolves to, so it alone is BLIND to a re-point of the link at
+#         a different, byte-identical hooks/pre-commit (e.g. another
+#         checkout's copy of the same file) - exactly this PR's bug shape.
+#         The `readlink` check catches that a `shasum`-only test would miss.
 # ============================================================
+
+REAL_HOOK_TARGET_AFTER=""
+if [[ -L "$REAL_HOOK_PATH_FOR_CHECKSUM" ]]; then
+  REAL_HOOK_TARGET_AFTER="$(readlink "$REAL_HOOK_PATH_FOR_CHECKSUM")"
+fi
+if [[ "$REAL_HOOK_TARGET_AFTER" == "$REAL_HOOK_TARGET_BEFORE" ]]; then
+  _pass "Test 7: real checkout's .git/hooks/pre-commit symlink target unchanged by this test run (${REAL_HOOK_TARGET_AFTER:-<not a symlink>})"
+else
+  _fail "Test 7: real checkout's .git/hooks/pre-commit symlink target CHANGED - before=$REAL_HOOK_TARGET_BEFORE after=$REAL_HOOK_TARGET_AFTER"
+fi
 
 if [[ -n "$REAL_HOOKS_DIR_FOR_CHECKSUM" ]] && [[ -e "$REAL_HOOK_PATH_FOR_CHECKSUM" ]]; then
   REAL_HOOK_CHECKSUM_AFTER="$(shasum -a 256 "$REAL_HOOK_PATH_FOR_CHECKSUM" 2>/dev/null | awk '{print $1}')"
@@ -429,6 +463,148 @@ else
   else
     _fail "Test 7: real checkout's .git/hooks/pre-commit existed before this run (checksum $REAL_HOOK_CHECKSUM_BEFORE) but is missing after"
   fi
+fi
+
+# ============================================================
+# Test 8: bare repo + `git worktree add` - Major-1 regression (dangling
+#         symlink at install time). dirname(--git-common-dir) for this
+#         layout is the bare repo's PARENT directory, which has no
+#         "hooks/pre-commit" of its own - resolve_hook_src must detect that
+#         the candidate file does not exist and fall back to the worktree's
+#         own "hooks/pre-commit" (which DOES exist, checked out from the
+#         same tracked history) rather than emit a target that is dangling
+#         from the moment it is installed.
+# ============================================================
+
+BARE_SRC_REPO="$TMP_ROOT/bare-src-repo"
+_make_fixture_repo "$BARE_SRC_REPO"
+
+BARE_REPO="$TMP_ROOT/bare-repo.git"
+git clone -q --bare "$BARE_SRC_REPO" "$BARE_REPO" >/dev/null 2>&1
+
+BARE_WT="$TMP_ROOT/bare-wt-branch"
+git -C "$BARE_REPO" worktree add -q "$BARE_WT" -b bare-wt-test-branch >/dev/null 2>&1
+
+if [[ -f "$BARE_WT/hooks/pre-commit" ]]; then
+  _pass "Test 8 setup: bare-repo worktree fixture has a real hooks/pre-commit checked out"
+else
+  _fail "Test 8 setup: bare-repo worktree fixture missing hooks/pre-commit at $BARE_WT/hooks/pre-commit (fixture setup bug)"
+fi
+
+BARE_COMMON_DIR="$(git -C "$BARE_WT" rev-parse --path-format=absolute --git-common-dir)"
+BARE_COMMON_DIR_PARENT="$(dirname "$BARE_COMMON_DIR")"
+if [[ ! -f "$BARE_COMMON_DIR_PARENT/hooks/pre-commit" ]]; then
+  _pass "Test 8 setup: dirname(--git-common-dir) ($BARE_COMMON_DIR_PARENT) has no hooks/pre-commit of its own - this is the layout Major 1 exercises"
+else
+  _fail "Test 8 setup: unexpectedly found hooks/pre-commit under dirname(--git-common-dir) - fixture does not exercise the bug"
+fi
+
+BARE_HOOK_SRC="$(resolve_hook_src "$BARE_WT")"
+
+if [[ -f "$BARE_HOOK_SRC" ]]; then
+  _pass "Test 8 (Major 1): resolve_hook_src for a bare-repo worktree returns a source file that actually EXISTS ($BARE_HOOK_SRC)"
+else
+  _fail "Test 8 (Major 1 regression): resolve_hook_src for a bare-repo worktree returned a NONEXISTENT source: $BARE_HOOK_SRC - this is the dangling-at-install bug"
+fi
+
+if [[ "$BARE_HOOK_SRC" == "$BARE_WT/hooks/pre-commit" ]]; then
+  _pass "Test 8: bare-repo worktree falls back to the worktree's own hooks/pre-commit (the only one that exists in this layout)"
+else
+  _fail "Test 8: bare-repo worktree resolved to an unexpected source: $BARE_HOOK_SRC"
+fi
+
+BARE_OUT="$(install_precommit_hook "$BARE_WT" 2>&1)"
+BARE_RC=$?
+
+if [[ $BARE_RC -eq 0 ]]; then
+  _pass "Test 8: install_precommit_hook exits 0 for a bare-repo worktree"
+else
+  _fail "Test 8: install_precommit_hook exited $BARE_RC for a bare-repo worktree. Output: $BARE_OUT"
+fi
+
+BARE_HOOK_DST="$BARE_REPO/hooks/pre-commit"
+if [[ -e "$BARE_HOOK_DST" ]] && [[ -x "$BARE_HOOK_DST" ]]; then
+  _pass "Test 8 (Major 1): installed hook resolves and is executable, not dangling ($BARE_HOOK_DST)"
+else
+  _fail "Test 8 (Major 1 regression): installed hook is dangling or missing at $BARE_HOOK_DST. Output: $BARE_OUT"
+fi
+
+BARE_HOOK_RUN_OUTPUT="$("$BARE_HOOK_DST" 2>&1)"
+BARE_HOOK_RUN_RC=$?
+if [[ $BARE_HOOK_RUN_RC -eq 0 ]] && [[ "$BARE_HOOK_RUN_OUTPUT" == "fixture pre-commit" ]]; then
+  _pass "Test 8 (Major 1): installed hook actually EXECUTES for a bare-repo worktree (output: $BARE_HOOK_RUN_OUTPUT)"
+else
+  _fail "Test 8 (Major 1 regression): installed hook failed to execute for a bare-repo worktree. rc=$BARE_HOOK_RUN_RC output=$BARE_HOOK_RUN_OUTPUT"
+fi
+
+# ============================================================
+# Test 9: Major-2 regression - uninstall recognises a hook installed by the
+#         legacy (pre-this-PR) unconditional "<repo_dir>/hooks/pre-commit"
+#         target, AND a foreign hook pointing at neither target is still
+#         left alone (the widened check must not over-match).
+# ============================================================
+
+LEGACY_WT_MAIN="$TMP_ROOT/legacy-wt-main-repo"
+_make_fixture_repo "$LEGACY_WT_MAIN"
+
+LEGACY_WT_BRANCH="$TMP_ROOT/legacy-wt-branch"
+git -C "$LEGACY_WT_MAIN" worktree add -q "$LEGACY_WT_BRANCH" -b legacy-wt-test-branch >/dev/null 2>&1
+
+LEGACY_REAL_HOOKS_DIR="$(git -C "$LEGACY_WT_BRANCH" rev-parse --git-path hooks)"
+case "$LEGACY_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) LEGACY_REAL_HOOKS_DIR="$LEGACY_WT_BRANCH/$LEGACY_REAL_HOOKS_DIR" ;;
+esac
+LEGACY_HOOK_DST="$LEGACY_REAL_HOOKS_DIR/pre-commit"
+
+# Simulate a hook installed by the OLD (pre-this-PR) code: unconditionally
+# targeting "<repo_dir>/hooks/pre-commit" inside the worktree itself, not
+# the new worktree-aware resolved target.
+mkdir -p "$LEGACY_REAL_HOOKS_DIR"
+ln -s "$LEGACY_WT_BRANCH/hooks/pre-commit" "$LEGACY_HOOK_DST"
+
+LEGACY_OUT="$(uninstall_precommit_hook "$LEGACY_WT_BRANCH" 2>&1)"
+LEGACY_RC=$?
+
+if [[ $LEGACY_RC -eq 0 ]]; then
+  _pass "Test 9 (Major 2): uninstall_precommit_hook exits 0 for a legacy-targeted hook"
+else
+  _fail "Test 9 (Major 2): uninstall_precommit_hook exited $LEGACY_RC. Output: $LEGACY_OUT"
+fi
+
+if [[ ! -e "$LEGACY_HOOK_DST" ]]; then
+  _pass "Test 9 (Major 2): legacy-targeted (pre-this-PR) hook is removed by uninstall"
+else
+  _fail "Test 9 (Major 2 regression): legacy-targeted hook still present at $LEGACY_HOOK_DST after uninstall - orphaned, will dangle once the worktree is removed. Output: $LEGACY_OUT"
+fi
+
+# Foreign-hook guard: a symlink pointing at neither the resolved target nor
+# the legacy target must still be left alone by the widened check.
+FOREIGN2_WT_MAIN="$TMP_ROOT/foreign2-wt-main-repo"
+_make_fixture_repo "$FOREIGN2_WT_MAIN"
+
+FOREIGN2_WT_BRANCH="$TMP_ROOT/foreign2-wt-branch"
+git -C "$FOREIGN2_WT_MAIN" worktree add -q "$FOREIGN2_WT_BRANCH" -b foreign2-wt-test-branch >/dev/null 2>&1
+
+FOREIGN2_REAL_HOOKS_DIR="$(git -C "$FOREIGN2_WT_BRANCH" rev-parse --git-path hooks)"
+case "$FOREIGN2_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) FOREIGN2_REAL_HOOKS_DIR="$FOREIGN2_WT_BRANCH/$FOREIGN2_REAL_HOOKS_DIR" ;;
+esac
+FOREIGN2_HOOK_DST="$FOREIGN2_REAL_HOOKS_DIR/pre-commit"
+
+# Points at a completely unrelated path - neither the resolved worktree
+# target nor "<repo_dir>/hooks/pre-commit" for THIS repo_dir.
+FOREIGN2_UNRELATED_TARGET="$TMP_ROOT/some-other-project/hooks/pre-commit"
+mkdir -p "$FOREIGN2_REAL_HOOKS_DIR"
+ln -s "$FOREIGN2_UNRELATED_TARGET" "$FOREIGN2_HOOK_DST"
+
+FOREIGN2_OUT="$(uninstall_precommit_hook "$FOREIGN2_WT_BRANCH" 2>&1)"
+
+if [[ -L "$FOREIGN2_HOOK_DST" ]] && [[ "$(readlink "$FOREIGN2_HOOK_DST")" == "$FOREIGN2_UNRELATED_TARGET" ]]; then
+  _pass "Test 9 (Major 2, no over-match): a symlink pointing at neither the resolved nor legacy target is left untouched"
+else
+  _fail "Test 9 (Major 2 regression, over-match): the widened uninstall check removed or altered a genuinely foreign hook. Output: $FOREIGN2_OUT"
 fi
 
 # ---- Results ----
