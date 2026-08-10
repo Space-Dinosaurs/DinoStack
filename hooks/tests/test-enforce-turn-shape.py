@@ -2354,17 +2354,85 @@ check(
     _y1_warrants["completion"] is False,
 )
 # y6c. Directly verifies the blocking-path danger this ticket required be
-# analyzed: if a future change DID fold _has_body_completion_declaration
-# into the `completion` warrant, _execution_prose_flag would BLOCK this
-# exact genuine-completion turn (its bulleted detail lines are not
-# State:/Running:/Blocked:/Waiting: slot lines). This is why the fix stops
-# at _status_only_flag and never reaches _classify_warrants.
+# analyzed: simulating the y1 warrant dict with `completion` forced True
+# trips _execution_prose_flag (BLOCKING) on this exact genuine-completion
+# turn (its bulleted detail lines are not State:/Running:/Blocked:/Waiting:
+# slot lines). Pins a property of `_execution_prose_flag` under a
+# synthetic warrant dict, NOT a guarantee that _classify_warrants itself
+# never grants `completion` here - that guarantee is y6b's job.
 _y1_warrants_if_granted = dict(_y1_warrants)
 _y1_warrants_if_granted["completion"] = True
 check(
-    "y6c. simulating the warrant being granted trips _execution_prose_flag "
-    "(BLOCKING) - confirms why the fix must NOT widen the warrant",
+    "y6c. _execution_prose_flag BLOCKS the y1 fixture under a synthetic "
+    "completion=True warrant dict - shows why y6b's fix must NOT widen "
+    "the warrant",
     _mod._execution_prose_flag(y1_msg, _y1_warrants_if_granted) is not None,
+)
+
+# y7. REGRESSION (DS-157 round 2, Skeptic Major 1): a genuine completion
+# turn whose body separately mentions OTHER, unrelated work as "still
+# open" must NOT lose the `completion` WARRANT. Round 1's shipped
+# "still open" phrase caused exactly this false-positive class on real
+# corpus turns (all 10 measured instances described a backlog/PR/ticket
+# list, never the turn's own dependent work) - round 2 dropped the phrase
+# outright. Pinned directly against `_classify_warrants`, not just
+# QUIET/ADVISORY, so a future re-addition of an unscoped "still open" (or
+# similar backlog-vocabulary) phrase is caught even if some other warrant
+# happens to still make the turn look QUIET.
+y7_msg = (
+    "**Done.** The plan is complete and closed out.\n"
+    "\n"
+    "Still open and unstarted, in priority order: **THU-85** (urgent), "
+    "**THU-90** (next).\n"
+)
+_y7_warrants = _mod._classify_warrants(y7_msg)
+check(
+    "y7. a genuine completion turn mentioning unrelated backlog work as "
+    "'still open' still gets the `completion` WARRANT (no longer vetoed)",
+    _y7_warrants["completion"] is True,
+)
+
+# y8. CHARACTERIZATION (DS-157 round 2, Skeptic Major 1's demonstrated
+# latent hard-block path) - NOT a claim this ticket fixes the mechanism,
+# only that it is pinned so a future change surfaces it deliberately
+# rather than by accident. When a genuine `stoppage`+`completion` turn's
+# body ALSO contains a (correctly-kept) continuing-work veto phrase
+# ("CI running on #640" inside its own Waiting: line), losing the
+# `completion` warrant flips `stoppage_sole` True, routing the turn onto
+# _execution_prose_flag's STRICTER sole-stoppage branch - which then
+# BLOCKS the State:/Running:/Blocked: lines the general branch would have
+# permitted. This mechanism pre-exists on main for the original 3 DS-156
+# phrases too (any of them matching inside a dependency mention has the
+# same effect); DS-157 widens the trigger vocabulary but does not
+# introduce the mechanism itself, and fixing the sole-stoppage/general
+# branch routing interaction is out of this ticket's scope (Major 1's fix
+# is the phrase-set narrowing above, not this routing predicate).
+y8_msg = (
+    "Conductor\n"
+    "State: work complete.\n"
+    "Running: nothing.\n"
+    "Blocked: none.\n"
+    "Waiting: your review. CI running on #640.\n"
+)
+_y8_warrants = _mod._classify_warrants(y8_msg)
+check(
+    "y8a. the 'CI running on #640' Waiting-line mention flips "
+    "`completion` to False (the veto still fires, as intended)",
+    _y8_warrants["completion"] is False,
+)
+_y8_stoppage_sole = _y8_warrants["stoppage"] and not (
+    _y8_warrants["decision"] or _y8_warrants["completion"]
+)
+check(
+    "y8b. losing `completion` makes this a sole-stoppage turn",
+    _y8_stoppage_sole is True,
+)
+check(
+    "y8c. the sole-stoppage branch then BLOCKS the State:/Running:/"
+    "Blocked: lines the general branch would have permitted - latent, "
+    "pre-existing mechanism, not introduced by this ticket, pinned here "
+    "so a future change to it is deliberate",
+    _mod._execution_prose_flag(y8_msg, _y8_warrants) is not None,
 )
 
 # ---------------------------------------------------------------------------
