@@ -191,7 +191,7 @@ Asking permission to fix a broken test, create a missing import, or look somethi
 
 ---
 
-## The 5-source default hierarchy
+## The 6-source default hierarchy
 
 <style scoped>
   .numbered { font-size: 0.85em; }
@@ -207,7 +207,8 @@ Every time the conductor is tempted to ask, it first tries to derive a default b
 <div class="n">2</div><div>Prior decisions in <code>MEMORY.md</code> and the project's decision log</div>
 <div class="n">3</div><div>The architect's plan and any orchestration-planner output</div>
 <div class="n">4</div><div>Established conventions in <code>AGENTS.md</code> and any track-level <code>AGENTS.md</code></div>
-<div class="n">5</div><div>The most conservative interpretation of the ticket text (minimize blast radius, commit to the fewest future decisions)</div>
+<div class="n">5</div><div><code>docs/overview/vision.md</code> and <code>requirements.md</code>, when present - does a stated pillar or requirement already answer this?</div>
+<div class="n">6</div><div>The most conservative interpretation of the ticket text (minimize blast radius, commit to the fewest future decisions)</div>
 </div>
 
 **First-match-wins.** Stop at the first source that yields a default. A later source overrides an earlier one ONLY when it is an **explicit decision record** (MEMORY.md entry, AGENTS.md convention, prior ADR) that supersedes the pattern.
@@ -242,7 +243,7 @@ Never overridden by default-and-proceed. A recommended default may be offered, b
 <div class="card" style="border-left-color: #3ad99a;">
 <strong>Surface-and-proceed branch</strong><br/>
 Non-irreversible. Used when ALL hold:<br/>
-- No default can be derived from the five sources<br/>
+- No default can be derived from the six sources<br/>
 - Guessing wrong would waste more than 30 minutes<br/>
 - The question is specific and bounded<br/><br/>
 Surface the question with a recommended default AND proceed with that default in the same turn.
