@@ -1,9 +1,7 @@
 # DinoStack Product Vision (North Star)
 
 **Status:** Ratified (committed 2026-06-28). This is the operator-owned product-intent layer - the
-lens every review and design decision is measured against. Authored 2026-06-24; synthesized from
-DinoStack's README/CLAUDE.md and the Helios vision
-(`../helios/docs/overview/vision.md`), which DinoStack exists to serve.
+lens every review and design decision is measured against. Authored 2026-06-24.
 
 ## The problem
 
