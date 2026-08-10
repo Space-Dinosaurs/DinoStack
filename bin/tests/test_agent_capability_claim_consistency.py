@@ -38,6 +38,13 @@ generator rather than a gate.
 Verified non-vacuous: run against the pre-fix tree (1716e8c6) this predicate
 flags exactly skeptic.md and qa-engineer.md and nothing else; against the fixed
 tree it flags nothing.
+
+This module carries a SECOND, independent guard, added in round 4: the
+shard-capture membership invariant, which cross-checks the enumerated role list
+in content/references/learnings-capture-instruction.md against the agent specs
+that actually instruct `ds-learning-shard append`. See the section comment
+above `_scan_membership` for why an enumeration needs a gate that a predicate
+did not.
 """
 
 import re
@@ -118,9 +125,135 @@ def test_no_self_contradicting_capability_claim():
     _scan()
 
 
+# ---------------------------------------------------------------------------
+# Shard-capture membership invariant (DS-154 Unit C, Skeptic round 4)
+# ---------------------------------------------------------------------------
+#
+# Rounds 1-4 of this unit each fixed the same defect: a PREDICATE deciding
+# which capture branch an agent belongs to, falsified by some agent. Round 4
+# fixed it correctly, by deleting the predicate and enumerating membership
+# instead - `content/references/learnings-capture-instruction.md` now names
+# exactly the roles that capture through the shard CLI.
+#
+# That is the right fix, but it converts a derivable rule into a HAND-MAINTAINED
+# TWO-SIDED INVARIANT: the reference's enumeration and the agent files must
+# agree, and until this guard nothing checked that. Adding a fifth agent bullet
+# instructing `ds-learning-shard append`, or editing the reference's list,
+# desynchronizes silently. The class recurred four times precisely because the
+# two sides were never cross-checked mechanically.
+#
+# The reference side is PARSED from the file, never hardcoded here. A hardcoded
+# list would make this test a third copy of the invariant - the same defect one
+# level up, where someone edits the reference and the test in one pass and the
+# agent files silently disagree with both.
+
+REFERENCE = REPO / "content" / "references" / "learnings-capture-instruction.md"
+
+# The enumerated membership sentence, e.g.
+#   "Exactly four roles capture through `ds-learning-shard`: `engineer`,
+#    `adr-generator`, `product-discovery` and `release-orchestrator`."
+# Matched against whitespace-normalized text so the sentence may wrap freely.
+MEMBERSHIP_SENTENCE = re.compile(
+    r"Exactly\s+(?P<count>[A-Za-z]+|\d+)\s+roles\s+capture\s+through\s+"
+    r"`ds-learning-shard`:\s*(?P<roles>[^.]+)\."
+)
+
+BACKTICKED = re.compile(r"`([a-z][a-z0-9-]*)`")
+
+# The positive, imperative instruction. `learning-extractor`, `learnings-agent`
+# and `wrap-ticket` mention `ds-learning-shard` only to say they cannot run it,
+# and none of them carries the `append` subcommand - which is what makes the
+# `append` token, rather than the bare CLI name, the discriminator.
+SHARD_INVOCATION = "ds-learning-shard append"
+
+_NUMBER_WORDS = {
+    "one": 1, "two": 2, "three": 3, "four": 4, "five": 5,
+    "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10,
+}
+
+
+def _parse_reference_membership():
+    """Return (declared_count, set_of_role_names) from the reference file."""
+    text = " ".join(REFERENCE.read_text(encoding="utf-8").split())
+    match = MEMBERSHIP_SENTENCE.search(text)
+    assert match, (
+        f"could not locate the enumerated membership sentence in "
+        f"{REFERENCE.relative_to(REPO)}. This guard parses that sentence rather "
+        f"than hardcoding the role list; if the wording changed, update "
+        f"MEMBERSHIP_SENTENCE here in the same commit - do not replace the parse "
+        f"with a literal list, which would make this test a third copy of the "
+        f"invariant."
+    )
+    raw_count = match.group("count").lower()
+    declared_count = _NUMBER_WORDS.get(raw_count)
+    if declared_count is None:
+        declared_count = int(raw_count)
+    return declared_count, set(BACKTICKED.findall(match.group("roles")))
+
+
+def _scan_membership():
+    """Fail when the reference's role list and the agent files disagree.
+
+    Asserts SET EQUALITY between the two sides plus the count the sentence
+    states. Either half alone is insufficient: a count check passes while the
+    sets diverge by a swap, and a one-directional subset check passes while the
+    other side has an extra member.
+    """
+    declared_count, declared_roles = _parse_reference_membership()
+
+    agent_roles = {
+        path.stem
+        for path in sorted(AGENTS_DIR.glob("*.md"))
+        if SHARD_INVOCATION in path.read_text(encoding="utf-8")
+    }
+
+    problems = []
+    if declared_roles != agent_roles:
+        problems.append(
+            "reference list and agent files disagree:\n"
+            f"    named in reference but no `{SHARD_INVOCATION}` in their spec: "
+            f"{sorted(declared_roles - agent_roles) or 'none'}\n"
+            f"    instruct `{SHARD_INVOCATION}` but not named in reference:     "
+            f"{sorted(agent_roles - declared_roles) or 'none'}"
+        )
+    if declared_count != len(declared_roles):
+        problems.append(
+            f"the sentence says {declared_count} roles but backtick-names "
+            f"{len(declared_roles)}: {sorted(declared_roles)}"
+        )
+    if declared_count != len(agent_roles):
+        problems.append(
+            f"the sentence says {declared_count} roles but "
+            f"{len(agent_roles)} agent spec(s) instruct `{SHARD_INVOCATION}`: "
+            f"{sorted(agent_roles)}"
+        )
+
+    if problems:
+        raise AssertionError(
+            "shard-capture membership invariant is out of sync between "
+            f"{REFERENCE.relative_to(REPO)} and content/agents/:\n  - "
+            + "\n  - ".join(problems)
+            + "\nBoth sides must be changed together: the enumeration exists "
+            "because a capability PREDICATE was falsified four review rounds "
+            "running, so do not restore a predicate to paper over the drift."
+        )
+
+    return sorted(agent_roles)
+
+
+def test_shard_capture_membership_matches_agent_specs():
+    _scan_membership()
+
+
 def main():
     checked = _scan()
     print(f"PASS: no self-contradicting capability claim in {checked} agent specs")
+    members = _scan_membership()
+    print(
+        "PASS: shard-capture membership consistent between "
+        f"learnings-capture-instruction.md and content/agents/ ({len(members)}): "
+        f"{', '.join(members)}"
+    )
     return 0
 
 
