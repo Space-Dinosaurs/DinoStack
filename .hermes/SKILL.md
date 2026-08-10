@@ -3468,7 +3468,7 @@ A loop-running spawn returns a structured digest. Required fields:
 
 Optional field (default empty; cap 5 entries per return):
 
-- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. Each entry carries `kind` (`workaround` | `dead-end` | `gotcha` | `decision`), `domain_tag`, `fact` (1-2 sentences on what was discovered), and `why` (why a cold future agent would re-derive it). This is the ONLY channel for worker-internal discovery; the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost.
+- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. The entry shape, the `kind` enum and the cap are defined once, in `content/references/learnings-capture-instruction.md`; this doc does not restate them. For a read-only agent this is the ONLY channel for worker-internal discovery, because the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost. A write-capable agent additionally records each learning in flight via `ds-learning-shard append`.
 
 The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, learnings_candidate, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
 
@@ -4206,6 +4206,150 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 **On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
 > Note: see the "Interrupt vs. pause path note" and "Resume banners" paragraphs in `content/commands/ds-implement-ticket.md` §"Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)" for the `paused_at`/`interrupted_at` distinction and the canonical resume-banner wording. The kernel command file is the SOURCE OF TRUTH for both resume-banner lines (kept there so `scripts/codex-skills.py`'s `documents()` transform, which only reads content/commands/*.md, still sees these operational literals - the `hooks/session-end-wrap.js` path and the `/ds-implement-ticket` resume-banner self-reference both need adapter-specific rewriting); the full print examples above ALSO show the resume line inline, for readability of the complete printed output - if the two ever disagree, the kernel paragraph governs.
+
+---
+
+### learnings-capture-instruction
+
+<!--
+Purpose: The single standing "watch for learnings" instruction every agent role
+         points at, plus the canonical definition of the `learnings_candidate[]`
+         digest field. Written once so ~20 agent files carry a pointer instead of
+         a copy: duplicated normative prose in this repo has drifted before and
+         cost multiple review rounds to reconcile.
+
+Public API: Read-only reference. Two consumable parts: the capture procedure
+            (split by whether the reading agent can write) and the
+            `learnings_candidate[]` entry shape.
+
+Upstream deps: bin/ds-learning-shard (owns the --event-type enum, the flag
+               names, and the per-session cap this document describes);
+               content/references/capture-classification.md (the conductor-side
+               gate that classifies what this document collects).
+
+Downstream consumers: every agent in content/agents/ (via a pointer);
+                      content/agents/engineer.md and
+                      content/references/digest-return-pattern.md, both of which
+                      defer the `learnings_candidate[]` shape to this file.
+
+Failure modes: Prose; does not execute. If the flag names or the --event-type
+               enum here drift from bin/ds-learning-shard, agents emit invalid
+               invocations - argparse exits 2 on a bad flag, which is the one
+               non-soft-fail path in that CLI.
+
+Performance: Standard.
+-->
+
+> Parent: METHODOLOGY.md §Events log. Read `content/references/capture-classification.md`
+> for the conductor-side gate that decides what actually gets written.
+
+# Learnings Capture Instruction
+
+Capture happens **in flight**, at the moment the learning occurs. Not batched to the
+end of the task, where it is reconstructed from memory or lost outright.
+
+## What counts as a learning
+
+Four kinds, which are exactly the `--event-type` enum of `bin/ds-learning-shard`
+and exactly the `kind` enum of `learnings_candidate[]`:
+
+| Kind | Fires when |
+|---|---|
+| `workaround` | You worked around a tool or command failure. |
+| `dead-end` | You tried an approach that cost non-trivial effort and did not work. |
+| `gotcha` | You hit a cross-component gotcha: behaviour in one place that only makes sense given something elsewhere. |
+| `decision` | You made a local design decision the task spec did not give you. |
+
+**Do not pre-filter for importance.** Classification is conductor-side, through the
+guardrail-first gate in `content/references/capture-classification.md`. If you judge
+importance yourself you will drop exactly the entries that look small in the moment
+and are expensive to re-derive cold. Record it and move on.
+
+## If you can write (Edit/Write available)
+
+Call the CLI the moment the learning occurs:
+
+```bash
+ds-learning-shard append \
+  --repo "$PWD" \
+  --session-key "<SESSION_KEY from your spawn brief>" \
+  --agent-id "<your agent id>" \
+  --role "<your role, e.g. engineer>" \
+  --event-type workaround \
+  --domain-tag "<short slug>" \
+  --description "<what happened>" \
+  --resolution "<how it was resolved, optional>"
+```
+
+- `--repo` accepts **any** path inside the repo, including an isolation worktree.
+  You do not need to resolve the primary checkout; the CLI does.
+- The store lives under `~/.agentic/learnings-shards/`, outside the repo on purpose:
+  an isolation worktree's `.agentic/` is deleted before the PR opens.
+- **The cap is CLI-enforced.** Never count your own entries and never decide you have
+  had enough. An over-cap append is a no-op that exits 0.
+- Every runtime condition is a soft-fail: the CLI exits 0 and prints one line to
+  stderr. **Never block your task on it, never retry it, never report it as a
+  failure.** The one exception is a malformed invocation (argparse exit 2), which
+  means you typed a flag wrong; fix the flag.
+
+Also populate `learnings_candidate[]` in your return digest as usual. The two paths
+are complementary: the shard survives your context, the digest reaches the conductor
+this turn.
+
+## If you cannot write (read-only agent)
+
+Agents declaring `disallowedTools: [Edit, Write, Agent]` cannot run the CLI and
+cannot delegate to something that can. Populate `learnings_candidate[]` in your
+return digest instead. That is your entire capture path, and the conductor is
+forbidden from re-reading your transcript, so anything not in that field is lost.
+
+## `learnings_candidate[]` (canonical definition)
+
+Optional digest field. Default `[]`; omit when empty. Cap 5 entries per return.
+
+```yaml
+learnings_candidate:
+  - kind: workaround | dead-end | gotcha | decision
+    domain_tag: <slug>
+    fact: <1-2 sentences: what was discovered>
+    why: <why a cold future agent would re-derive this>
+```
+
+```json
+{
+  "type": "array",
+  "maxItems": 5,
+  "default": [],
+  "items": {
+    "type": "object",
+    "required": ["kind", "domain_tag", "fact", "why"],
+    "properties": {
+      "kind":       { "enum": ["workaround", "dead-end", "gotcha", "decision"] },
+      "domain_tag": { "type": "string" },
+      "fact":       { "type": "string" },
+      "why":        { "type": "string" }
+    }
+  }
+}
+```
+
+This is the canonical definition of the field. `content/agents/engineer.md` and
+`content/references/digest-return-pattern.md` both point here rather than restate it.
+Two role-scoped restatements remain inline and are known to be narrower: `content/agents/investigator.md`
+and `content/agents/debugger.md` each declare a 3-value `kind` enum that omits `decision`.
+DS-154 Unit C folds both into this definition; until then, change the enum here and in those two files together.
+
+## Session identity
+
+`SESSION_KEY` arrives **in your spawn brief**. It is the only source.
+
+- **If your brief has no `SESSION_KEY`, skip shard capture silently.** Do not invent
+  a key, do not ask for one, do not block. `learnings_candidate[]` still applies and
+  needs no session key.
+- **Never read a session id from the environment.** `CLAUDE_CODE_SESSION_ID` is
+  Claude-only and this instruction must hold on every harness; `AGENTIC_SESSION_ID`
+  and `CLAUDE_SESSION_UUID` are dead, verified empty in a live session, and
+  `bin/ds-migrate` is silently degraded today precisely because it reads them.
 
 ---
 
@@ -8927,11 +9071,8 @@ commit_sha: <full 40-char SHA, or null if no commit was made>
 branch_name: <string, or null>
 pr_description_body: |
   <markdown body suitable for the PR; conductor may wrap with title/footer>
-learnings_candidate:     # optional; default []; cap 5 entries; omit when empty
-  - kind: workaround | dead-end | gotcha | decision
-    domain_tag: <slug>
-    fact: <1-2 sentences: what was discovered>
-    why: <why a cold future agent would re-derive this>
+learnings_candidate: []  # optional; entry shape, enum and cap are defined in
+                         # references/learnings-capture-instruction.md
 ```
 
 JSON-Schema fragment (informative; the conductor uses this to validate):
@@ -8968,25 +9109,14 @@ JSON-Schema fragment (informative; the conductor uses this to validate):
     },
     "commit_sha": { "type": ["string", "null"] },
     "branch_name": { "type": ["string", "null"] },
-    "pr_description_body": { "type": "string" },
-    "learnings_candidate": {
-      "type": "array",
-      "maxItems": 5,
-      "default": [],
-      "items": {
-        "type": "object",
-        "required": ["kind", "domain_tag", "fact", "why"],
-        "properties": {
-          "kind":       { "enum": ["workaround", "dead-end", "gotcha", "decision"] },
-          "domain_tag": { "type": "string" },
-          "fact":       { "type": "string" },
-          "why":        { "type": "string" }
-        }
-      }
-    }
+    "pr_description_body": { "type": "string" }
   }
 }
 ```
+
+The `learnings_candidate` property is deliberately absent from the fragment above.
+Its schema is defined once, in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`;
+copy it in from there when validating, rather than restating it here.
 
 After the structured block, return a plain-text summary covering:
 
@@ -9015,7 +9145,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
   - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/dinostack/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary, including the pre-fix attestation: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name]. Confirmed failing pre-fix: [what was observed when run against the unfixed code].`
 - **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/dinostack/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` for required fields and language-specific examples.
-- **Populate `learnings_candidate` for internal discoveries.** When you work around a tool/command failure, hit a dead-end that cost non-trivial effort, discover a cross-component gotcha, or make a local design decision not captured in the task spec, add an entry to `learnings_candidate[]` (cap 5). Omit it (or leave it `[]`) when nothing was discovered worth surfacing. The conductor routes these through the guardrail-first gate before forwarding to `learnings-agent`; you do not pre-filter.
+- **Capture learnings in flight.** You are a write-capable agent: record each learning the moment it occurs via `ds-learning-shard append`, and also populate `learnings_candidate[]` in your return digest. What counts as a learning, the exact invocation, the field shape, the cap, and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. You do not pre-filter for importance; the conductor routes entries through the guardrail-first gate before forwarding to `learnings-agent`.
 
 ## Front-end discipline
 

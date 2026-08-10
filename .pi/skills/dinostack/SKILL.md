@@ -75,6 +75,11 @@ Run `/ds-help` for the full command inventory.
   reads the structured digest and acts - it does not re-read the internal transcript; read
   when running a multi-unit plan with parallel background loops.
 
+- **references/learnings-capture-instruction.md** - the standing "watch for learnings"
+  instruction: what counts as a learning, the in-flight `ds-learning-shard append` path for
+  write-capable agents, the `learnings_candidate[]` path for read-only agents, and the
+  canonical definition of that field; read when acting as any subagent role.
+
 ## Rules (read on trigger)
 
 - **rules/module-manifest.md** - required manifest header format for non-trivial source files;
