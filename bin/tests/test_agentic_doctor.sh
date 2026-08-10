@@ -907,17 +907,26 @@ fi
 # add` linked worktree (not a synthetic stand-in), since only real git
 # plumbing reproduces the file-vs-directory ".git" distinction.
 #
-# PRIMARY_REPO also commits a real, functioning copy of
-# scripts/lib/precommit.sh (resolve_git_hooks_dir + resolve_hook_src +
-# their _precommit_canonical_repo_dir helper) - _resolve_hook_src in
-# bin/ds-doctor needs a real resolve_hook_src to shell into, and this
-# branch's OWN scripts/lib/precommit.sh (out of scope here - a concurrent
-# branch owns it) does not yet define that function, so without this fixed
-# fixture copy every _resolve_hook_src call would silently fall back to
-# the pre-fix hardcode and this test would assert nothing new. This is a
-# fixture-only copy (embedded below), not a change to the real
-# scripts/lib/precommit.sh in this repo.
-#
+# PRIMARY_REPO commits the REPO'S OWN real scripts/lib/precommit.sh (cp'd
+# from REPO_ROOT, not an embedded stand-in) - _resolve_hook_src in
+# bin/ds-doctor shells into it, and this fixture must exercise the actual
+# shipped resolve_hook_src, not a copy that can silently drift from it. A
+# prior round of this test embedded a hand-written stand-in function here;
+# a Skeptic review demonstrated that renaming the real resolve_hook_src to
+# resolve_precommit_source (an ordinary refactor of the shared lib) left
+# this test - and the parity test in
+# bin/tests/test_ds_doctor_precommit_source_parity.sh - fully green while
+# silently reintroducing the exact Major this branch exists to close. A
+# hard failure below (not a SKIP) is required if the real library is
+# missing the function this test depends on - a silently-skipped assertion
+# is indistinguishable from a passing one in a job log.
+# ---------------------------------------------------------------------------
+if ! grep -qE '^resolve_hook_src[[:space:]]*\(\)' "$REPO_ROOT/scripts/lib/precommit.sh" 2>/dev/null; then
+  _fail "T18 precondition: $REPO_ROOT/scripts/lib/precommit.sh does not define resolve_hook_src - this fixture cannot exercise the real function (hard failure, not a skip)"
+else
+  _pass "T18 precondition: $REPO_ROOT/scripts/lib/precommit.sh defines resolve_hook_src"
+fi
+
 # T18 previously asserted the CONFLICTING behavior here: with a hardcoded
 # expected_src, a worktree repo_dir's own hooks/pre-commit and its
 # resolved git-hooks-dir agreed with EACH OTHER (both hardcodes point
@@ -939,65 +948,7 @@ mkdir -p "$PRIMARY_REPO"
   mkdir -p hooks scripts/lib
   printf '#!/usr/bin/env bash\nexit 0\n' > hooks/pre-commit
   chmod +x hooks/pre-commit
-  cat > scripts/lib/precommit.sh <<'PRECOMMIT_SH'
-# shellcheck shell=bash
-# Fixture copy of the real resolve_git_hooks_dir/resolve_hook_src pair
-# (DS-58 / PR #640) - see the T18 fixture-setup comment above for why this
-# is embedded here rather than copied from the checkout's own
-# scripts/lib/precommit.sh.
-_precommit_canonical_repo_dir() {
-  local d="$1"
-  if [[ -z "$d" ]]; then
-    echo "$d"
-    return 0
-  fi
-  (cd "$d" 2>/dev/null && pwd -P) || echo "$d"
-}
-
-resolve_git_hooks_dir() {
-  local repo_dir="$1"
-  local hooks_dir
-  if ! hooks_dir="$(git -C "$repo_dir" rev-parse --git-path hooks 2>/dev/null)" || [[ -z "$hooks_dir" ]]; then
-    return 1
-  fi
-  case "$hooks_dir" in
-    /*) : ;;
-    *) hooks_dir="$repo_dir/$hooks_dir" ;;
-  esac
-  echo "$hooks_dir"
-}
-
-resolve_hook_src() {
-  local repo_dir="$1"
-  repo_dir="$(_precommit_canonical_repo_dir "$repo_dir")"
-  local fallback="$repo_dir/hooks/pre-commit"
-
-  local git_dir common_dir
-  if ! git_dir="$(git -C "$repo_dir" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || [[ -z "$git_dir" ]]; then
-    echo "$fallback"
-    return 0
-  fi
-  if ! common_dir="$(git -C "$repo_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || [[ -z "$common_dir" ]]; then
-    echo "$fallback"
-    return 0
-  fi
-
-  if [[ "$git_dir" == "$common_dir" ]]; then
-    echo "$fallback"
-    return 0
-  fi
-
-  local common_worktree candidate
-  common_worktree="$(dirname "$common_dir")"
-  candidate="$common_worktree/hooks/pre-commit"
-  if [[ -z "$common_worktree" || ! -f "$candidate" ]]; then
-    echo "$fallback"
-    return 0
-  fi
-
-  echo "$candidate"
-}
-PRECOMMIT_SH
+  cp "$REPO_ROOT/scripts/lib/precommit.sh" scripts/lib/precommit.sh
   git add hooks/pre-commit scripts/lib/precommit.sh
   git commit -q -m init
 )

@@ -71,8 +71,11 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, subprocess,
                resolve_hook_src <repo_dir>' - the identical bash function
                every adapter install/uninstall script already calls, so
                this check can never independently drift from them on what
-               the expected hook source is; falls back to the historical
-               <repo_dir>/hooks/pre-commit on any resolution failure).
+               the expected hook source is; on any resolution failure,
+               WARNs and skips the symlink write entirely - it never
+               substitutes the historical <repo_dir>/hooks/pre-commit
+               hardcode, which is the wrong target by construction for a
+               linked-worktree repo_dir).
                check_hooks_snapshot_staleness shells out
                to bash <repo_dir>/hooks/lib/hooks-staleness-core.sh (DS-54;
                reuses its compute_hooks_source_hash-backed classification
@@ -835,6 +838,27 @@ def check_local_bin_stale(doc: Doctor) -> None:
 # ---------------------------------------------------------------------------
 
 
+def _scrubbed_git_env() -> dict:
+    """A copy of the current process environment with GIT_DIR,
+    GIT_WORK_TREE, GIT_COMMON_DIR, and GIT_INDEX_FILE removed.
+
+    Every subprocess `git` invocation in this file passes an explicit
+    `-C <repo_dir>`, which should be authoritative - but an ambient
+    GIT_DIR/GIT_WORK_TREE in the calling process's environment silently
+    overrides `-C` for git plumbing commands. A caller with
+    GIT_DIR=<primary>/.git set (e.g. from a wrapper script, a git hook, or a
+    parent process mid-rebase) would make `_resolve_hook_src(<worktree>)`
+    resolve against the PRIMARY repo instead of the worktree actually
+    passed in, silently producing a different answer than the one
+    <repo_dir> alone implies. Scrub before every subprocess git call this
+    module makes so the explicit argument is the only thing that matters.
+    """
+    env = dict(os.environ)
+    for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+        env.pop(var, None)
+    return env
+
+
 def _resolve_git_hooks_dir(repo_dir: Path) -> Path | None:
     """Resolve the REAL git hooks DIRECTORY for repo_dir via
     `git -C repo_dir rev-parse --git-path hooks`.
@@ -878,7 +902,7 @@ def _resolve_git_hooks_dir(repo_dir: Path) -> Path | None:
     return Path(os.path.realpath(str(p)))
 
 
-def _resolve_hook_src(repo_dir: Path) -> Path:
+def _resolve_hook_src(repo_dir: Path) -> Path | None:
     """Resolve the pre-commit hook's expected symlink SOURCE by shelling
     out to scripts/lib/precommit.sh's resolve_hook_src - the identical bash
     function every adapter install/uninstall script already calls (DS-58 /
@@ -894,16 +918,23 @@ def _resolve_hook_src(repo_dir: Path) -> Path:
     a hand-copied expected_src here would silently repoint the shared hook
     into a worktree on --fix.
 
-    Falls back to the historical repo_dir/hooks/pre-commit on any
-    resolution failure (missing scripts/lib/precommit.sh, resolve_hook_src
-    not defined there, non-git repo_dir, subprocess error/timeout) -
-    matching resolve_hook_src's own fallback shape (it never raises; it
-    degrades to the same historical target instead).
+    Returns None on any resolution failure (missing
+    scripts/lib/precommit.sh, resolve_hook_src not defined there, non-git
+    repo_dir, subprocess error/timeout) - deliberately UNLIKE
+    _resolve_git_hooks_dir's fallback-to-hardcode sibling shape and
+    resolve_hook_src's own bash-side fallback: the historical
+    repo_dir/hooks/pre-commit hardcode is exactly the WRONG answer for a
+    linked-worktree repo_dir (the Major this module exists to fix), so
+    substituting it on failure would fail toward the exact defect this
+    function was added to close, unattended, whenever `ds-doctor --fix`
+    runs against a checkout with a missing/stale/unresolvable
+    scripts/lib/precommit.sh (e.g. any repo_dir predating DS-58 or #640).
+    check_git_precommit treats None as "cannot safely resolve a target" and
+    warns + skips the symlink write entirely rather than guessing.
     """
     lib_script = repo_dir / "scripts" / "lib" / "precommit.sh"
-    fallback = repo_dir / "hooks" / "pre-commit"
     if not lib_script.is_file():
-        return fallback
+        return None
 
     import subprocess
 
@@ -912,14 +943,15 @@ def _resolve_hook_src(repo_dir: Path) -> Path:
             ["bash", "-c", 'source "$1"; resolve_hook_src "$2"',
              "_", str(lib_script), str(repo_dir)],
             capture_output=True, text=True, timeout=10,
+            env=_scrubbed_git_env(),
         )
     except (OSError, subprocess.SubprocessError):
-        return fallback
+        return None
     if result.returncode != 0:
-        return fallback
+        return None
     raw = (result.stdout or "").strip()
     if not raw:
-        return fallback
+        return None
     return Path(raw)
 
 
@@ -934,6 +966,28 @@ def check_git_precommit(doc: Doctor) -> None:
         # in the run; this fallback just keeps this check from crashing.
         git_hooks_dir = doc.repo_dir / ".git" / "hooks"
     git_hook = git_hooks_dir / "pre-commit"
+
+    if expected_src is None:
+        # _resolve_hook_src could not determine a safe target (missing
+        # scripts/lib/precommit.sh, resolve_hook_src undefined there,
+        # non-git repo_dir, or a subprocess error/timeout). Writing nothing
+        # is strictly better than writing the historical
+        # repo_dir/hooks/pre-commit hardcode here - that value is wrong by
+        # construction whenever repo_dir is a linked worktree, and this
+        # check can run unattended via `ds-update` -> `ds-doctor --fix`
+        # with no operator present to catch a bad guess. WARN rather than
+        # SKIP: this is a resolution failure worth surfacing, not a
+        # deliberate "not applicable here" like the other SKIP branches
+        # below.
+        doc.warn(
+            "git_precommit",
+            f"could not resolve the pre-commit hook source via "
+            f"scripts/lib/precommit.sh's resolve_hook_src (missing "
+            f"library, missing function, or a resolution error) - "
+            f"skipping the symlink write for {git_hook} rather than "
+            f"guessing a target",
+        )
+        return
 
     if not expected_src.exists():
         doc.skip("git_precommit", git_hook, f"managed pre-commit not found at {expected_src}")
