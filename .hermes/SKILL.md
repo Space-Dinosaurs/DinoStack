@@ -4408,6 +4408,11 @@ four values by construction.
 
 `SESSION_KEY` arrives **in your spawn brief**. It is the only source.
 
+The producing side of that contract is `content/references/subagent-protocol.md`
+§"Spawning Workers", which obliges the conductor to derive one key per session and
+include it in **every** Worker's spawn prompt. That is where the derivation rule
+lives; do not restate it here, and never apply it yourself.
+
 - **If your brief has no `SESSION_KEY`, skip shard capture silently.** Do not invent
   a key, do not ask for one, do not block. `learnings_candidate[]` still applies and
   needs no session key.
@@ -6892,6 +6897,29 @@ When a Worker returns to the main agent under this protocol, the main agent expe
 **Side effects:** Workers must not apply irreversible changes (file overwrites, database mutations, published state) without informing the main agent that sign-off is required before those changes are safe. Workers that must stage irreversible changes as part of their implementation must include a revert procedure in their return output.
 
 **Spawning Workers:** The main agent must include the project context file content (`.agentic/context.md`) in each Worker's spawn prompt. Workers must not be expected to self-direct context reads - they may not have reliable access to the path or the protocol, and a worktree-isolated Worker cannot reach `.agentic/context.md` at all (`.agentic/` is gitignored, so it is absent from a fresh worktree checkout). The main agent is responsible for providing session context at spawn time.
+
+**`SESSION_KEY` at spawn time:** The main agent must also include a `SESSION_KEY` line in **every** Worker's spawn prompt. This is the same shape of obligation as the context file above and holds for the same reason: `SESSION_KEY` is conductor-supplied session state, not something a Worker can derive. `content/references/learnings-capture-instruction.md` §Session identity makes the spawn brief the *only* source an agent may read it from, and an agent whose brief omits it skips shard capture **silently**. A missing line therefore raises no error anywhere; it just means the learning was never recorded.
+
+Derive the value **once per session**, at the first Worker spawn, and pass that same value on every spawn thereafter:
+
+1. If `$CLAUDE_CODE_SESSION_ID` is set and non-empty, use it verbatim.
+2. Otherwise generate one key and carry it in the session's own working state:
+
+```bash
+printf 'ds-session-%s-%s\n' "$(date -u +%Y%m%dT%H%M%SZ)" \
+  "$(od -An -N2 -tx1 /dev/urandom | tr -d ' \n')"
+# ds-session-20260810T142233Z-9f2c
+```
+
+Three rules govern that derivation, each with a live counter-example in this repo:
+
+- **Only Claude Code exposes a session id to the conductor's shell.** Every other adapter keeps its id inside its own hook or plugin process (`payload.session_id`; OpenCode's `.opencode/plugins/session-context.ts` reads `event.properties.sessionID`) and never exports it to the model's shell. On Claude Code a subagent inherits the identical `$CLAUDE_CODE_SESSION_ID`, so the brief line is belt-and-braces there rather than load-bearing. Pass it regardless, so one rule holds on every harness.
+- **Never substitute a cross-harness environment variable.** `AGENTIC_SESSION_ID` and `CLAUDE_SESSION_UUID` are both empty in a live session, and `bin/ds-migrate` is silently degraded today precisely because it reads them. `content/commands/ds-wrap.md` records the same measurement for the wrap lock's `--session-id`.
+- **Never synthesize a value inside Claude's id namespace.** The `ds-session-` prefix exists to keep a generated key visibly outside it. This mirrors the rule `content/commands/ds-implement-ticket.md` already applies to `loop-state-<LOOP_KEY>.json`, which writes `session_id: null` on a harness with no id of its own rather than inventing a uuid in the wrong namespace.
+
+**Pass it as a literal string and persist nothing.** No file records the key. Nothing needs it to survive a restart: a shard is a per-session file by construction, and `ds-learning-shard rollup` reads every shard under the repo's shard directory regardless of how many sessions produced them. A key file under the conductor's `.agentic/` would in any case be unreachable from a worktree-isolated Worker, for exactly the reason given above about `.agentic/context.md`.
+
+**Every spawn, not only the roles that can capture.** Just four roles can call `ds-learning-shard append`, and that membership list is enumerated in `content/references/learnings-capture-instruction.md` and cross-checked against the agent files by `bin/tests/test_agent_capability_claim_consistency.py`, which exists because the list has desynchronized before. Scoping this obligation to those four would make this paragraph a further site restating the list; a blanket rule cannot desync from a list it never restates. The cost is one ignored line in the briefs of roles that will not use it.
 
 **Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
 

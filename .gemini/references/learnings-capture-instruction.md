@@ -176,6 +176,11 @@ four values by construction.
 
 `SESSION_KEY` arrives **in your spawn brief**. It is the only source.
 
+The producing side of that contract is `content/references/subagent-protocol.md`
+§"Spawning Workers", which obliges the conductor to derive one key per session and
+include it in **every** Worker's spawn prompt. That is where the derivation rule
+lives; do not restate it here, and never apply it yourself.
+
 - **If your brief has no `SESSION_KEY`, skip shard capture silently.** Do not invent
   a key, do not ask for one, do not block. `learnings_candidate[]` still applies and
   needs no session key.
