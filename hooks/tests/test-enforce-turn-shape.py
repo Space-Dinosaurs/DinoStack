@@ -2223,6 +2223,151 @@ rc, out, err = run_hook(make_payload(ds156_d_msg))
 check("fp4. Answer+Decision combo -> QUIET", is_quiet(rc, out))
 
 # ---------------------------------------------------------------------------
+# y. DS-157: body-paragraph completion declaration suppresses the
+#    status-only ADVISORY without granting the `completion` WARRANT (never
+#    routes to the BLOCKING _execution_prose_flag path). See
+#    hooks/enforce-turn-shape.py's _has_body_completion_declaration
+#    docstring for the corpus method and the blocking-path safety analysis.
+# ---------------------------------------------------------------------------
+
+# y1. The reported symptom, reproduced verbatim in shape: identity line
+# "Both units shipped." does NOT itself match _LEADING_COMPLETION_RE
+# ("shipped" has no trailing completion-adjacent word before the period),
+# but the FIRST body paragraph opens with a genuine leading completion
+# declaration.
+y1_msg = (
+    "Both units shipped.\n"
+    "\n"
+    "**DS-156 is done.** `_execution_prose_flag` is live and blocking on "
+    "main, all markers removed.\n"
+    "\n"
+    "What changed for you:\n"
+    "\n"
+    "- Execution turns are now structurally incapable of carrying prose.\n"
+    "- Answer turns stay conversational.\n"
+)
+rc, out, err = run_hook(make_payload(y1_msg))
+check(
+    "y1. DS-157 reported symptom - identity line misses, first body "
+    "paragraph is a genuine completion declaration -> QUIET (was ADVISORY "
+    "pre-fix)",
+    is_quiet(rc, out),
+)
+
+# y2. Second corpus-derived true positive: "Cleaned up." (identity line -
+# "cleaned" is not in _LEADING_COMPLETION_RE's past-participle verb list)
+# followed by a bulleted "**Done:**" paragraph.
+y2_msg = (
+    "Cleaned up.\n"
+    "\n"
+    "**Done:**\n"
+    "- Killed any dev servers.\n"
+    "- Removed both agent worktrees.\n"
+    "- Deleted the scratch branches.\n"
+)
+rc, out, err = run_hook(make_payload(y2_msg))
+check(
+    "y2. 'Cleaned up.' + first-paragraph '**Done:**' bullet list -> QUIET",
+    is_quiet(rc, out),
+)
+
+# y3. REGRESSION (round 1 false positive, tally header): "Three done, two
+# building:" matches the leading-completion SHAPE but is a partial tally,
+# not a whole-turn completion claim - _TALLY_HEADER_RE excludes it. Must
+# stay ADVISORY (status-only), not be suppressed.
+y3_msg = (
+    "**AUT-295 merged and closed** (deploy).\n"
+    "\n"
+    "Three done, two building:\n"
+    "\n"
+    "| Ticket | State |\n"
+    "|---|---|\n"
+    "| AUT-407 | Merged |\n"
+    "| AUT-415 | Building |\n"
+)
+rc, out, err = run_hook(make_payload(y3_msg))
+check(
+    "y3. tally header ('Three done, two building:') is NOT suppressed -> "
+    "ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# y4. REGRESSION (round 2 false positive, sub-item trap): the first
+# paragraph is a genuine-shaped completion declaration, but the SAME turn's
+# second paragraph is still in progress ("**In progress:**") - the
+# extended _CONTINUING_WORK_PHRASE_RE veto must catch this.
+y4_msg = (
+    "Fix round running. Where things stand:\n"
+    "\n"
+    "**Done and independently verified:** the feature works end to end.\n"
+    "Handles the empty/failed cases without breaking.\n"
+    "\n"
+    "**In progress:** the two remaining Majors.\n"
+    "Deduplicating the shared fetch across both routes.\n"
+)
+rc, out, err = run_hook(make_payload(y4_msg))
+check(
+    "y4. first-paragraph completion declaration vetoed by a later "
+    "'**In progress:**' paragraph -> ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# y5. REGRESSION (round 3 false positive, bare-noun continuing signal): the
+# existing 'is/are still running' phrase does not match a bare-noun subject
+# ("Review running on #639", "Two loose ends still open") - the DS-157
+# veto additions must.
+y5_msg = (
+    "ad-hoc · main · [phase: skeptic-review]\n"
+    "\n"
+    "Split done.\n"
+    "\n"
+    "**#639 is open** with the deferral alone.\n"
+    "\n"
+    "Review running on #639, briefed on the one risk that matters.\n"
+    "\n"
+    "Two loose ends still open: the pre-commit hook fix, and Plan B's "
+    "review.\n"
+)
+rc, out, err = run_hook(make_payload(y5_msg))
+check(
+    "y5. 'Review running on #639' / 'still open' vetoes suppression -> "
+    "ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# y6. BLOCKING-PATH SAFETY REGRESSION (the ticket's central concern): the
+# y1 shape must NEVER grant the `completion` WARRANT, even though
+# _has_body_completion_declaration is True for it - only _status_only_flag
+# may consume that signal. Pinned directly against the module's warrant
+# dict, not just the hook's observable QUIET/ADVISORY behavior, so a future
+# change that threads the signal into _classify_warrants is caught even if
+# it happens to still test QUIET on this fixture (e.g. because some other
+# warrant also fires).
+_y1_warrants = _mod._classify_warrants(y1_msg)
+check(
+    "y6a. _has_body_completion_declaration is True for the y1 fixture "
+    "(precondition for y6b/y6c to be meaningful)",
+    _mod._has_body_completion_declaration(y1_msg) is True,
+)
+check(
+    "y6b. the `completion` warrant key is NOT granted for the y1 fixture",
+    _y1_warrants["completion"] is False,
+)
+# y6c. Directly verifies the blocking-path danger this ticket required be
+# analyzed: if a future change DID fold _has_body_completion_declaration
+# into the `completion` warrant, _execution_prose_flag would BLOCK this
+# exact genuine-completion turn (its bulleted detail lines are not
+# State:/Running:/Blocked:/Waiting: slot lines). This is why the fix stops
+# at _status_only_flag and never reaches _classify_warrants.
+_y1_warrants_if_granted = dict(_y1_warrants)
+_y1_warrants_if_granted["completion"] = True
+check(
+    "y6c. simulating the warrant being granted trips _execution_prose_flag "
+    "(BLOCKING) - confirms why the fix must NOT widen the warrant",
+    _mod._execution_prose_flag(y1_msg, _y1_warrants_if_granted) is not None,
+)
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

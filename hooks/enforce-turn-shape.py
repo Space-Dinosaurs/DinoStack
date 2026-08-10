@@ -137,6 +137,27 @@ Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
                              still-in-progress signal appearing separately
                              in the body ("Security audit complete." ...
                              "Skeptic is still running.").
+                             (DS-157) A turn whose identity line is NOT
+                             itself a leading completion declaration (e.g.
+                             "Both units shipped." - "shipped" alone, with
+                             no trailing completion-adjacent word, does not
+                             match _LEADING_COMPLETION_RE), but whose FIRST
+                             body paragraph is ("**DS-156 is done.**
+                             ..."), does NOT gain the `completion` WARRANT
+                             here - see _has_body_completion_declaration's
+                             docstring for the measured reason: granting the
+                             warrant would route the turn onto the BLOCKING
+                             _execution_prose_flag general branch, which
+                             every real multi-paragraph prose completion
+                             report in the DS-157 corpus fails (it permits
+                             only State:/Running:/Blocked:/Waiting: slot
+                             lines, never narrative bullets). Instead this
+                             shape is recognized ONE LEVEL DOWN, inside
+                             _status_only_flag only (see that function) -
+                             it suppresses the ADVISORY status-only nag
+                             without ever entering the warrant dict above or
+                             the blocking classification path in step 2
+                             below.
               - answer:     a quoted fragment of the operator's immediately
                              preceding message, OR (DS-155)
                              _transcript_answer_bonus finding that the
@@ -766,13 +787,35 @@ _COMPLETION_RE = re.compile(
 #      and the broader alternative's measured cost (6 wrongly-suppressed
 #      genuine completions, see above) is worse than this gap's cost. Not
 #      widened without a fresh corpus measurement justifying it.
+# DS-157 additions (see _has_body_completion_declaration's docstring for the
+# corpus method these four phrases were measured against): a turn opening
+# with a genuine leading completion declaration for ONE part of the work can
+# still describe unfinished OTHER work later in the same body - the same
+# "completed sub-item inside a still-in-progress turn" shape DS-156 round 1
+# already found for the identity-line case, reproduced here for the
+# body-paragraph case. Each phrase below traces to a REAL false positive
+# found while measuring the DS-157 corpus (not a hand-written phrase list
+# assumed to generalise, same discipline as the three phrases above):
+#   - "in progress" - a still-open work item labelled with its own
+#     "**In progress:**" sub-heading elsewhere in the body (e.g. "**Done and
+#     independently verified:** the feature works... **In progress:** the
+#     two Majors...").
+#   - "review(s) running" / "running on" - "Review running on #639",
+#     "Two reviews still running" (the bare-noun-subject form the existing
+#     `is|are still running` phrase above does not match, since there is no
+#     is/are).
+#   - "still open" - "Two loose ends still open".
 _RUNNING_FIELD_ACTIVE_RE = re.compile(
     r"^\s*running\s*:\s*(?!nothing\b)(?!none\b)\S", re.IGNORECASE | re.MULTILINE
 )
 _CONTINUING_WORK_PHRASE_RE = re.compile(
     r"\b(?:is|are)\s+still\s+running\b"
     r"|\bone\s+(?:more\s+)?to\s+go\b"
-    r"|\bremaining\s+after\b",
+    r"|\bremaining\s+after\b"
+    r"|\bin\s+progress\b"
+    r"|\breview(?:s)?\s+running\b"
+    r"|\brunning\s+on\b"
+    r"|\bstill\s+open\b",
     re.IGNORECASE,
 )
 
@@ -873,9 +916,14 @@ def _has_continuing_work_signal(text: str) -> bool:
 # under this version - the former via `_has_continuing_work_signal`, the
 # latter because the `status: DONE` sentinel is deleted outright.
 #
-# Known residual gap, NOT rounded to zero: a completion declared under a
-# markdown sub-heading (e.g. "## Done") several lines into the body, rather
-# than on the identity line, is still not recognised - see
+# Known residual gap, PARTIALLY closed by DS-157 (see
+# _has_body_completion_declaration below - that fix suppresses the
+# ADVISORY status-only nag for exactly this shape, but deliberately does
+# NOT extend this WARRANT-granting regex's own domain past the identity
+# line; see that function's docstring for why): a completion declared
+# under a markdown sub-heading (e.g. "## Done") several lines into the
+# body, rather than on the identity line, is still not recognised as a
+# `completion` WARRANT - see
 # `hooks/tests/fixtures/turn-shape-completion-corpus.json` case A9.
 _LEADING_COMPLETION_RE = re.compile(
     r"\A\s*\*{0,2}"
@@ -885,6 +933,26 @@ _LEADING_COMPLETION_RE = re.compile(
     r"|(?:merged|shipped|deployed|pushed|landed)\b.{0,40}?"
     r"\b(?:live|deployed|merged|complete|completed|done|cleaned up)\b"
     r")\*{0,2}[.!:]",
+    re.IGNORECASE,
+)
+
+# DS-157. A TALLY/partial-progress header ("Three done, two building:",
+# "Four of seven done:") - structurally identical to a genuine leading
+# completion declaration (a short leading-words group, then "done", then
+# comma-joined trailing modifiers, then a terminal `:`), but it introduces a
+# MIXED breakdown of an overall still-in-progress turn, not a claim that
+# THIS turn's work is complete. Measured directly from the DS-157 corpus
+# (see _has_body_completion_declaration): "Three done, two building:" and
+# "Four of seven done:" both matched the leading-completion shape and were
+# both false positives, in both cases immediately followed by a table
+# showing some rows still building/queued. Scoped to a leading
+# number-word/digit specifically (not e.g. "Both units shipped." - two is a
+# pronoun there, not a tally count) so it does not reopen the identity-line
+# `_LEADING_COMPLETION_RE` path, which this constant is never used against.
+_TALLY_HEADER_RE = re.compile(
+    r"^\*{0,2}(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+"
+    r"(?:of\s+(?:\d+|one|two|three|four|five|six|seven|eight|nine|ten)\s+)?"
+    r"(?:is\s+|are\s+)?(?:done|complete|completed)\b",
     re.IGNORECASE,
 )
 
@@ -1047,11 +1115,143 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
     }
 
 
+def _has_body_completion_declaration(text: str) -> bool:
+    """DS-157. True iff the FIRST unfenced paragraph immediately following
+    the identity line opens with a leading completion declaration (the same
+    shape `_LEADING_COMPLETION_RE` recognizes on the identity line itself),
+    the domain carries no continuing-work signal, and that paragraph is not
+    a tally/partial-progress header.
+
+    ADVISORY-ONLY consumer, deliberately: this feeds `_status_only_flag`
+    ONLY (suppresses the nag on a genuine completion report whose identity
+    line does not itself carry a recognizable leading declaration - see the
+    reported symptom below). It is NEVER folded into `_classify_warrants`'s
+    `completion` key, and therefore never grants the `completion` WARRANT
+    or routes a turn onto the BLOCKING `_execution_prose_flag` path. This is
+    a deliberate, measured design choice, not an oversight - see "Why not
+    widen the warrant" below.
+
+    Reported symptom (DS-157, ticket: repo-local ad-hoc): "Both units
+    shipped.\\n\\n**DS-156 is done.** ..." was flagged status-only. The
+    identity line "Both units shipped." does not match
+    `_LEADING_COMPLETION_RE` - "shipped" is a recognized leading
+    past-participle, but the pattern requires a completion-adjacent word
+    (live/deployed/merged/complete/done/cleaned up) within 40 characters
+    after it, and none follows before the sentence ends. The genuine
+    completion declaration, "**DS-156 is done.**", is in the body's first
+    paragraph, not the identity line - `_LEADING_COMPLETION_RE`'s `\\A`
+    anchor deliberately never scans past position 1 (DS-156 round 1 found
+    an anywhere-scoped version of this pattern false-positives on completed
+    SUB-ITEMS inside still-in-progress turns).
+
+    Corpus method: same population as `_LEADING_COMPLETION_RE`'s DS-156
+    corpus history (`~/.claude/projects`, main-agent-only final turns,
+    isSidechain absent/false; re-run for DS-157 at 3,564 files / 3,901
+    main-agent candidate final turns, 970 currently flagged status-only -
+    the corpus is a live, growing directory, so these are point-in-time
+    figures, not a reproducible constant).
+
+    Round 1 (REJECTED): matched the leading-completion shape against the
+    first line of ANY unfenced paragraph anywhere in the body, gated only
+    by the existing `_has_continuing_work_signal`. 15 of 970 status-only
+    turns newly matched; independently hand-labelling all 15 found 4 false
+    positives (26.7%) - all four reproducing DS-156 round 1's exact defect
+    class one position over: a genuinely short, sentence-complete
+    completion-shaped header ("Three done, two building:", "Four of seven
+    done:", "**Done and approved:**") describing progress on only PART of a
+    still-in-progress turn, or a full turn whose OVERALL state was still
+    in-progress two paragraphs later ("Fix round running. ... **Done and
+    independently verified:** the feature works. ... **In progress:** the
+    two Majors ..."). None of the 4 were on the identity line, matching the
+    "anywhere-scoped body match reopens the sub-item trap" pattern the
+    identity-line anchor was originally built to close.
+
+    Round 2: restricted the domain to the FIRST unfenced paragraph
+    immediately after the identity line only (not "any paragraph"), and
+    added a `_TALLY_HEADER_RE` exclusion for a leading number-word/digit
+    tally shape. This alone eliminated 2 of the 4 round-1 false positives
+    (the ones whose match was NOT the first paragraph) but left 2 survivors
+    whose match WAS the first paragraph: the tally-header case ("Three
+    done, two building:") and the sub-item case ("**Done and independently
+    verified:**" as literally paragraph 1, with "**In progress:**" as
+    paragraph 2 of the SAME still-in-progress turn).
+
+    Round 3 (current): the tally survivor is closed by `_TALLY_HEADER_RE`
+    (added in this round). The sub-item survivor, plus a THIRD false
+    positive found while re-measuring round 2's fix on the full 970-turn
+    population ("Split done. ... Review running on #639 ... Two loose ends
+    still open."), are closed by extending `_CONTINUING_WORK_PHRASE_RE`
+    with four phrases measured directly from these real false positives:
+    "in progress", "review(s) running", "running on", "still open" (see
+    that regex's own docstring for the phrase-to-instance mapping). Net
+    result on the 970-turn population: 6 newly recognised (0.6%),
+    independently re-labelled all 6 (not sampled) - 0 confirmed false
+    positives. This is a smaller, more conservative fix than the reported
+    symptom alone would suggest is needed; disclosed rather than chased
+    further, matching the discipline `_CONTINUING_WORK_PHRASE_RE`'s
+    docstring already applies to its own narrower phrase list. A completion
+    declared later than the first body paragraph remains a disclosed,
+    unrecognised residual (see `_LEADING_COMPLETION_RE`'s "Known residual
+    gap" comment and case A9 in
+    `hooks/tests/fixtures/turn-shape-completion-corpus.json`).
+
+    Why not widen the `completion` WARRANT instead (the blocking-path
+    safety analysis this ticket required): every one of the 6 confirmed
+    true positives is a multi-paragraph prose report with bulleted detail
+    ("- Killed any dev servers...", "- Removed both agent worktrees..."),
+    not a terse `State:`/`Running:`/`Blocked:`/`Waiting:` slot-line turn.
+    Granting the `completion` warrant would route each of them onto
+    `_execution_prose_flag`'s GENERAL branch (§4/§9,
+    content/references/conductor-turn-format.md), which permits ONLY
+    recognized slot lines or `Waiting:` lines in the unfenced status
+    region - every one of those bullet lines is "unrecognized" under that
+    whitelist and would BLOCK. Verified by execution against the reported
+    example with the warrant granted synthetically: `_execution_prose_flag`
+    returns a blocking finding ("unrecognized line in the status region").
+    Widening the warrant would therefore convert today's advisory nag into
+    a hard BLOCK on the exact turns it is meant to help - objectively worse
+    than the status quo. Suppressing only `_status_only_flag`'s advisory
+    output, without granting the warrant, is the safe fix: it silences the
+    nag on a genuine completion report without moving that report onto a
+    structural shape check it was never written to satisfy.
+    """
+    identity_line, body = _segment(text)
+    unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
+    domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
+    if _has_continuing_work_signal(domain_text):
+        return False
+
+    paragraphs = []
+    current = []
+    for line in unfenced_lines:
+        if not line.strip():
+            if current:
+                paragraphs.append(current)
+                current = []
+            continue
+        current.append(line)
+    if current:
+        paragraphs.append(current)
+    if not paragraphs:
+        return False
+
+    first_line = paragraphs[0][0].strip()
+    if _TALLY_HEADER_RE.match(first_line):
+        return False
+    return bool(_LEADING_COMPLETION_RE.match(first_line))
+
+
 def _status_only_flag(text: str, warrants: dict) -> bool:
     """Fires when the message exceeds ~1-2 lines of prose outside the
-    identity line AND carries none of the four warrants. Raw-line path -
-    see the module docstring's "Known implementation seam" note."""
+    identity line AND carries none of the four warrants, AND (DS-157) the
+    body's first paragraph is not itself a recognized completion
+    declaration - see `_has_body_completion_declaration`'s docstring for
+    why that check suppresses only this advisory, never the `completion`
+    WARRANT itself. Raw-line path for the line-count test - see the module
+    docstring's "Known implementation seam" note."""
     if any(warrants.values()):
+        return False
+    if _has_body_completion_declaration(text):
         return False
     body_lines = [ln for ln in _body_after_identity_line(text) if ln.strip()]
     return len(body_lines) > 2
