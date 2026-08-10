@@ -994,6 +994,125 @@ fi
 
 rm -rf "$TEMP_HOME"
 
+# write_matching_hooks_snapshot_meta: construct a .snapshot-meta.json under
+# TEMP_HOME whose source_hash matches compute_hooks_source_hash's actual
+# output for FAKE_REPO's (mostly-absent) hook paths, so
+# _hooks_snapshot_diverged reports "not diverged" for this fixture. Sources
+# the REAL scripts/lib/hooks-snapshot.sh from THIS checkout (the same file
+# bin/ds-update itself sources) - not from FAKE_REPO, which never ships that
+# asset. Must be called after setup_git_fixture.
+write_matching_hooks_snapshot_meta() {
+  local hooks_snapshot_lib="$SCRIPT_DIR/../scripts/lib/hooks-snapshot.sh"
+  (
+    HOME="$TEMP_HOME"
+    export HOME
+    # shellcheck source=/dev/null
+    source "$hooks_snapshot_lib"
+    snapshot_dir="$(hooks_snapshot_dir "$FAKE_REPO")"
+    mkdir -p "$snapshot_dir"
+    live_hash="$(compute_hooks_source_hash \
+      "$FAKE_REPO/hooks" \
+      "$FAKE_REPO/bin/ds-identity" \
+      "$FAKE_REPO/.codex/config/hooks.json" \
+      "$FAKE_REPO/.codex/hooks" \
+      "$FAKE_REPO/.gemini/hooks" \
+      "$FAKE_REPO/.kimi/hooks")"
+    python3 -c "
+import json, sys
+with open(sys.argv[1], 'w') as f:
+    json.dump({'source_hash': sys.argv[2]}, f)
+" "$snapshot_dir/.snapshot-meta.json" "$live_hash"
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Test 18 (DS-54): a hooks-snapshot that has drifted from the checkout's live
+# hook source (here: no snapshot has EVER been created - the never_migrated
+# state) forces the adapter install loop on the old_head==new_head
+# ("Already up to date") early-return path, even with no --mode/--profile/
+# --identity/--adapters forcing flag.
+#
+# Before this fix, this path printed "Already up to date" and returned 0
+# WITHOUT ever invoking install.sh - an operator who manually `git pull`ed a
+# hooks/ fix before running ds-update got a silent no-op (the dogfooding gap
+# this ticket closes).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE
+# (old_head==new_head). No snapshot is ever written for FAKE_REPO in this
+# TEMP_HOME, so _hooks_snapshot_diverged must report "diverged" (never_migrated).
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: exits 0"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "hooks.*snapshot.*drifted\|forcing adapter install"; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: reports forced install"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: missing forced-install message (got: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "RAN"; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: install.sh actually ran"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: install.sh did NOT run (recorded: $ARGS_RECORDED) - the DS-54 dogfooding gap reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 19 (DS-54, negative/mutation-verification case): when the local
+# hooks-snapshot's stored source_hash ALREADY matches the checkout's live
+# hook source, the old_head==new_head path must NOT force an adapter
+# install - proves _hooks_snapshot_diverged is not just "always true", and
+# that T18 is exercising the actual comparison, not a constant.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+write_matching_hooks_snapshot_meta
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE.
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T19 already-up-to-date + hooks-snapshot matching: exits 0"
+else
+  _fail "T19 already-up-to-date + hooks-snapshot matching: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _fail "T19 already-up-to-date + hooks-snapshot matching: unexpectedly forced adapter install (got: $OUT)"
+else
+  _pass "T19 already-up-to-date + hooks-snapshot matching: did NOT force adapter install"
+fi
+
+if [[ -z "$ARGS_RECORDED" ]]; then
+  _pass "T19 already-up-to-date + hooks-snapshot matching: install.sh did NOT run"
+else
+  _fail "T19 already-up-to-date + hooks-snapshot matching: install.sh unexpectedly ran (recorded: $ARGS_RECORDED)"
+fi
+
+rm -rf "$TEMP_HOME"
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------

@@ -594,6 +594,117 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Tests 12-14 (DS-54): hooks-snapshot staleness check
+# (check_hooks_snapshot_staleness / _fix_hooks_snapshot).
+#
+# Unlike the fixtures above (a bare .git marker dir), this check needs a
+# repo_dir that actually ships hooks/lib/hooks-staleness-core.sh and
+# scripts/lib/hooks-snapshot.sh - so these tests point repo_dir at THIS
+# checkout itself (REPO_ROOT, resolved from SCRIPT_DIR), never at a
+# synthetic FAKE_REPO. This is read-only-safe: hooks-staleness-core.sh only
+# reads; sync_hooks_snapshot (invoked by T13's --fix) writes exclusively
+# under the ISOLATED TEMP_HOME's $HOME/.agentic/hooks-snapshot/ (per-checkout
+# snapshot storage keyed by realpath(repo_dir), see
+# scripts/lib/hooks-snapshot.sh) - never under REPO_ROOT itself, so the real
+# checkout on disk is never mutated by these tests.
+# ---------------------------------------------------------------------------
+REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+setup_hooks_snapshot_fixture() {
+  TEMP_HOME="$(mktemp -d)"
+  mkdir -p "$TEMP_HOME/.agentic"
+  cat > "$TEMP_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$REPO_ROOT"
+}
+EOF
+}
+
+# ---------------------------------------------------------------------------
+# Test 12: never_migrated - a fresh TEMP_HOME with no hooks-snapshot ever
+# created for REPO_ROOT is reported as a FIX finding (exit 1 in read-only
+# mode), classified never_migrated.
+# ---------------------------------------------------------------------------
+setup_hooks_snapshot_fixture
+invoke_doctor --json
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "1" ]]; then
+  _pass "T12 hooks_snapshot never_migrated: exits 1 (finding present)"
+else
+  _fail "T12 hooks_snapshot never_migrated: expected exit 1, got $RC\n$OUT"
+fi
+
+if echo "$OUT" | grep -q 'hooks_snapshot \[never_migrated\]'; then
+  _pass "T12 hooks_snapshot never_migrated: classified never_migrated"
+else
+  _fail "T12 hooks_snapshot never_migrated: missing never_migrated classification\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 13: --fix calls sync_hooks_snapshot, which creates the snapshot dir
+# under the isolated TEMP_HOME (never under REPO_ROOT) and a subsequent
+# read-only re-scan reports OK (current).
+# ---------------------------------------------------------------------------
+setup_hooks_snapshot_fixture
+invoke_doctor --fix
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT" | grep -qi "hooks_snapshot"; then
+  _pass "T13 hooks_snapshot --fix: hooks_snapshot finding present in --fix output"
+else
+  _fail "T13 hooks_snapshot --fix: no hooks_snapshot finding in --fix output\n$OUT"
+fi
+
+if [[ -d "$TEMP_HOME/.agentic/hooks-snapshot" ]] && [[ -n "$(ls -A "$TEMP_HOME/.agentic/hooks-snapshot" 2>/dev/null)" ]]; then
+  _pass "T13 hooks_snapshot --fix: snapshot dir created under isolated TEMP_HOME"
+else
+  _fail "T13 hooks_snapshot --fix: no snapshot dir created under TEMP_HOME/.agentic/hooks-snapshot"
+fi
+
+invoke_doctor --json
+RC2=$(cat "$TEMP_HOME/.exit")
+OUT2=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT2" | grep -q "hooks_snapshot: hooks snapshot is current"; then
+  _pass "T13 hooks_snapshot --fix: subsequent scan reports current"
+else
+  _fail "T13 hooks_snapshot --fix: subsequent scan did not report current\n$OUT2"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 14: a repo_dir without hooks/lib/hooks-staleness-core.sh (the
+# synthetic FAKE_REPO fixture used by Tests 1-11) is SKIPPED, not FAILed -
+# the check must degrade gracefully on a partial/older checkout rather than
+# treating a missing script as drift.
+# ---------------------------------------------------------------------------
+setup_fixture
+invoke_doctor --json
+
+OUT=$(cat "$TEMP_HOME/.out")
+
+if python3 -c "
+import json, sys
+data = json.load(open('$TEMP_HOME/.out'))
+found = [f for f in data['findings'] if f['message'].startswith('hooks_snapshot:')]
+sys.exit(0 if found and found[0]['status'] == 'SKIP' else 1)
+" 2>/dev/null; then
+  _pass "T14 hooks_snapshot on repo without hooks-staleness-core.sh: SKIP, not FAIL"
+else
+  _fail "T14 hooks_snapshot on repo without hooks-staleness-core.sh: expected a SKIP finding\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

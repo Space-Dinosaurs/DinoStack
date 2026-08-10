@@ -73,6 +73,42 @@ the live checkout surfaces as a SessionStart nudge
 `content/sections/` methodology prose documents the rules these hooks
 enforce.
 
+**Merged is not live.** A hook fix merged to `main` does not take effect on
+this machine until an installer re-syncs the snapshot - the SessionStart
+nudge above only fires at a brand-new session's first tool call, never
+mid-session and never at merge time, so a merge that lands while sessions are
+already open (the common case) leaves the fix dormant indefinitely absent
+some other trigger. Three mechanisms now close that gap, in order of how
+reliably they fire: (1) `bin/ds-doctor`'s `check_hooks_snapshot_staleness`
+check classifies staleness on demand (`never_migrated` / `half_applied` /
+`stale_but_stable`) by shelling out to `lib/hooks-staleness-core.sh`, and
+`--fix` calls `sync_hooks_snapshot` - the identical call every adapter
+`install.sh` already makes unconditionally, so this introduces no new
+mutation hazard under the DS-54 invariant (it only fires on an explicit
+`--fix`, never a passive scan); (2) `bin/ds-base-sync` prints the same
+staleness nudge as a non-blocking advisory note after every invocation,
+independent of which project's repo it just synced - this is the one
+guaranteed post-merge trigger point, since it runs unconditionally at
+`/ds-implement-ticket` Phase 12; it is read-only and never calls
+`sync_hooks_snapshot` itself; (3) `bin/ds-update` compares the live hooks/
+source hash against the snapshot's stored hash even when nothing new was
+pulled by that invocation (`_hooks_snapshot_diverged`, closing the gap where
+an operator manually `git pull`ed a hooks change before running `ds-update`,
+so there was no diff for `ds-update`'s own rebuild-trigger logic to see) and
+forces the adapter-install loop when they diverge - both `ds-doctor --fix`
+invocations that already run unconditionally on `ds-update`'s early-return
+paths independently cover the rest. None of the three can auto-rewire a live
+session's hooks from a passive trigger; only an explicit `--fix` or an
+adapter `install.sh` run ever calls `sync_hooks_snapshot`.
+
+**Adapter asymmetry.** Claude Code, Codex, Gemini, and Kimi are all
+snapshotted (this section). `.cursor/install.sh` and `.opencode/install.sh`
+instead symlink their hook config directly into the live checkout, so those
+two harnesses pick up a hook change on the next `git pull` with no dormancy
+gap and no snapshot-staleness concept at all - counterintuitively, the
+primary harness (Claude Code) is the one subject to the dormancy gap this
+section describes, not the exception to it.
+
 ## Two config layers: matcher registration vs snapshot script body
 
 Hook configuration reaches a running session through two independent layers, and they refresh on different schedules. Both statements below are true; neither supersedes the other.

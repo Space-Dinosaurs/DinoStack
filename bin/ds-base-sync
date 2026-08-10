@@ -16,8 +16,23 @@
 #       3  usage/repo-resolution/argument error
 #       4  inconclusive       - status=fetch-failed, status=refused-unknown,
 #                               or status=ref-locked-elsewhere
+#     Advisory note (DS-54, non-blocking, never affects the exit code
+#     above): after the sync attempt, unconditionally runs
+#     hooks/lib/hooks-staleness-core.sh from the OPERATOR'S OWN DinoStack
+#     checkout (resolved independently of <repo> - a merge in ANY project
+#     should surface staleness in the operator's own AE install) and prints
+#     its one-line finding, if any, prefixed "ds-base-sync: ". This is the
+#     one guaranteed post-merge trigger point (called unconditionally at
+#     /ds-implement-ticket Phase 12), closing the "a merged hook fix stays
+#     dormant until an adapter install.sh runs" gap for operators who never
+#     think to run ds-doctor. Read-only: never calls sync_hooks_snapshot -
+#     the DS-54 invariant forbids a passive/automatic trigger from
+#     auto-rewiring a live session's hooks; only an explicit `--fix` (ds-doctor)
+#     or an adapter install.sh run may do that.
 #
-# Upstream deps: scripts/lib/base-branch-sync.sh, bash, git.
+# Upstream deps: scripts/lib/base-branch-sync.sh, bash, git,
+#                hooks/lib/hooks-staleness-core.sh (advisory note only;
+#                missing/failing is silently skipped, never fatal).
 #
 # Downstream consumers: content/commands/ds-implement-ticket.md Phase 12
 #                       (repo-relative invocation), content/rules/
@@ -32,8 +47,13 @@
 #     found relative to this script.
 #   - See scripts/lib/base-branch-sync.sh for the full status/exit-code
 #     classification (5 distinct statuses across exit codes 0/1/2/4).
+#   - The hooks-staleness advisory note never affects the exit code: a
+#     missing hooks-staleness-core.sh, or any error running it, is silently
+#     swallowed (stderr redirected, `|| true`).
 #
-# Performance: standard - see scripts/lib/base-branch-sync.sh.
+# Performance: standard - see scripts/lib/base-branch-sync.sh. The staleness
+#              note adds one bash subprocess, sub-50ms on a warm cache (see
+#              hooks-staleness-core.sh's own perf note).
 # ---------------------------------------------------------------------------
 
 set -u
@@ -89,4 +109,26 @@ fi
 . "$LIB_DIR/base-branch-sync.sh"
 
 ae_base_branch_sync "$REPO_DIR" "$2"
-exit $?
+_ds_base_sync_status=$?
+
+# --- DS-54 advisory: hooks-snapshot staleness note (non-blocking) ---
+# Runs unconditionally after every ds-base-sync invocation regardless of
+# <repo>/<base-branch> or the sync status above - this is the one guaranteed
+# post-merge trigger point (called unconditionally at /ds-implement-ticket
+# Phase 12), independent of which project's repo was just synced. The
+# operator's own DinoStack checkout is resolved by
+# hooks-staleness-core.sh itself (via scripts/lib/repo-dir.sh), NOT from
+# $REPO_DIR - a merge in ANY consumer project should surface staleness in
+# the operator's own AE install, not just when syncing DinoStack's own repo.
+# Read-only: hooks-staleness-core.sh never touches the filesystem beyond
+# reads (see its own header), so this cannot violate the DS-54 invariant -
+# it only ever prints a note, never calls sync_hooks_snapshot itself.
+_ds_hooks_staleness_core="$SCRIPT_DIR/../hooks/lib/hooks-staleness-core.sh"
+if [ -f "$_ds_hooks_staleness_core" ]; then
+  _ds_staleness_note="$(bash "$_ds_hooks_staleness_core" 2>/dev/null || true)"
+  if [ -n "$_ds_staleness_note" ]; then
+    echo "ds-base-sync: $_ds_staleness_note"
+  fi
+fi
+
+exit "$_ds_base_sync_status"

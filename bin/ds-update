@@ -78,6 +78,33 @@ Advisory: when a pull changes any file under hooks/, a non-blocking
           other already-open sessions against this checkout pick up the
           change on their next tool call. Never blocks the update.
 
+DS-54 dogfooding gap (old_head==new_head path): when nothing new was pulled
+          by THIS invocation (e.g. the operator already ran a bare `git pull`
+          manually before running ds-update), _hooks_touched/_needs_rebuild
+          have no diff to inspect and cannot notice a hooks/ change that
+          landed in an earlier, un-triggered pull. _hooks_snapshot_diverged
+          closes this: it directly compares the live hooks/ source hash
+          against the session-stable snapshot's stored source_hash (reusing
+          compute_hooks_source_hash, never reimplementing the hash/exclusion
+          algorithm) and, when they diverge (including when no snapshot has
+          ever been created), forces the full adapter-install loop on the
+          old_head==new_head early-return path - mirroring the existing
+          forced_install pattern for --mode/--profile/--identity/--adapters
+          rather than making the HEAD-diff itself smarter (HEAD is the wrong
+          signal for staleness caused by a pull ds-update never saw). This
+          only fires from a deliberate `ds-update` invocation, never from a
+          bare `git pull` - satisfies the same DS-54 invariant as
+          hooks-snapshot.sh itself. The "no rebuild needed" early-return path
+          needs no equivalent check: hooks/ is itself a REBUILD_TRIGGER, so
+          any pull THIS invocation makes that touches hooks/ already forces
+          the normal rebuild path; and both early-return paths already call
+          `ds-doctor --fix` unconditionally (see _run_doctor), which since
+          this same DS-54 fix also independently detects and repairs
+          hooks-snapshot staleness (bin/ds-doctor
+          check_hooks_snapshot_staleness) - so a stale snapshot left by an
+          earlier un-triggered pull is caught there too, whenever --no-doctor
+          is not passed.
+
 Performance: network-bound (git fetch); rebuild decision and adapter installs
              add seconds only when adapter sources changed.
 """
@@ -316,6 +343,81 @@ def _build_hooks_note(changed_paths: list[str]) -> str:
         "checkout will pick up the changed hooks on its next tool call. If that matters, have "
         "those sessions /exit and restart once this update finishes. Changed: " + changed_list
     )
+
+
+# ---------------------------------------------------------------------------
+# DS-54 hooks-snapshot staleness (the old_head==new_head dogfooding gap)
+# ---------------------------------------------------------------------------
+
+
+def _hooks_snapshot_diverged(repo_dir: Path) -> bool:
+    """Return True if the live hooks/ source under repo_dir no longer
+    matches the session-stable snapshot's stored source_hash (DS-54),
+    including when no snapshot has ever been created for this repo_dir.
+
+    Fail-open: any resolution error (missing scripts/lib/hooks-snapshot.sh,
+    a subprocess failure, etc.) returns False rather than forcing an
+    unnecessary adapter-install cycle - matches the fail-open posture of
+    hooks-snapshot.sh and hooks/lib/hooks-staleness-core.sh.
+
+    Deliberately does NOT reuse hooks/lib/hooks-staleness-core.sh directly:
+    that script resolves its own repo_dir via scripts/lib/repo-dir.sh from
+    $HOME/.agentic/agentic-engineering-config.json and ignores the
+    AGENTIC_CONFIG_PATH override _config_path() above honors, which would
+    make this function untestable against an isolated fixture. Instead this
+    calls hooks_snapshot_dir(repo_dir) with the already-resolved repo_dir
+    (the same explicit-argument shape sync_hooks_snapshot itself uses) and
+    reuses compute_hooks_source_hash - the actual hashing/exclusion
+    function - with the identical argument list hooks-staleness-core.sh's
+    own stale_but_stable check uses, so the two can never independently
+    drift on what counts as "the hook source".
+
+    scripts/lib/hooks-snapshot.sh is resolved relative to THIS file's own
+    location (Path(__file__).resolve(), matching _load_shared_config's
+    rationale above) - it is a fixed DinoStack tooling asset, not something
+    that exists per-consumer-repo, so it must always come from the real
+    checkout this script itself ships in, not from repo_dir.
+    """
+    snapshot_lib = Path(__file__).resolve().parent.parent / "scripts" / "lib" / "hooks-snapshot.sh"
+    if not snapshot_lib.is_file():
+        return False
+
+    script = (
+        'set -euo pipefail\n'
+        'source "$1"\n'
+        'snapshot_dir="$(hooks_snapshot_dir "$2")"\n'
+        'meta_file="$snapshot_dir/.snapshot-meta.json"\n'
+        'if [[ ! -f "$meta_file" ]]; then\n'
+        '  echo diverged\n'
+        '  exit 0\n'
+        'fi\n'
+        'meta_hash="$(python3 -c "\n'
+        'import json, sys\n'
+        'try:\n'
+        '    with open(sys.argv[1]) as f:\n'
+        '        print(json.load(f).get(\'source_hash\', \'\'))\n'
+        'except Exception:\n'
+        '    print(\'\')\n'
+        '" "$meta_file")"\n'
+        'live_hash="$(compute_hooks_source_hash \\\n'
+        '  "$2/hooks" \\\n'
+        '  "$2/bin/ds-identity" \\\n'
+        '  "$2/.codex/config/hooks.json" \\\n'
+        '  "$2/.codex/hooks" \\\n'
+        '  "$2/.gemini/hooks" \\\n'
+        '  "$2/.kimi/hooks")"\n'
+        'if [[ -n "$meta_hash" ]] && [[ "$live_hash" != "$meta_hash" ]]; then\n'
+        '  echo diverged\n'
+        'fi\n'
+    )
+    try:
+        result = subprocess.run(
+            ["bash", "-c", script, "_", str(snapshot_lib), str(repo_dir)],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return "diverged" in (result.stdout or "")
 
 
 # ---------------------------------------------------------------------------
@@ -575,6 +677,18 @@ def main() -> int:
             print(
                 f"Already up to date ({old_short}), but forcing adapter install "
                 f"because {forced_reason_label}: {forced_reason}."
+            )
+            return _run_adapter_installs(repo_dir, args, install_flags)
+        # DS-54 dogfooding gap: nothing pulled by THIS invocation, but an
+        # earlier un-triggered pull may have already landed a hooks/ change
+        # this run never saw a diff for. Mirrors the forced_install pattern
+        # above rather than making the HEAD-diff smarter - see the DS-54
+        # module docstring note.
+        if _hooks_snapshot_diverged(repo_dir):
+            print(
+                f"Already up to date ({old_short}), but the local hooks "
+                f"snapshot has drifted from the checkout's hook source "
+                f"(DS-54) - forcing adapter install to refresh it."
             )
             return _run_adapter_installs(repo_dir, args, install_flags)
         print(f"Already up to date ({old_short}).")
