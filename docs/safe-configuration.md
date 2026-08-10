@@ -119,6 +119,11 @@ hook installed separately:
   sibling enforcers, its `~/.claude/settings.json` registration is **guarded**
   (`test -f ... && python3 ... || exit 0`), so a reverted PR removing the
   script cannot leave a dangling blocking Stop entry.
+- [`enforce-worktree-read.py`](../hooks/enforce-worktree-read.py)
+  - PreToolUse (Read); denies a worktree-isolated subagent's `Read` when the
+  target resolves inside the primary checkout instead of the agent's own
+  worktree; never fires on a conductor (main-session) read; disable via
+  `AE_WORKTREE_READ_GUARD_DISABLE=1`.
 - [`pre-commit`](../hooks/pre-commit) - rebuilds adapter outputs when `content/`
   changes and stamps the docs hub date.
 
@@ -137,8 +142,9 @@ Every implementer spawn (`engineer`, `qa-engineer`, `release-orchestrator`) runs
 in an isolated git worktree branched from `main`
 ([content/sections/11-worktree-lifecycle.md](../content/sections/11-worktree-lifecycle.md)).
 This keeps the conductor's untracked scaffolding out of Worker commits and stops
-parallel Workers from contaminating one shared tree. It scopes **git state**
-only - it does not isolate the host filesystem or network. Leave isolation on;
+parallel Workers from contaminating one shared tree. It scopes **git state**,
+and, as of `enforce-worktree-read.py`, a subagent's `Read` calls - it does not
+isolate any other host filesystem access or the network. Leave isolation on;
 it is mandatory in the methodology and there is no in-place exception.
 
 ## Risk profiles

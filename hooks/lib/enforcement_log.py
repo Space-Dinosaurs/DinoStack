@@ -6,7 +6,7 @@ Purpose: Shared fire-logging helper for AE's Python enforce-*.py
          non-passthrough action (deny, or an allow-with-advisory-reason).
          A silent allow (the overwhelming majority of invocations) never
          calls this - only actions are logged, so the file stays small
-         and cheap to read. This exists because seven of the eight
+         and cheap to read. This exists because eight of the nine
          enforce-*.py hooks currently leave no trace of whether they have
          ever fired, making an inert rule indistinguishable from a
          load-bearing one (see MEMORY.md / session notes on the
@@ -36,21 +36,22 @@ Upstream deps: Python 3 stdlib only (json, os, datetime). No external
                [cwd]/.agentic/ with os.makedirs(exist_ok=True) if absent).
                Never reads any file.
 
-Downstream consumers: the seven enforce-*.py PreToolUse/Stop hooks that
+Downstream consumers: the eight enforce-*.py PreToolUse/Stop hooks that
                        call log_fire() at their action-emission point:
                        enforce-askuserquestion-default.py,
                        enforce-background-spawn.py,
                        enforce-orchestrator-singularity.py,
                        enforce-planning-artifact-spawn.py,
                        enforce-shippable-edit.py, enforce-tier.py,
-                       enforce-turn-shape.py (the first Stop-event
-                       consumer; the other six are PreToolUse).
+                       enforce-turn-shape.py, and enforce-worktree-read.py.
+                       enforce-turn-shape.py is the first Stop-event
+                       consumer; the other seven are PreToolUse.
                        enforce-no-abdication.py is deliberately NOT a
                        consumer - it keeps its own pre-existing counter
                        file (.abdication-guard-fire-count) with different
                        semantics (a cumulative count + loop-guard state,
                        not a fire log) completely unchanged; this module
-                       is purely additive telemetry for the other seven
+                       is purely additive telemetry for the other eight
                        and must never be repurposed to touch that file.
 
 Failure modes: Fully fail-open and silent, matching every enforce-*.py
