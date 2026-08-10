@@ -764,10 +764,15 @@ upsert_hook(
     "Stop hook enforce-no-abdication.py",
 )
 
-# Turn-shape guard (DS-122): advisory-only, never blocks. Checks the shape
-# of the conductor's final assistant message (identity line, warrant
-# classification, forced-yield shape) and surfaces findings via
-# additionalContext. Registered AFTER enforce-no-abdication.py.
+# Turn-shape guard (DS-122; DS-156). Checks the shape of the conductor's
+# final assistant message (warrant classification, execution-turn structural
+# shape, answer-turn phrasing). As of DS-156 NOT uniformly advisory: the
+# execution-turn structural check can block the stop; the answer-turn
+# phrasing check stays advisory-only and surfaces via additionalContext.
+# DS-156 CONTRACT, NOT YET SHIPPED: the blocking structural check
+# (_execution_prose_flag) is Unit 2's implementation target; the hook this
+# script installs today remains uniformly advisory until that lands.
+# Registered AFTER enforce-no-abdication.py.
 # Default ON (turn_shape_guard_enabled must be explicitly false in
 # .agentic/config.json to disable). Disable via:
 # AE_TURN_SHAPE_GUARD_DISABLE=1 in the environment.

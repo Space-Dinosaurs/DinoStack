@@ -1142,7 +1142,7 @@
 
   <div class="rel-card" style="margin-bottom: 10px;">
     <h4>Turn-shape guard</h4>
-    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether an advisory Stop hook checks the conductor's final turn against the fixed-shape/warranted-turn rule and logs a finding. Never blocks the stop.</p>
+    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 6px;">Whether a Stop hook checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156, not uniformly advisory: the structural check on a non-Answer turn's shape can block the stop; the phrasing check on Answer-turn prose remains advisory-only and only logs. <strong>DS-156 CONTRACT, NOT YET SHIPPED:</strong> the currently shipped hook remains uniformly advisory until the blocking structural check lands.</p>
     <p style="font-size: 12px; margin-bottom: 2px;"><strong>Options:</strong> <code><strong>true</strong></code> / <code>false</code> &nbsp; <strong>Default:</strong> <code>true</code> (absent key resolves to on)</p>
     <p style="font-size: 12px; color: var(--text-secondary); margin: 0;"><strong>Set:</strong> <code>turn_shape_guard_enabled</code> in <code>.agentic/config.json</code>; disable per-session: <code>export AE_TURN_SHAPE_GUARD_DISABLE=1</code></p>
     <p style="font-size: 12px; margin: 5px 0 0 0;"><span style="background: rgba(24,224,255,0.12); color: var(--cyan); border-radius: 4px; padding: 1px 8px; font-weight: 600; letter-spacing: 0.02em;">Just ask</span> <span style="color: var(--text-secondary); font-style: italic;">&ldquo;turn off the turn-shape guard&rdquo;</span></p>

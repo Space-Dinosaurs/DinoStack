@@ -404,14 +404,14 @@ Piecemeal questions past the threshold paper over a structural gap and burn oper
 
 ---
 
-## Fixed-shape, warranted turns
+## Warrant-bound turn shape
 
-Every conductor turn has a bounded shape: result first, decisions last, nothing that isn't load-bearing for what the operator needs to act on next.
+Shape follows the warrant: an execution turn (decision/stoppage/completion, no answer) is the structured slot block only - zero prose. An answer turn (a direct operator question) is prose only - no slots, no line cap, just a relevance rule.
 
-An advisory Stop hook (`enforce-turn-shape.py`) checks the final turn against this rule and logs a finding - it never blocks the stop. Controlled by `turn_shape_guard_enabled` (default on).
+A Stop hook (`enforce-turn-shape.py`) enforces this. As of DS-156: the execution-turn structural check BLOCKS; the answer-turn phrasing check stays advisory-only. Controlled by `turn_shape_guard_enabled` (default on). **DS-156 CONTRACT, NOT YET SHIPPED** - the shipped hook remains uniformly advisory until the blocking check lands.
 
 <div class="callout">
-Advisory, not enforcement: the rule is about respecting operator attention, not gating the session.
+A structural yes/no shape check earns blocking; a curated-phrase-list heuristic on prose does not.
 </div>
 
 ---
