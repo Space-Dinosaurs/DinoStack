@@ -256,7 +256,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Code standards - tool discipline, quality gates, package management, browser verification
 - Conventions - writing style, project structure, session context, git workflow
 
-**Reference docs** (36 files) - detailed protocol specs loaded on trigger:
+**Reference docs** (37 files) - detailed protocol specs loaded on trigger:
 
 - Skeptic protocol - adversarial review loop, findings classification, sign-off format
 - Subagent protocol - parallel spawning, worktree isolation, task decomposition
@@ -269,6 +269,7 @@ See [ADAPTERS.md](ADAPTERS.md) for how to create adapters for other tools.
 - Doc-sync obligation - when a reality-asserting change must update intent-layer docs in the same PR
 - Cross-harness agent teams - `ds-team` CLI, team.yml schema, cross-harness dispatch and collection
 - Evidence-on-disk - spill/sketch/rehydrate protocol for large worker tool outputs
+- Learnings capture instruction - what counts as a learning, the in-flight capture path for write-capable agents, and the `learnings_candidate[]` digest field for read-only agents
 
 **Agents** (18) - named specialist roles:
 adr-drift-detector, adr-generator, architect, debugger, dependency-auditor, engineer, goal-condition-evaluator, investigator, learning-extractor, learnings-agent, orchestration-planner, perf-analyst, product-discovery, qa-engineer, release-orchestrator, security-auditor, skeptic, wrap-ticket
