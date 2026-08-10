@@ -1,6 +1,6 @@
 # bin/
 
-Seventeen CLI entry points (14 Python, 1 Bash, 2 Node) that the dinostack
+Eighteen CLI entry points (14 Python, 2 Bash, 2 Node) that the dinostack
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description
@@ -16,6 +16,7 @@ sunset (external cron jobs and shell aliases reference it).
 
 | Command | Lang | One-line role |
 |---|---|---|
+| `ds-base-sync` | Bash | Fast-forward the local base branch to `origin/<base-branch>` after a merge, with a normalized exit-code contract (`synced`/`diverged`/`skipped-dirty`/`usage-error`/`inconclusive`); prints a non-blocking DS-54 hooks-snapshot-staleness advisory note after every invocation. |
 | `ds-calibrate` | Python | Render Skeptic calibration rollups (findings density, meta-Skeptic divergence rate) from `.agentic/events.jsonl`. |
 | `ds-cost` | Python | Token / wall-time / dollar rollups per agent, session, task, and developer team from `.agentic/events.jsonl` and session logs. |
 | `ds-disable` | Python | Append the opt-out marker to `AGENTS.md`; optionally update the global config. |

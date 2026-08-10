@@ -428,7 +428,7 @@ def _hooks_snapshot_diverged(repo_dir: Path) -> bool:
         'while IFS= read -r _diverged_source_path; do\n'
         '  _diverged_source_paths+=("$_diverged_source_path")\n'
         'done < <(hooks_source_paths "$2")\n'
-        'live_hash="$(compute_hooks_source_hash "${_diverged_source_paths[@]}")"\n'
+        'live_hash="$(compute_hooks_source_hash ${_diverged_source_paths[@]+"${_diverged_source_paths[@]}"})"\n'
         'if [[ -n "$meta_hash" ]] && [[ "$live_hash" != "$meta_hash" ]]; then\n'
         '  echo diverged\n'
         'fi\n'

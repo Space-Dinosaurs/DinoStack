@@ -449,48 +449,44 @@ sync_hooks_snapshot() {
   fi
 
   # --- Copy the source set, preserving checkout-relative layout ---
-  # Plain cp -R (NOT rsync) followed by a targeted rm of the
-  # excluded paths - matches compute_hooks_source_hash's exclusions so a
-  # hooks/tests/ or hooks/AGENTS.md edit alone never trips staleness.
-  cp -R "$real_repo_dir/hooks" "$stage_dir/hooks" || {
-    rm -rf -- "$stage_dir"
-    return 1
-  }
+  # Driven by hooks_source_paths() - the SOLE list - so the copy set can
+  # never independently drift from the hash set below. Plain cp -R/cp (NOT
+  # rsync), then a targeted rm of the excluded hooks/ paths - matches
+  # compute_hooks_source_hash's exclusions so a hooks/tests/ or
+  # hooks/AGENTS.md edit alone never trips staleness. Directory vs file is
+  # handled explicitly per-entry (cp -R vs cp) since the two need different
+  # cp invocations; everything else about the loop is uniform.
+  local -a _copy_source_paths=()
+  local _copy_source_path _copy_src _copy_rel _copy_dest
+  while IFS= read -r _copy_source_path; do
+    _copy_source_paths+=("$_copy_source_path")
+  done < <(hooks_source_paths "$real_repo_dir")
+
+  for _copy_src in ${_copy_source_paths[@]+"${_copy_source_paths[@]}"}; do
+    [[ -e "$_copy_src" ]] || continue
+    _copy_rel="${_copy_src#"$real_repo_dir"/}"
+    _copy_dest="$stage_dir/$_copy_rel"
+    mkdir -p "$(dirname "$_copy_dest")" || {
+      rm -rf -- "$stage_dir"
+      return 1
+    }
+    if [[ -d "$_copy_src" ]]; then
+      cp -R "$_copy_src" "$_copy_dest" || {
+        rm -rf -- "$stage_dir"
+        return 1
+      }
+    else
+      cp "$_copy_src" "$_copy_dest" || {
+        rm -rf -- "$stage_dir"
+        return 1
+      }
+    fi
+  done
+
   rm -rf "$stage_dir/hooks/tests"
   rm -f "$stage_dir/hooks/AGENTS.md"
-  mkdir -p "$stage_dir/bin"
-  cp "$real_repo_dir/bin/ds-identity" "$stage_dir/bin/ds-identity" || {
-    rm -rf -- "$stage_dir"
-    return 1
-  }
-  chmod 700 "$stage_dir/bin/ds-identity" || {
-    rm -rf -- "$stage_dir"
-    return 1
-  }
-  if [[ -f "$real_repo_dir/.codex/config/hooks.json" ]]; then
-    mkdir -p "$stage_dir/.codex/config"
-    cp "$real_repo_dir/.codex/config/hooks.json" "$stage_dir/.codex/config/hooks.json" || {
-      rm -rf -- "$stage_dir"
-      return 1
-    }
-  fi
-  if [[ -d "$real_repo_dir/.codex/hooks" ]]; then
-    mkdir -p "$stage_dir/.codex"
-    cp -R "$real_repo_dir/.codex/hooks" "$stage_dir/.codex/hooks" || {
-      rm -rf -- "$stage_dir"
-      return 1
-    }
-  fi
-  if [[ -d "$real_repo_dir/.gemini/hooks" ]]; then
-    mkdir -p "$stage_dir/.gemini"
-    cp -R "$real_repo_dir/.gemini/hooks" "$stage_dir/.gemini/hooks" || {
-      rm -rf -- "$stage_dir"
-      return 1
-    }
-  fi
-  if [[ -d "$real_repo_dir/.kimi/hooks" ]]; then
-    mkdir -p "$stage_dir/.kimi"
-    cp -R "$real_repo_dir/.kimi/hooks" "$stage_dir/.kimi/hooks" || {
+  if [[ -f "$stage_dir/bin/ds-identity" ]]; then
+    chmod 700 "$stage_dir/bin/ds-identity" || {
       rm -rf -- "$stage_dir"
       return 1
     }
@@ -502,7 +498,7 @@ sync_hooks_snapshot() {
   while IFS= read -r _sync_source_path; do
     _sync_source_paths+=("$_sync_source_path")
   done < <(hooks_source_paths "$real_repo_dir")
-  source_hash="$(compute_hooks_source_hash "${_sync_source_paths[@]}")"
+  source_hash="$(compute_hooks_source_hash ${_sync_source_paths[@]+"${_sync_source_paths[@]}"})"
 
   local snapshotted_at=""
   snapshotted_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")"
