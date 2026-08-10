@@ -98,7 +98,6 @@ import os
 import subprocess
 import sys
 import tempfile
-import time
 
 HOOK_PATH = os.path.join(os.path.dirname(__file__), "..", "enforce-turn-shape.py")
 
@@ -431,12 +430,14 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# Import the hook module directly (needed by "q" below and by "n"/"r"
-# further down) - moved ahead of "q" (DS-155 round 3): main() no longer
-# has ANY call site for _IDENTITY_LINE_RE (the identity-line check that
-# used to consume it is deleted), so "q" can no longer exercise the
-# regex's own catastrophic-backtracking regression by going through the
-# whole hook subprocess: it must call the regex directly.
+# Import the hook module directly (needed by "n"/"r" below). DS-155 round
+# 4: test "q" (pinning _IDENTITY_LINE_RE's catastrophic-backtracking fix)
+# is DELETED, not merely retargeted - the regex itself is now fully
+# deleted from the hook (round 3's "retain it, nothing else depends on
+# it" call was based on a wrong assumption about the forced-yield check;
+# verified by execution that _forced_yield_flag reasons positionally via
+# _body_after_identity_line, with no regex dependency at all), so there
+# is nothing left for a performance regression guard to protect.
 # ---------------------------------------------------------------------------
 
 _spec = importlib.util.spec_from_file_location(
@@ -444,28 +445,6 @@ _spec = importlib.util.spec_from_file_location(
 )
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
-
-# ---------------------------------------------------------------------------
-# q. REGRESSION (Skeptic Minor, round 2; retargeted DS-155 round 3): pin
-#    the catastrophic-backtracking fix on _IDENTITY_LINE_RE directly. A
-#    first line with ~3200 middle-dot/period characters and no '[phase:'
-#    tag must classify in well under a second - a generous 1.0s bound
-#    (measured value is now microseconds) that is loose enough to avoid
-#    flaking on a slow CI runner while still catching a regression to the
-#    unbounded '.*' form (measured 13.8s pre-fix). Retargeted from a
-#    subprocess call through the whole hook (round 2's version) to a
-#    direct call on the imported module's regex object, since main() no
-#    longer has any call site that would exercise it end-to-end.
-# ---------------------------------------------------------------------------
-
-_pathological_msg = "x" + ("·" * 3200) + "\nno phase tag here at all"
-_start = time.monotonic()
-_mod._IDENTITY_LINE_RE.match(_pathological_msg)
-_elapsed = time.monotonic() - _start
-check(
-    f"q. pathological identity-line input completes in <1.0s (took {_elapsed:.4f}s)",
-    _elapsed < 1.0,
-)
 
 # ---------------------------------------------------------------------------
 # n. log_fire() called exactly once on a finding, not called on a clean turn
@@ -508,16 +487,14 @@ check("n2. log_fire NOT called on a clean turn", len(_calls_clean) == 0)
 
 
 # ---------------------------------------------------------------------------
-# r. REGRESSION (DS-155 round 3): _IDENTITY_LINE_RE is retained (the
-#    identity-line check itself is deleted - see the module docstring's
-#    "DS-155 round 3 history note") solely because it still defines the
-#    documented breadcrumb convention's shape and remains directly
-#    exercised by test "q" below. Pin that it has genuinely no OTHER live
-#    call site in main() any more: a message whose first line is a
-#    well-formed identity line produces the IDENTICAL result (QUIET) as
-#    the same message with a missing/malformed first line, given the same
-#    downstream content - proving no code path still branches on
-#    _IDENTITY_LINE_RE.match() for a live finding.
+# r. REGRESSION (DS-155 round 3, updated round 4 - _IDENTITY_LINE_RE
+#    itself is now fully deleted, not merely unreferenced from main()):
+#    a message whose first line is a well-formed identity line produces
+#    the IDENTICAL result (QUIET) as the same message with a
+#    missing/malformed first line, given the same downstream content -
+#    proving the identity-line check is genuinely gone, not just
+#    unreachable, and guarding against a future re-introduction of a live
+#    branch on identity-line shape without an explicit design decision.
 # ---------------------------------------------------------------------------
 
 _r_with_identity = IDENTITY_OK + "\nTask is complete.\n"
@@ -1594,23 +1571,26 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         is_advisory(rc, out, "forced-yield"),
     )
 
-    # w8. REGRESSION (DS-155 round 3, Major fix): the demonstrated false
-    # positive - a genuine fresh answer turn shaped "text -> tool_use ->
-    # tool_result -> more text" (the model's OWN earlier text+tool_use
-    # step, in the SAME mixed content array, was miscounted as a
-    # competing "intervening" turn under round 2's positional skip) - must
-    # now be QUIET, identical to the same final answer text delivered as a
-    # single entry.
+    # w8. REGRESSION (DS-155 round 4, Major fix - supersedes the round-3
+    # version of this test, which hand-built a SAME-ENTRY mixed
+    # [text, tool_use] array; corpus measurement (see
+    # hooks/tests/fixtures/turn-shape-corpus-samples.json) found that
+    # shape occurs 4 times in 169,745 real assistant entries (0.002%) and
+    # is NOT what real transcripts actually do). This fixture instead uses
+    # a REAL corpus-derived SEPARATE-entry span: thinking -> tool_use ->
+    # tool_result -> text (sample-3, the simplest span containing the
+    # pure-text-immediately-before-a-SEPARATE-tool_use pattern measured
+    # 30,027 times). A genuine fresh answer turn with this real shape must
+    # be QUIET, identical to the same final answer text delivered as a
+    # single entry with no scaffolding at all.
     text_then_tool_transcript = _write_transcript(
         tmp_dir,
         [
             {"role": "user", "content": "Why did the cache test fail?"},
+            {"role": "assistant", "content": [{"type": "thinking", "thinking": "Let me check the log."}]},
             {
                 "role": "assistant",
-                "content": [
-                    {"type": "text", "text": "Let me check the log."},
-                    {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}},
-                ],
+                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
             },
             {
                 "role": "user",
@@ -1623,7 +1603,40 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         json.dumps({"last_assistant_message": "", "transcript_path": text_then_tool_transcript})
     )
     check(
-        "w8. text-then-tool-then-text shape (own earlier step) -> QUIET (not a false intervening turn)",
+        "w8. corpus-derived split-entry (thinking->tool_use->tool_result->text) -> QUIET (not a false intervening turn)",
+        is_quiet(rc, out),
+    )
+
+    # w8b. REGRESSION (DS-155 round 4): the SPLIT-entry shape this fix
+    # actually targets - a PURE-TEXT entry immediately followed by a
+    # SEPARATE tool_use entry (not merged into one array). This is the
+    # shape round 3's same-entry-only check could never catch (measured
+    # 30,027 times in the corpus vs. 4 same-entry occurrences) and is the
+    # literal ticket symptom: the model narrates in plain text, THEN
+    # separately calls a tool, then answers.
+    split_text_then_tool_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "Why did the cache test fail?"},
+            {"role": "assistant", "content": [{"type": "text", "text": "Let me check the log."}]},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "log output"}],
+            },
+            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {"last_assistant_message": "", "transcript_path": split_text_then_tool_transcript}
+        )
+    )
+    check(
+        "w8b. pure-text entry immediately followed by a SEPARATE tool_use entry -> QUIET",
         is_quiet(rc, out),
     )
 
@@ -1656,6 +1669,125 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         "w9. current turn's own entry not yet on disk -> ADVISORY (status-only), correctly stale-by-one",
         is_advisory(rc, out, "status-only"),
     )
+
+    # w10. REGRESSION (DS-155 round 4): the tool_use-pending flag must be
+    # scoped to AT MOST ONE preceding text entry, not leak forward and
+    # excuse an EARLIER, genuinely separate completed turn that has no
+    # tool_use of its own. Shape: [Q] [turn A - a genuinely separate
+    # completed pure-text turn, no tool_use] [turn B's own pre-tool
+    # narration] [turn B's tool_use] [tool_result] [turn B's final answer
+    # = CURRENT]. Turn A must still be detected as an intervening turn
+    # (ADVISORY) even though a tool_use exists later in the same window -
+    # that tool_use belongs to turn B's own narration step, not to turn A.
+    scoping_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "assistant",
+                "content": "genuinely separate turn A final message, no tool use here",
+            },
+            {"role": "assistant", "content": "Let me check something before answering."},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t2", "name": "Bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "ok"}],
+            },
+            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": scoping_transcript})
+    )
+    check(
+        "w10. tool_use attribution is scoped to ONE preceding text entry, not the whole window "
+        "-> ADVISORY (status-only), turn A still detected as intervening",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # ---------------------------------------------------------------------
+    # CORPUS-REPLAY GATE (DS-155 round 4, Major 2 - structural requirement,
+    # not optional). Fixtures MUST be corpus-derived, not hand-assumed:
+    # this replays every sample in
+    # hooks/tests/fixtures/turn-shape-corpus-samples.json - real assistant/
+    # tool-result entry SHAPES (role + content block types only, no real
+    # content) sampled from a genuine question-to-answer span in a local
+    # Claude Code transcript corpus (3,429 files / 169,745 assistant
+    # entries scanned; see the fixture's own "_measurement" block for the
+    # full distribution) - and asserts the answer bonus is GRANTED (QUIET,
+    # not "status-only") for every one. Mutation-tested against the known-
+    # broken round-3 same-entry-only check (see the round-4 commit message
+    # for the measured before/after numbers this gate is designed to
+    # catch): that code passed w8's OWN round-3 fixture while failing most
+    # of THESE corpus-derived ones, which is exactly the defect class this
+    # gate exists to catch structurally rather than by another hand-built
+    # fixture guess.
+    # ---------------------------------------------------------------------
+
+    _FIXTURES_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "turn-shape-corpus-samples.json")
+    with open(_FIXTURES_PATH, "r", encoding="utf-8") as _f:
+        _corpus_fixture = json.load(_f)
+
+    def _build_synthetic_span_entry(block_types: list, tool_id_box: list) -> list:
+        """Build a synthetic (content-free) content-block list matching the
+        given block-type sequence. Never embeds any real corpus content -
+        every string here is a fixed synthetic placeholder."""
+        blocks = []
+        for bt in block_types:
+            if bt == "text":
+                blocks.append({"type": "text", "text": "Synthetic scaffolding narration before continuing."})
+            elif bt == "thinking":
+                blocks.append({"type": "thinking", "thinking": "Synthetic internal reasoning."})
+            elif bt == "tool_use":
+                tool_id_box[0] += 1
+                blocks.append(
+                    {"type": "tool_use", "id": f"synthetic-tool-{tool_id_box[0]}", "name": "Bash", "input": {}}
+                )
+            elif bt == "tool_result":
+                blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": f"synthetic-tool-{tool_id_box[0]}",
+                        "content": "synthetic tool output",
+                    }
+                )
+            else:
+                blocks.append({"type": bt})
+        return blocks
+
+    def _build_corpus_replay_transcript(tmp_dir_inner: str, sample: dict, final_answer_text: str) -> str:
+        tool_id_box = [0]
+        lines = [
+            {
+                "role": "user",
+                "content": "Synthetic operator question derived from a real corpus span shape?",
+            }
+        ]
+        span = sample["span"]
+        for i, entry in enumerate(span):
+            is_last_final_text = (
+                i == len(span) - 1 and entry["role"] == "assistant" and entry["block_types"] == ["text"]
+            )
+            if is_last_final_text:
+                lines.append({"role": "assistant", "content": [{"type": "text", "text": final_answer_text}]})
+            else:
+                blocks = _build_synthetic_span_entry(entry["block_types"], tool_id_box)
+                lines.append({"role": entry["role"], "content": blocks})
+        return _write_transcript(tmp_dir_inner, lines)
+
+    for _sample in _corpus_fixture["samples"]:
+        _replay_transcript = _build_corpus_replay_transcript(tmp_dir, _sample, PLAIN_PROSE_ANSWER)
+        rc, out, err = run_hook(
+            json.dumps({"last_assistant_message": "", "transcript_path": _replay_transcript})
+        )
+        check(
+            f"corpus-replay {_sample['id']} ({_sample['assistant_entry_count']} assistant entries) "
+            "-> QUIET (answer bonus granted)",
+            is_quiet(rc, out),
+        )
 
 
 # ---------------------------------------------------------------------------

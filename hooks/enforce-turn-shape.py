@@ -30,12 +30,16 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
          than author a third predicate. The identity/phase breadcrumb
          REMAINS a documented convention
          (content/references/conductor-turn-format.md) - it is simply no
-         longer machine-enforced by this hook. _IDENTITY_LINE_RE itself is
-         RETAINED (not deleted): it still defines the convention's
-         canonical shape and remains directly exercised by
-         hooks/tests/test-enforce-turn-shape.py's pathological-input
-         performance regression guard (test "q"); it has no other live
-         call site in this module as of DS-155 round 3.
+         longer machine-enforced by this hook. DS-155 round 4 update: the
+         former identity-line regex is now fully DELETED too, not merely
+         unused - round 3 kept it on the theory that the forced-yield
+         check depended on it; that theory was wrong (verified by
+         execution: _forced_yield_flag reasons positionally via
+         _body_after_identity_line, never via a regex match), so the
+         regex genuinely had no consumer anywhere in this repo and its
+         catastrophic-backtracking guard was protecting nothing. The
+         canonical shape stays documented in
+         content/references/conductor-turn-format.md alone.
 
          Four checks, run in this fixed order:
 
@@ -67,12 +71,13 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
                              question, still sitting there after several
                              later background-agent check-in turns, grants
                              nothing; see that function's own docstring
-                             for the round-3 fixes to a false positive on
-                             the model's own text-plus-tool-call step and
-                             a false negative when the current turn's own
-                             entry is not yet on disk). The
-                             transcript-derived bonus licenses a
-                             plain-prose reply without the narrow
+                             for the corpus-measured fix - a pure-text
+                             entry immediately followed by a SEPARATE
+                             tool_use entry, the real shape, not a mixed
+                             same-entry array - and the false negative
+                             when the current turn's own entry is not yet
+                             on disk). The transcript-derived bonus
+                             licenses a plain-prose reply without the narrow
                              quoted-fragment shape below. Best-effort and
                              deliberately the weakest of the four
                              detectors.
@@ -470,31 +475,6 @@ MAX_LINES_PER_DECISION_ITEM = ITEM_FREE_LINES
 # ---------------------------------------------------------------------------
 # Classifier patterns
 # ---------------------------------------------------------------------------
-
-# Loose identity-line shape: three middle-dot-separated tokens plus a
-# bracketed [phase: ...] tag, anchored to the start of the (stripped) line.
-# Deliberately loose - ticket IDs, branch names, and phase vocabulary vary
-# across projects and sessions; this is a structural check, not a content
-# check.
-#
-# DS-155 round 3: RETAINED (not deleted) even though the finding that used
-# to consume it (a missing/malformed-identity-line advisory) is gone - see
-# the module docstring's "DS-155 round 3 history note". This regex still
-# defines the canonical shape for the identity/phase breadcrumb convention
-# documented in content/references/conductor-turn-format.md, and remains
-# directly exercised by hooks/tests/test-enforce-turn-shape.py's test "q"
-# (a pathological-input catastrophic-backtracking regression guard, now
-# repointed to call this regex directly rather than going through main(),
-# since main() no longer has a call site that would exercise it). Grepped
-# (DS-155 round 3): this compiled pattern has NO other live call site in
-# this module.
-#
-# Each `·`-delimited segment is bounded to `[^·\n]*` (not `.*`) so the regex
-# cannot backtrack across segment boundaries - a plain `.*·.*·.*` pattern
-# backtracks cubically on a long first line with many `·` characters and no
-# `[phase:` tag (measured: 3200 dots took 13.8s, exceeding this hook's own
-# 10s registered timeout and its "< 5ms per call" manifest claim).
-_IDENTITY_LINE_RE = re.compile(r"^\S[^·\n]*·[^·\n]*·.*\[phase:.*\]", re.IGNORECASE)
 
 # "## Operator decisions" heading (see content/sections/02-delegation.md
 # "Operator decisions go last in the turn"). Case-insensitive, tolerant of
@@ -900,13 +880,23 @@ def _assistant_entry_has_tool_use(obj: dict) -> bool:
     """True iff `obj` is an assistant transcript line whose content
     includes a tool_use block - i.e. this entry is inherently MID-TURN
     scaffolding: the assistant asked to call a tool, so THIS entry can
-    never be the FINAL message of a completed Stop-triggered turn (DS-155
-    round 3, Major fix for _has_intervening_assistant_turn - see that
-    function's docstring for why this matters: a real "text, then
-    tool_use, then tool_result, then more text" turn is the single most
-    common substantive-turn shape, and treating its own earlier
-    text+tool_use step as a competing "intervening" turn was exactly the
-    round-2 false positive)."""
+    never be the FINAL message of a completed Stop-triggered turn (Claude
+    Code's Stop event cannot fire mid-tool-call).
+
+    DS-155 round 4 corpus note: real Claude Code transcripts essentially
+    NEVER put `text` and `tool_use` in the SAME entry's content array - a
+    corpus measurement across 3,429 local transcript files / 169,745
+    assistant entries found exactly 4 mixed `('text','tool_use', ...)`
+    entries (0.002%) against 83,085 pure `('tool_use',)` entries and
+    42,195 pure `('text',)` entries. The real "the model spoke, then
+    called a tool" shape is a PURE-TEXT entry followed by a SEPARATE
+    pure-`tool_use` entry (measured 30,027 times in the same corpus) -
+    this function alone cannot detect that shape, since it only inspects
+    ONE entry's own content. See _has_intervening_assistant_turn for how
+    the two are combined: this function still catches the rare same-entry
+    mixed case, and the caller separately tracks tool_use ACROSS entries
+    to catch the common split-entry case.
+    """
     content = _resolve_assistant_content(obj)
     if isinstance(content, list):
         return any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content)
@@ -978,54 +968,62 @@ def _has_intervening_assistant_turn(transcript_path: str, current_text: str) -> 
     going QUIET under the ORIGINAL question purely because it was still
     the most recent genuine user line in the transcript.
 
-    DS-155 round 3 rewrite (Major + Minor fixes for a false positive AND a
-    false negative in round 2's version of this function, both traced to
-    the same root cause - a positional "skip the first non-blank assistant
-    text entry" heuristic instead of an actual identity check):
+    DS-155 round 4 rewrite (Major fix for round 3's own false positive,
+    corpus-measured, not fixture-assumed - see below). Round 3 already
+    fixed a false positive AND a false negative in round 2's version, both
+    traced to a positional "skip the first non-blank text entry" guess
+    instead of an actual identity check:
+      - Round-2 MAJOR (fixed in round 3): round 2 counted ANY non-blank
+        assistant TEXT entry as a turn-boundary candidate with no
+        exemption at all.
+      - Round-2 MINOR (fixed in round 3): round 2's positional "skip the
+        first one" assumed that entry was always the CURRENT turn's own
+        message, which is wrong when the current turn's own entry has not
+        yet been written to disk at Stop time.
+    Round 3's fix for the round-2 Major used _assistant_entry_has_tool_use
+    to exempt an entry whose content mixes `text` AND `tool_use` in the
+    SAME array - reasoning that "text, then a tool call" is the common
+    substantive-turn shape. THAT WAS MEASURED, ROUND 4, TO BE WRONG:
+    real Claude Code transcripts essentially never write text and
+    tool_use into the same entry (corpus measurement across 3,429 local
+    transcript files / 169,745 assistant entries: 4 mixed entries,
+    0.002%). The shape that actually occurs is a PURE-TEXT entry followed
+    by a SEPARATE pure-`tool_use` entry (measured 30,027 times in the
+    same corpus) - round 3's same-entry check never matched that shape,
+    so it was live dead code and the false positive it was meant to fix
+    remained fully open. Reproduced against real transcripts before this
+    fix: replaying genuine question-to-answer turns from the local corpus
+    withheld the bonus on 5 of 7 sampled turns.
 
-      - MAJOR (false positive): round 2 counted ANY non-blank assistant
-        TEXT entry as a turn-boundary candidate, including one that ALSO
-        carries a tool_use block in the SAME entry (a mixed content array
-        like `[{"type":"text","text":"Let me check the log."},
-        {"type":"tool_use",...}]`). That shape - text, then a tool call,
-        then the tool result, then more text - is the single most common
-        substantive-turn shape, and its own EARLIER text+tool_use step was
-        being misclassified as a competing "intervening" turn, reopening
-        the round-1 false-positive class for most substantive turns. Fix:
-        an assistant entry that also carries a tool_use block
-        (_assistant_entry_has_tool_use) can NEVER be a completed turn's
-        FINAL message - Claude Code's Stop event only fires once the
-        assistant stops WITHOUT calling another tool - so such an entry is
-        always transparent MID-TURN scaffolding, on either side of "this
-        turn", regardless of position.
-      - MINOR (false negative, the mirror image): round 2's "skip the
-        FIRST non-blank text entry, whatever it is" assumed that entry was
-        always the CURRENT turn's own message. When the current turn's own
-        entry has not yet been written to the transcript file at Stop
-        time, that assumption is wrong - the first entry found is actually
-        a genuinely earlier, different completed turn, and it was being
-        silently skipped as if it were "this turn", so a stale-by-one
-        question incorrectly still granted the bonus. Fix: only skip an
-        entry when its text ACTUALLY MATCHES `current_text` (the turn
-        under evaluation) - a real identity check, not a positional
-        guess. A pure-text, no-tool_use entry that does NOT match
-        `current_text` is immediately treated as a genuinely different,
-        earlier completed turn (stale), even before any skip has
-        happened.
+    Round-4 fix: track tool_use presence ACROSS entries during the
+    reverse scan, not just within one. A pure-text entry is transparent
+    MID-TURN scaffolding (not a boundary marker) when a `tool_use`-bearing
+    entry occurs LATER in real time (i.e. is encountered EARLIER in this
+    reverse scan) before that pure-text entry, AND no OTHER pure-text
+    entry sits between them (the tool_use is scoped to the text entry
+    IMMEDIATELY preceding it in time, not to the whole window - this is
+    what stops a genuinely separate, tool-free completed turn from being
+    wrongly excused just because SOME unrelated tool call happened
+    elsewhere in the same window; see hooks/tests/test-enforce-turn-shape.py
+    for the corpus-derived fixtures that pin this distinction).
 
     Reverse-scans the transcript. For each line, in order:
       1. A genuine user turn (loop_guard.is_genuine_user_turn) is the
          boundary - stop, no intervening turn found (False).
-      2. An assistant entry with no text, OR with a tool_use block
-         alongside its text, is transparent mid-turn scaffolding - skip
-         unconditionally, on either side of the "skip current turn" gate.
-      3. An assistant entry with pure text and NO tool_use is a genuine
-         completed-turn final message. If its text matches `current_text`
-         AND the current-turn slot has not been consumed yet, treat it as
-         THIS turn's own entry and skip it (consume the slot, once). Any
-         other pure-text entry - whether the slot was already consumed, or
-         the text does not match - is a genuinely different, earlier
-         completed turn: stale (True).
+      2. Any assistant entry (mixed or pure) whose content includes a
+         tool_use block sets a "tool_use pending" flag and is otherwise
+         transparent - it can never itself be a completed turn's final
+         message (Stop cannot fire mid-tool-call).
+      3. An assistant entry with pure text and no tool_use of its own:
+         - If the "tool_use pending" flag is set, this text entry directly
+           precedes (in time) that tool call - transparent mid-turn
+           scaffolding. Clear the flag (a tool_use explains AT MOST one
+           preceding text entry, not the whole window) and continue.
+         - Else, if its text matches `current_text` AND the current-turn
+           slot has not been consumed yet, treat it as THIS turn's own
+           entry and skip it (consume the slot, once).
+         - Otherwise: a genuinely different, earlier completed turn -
+           stale (True).
 
     Fails CLOSED toward True (i.e. "stale, do not grant" - the narrower,
     safer direction) on any read/parse error, when loop_guard is
@@ -1046,6 +1044,7 @@ def _has_intervening_assistant_turn(transcript_path: str, current_text: str) -> 
 
     try:
         consumed_current_turn_slot = False
+        tool_use_pending = False
         for raw in reversed(lines):
             raw = raw.strip()
             if not raw:
@@ -1056,12 +1055,20 @@ def _has_intervening_assistant_turn(transcript_path: str, current_text: str) -> 
                 continue
             if lg.is_genuine_user_turn(obj):
                 return False  # reached the boundary - no intervening turn
+            if _assistant_entry_has_tool_use(obj):
+                tool_use_pending = True
+                continue  # tool_use entry - always mid-turn, never a boundary marker
             assistant_text = _extract_assistant_text(obj)
             if not assistant_text.strip():
-                continue  # empty text (tool_use-only step) - never a boundary marker
-            if _assistant_entry_has_tool_use(obj):
-                continue  # mixed text+tool_use - always mid-turn, never a boundary marker
-            # Pure text, no tool_use: a genuine completed-turn final message.
+                continue  # empty text, no tool_use - never a boundary marker
+            # Pure text, no tool_use of its own.
+            if tool_use_pending:
+                # This text entry directly precedes (in time) a tool call
+                # already seen in this reverse scan - mid-turn scaffolding
+                # ("Let me check the log." right before calling Bash).
+                # The tool_use explains only this ONE text entry.
+                tool_use_pending = False
+                continue
             if not consumed_current_turn_slot and assistant_text.strip() == current_stripped:
                 consumed_current_turn_slot = True
                 continue
