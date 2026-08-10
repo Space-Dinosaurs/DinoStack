@@ -27,9 +27,9 @@ fail() {
 precommit_hook_guard_save "$REPO_DIR"
 
 cleanup() {
+	precommit_hook_guard_restore
 	chmod -R u+w "$SANDBOX" 2>/dev/null || true
 	rm -rf "$SANDBOX"
-	precommit_hook_guard_restore
 }
 trap cleanup EXIT
 

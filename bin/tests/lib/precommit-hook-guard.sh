@@ -43,7 +43,19 @@
 #   .claude/install.sh or .cursor/install.sh / .opencode/install.sh against
 #   the live checkout with only $HOME faked); bin/tests/test_local_bin_ds_prefix_install.sh
 #   (Test 2 invokes a real .claude/install.sh against the live checkout with
-#   only $HOME faked).
+#   only $HOME faked); bin/tests/test_install_profiles.sh,
+#   bin/tests/test_hooks_snapshot_no_live_rewire.sh,
+#   bin/tests/test_install_stop_cadence.sh, and
+#   bin/tests/test_install_profile_config_dir.sh (each invokes a real
+#   .claude/install.sh, in some cases other adapters' install.sh too,
+#   against the live checkout with only $HOME faked - adopted 75225f67);
+#   bin/tests/test_precommit_hook_guard_adoption.sh (the regression verifier
+#   for that adoption - guards its OWN access to the real hook slot
+#   independent of any guard state the truncated reproductions under test
+#   remember). bin/tests/test_precommit_hook_guard_static.sh statically
+#   asserts the guard-save-before-first-install-call invariant across all
+#   five adopting files above but does not source this library or invoke
+#   either function - it is not itself a downstream consumer.
 #
 # Failure modes: if `git rev-parse --git-path hooks` fails to resolve (not
 #   a git repo, git missing), save/restore are no-ops - there is nothing to

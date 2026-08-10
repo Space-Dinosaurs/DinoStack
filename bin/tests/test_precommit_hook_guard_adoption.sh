@@ -14,14 +14,27 @@
 #          after the FIRST .claude/install.sh invocation and forced to
 #          `exit 1` there - simulating exactly the crash-before-guard-save
 #          scenario that left the real hook dangling in production. It runs
-#          that truncated copy twice: once reconstructed from the PRE-FIX
-#          (origin/main) source, once from the POST-FIX (uncommitted working
-#          tree) source, and asserts the pre-fix copy leaves the real hook
-#          mutated (RED - proves the bug reproduces) while the post-fix
-#          copy restores it (GREEN - proves the fix works). This is the
+#          that truncated copy twice against the CURRENT on-disk source of
+#          bin/tests/test_hooks_snapshot_migration.sh (never git history or
+#          any origin/* ref - hermetic, no fetch-depth dependency, cannot
+#          invert after merge): once as POST-FIX (unmodified - the guard
+#          save call this fix added stays in place before the first
+#          install.sh invocation), once as PRE-FIX (the exact guard-save
+#          block this fix introduced is mechanically stripped back out,
+#          reproducing the too-late-guard structure the file had before
+#          this change - see the "guard block marker" comment in
+#          _build_truncated_copy below). It asserts the pre-fix copy leaves
+#          the real hook mutated (RED - proves the bug reproduces) while
+#          the post-fix copy restores it (GREEN - proves the fix works).
+#          Because both reproductions are derived from the same current
+#          working-tree file, this is unaffected by which SHA is checked
+#          out and independent of `origin/main` being fetched, reachable,
+#          or even existing. This is the
 #          `bin/tests/test_hooks_snapshot_migration.sh` file named in the
 #          spawn brief as the minimum-required coverage (the UNSAFE file);
-#          the other four fixed files are not separately verified here.
+#          the other four fixed files are not separately verified here
+#          (see Major 1 in bin/tests/test_precommit_hook_guard_static.sh
+#          for the static ordering assertion that covers all five).
 #
 # Public API: ./bin/tests/test_precommit_hook_guard_adoption.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -116,30 +129,48 @@ echo "Real pre-commit hook slot before this run: $STATE_INITIAL"
 precommit_hook_guard_save "$REPO_DIR"
 
 # ---------------------------------------------------------------------------
-# Build a truncated "crash before guard save" reproduction from a given
-# source revision of test_hooks_snapshot_migration.sh (pass the literal
-# string WORKTREE to read the current on-disk working-tree copy instead of
-# a git revision - this file's own fix is uncommitted while this verifier
-# runs, so `git show HEAD:...` would still return the pre-fix content).
-# Cuts immediately after the first `fi` closing the first
-# .claude/install.sh's _run_install check, then appends `exit 1` - i.e.
-# everything the file does BEFORE it would reach its own (pre-fix:
-# too-late; post-fix: early-enough) guard save call.
+# Build a truncated "crash before guard save" reproduction from the CURRENT
+# on-disk source of test_hooks_snapshot_migration.sh - never git history or
+# any origin/* ref (see file header). Pass variant POSTFIX to reproduce the
+# file exactly as it stands (guard save call intact, before the first
+# install.sh invocation); pass variant PREFIX to mechanically strip back out
+# the exact guard-save block this fix (75225f67) introduced, reproducing the
+# too-late-guard structure the file had before this change. Both variants
+# then cut immediately after the first `fi` closing the first
+# .claude/install.sh's _run_install check, then append `exit 1` - i.e.
+# everything the file does BEFORE it would reach its own (PREFIX: never;
+# POSTFIX: early-enough) guard save call.
 # ---------------------------------------------------------------------------
 _build_truncated_copy() {
-  local rev="$1"
+  local variant="$1"
   local out_file="$2"
   local src_file="$TMP_ROOT/_src_$$.sh"
-  if [[ "$rev" == "WORKTREE" ]]; then
-    cp "$REPO_DIR/bin/tests/test_hooks_snapshot_migration.sh" "$src_file" 2>/dev/null || return 1
-  else
-    git -C "$REPO_DIR" show "$rev:bin/tests/test_hooks_snapshot_migration.sh" > "$src_file" 2>/dev/null || return 1
-  fi
-  python3 - "$src_file" "$out_file" <<'PYEOF'
+  cp "$REPO_DIR/bin/tests/test_hooks_snapshot_migration.sh" "$src_file" 2>/dev/null || return 1
+  python3 - "$src_file" "$out_file" "$variant" <<'PYEOF'
 import sys
-src_path, out_path = sys.argv[1], sys.argv[2]
+src_path, out_path, variant = sys.argv[1], sys.argv[2], sys.argv[3]
 with open(src_path) as f:
     src = f.read()
+
+if variant == "PREFIX":
+    # Mechanically strip out the early guard-save block this fix (75225f67)
+    # added, reproducing the pre-fix too-late-guard structure. This is a
+    # transform of the CURRENT working-tree file, never git history, so it
+    # is hermetic (no ref-availability dependency) and cannot invert after
+    # merge - removing the very block the fix introduced always reproduces
+    # the pre-fix defect, regardless of which commit is checked out.
+    guard_block_marker = (
+        '# Save the real pre-commit hook slot BEFORE the first '
+        'install.sh invocation'
+    )
+    guard_call_marker = 'precommit_hook_guard_save "$REPO_DIR"\n'
+    start = src.index(guard_block_marker)  # raises if the fix's own block is gone
+    call_idx = src.index(guard_call_marker, start)
+    end = call_idx + len(guard_call_marker)
+    src = src[:start] + src[end:]
+elif variant != "POSTFIX":
+    raise ValueError("unknown variant: %r" % variant)
+
 marker = 'claude: first install.sh run exited non-zero'
 idx = src.index(marker)
 # Extend to the end of the enclosing "fi" line.
@@ -160,14 +191,15 @@ _run_truncated_copy() {
 }
 
 # ---------------------------------------------------------------------------
-# 1. PRE-FIX (origin/main) truncated copy: prove RED - the real hook is
-#    left mutated because the file's own guard save call, at the time of
-#    origin/main, runs too late to cover this early exit.
+# 1. PRE-FIX (synthetic, derived from the current working-tree file with the
+#    fix's own guard-save block mechanically stripped back out) truncated
+#    copy: prove RED - the real hook is left mutated because, with that
+#    block removed, no guard save call covers this early exit.
 # ---------------------------------------------------------------------------
 echo ""
-echo "=== 1. Pre-fix (origin/main) reproduction: expect the real hook to be MUTATED ==="
+echo "=== 1. Pre-fix (synthetic) reproduction: expect the real hook to be MUTATED ==="
 
-if _build_truncated_copy "origin/main" "$PREFIX_COPY"; then
+if _build_truncated_copy "PREFIX" "$PREFIX_COPY"; then
   PREFIX_HOME="$TMP_ROOT/home-prefix"
   mkdir -p "$PREFIX_HOME"
   _run_truncated_copy "$PREFIX_COPY" "$PREFIX_HOME" || true
@@ -176,9 +208,9 @@ if _build_truncated_copy "origin/main" "$PREFIX_COPY"; then
   echo "  real hook slot after pre-fix truncated run: $STATE_AFTER_PREFIX"
 
   if [[ "$STATE_AFTER_PREFIX" != "$STATE_INITIAL" ]]; then
-    _pass "pre-fix (origin/main) reproduction confirms the bug: real hook mutated ('$STATE_INITIAL' -> '$STATE_AFTER_PREFIX')"
+    _pass "pre-fix (synthetic) reproduction confirms the bug: real hook mutated ('$STATE_INITIAL' -> '$STATE_AFTER_PREFIX')"
   else
-    _fail "pre-fix (origin/main) reproduction did NOT mutate the real hook - the baseline scenario did not reproduce the bug as expected"
+    _fail "pre-fix (synthetic) reproduction did NOT mutate the real hook - the baseline scenario did not reproduce the bug as expected"
   fi
 
   # Restore before continuing to the post-fix half, using the guard's saved
@@ -192,18 +224,18 @@ if _build_truncated_copy "origin/main" "$PREFIX_COPY"; then
     _fail "verifier's own guard did NOT restore the real hook after the pre-fix reproduction ('$STATE_INITIAL' -> '$STATE_RESTORED_AFTER_PREFIX')"
   fi
 else
-  _fail "could not build the pre-fix (origin/main) truncated reproduction"
+  _fail "could not build the pre-fix (synthetic) truncated reproduction"
 fi
 
 # ---------------------------------------------------------------------------
-# 2. POST-FIX (the uncommitted worktree copy on disk) truncated copy: prove
-#    GREEN - the real hook is restored because the
-#    guard save call now runs before the first install.sh invocation.
+# 2. POST-FIX (the current working-tree copy on disk, unmodified) truncated
+#    copy: prove GREEN - the real hook is restored because the guard save
+#    call now runs before the first install.sh invocation.
 # ---------------------------------------------------------------------------
 echo ""
 echo "=== 2. Post-fix (working tree) reproduction: expect the real hook to be RESTORED ==="
 
-if _build_truncated_copy "WORKTREE" "$POSTFIX_COPY"; then
+if _build_truncated_copy "POSTFIX" "$POSTFIX_COPY"; then
   POSTFIX_HOME="$TMP_ROOT/home-postfix"
   mkdir -p "$POSTFIX_HOME"
   _run_truncated_copy "$POSTFIX_COPY" "$POSTFIX_HOME" || true

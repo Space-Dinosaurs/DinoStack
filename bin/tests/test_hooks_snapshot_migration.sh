@@ -67,8 +67,8 @@ _pass() {
 
 TMP_ROOT="$(mktemp -d)"
 _cleanup() {
-  rm -rf "$TMP_ROOT"
   precommit_hook_guard_restore
+  rm -rf "$TMP_ROOT"
 }
 trap _cleanup EXIT INT TERM
 

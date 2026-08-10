@@ -56,9 +56,9 @@ _pass() {
 
 TMP_ROOT="$(mktemp -d)"
 _cleanup() {
+  precommit_hook_guard_restore
   rm -rf "$TMP_ROOT"
   git -C "$REPO_DIR" checkout -- "$MUTATE_TARGET" 2>/dev/null || true
-  precommit_hook_guard_restore
 }
 trap _cleanup EXIT
 

@@ -35,13 +35,20 @@ fail() { echo "  FAIL: $1" >&2; FAILS=$((FAILS + 1)); }
 # shellcheck source=bin/tests/lib/precommit-hook-guard.sh
 . "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
 precommit_hook_guard_save "$REPO_DIR"
+# Provisional EXIT trap covering the window before $SANDBOX exists below -
+# a second `trap ... EXIT` REPLACES this one (bash keeps only the latest
+# handler per signal), so this line alone protects nothing past that point,
+# but without it a failure in the mktemp -d call itself (under
+# `set -euo pipefail`) would exit with no restore at all.
 trap 'precommit_hook_guard_restore' EXIT
 
 # ---------------------------------------------------------------------------
 # Test 1: --config-dir redirects the harness config; shared state stays in HOME
 # ---------------------------------------------------------------------------
 SANDBOX="$(mktemp -d)"
-trap 'rm -rf "$SANDBOX"; precommit_hook_guard_restore' EXIT
+# Final EXIT trap, replacing the provisional one above. Restore FIRST so an
+# early exit (or a failure in rm -rf itself) can never skip it.
+trap 'precommit_hook_guard_restore; rm -rf "$SANDBOX"' EXIT
 export HOME="$SANDBOX/home"
 mkdir -p "$HOME"
 PROFILE="$SANDBOX/profile"     # stand-in for ~/.claude-<tenant>
