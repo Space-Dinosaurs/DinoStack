@@ -2435,6 +2435,35 @@ check(
     _mod._execution_prose_flag(y8_msg, _y8_warrants) is not None,
 )
 
+# y9. REGRESSION (DS-157 round 3, Skeptic Major): the "in progress"
+# narrowing to `\*\*in\s+progress:?\*\*` (round 2) has a discriminating
+# property that round 1's bare `\bin\s+progress\b` form does not have -
+# it must NOT veto a genuine completion turn that separately mentions an
+# UNRELATED ticket's tracker status as plain, non-bold "In Progress". The
+# bare form vetoes this (matching the tracker-status prose); the
+# bold-anchored form does not (no `**...**` wrapping here). y6's fixture
+# at this file's y1/y6 block uses `**In progress:**` (bold), which
+# matches BOTH the bare and the narrowed forms and so cannot discriminate
+# between them - this fixture avoids bold entirely so it only matches the
+# bare form. Mutation-verified: reverting `_CONTINUING_WORK_PHRASE_RE`'s
+# `\*\*in\s+progress:?\*\*` alternative back to round 1's bare
+# `\bin\s+progress\b` must turn this assertion red; restoring the
+# narrowed form must turn it green again.
+y9_msg = (
+    "**Done.** The migration is complete and merged.\n"
+    "\n"
+    "AUT-577 is still In Progress in another session, unrelated to this "
+    "work.\n"
+)
+_y9_warrants = _mod._classify_warrants(y9_msg)
+check(
+    "y9. a genuine completion turn mentioning an unrelated ticket's "
+    "plain (non-bold) 'In Progress' tracker status still gets the "
+    "`completion` WARRANT (the bold-anchored narrowing does not veto "
+    "plain prose)",
+    _y9_warrants["completion"] is True,
+)
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
