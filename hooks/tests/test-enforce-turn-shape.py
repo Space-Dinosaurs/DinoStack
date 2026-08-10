@@ -2223,6 +2223,273 @@ rc, out, err = run_hook(make_payload(ds156_d_msg))
 check("fp4. Answer+Decision combo -> QUIET", is_quiet(rc, out))
 
 # ---------------------------------------------------------------------------
+# y. DS-157: body-paragraph completion declaration suppresses the
+#    status-only ADVISORY without granting the `completion` WARRANT (never
+#    routes to the BLOCKING _execution_prose_flag path). See
+#    hooks/enforce-turn-shape.py's _has_body_completion_declaration
+#    docstring for the corpus method and the blocking-path safety analysis.
+# ---------------------------------------------------------------------------
+
+# y1. The reported symptom, reproduced verbatim in shape: identity line
+# "Both units shipped." does NOT itself match _LEADING_COMPLETION_RE
+# ("shipped" has no trailing completion-adjacent word before the period),
+# but the FIRST body paragraph opens with a genuine leading completion
+# declaration.
+y1_msg = (
+    "Both units shipped.\n"
+    "\n"
+    "**DS-156 is done.** `_execution_prose_flag` is live and blocking on "
+    "main, all markers removed.\n"
+    "\n"
+    "What changed for you:\n"
+    "\n"
+    "- Execution turns are now structurally incapable of carrying prose.\n"
+    "- Answer turns stay conversational.\n"
+)
+rc, out, err = run_hook(make_payload(y1_msg))
+check(
+    "y1. DS-157 reported symptom - identity line misses, first body "
+    "paragraph is a genuine completion declaration -> QUIET (was ADVISORY "
+    "pre-fix)",
+    is_quiet(rc, out),
+)
+
+# y2. Second corpus-derived true positive: "Cleaned up." (identity line -
+# "cleaned" is not in _LEADING_COMPLETION_RE's past-participle verb list)
+# followed by a bulleted "**Done:**" paragraph.
+y2_msg = (
+    "Cleaned up.\n"
+    "\n"
+    "**Done:**\n"
+    "- Killed any dev servers.\n"
+    "- Removed both agent worktrees.\n"
+    "- Deleted the scratch branches.\n"
+)
+rc, out, err = run_hook(make_payload(y2_msg))
+check(
+    "y2. 'Cleaned up.' + first-paragraph '**Done:**' bullet list -> QUIET",
+    is_quiet(rc, out),
+)
+
+# y3. REGRESSION (round 1 false positive, tally header): "Three done, two
+# building:" matches the leading-completion SHAPE but is a partial tally,
+# not a whole-turn completion claim - _TALLY_HEADER_RE excludes it. Must
+# stay ADVISORY (status-only), not be suppressed.
+y3_msg = (
+    "**AUT-295 merged and closed** (deploy).\n"
+    "\n"
+    "Three done, two building:\n"
+    "\n"
+    "| Ticket | State |\n"
+    "|---|---|\n"
+    "| AUT-407 | Merged |\n"
+    "| AUT-415 | Building |\n"
+)
+rc, out, err = run_hook(make_payload(y3_msg))
+check(
+    "y3. tally header ('Three done, two building:') is NOT suppressed -> "
+    "ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# y4. REGRESSION (round 2 false positive, sub-item trap): the first
+# paragraph is a genuine-shaped completion declaration, but the SAME turn's
+# second paragraph is still in progress ("**In progress:**") - the
+# extended _CONTINUING_WORK_PHRASE_RE veto must catch this.
+y4_msg = (
+    "Fix round running. Where things stand:\n"
+    "\n"
+    "**Done and independently verified:** the feature works end to end.\n"
+    "Handles the empty/failed cases without breaking.\n"
+    "\n"
+    "**In progress:** the two remaining Majors.\n"
+    "Deduplicating the shared fetch across both routes.\n"
+)
+rc, out, err = run_hook(make_payload(y4_msg))
+check(
+    "y4. first-paragraph completion declaration vetoed by a later "
+    "'**In progress:**' paragraph -> ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# y5. REGRESSION (round 3 false positive, bare-noun continuing signal): the
+# existing 'is/are still running' phrase does not match a bare-noun subject
+# ("Review running on #639", "Two loose ends still open") - the DS-157
+# veto additions must.
+y5_msg = (
+    "ad-hoc · main · [phase: skeptic-review]\n"
+    "\n"
+    "Split done.\n"
+    "\n"
+    "**#639 is open** with the deferral alone.\n"
+    "\n"
+    "Review running on #639, briefed on the one risk that matters.\n"
+    "\n"
+    "Two loose ends still open: the pre-commit hook fix, and Plan B's "
+    "review.\n"
+)
+rc, out, err = run_hook(make_payload(y5_msg))
+check(
+    "y5. 'Review running on #639' / 'still open' vetoes suppression -> "
+    "ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# y6. BLOCKING-PATH SAFETY REGRESSION (the ticket's central concern): the
+# y1 shape must NEVER grant the `completion` WARRANT, even though
+# _has_body_completion_declaration is True for it - only _status_only_flag
+# may consume that signal. Pinned directly against the module's warrant
+# dict, not just the hook's observable QUIET/ADVISORY behavior, so a future
+# change that threads the signal into _classify_warrants is caught even if
+# it happens to still test QUIET on this fixture (e.g. because some other
+# warrant also fires).
+_y1_warrants = _mod._classify_warrants(y1_msg)
+check(
+    "y6a. _has_body_completion_declaration is True for the y1 fixture "
+    "(precondition for y6b/y6c to be meaningful)",
+    _mod._has_body_completion_declaration(y1_msg) is True,
+)
+check(
+    "y6b. the `completion` warrant key is NOT granted for the y1 fixture",
+    _y1_warrants["completion"] is False,
+)
+# y6c. Directly verifies the blocking-path danger this ticket required be
+# analyzed: simulating the y1 warrant dict with `completion` forced True
+# trips _execution_prose_flag (BLOCKING) on this exact genuine-completion
+# turn (its bulleted detail lines are not State:/Running:/Blocked:/Waiting:
+# slot lines). Pins a property of `_execution_prose_flag` under a
+# synthetic warrant dict, NOT a guarantee that _classify_warrants itself
+# never grants `completion` here - that guarantee is y6b's job.
+_y1_warrants_if_granted = dict(_y1_warrants)
+_y1_warrants_if_granted["completion"] = True
+check(
+    "y6c. _execution_prose_flag BLOCKS the y1 fixture under a synthetic "
+    "completion=True warrant dict - shows why y6b's fix must NOT widen "
+    "the warrant",
+    _mod._execution_prose_flag(y1_msg, _y1_warrants_if_granted) is not None,
+)
+
+# y7. REGRESSION (DS-157 round 2, Skeptic Major 1): a genuine completion
+# turn whose body separately mentions OTHER, unrelated work as "still
+# open" must NOT lose the `completion` WARRANT. Round 1's shipped
+# "still open" phrase caused exactly this false-positive class on real
+# corpus turns (all 10 measured instances described a backlog/PR/ticket
+# list, never the turn's own dependent work) - round 2 dropped the phrase
+# outright. Pinned directly against `_classify_warrants`, not just
+# QUIET/ADVISORY, so a future re-addition of an unscoped "still open" (or
+# similar backlog-vocabulary) phrase is caught even if some other warrant
+# happens to still make the turn look QUIET.
+y7_msg = (
+    "**Done.** The plan is complete and closed out.\n"
+    "\n"
+    "Still open and unstarted, in priority order: **THU-85** (urgent), "
+    "**THU-90** (next).\n"
+)
+_y7_warrants = _mod._classify_warrants(y7_msg)
+check(
+    "y7. a genuine completion turn mentioning unrelated backlog work as "
+    "'still open' still gets the `completion` WARRANT (no longer vetoed)",
+    _y7_warrants["completion"] is True,
+)
+
+# y8. CHARACTERIZATION (DS-157 round 2, Skeptic Major 1's demonstrated
+# latent hard-block path) - NOT a claim this ticket fixes the mechanism,
+# only that it is pinned so a future change surfaces it deliberately
+# rather than by accident. When a genuine `stoppage`+`completion` turn's
+# body ALSO contains a (correctly-kept) continuing-work veto phrase
+# ("CI running on #640" inside its own Waiting: line), losing the
+# `completion` warrant flips `stoppage_sole` True, routing the turn onto
+# _execution_prose_flag's STRICTER sole-stoppage branch - which then
+# BLOCKS the State:/Running:/Blocked: lines the general branch would have
+# permitted. This mechanism pre-exists on main for the original 3 DS-156
+# phrases too (any of them matching inside a dependency mention has the
+# same effect); DS-157 widens the trigger vocabulary but does not
+# introduce the mechanism itself, and fixing the sole-stoppage/general
+# branch routing interaction is out of this ticket's scope (Major 1's fix
+# is the phrase-set narrowing above, not this routing predicate).
+y8_msg = (
+    "Conductor\n"
+    "State: work complete.\n"
+    "Running: nothing.\n"
+    "Blocked: none.\n"
+    "Waiting: your review. CI running on #640.\n"
+)
+_y8_warrants = _mod._classify_warrants(y8_msg)
+check(
+    "y8a. the 'CI running on #640' Waiting-line mention flips "
+    "`completion` to False (the veto still fires, as intended)",
+    _y8_warrants["completion"] is False,
+)
+_y8_stoppage_sole = _y8_warrants["stoppage"] and not (
+    _y8_warrants["decision"] or _y8_warrants["completion"]
+)
+check(
+    "y8b. losing `completion` makes this a sole-stoppage turn",
+    _y8_stoppage_sole is True,
+)
+check(
+    "y8c. the sole-stoppage branch then BLOCKS the State:/Running:/"
+    "Blocked: lines the general branch would have permitted - latent, "
+    "pre-existing mechanism, not introduced by this ticket, pinned here "
+    "so a future change to it is deliberate",
+    _mod._execution_prose_flag(y8_msg, _y8_warrants) is not None,
+)
+
+# y9. REGRESSION (DS-157 round 3, Skeptic Major): the "in progress"
+# narrowing to `\*\*in\s+progress:?\*\*` (round 2) has a discriminating
+# property that round 1's bare `\bin\s+progress\b` form does not have -
+# it must NOT veto a genuine completion turn that separately mentions an
+# UNRELATED ticket's tracker status as plain, non-bold "In Progress". The
+# bare form vetoes this (matching the tracker-status prose); the
+# bold-anchored form does not (no `**...**` wrapping here). y6's fixture
+# at this file's y1/y6 block uses `**In progress:**` (bold), which
+# matches BOTH the bare and the narrowed forms and so cannot discriminate
+# between them - this fixture avoids bold entirely so it only matches the
+# bare form. Mutation-verified: reverting `_CONTINUING_WORK_PHRASE_RE`'s
+# `\*\*in\s+progress:?\*\*` alternative back to round 1's bare
+# `\bin\s+progress\b` must turn this assertion red; restoring the
+# narrowed form must turn it green again.
+y9_msg = (
+    "**Done.** The migration is complete and merged.\n"
+    "\n"
+    "AUT-577 is still In Progress in another session, unrelated to this "
+    "work.\n"
+)
+_y9_warrants = _mod._classify_warrants(y9_msg)
+check(
+    "y9. a genuine completion turn mentioning an unrelated ticket's "
+    "plain (non-bold) 'In Progress' tracker status still gets the "
+    "`completion` WARRANT (the bold-anchored narrowing does not veto "
+    "plain prose)",
+    _y9_warrants["completion"] is True,
+)
+
+# y10. REGRESSION (DS-157 round 4, Skeptic Minor 1): the colon-optionality
+# axis of `\*\*in\s+progress:?\*\*` was unpinned - y4 only exercises the
+# colon-present form ("**In progress:**"); no fixture exercised bold
+# "**In progress**" written WITHOUT a trailing colon. Same shape as y4
+# (a genuine first-paragraph completion declaration, vetoed by a later
+# still-continuing paragraph) but with the colon dropped, so this
+# assertion can only pass if the `:?` stays optional. Mutation-verified:
+# tightening `:?` to a mandatory colon must turn this assertion red;
+# restoring `:?` must turn it green again.
+y10_msg = (
+    "Fix round running. Where things stand:\n"
+    "\n"
+    "**Done and independently verified:** the feature works end to end.\n"
+    "Handles the empty/failed cases without breaking.\n"
+    "\n"
+    "**In progress** the two remaining Majors.\n"
+    "Deduplicating the shared fetch across both routes.\n"
+)
+rc, out, err = run_hook(make_payload(y10_msg))
+check(
+    "y10. first-paragraph completion declaration vetoed by a later "
+    "'**In progress**' (no colon) paragraph -> ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
