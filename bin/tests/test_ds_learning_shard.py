@@ -15,6 +15,11 @@ Coverage:
   7. symlink invocation through a real os.symlink in a subprocess - the only way
      to exercise the bin/_lib PATH-symlink resolution bug (in-process import
      never hits it).
+  8. rollup and list emit a parseable "[]" on the soft-fail path, not empty
+     stdout with exit 0 (which crashes any consumer doing json.loads(stdout)).
+  9. a linked git worktree and its primary checkout produce the SAME repo-key,
+     so an isolation-worktree engineer's appends are visible to a conductor
+     rolling up from the primary checkout.
 
 Every subprocess runs under a fake $HOME so the developer's real
 ~/.agentic/learnings-shards store is never touched.
@@ -28,6 +33,7 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -359,6 +365,224 @@ def test_invocation_through_a_path_symlink(tmp_path: Path):
     assert proc.returncode == 0, proc.stderr
     assert "FileNotFoundError" not in proc.stderr
     assert read_entries(home, repo, "sess-symlink")[0]["description"] == "via symlink"
+
+
+# --- 8. soft-fail still emits a parseable JSON array ----------------------
+
+
+def _break_the_lock(home: Path, repo: Path) -> Path:
+    """Force every locked path to raise, without touching the early-exit checks.
+
+    The repo shard dir must still exist (or rollup/list take the documented
+    absent-store branch and never reach the soft-fail handler), so the lock FILE
+    is replaced by a DIRECTORY: Path.touch(exist_ok=True) is satisfied by utime
+    on a directory, and acquire_exclusive_lock's open(..., "r") then raises
+    IsADirectoryError inside the try block main() guards.
+    """
+    module = _load_module()
+    # repo_key does not read HOME, so the in-process value matches the CLI's.
+    lock = store_dir(home) / module.repo_key(str(repo)) / ".lock"
+    assert lock.is_file(), "the append fixture should have created the real lock file"
+    lock.unlink()
+    lock.mkdir()
+    return lock
+
+
+@pytest.mark.parametrize("subcommand", ["rollup", "list"])
+def test_soft_fail_still_emits_empty_json_array(env, subcommand):
+    """Contract: rollup/list emit a JSON array to stdout and exit 0 - ALWAYS.
+
+    Empty stdout with exit 0 crashes json.loads(stdout) and the exit code gives
+    the consumer no reason to expect it.
+    """
+    home, repo = env
+    append(home, repo, "sess-soft")
+    broken = _break_the_lock(home, repo)
+    assert broken.is_dir()
+
+    proc = run(home, subcommand, "--repo", str(repo))
+    assert proc.returncode == 0, proc.stderr
+    assert "soft-fail" in proc.stderr, "the soft-fail path must actually have fired"
+    assert json.loads(proc.stdout) == [], f"{subcommand} stdout must stay parseable"
+
+
+def test_soft_fail_after_a_successful_emit_does_not_append_a_second_array(env):
+    """The fallback must not turn one valid array into two, which is unparseable."""
+    home, repo = env
+    append(home, repo, "sess-two")
+    # An unwritable shard dir lets rollup emit, then fail writing .rolled-up.json.
+    key_dir = next(p for p in store_dir(home).iterdir() if p.is_dir())
+    original = key_dir.stat().st_mode
+    os.chmod(key_dir, 0o500)
+    try:
+        proc = run(home, "rollup", "--repo", str(repo))
+    finally:
+        os.chmod(key_dir, original)
+
+    assert proc.returncode == 0, proc.stderr
+    payload = json.loads(proc.stdout)
+    assert len(payload) == 1, "the emitted array must survive the later failure"
+
+
+# --- 9. worktree / primary checkout key convergence -----------------------
+
+
+def _require_git() -> str:
+    """git is optional locally, MANDATORY in CI.
+
+    A silently-skipped assertion is indistinguishable from a passing one in a
+    CI log, so skipping is only allowed off CI.
+    """
+    found = shutil.which("git")
+    if found:
+        return found
+    if os.environ.get("CI"):
+        raise AssertionError("git is required in CI; refusing to skip this assertion")
+    pytest.skip("git not installed")
+
+
+def _git(*args: str, cwd: Path) -> subprocess.CompletedProcess:
+    proc = subprocess.run(
+        ["git", "-c", "commit.gpgsign=false", "-c", "user.email=t@example.com",
+         "-c", "user.name=Test", *args],
+        cwd=str(cwd), capture_output=True, text=True,
+    )
+    assert proc.returncode == 0, f"git {' '.join(args)} failed: {proc.stderr}"
+    return proc
+
+
+def _make_repo_with_worktree(root: Path) -> tuple[Path, Path]:
+    primary = root / "primary" / "DinoStack"
+    primary.mkdir(parents=True)
+    _git("init", "-q", cwd=primary)
+    _git("commit", "-q", "--allow-empty", "-m", "init", cwd=primary)
+    worktree = primary / ".claude" / "worktrees" / "agent-abc"
+    _git("worktree", "add", "-q", str(worktree), "-b", "wt-abc", cwd=primary)
+    return primary, worktree
+
+
+def test_worktree_and_primary_checkout_share_one_repo_key(tmp_path: Path):
+    """The driving scenario: engineer appends from a worktree, conductor rolls
+    up from the primary checkout. Divergent keys silently lose the learning."""
+    _require_git()
+    module = _load_module()
+    primary, worktree = _make_repo_with_worktree(tmp_path)
+
+    assert worktree.is_dir()
+    assert primary.resolve() != worktree.resolve()
+    assert module.repo_key(str(worktree)) == module.repo_key(str(primary))
+
+
+def test_subdirectory_of_a_checkout_shares_its_repo_key(tmp_path: Path):
+    _require_git()
+    module = _load_module()
+    primary, _ = _make_repo_with_worktree(tmp_path)
+    sub = primary / "bin" / "tests"
+    sub.mkdir(parents=True)
+    assert module.repo_key(str(sub)) == module.repo_key(str(primary))
+
+
+def test_two_git_repos_with_the_same_basename_still_differ(tmp_path: Path):
+    """Canonicalisation must not regress the same-basename collision guard."""
+    _require_git()
+    module = _load_module()
+    keys = []
+    for parent in ("alpha", "beta"):
+        repo = tmp_path / parent / "DinoStack"
+        repo.mkdir(parents=True)
+        _git("init", "-q", cwd=repo)
+        _git("commit", "-q", "--allow-empty", "-m", "init", cwd=repo)
+        keys.append(module.repo_key(str(repo)))
+    assert keys[0] != keys[1]
+
+
+def test_non_git_path_still_yields_a_stable_key(tmp_path: Path):
+    """Documented fallback: hash the caller's own resolved absolute path."""
+    module = _load_module()
+    plain = tmp_path / "not-a-repo"
+    plain.mkdir()
+    assert not (plain / ".git").exists()
+
+    key = module.repo_key(str(plain))
+    assert key == module.repo_key(str(plain)), "key must be stable across calls"
+    assert key.startswith("not-a-repo-")
+    assert all(ch.isalnum() or ch in "._-" for ch in key)
+    assert module.canonical_repo_path(str(plain)) == str(plain.resolve())
+
+
+def test_entry_appended_from_a_worktree_is_rolled_up_from_the_primary(tmp_path: Path):
+    """End-to-end proof of Major 2: the learning must not vanish."""
+    _require_git()
+    home = tmp_path / "home"
+    home.mkdir()
+    primary, worktree = _make_repo_with_worktree(tmp_path)
+
+    proc = append(home, worktree, "sess-wt", **{"--domain-tag": "from-worktree"})
+    assert proc.returncode == 0, proc.stderr
+
+    rolled = run(home, "rollup", "--repo", str(primary))
+    assert rolled.returncode == 0, rolled.stderr
+    emitted = json.loads(rolled.stdout)
+    assert [row["domain_tag"] for row in emitted] == ["from-worktree"]
+
+    dirs = [p.name for p in store_dir(home).iterdir() if p.is_dir()]
+    assert len(dirs) == 1, f"worktree and primary must share ONE shard dir, got {dirs}"
+
+
+# --- 10. minor hardening --------------------------------------------------
+
+
+def test_cap_counts_physical_lines_not_parsed_rows(env):
+    """A corrupt line must consume cap budget, or a shard grows without bound."""
+    home, repo = env
+    append(home, repo, "sess-corrupt")
+    shard = next(store_dir(home).rglob("*.jsonl"))
+    with open(shard, "a", encoding="utf-8") as handle:
+        handle.write("{not json\n" * 4)
+
+    proc = append(home, repo, "sess-corrupt", **{"--domain-tag": "overflow"})
+    assert proc.returncode == 0
+    assert "cap reached, entry dropped" in proc.stderr
+    assert len(shard.read_text(encoding="utf-8").splitlines()) == 5
+
+
+def test_append_recovers_from_a_newline_less_partial_line(env):
+    """A crash mid-append must not make the NEXT append concatenate onto it."""
+    home, repo = env
+    append(home, repo, "sess-partial")
+    shard = next(store_dir(home).rglob("*.jsonl"))
+    with open(shard, "a", encoding="utf-8") as handle:
+        handle.write('{"partial": tru')  # no trailing newline
+
+    proc = append(home, repo, "sess-partial", **{"--domain-tag": "after-crash"})
+    assert proc.returncode == 0, proc.stderr
+    lines = shard.read_text(encoding="utf-8").splitlines()
+    assert lines[-1].startswith("{"), "the new entry must be its own line"
+    assert json.loads(lines[-1])["domain_tag"] == "after-crash"
+    assert [r["domain_tag"] for r in read_entries(home, repo, "sess-partial")][-1] == "after-crash"
+
+
+def test_rollup_self_heals_a_stale_rolled_count(env):
+    """rolled_count > len(rows) must not strand every entry forever."""
+    home, repo = env
+    append(home, repo, "sess-stale", **{"--domain-tag": "only"})
+    run(home, "rollup", "--repo", str(repo))
+
+    state_path = next(store_dir(home).rglob(".rolled-up.json"))
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    for name in state["shards"]:
+        state["shards"][name]["rolled_count"] = 99
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    proc = run(home, "rollup", "--repo", str(repo))
+    assert proc.returncode == 0, proc.stderr
+    assert [r["domain_tag"] for r in json.loads(proc.stdout)] == ["only"]
+
+
+def test_store_root_is_not_world_readable(env):
+    home, repo = env
+    append(home, repo, "sess-mode")
+    assert store_dir(home).stat().st_mode & 0o077 == 0
 
 
 if __name__ == "__main__":

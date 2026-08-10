@@ -20,6 +20,15 @@ Public API:
   ds-learning-shard list   --repo <path> [--session-key <key>]
   ds-learning-shard --help
 
+  --repo takes ANY path inside the repo: the primary checkout root, a linked
+  worktree root, or a subdirectory of either. All three resolve to ONE repo-key
+  (see "repo-key" under Data model), so an isolation-worktree engineer's appends
+  are visible to a conductor rolling up from the primary checkout. Callers do not
+  need to normalise the path themselves.
+
+  rollup and list emit a JSON array to stdout and exit 0 on EVERY path,
+  soft-fails included. append emits a human-readable status line, never JSON.
+
 Data model:
   ~/.agentic/learnings-shards/<repo-key>/<session-key>.jsonl - one JSON object per line.
   ~/.agentic/learnings-shards/<repo-key>/.rolled-up.json     - rollup bookkeeping.
@@ -39,10 +48,23 @@ Data model:
 
   IMPORTANT: id and ts are CLI-owned. A caller can never set them.
 
-  repo-key: "<sanitized-basename>-<first 12 hex of sha256(resolved absolute repo path)>".
+  repo-key: "<sanitized-basename>-<first 12 hex of sha256(canonical repo path)>".
   The path hash is what makes the key collision-resistant: two different checkouts
   with the SAME directory basename get different keys. A bare basename must never
   be used as the key.
+
+  --repo caller contract: pass ANY path inside the repo - the primary checkout
+  root, a linked worktree root, or a subdirectory of either. The canonical path is
+  derived from `git rev-parse --git-common-dir`, which returns the PRIMARY
+  repository's .git directory even when called from inside a linked worktree, so a
+  worktree and its primary checkout resolve to ONE key. That is the whole point:
+  an isolation-worktree engineer appends with --repo <worktree> and the conductor
+  rolls up with --repo <primary>, and both reach the same shard directory.
+  Fallbacks, in order: a bare repo (common dir IS the root, not "<root>/.git")
+  uses that root; a path that is not a git repository, or any git failure at all
+  (git absent, unsupported flag, non-zero exit, timeout), degrades to hashing the
+  caller's own resolved absolute path. Degrading never raises - the soft-fail
+  contract applies here too.
 
   Cap: 5 entries per (repo-key, session-key) shard. The 6th and later appends in a
   session are a soft-fail no-op - "cap reached, entry dropped" on stderr, exit 0.
@@ -51,9 +73,12 @@ Data model:
   Classification: this CLI performs ZERO judgment. `rollup` emits the raw entries
   verbatim; deciding what is worth keeping is conductor-side and out of scope here.
 
-Upstream deps: Python 3 stdlib only (argparse, hashlib, json, os, re, sys, uuid,
-               datetime, pathlib). Shared helpers: bin/_lib
-               (acquire_exclusive_lock, atomic_write).
+Upstream deps: Python 3 stdlib only (argparse, hashlib, importlib.machinery,
+               importlib.util, json, os, re, subprocess, sys, uuid, datetime,
+               pathlib). Shared helpers: bin/_lib (acquire_exclusive_lock,
+               atomic_write). External: `git` is invoked read-only for repo-key
+               canonicalisation and is OPTIONAL - its absence degrades the key,
+               never the exit code.
 
 Downstream consumers: none yet - DS-154 Unit A ships the CLI only. Later units wire
                       it into the agent and command layers.
@@ -63,6 +88,11 @@ Failure modes:
   error prints ONE line to stderr and exits 0. That includes lock timeouts, I/O
   failures, and malformed bookkeeping. Argparse usage errors are the one exception
   (exit 2), since a malformed invocation is a caller bug, not a runtime condition.
+  The soft-fail handler ALSO emits "[]" on stdout for the stdout-producing
+  subcommands (rollup, list), so "exit 0" and "parseable JSON array on stdout"
+  hold together on every path a consumer can reach. Empty stdout with exit 0
+  would crash any consumer doing json.loads(stdout) with no signal to expect it.
+  append produces no stdout array and is unaffected.
   append: over-cap append is a soft-fail no-op (stderr + exit 0). description over
     500 chars is truncated, not rejected.
   rollup: absent store, absent repo dir, and absent shard file all emit "[]" and exit
@@ -88,6 +118,7 @@ import hashlib
 import json
 import os
 import re
+import subprocess
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -125,6 +156,18 @@ ENTRY_CAP_PER_SHARD = 5
 ROLLUP_STATE_NAME = ".rolled-up.json"
 LOCK_NAME = ".lock"
 
+# Subcommands whose documented contract is "a JSON array on stdout, exit 0".
+# The soft-fail handler must still honour that, or a consumer's json.loads()
+# crashes on empty stdout while the exit code claims success.
+STDOUT_ARRAY_COMMANDS = ("rollup", "list")
+
+GIT_TIMEOUT_SECONDS = 5.0
+
+REPO_HELP = (
+    "Any path inside the repo - primary checkout, linked worktree, or a "
+    "subdirectory of either. All resolve to one shard directory."
+)
+
 _SAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]")
 
 
@@ -138,19 +181,82 @@ def _sanitize(text: str) -> str:
     return _SAFE_CHARS.sub("_", text)
 
 
+def _git_common_dir(resolved: str) -> Path | None:
+    """Absolute path of the repo's COMMON .git dir, or None if unavailable.
+
+    Called from inside a linked worktree, `git rev-parse --git-common-dir`
+    reports the PRIMARY repository's .git directory, not the worktree's own
+    .git file - that is exactly the identity we want the repo-key to be built
+    on. `--path-format=absolute` needs git >= 2.31, so an older git falls back
+    to the plain form and the (possibly relative) answer is joined onto the
+    caller's path. Every failure mode returns None so the caller can degrade.
+    """
+    attempts = (
+        ["--path-format=absolute", "--git-common-dir"],
+        ["--git-common-dir"],
+    )
+    for extra in attempts:
+        try:
+            proc = subprocess.run(
+                ["git", "-C", resolved, "rev-parse", *extra],
+                capture_output=True,
+                text=True,
+                timeout=GIT_TIMEOUT_SECONDS,
+            )
+        except (OSError, subprocess.SubprocessError):
+            # git absent, not executable, or timed out - degrade, never raise.
+            return None
+        if proc.returncode != 0:
+            continue
+        out = proc.stdout.strip()
+        if not out:
+            continue
+        path = Path(out)
+        if not path.is_absolute():
+            path = Path(resolved) / path
+        return path
+    return None
+
+
+def canonical_repo_path(repo: str) -> str:
+    """Collapse any path inside a repo onto ONE canonical absolute path.
+
+    A linked worktree and its primary checkout MUST canonicalise to the same
+    string: an isolation-worktree engineer appends with --repo <worktree> while
+    the conductor rolls up with --repo <primary>, and a divergent key silently
+    loses the learning - the precise failure this store exists to eliminate.
+
+    Non-bare repo: the common dir is "<root>/.git", so the root is its parent.
+    Bare repo: the common dir IS the root. Not a repo, or any git failure at
+    all: the caller's own resolved absolute path, i.e. the pre-canonicalisation
+    behaviour, which keeps two same-basename non-repo paths distinct.
+    """
+    resolved = str(Path(repo).expanduser().resolve())
+    common = _git_common_dir(resolved)
+    if common is None:
+        return resolved
+    root = common.parent if common.name == ".git" else common
+    try:
+        return str(root.resolve())
+    except OSError:
+        return resolved
+
+
 def repo_key(repo: str) -> str:
     """Build a filesystem-safe, collision-resistant key for a repo path.
 
-    Format: "<sanitized-basename>-<sha256(resolved abs path)[:12]>".
+    Format: "<sanitized-basename>-<sha256(canonical repo path)[:12]>".
 
-    The hash is over the RESOLVED ABSOLUTE path, so two different checkouts that
-    share a directory basename get different keys. A bare basename (the only
-    precedent in this repo, bin/ds-identity's local `project_slug = cwd.name`) is
-    deliberately not used - it collides across paths.
+    The hash is over the CANONICAL ABSOLUTE path (see canonical_repo_path), so
+    two different checkouts that share a directory basename get different keys
+    while a worktree and its primary checkout get the SAME key. A bare basename
+    (the only precedent in this repo, bin/ds-identity's local
+    `project_slug = cwd.name`) is deliberately not used - it collides across
+    paths.
     """
-    resolved = str(Path(repo).expanduser().resolve())
-    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:12]
-    base = _sanitize(Path(resolved).name) or "repo"
+    canonical = canonical_repo_path(repo)
+    digest = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:12]
+    base = _sanitize(Path(canonical).name) or "repo"
     return f"{base[:40]}-{digest}"
 
 
@@ -187,20 +293,31 @@ def _ensure_lock_bootstrap(repo: str) -> Path:
     already exist - mirrors bin/ds-feedback's bootstrap.
     """
     lock = _lock_path(repo)
+    # mkdir(mode=...) applies the mode to the LEAF only, so create the store
+    # root explicitly - otherwise ~/.agentic/learnings-shards gets the ambient
+    # umask while only the per-repo dir is 0o700. Defence in depth.
+    store_root().mkdir(mode=0o700, parents=True, exist_ok=True)
     lock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock.touch(exist_ok=True)
     return lock
 
 
-def _read_shard(path: Path) -> list[dict]:
-    """Parse one shard file. Absent file returns []; malformed lines are skipped."""
+def _read_shard_lines(path: Path) -> list[str]:
+    """Raw non-blank lines of a shard file, verbatim. Absent file returns [].
+
+    The cap counts PHYSICAL lines, not parsed rows: counting only parsable rows
+    lets one corrupt line push a shard past the cap forever.
+    """
     if not path.is_file():
         return []
+    return [line for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+
+
+def _read_shard(path: Path) -> list[dict]:
+    """Parse one shard file. Absent file returns []; malformed lines are skipped."""
     rows: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in _read_shard_lines(path):
         line = line.strip()
-        if not line:
-            continue
         try:
             parsed = json.loads(line)
         except json.JSONDecodeError:
@@ -249,12 +366,27 @@ def _now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+# Set once a JSON array has reached stdout, so the soft-fail handler emits its
+# fallback "[]" only when nothing was emitted. Without this, a failure AFTER a
+# successful emit would append a second array and stdout would stop being
+# parseable - the very defect the fallback exists to prevent.
+_ARRAY_EMITTED = False
+
+
+def _emit_array(rows: list[dict]) -> None:
+    """Emit the stdout JSON array for rollup/list and flush it immediately."""
+    global _ARRAY_EMITTED
+    _ARRAY_EMITTED = True
+    print(json.dumps(rows, indent=2))
+    sys.stdout.flush()
+
+
 def cmd_append(args: argparse.Namespace) -> int:
     lock = _ensure_lock_bootstrap(args.repo)
     path = shard_path(args.repo, args.session_key)
 
     with acquire_exclusive_lock(lock):
-        existing = _read_shard(path)
+        existing = _read_shard_lines(path)
         if len(existing) >= ENTRY_CAP_PER_SHARD:
             # Soft-fail: the agent must never have to count, and must never be
             # blocked. Dropping the entry is the intended behaviour, not an error.
@@ -282,9 +414,14 @@ def cmd_append(args: argparse.Namespace) -> int:
             "description": description,
             "resolution": args.resolution,
         }
-        with open(path, "a", encoding="utf-8") as handle:
-            handle.write(json.dumps(record, separators=(",", ":")) + "\n")
-        os.chmod(path, 0o600)
+        # Rewrite the whole shard atomically rather than open(path, "a"): a
+        # crash mid-append leaves a newline-less partial line, and the NEXT
+        # append concatenates onto it, making both entries permanently
+        # unparseable while still reporting success. Existing lines are carried
+        # over verbatim (malformed ones included - this is not a repair pass),
+        # and the shard is capped at 5 entries so rewriting it stays cheap.
+        line = json.dumps(record, separators=(",", ":"))
+        atomic_write(path, "\n".join([*existing, line]) + "\n", mode=0o600)
 
     print(f"{PROG}: appended 1 entry ({len(existing) + 1}/{ENTRY_CAP_PER_SHARD}).")
     return 0
@@ -294,7 +431,7 @@ def cmd_rollup(args: argparse.Namespace) -> int:
     root = store_root()
     if not root.is_dir() or not repo_dir(args.repo).is_dir():
         # Absent store is not an error.
-        print("[]")
+        _emit_array([])
         return 0
 
     lock = _ensure_lock_bootstrap(args.repo)
@@ -307,23 +444,35 @@ def cmd_rollup(args: argparse.Namespace) -> int:
             already = 0
             if isinstance(entry, dict) and isinstance(entry.get("rolled_count"), int):
                 already = max(0, entry["rolled_count"])
+            if already > len(rows):
+                # Bookkeeping claims more entries than the shard now holds, so
+                # it cannot be trusted against these rows. Self-heal by
+                # re-emitting rather than stranding every entry forever.
+                already = 0
             fresh = rows[already:]
             if not fresh:
                 continue
             emitted.extend(fresh)
             state[path.name] = {"rolled_count": len(rows), "rolled_ts": _now()}
 
+        # Emit-then-mark, both INSIDE the lock and with an explicit flush.
+        # Marking first (or printing after release, where stdout is block
+        # buffered and only flushes at exit) lets a kill in the window mark
+        # entries rolled-up that were never emitted - unrecoverable without
+        # hand-editing .rolled-up.json. This order fails the other way: a kill
+        # after the flush re-emits on the next rollup, which is a duplicate,
+        # not a loss.
+        # Raw entries, verbatim. No judgment, no classification - conductor-side.
+        _emit_array(emitted)
+
         if emitted:
             _write_rollup_state(args.repo, state)
-
-    # Raw entries, verbatim. No judgment, no classification - that is conductor-side.
-    print(json.dumps(emitted, indent=2))
     return 0
 
 
 def cmd_list(args: argparse.Namespace) -> int:
     if not store_root().is_dir() or not repo_dir(args.repo).is_dir():
-        print("[]")
+        _emit_array([])
         return 0
 
     lock = _ensure_lock_bootstrap(args.repo)
@@ -332,7 +481,7 @@ def cmd_list(args: argparse.Namespace) -> int:
         for path in _shard_files(args.repo, args.session_key):
             rows.extend(_read_shard(path))
 
-    print(json.dumps(rows, indent=2))
+    _emit_array(rows)
     return 0
 
 
@@ -347,7 +496,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     p_append = sub.add_parser("append", help="Append one learning entry to this session's shard")
-    p_append.add_argument("--repo", required=True, help="Repo path the learning belongs to")
+    p_append.add_argument("--repo", required=True, help=REPO_HELP)
     p_append.add_argument(
         "--session-key",
         required=True,
@@ -370,12 +519,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_rollup = sub.add_parser(
         "rollup", help="Emit not-yet-rolled-up entries as a JSON array and mark them"
     )
-    p_rollup.add_argument("--repo", required=True, help="Repo path to roll up")
+    p_rollup.add_argument("--repo", required=True, help=REPO_HELP)
     p_rollup.add_argument("--session-key", default=None, help="Limit to one session's shard")
     p_rollup.set_defaults(func=cmd_rollup)
 
     p_list = sub.add_parser("list", help="List shard entries as a JSON array (diagnostic)")
-    p_list.add_argument("--repo", required=True, help="Repo path to list")
+    p_list.add_argument("--repo", required=True, help=REPO_HELP)
     p_list.add_argument("--session-key", default=None, help="Limit to one session's shard")
     p_list.set_defaults(func=cmd_list)
 
@@ -388,6 +537,12 @@ def main(argv: list[str]) -> int:
         return args.func(args)
     except Exception as exc:  # noqa: BLE001 - soft-fail: never block the caller
         print(f"{PROG}: soft-fail: {type(exc).__name__}: {exc}", file=sys.stderr)
+        # rollup and list promise "a JSON array on stdout, exit 0". Silence plus
+        # exit 0 crashes any consumer doing json.loads(stdout) and gives it no
+        # signal to expect that. Emit the empty array unless one already went
+        # out (a second array would be just as unparseable).
+        if getattr(args, "cmd", None) in STDOUT_ARRAY_COMMANDS and not _ARRAY_EMITTED:
+            print("[]")
         return 0
 
 
