@@ -4297,7 +4297,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 
 **"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `app/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
 
-- Worked example A: a repo with `docs/AGENTS.md`, `app/AGENTS.md`, `worker/AGENTS.md`, `infra/AGENTS.md` at depth 1. A unit touching `app/factory/foo.ts` is in the `app` track. A change touching both `app/...` and `docs/...` is cross-track and triggers Plan + ADR.
+- Worked example A: a repo with `api/AGENTS.md`, `app/AGENTS.md`, `worker/AGENTS.md`, `infra/AGENTS.md` at depth 1. A unit touching `app/factory/foo.ts` is in the `app` track. A change touching both `app/...` and `api/...` is cross-track and triggers Plan + ADR.
 - Worked example B: a change touching `app/factory/foo.ts` and `app/ui/bar.tsx` is single-track (`app`); the nested `factory/AGENTS.md` does not split the track.
 
 **Other notes:**
@@ -16586,7 +16586,7 @@ Soft-fail: if the call errors, log and continue. The PR remaining in draft state
    if [ -f .github/CODEOWNERS ] || [ -f docs/CODEOWNERS ] || [ -f CODEOWNERS ]; then
      echo "CODEOWNERS detected - GitHub will auto-route review requests."
    ```
-   (Note: this checks repo root and `.github/`/`docs/` subdirectories - the standard GitHub CODEOWNERS locations. Subdirectory CODEOWNERS in monorepo tracks - e.g. `webapp/.github/CODEOWNERS` - are out of scope for v1; root-level CODEOWNERS is sufficient for the typical project.)
+   (Note: this checks repo root and `.github/`/`docs/` subdirectories - the standard GitHub CODEOWNERS locations. Subdirectory CODEOWNERS in monorepo tracks - e.g. `app/.github/CODEOWNERS` - are out of scope for v1; root-level CODEOWNERS is sufficient for the typical project.)
 
 2. **AGENTS.md `## PR Workflow` `Reviewers:` fallback** - if no CODEOWNERS file found AND `PR_WORKFLOW_REVIEWERS` (resolved in Setup) is non-empty:
    ```bash

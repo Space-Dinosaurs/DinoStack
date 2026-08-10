@@ -78,7 +78,7 @@ All triggers are mechanical. Operator judgment is not a field. Triggers are eval
 
 **"Track" definition (mechanical).** A track is a depth-1 directory under the repo root that contains its own `AGENTS.md` file (per the conventions in `content/rules/conventions.md`). Nested `AGENTS.md` files (e.g. `app/factory/AGENTS.md`) do not create new tracks - they are sub-context within their parent track.
 
-- Worked example A: a repo with `docs/AGENTS.md`, `app/AGENTS.md`, `worker/AGENTS.md`, `infra/AGENTS.md` at depth 1. A unit touching `app/factory/foo.ts` is in the `app` track. A change touching both `app/...` and `docs/...` is cross-track and triggers Plan + ADR.
+- Worked example A: a repo with `api/AGENTS.md`, `app/AGENTS.md`, `worker/AGENTS.md`, `infra/AGENTS.md` at depth 1. A unit touching `app/factory/foo.ts` is in the `app` track. A change touching both `app/...` and `api/...` is cross-track and triggers Plan + ADR.
 - Worked example B: a change touching `app/factory/foo.ts` and `app/ui/bar.tsx` is single-track (`app`); the nested `factory/AGENTS.md` does not split the track.
 
 **Other notes:**

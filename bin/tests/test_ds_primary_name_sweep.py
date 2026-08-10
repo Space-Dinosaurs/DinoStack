@@ -156,13 +156,19 @@ Public API: python3 -m pytest bin/tests/test_ds_primary_name_sweep.py -q
             Also directly executable: python3 bin/tests/test_ds_primary_name_sweep.py
             Exits 0 on all pass, 1 on any failure (direct-execution mode).
 
-Upstream deps: Python 3 stdlib only (ast, json, os, pathlib). Check (2)
-               parses scripts/codex-skills.py source without executing it.
-               Check (3) requires `.codex/AGENTS.md` and
+Upstream deps: Python 3 stdlib only (ast, json, os, pathlib, subprocess).
+               Check (2) parses scripts/codex-skills.py source without
+               executing it. Check (3) requires `.codex/AGENTS.md` and
                `.codex/skills/dinostack/METHODOLOGY.md` to exist
                (built by `.codex/build.sh`); if absent, that check fails
                loudly rather than skipping, since a repo that ships
                `.codex/**` without these files is itself a defect.
+               `test_no_sibling_product_brand_name_in_tracked_tree` shells
+               out to `git ls-files -z` (the one subprocess call in this
+               module) to enumerate the tracked tree; see that function's
+               own docstring and the preceding section comment for why
+               tracked-files-based scanning was chosen over a filesystem
+               walk.
 
 Downstream consumers: bin-tests CI job (pytest bin/tests/ -q picks up every
                       test_*.py file automatically).
@@ -170,13 +176,15 @@ Downstream consumers: bin-tests CI job (pytest bin/tests/ -q picks up every
 Failure modes: any assertion failure prints/raises and is counted; the
                direct-execution __main__ path exits 1 if any check fails.
 
-Performance: < 2 s wall time (pure filesystem/AST reads, no subprocess).
+Performance: < 2 s wall time (pure filesystem/AST reads plus one
+             `git ls-files` subprocess call).
 """
 
 from __future__ import annotations
 
 import ast
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -402,11 +410,83 @@ def test_content_residue_set_pinned_to_known_exceptions() -> None:
     )
 
 
+# --- Sibling-product brand-name guard (round-2 review, Finding 1) --------
+#
+# A prior commit scrubbed a sibling product's brand name out of this public
+# repo (docs/, content/, and every adapter dir). Nothing pinned that the
+# name stays out, and the residue sweep above is deliberately scoped to
+# content/ only - it would not catch a reintroduction under docs/ (which is
+# hand-authored, not generated from content/) or under an adapter dir such
+# as .hermes/SKILL.md (which aggregates every command and is a documented
+# silent-revert vector - see AGENTS.md "Aggregate generated files revert
+# across PRs"). This closes that gap with a whole-tracked-tree scan.
+
+
+def _tracked_repo_files() -> list[Path]:
+    """Every git-tracked file in the repo, via `git ls-files -z` (NUL
+    separated, so filenames containing spaces or newlines are handled
+    correctly). Deliberately git-tracked-files-based rather than a
+    filesystem walk: `git ls-files` gives the exclusions this guard needs
+    for free, because none of them are ever tracked - `.git/` itself, the
+    gitignored `.agentic/**` runtime tree (except the one carved-out
+    `team.yml`, which cannot contain a brand-name residue), and gitignored
+    `node_modules/` (which is exactly where an unrelated vendored file
+    happens to share the brand name in its filename - see the module-level
+    docstring on that collision). A filesystem walk would instead scan
+    whatever untracked local junk happens to be sitting in the worktree
+    (editor scratch files, an accidentally-materialized node_modules/
+    tree) and would have to hand-exclude all of the above, which is
+    exactly the kind of hand-maintained exclusion list that goes stale.
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "-z"],
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout
+    return [REPO_ROOT / p for p in out.decode("utf-8", errors="ignore").split("\0") if p]
+
+
+# The forbidden brand string is built from character codes rather than
+# written as a string literal on purpose: this test file is itself part of
+# the tracked tree the scan below walks, so a literal occurrence of the
+# brand name in this source file would make the guard trip over its OWN
+# source and fail unconditionally the moment it was added. Do NOT "clean
+# this up" into a plain string literal - that reintroduces exactly the
+# self-triggering bug this comment exists to prevent. (H-e-l-i-o-s)
+_FORBIDDEN_BRAND_TOKEN = "".join(chr(c) for c in (72, 101, 108, 105, 111, 115))
+
+
+def test_no_sibling_product_brand_name_in_tracked_tree() -> None:
+    """Scans every git-tracked file in the repo (not just content/, and not
+    just adapter dirs) for the sibling-product brand name, matched
+    case-insensitively (mirrors the case-insensitive `git grep -a -i`
+    verification this program is expected to satisfy). This repo is public;
+    the sibling product is unreleased and non-open-source and must never be
+    named here."""
+    token_lower = _FORBIDDEN_BRAND_TOKEN.lower()
+    failures = []
+    for path in _tracked_repo_files():
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:  # pragma: no cover - defensive
+            continue
+        if token_lower in text.lower():
+            failures.append(str(path.relative_to(REPO_ROOT)))
+
+    assert not failures, (
+        "sibling-product brand name found in tracked file(s) - this repo is public "
+        "and must never reference the unreleased sibling product by name:\n"
+        + "\n".join(sorted(failures))
+    )
+
+
 EXTRA_TESTS = [
     test_bin_scripts_do_not_self_identify_with_old_names,
     test_codex_literal_rules_replacements_never_contain_old_names,
     test_codex_generated_identity_commands_use_ds_identity,
     test_content_residue_set_pinned_to_known_exceptions,
+    test_no_sibling_product_brand_name_in_tracked_tree,
 ]
 
 
