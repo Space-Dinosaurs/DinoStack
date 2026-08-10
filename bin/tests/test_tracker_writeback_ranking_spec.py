@@ -977,10 +977,18 @@ _ENFORCER_SUBCOUNT_SITES = [
 # "seven hooks"), so a sweep still keyed to "seven" would false-positive
 # against that legitimate use, mirroring why an earlier pass retired "six" as
 # a marker only to have DS-156's deny-subset change make "six" stale again.
-# Known limitation (tracked as a follow-up, not fixed here): this sweep is
+# Known limitations (tracked as a follow-up, not fixed here): this sweep is
 # lowercase/capitalized-word-form and value-keyed to a single cardinal - it
 # goes silent once the live deny-subset count moves past seven (when "seven"
 # itself becomes stale), and it does not catch numeral ("6 of the 7") forms.
+# A further limitation (Skeptic Minor, round 1 finding, still applicable
+# post-rebase): keying on a single cardinal cannot simultaneously guard
+# every possible stale restatement of BOTH facts above - e.g. a reverted
+# total-count restatement using some other now-stale cardinal shape would
+# not be caught by this sweep alone. The positive pins above still confirm
+# the current "eight of the nine" / "seven hooks" phrasing is present at
+# every known site, so residual risk is limited to an unenumerated site
+# using a stale cardinal this regex's single target word does not match.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
     r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b",
     re.IGNORECASE,

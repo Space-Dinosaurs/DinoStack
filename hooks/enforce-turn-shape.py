@@ -1360,7 +1360,9 @@ def _extract_assistant_text(obj: dict) -> str:
         # status-only and forced-yield checks go silently inert on this
         # fallback path even though they fire correctly on the primary
         # last_assistant_message path for the same text. Under-flagging is
-        # the safe failure direction (this hook never blocks), but the
+        # the safe failure direction (a missed finding here means no
+        # advisory context or, on the sole-stoppage branch, no BLOCKING
+        # decision either - see DS-156's two-posture split), but the
         # fallback should still mirror the primary path's line structure.
         return "\n".join(parts)
     return ""
@@ -1796,9 +1798,11 @@ def main() -> None:
 
         # Config toggle: DELIBERATELY INVERTED from enforce-no-abdication.py's
         # abdication_guard_enabled (which requires explicit True). This hook
-        # never blocks, so it defaults ON - only an explicit `false` disables
-        # it. Absent/unreadable/malformed config.json is treated as {} (i.e.
-        # stays ON), not as a disable signal.
+        # defaults ON regardless of its now-BLOCKING _execution_prose_flag
+        # posture (DS-156, §9) - only an explicit `false` disables it, a
+        # deliberate operator decision, not a legacy carryover from an
+        # advisory-only era. Absent/unreadable/malformed config.json is
+        # treated as {} (i.e. stays ON), not as a disable signal.
         config = {}
         if cwd:
             config_path = os.path.join(cwd, ".agentic", "config.json")
@@ -1972,8 +1976,13 @@ def main() -> None:
         sys.exit(0)
 
     except Exception:
-        # Defense-in-depth: any unexpected error exits 0 (fail-open). This
-        # hook must NEVER block the stop.
+        # Defense-in-depth: any unexpected error exits 0 and emits nothing
+        # (fail-open). An unexpected exception must NEVER manufacture a
+        # spurious {"decision": "block", ...} payload from
+        # _execution_prose_flag - the process exit code was already 0 on
+        # every other path (DS-156, §9), so this is unchanged from before;
+        # what "fail-open" protects here is the BLOCKING payload, not the
+        # exit code.
         sys.exit(0)
 
 
