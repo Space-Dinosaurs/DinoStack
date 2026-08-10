@@ -596,6 +596,63 @@ class CodexSkillGenerationTests(unittest.TestCase):
             "reference-doc prose citing the kernel paragraph.",
         )
 
+    def test_qa_loop_spawn_contract_paragraph_pinned_in_kernel(self) -> None:
+        """Regression guard for Skeptic round-2 MAJOR 2 on PR #624: the prior
+        gate (test_referenced_content_reachable_from_codex_skills_has_no_new_unguarded_spawn_literal
+        above) allowlists qa-loop-state.md, which makes it structurally blind
+        to a regression IN that exact file - mutation-testing
+        (`git checkout 6ac8871c -- content/commands/ds-implement-ticket.md
+        content/references/qa-loop-state.md`, i.e. reverting to the state
+        immediately BEFORE the Step 1 spawn-contract paragraph and the QA-loop
+        telemetry-emit paragraph were restored to the kernel) passed the full
+        suite green with the kernel paragraphs absent and the raw
+        `isolation: "worktree"` / `Agent`-bracket literals live only in
+        qa-loop-state.md. This test instead pins the KERNEL source directly:
+        it asserts content/commands/ds-implement-ticket.md's Phase 6b section
+        still carries the transformable qa-engineer spawn-contract sentence
+        and the QA-loop telemetry-emit paragraph (both containing the literal
+        `Agent`/`isolation: "worktree"` tokens scripts/codex-skills.py
+        transforms), independent of the reference-file allowlist mechanism.
+
+        Confirmed red pre-fix: reverting content/commands/ds-implement-ticket.md
+        to the 6ac8871c revision (which lacks the "Telemetry emit (V1) - QA
+        loop" paragraph and phrases the spawn sentence without the literal
+        `isolation: "worktree"` token) fails this test.
+        """
+        kernel_path = self.repo / "content/commands/ds-implement-ticket.md"
+        kernel = kernel_path.read_text(encoding="utf-8")
+        phase_6b_start = kernel.index("## Phase 6b: QA Gate (conditional)")
+        phase_6b_end = kernel.index("## Phase 7: Quality gate", phase_6b_start)
+        phase_6b = kernel[phase_6b_start:phase_6b_end]
+
+        self.assertIn("Spawn `qa-engineer` with ticket context", phase_6b)
+        self.assertRegex(phase_6b, r"`?isolation\s*:\s*[\"']worktree[\"']")
+        self.assertIn("Telemetry emit (V1) - QA loop", phase_6b)
+        self.assertIn("Bracket the qa-engineer `Agent` tool call", phase_6b)
+        self.assertIn("Bracket the fix-engineer `Agent` tool call", phase_6b)
+
+        # The generated Codex skill must carry the transformed (spawn_agent)
+        # form of both bracket sentences - not the raw Agent literal.
+        generated_ticket = (
+            self.repo / ".codex/skills/implement-ticket/SKILL.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "Bracket the qa-engineer `spawn_agent` tool call", generated_ticket
+        )
+        self.assertIn(
+            "Bracket the fix-engineer `spawn_agent` tool call", generated_ticket
+        )
+
+        # qa-loop-state.md's own Step 1 / Step 4 must defer to the kernel
+        # rather than repeat the raw isolation:/Agent literal - the exact
+        # gap the round-2 MAJOR 3 finding identified.
+        qa_loop_state = (
+            self.repo / "content/references/qa-loop-state.md"
+        ).read_text(encoding="utf-8")
+        self.assertNotRegex(qa_loop_state, r"`isolation\s*:\s*[\"']worktree[\"']`")
+        self.assertNotIn("Bracket the QA `Agent` tool call", qa_loop_state)
+        self.assertNotIn("Bracket the **Agent call**", qa_loop_state)
+
     def test_wrap_busy_lock_uses_codex_command_polling_and_session_binding(self) -> None:
         wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
         busy = re.search(

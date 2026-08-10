@@ -19,6 +19,20 @@ Public API: Read-only reference document, addressed by its retained
             config doc).
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
+               `content/commands/ds-implement-ticket.md` §"Tracker Writeback
+               Helper" "Caller enumeration" ALSO carries the caller-name and
+               project-path tokens (`/ds-wrap`, `/ds-ticket-status-sync`,
+               `.agentic/tracker-states.json`) that appear in this file's own
+               invocation-contract and forward-only-guard prose below - kept
+               in the kernel too because `scripts/codex-skills.py`'s Codex
+               transform only scans content/commands/*.md, content/SKILL.md,
+               and the assembled METHODOLOGY.md (this file is a symlinked
+               resource it never scans, so a token living ONLY here would
+               ship untransformed to Codex). The two copies are intentionally
+               duplicated, not pointer-linked: `bin/tests/test_tracker_
+               writeback_ranking_spec.py`'s `canonical_block` fixture reads
+               this file directly and pins these exact sentences here, so
+               replacing them with a kernel pointer would break that spec.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (Phase 11,
                       W1-W7), content/commands/ds-ticket-status-sync.md,

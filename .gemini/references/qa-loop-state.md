@@ -37,13 +37,17 @@ Downstream consumers: content/commands/ds-implement-ticket.md (both
                       location rather than duplicating the tag, so the tag
                       has exactly one source of truth. The kernel Phase 6b
                       section ALSO retains the Step 1 qa-engineer spawn
-                      contract (the `Agent`/`isolation: "worktree"` sentence)
-                      verbatim - this is deliberate: `scripts/codex-skills.py`
-                      only transforms content/commands/*.md and content/SKILL.md
-                      (not content/references/**), so a spawn-contract literal
-                      left only in this file would render inexecutable on
-                      Codex. This file's Step 1 points back to that kernel
-                      paragraph rather than repeating the raw instruction.
+                      contract (the `Agent`-tool / mandatory-worktree-isolation
+                      sentence) AND the "Telemetry emit (V1) - QA loop" paragraph
+                      (the two `Agent` tool-call telemetry-bracket sentences
+                      for Step 1 and Step 4) - this is deliberate:
+                      `scripts/codex-skills.py` only transforms
+                      content/commands/*.md and content/SKILL.md (not
+                      content/references/**), so a spawn-contract or
+                      tool-call literal left only in this file would render
+                      inexecutable on Codex. This file's Step 1 and Step 4
+                      point back to those kernel paragraphs rather than
+                      repeating the raw instructions.
 
 Failure modes: Prose reference; does not auto-execute. A stale copy would
                misdescribe the QA loop's termination conditions, the
@@ -118,9 +122,9 @@ Emit the inline breadcrumb:
 
 **Tracker writeback (W3)** fires on iteration 1 only, at this Step 1's first `qa-engineer` spawn. See `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" for the fire condition and the `[phase: tracker-writeback | site: W3 | ...]` structured tag emitted there - kept in the kernel command file rather than duplicated here so the tag has one source of truth.
 
-**Step 1.** Spawn `qa-engineer` per the kernel's own "Step 1" paragraph in `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" (ticket context, the diff, `qa_criteria`, `ticket_id`, resolved qa.md config `.agentic/qa.md` preferred/legacy `.claude/qa.md` fallback, `isolation: "worktree"` mandatory). Kept in the kernel rather than duplicated here so the Agent-tool spawn instruction has one source of truth. On iteration 2+, prepend the "Prior QA failures" section to the brief:
+**Step 1.** Spawn `qa-engineer` per the kernel's own "Step 1" paragraph in `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" (ticket context, the diff, `qa_criteria`, `ticket_id`, resolved qa.md config `.agentic/qa.md` preferred/legacy `.claude/qa.md` fallback, mandatory worktree isolation). Kept in the kernel rather than duplicated here so the Agent-tool spawn instruction has one source of truth. On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
-**Telemetry emit (V1):** Bracket the QA `Agent` tool call with `ds-emit spawn_start qa-engineer <task_id> ...` before and `ds-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
+**Telemetry emit (V1):** See the kernel's "Telemetry emit (V1) - QA loop" paragraph in `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" for the qa-engineer spawn bracket instruction - kept in the kernel rather than duplicated here so `scripts/codex-skills.py` can transform the tool-call token.
 
 ```
 ## Prior QA failures
@@ -165,7 +169,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state-$LOOP_KEY.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as the Engineer "Iter N (N >= 2) surgical-edit directive" in `content/commands/ds-implement-ticket.md` §"Phase 6: Skeptic review": a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per that same section's Engineer telemetry-emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as that section's Engineer BLOCKED-handling paragraph:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as the Engineer "Iter N (N >= 2) surgical-edit directive" in `content/commands/ds-implement-ticket.md` §"Phase 6: Skeptic review": a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the fix-engineer spawn call per the kernel's "Telemetry emit (V1) - QA loop" paragraph in `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" - kept in the kernel rather than duplicated here so `scripts/codex-skills.py` can transform the tool-call token. Apply the same BLOCKED/NEEDS_CONTEXT handling as that same section's Engineer BLOCKED-handling paragraph:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 

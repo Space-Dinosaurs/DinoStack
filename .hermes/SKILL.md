@@ -4060,7 +4060,7 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 
 **On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
-> Note: see the "Interrupt vs. pause path note" and "Resume banners" paragraphs in `content/commands/ds-implement-ticket.md` §"Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)" for the `paused_at`/`interrupted_at` distinction and the exact printed resume-banner text - kept in the kernel command file (not duplicated here) so `scripts/codex-skills.py`'s `documents()` transform, which only reads content/commands/*.md, still sees these operational literals (the `hooks/session-end-wrap.js` path and the `/ds-implement-ticket` resume-banner self-reference both need adapter-specific rewriting).
+> Note: see the "Interrupt vs. pause path note" and "Resume banners" paragraphs in `content/commands/ds-implement-ticket.md` §"Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)" for the `paused_at`/`interrupted_at` distinction and the canonical resume-banner wording. The kernel command file is the SOURCE OF TRUTH for both resume-banner lines (kept there so `scripts/codex-skills.py`'s `documents()` transform, which only reads content/commands/*.md, still sees these operational literals - the `hooks/session-end-wrap.js` path and the `/ds-implement-ticket` resume-banner self-reference both need adapter-specific rewriting); the full print examples above ALSO show the resume line inline, for readability of the complete printed output - if the two ever disagree, the kernel paragraph governs.
 
 ---
 
@@ -4779,13 +4779,17 @@ Downstream consumers: content/commands/ds-implement-ticket.md (both
                       location rather than duplicating the tag, so the tag
                       has exactly one source of truth. The kernel Phase 6b
                       section ALSO retains the Step 1 qa-engineer spawn
-                      contract (the `Agent`/`isolation: "worktree"` sentence)
-                      verbatim - this is deliberate: `scripts/codex-skills.py`
-                      only transforms content/commands/*.md and content/SKILL.md
-                      (not content/references/**), so a spawn-contract literal
-                      left only in this file would render inexecutable on
-                      Codex. This file's Step 1 points back to that kernel
-                      paragraph rather than repeating the raw instruction.
+                      contract (the `Agent`-tool / mandatory-worktree-isolation
+                      sentence) AND the "Telemetry emit (V1) - QA loop" paragraph
+                      (the two `Agent` tool-call telemetry-bracket sentences
+                      for Step 1 and Step 4) - this is deliberate:
+                      `scripts/codex-skills.py` only transforms
+                      content/commands/*.md and content/SKILL.md (not
+                      content/references/**), so a spawn-contract or
+                      tool-call literal left only in this file would render
+                      inexecutable on Codex. This file's Step 1 and Step 4
+                      point back to those kernel paragraphs rather than
+                      repeating the raw instructions.
 
 Failure modes: Prose reference; does not auto-execute. A stale copy would
                misdescribe the QA loop's termination conditions, the
@@ -4860,9 +4864,9 @@ Emit the inline breadcrumb:
 
 **Tracker writeback (W3)** fires on iteration 1 only, at this Step 1's first `qa-engineer` spawn. See `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" for the fire condition and the `[phase: tracker-writeback | site: W3 | ...]` structured tag emitted there - kept in the kernel command file rather than duplicated here so the tag has one source of truth.
 
-**Step 1.** Spawn `qa-engineer` per the kernel's own "Step 1" paragraph in `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" (ticket context, the diff, `qa_criteria`, `ticket_id`, resolved qa.md config `.agentic/qa.md` preferred/legacy `.claude/qa.md` fallback, `isolation: "worktree"` mandatory). Kept in the kernel rather than duplicated here so the Agent-tool spawn instruction has one source of truth. On iteration 2+, prepend the "Prior QA failures" section to the brief:
+**Step 1.** Spawn `qa-engineer` per the kernel's own "Step 1" paragraph in `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" (ticket context, the diff, `qa_criteria`, `ticket_id`, resolved qa.md config `.agentic/qa.md` preferred/legacy `.claude/qa.md` fallback, mandatory worktree isolation). Kept in the kernel rather than duplicated here so the Agent-tool spawn instruction has one source of truth. On iteration 2+, prepend the "Prior QA failures" section to the brief:
 
-**Telemetry emit (V1):** Bracket the QA `Agent` tool call with `ds-emit spawn_start qa-engineer <task_id> ...` before and `ds-emit spawn_complete qa-engineer <task_id> ...` after. Same pattern as Phase 6 emits.
+**Telemetry emit (V1):** See the kernel's "Telemetry emit (V1) - QA loop" paragraph in `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" for the qa-engineer spawn bracket instruction - kept in the kernel rather than duplicated here so `scripts/codex-skills.py` can transform the tool-call token.
 
 ```
 ## Prior QA failures
@@ -4907,7 +4911,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state-$LOOP_KEY.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as the Engineer "Iter N (N >= 2) surgical-edit directive" in `content/commands/ds-implement-ticket.md` §"Phase 6: Skeptic review": a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per that same section's Engineer telemetry-emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as that section's Engineer BLOCKED-handling paragraph:
+**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as the Engineer "Iter N (N >= 2) surgical-edit directive" in `content/commands/ds-implement-ticket.md` §"Phase 6: Skeptic review": a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the fix-engineer spawn call per the kernel's "Telemetry emit (V1) - QA loop" paragraph in `content/commands/ds-implement-ticket.md` §"Phase 6b: QA Gate (conditional)" - kept in the kernel rather than duplicated here so `scripts/codex-skills.py` can transform the tool-call token. Apply the same BLOCKED/NEEDS_CONTEXT handling as that same section's Engineer BLOCKED-handling paragraph:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
@@ -7290,6 +7294,20 @@ Public API: Read-only reference document, addressed by its retained
             config doc).
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
+               `content/commands/ds-implement-ticket.md` §"Tracker Writeback
+               Helper" "Caller enumeration" ALSO carries the caller-name and
+               project-path tokens (`/ds-wrap`, `/ds-ticket-status-sync`,
+               `.agentic/tracker-states.json`) that appear in this file's own
+               invocation-contract and forward-only-guard prose below - kept
+               in the kernel too because `scripts/codex-skills.py`'s Codex
+               transform only scans content/commands/*.md, content/SKILL.md,
+               and the assembled METHODOLOGY.md (this file is a symlinked
+               resource it never scans, so a token living ONLY here would
+               ship untransformed to Codex). The two copies are intentionally
+               duplicated, not pointer-linked: `bin/tests/test_tracker_
+               writeback_ranking_spec.py`'s `canonical_block` fixture reads
+               this file directly and pins these exact sentences here, so
+               replacing them with a kernel pointer would break that spec.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (Phase 11,
                       W1-W7), content/commands/ds-ticket-status-sync.md,
@@ -14495,6 +14513,13 @@ All work lives in `$REPO`.
 
 Full reference (invocation contract, forward-only guard algorithm, diagnostic enrichment, failure/skip logging): `content/references/tracker-writeback.md`. Reusable subagent invocation pattern used by Phase 11, the 7 writeback call sites below (W1-W7), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise. Read that reference before invoking this Helper from any call site or modifying its algorithm.
 
+**Caller enumeration (kept in the kernel so `scripts/codex-skills.py` can transform these caller-name tokens; `content/references/tracker-writeback.md` is a symlinked resource the transform never scans, so it points back here instead of repeating them):**
+- Fire-and-forget applies at W1-W7 and Phase 11; the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - are enumerated in the forward-only guard's step 4.d.iv (see the reference for the full algorithm).
+- `forward_only_guard: true` for every writeback caller - the 7 W1-W7 sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F.
+- On the step 4.d.iv unmatched-state-name branch, fire-and-forget call sites (W1-W7, Phase 11) each emit one stderr line per fire. **Callers that await the result** - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - do NOT get that per-ticket stderr line; they instead read `unmatched_state_name` from each ticket's return payload, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+- Fire-and-forget call sites (W1-W7, Phase 11) emit a `SKIPPED:` stderr line for a `skipped_unconfigured_state` outcome. Callers that await the result - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - read `status` and `diagnostic` from the return payload instead and format them per their own operator-visible-line conventions.
+- **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state and the 6 `tracker_state_values` strings resolved once in Setup above. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
+
 ---
 
 ## Tracker Create Helper
@@ -15998,6 +16023,8 @@ For the full QA Gate procedure - trigger conditions, the `qa_skip` enum, the QA 
 [phase: tracker-writeback | site: W3 | target: $TRACKER_STATE_QA | iter: 1]
 
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block, the `ticket_id`, and the resolved qa.md config. The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). Canonical spawn-contract source (kept in the kernel so `scripts/codex-skills.py` can transform it) - see `content/references/qa-loop-state.md` §"Loop entry (repeat until termination)" for the full Step 1-5 brief construction (the "Prior QA failures" section, telemetry emit bracketing, and this tag's step context within the QA loop contract); that reference's own Step 1 defers to this paragraph rather than repeating it.
+
+**Telemetry emit (V1) - QA loop.** Bracket the qa-engineer `Agent` tool call (Step 1 above) with `ds-emit spawn_start qa-engineer <task_id> ...` before and `ds-emit spawn_complete qa-engineer <task_id> ...` after. Bracket the fix-engineer `Agent` tool call (Step 4 - the Engineer fix pass) with `ds-emit spawn_start engineer <task_id> ...` before and `ds-emit spawn_complete engineer <task_id> ...` after. Same pattern as the Phase 6 Skeptic/Engineer telemetry emits above. Canonical source (kept in the kernel so `scripts/codex-skills.py` can transform the `Agent` tool-call token) - `content/references/qa-loop-state.md` §"Loop entry (repeat until termination)" Steps 1 and 4 defer to this paragraph rather than repeating the raw instruction.
 
 ---
 

@@ -487,6 +487,13 @@ All work lives in `$REPO`.
 
 Full reference (invocation contract, forward-only guard algorithm, diagnostic enrichment, failure/skip logging): `content/references/tracker-writeback.md`. Reusable subagent invocation pattern used by Phase 11, the 7 writeback call sites below (W1-W7), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise. Read that reference before invoking this Helper from any call site or modifying its algorithm.
 
+**Caller enumeration (kept in the kernel so `scripts/codex-skills.py` can transform these caller-name tokens; `content/references/tracker-writeback.md` is a symlinked resource the transform never scans, so it points back here instead of repeating them):**
+- Fire-and-forget applies at W1-W7 and Phase 11; the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - are enumerated in the forward-only guard's step 4.d.iv (see the reference for the full algorithm).
+- `forward_only_guard: true` for every writeback caller - the 7 W1-W7 sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F.
+- On the step 4.d.iv unmatched-state-name branch, fire-and-forget call sites (W1-W7, Phase 11) each emit one stderr line per fire. **Callers that await the result** - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - do NOT get that per-ticket stderr line; they instead read `unmatched_state_name` from each ticket's return payload, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+- Fire-and-forget call sites (W1-W7, Phase 11) emit a `SKIPPED:` stderr line for a `skipped_unconfigured_state` outcome. Callers that await the result - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - read `status` and `diagnostic` from the return payload instead and format them per their own operator-visible-line conventions.
+- **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state and the 6 `tracker_state_values` strings resolved once in Setup above. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
+
 ---
 
 ## Tracker Create Helper
@@ -1990,6 +1997,8 @@ For the full QA Gate procedure - trigger conditions, the `qa_skip` enum, the QA 
 [phase: tracker-writeback | site: W3 | target: $TRACKER_STATE_QA | iter: 1]
 
 **Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block, the `ticket_id`, and the resolved qa.md config. The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). Canonical spawn-contract source (kept in the kernel so `scripts/codex-skills.py` can transform it) - see `content/references/qa-loop-state.md` §"Loop entry (repeat until termination)" for the full Step 1-5 brief construction (the "Prior QA failures" section, telemetry emit bracketing, and this tag's step context within the QA loop contract); that reference's own Step 1 defers to this paragraph rather than repeating it.
+
+**Telemetry emit (V1) - QA loop.** Bracket the qa-engineer `Agent` tool call (Step 1 above) with `ds-emit spawn_start qa-engineer <task_id> ...` before and `ds-emit spawn_complete qa-engineer <task_id> ...` after. Bracket the fix-engineer `Agent` tool call (Step 4 - the Engineer fix pass) with `ds-emit spawn_start engineer <task_id> ...` before and `ds-emit spawn_complete engineer <task_id> ...` after. Same pattern as the Phase 6 Skeptic/Engineer telemetry emits above. Canonical source (kept in the kernel so `scripts/codex-skills.py` can transform the `Agent` tool-call token) - `content/references/qa-loop-state.md` §"Loop entry (repeat until termination)" Steps 1 and 4 defer to this paragraph rather than repeating the raw instruction.
 
 ---
 
