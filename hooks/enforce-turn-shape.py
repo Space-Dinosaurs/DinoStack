@@ -17,15 +17,24 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             should loosely match a "<token> . <token> . <token> [phase:
             ...]" breadcrumb shape (three middle-dot-separated tokens plus
             a bracketed phase tag). A missing/malformed identity line is
-            flagged - UNLESS _session_has_established_identity(transcript_
-            path) finds no earlier identity line anywhere in this
-            transcript (DS-155), in which case the session is treated as
+            flagged - UNLESS _session_has_active_ticket_context(cwd) finds
+            no REAL-STATE evidence of ticket work in progress (DS-155
+            round 2), in which case the session is treated as
             ticket-less/conversational and neither flagged nor told to
-            invent a breadcrumb. Named residual gap: a session's genuine
-            FIRST ticket-mode turn is, by definition, exempted too (there
-            is no earlier identity line yet to find) - a false negative on
-            the flag, never a false grant that fabricates telemetry, and
-            this hook only ever advises, never blocks.
+            invent a breadcrumb. Deliberately NOT transcript-inference
+            based (see _session_has_active_ticket_context's own docstring
+            for why round 1's transcript-inference predicate was scrapped
+            entirely: it never bootstrapped a session whose early turns
+            were all malformed, and a single fabricated identity line
+            anywhere in the transcript "established" it forever,
+            regardless of whether that line was genuine). The finding text
+            itself names the missing PROPERTY (which ticket, which branch,
+            which phase) rather than supplying a literal copyable worked
+            example - a rejection message that names a shape teaches the
+            model to reproduce the shape with fabricated values instead of
+            the real property the check exists to verify (this is exactly
+            the mechanism that produced the DS-155 origin-incident
+            fabricated breadcrumb).
 
          2. Warrant classification (RUNS FIRST relative to checks 3-5
             below, and is AUTHORITATIVE over them): classifies which of
@@ -46,11 +55,19 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
                              loop_guard.last_genuine_user_text) looks like a
                              direct question (_looks_like_question: a
                              trailing "?", or a "?" anywhere in a message
-                             under _SHORT_QUESTION_TEXT_MAX_CHARS chars).
-                             The transcript-derived bonus licenses a plain-
-                             prose reply without the narrow quoted-fragment
-                             shape below. Best-effort and deliberately
-                             the weakest of the four detectors.
+                             under _SHORT_QUESTION_TEXT_MAX_CHARS chars)
+                             AND that question is still the IMMEDIATELY
+                             preceding turn boundary - no intervening
+                             assistant text turn since it was asked
+                             (_has_intervening_assistant_turn, DS-155
+                             round 2 Major 1 fix: a STALE question, still
+                             sitting there after several later
+                             background-agent check-in turns, grants
+                             nothing). The transcript-derived bonus
+                             licenses a plain-prose reply without the
+                             narrow quoted-fragment shape below.
+                             Best-effort and deliberately the weakest of
+                             the four detectors.
             DS-151: the detection domain is restricted to the identity line
             plus UNFENCED body lines only (see _segment/_classify_warrants
             below) - a warrant token that appears only inside a fenced code
@@ -459,6 +476,26 @@ MAX_LINES_PER_DECISION_ITEM = ITEM_FREE_LINES
 # 10s registered timeout and its "< 5ms per call" manifest claim).
 _IDENTITY_LINE_RE = re.compile(r"^\S[^·\n]*·[^·\n]*·.*\[phase:.*\]", re.IGNORECASE)
 
+# Identity-line finding text (DS-155 round 2, Major 3): deliberately names
+# the missing PROPERTY (which ticket, which branch, which phase THIS turn
+# belongs to) rather than supplying a literal copyable worked example. A
+# rejection message that names a shape with concrete placeholder tokens
+# (the round-1 text: "expected `DS-123 · fix/foo · [phase: skeptic-
+# review]`") teaches the model to reproduce that literal shape with
+# fabricated values instead of the real property the check exists to
+# verify - this is the exact mechanism that produced the DS-155
+# origin-incident fabricated breadcrumb
+# ("harness · turn-shape guard · [phase: answer]"). This string is
+# asserted (hooks/tests/test-enforce-turn-shape.py) to NOT itself satisfy
+# _IDENTITY_LINE_RE, as a structural guard against reintroducing a
+# copyable literal here by accident.
+_IDENTITY_FINDING_TEXT = (
+    "identity line missing or malformed - the first line of a ticket-"
+    "context turn must name THIS turn's actual ticket, branch, and phase "
+    "(three distinct values, phase set off in brackets) using this "
+    "session's real state - never copy a template or placeholder values"
+)
+
 # "## Operator decisions" heading (see content/sections/02-delegation.md
 # "Operator decisions go last in the turn"). Case-insensitive, tolerant of
 # 2+ leading hashes and an optional trailing colon - mirrors
@@ -818,10 +855,10 @@ def _decision_item_sprawl_flag(text: str):
 def _extract_assistant_text(obj: dict) -> str:
     """Return the text of `obj` if it is an assistant transcript line, else
     "". Factored out of _last_assistant_text_from_transcript (DS-155) so
-    the new full-transcript scan in _session_has_established_identity does
-    not re-implement the same shape parsing independently - see the module
-    docstring's "single source of truth" rationale already applied to
-    _segment/_regions/_decision_items."""
+    other assistant-text scans (_has_intervening_assistant_turn, DS-155
+    round 2) do not re-implement the same shape parsing independently -
+    see the module docstring's "single source of truth" rationale already
+    applied to _segment/_regions/_decision_items."""
     if not isinstance(obj, dict):
         return ""
 
@@ -888,54 +925,140 @@ def _last_assistant_text_from_transcript(transcript_path: str) -> str:
         return ""
 
 
-def _session_has_established_identity(transcript_path: str) -> bool:
-    """True iff ANY assistant message anywhere in this transcript already
-    carried a well-formed identity line (DS-155 exemption predicate for
-    check 1, the identity-line check).
+# ---------------------------------------------------------------------------
+# Ticket-context predicate (DS-155 round 2)
+# ---------------------------------------------------------------------------
+#
+# Round 1 shipped _session_has_established_identity, which inferred
+# "ticket-less conversational session" from whether an earlier assistant
+# message in the transcript already carried a well-formed identity line.
+# Skeptic round 2 rejected it on two demonstrated failures, both rooted in
+# the same mistake - inferring session state from the MODEL'S OWN PRIOR
+# OUTPUT rather than real state:
+#   - Never bootstraps: a session whose conductor gets the breadcrumb
+#     format wrong from turn 1 stays "exempt" forever, since there is
+#     never an earlier WELL-FORMED line to find.
+#   - Poisonable: _IDENTITY_LINE_RE cannot distinguish a fabricated
+#     breadcrumb from a genuine one - a transcript containing even one
+#     literal fabricated identity line (the exact DS-155 origin-incident
+#     failure mode this hook exists to prevent) "establishes" ticket
+#     context for the rest of the transcript, regardless of whether that
+#     line was ever real.
+#
+# Replacement: two REAL-STATE signals, neither producible by the model
+# simply writing text in its own reply.
+_TICKET_BRANCH_PREFIX_RE = re.compile(r"^(?:feature|fix|chore)/", re.IGNORECASE)
 
-    Forward full-file scan (not reverse - we need "has this EVER happened
-    in this session", not "most recent"). Used to decide whether the
-    current turn's missing/malformed identity line should be exempted as a
-    ticket-less conversational session rather than flagged.
 
-    This checks REAL PRIOR STATE - whether a genuine identity line was
-    actually produced earlier in this transcript - not the model's own
-    self-report about whether it considers itself "conversational" (that
-    would be exactly as fabricable as the identity-line breadcrumb this
-    hook exists to police, and was explicitly ruled out by the task
-    spec). It is not perfectly reliable: a session's genuinely FIRST
-    ticket-mode turn has, by definition, no earlier identity line to find,
-    so this predicate would incorrectly exempt that one turn too (a false
-    negative on the flag, never a false positive that fabricates
-    telemetry). Named and accepted, not hidden: this hook only ever
-    produces advisory feedback text, never a block, so a missed advisory
-    on exactly one turn costs a small amount of self-correction signal,
-    not correctness. Fails CLOSED toward True (i.e. "context is
-    established, do not exempt" - today's unconditional-check behavior) on
-    any read/parse error or when transcript_path is empty, since open("")
-    raises and is caught by the same except.
+def _current_branch_name(cwd: str) -> str:
+    """Read the current git branch name directly from .git/HEAD - no
+    subprocess, keeping this hook dependency-free and inside its own <5ms
+    performance contract. Worktree-aware: a git WORKTREE's `.git` is a
+    FILE containing `gitdir: <path>` (pointing at
+    `<main-repo>/.git/worktrees/<name>`), not a directory, and that
+    resolved directory's own HEAD is worktree-specific - this correctly
+    reads the CURRENT worktree's branch, not the main checkout's. Returns
+    "" on any error (detached HEAD - a raw SHA, not a git repo, missing or
+    unreadable files) - callers treat "" as "no branch-name signal", not
+    as ticket context.
     """
     try:
-        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
+        git_path = os.path.join(cwd, ".git")
+        git_dir = git_path
+        if os.path.isfile(git_path):
+            with open(git_path, "r") as f:
+                first_line = f.readline().strip()
+            if first_line.startswith("gitdir:"):
+                candidate = first_line[len("gitdir:"):].strip()
+                git_dir = candidate if os.path.isabs(candidate) else os.path.join(cwd, candidate)
+        head_path = os.path.join(git_dir, "HEAD")
+        with open(head_path, "r") as f:
+            head = f.read().strip()
+        prefix = "ref: refs/heads/"
+        if head.startswith(prefix):
+            return head[len(prefix):]
+        return ""  # detached HEAD (raw SHA) - no branch name to classify
     except Exception:
-        return True
+        return ""
 
+
+def _agentic_ticket_state_active(cwd: str) -> bool:
+    """Best-effort: True iff cwd/.agentic/ contains loop-state or
+    batch-state evidence of an in-flight /ds-implement-ticket loop -
+    `status` is "active" or "interrupted" (see
+    content/references/cross-session-loop-resume.md). Deliberately
+    excludes "complete": a completed ticket's loop-state file persists on
+    disk by design (interim accumulation, per that same reference) and
+    must not keep exempting every later conversational turn in the same
+    checkout forever.
+
+    Returns False - a plain "no signal", not an error - when .agentic/ is
+    absent or contains no matching file. Only a genuine per-file
+    read/parse error is swallowed silently (skip that one candidate, keep
+    scanning); a directory-listing failure returns False rather than
+    failing the whole predicate closed, since an unreadable-but-present
+    .agentic/ is not itself evidence of active ticket work.
+    """
     try:
-        for raw in lines:
-            raw = raw.strip()
-            if not raw:
-                continue
+        agentic_dir = os.path.join(cwd, ".agentic")
+        if not os.path.isdir(agentic_dir):
+            return False
+        try:
+            entries = os.listdir(agentic_dir)
+        except Exception:
+            return False
+        candidates = [
+            os.path.join(agentic_dir, name)
+            for name in entries
+            if name == "batch-state.json" or (name.startswith("loop-state") and name.endswith(".json"))
+        ]
+        for path in candidates:
             try:
-                obj = json.loads(raw)
+                with open(path, "r") as f:
+                    data = json.load(f)
             except Exception:
                 continue
-            text = _extract_assistant_text(obj)
-            if not text:
-                continue
-            first_line = _first_nonblank_line(text)
-            if first_line and _IDENTITY_LINE_RE.match(first_line.strip()):
+            if isinstance(data, dict) and data.get("status") in ("active", "interrupted"):
                 return True
+        return False
+    except Exception:
+        return False
+
+
+def _session_has_active_ticket_context(cwd: str) -> bool:
+    """True iff REAL, non-fabricable state indicates this session is doing
+    ticket work (DS-155 round 2 exemption predicate for check 1, the
+    identity-line check).
+
+    Two independent real-state signals, either sufficient:
+      1. Branch-name convention: the checkout's current branch matches
+         this repo's own canonical naming (`feature/`, `fix/`, `chore/` -
+         content/rules/conventions.md "Branch naming"). Read straight from
+         `.git/HEAD` via _current_branch_name, never from the model's own
+         output.
+      2. `.agentic/` ticket-loop state: an active or interrupted
+         loop-state-*.json / batch-state.json under cwd/.agentic/ - see
+         _agentic_ticket_state_active.
+
+    Both signals require an actual git checkout state or an actual
+    on-disk ticket-loop artifact - the model cannot manufacture either one
+    by writing a plausible-looking line of chat text, which is exactly
+    what defeated round 1's transcript-inference predicate.
+
+    Fails CLOSED toward True (i.e. "context is established, do not exempt"
+    - today's unconditional-check behavior) when cwd is empty or on any
+    unexpected top-level error. Absence of BOTH signals (default branch,
+    no `.agentic/` ticket state) returns False - genuinely no evidence of
+    ticket work in progress, exempt the identity-line check.
+    """
+    if not cwd:
+        return True
+    try:
+        branch = _current_branch_name(cwd)
+        if branch and _TICKET_BRANCH_PREFIX_RE.match(branch):
+            return True
+        if _agentic_ticket_state_active(cwd):
+            return True
         return False
     except Exception:
         return True
@@ -963,11 +1086,79 @@ def _looks_like_question(text: str) -> bool:
     return "?" in stripped and len(stripped) <= _SHORT_QUESTION_TEXT_MAX_CHARS
 
 
+def _has_intervening_assistant_turn(transcript_path: str) -> bool:
+    """True iff a genuine assistant TEXT turn exists between the most
+    recent genuine user message and now (DS-155 round 2, Major 1 fix) -
+    i.e. the operator's question is STALE and must not grant the answer
+    bonus. Closes the demonstrated repro: operator asks a question, then
+    several later background-agent check-in turns pass (each its own
+    assistant text turn, none of them a reply to the question), and a
+    later unrelated status-only or malformed-forced-yield turn was
+    incorrectly going QUIET under the ORIGINAL question purely because it
+    was still the most recent genuine user line in the transcript.
+
+    Reverse-scans the transcript. The first non-blank assistant TEXT entry
+    encountered is treated as belonging to THIS turn itself (mirrors
+    _last_assistant_text_from_transcript's own "most recent assistant
+    text" semantics - by the time Stop fires, the current turn's own
+    message is normally already the newest assistant entry on disk) and
+    is skipped exactly once; a tool-use-only step (no text block,
+    _extract_assistant_text returns "") never counts on either side of
+    that skip, since multi-step tool-call turns commonly interleave
+    several such empty-text entries before their one prose reply. Stops as
+    soon as loop_guard.is_genuine_user_turn matches a line - the same
+    public filter _transcript_answer_bonus's own last_genuine_user_text
+    lookup uses, so both scans agree on which line is the boundary. If a
+    SECOND non-blank assistant text entry appears before that boundary is
+    reached, an intervening turn is confirmed and this returns True (grant
+    nothing).
+
+    Fails CLOSED toward True (i.e. "stale, do not grant" - the narrower,
+    safer direction) on any read/parse error, when loop_guard is
+    unavailable, on an empty transcript_path, or when no genuine user
+    boundary is found at all (the scan cannot positively confirm
+    recency).
+    """
+    lg = _LOOP_GUARD
+    if lg is None or not transcript_path:
+        return True
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return True
+
+    try:
+        skipped_current_turn = False
+        for raw in reversed(lines):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                continue
+            if lg.is_genuine_user_turn(obj):
+                return False  # reached the boundary - no intervening turn
+            assistant_text = _extract_assistant_text(obj)
+            if assistant_text.strip():
+                if not skipped_current_turn:
+                    skipped_current_turn = True
+                    continue
+                return True  # a second, earlier assistant text turn found first
+        return True  # no genuine user boundary found - cannot confirm recency
+    except Exception:
+        return True
+
+
 def _transcript_answer_bonus(transcript_path: str) -> bool:
     """True iff the operator's most recent GENUINE message (per
     loop_guard.last_genuine_user_text - filters tool_result/meta/harness-
-    injected lines) looks like a direct question, per _looks_like_question
-    (DS-155).
+    injected lines) looks like a direct question, per _looks_like_question,
+    AND that question is still the IMMEDIATELY preceding turn boundary
+    with no intervening assistant text turn since it was asked (per
+    _has_intervening_assistant_turn, DS-155 round 2 Major 1 fix) - a stale
+    question grants nothing.
 
     Licenses a plain-prose reply to satisfy the `answer` warrant without
     needing _QUOTED_FRAGMENT_RE's narrow quoted-fragment/blockquote shape -
@@ -977,9 +1168,9 @@ def _transcript_answer_bonus(transcript_path: str) -> bool:
 
     Soft-fail, matching every other transcript-derived signal in this
     hook: any error (missing/unreadable transcript, no genuine turn found,
-    loop_guard unavailable) returns False - i.e. today's narrower
-    behavior. Never raises, never widens the warrant on an unconfirmed
-    signal.
+    loop_guard unavailable, stale question) returns False - i.e. today's
+    narrower behavior. Never raises, never widens the warrant on an
+    unconfirmed or stale signal.
 
     Known residual gap: loop_guard's harness-injected-text filter treats
     ANY text block containing a marker like "<system-reminder>" as
@@ -1001,7 +1192,11 @@ def _transcript_answer_bonus(transcript_path: str) -> bool:
         text = lg.last_genuine_user_text(transcript_path)
     except Exception:
         return False
-    return _looks_like_question(text)
+    if not _looks_like_question(text):
+        return False
+    if _has_intervening_assistant_turn(transcript_path):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -1176,22 +1371,19 @@ def main() -> None:
 
         findings = []
 
-        # 1. Identity-line check. Exempted (DS-155) for a ticket-less
-        # conversational session - see _session_has_established_identity
-        # for the predicate and its named residual gap (the session's
-        # genuine first ticket-mode turn is exempted too, since there is
-        # by definition no earlier identity line to find yet).
+        # 1. Identity-line check. Exempted (DS-155 round 2) for a
+        # ticket-less conversational session - see
+        # _session_has_active_ticket_context for the real-state predicate
+        # (branch-name convention or .agentic/ ticket-loop state) that
+        # replaced round 1's poisonable transcript-inference predicate.
         identity_line = _first_nonblank_line(msg_text)
         if not identity_line or not _IDENTITY_LINE_RE.match(identity_line.strip()):
-            if _session_has_established_identity(transcript_path):
-                findings.append(
-                    "identity line missing or malformed - expected "
-                    "`DS-123 · fix/foo · [phase: skeptic-review]` "
-                    "(two `·`-separated tokens then a bracketed [phase: ...] tag)"
-                )
-            # else: no prior identity line anywhere in this transcript -
+            if _session_has_active_ticket_context(cwd):
+                findings.append(_IDENTITY_FINDING_TEXT)
+            # else: no real-state evidence of ticket work in progress -
             # treat as a ticket-less conversational session and do not
-            # demand one, and do not instruct the model to fabricate one.
+            # demand an identity line, and do not instruct the model to
+            # fabricate one.
 
         # 2. Warrant classification (authoritative). answer_bonus (DS-155)
         # is computed from the transcript once and OR'd into the `answer`

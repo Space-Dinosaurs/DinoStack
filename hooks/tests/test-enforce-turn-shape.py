@@ -154,6 +154,24 @@ def check(label: str, condition: bool):
     print(f"  [{status}] {label}")
 
 
+def _write_fake_git_branch(cwd: str, branch: str) -> None:
+    """Synthesize .git/HEAD (no real git init needed) so
+    _session_has_active_ticket_context's branch-name signal can be tested
+    deterministically (DS-155 round 2). Used by the config-toggle (i.),
+    loop-guard (L.), and identity-exemption (x.) sections."""
+    git_dir = os.path.join(cwd, ".git")
+    os.makedirs(git_dir, exist_ok=True)
+    with open(os.path.join(git_dir, "HEAD"), "w") as f:
+        f.write(f"ref: refs/heads/{branch}\n")
+
+
+def _write_loop_state(cwd: str, filename: str, status: str) -> None:
+    agentic_dir = os.path.join(cwd, ".agentic")
+    os.makedirs(agentic_dir, exist_ok=True)
+    with open(os.path.join(agentic_dir, filename), "w") as f:
+        json.dump({"status": status}, f)
+
+
 # ---------------------------------------------------------------------------
 # a. identity check fires on a missing identity line
 # ---------------------------------------------------------------------------
@@ -162,17 +180,20 @@ rc, out, err = run_hook(make_payload("Done."))
 check("a. missing identity line -> ADVISORY (identity finding)", is_advisory(rc, out, "identity"))
 
 # ---------------------------------------------------------------------------
-# a2. REGRESSION: the advisory must carry a worked example, not just the
-#     word "identity" - a middle dot and a bracketed [phase: ...] tag must
-#     both be present in the additionalContext so the conductor can copy
-#     the shape instead of guessing it.
+# a2. REGRESSION (DS-155 round 2, Major 3 - supersedes the round-1 version
+#     of this test, which required a copyable worked example): the
+#     advisory must name the missing PROPERTIES (ticket, branch, phase) in
+#     prose WITHOUT a copyable literal template. A rejection message that
+#     names a shape with concrete placeholder tokens is exactly the
+#     mechanism that produced the DS-155 origin-incident fabricated
+#     breadcrumb.
 # ---------------------------------------------------------------------------
 
 rc, out, err = run_hook(make_payload("Done."))
 _ctx = parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", "")
 check(
-    "a2. missing identity line -> advisory includes a `·` and a `[phase:` example",
-    "·" in _ctx and "[phase:" in _ctx,
+    "a2. missing identity line -> advisory names ticket/branch/phase, no copyable literal",
+    "ticket" in _ctx and "branch" in _ctx and "phase" in _ctx and "`" not in _ctx,
 )
 
 # ---------------------------------------------------------------------------
@@ -307,6 +328,10 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     def _fresh_cwd(name: str) -> str:
         d = os.path.join(real_tmp, name)
         os.makedirs(os.path.join(d, ".agentic"), exist_ok=True)
+        # DS-155 round 2: a fake ticket branch makes the identity finding
+        # fire deterministically here, independent of the ticket-context
+        # exemption (tested separately in the x. section).
+        _write_fake_git_branch(d, "fix/config-toggle-test")
         return d
 
     # i1. config.json absent entirely -> guard stays ON.
@@ -493,19 +518,23 @@ check("n2. log_fire NOT called on a clean turn", len(_calls_clean) == 0)
 
 
 # ---------------------------------------------------------------------------
-# r. REGRESSION: the worked example embedded in the identity-line advisory
-#    finding must itself satisfy _IDENTITY_LINE_RE - an example that fails
-#    the regex it is teaching is worse than no example at all. Extracted
-#    from the live advisory output (not re-typed here) so this pins against
-#    source drift instead of just re-asserting a copy of the literal.
+# r. REGRESSION (DS-155 round 2, Major 3 - supersedes the round-1 version
+#    of this test, which required a worked example matching
+#    _IDENTITY_LINE_RE): the identity-line finding text must NOT itself
+#    satisfy _IDENTITY_LINE_RE, and must carry no backtick-quoted literal
+#    at all - a structural guard against reintroducing a copyable
+#    template, which is what produced the DS-155 origin-incident
+#    fabricated breadcrumb ("harness · turn-shape guard · [phase:
+#    answer]", copied verbatim from a round-1-shaped rejection message).
 # ---------------------------------------------------------------------------
 
-_r_match = re.search(r"`([^`]*)`", _ctx)
-check("r. advisory contains a backtick-quoted example", _r_match is not None)
-_r_example = _r_match.group(1) if _r_match else ""
 check(
-    "r. embedded advisory example matches _IDENTITY_LINE_RE",
-    bool(_mod._IDENTITY_LINE_RE.match(_r_example)),
+    "r. identity finding text does not itself satisfy _IDENTITY_LINE_RE",
+    not bool(_mod._IDENTITY_LINE_RE.search(_mod._IDENTITY_FINDING_TEXT)),
+)
+check(
+    "r. identity finding text carries no backtick-quoted literal",
+    "`" not in _mod._IDENTITY_FINDING_TEXT,
 )
 
 # ---------------------------------------------------------------------------
@@ -1294,9 +1323,13 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     check("L1. stop_hook_active=true on a flagged message -> QUIET (no advisory)", is_quiet(rc, out))
 
     # L2. Layer 2: consecutive flagged turns in the same cwd -> advisory,
-    # advisory, then QUIET once count reaches CAP.
+    # advisory, then QUIET once count reaches CAP. A fake ticket branch
+    # (DS-155 round 2) makes the identity finding fire deterministically,
+    # independent of the ticket-context exemption tested separately in
+    # the x. section below.
     cap_dir = os.path.join(lg_real, "cap_cwd")
     os.makedirs(os.path.join(cap_dir, ".agentic"), exist_ok=True)
+    _write_fake_git_branch(cap_dir, "fix/loop-guard-test")
     _make_counter_state(cap_dir, CONSECUTIVE_BLOCK_CAP - 1, 0)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
     check("L2a. counter at 1/2 -> ADVISORY (fires, increments to 2)", is_advisory(rc, out, "identity"))
@@ -1307,6 +1340,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     # L3. A new genuine user message resets the counter -> advisory fires again.
     reset_dir = os.path.join(lg_real, "reset_cwd")
     os.makedirs(os.path.join(reset_dir, ".agentic"), exist_ok=True)
+    _write_fake_git_branch(reset_dir, "fix/loop-guard-test")
     _make_counter_state(reset_dir, CONSECUTIVE_BLOCK_CAP, 1)  # at CAP, last_user_msg_count=1
     reset_transcript_path = _write_transcript(
         reset_dir,
@@ -1335,6 +1369,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     # blocked-loop scenario, not the re-arming scenario this case pins.
     clean_reset_dir = os.path.join(lg_real, "clean_reset_cwd")
     os.makedirs(os.path.join(clean_reset_dir, ".agentic"), exist_ok=True)
+    _write_fake_git_branch(clean_reset_dir, "fix/loop-guard-test")
     _make_counter_state(clean_reset_dir, CONSECUTIVE_BLOCK_CAP - 1, 0)  # count=1
     rc, out, err = run_hook(make_payload(IDENTITY_COMPLETE, cwd=clean_reset_dir))
     check("L4a. clean turn -> QUIET (no advisory)", is_quiet(rc, out))
@@ -1472,63 +1507,146 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         is_advisory(rc, out, "turn volume exceeded"),
     )
 
-
-# ---------------------------------------------------------------------------
-# x. DS-155 identity-line ticket-less-session exemption
-#    (_session_has_established_identity). A missing/malformed identity line
-#    is NOT flagged, and no fabrication instruction is emitted, when this
-#    transcript has never carried a genuine identity line before. The same
-#    missing identity line on a transcript that HAS an established identity
-#    line (a ticket is genuinely in flight) must still be flagged - the
-#    exemption must not widen into uselessness.
-# ---------------------------------------------------------------------------
-
-with tempfile.TemporaryDirectory() as tmp_dir:
-    # x1. No prior identity line anywhere in the transcript -> ticket-less
-    # conversational session -> the missing-identity finding is exempted.
-    # Message body is short (no other warrant needed) so a fully clean
-    # QUIET result isolates the identity exemption specifically.
-    no_ticket_transcript = _write_transcript(
+    # w6. REGRESSION (DS-155 round 2, Major 1 demonstrated repro): operator
+    # asks a genuine question, then TWO intervening assistant TEXT turns
+    # (a Waiting: turn, then a status-narration turn - mirroring "unit 1
+    # merged, continuing with unit 2") happen, then the CURRENT turn is
+    # pure narration (status-only, no warrant). Without the recency gate
+    # this would incorrectly go QUIET under the now-stale original
+    # question. The current turn's own text is NOT supplied via
+    # last_assistant_message - it is pulled from the transcript tail (the
+    # realistic Stop-time shape: the current turn's entry is already the
+    # newest line on disk) so the recency scan sees exactly what a live
+    # transcript would contain.
+    stale_status_only = IDENTITY_OK + "\n" + _nlines(3, prefix="Note")
+    stale_question_transcript = _write_transcript(
         tmp_dir,
         [
-            {"role": "user", "content": "What does this function do?"},
-            {"role": "assistant", "content": "It parses the config file."},
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK + "\nWaiting: engineer spawned, blocks merge.",
+            },
+            {
+                "role": "user",
+                "content": "<task-notification>Unit 1 complete</task-notification>",
+            },
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK + "\nUnit 1 merged, continuing with unit 2.",
+            },
+            {"role": "assistant", "content": stale_status_only},
         ],
     )
     rc, out, err = run_hook(
-        json.dumps(
-            {"last_assistant_message": "Sure, that works.", "transcript_path": no_ticket_transcript}
-        )
+        json.dumps({"last_assistant_message": "", "transcript_path": stale_question_transcript})
     )
     check(
-        "x1. no prior identity line in transcript -> QUIET (ticket-less session exempted)",
+        "w6. stale question (2 intervening assistant turns) -> ADVISORY (status-only), bonus withheld",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # w6b. Companion positive control: IDENTICAL shape, but the current
+    # turn is the IMMEDIATELY next assistant entry after the question (no
+    # intervening assistant text turn - the harness-injected notification
+    # does not count) -> the bonus IS granted -> QUIET. Proves w6 fails
+    # because of staleness specifically, not because the transcript-tail
+    # fallback path is broken.
+    fresh_question_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "user",
+                "content": "<task-notification>background check-in</task-notification>",
+            },
+            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": fresh_question_transcript})
+    )
+    check(
+        "w6b. same question, NO intervening assistant turn -> QUIET (bonus granted)",
         is_quiet(rc, out),
     )
 
-    # x2. MUST-STILL-FIRE case: an earlier assistant turn in the SAME
-    # transcript already carried a well-formed identity line (a ticket is
-    # genuinely in flight), and the CURRENT turn is missing its identity
-    # line AND is status-only (>2 body lines, no warrant). Both findings
-    # must still fire - the exemption is scoped to genuinely ticket-less
-    # sessions, not a blanket widening of the identity check.
-    ticket_in_flight_transcript = _write_transcript(
+    # w7. REGRESSION (DS-155 round 2, Major 1 second half): the stale-
+    # question leak also affected _forced_yield_flag, not just
+    # _status_only_flag - a malformed Waiting: turn (extra prose beside
+    # the Waiting: line, no other warrant) must still be flagged even
+    # under a stale question, since the answer bonus must not paper over
+    # a genuinely malformed forced-yield shape.
+    stale_forced_yield = (
+        IDENTITY_OK
+        + "\nSome unrelated explanation sentence here.\n"
+        + "Waiting: operator approval to proceed.\n"
+    )
+    stale_fy_transcript = _write_transcript(
         tmp_dir,
         [
-            {"role": "user", "content": "Please fix the bug."},
-            {"role": "assistant", "content": IDENTITY_OK + "\nStarting work now."},
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK + "\nWaiting: engineer spawned, blocks merge.",
+            },
+            {"role": "assistant", "content": stale_forced_yield},
         ],
     )
-    status_only_no_identity = "Looked at the code.\n" + _nlines(3, prefix="Note")
     rc, out, err = run_hook(
-        json.dumps(
-            {
-                "last_assistant_message": status_only_no_identity,
-                "transcript_path": ticket_in_flight_transcript,
-            }
-        )
+        json.dumps({"last_assistant_message": "", "transcript_path": stale_fy_transcript})
     )
     check(
-        "x2. ticket in flight (prior identity line exists) + missing identity -> ADVISORY (identity)",
+        "w7. stale question does not mask a malformed forced-yield turn -> ADVISORY (forced-yield)",
+        is_advisory(rc, out, "forced-yield"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# x. DS-155 round 2 identity-line ticket-less-session exemption
+#    (_session_has_active_ticket_context). Round 1's transcript-inference
+#    predicate (_session_has_established_identity) was scrapped entirely
+#    after two demonstrated failures - it never bootstrapped a session
+#    whose early turns were all malformed, and a single fabricated
+#    identity line anywhere in the transcript "established" context
+#    forever. The round-2 replacement reads REAL state instead: the
+#    current git branch (read from .git/HEAD, no subprocess) and
+#    `.agentic/` ticket-loop state. Neither signal can be produced by the
+#    model simply writing plausible-looking chat text.
+# ---------------------------------------------------------------------------
+
+
+status_only_no_identity = "Looked at the code.\n" + _nlines(3, prefix="Note")
+
+with tempfile.TemporaryDirectory() as tmp_dir:
+    # x1. Plain directory, no .git, no .agentic/ ticket state -> no
+    # real-state signal at all -> ticket-less conversational session ->
+    # the missing-identity finding is exempted. Message body is short (no
+    # other warrant needed) so a fully clean QUIET result isolates the
+    # identity exemption specifically.
+    no_signal_dir = os.path.join(tmp_dir, "no_signal")
+    os.makedirs(no_signal_dir, exist_ok=True)
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "Sure, that works.", "cwd": no_signal_dir})
+    )
+    check(
+        "x1. no branch/.agentic signal -> QUIET (ticket-less session exempted)",
+        is_quiet(rc, out),
+    )
+
+    # x2. MUST-STILL-FIRE case, signal 1 (branch): cwd's current branch
+    # matches this repo's own `fix/` naming convention (a ticket is
+    # genuinely in flight), and the CURRENT turn is missing its identity
+    # line AND is status-only. Both findings must still fire - the
+    # exemption must not widen into uselessness.
+    branch_dir = os.path.join(tmp_dir, "branch_signal")
+    os.makedirs(branch_dir, exist_ok=True)
+    _write_fake_git_branch(branch_dir, "fix/DS-155")
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": status_only_no_identity, "cwd": branch_dir})
+    )
+    check(
+        "x2. branch matches fix/ convention + missing identity -> ADVISORY (identity)",
         is_advisory(rc, out, "identity"),
     )
     check(
@@ -1536,11 +1654,114 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         is_advisory(rc, out, "status-only"),
     )
 
-    # x3. No transcript_path at all -> falls back to today's unconditional
-    # identity check (fail-closed toward "context established").
+    # x2c. Companion: a non-ticket branch name (e.g. "main") does NOT
+    # trigger signal 1 on its own.
+    main_branch_dir = os.path.join(tmp_dir, "main_branch")
+    os.makedirs(main_branch_dir, exist_ok=True)
+    _write_fake_git_branch(main_branch_dir, "main")
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "Sure, that works.", "cwd": main_branch_dir})
+    )
+    check(
+        "x2c. branch is 'main' (no ticket prefix) -> QUIET (exempted)",
+        is_quiet(rc, out),
+    )
+
+    # x3. MUST-STILL-FIRE case, signal 2 (.agentic/ ticket state): branch
+    # is 'main' (signal 1 absent) but an ACTIVE loop-state file is present
+    # under .agentic/ -> in-flight ticket via signal 2 alone -> ADVISORY.
+    loop_state_dir = os.path.join(tmp_dir, "loop_state_active")
+    os.makedirs(loop_state_dir, exist_ok=True)
+    _write_fake_git_branch(loop_state_dir, "main")
+    _write_loop_state(loop_state_dir, "loop-state-DS-999.json", "active")
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "Done.", "cwd": loop_state_dir})
+    )
+    check(
+        "x3. active .agentic/ loop-state (branch=main) -> ADVISORY (identity)",
+        is_advisory(rc, out, "identity"),
+    )
+
+    # x4. A COMPLETE (not active/interrupted) loop-state file must NOT
+    # count - a finished ticket's file persists on disk by design and must
+    # not keep exempting every later conversational turn in the same
+    # checkout forever.
+    loop_state_complete_dir = os.path.join(tmp_dir, "loop_state_complete")
+    os.makedirs(loop_state_complete_dir, exist_ok=True)
+    _write_fake_git_branch(loop_state_complete_dir, "main")
+    _write_loop_state(loop_state_complete_dir, "loop-state-DS-999.json", "complete")
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "Sure, that works.", "cwd": loop_state_complete_dir})
+    )
+    check(
+        "x4. 'complete' loop-state does not count as active -> QUIET (exempted)",
+        is_quiet(rc, out),
+    )
+
+    # x5. No cwd at all -> fails closed toward "context established"
+    # (today's unconditional-check behavior).
     rc, out, err = run_hook(json.dumps({"last_assistant_message": "Done."}))
     check(
-        "x3. no transcript_path -> ADVISORY (identity), today's behavior preserved",
+        "x5. no cwd -> ADVISORY (identity), fail-closed preserved",
+        is_advisory(rc, out, "identity"),
+    )
+
+    # x6. POISONING-RESISTANCE REGRESSION (DS-155 round 2, Major 2 second
+    # half): a transcript containing the LITERAL DS-155 origin-incident
+    # fabricated breadcrumb string must NOT influence this predicate at
+    # all - it no longer reads the transcript for this decision. No
+    # branch/.agentic signal + a poisoned transcript -> still QUIET
+    # (exempted), proving immunity to exactly the fabricated-breadcrumb
+    # failure mode the round-1 predicate was vulnerable to.
+    poisoned_dir = os.path.join(tmp_dir, "poisoned")
+    os.makedirs(poisoned_dir, exist_ok=True)
+    poisoned_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {
+                "role": "assistant",
+                "content": "harness · turn-shape guard · [phase: answer]\nFabricated breadcrumb.",
+            },
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": "Sure, that works.",
+                "cwd": poisoned_dir,
+                "transcript_path": poisoned_transcript,
+            }
+        )
+    )
+    check(
+        "x6. poisoned transcript (fabricated breadcrumb) has no effect -> QUIET (exempted)",
+        is_quiet(rc, out),
+    )
+
+    # x7. NEVER-BOOTSTRAPS REGRESSION (DS-155 round 2, Major 2 first half):
+    # a ticket branch whose transcript's early turns are ALL malformed (6
+    # malformed prior turns, matching the demonstrated repro) must still
+    # correctly flag from turn 1 - no dependency on any PRIOR
+    # correctly-formed turn, since the predicate never reads the
+    # transcript at all.
+    bootstrap_dir = os.path.join(tmp_dir, "bootstrap")
+    os.makedirs(bootstrap_dir, exist_ok=True)
+    _write_fake_git_branch(bootstrap_dir, "fix/DS-155")
+    malformed_turns = [
+        {"role": "user", "content": "let's start"},
+    ] + [{"role": "assistant", "content": f"malformed turn {i}, no identity line here"} for i in range(6)]
+    bootstrap_transcript = _write_transcript(tmp_dir, malformed_turns)
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": "Done.",
+                "cwd": bootstrap_dir,
+                "transcript_path": bootstrap_transcript,
+            }
+        )
+    )
+    check(
+        "x7. ticket branch, 6 prior malformed turns -> ADVISORY (identity), bootstraps correctly",
         is_advisory(rc, out, "identity"),
     )
 
