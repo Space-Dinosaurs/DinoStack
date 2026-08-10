@@ -227,8 +227,13 @@ def test_w3_tag_colocated_with_qa_loop_state_pointer(implement_ticket_text):
     going red.
     """
     text = implement_ticket_text
-    w3_idx = text.index("site: W3")
-    pointer_idx = text.index("content/references/qa-loop-state.md", w3_idx)
+    w3_idx = text.find("site: W3")
+    assert w3_idx != -1, "expected 'site: W3' tag to still exist in the kernel command file"
+    pointer_idx = text.find("content/references/qa-loop-state.md", w3_idx)
+    assert pointer_idx != -1, (
+        "expected a content/references/qa-loop-state.md pointer somewhere after the "
+        "'site: W3' tag - the tag's surrounding body must not move away without a pointer"
+    )
     between = text[w3_idx:pointer_idx]
     assert between.count("\n") <= 4, (
         "the content/references/qa-loop-state.md pointer must sit within a "

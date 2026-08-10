@@ -1987,7 +1987,7 @@ For the full QA Gate procedure - trigger conditions, the `qa_skip` enum, the QA 
 
 [phase: tracker-writeback | site: W3 | target: $TRACKER_STATE_QA | iter: 1]
 
-See `content/references/qa-loop-state.md` §"Loop entry (repeat until termination)" for this tag's step context within the QA loop contract.
+**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block, the `ticket_id`, and the resolved qa.md config. The Agent tool call MUST set `isolation: "worktree"` (mandatory per METHODOLOGY.md §Delegation > Worker preamble). Canonical spawn-contract source (kept in the kernel so `scripts/codex-skills.py` can transform it) - see `content/references/qa-loop-state.md` §"Loop entry (repeat until termination)" for the full Step 1-5 brief construction (the "Prior QA failures" section, telemetry emit bracketing, and this tag's step context within the QA loop contract); that reference's own Step 1 defers to this paragraph rather than repeating it.
 
 ---
 
@@ -3163,6 +3163,12 @@ fi
 **Trigger:** `.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session) OR set by Phase 0a-open-goal (`goal_mode=open_goal`) OR by the Phase 0a-pre single-ticket-capped carve-out (`max_wallclock_min` alone). Skip when batch-state.json is absent - covers ordinary uncapped single-ticket invocations, unchanged.
 
 Full reference (goal-met short-circuit, the four handoff triggers, the mode-specific on-trigger `batch-state.json` writes for batch/single-ticket-capped vs. open-goal, and the no-trigger continue/advance paths): `content/references/handoff-evaluation.md`. After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket. Read that reference before evaluating this phase or modifying its trigger set or write contract.
+
+**Resume banners (canonical here; printed by the on-trigger write paths in the reference above).**
+- Batch and single-ticket-capped: `Resume: /ds-implement-ticket from this directory`
+- Open-goal: `Resume: /ds-implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`
+
+**Interrupt vs. pause path note (canonical here).** `paused_at`/`pause_reason` are written by Phase 12a on graceful handoff; `interrupted_at`/`interrupt_reason` are written by the SessionEnd hook (`hooks/session-end-wrap.js`, once per session, on a terminal reason) or on crash - see Contract D. These are two distinct paths; `last_summary` is only populated on graceful pause (the SessionEnd hook cannot synthesize it). On the goal-met short-circuit's clean COMPLETE exit, `.agentic/loop-state-$LOOP_KEY.json` is set to `status: "complete"` alongside `batch-state.json` (Contract A).
 
 ---
 

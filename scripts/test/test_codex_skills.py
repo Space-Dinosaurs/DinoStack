@@ -524,6 +524,78 @@ class CodexSkillGenerationTests(unittest.TestCase):
             for item in unsupported
         ))
 
+    def test_referenced_content_reachable_from_codex_skills_has_no_new_unguarded_spawn_literal(self) -> None:
+        """Regression guard for the Unit 5 (DS-143 split) codex-spawn-contract
+        regression: scripts/codex-skills.py's ``documents()`` only transforms
+        content/commands/*.md, content/SKILL.md, and assembled METHODOLOGY.md -
+        it never sees content/references/**, even though every Codex skill's
+        ``resources/references`` entry is a symlink straight into that
+        directory (verbatim, untransformed). A raw `isolation: "worktree"` /
+        `run_in_background` literal that lands in a content/references/**
+        file a Codex skill can reach is therefore inexecutable on Codex and
+        invisible to test_generated_spawn_contract_is_executable_codex_semantics
+        above, because ``Path.rglob`` does not descend into symlinked
+        directories - it only ever sees the skills' own non-symlinked *.md.
+
+        This test walks the same `.codex/skills` tree WITH symlinks followed
+        (`os.walk(..., followlinks=True)`), so it does reach content/references/**.
+        A small, explicit allowlist of files already known to carry raw
+        Claude-only spawn/session literals as inert reference-doc prose
+        (pre-existing accepted state, or a file whose kernel counterpart
+        deliberately retains the executable form with an adjacent pointer -
+        see content/commands/ds-implement-ticket.md Phase 6b's "Step 1 spawn
+        contract" paragraph and qa-loop-state.md's Step 1, which points back
+        to it) is exempt. Any OTHER reachable file containing the pattern
+        fails the build - which is exactly what would have caught the Unit 5
+        regression (a NEW reference file introducing an unguarded, unlisted
+        spawn/session literal with no kernel-side executable counterpart).
+        """
+        allowlisted_reference_files = {
+            "delegation-detail.md",
+            "qa-gate.md",
+            "agent-team.md",
+            "subagent-protocol.md",
+            "qa-loop-state.md",
+        }
+        pattern = re.compile(r"\bisolation\s*:|run_in_background")
+        offenders: list[str] = []
+        skills_root = self.repo / ".codex/skills"
+        repo_real = self.repo.resolve()
+        references_real = (self.repo / "content/references").resolve()
+        seen_real_paths: set[Path] = set()
+        for dirpath, _dirnames, filenames in os.walk(skills_root, followlinks=True):
+            for filename in filenames:
+                if not filename.endswith(".md"):
+                    continue
+                candidate = Path(dirpath) / filename
+                real = candidate.resolve()
+                if real in seen_real_paths:
+                    continue
+                seen_real_paths.add(real)
+                # Only content/references/** is in scope: it is the one canonical
+                # source tree that is reachable from every Codex skill's resources
+                # symlink AND is never a documents() transform input (unlike
+                # content/sections/**, which feeds assembled_methodology(), or
+                # content/commands/**, which is a direct WORKFLOWS document).
+                if references_real not in real.parents:
+                    continue
+                if real.name in allowlisted_reference_files:
+                    continue
+                text = real.read_text(encoding="utf-8")
+                if pattern.search(text):
+                    offenders.append(str(real.relative_to(repo_real)))
+        self.assertFalse(
+            offenders,
+            "found unguarded isolation:/run_in_background literal(s) reachable from a "
+            "Codex skill's resources tree, outside the accepted allowlist: "
+            f"{sorted(offenders)} - either restore the executable spawn-contract "
+            "paragraph to the owning content/commands/*.md kernel file (so "
+            "scripts/codex-skills.py's documents() can transform it) with an adjacent "
+            "pointer from the reference file, or add the file to "
+            "allowlisted_reference_files with a stated reason if it is genuinely inert "
+            "reference-doc prose citing the kernel paragraph.",
+        )
+
     def test_wrap_busy_lock_uses_codex_command_polling_and_session_binding(self) -> None:
         wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
         busy = re.search(

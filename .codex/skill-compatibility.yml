@@ -3682,16 +3682,6 @@
       "source_token": "jq"
     },
     {
-      "expected_target": "content/references/qa-loop-state.md",
-      "generated_token": "$AE_REPO_DIR/content/references/qa-loop-state.md",
-      "kind": "operational",
-      "occurrence_hash": "141e442dc7ef3b74749bcb77b6ec349e655133fadd48ecb3e4a4538e367d1f05",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/qa-loop-state.md"
-    },
-    {
       "expected_target": "bin/ds-base-sync",
       "generated_token": "$AE_REPO_DIR/bin/ds-base-sync",
       "kind": "operational",
@@ -6572,6 +6562,16 @@
       "source_token": "esac"
     },
     {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block, the `ticket_id`, and the resolved qa.md config. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). Canonical spawn-contract source (kept in the kernel so `scripts/codex-skills.py` can transform it) - see `content/references/qa-loop-state.md` \u00a7\"Loop entry (repeat until termination)\" for the full Step 1-5 brief construction (the \"Prior QA failures\" section, telemetry emit bracketing, and this tag's step context within the QA loop contract); that reference's own Step 1 defers to this paragraph rather than repeating it.",
+      "kind": "operational",
+      "occurrence_hash": "4e05e91d826e6d38016f230a1a9f18924c2c154fea1366a9e26d84e26f09e84d",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "**Step 1.** Spawn `qa-engineer` with ticket context, the diff, the unit's `qa_criteria` block, the `ticket_id`, and the resolved qa.md config. The Agent tool call MUST set `isolation: \"worktree\"` (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). Canonical spawn-contract source (kept in the kernel so `scripts/codex-skills.py` can transform it) - see `content/references/qa-loop-state.md` \u00a7\"Loop entry (repeat until termination)\" for the full Step 1-5 brief construction (the \"Prior QA failures\" section, telemetry emit bracketing, and this tag's step context within the QA loop contract); that reference's own Step 1 defers to this paragraph rather than repeating it."
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -8500,6 +8500,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "733d2fa0d83705b542224b457def490baecdc19a4077b3dfaefbdb931fa6c626",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -14142,6 +14152,16 @@
       "source_token": "pr"
     },
     {
+      "expected_target": "hooks/session-end-wrap.js",
+      "generated_token": "$AE_REPO_DIR/hooks/session-end-wrap.js",
+      "kind": "operational",
+      "occurrence_hash": "e34b367f63a33f00c897fca58e0dec0ece34df571141b8c38066f0305fd6b2d1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "hooks/session-end-wrap.js"
+    },
+    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -14632,6 +14652,16 @@
       "source_token": "fi"
     },
     {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "ebcac72e16b49674c16e1b0af5488a61478e7ec2a19fb89ce7648556866ab5a7",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": "cp",
       "generated_token": "cp",
       "kind": "operational",
@@ -15050,6 +15080,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/dev"
+    },
+    {
+      "expected_target": ".agentic/loop-state-",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
+      "kind": "operational",
+      "occurrence_hash": "f3ef36161ebef366d0babc2911e636e9b460e5c429d3b4c61ad0bef5dde95e66",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/loop-state-"
     },
     {
       "expected_target": ".agentic/batch-state.json",

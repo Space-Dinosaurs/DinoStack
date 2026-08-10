@@ -486,16 +486,22 @@ def test_regression_pattern_slot_literal_not_dropped_by_meaningfulness_filter():
     # those two sections were still un-extracted. Unit 5 (this split)
     # extracted them for real into content/references/qa-loop-state.md, so
     # NINE_RANGES's live QA_GATE/QA_EVIDENCE spans are now pointer-only and
-    # contain zero occurrences. Swap the QA_GATE/QA_EVIDENCE members for
-    # `## Phase 6: Skeptic review` - still un-extracted, and the section
-    # that contains most of the file's 'mark-blocked-and-continue' citations
-    # (4 of them) - so this regression test keeps demonstrating a genuine
-    # breaking case rather than a stale one.
+    # contain zero occurrences. A prior fix swapped the QA_GATE/QA_EVIDENCE
+    # members for `## Phase 6: Skeptic review`, but that section is itself
+    # a live extraction candidate for a later split unit and would re-stale
+    # this fixture the same way. Swap for `## Batch state contracts
+    # (binding)` instead - a heading the progressive-disclosure split
+    # provably never touches (Sections 03/05/06/11 pattern; this section is
+    # the binding contract every extracted phase must keep citing, so it
+    # cannot itself be extracted) - and which still contains all three
+    # target literals (5x `<ISO8601>`, 1x `fail-open`, 1x
+    # `mark-blocked-and-continue`), so this regression test keeps
+    # demonstrating a genuine breaking case rather than a stale one.
     ranges = [
         r
         for r in NINE_RANGES
         if r.dest != "content/references/qa-loop-state.md"
-    ] + [_range_for_heading("## Phase 6: Skeptic review", "content/references/_hypothetical-phase6-split.md")]
+    ] + [_range_for_heading("## Batch state contracts (binding)", "content/references/_hypothetical-batch-state-split.md")]
     report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = {
         a.detail: a
