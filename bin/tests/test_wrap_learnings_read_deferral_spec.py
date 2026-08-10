@@ -132,9 +132,26 @@ def test_learnings_md_read_is_gated_behind_the_draft_worker_spawn() -> None:
     assertions green. The positional assertion below fails that exact
     mutation by requiring the read note to appear AFTER the "**Step 1 —
     Spawn a draft Worker**" heading (it describes the read that happens
-    "here", at Step 1) but BEFORE the "**Step 2" heading (so it is pinned
-    into Step 1's own block, not merely somewhere earlier in the
-    document, and cannot have drifted past the spawn site to EOF)."""
+    "here", at Step 1) but BEFORE the full "**Step 2 — When the draft
+    Worker returns, spawn a fresh Skeptic**" heading (so it is pinned into
+    Step 1's own block, not merely somewhere earlier in the document, and
+    cannot have drifted past the spawn site to EOF). The full Step 2
+    heading is used rather than the bare "**Step 2" prefix because a
+    prefix is not self-delimiting: `str.index` returns the first match,
+    so a future "**Step 2..." bold appearing anywhere earlier in the
+    document - including inside the Worker prompt template this window
+    spans - would silently narrow the window rather than fail loudly.
+
+    [REGRESSION, positional] A second reviewer mutation proved the window
+    above is wider than its own docstring claims: relocating the read
+    paragraph to sit immediately before the Step 2 heading (i.e. after the
+    entire Worker prompt template, including the "**Existing learnings:**"
+    field the read exists to populate) still passed `step1_pos <
+    read_note_pos < step2_pos`, because that position is still "somewhere
+    inside Step 1's block". The read only serves its purpose if it
+    precedes the template field it populates, so the assertion below
+    additionally pins the read note BEFORE the "**Existing learnings:**"
+    field."""
     text = _read()
     assert (
         "This is the sole point where its full content is read" in text
@@ -164,8 +181,9 @@ def test_learnings_md_read_is_gated_behind_the_draft_worker_spawn() -> None:
 
     do_not_read_marker = "**Do NOT read `.agentic/learnings.md` here**"
     step1_heading = "**Step 1 — Spawn a draft Worker**"
-    step2_heading = "**Step 2"
+    step2_heading = "**Step 2 — When the draft Worker returns, spawn a fresh Skeptic**"
     read_note = "This is the sole point where its full content is read"
+    existing_learnings_field = "**Existing learnings:**"
     assert do_not_read_marker in text, (
         "Step 0's 'Do NOT read learnings.md here' bullet is missing - "
         "cannot anchor the positional window"
@@ -175,13 +193,18 @@ def test_learnings_md_read_is_gated_behind_the_draft_worker_spawn() -> None:
         "anchor the positional window"
     )
     assert step2_heading in text, (
-        "the 'Step 2' heading is missing - cannot anchor the positional "
-        "window"
+        "the 'Step 2 — When the draft Worker returns, spawn a fresh "
+        "Skeptic' heading is missing - cannot anchor the positional window"
+    )
+    assert existing_learnings_field in text, (
+        "the '**Existing learnings:**' Worker-prompt-template field is "
+        "missing - cannot anchor the positional window"
     )
     do_not_read_pos = text.index(do_not_read_marker)
     step1_pos = text.index(step1_heading)
     step2_pos = text.index(step2_heading)
     read_note_pos = text.index(read_note)
+    existing_learnings_pos = text.index(existing_learnings_field)
     assert do_not_read_pos < step1_pos, (
         "Step 0's 'Do NOT read ... here' bullet no longer precedes the "
         "'Step 1 — Spawn a draft Worker' heading - document structure has "
@@ -194,6 +217,14 @@ def test_learnings_md_read_is_gated_behind_the_draft_worker_spawn() -> None:
         "block (e.g. relocated to EOF, after Part G), which would make "
         "the read happen too late to serve the draft-Worker spawn it "
         "claims to gate"
+    )
+    assert read_note_pos < existing_learnings_pos, (
+        "REGRESSION: the deferred learnings.md read note no longer "
+        "precedes the '**Existing learnings:**' Worker-prompt-template "
+        "field it exists to populate - it may have drifted to somewhere "
+        "later in Step 1's block (e.g. immediately before Step 2, after "
+        "the entire prompt template), which would make the read happen "
+        "too late to serve the field it is supposed to fill"
     )
 
 
