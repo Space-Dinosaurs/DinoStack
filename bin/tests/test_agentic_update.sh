@@ -995,6 +995,177 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# push_ahead_nontrigger_commit: like push_ahead_commit, but the pushed
+# commit only touches README.md - not a REBUILD_TRIGGER path - so
+# _needs_rebuild() returns False and main()'s "No rebuild needed" branch
+# (bin/ds-update:627-634, doctor call at :634) fires instead of the
+# rebuild-triggered branch (Step 14, doctor call at :724).
+# Must be called after setup_git_fixture.
+# ---------------------------------------------------------------------------
+push_ahead_nontrigger_commit() {
+  local pusher_dir="$TEMP_HOME/pusher"
+  git clone --quiet "$FAKE_REMOTE" "$pusher_dir" 2>/dev/null
+  (
+    cd "$pusher_dir"
+    git config user.email "test@test.com"
+    git config user.name "Test"
+    echo "non-trigger update" >> README.md
+    git add README.md
+    git commit -m "non-trigger README update" -q
+    git push -q origin main 2>/dev/null
+  )
+  rm -rf "$pusher_dir"
+}
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+# ---------------------------------------------------------------------------
+# _run_doctor_cwd_check: shared body for the T18a/T18b/T18c call-site
+# variants below. Assumes setup_git_fixture (and, for T18b/T18c, the
+# appropriate push_ahead_* helper) has already run for this scenario.
+# A stub ds-doctor on PATH records the cwd it was invoked in (it never runs
+# the real binary) so the assertion is deterministic and side-effect-free.
+# Sets (globals, deliberately not `local` - read by the caller after return):
+#   RC, OUT              - invoke_updater's exit code / captured output
+#   DOCTOR_CWD_LOG        - path to the stub's recorded-cwd file
+#   REAL_SUM_BEFORE/AFTER - checksums of the REAL bin/agentic-update (the
+#                           test runner's own copy, not the FAKE_REPO
+#                           fixture) asserting the test never escapes its
+#                           sandbox.
+# Args: $1 = test id/label (e.g. "T18a"), remainder = extra invoke_updater args.
+# ---------------------------------------------------------------------------
+_run_doctor_cwd_check() {
+  local tid="$1"
+  shift
+
+  STUB_BIN="$TEMP_HOME/stubbin"
+  mkdir -p "$STUB_BIN"
+  DOCTOR_CWD_LOG="$TEMP_HOME/doctor_cwd.log"
+  cat > "$STUB_BIN/ds-doctor" <<STUBEOF
+#!/usr/bin/env bash
+pwd > "$DOCTOR_CWD_LOG"
+exit 0
+STUBEOF
+  chmod +x "$STUB_BIN/ds-doctor"
+
+  REAL_SUM_BEFORE="$(sha256_of "$UPDATER")"
+
+  OTHER_DIR="$(mktemp -d)"
+  ORIGINAL_PATH="$PATH"
+  PATH="$STUB_BIN:$PATH"
+  export PATH
+
+  (
+    cd "$OTHER_DIR"
+    invoke_updater "$@"
+  )
+
+  PATH="$ORIGINAL_PATH"
+  export PATH
+
+  RC=$(cat "$TEMP_HOME/.exit")
+  OUT=$(cat "$TEMP_HOME/.out")
+  REAL_SUM_AFTER="$(sha256_of "$UPDATER")"
+
+  if [[ "$RC" == "0" ]]; then
+    _pass "$tid doctor cwd: exits 0"
+  else
+    _fail "$tid doctor cwd: expected exit 0, got $RC (output: $OUT)"
+  fi
+
+  if [[ -f "$DOCTOR_CWD_LOG" ]]; then
+    RECORDED_CWD="$(cat "$DOCTOR_CWD_LOG")"
+    RECORDED_REAL="$(cd "$RECORDED_CWD" 2>/dev/null && pwd -P)"
+    EXPECTED_REAL="$(cd "$FAKE_REPO" && pwd -P)"
+    OTHER_REAL="$(cd "$OTHER_DIR" && pwd -P)"
+
+    if [[ "$RECORDED_REAL" == "$EXPECTED_REAL" ]]; then
+      _pass "$tid doctor cwd: ds-doctor invoked with cwd == repo_dir"
+    else
+      _fail "$tid doctor cwd: ds-doctor invoked with cwd '$RECORDED_REAL', expected repo_dir '$EXPECTED_REAL' - the sandbox-escape bug reproduces here"
+    fi
+
+    if [[ "$RECORDED_REAL" != "$OTHER_REAL" ]]; then
+      _pass "$tid doctor cwd: ds-doctor cwd is NOT the invoking shell's cwd"
+    else
+      _fail "$tid doctor cwd: ds-doctor cwd equals the invoking shell's cwd ($OTHER_REAL) - inherited-cwd bug reproduces here"
+    fi
+  else
+    _fail "$tid doctor cwd: stub ds-doctor was never invoked (no cwd log written)"
+  fi
+
+  if [[ "$REAL_SUM_BEFORE" == "$REAL_SUM_AFTER" ]]; then
+    _pass "$tid doctor cwd: real repo's bin/agentic-update unchanged (sandbox intact)"
+  else
+    _fail "$tid doctor cwd: real repo's bin/agentic-update CHECKSUM CHANGED - test escaped its sandbox"
+  fi
+
+  rm -rf "$OTHER_DIR"
+}
+
+# ---------------------------------------------------------------------------
+# Test 18a (regression, dormant sandbox-escape hazard fix): "Already up to
+# date" branch. old_head == new_head (no push), so main() returns
+# _run_doctor(repo_dir) directly at bin/ds-update:588.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+
+_run_doctor_cwd_check "T18a"
+
+if echo "$OUT" | grep -q "Already up to date"; then
+  _pass "T18a doctor cwd: reached the 'Already up to date' branch (:588)"
+else
+  _fail "T18a doctor cwd: did not reach 'Already up to date' (got: $OUT)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 18b (regression, dormant sandbox-escape hazard fix): "No rebuild
+# needed" branch. old_head != new_head but the pulled commit only touches a
+# non-REBUILD_TRIGGER path, so _needs_rebuild() is False and main() calls
+# _run_doctor(repo_dir) at bin/ds-update:634.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_nontrigger_commit
+
+_run_doctor_cwd_check "T18b"
+
+if echo "$OUT" | grep -q "No rebuild needed"; then
+  _pass "T18b doctor cwd: reached the 'No rebuild needed' branch (:634)"
+else
+  _fail "T18b doctor cwd: did not reach 'No rebuild needed' (got: $OUT)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 18c (regression, dormant sandbox-escape hazard fix): rebuild-triggered
+# Step 14 branch. push_ahead_commit's pushed commit adds .claude/install.sh,
+# an exact-path REBUILD_TRIGGER, so _needs_rebuild() is True and control
+# reaches _run_adapter_installs -> Step 14's _run_doctor(repo_dir) at
+# bin/ds-update:724.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+push_ahead_commit
+
+_run_doctor_cwd_check "T18c"
+
+if echo "$OUT" | grep -q "Rebuild triggered by"; then
+  _pass "T18c doctor cwd: reached the rebuild-triggered Step 14 branch (:724)"
+else
+  _fail "T18c doctor cwd: did not reach 'Rebuild triggered by' (got: $OUT)"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo
