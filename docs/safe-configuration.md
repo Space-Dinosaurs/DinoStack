@@ -106,10 +106,9 @@ hook installed separately:
   (a non-Answer turn's structural shape) is BLOCKING and can block the stop,
   injecting a directive to reshape the turn; `_answer_relevance_flag`
   (opening-preamble/closing-recap phrasing on an Answer turn) remains
-  advisory-only and only logs a finding. **DS-156 CONTRACT, NOT YET SHIPPED:**
-  the blocking behavior above is Unit 2's implementation target
-  (`content/references/conductor-turn-format.md`); the currently shipped
-  hook remains uniformly advisory. Controlled by
+  advisory-only and only logs a finding. See
+  `content/references/conductor-turn-format.md` for the full contract.
+  Controlled by
   `turn_shape_guard_enabled` in `.agentic/config.json`, default `true`
   (absent key resolves to on - the inverse of the abdication guard's
   fail-open-to-inactive default; the risk profile is now closer to

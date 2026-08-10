@@ -934,9 +934,10 @@ _ENFORCER_SUBCOUNT_SITES = [
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (five hooks - `enforce-askuserquestion-default.py`, '
+        '`"deny"` (six hooks - `enforce-askuserquestion-default.py`, '
         "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
-        "`enforce-shippable-edit.py`, `enforce-tier.py`) and `\"allow_advisory\"` "
+        "`enforce-shippable-edit.py`, `enforce-tier.py`, `enforce-turn-shape.py`) "
+        'and `"allow_advisory"` '
         "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
     ),
 ]
