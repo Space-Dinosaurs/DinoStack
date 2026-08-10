@@ -47,14 +47,55 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             checks 2a-4 below): classifies which of
             four warrants justify the turn's content -
               - decision:   an "## Operator decisions" heading is present.
+                             (DS-156 checked this for the same narrow-
+                             literal weakness as completion/answer and
+                             found it does NOT share it: 3.4% of the
+                             status-only-flagged corpus sample contains
+                             decision-adjacent prose ("I recommend...")
+                             without the heading, but that prose is
+                             exactly the free-form recommendation style the
+                             heading requirement exists to discourage, not
+                             a false positive of the guard - unlike
+                             completion/answer, this warrant gates on a
+                             MANDATED STRUCTURAL FORMAT the methodology
+                             itself requires authors to use, not on
+                             recognising free-form intent, so a hand
+                             sample found no case where the guard was
+                             wrong to withhold the warrant. Not widened.)
               - stoppage:   at least one "Waiting:" line is present.
-              - completion: "[phase: complete]" or an unambiguous terminal-
-                             completion phrase. A bare past-participle
-                             "done"/"shipped"/"merged" does NOT count - this
-                             repo's canonical non-warranted status-ping
-                             vocabulary ("unit 2 merged", "PR merged,
-                             pulling main") must not accidentally launder
-                             into a completion warrant.
+                             (DS-156: same check. 7.4% of the same corpus
+                             sample contains "waiting on/for" PROSE without
+                             a "Waiting:" line, but every hand-checked
+                             instance was itself part of a genuinely
+                             multi-paragraph, still-in-progress status
+                             turn that the guard is correctly nudging
+                             toward the terse "Waiting:" format - not a
+                             turn the guard wrongly penalised. Not
+                             widened.)
+              - completion: "[phase: complete]", an unambiguous terminal-
+                             completion phrase (anywhere in the domain - see
+                             _COMPLETION_RE), OR (DS-156) a LEADING
+                             completion declaration - the identity line
+                             itself opens with a short terminal claim such
+                             as "Done.", "Verification complete.", "Both
+                             PRs are done and verified.", or "Merged and
+                             fully cleaned up." (see _LEADING_COMPLETION_RE).
+                             A bare past-participle "done"/"shipped"/
+                             "merged" occurring MID-MESSAGE still does NOT
+                             count - this repo's canonical non-warranted
+                             status-ping vocabulary ("unit 2 merged", "PR
+                             merged, pulling main") must not accidentally
+                             launder into a completion warrant. The leading-
+                             declaration widening is deliberately scoped to
+                             the identity line ONLY (matched via a
+                             string-start anchor, not MULTILINE) precisely
+                             so it cannot match that
+                             same vocabulary buried in ongoing-work prose -
+                             see _LEADING_COMPLETION_RE's docstring for the
+                             corpus measurement (DS-156) that found the
+                             identity-line restriction is what separates a
+                             genuine completion report from a completed
+                             sub-item inside a still-in-progress turn.
               - answer:     a quoted fragment of the operator's immediately
                              preceding message, OR (DS-155)
                              _transcript_answer_bonus finding that the
@@ -488,19 +529,102 @@ _OPERATOR_DECISIONS_HEADING_RE = re.compile(
 # A "Waiting:" line - the forced-yield / hard-stop marker.
 _WAITING_LINE_RE = re.compile(r"^\s*waiting\s*:\s*\S", re.IGNORECASE)
 
-# Terminal-completion signal. "[phase: complete]" or an unambiguous
-# terminal-completion phrase. Deliberately does NOT match a bare past
-# participle ("done", "shipped", "merged") - those are this repo's
-# canonical non-warranted status-ping vocabulary ("unit 2 merged", "PR
-# merged, pulling main") and must never be laundered into a completion
-# warrant.
+# Terminal-completion signal, ANYWHERE in the domain (identity line + body).
+# "[phase: complete]" or an unambiguous terminal-completion phrase.
+# Deliberately does NOT match a bare past participle ("done", "shipped",
+# "merged") - those are this repo's canonical non-warranted status-ping
+# vocabulary ("unit 2 merged", "PR merged, pulling main") and must never be
+# laundered into a completion warrant.
+#
+# DS-156 additions (structured-field sentinels, safe anywhere in the domain
+# because the label itself is what makes them unambiguous, not their
+# position): `status: DONE` / `status: DONE_WITH_CONCERNS` - this repo's own
+# engineer-role return contract's terminal enum values (see
+# content/references/conductor-turn-format.md and the Engineer role's
+# `quality_gate_results` block); `state: complete` / `state: work complete`
+# - the Conductor template's own "State:" field (content/references/
+# conductor-turn-format.md's "Conductor\nState: ...\nRunning: ...\nBlocked:
+# ..." shape); `run complete` / `review complete` - this repo's fixed
+# PR-review-run closing phrase. Corpus-measured (DS-156, see
+# _LEADING_COMPLETION_RE's docstring for the full method): 0 false positives
+# found across an 80-item hand-labelled sample of newly-recognised
+# completions that included these four additions.
 _COMPLETION_RE = re.compile(
     r"\[phase:\s*complete\]"
     r"|\ball\s+(?:done|complete)\b"
     r"|\bfully\s+complete\b"
     r"|\btask(?:s)?\s+(?:is|are)\s+complete\b"
     r"|\bwork\s+is\s+complete\b"
-    r"|\bnothing\s+(?:left|more)\s+to\s+do\b",
+    r"|\bnothing\s+(?:left|more)\s+to\s+do\b"
+    r"|\bstatus\s*:\s*done(?:_with_concerns)?\b"
+    r"|\bstate\s*:\s*(?:work\s+)?complete\b"
+    r"|\brun\s+(?:is\s+)?complete\b"
+    r"|\breview\s+(?:is\s+)?complete\b"
+    r"|\ball\s+state\s+files\s+are\s+(?:written|updated|current)\b",
+    re.IGNORECASE,
+)
+
+# DS-156: a LEADING completion declaration - the identity line (the very
+# start of the domain, matched via \A / .match() so MULTILINE is never
+# enabled and no line other than the first can match) opens with a short
+# terminal claim. Two shapes:
+#   1. Up to 3 leading words, then "is"/"are", then "done"/"complete"/
+#      "completed", then up to 2 short trailing modifiers ("and verified",
+#      ", deployed") before terminal punctuation. Covers "Done.",
+#      "Verification complete.", "Both PRs are done and verified.",
+#      "Amend done, all clean.".
+#   2. A leading past-participle completion verb (merged/shipped/deployed/
+#      pushed/landed) followed within 40 chars by a completion-adjacent
+#      word (live/deployed/merged/complete/done/cleaned up). Covers "Merged
+#      and fully cleaned up.".
+#
+# Corpus method (DS-156, ticket: repo-local ad-hoc, not a numbered ticket
+# in this session): extracted every FINAL assistant-turn text (grouped by
+# transcript `message.id`, excluding any group that itself contains a
+# tool_use block, i.e. the same "completed turn" scope the Stop hook acts
+# on) from ~/.claude/projects - 3,336 files, 165,442 assistant entries,
+# 6,744 candidate final-turn texts. Applied the PRE-FIX
+# _classify_warrants/_status_only_flag to find turns already flagged
+# status-only: 1,231 of 6,744 (18.3%). Hand-labelled samples (not the full
+# 1,231 - see below) as genuine-completion vs genuine-status-only.
+#
+# Round 1 (7 candidate anywhere-scoped phrases, incl. a "merged and
+# (live|deployed)" phrase): 220-item random preview plus a targeted
+# 50-item hand-verified sample of newly-matched turns found 3 false
+# positives (idx 17, 24, 36 of that sample), ALL traced to the
+# "merged/shipped and (live|deployed)" phrase matching a COMPLETED
+# SUB-ITEM's description inside a turn whose OVERALL state was still
+# in-progress (CI running, another unit still building, a future-tense
+# "I'll report when it's merged and live"). All 3 shared one property:
+# the matching text was NOT the identity line (line 1) of the turn - it
+# was buried in the body, several lines after an identity line that
+# itself carried the real (in-progress) state.
+#
+# Round 2 (this version): moved the past-participle phrase, plus a new
+# generalised "done/complete" leading-sentence pattern, to an
+# IDENTITY-LINE-ONLY match (`\A`, not `re.MULTILINE`). Re-verified: an
+# 80-item hand-labelled sample of turns newly recognised as completion
+# under the final regex found 0 false positives (see git history / PR
+# description for the sample). A parallel 80-item sample of turns still
+# flagged status-only after the fix found the residual gap is real but
+# small - confirmed misses include a completion buried under a "## Done"
+# sub-heading (not the identity line) and "Status: DONE_WITH_CONCERNS"
+# variants not yet covered by that exact spelling at the time of
+# sampling. Net effect on the full 1,231-turn flagged set: 198 turns
+# (16.1%) newly recognised as completion; 1,033 (83.9%) remain correctly
+# flagged status-only. NOT rounded to zero - the residual gap (turns whose
+# completion declaration sits below the identity line, or uses wording
+# outside the patterns above) is real and disclosed, not chased further
+# here per the same "measured, not assumed" discipline that motivated this
+# fix in the first place.
+_LEADING_COMPLETION_RE = re.compile(
+    r"\A\s*\*{0,2}"
+    r"(?:"
+    r"(?:[A-Za-z][\w'/-]*\s+){0,3}(?:is\s+|are\s+)?(?:done|complete|completed)"
+    r"(?:\s*,?\s*(?:and\s+)?[a-z]+){0,2}"
+    r"|(?:merged|shipped|deployed|pushed|landed)\b.{0,40}?"
+    r"\b(?:live|deployed|merged|complete|completed|done|cleaned up)\b"
+    r")\*{0,2}[.!,:]",
     re.IGNORECASE,
 )
 
@@ -652,7 +776,8 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
     return {
         "decision": bool(_OPERATOR_DECISIONS_HEADING_RE.search(domain_text)),
         "stoppage": any(_WAITING_LINE_RE.match(ln) for ln in unfenced_lines),
-        "completion": bool(_COMPLETION_RE.search(domain_text)),
+        "completion": bool(_COMPLETION_RE.search(domain_text))
+        or bool(_LEADING_COMPLETION_RE.match(domain_text)),
         "answer": bool(_QUOTED_FRAGMENT_RE.search(domain_text)) or answer_bonus,
     }
 

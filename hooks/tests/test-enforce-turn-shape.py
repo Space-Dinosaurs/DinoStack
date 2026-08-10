@@ -647,6 +647,37 @@ check(
     is_advisory(rc, out, "turn volume exceeded"),
 )
 
+# ---------------------------------------------------------------------------
+# c. DS-156 widened completion warrant (real-corpus-motivated - see
+#    hooks/tests/fixtures/turn-shape-completion-corpus.json for the
+#    hand-labelled sample and the measured before/after numbers cited in
+#    _LEADING_COMPLETION_RE's docstring). Each `c*` case below is a
+#    SYNTHETIC message built from the fixture's own sanitized `template`
+#    field (never real transcript prose - the fixture stores which
+#    structural SHAPE each real turn used, not its content), matching this
+#    file's existing s/v/t-series pattern of programmatically-built
+#    messages rather than embedded corpus text.
+# ---------------------------------------------------------------------------
+
+with open(
+    os.path.join(os.path.dirname(__file__), "fixtures", "turn-shape-completion-corpus.json"),
+    "r",
+    encoding="utf-8",
+) as _cf:
+    _completion_fixture = json.load(_cf)
+
+for _case in _completion_fixture["cases"]:
+    _filler = _nlines(_case["filler_lines"], prefix="Detail") if _case["filler_lines"] > 0 else ""
+    _msg = _case["template"] + "\n" + _filler
+    rc, out, err = run_hook(make_payload(_msg))
+    _expect_quiet = _case["expected"] == "quiet"
+    _outcome_ok = is_quiet(rc, out) if _expect_quiet else is_advisory(rc, out, "status-only")
+    check(
+        f"c-{_case['id']} ({_case['shape_class']}): {_case['note']} -> "
+        f"{'QUIET' if _expect_quiet else 'ADVISORY'} (expected)",
+        _outcome_ok,
+    )
+
 # s5. answer warrant, body AT the flat budget (10 lines total, including
 # the quoted line that supplies the warrant) -> QUIET. (A9: resized from
 # the old, now-deleted, WEAK_FALLBACK boundary of 6 to the new flat

@@ -1,0 +1,168 @@
+{
+  "_purpose": "DS-156 corpus-motivated regression fixture for the completion-warrant widening in hooks/enforce-turn-shape.py (test-enforce-turn-shape.py's 'c-*' block). Each case is a SYNTHETIC template built to match a real SHAPE CLASS found in a local Claude Code transcript corpus scan - no literal transcript prose is reproduced here (per the same no-real-content discipline as turn-shape-corpus-samples.json), only the structural wording pattern that made the shape true- or false-positive during measurement.",
+  "_measurement": {
+    "corpus_root": "~/.claude/projects (local developer machine, not committed - this fixture is the sanitized extract)",
+    "files_scanned": 3336,
+    "assistant_entries_scanned": 165442,
+    "candidate_final_turns": 6744,
+    "note_on_final_turns": "A 'final turn' is one logical assistant message (grouped by transcript message.id) that carries NO tool_use block of its own - the same 'this is a completed turn's own text, not mid-tool-call scaffolding' scope the Stop hook acts on.",
+    "pre_fix_flagged_status_only": 1231,
+    "pre_fix_flagged_pct_of_final_turns": "18.3%",
+    "round_1_anywhere_scoped_candidate_regex": "7 candidate phrases including an anywhere-scoped 'merged/shipped and (live|deployed)' phrase",
+    "round_1_precision_check": "50-item hand-verified random sample of newly-matched turns found 3 false positives (idx 17, 24, 36), ALL attributable to the anywhere-scoped merged/shipped phrase matching a COMPLETED SUB-ITEM's description inside a still-in-progress overall turn (CI running elsewhere, another unit still building, or a future-tense 'I'll report when it's merged and live'). In all 3, the matching text was NOT the identity line.",
+    "round_2_fix": "Moved the past-participle phrase, plus a new generalised leading done/complete sentence pattern, to an identity-line-only match (string-start anchor, never MULTILINE).",
+    "round_2_precision_sample_n": 80,
+    "round_2_precision_false_positives_found": 0,
+    "round_2_recall_sample_n": 80,
+    "round_2_recall_sample_purpose": "still-flagged-after-fix turns, hand-checked for genuine completions the widened regex still misses (residual gap)",
+    "round_2_recall_confirmed_residual_misses": "a completion declared under a '## Done' sub-heading (not the identity line); 'Status: DONE_WITH_CONCERNS' spelling was added after this sample surfaced it as a miss",
+    "final_full_corpus_result": {
+      "pre_fix_flagged": 1231,
+      "newly_recognised_as_completion": 198,
+      "newly_recognised_pct": "16.1%",
+      "still_flagged_status_only_after_fix": 1033,
+      "still_flagged_pct": "83.9%"
+    },
+    "decision_and_stoppage_warrants_checked": "Measured separately (see enforce-turn-shape.py's module docstring, step 1). 7.4% of the flagged corpus sample contains 'waiting on/for' prose without a 'Waiting:' line, and 3.4% contains decision-adjacent prose without the '## Operator decisions' heading, but hand-checking found these are turns the guard is CORRECTLY nudging toward the mandated structural format, not false positives - decision/stoppage gate on a REQUIRED FORMAT the methodology itself mandates, not on recognising free-form intent the way completion/answer do. Not widened."
+  },
+  "shape_classes_covered": {
+    "structured_field_sentinel": "a fixed-vocabulary field label ('Status:', 'State:') whose value is the terminal token - safe to match ANYWHERE in the domain because the label itself removes the ambiguity, not the position (cases 1, 2, 3)",
+    "fixed_workflow_phrase": "this repo's own recurring PR-review-run closing phrase ('Run complete.', 'All state files are written.') - safe anywhere for the same reason (cases 4, 5, 6)",
+    "leading_bare_declaration": "a short 'X is done/complete' sentence as the very first line of the turn (cases 7, 8, 9, 11)",
+    "leading_past_participle": "a leading 'Merged/Shipped ... live/deployed/cleaned up' declaration as the first line (case 10)",
+    "midbody_false_positive_trap": "the exact shape that produced round 1's 3 false positives - a completion-adjacent phrase appears mid-body, not on the identity line, while the turn's real state (from its identity line) is still in-progress (cases 12, 16)",
+    "midbody_bare_participle_original_caution": "the ORIGINAL (pre-DS-156) design's own caution case - a bare past participle mid-prose must never launder into a warrant (case 13)",
+    "status_value_confusable": "a structured Status: field whose VALUE is not 'done' (BLOCKED here), even though the word 'DONE' appears later in unrelated prose (case 14)",
+    "disclosed_residual_gap": "a genuine completion declared under a markdown sub-heading rather than the identity line - NOT recognised by this fix, kept as a permanent regression pin documenting the known gap rather than silently rounding it to zero (case 15)"
+  },
+  "cases": [
+    {
+      "id": "1",
+      "shape_class": "structured_field_sentinel",
+      "template": "Status: DONE",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "engineer-role return contract's terminal enum value"
+    },
+    {
+      "id": "2",
+      "shape_class": "structured_field_sentinel",
+      "template": "Status: DONE_WITH_CONCERNS",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "the sibling terminal enum value found missing in the round-2 recall sample"
+    },
+    {
+      "id": "3",
+      "shape_class": "structured_field_sentinel",
+      "template": "Conductor\n\nState: complete.\nRunning: nothing.\nBlocked: none.",
+      "filler_lines": 0,
+      "expected": "quiet",
+      "note": "the Conductor template's own State: field, fully done (Running: nothing)"
+    },
+    {
+      "id": "4",
+      "shape_class": "fixed_workflow_phrase",
+      "template": "All state files are written. Run complete.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "this repo's fixed PR-review-run closing phrase"
+    },
+    {
+      "id": "5",
+      "shape_class": "fixed_workflow_phrase",
+      "template": "Review complete. Full diff read and verified.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "review-run closing phrase, also doubles as a leading declaration"
+    },
+    {
+      "id": "6",
+      "shape_class": "fixed_workflow_phrase",
+      "template": "All state files are written. This run required no further action.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "the single highest-volume anywhere-scoped phrase measured"
+    },
+    {
+      "id": "7",
+      "shape_class": "leading_bare_declaration",
+      "template": "Done.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "the exact ticket-reported symptom shape - a bare bolded Done. opener"
+    },
+    {
+      "id": "8",
+      "shape_class": "leading_bare_declaration",
+      "template": "Verification complete. Repo confirmed clean.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "1-3-leading-word + complete/done generalisation"
+    },
+    {
+      "id": "9",
+      "shape_class": "leading_bare_declaration",
+      "template": "Both PRs are done and verified.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "trailing modifier after done/complete before terminal punctuation"
+    },
+    {
+      "id": "10",
+      "shape_class": "leading_past_participle",
+      "template": "Merged and fully cleaned up.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "the past-participle phrase, now identity-line-scoped only"
+    },
+    {
+      "id": "11",
+      "shape_class": "leading_bare_declaration",
+      "template": "Amend done, all clean.",
+      "filler_lines": 3,
+      "expected": "quiet",
+      "note": "comma-terminated leading declaration with a trailing modifier"
+    },
+    {
+      "id": "12",
+      "shape_class": "midbody_false_positive_trap",
+      "template": "ad-hoc · main · [phase: implementation]\n\nUnit 3 still building.\nI'll report when it's merged and live.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "note": "round-1 false-positive shape (future-tense, mid-body) - must stay flagged"
+    },
+    {
+      "id": "13",
+      "shape_class": "midbody_bare_participle_original_caution",
+      "template": "ad-hoc · main · [phase: implementation]\n\nUnit 2 merged, pulling main to continue with unit 3.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "note": "the ORIGINAL pre-DS-156 caution case, still holds under the widened regex"
+    },
+    {
+      "id": "14",
+      "shape_class": "status_value_confusable",
+      "template": "Status: BLOCKED (partially) - the fix itself is DONE, but cleanup remains.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "note": "Status: value is BLOCKED, not DONE - the sentinel must not fire on an unrelated later 'DONE' token"
+    },
+    {
+      "id": "15",
+      "shape_class": "disclosed_residual_gap",
+      "template": "Comment posted. Investigation ongoing.\n\n## Done\n\nSummary of findings below.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "note": "DISCLOSED KNOWN GAP: a completion declared under a markdown sub-heading, not the identity line, is NOT recognised - kept as a pinned regression documenting the gap rather than silently rounding it to zero"
+    },
+    {
+      "id": "16",
+      "shape_class": "midbody_false_positive_trap",
+      "template": "PR **#717** up, CI running. Worktrees cleaned.\n\nI'll report when it's merged and live.",
+      "filler_lines": 3,
+      "expected": "advisory",
+      "note": "second independent instance of the round-1 false-positive shape"
+    }
+  ]
+}
