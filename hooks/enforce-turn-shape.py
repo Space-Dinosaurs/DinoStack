@@ -1,14 +1,38 @@
 #!/usr/bin/env python3
 """
-Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
+Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
          the conductor's final assistant message against the turn-shape
-         contract in content/sections/02-delegation.md /
-         content/rules/conventions.md ("Operator decisions go last in the
-         turn" and "Waiting:" forced-yield shape). It NEVER blocks - this
-         is the single most important property of this hook, unlike its
-         sibling enforce-no-abdication.py, which does block. A finding
-         here is surfaced purely as feedback text so the conductor can
-         self-correct on its next turn.
+         contract in content/references/conductor-turn-format.md §9 (the
+         hook contract) / content/sections/02-delegation.md ("Operator
+         decisions go last in the turn"). As of DS-156 this hook is NO
+         LONGER uniformly advisory: it runs two checks with DIFFERENT
+         enforcement postures.
+
+           - `_execution_prose_flag` (execution-turn structural shape,
+             REPLACES the deleted `_forced_yield_flag`) is BLOCKING: on a
+             finding it exits via {"decision": "block", "reason": ...},
+             the same shape its sibling enforce-no-abdication.py uses.
+           - `_answer_relevance_flag` (Answer-turn opening-preamble/
+             closing-recap phrasing) remains ADVISORY-ONLY - it always
+             exits 0 and surfaces via `additionalContext` on the next
+             turn, exactly the posture the WHOLE hook carried before
+             DS-156. `_status_only_flag` (zero-warrant turns), the
+             turn-charge volume check, and the operator-decisions
+             per-item sprawl check also remain advisory-only, unchanged
+             in posture.
+
+         Why the split, not one posture for both: `_execution_prose_flag`
+         is a structural predicate with no phrase matching or inference
+         involved - a false positive requires the conductor to have
+         actually violated the shape, and advisory enforcement of exactly
+         this structural problem shipped three times (DS-122, DS-151,
+         DS-155) without the prose ever going away. `_answer_relevance_flag`
+         stays advisory because its two mechanized bans are curated phrase
+         lists, not semantic detectors, and blocking a genuine answer over
+         an opening phrase like "Good question" is a real friction cost.
+         See content/references/conductor-turn-format.md's Hook contract
+         section for the full rationale and the operator decision that
+         overrode the architect's blanket-advisory recommendation.
 
          DS-155 round 3 history note (identity-line check REMOVED, not
          disabled): this hook previously ran a fifth check flagging a
@@ -147,32 +171,54 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             decision/stoppage/completion/answer claim. The identity line
             stays in the domain because it carries "[phase: complete]".
 
-         2a. Status-only flag: fires when the message has MORE than ~1-2
-             lines of prose outside the identity line AND has NONE of the
-             four warrants above.
+         2. DS-156 three-way classification (STRICTLY SUBORDINATE to 1,
+            exhaustive and mutually exclusive - see
+            content/references/conductor-turn-format.md §9's
+            "Classification order" bullet). Answer always wins the shape
+            question, regardless of what else co-fires:
 
-         2b. Forced-yield shape check - STRICTLY SUBORDINATE to (1). Runs
-             ONLY when `stoppage` is the SOLE warrant present (a "Waiting:"
-             line exists and none of decision/completion/answer is
-             present). When that gate passes, the message must be exactly
-             the identity line plus one or more "Waiting:" lines and
-             nothing else; any extra content flags "forced-yield: extra
-             content". When a "Waiting:" line co-occurs with ANY other
-             warrant, this check is skipped entirely - no flag, regardless
-             of how much other prose accompanies it.
+            (a) Answer turn (`answer` warrant PRESENT): routes to
+                `_answer_relevance_flag` only (ADVISORY - see below).
 
-            Known implementation seam (DS-151 amendment A7): 2a and 2b
-            still operate on the raw, unsegmented body-line list
-            (_body_after_identity_line), NOT on _segment's fence-aware
-            structure that checks 3 and 4 below consume. This is a
-            deliberate scope boundary, not an oversight: neither check's
-            correctness depends on fence-awareness (a fenced "Waiting:"
-            line inside a code block is already extremely unlikely prose,
-            and status-only's blunt >2-line threshold has no reported
-            fence-sensitive failure mode), and bringing them onto _segment
-            was out of scope for the DS-151 charge-model rewrite. If a
-            fence-related false positive/negative is ever reported against
-            either check, migrate it onto _segment then.
+            (b) Execution turn (`answer` ABSENT, at least one of
+                decision/stoppage/completion PRESENT): routes to
+                `_execution_prose_flag` (BLOCKING). Its domain depends on
+                whether `stoppage` is the SOLE warrant present:
+                  - Sole-stoppage branch: every non-blank RAW line after
+                    the identity line, fenced or not, must be a
+                    "Waiting:" line - predicate-identical to the deleted
+                    `_forced_yield_flag` (same gate, same
+                    `_body_after_identity_line` domain, same
+                    `_WAITING_LINE_RE`, no length test on Waiting:
+                    lines).
+                  - General branch (decision and/or completion present,
+                    with or without stoppage): inspects only the
+                    unfenced lines of the fence-aware status region
+                    (`_segment`/`_regions`). Only a recognized
+                    State:/Running:/Blocked: slot line (bounded by
+                    STATUS_LINE_MAX_CHARS) or a Waiting:-shaped line
+                    (unbounded length) is permitted; anything else
+                    unfenced is a shape violation.
+                  On BOTH branches, the identity line at position 1 is
+                  additionally checked for LENGTH ONLY (never shape)
+                  against STATUS_LINE_MAX_CHARS.
+
+            (c) Zero-warrant turn (neither Answer nor any of
+                decision/stoppage/completion present): routes to
+                `_status_only_flag` only (ADVISORY, unchanged) - fires
+                when the message has MORE than ~1-2 lines of prose
+                outside the identity line.
+
+            Known implementation seam (DS-151 amendment A7, still true
+            post-DS-156 for the two ADVISORY-only leaves (a) and (c)):
+            `_status_only_flag` still operates on the raw, unsegmented
+            body-line list (`_body_after_identity_line`), NOT on
+            `_segment`'s fence-aware structure that `_execution_prose_flag`
+            and checks 3/4 below consume. `_execution_prose_flag` itself
+            DOES use `_segment`/`_regions` on its general branch (this is
+            new structural coverage DS-156 adds), but keeps the raw-line
+            domain on its sole-stoppage branch to stay predicate-identical
+            to the deleted `_forced_yield_flag`.
 
          3. Turn-charge volume check (DS-151): a mechanical backstop for
             the "1-3 status lines per turn" promise in
@@ -354,32 +400,35 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
          running in the background" - only the shape of the message text
          itself can.
 
-         A two-layer loop guard bounds how often an advisory can re-invoke
-         the model, mirroring the sibling enforce-no-abdication.py. On the
-         Claude Code harness, a Stop hook's `additionalContext` re-invokes
-         the model immediately (it does not wait for a user turn); when the
-         conductor is blocked on a user decision it has nothing substantive
-         to say, so it writes a short status turn, the hook flags it, the
-         advisory re-invokes the model, and the pair loops until the
-         harness's own 9-consecutive-block override fires. Layer 1: the
-         `stop_hook_active` payload flag - set by CC when this Stop event
-         itself was triggered by a prior Stop-hook action - exits silently
-         right after stdin parse. Layer 2: a counter-cap backstop for CC bug
-         #54360 (stop_hook_active can fail to propagate when a
-         UserPromptSubmit hook interleaves system reminders), state at
+         A two-layer loop guard bounds how often this hook can re-invoke the
+         model - via a BLOCK (`_execution_prose_flag`, DS-156) or an
+         ADVISORY (`_answer_relevance_flag`/`_status_only_flag`/volume/
+         sprawl) - mirroring the sibling enforce-no-abdication.py. On the
+         Claude Code harness, a Stop hook's block (or `additionalContext`
+         advisory) re-invokes the model immediately (it does not wait for a
+         user turn); when the conductor is blocked on a user decision it has
+         nothing substantive to say, so it writes a short status turn, the
+         hook flags it, the block/advisory re-invokes the model, and the
+         pair loops until the harness's own 9-consecutive-block override
+         fires. Layer 1: the `stop_hook_active` payload flag - set by CC
+         when this Stop event itself was triggered by a prior Stop-hook
+         action - exits silently right after stdin parse. Layer 2: a
+         counter-cap backstop for CC bug #54360 (stop_hook_active can fail
+         to propagate when a UserPromptSubmit hook interleaves system
+         reminders), state at
          <cwd>/.agentic/.turn-shape-guard-fire-count; the counter increments
-         and persists BEFORE each advisory (an advisory whose count cannot
-         be persisted is NOT emitted - it would lose its loop bound) and
-         resets on a clean turn and on a genuine new user message, so a
-         blocked conductor gets at most CONSECUTIVE_BLOCK_CAP advisories
-         before this hook goes silent. The counter + user-message-counting
-         machinery lives in the shared module hooks/lib/loop_guard.py,
-         loaded lazily via _load_loop_guard(); when cwd is absent (synthetic
-         payloads only - the CC Stop payload always carries cwd) the counter
-         cannot be scoped, so this hook falls through to its legacy
-         advisory-only behavior rather than silently swallowing findings.
-         This hook NEVER blocks - the guard only suppresses advisories; every
-         exit stays 0.
+         and persists BEFORE each block/advisory (a finding whose count
+         cannot be persisted is NOT emitted - it would lose its loop bound)
+         and resets on a clean turn and on a genuine new user message, so a
+         flagged conductor gets at most CONSECUTIVE_BLOCK_CAP block/advisory
+         emissions before this hook goes silent. ONE shared counter/cap
+         governs BOTH checks (DS-156) - there is no per-check loop bound.
+         The counter + user-message-counting machinery lives in the shared
+         module hooks/lib/loop_guard.py, loaded lazily via
+         _load_loop_guard(); when cwd is absent (synthetic payloads only -
+         the CC Stop payload always carries cwd) the counter cannot be
+         scoped, so this hook falls through to its legacy advisory-only
+         behavior rather than silently swallowing findings.
 
          Undocumented-until-DS-155 UX cost of the above: the loop guard
          bounds how many TIMES the model is re-invoked, but it does nothing
@@ -398,8 +447,15 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
          cost from the operator-facing side.
 
 Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
-            stdin. ALWAYS exits 0. On a clean turn (no findings), emits
-            nothing on stdout. On a flagged turn, emits exactly one JSON
+            stdin. ALWAYS exits 0 (DS-156: the process exit code stays 0
+            even on a BLOCKING finding - it is the `"decision": "block"`
+            payload, not the process exit code, that stops the turn, the
+            same convention enforce-no-abdication.py uses). On a clean
+            turn (no findings), emits nothing on stdout. On an
+            `_execution_prose_flag` finding, emits exactly one JSON
+            object:
+              {"decision": "block", "reason": "TURN-SHAPE: <finding>"}
+            On any other flagged turn (advisory), emits exactly one JSON
             object:
               {"hookSpecificOutput": {"hookEventName": "Stop",
                                        "additionalContext": "TURN-SHAPE: <finding>"}}
@@ -438,11 +494,13 @@ Failure modes:
       abdication_guard_enabled: this hook's guard is `config.get(
       "turn_shape_guard_enabled") is not False` - i.e. default ON when the
       key or the whole config file is absent. This is intentional, not an
-      oversight to "fix" into matching the sibling: unlike
-      enforce-no-abdication.py, this hook NEVER blocks, so there is no
-      opt-in-only safety rationale for defaulting it off. A missing or
-      unreadable config.json is treated as an empty {} (i.e. the guard
-      stays ON), not as a disable signal.
+      oversight to "fix" into matching the sibling: it governs BOTH checks
+      together (there is no separate toggle per check), and the operator
+      decision (DS-156) retains this default-on posture even though
+      `_execution_prose_flag` can now block, rather than introducing a
+      second opt-in gate for the same hook. A missing or unreadable
+      config.json is treated as an empty {} (i.e. the guard stays ON), not
+      as a disable signal.
     - Empty/unavailable message text (last_assistant_message absent and
       the transcript fallback yields nothing): fail-open (exit 0, emit
       nothing) - there is nothing to classify.
@@ -465,9 +523,12 @@ Failure modes:
       cwd is present but the module cannot load, exit 0 silently (same
       rationale as a failed counter write - never emit an advisory without
       a loop bound).
-    - This hook can NEVER return a blocking decision - there is no code
-      path that emits {"decision": "block", ...}. Every exit is exit 0
-      with either no stdout or an advisory `additionalContext` object.
+    - DS-156: this hook CAN now return a blocking decision - exactly one
+      code path, `_execution_prose_flag`'s finding branch, emits
+      {"decision": "block", ...}. Every OTHER path (advisory findings,
+      clean turns, every fail-open/fail-closed guard above) still exits 0
+      with either no stdout or an advisory `additionalContext` object; the
+      process exit CODE is 0 in every case (see "Public API" above).
 
 Performance: < 5 ms per call on typical transcripts - one optional config
              file read and, only when last_assistant_message is absent, a
@@ -483,10 +544,11 @@ import sys
 # Kill-switch: set this env var to 1 to disable enforcement entirely.
 KILL_SWITCH_ENV = "AE_TURN_SHAPE_GUARD_DISABLE"
 
-# Max consecutive advisories since the last new user message before this hook
-# goes silent. Keeps the loop guard reachable even when CC bug #54360
-# prevents stop_hook_active from propagating. This hook NEVER blocks - the
-# cap only bounds how many times the advisory can re-invoke the model.
+# Max consecutive block/advisory emissions since the last new user message
+# before this hook goes silent. Keeps the loop guard reachable even when CC
+# bug #54360 prevents stop_hook_active from propagating. Shared by BOTH
+# _execution_prose_flag (blocking, DS-156) and every advisory check - one
+# counter/cap governs how many times either can re-invoke the model.
 CONSECUTIVE_BLOCK_CAP = 2
 
 # Counter state file (under .agentic/ which is gitignored). Distinct from the
@@ -526,6 +588,26 @@ FENCE_FREE_LINES = 20  # AGGREGATE across the status region's fences
 ITEM_FREE_LINES = 3  # per Operator-decisions item
 WAITING_LINE_MAX_CHARS = 120  # a Waiting: line longer than this is prose
 
+# DS-156. Bounds two distinct things, on every execution-turn branch of
+# _execution_prose_flag: the identity line at position 1 (both branches),
+# and a State:/Running:/Blocked: slot line (general branch only - the
+# sole-stoppage branch permits no slot lines at all). See
+# content/references/conductor-turn-format.md's "STATUS_LINE_MAX_CHARS ...
+# is defined exactly once, here" paragraph for the full normative
+# definition and rationale. Deliberately does NOT bound Waiting: lines in
+# the shape check (see WAITING_LINE_MAX_CHARS above, which governs the
+# advisory volume check only) - importing this bound onto Waiting: lines
+# would convert the hook's only forced-yield path from a silent pass into
+# a block, a behavior change nobody has authorized.
+STATUS_LINE_MAX_CHARS = 200
+
+# DS-156. The Answer-turn volume ceiling: a runaway-generation backstop,
+# never a shaping constraint (content/references/conductor-turn-format.md
+# section 4/9 explicitly uncaps Answer-turn length). 5x BASE_BODY_BUDGET,
+# a deliberately loose multiple chosen to sit well above a realistic
+# detailed answer while still catching sustained runaway output.
+ANSWER_BODY_BUDGET = 50
+
 # Kept as its own name (rather than inlining ITEM_FREE_LINES everywhere) so
 # external references to the per-item cap keep a stable, descriptive name.
 MAX_LINES_PER_DECISION_ITEM = ITEM_FREE_LINES
@@ -545,6 +627,42 @@ _OPERATOR_DECISIONS_HEADING_RE = re.compile(
 
 # A "Waiting:" line - the forced-yield / hard-stop marker.
 _WAITING_LINE_RE = re.compile(r"^\s*waiting\s*:\s*\S", re.IGNORECASE)
+
+# DS-156. A recognized State:/Running:/Blocked: status slot line - the
+# fixed-set label whitelist _execution_prose_flag's general branch
+# permits (content/references/conductor-turn-format.md §4 step 2). A
+# label the whitelist was not taught (e.g. "Note:") fails CLOSED (is
+# flagged), matching the Known-uncovered-shapes table's explicit "an
+# INVENTED label ... FAILS CLOSED" disclosure - this is a fixed-set shape
+# test, never a content-legitimacy test.
+_STATUS_SLOT_LINE_RE = re.compile(r"^\s*(?:state|running|blocked)\s*:\s*\S", re.IGNORECASE)
+
+# DS-156. Answer-turn relevance ban 2 (opening preamble) - a curated
+# phrase list, not a semantic detector (content/references/
+# conductor-turn-format.md §5/§9). Anchored to the very start of the
+# (stripped) message via \A so mid-answer lexical overlap with these
+# phrases is never mistaken for an opening preamble. Tolerates a leading
+# markdown bold/italic wrapper ("**Good question.**").
+_OPENING_FILLER_RE = re.compile(
+    r"\A\s*\*{0,2}(?:"
+    r"good\s+question|great\s+question|"
+    r"let\s+me\s+(?:look\s+into|check|take\s+a\s+look\s+at|dig\s+into)\s+(?:that|this)|"
+    r"here'?s\s+what\s+i\s+found|"
+    r"happy\s+to\s+(?:help|answer)(?:\s+with\s+that)?|"
+    r"sure(?:,|!|\.)|of\s+course(?:,|!|\.)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+# DS-156. Answer-turn relevance ban 5 (closing recap) - a curated phrase
+# list, checked ONLY against the final non-blank line/paragraph of the
+# message (a "closing" recap by definition sits at the end, not
+# incidentally reusing one of these phrases mid-answer).
+_CLOSING_RECAP_RE = re.compile(
+    r"\b(?:to\s+(?:summarize|recap|sum\s+up)|in\s+summary|in\s+short|"
+    r"that'?s\s+(?:the|my|a)\s+(?:summary|recap))\b",
+    re.IGNORECASE,
+)
 
 # Terminal-completion signal, ANYWHERE in the domain (identity line + body).
 # "[phase: complete]" or an unambiguous terminal-completion phrase.
@@ -939,25 +1057,75 @@ def _status_only_flag(text: str, warrants: dict) -> bool:
     return len(body_lines) > 2
 
 
-def _forced_yield_flag(text: str, warrants: dict):
-    """Return a finding string, or None. Raw-line path - see the module
-    docstring's "Known implementation seam" note.
+def _execution_prose_flag(text: str, warrants: dict):
+    """Return a finding string, or None. BLOCKING (DS-156) - implements
+    content/references/conductor-turn-format.md §4's execution-turn
+    structural rule. REPLACES _forced_yield_flag; it does not run
+    alongside it - the sole-stoppage branch below is predicate-identical
+    to the deleted _forced_yield_flag (same gate, same
+    _body_after_identity_line domain, same _WAITING_LINE_RE, no length
+    test on Waiting: lines), so nothing that used to pass now fails on
+    that branch alone.
 
-    Runs ONLY when `stoppage` is the SOLE warrant present. When that gate
-    passes, every non-blank line after the identity line must itself be a
-    "Waiting:" line - any other content flags "forced-yield: extra
-    content". When "Waiting:" co-occurs with ANY other warrant, this check
-    is skipped entirely (returns None unconditionally).
+    Called ONLY for execution turns (answer warrant ABSENT, at least one
+    of decision/stoppage/completion PRESENT) - see main()'s three-way
+    classification gate; a zero-warrant turn routes to _status_only_flag
+    instead, and an Answer turn routes to _answer_relevance_flag instead.
+
+    On BOTH branches below, the identity line at position 1 is checked
+    for LENGTH ONLY, never shape, against STATUS_LINE_MAX_CHARS - the
+    bound is a property of position 1 itself, not of which branch is
+    running (a sole-stoppage turn cannot use its wider raw-line domain to
+    smuggle an over-length line into position 1).
     """
-    if not warrants["stoppage"]:
-        return None
-    if warrants["decision"] or warrants["completion"] or warrants["answer"]:
+    identity_line, body = _segment(text)
+    if len(identity_line) > STATUS_LINE_MAX_CHARS:
+        return (
+            "execution turn: identity line is {} characters, over the "
+            "{}-character limit"
+        ).format(len(identity_line), STATUS_LINE_MAX_CHARS)
+
+    stoppage_sole = warrants["stoppage"] and not (
+        warrants["decision"] or warrants["completion"]
+    )
+
+    if stoppage_sole:
+        # Sole-stoppage branch: every non-blank RAW line after the
+        # identity line, fenced or not, must be a Waiting: line. Same
+        # domain _forced_yield_flag inspected today via
+        # _body_after_identity_line.
+        for line in _body_after_identity_line(text):
+            if not line.strip():
+                continue
+            if not _WAITING_LINE_RE.match(line):
+                return (
+                    "execution turn (sole-stoppage): line other than a "
+                    "Waiting: line present after the identity line"
+                )
         return None
 
-    body_lines = [ln for ln in _body_after_identity_line(text) if ln.strip()]
-    for line in body_lines:
-        if not _WAITING_LINE_RE.match(line):
-            return "forced-yield: extra content beyond identity + Waiting: lines"
+    # General branch: decision and/or completion present, with or without
+    # stoppage. Inspects only the unfenced lines of the fence-aware status
+    # region. Waiting: lines are exempt from the length bound by design.
+    status_lines, _decisions_lines, _heading_present = _regions(body)
+    for line, is_fenced in status_lines:
+        if is_fenced or not line.strip():
+            continue
+        if _WAITING_LINE_RE.match(line):
+            continue
+        stripped = line.strip()
+        if _STATUS_SLOT_LINE_RE.match(line):
+            if len(stripped) > STATUS_LINE_MAX_CHARS:
+                return (
+                    "execution turn: status slot line is {} characters, "
+                    "over the {}-character limit"
+                ).format(len(stripped), STATUS_LINE_MAX_CHARS)
+            continue
+        return (
+            "execution turn: unrecognized line in the status region "
+            "(expected only State:/Running:/Blocked: slot lines or "
+            "Waiting: lines)"
+        )
     return None
 
 
@@ -1032,14 +1200,33 @@ def _volume_flag(text: str, warrants: dict):
 
     Returns None when zero warrants are present - that case is already
     exclusively owned by _status_only_flag, and a second finding for the
-    same defect would just be noise. Otherwise flags iff
-    _turn_charge(text)[0] > BASE_BODY_BUDGET - see the module docstring's
-    "Charge model" section for the definition.
+    same defect would just be noise.
+
+    DS-156: on an Answer turn (warrants["answer"] True - §4's "Answer
+    always wins the shape question" rule applies here too, regardless of
+    which other warrant(s) co-fire), this does NOT short-circuit to
+    no-charge. It compares a flat non-blank-line count (none of the
+    execution-turn free-pool machinery - status slots, Waiting: lines,
+    decision items - constrains Answer-turn shape) against the separate,
+    deliberately high ANSWER_BODY_BUDGET ceiling. On an execution turn,
+    unchanged from DS-151: flags iff _turn_charge(text)[0] >
+    BASE_BODY_BUDGET - see the module docstring's "Charge model" section.
     """
     if not any(warrants.get(name) for name in ("decision", "stoppage", "completion", "answer")):
         return None
 
     charge, breakdown = _turn_charge(text, warrants)
+
+    if warrants.get("answer"):
+        answer_charge = breakdown["nonblank"]
+        if answer_charge <= ANSWER_BODY_BUDGET:
+            return None
+        return (
+            "turn volume exceeded: answer turn charge is {charge} non-blank "
+            "lines, advisory budget is {budget} (runaway-generation "
+            "backstop, not a shaping constraint)"
+        ).format(charge=answer_charge, budget=ANSWER_BODY_BUDGET)
+
     if charge <= BASE_BODY_BUDGET:
         return None
 
@@ -1058,6 +1245,37 @@ def _volume_flag(text: str, warrants: dict):
         waiting_ok=breakdown["waiting_ok"],
         free_fence=FENCE_FREE_LINES,
     )
+
+
+def _answer_relevance_flag(text: str):
+    """Return a finding string, or None. ADVISORY (DS-156) - implements
+    content/references/conductor-turn-format.md §5's relevance bans 2
+    (opening preamble) and 5 (closing recap) against Answer-turn prose,
+    via curated phrase-list regexes. Bans 1, 3, 4, 6 are deliberately NOT
+    mechanized - see the module docstring / §9's non-mechanization
+    rationale. Called ONLY when the Answer warrant is present (an
+    execution turn has no prose region for these bans to inspect)."""
+    stripped = text.strip()
+    if not stripped:
+        return None
+    opening = _OPENING_FILLER_RE.match(stripped)
+    if opening:
+        return (
+            "answer turn: opens with a preamble phrase (relevance ban 2) - "
+            '"{}"'
+        ).format(opening.group(0).strip())
+    # Ban 5 is scoped to the CLOSING of the answer, not incidental
+    # mid-answer reuse of one of these phrases - checked against the
+    # final non-blank paragraph only.
+    paragraphs = [p for p in stripped.split("\n\n") if p.strip()]
+    tail = paragraphs[-1] if paragraphs else stripped
+    recap = _CLOSING_RECAP_RE.search(tail)
+    if recap:
+        return (
+            "answer turn: closes with a recap of what was just said "
+            '(relevance ban 5) - "{}"'
+        ).format(recap.group(0))
+    return None
 
 
 def _decision_item_sprawl_flag(text: str):
@@ -1643,8 +1861,6 @@ def main() -> None:
             # No message text available - nothing to classify.
             sys.exit(0)
 
-        findings = []
-
         # 1. Warrant classification (authoritative). answer_bonus is
         # computed from the transcript once, gated on recency
         # (_has_intervening_assistant_turn - a stale question grants
@@ -1656,63 +1872,89 @@ def main() -> None:
         answer_bonus = _transcript_answer_bonus(transcript_path, msg_text)
         warrants = _classify_warrants(msg_text, answer_bonus=answer_bonus)
 
-        # 2a. Status-only flag.
-        if _status_only_flag(msg_text, warrants):
-            findings.append(
-                "status-only turn - no decision/stoppage/completion/answer warrant present"
-            )
+        # DS-156 three-way, exhaustive, mutually-exclusive classification
+        # (content/references/conductor-turn-format.md §9's "Classification
+        # order" bullet). Answer always wins the shape question, regardless
+        # of what else co-fires.
+        is_answer_turn = warrants["answer"]
+        is_execution_turn = not is_answer_turn and (
+            warrants["decision"] or warrants["stoppage"] or warrants["completion"]
+        )
+        # is_zero_warrant_turn = not is_answer_turn and not is_execution_turn
 
-        # 2b. Forced-yield shape check (strictly subordinate to 1).
-        forced_yield_finding = _forced_yield_flag(msg_text, warrants)
-        if forced_yield_finding:
-            findings.append(forced_yield_finding)
+        block_finding = None
+        advisory_findings = []
 
-        # 3. Turn-charge volume check (DS-151). Skipped when no warrant is
-        # present - that case is already exclusively owned by the
-        # status-only flag. Unlike the deleted exclusion model, a
-        # sole-stoppage forced-yield turn is NOT unconditionally skipped
-        # here any more: constraint 1 (the Waiting: line count is
-        # unbounded) is now satisfied structurally inside _turn_charge
-        # itself (well-formed Waiting: lines charge 0 when stoppage is the
-        # sole warrant), so a clean forced-yield turn charges 0 regardless
-        # of how many Waiting: lines it has, and a dirty one is already
-        # caught by _forced_yield_flag above.
-        volume_finding = _volume_flag(msg_text, warrants)
-        if volume_finding:
-            findings.append(volume_finding)
+        if is_answer_turn:
+            # 2. Answer-turn relevance check (ADVISORY).
+            relevance_finding = _answer_relevance_flag(msg_text)
+            if relevance_finding:
+                advisory_findings.append(relevance_finding)
+        elif is_execution_turn:
+            # 2. Execution-turn structural shape check (BLOCKING). This
+            # REPLACES the deleted _forced_yield_flag.
+            block_finding = _execution_prose_flag(msg_text, warrants)
+        else:
+            # 2. Zero-warrant turn: status-only flag (ADVISORY, unchanged).
+            if _status_only_flag(msg_text, warrants):
+                advisory_findings.append(
+                    "status-only turn - no decision/stoppage/completion/answer warrant present"
+                )
 
-        # 4. Operator-decisions per-item sprawl check (DS-151). Independent
-        # of the volume check above - item COUNT stays unbounded, only
-        # per-item line count is checked, and a single sprawling item can
-        # be under the whole-message charge budget while still violating
-        # per-item shape.
-        decision_sprawl_finding = _decision_item_sprawl_flag(msg_text)
-        if decision_sprawl_finding:
-            findings.append(decision_sprawl_finding)
+        # 3/4. Turn-charge volume check and operator-decisions per-item
+        # sprawl check (both DS-151, both ADVISORY, both unaffected by
+        # DS-156 other than _volume_flag's Answer-turn re-budget). Skipped
+        # when the execution-turn shape check already blocked - a blocked
+        # turn gets one directive to reshape, not an additional advisory
+        # pile-on. _volume_flag already returns None on a zero-warrant
+        # turn; _decision_item_sprawl_flag already returns None when no
+        # '## Operator decisions' heading is present.
+        if block_finding is None:
+            volume_finding = _volume_flag(msg_text, warrants)
+            if volume_finding:
+                advisory_findings.append(volume_finding)
 
-        if not findings:
-            # Clean turn - reset the advisory counter (when engaged) and
+            decision_sprawl_finding = _decision_item_sprawl_flag(msg_text)
+            if decision_sprawl_finding:
+                advisory_findings.append(decision_sprawl_finding)
+
+        if block_finding is None and not advisory_findings:
+            # Clean turn - reset the shared counter (when engaged) and
             # silent allow, no telemetry.
             if loop_guard_engaged:
                 lg.reset_counter(cwd, COUNTER_FILENAME, current_user_msg_count)
             sys.exit(0)
 
-        reason = "; ".join(findings)
-        # Only emit the advisory if the loop bound can be persisted. When the
-        # counter is engaged, persist count+1 BEFORE emitting; if persistence
-        # fails (unwritable .agentic/, full disk, etc.), exit 0 silently - an
-        # advisory whose count cannot be recorded loses its loop bound and
-        # can cause an unbounded advisory loop when stop_hook_active also
-        # fails (CC bug #54360).
+        # Only emit (block OR advisory) if the loop bound can be persisted.
+        # When the counter is engaged, persist count+1 BEFORE emitting; if
+        # persistence fails (unwritable .agentic/, full disk, etc.), exit 0
+        # silently - a finding whose count cannot be recorded loses its
+        # loop bound and can cause an unbounded re-invocation loop when
+        # stop_hook_active also fails (CC bug #54360). Both checks share
+        # ONE counter/cap (DS-156) - a block and an advisory are both "this
+        # hook re-invoked the model" events from the loop guard's
+        # perspective.
         if loop_guard_engaged:
             new_count = state["count"] + 1
             if not lg.write_counter(cwd, COUNTER_FILENAME, new_count, current_user_msg_count):
                 sys.exit(0)
-        # Decision print comes FIRST, unconditionally. Telemetry is loaded
-        # and called only after the decision has reached stdout, wrapped in
-        # its own try/except so a raising log_fire can never suppress or
-        # follow this advisory - matches the enforce-*.py convention (see
-        # hooks/lib/enforcement_log.py manifest "Failure modes").
+
+        if block_finding is not None:
+            # BLOCKING (DS-156): the same {"decision": "block", "reason":
+            # ...} shape hooks/enforce-no-abdication.py uses. Decision
+            # print comes FIRST, unconditionally; telemetry is loaded and
+            # called only after the decision has reached stdout, wrapped
+            # in its own try/except so a raising log_fire can never
+            # suppress or follow this decision.
+            reason = "TURN-SHAPE: " + block_finding
+            print(json.dumps({"decision": "block", "reason": reason}))
+            try:
+                _load_log_fire()(data, "enforce-turn-shape", "deny", block_finding)
+            except Exception:
+                pass
+            sys.exit(0)
+
+        reason = "; ".join(advisory_findings)
         print(
             json.dumps(
                 {
