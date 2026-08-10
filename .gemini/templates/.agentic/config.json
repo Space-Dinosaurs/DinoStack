@@ -25,5 +25,6 @@
   "rework_detection": true,
   "pending_merge_sweep": true,
   "tracker_state_diagnostic": true,
-  "turn_shape_guard_enabled": true
+  "turn_shape_guard_enabled": true,
+  "worktree_read_guard_exemptions": []
 }

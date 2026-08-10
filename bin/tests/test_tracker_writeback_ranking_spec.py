@@ -103,6 +103,7 @@ Run with: python3 -m pytest bin/tests/test_tracker_writeback_ranking_spec.py -q
 
 from __future__ import annotations
 
+import json
 import re
 from pathlib import Path
 
@@ -878,6 +879,124 @@ def test_toggle_doc_sync_full_eight_site_checklist():
         assert '"pending_merge_sweep": true,\n  "tracker_state_diagnostic": true' in text, (
             f"{path.relative_to(REPO_ROOT)} seed JSON missing tracker_state_diagnostic "
             "immediately after pending_merge_sweep"
+        )
+
+
+# --- Full key-set membership (regression gate for DS-150's 21-key seed) ----
+#
+# The adjacency check above (test_toggle_doc_sync_full_eight_site_checklist)
+# only proves two SPECIFIC keys sit next to each other in each seed file - it
+# says nothing about whether the seed's key SET actually matches what the
+# catalog documents. That is exactly the gap DS-150 fell through: the
+# `worktree_read_guard_exemptions` toggle was added to the
+# '### Project config' catalog bullets and to the doc-count sentences
+# (TOGGLE_COUNT_FILES above already said "twenty-two"), but shipped in only
+# ONE of the two seed sources - a 21-key seed against 22-toggle doc claims -
+# and nothing here caught it.
+#
+# CATALOG_PATH is deliberately a THIRD, independent origin from either seed
+# file: it is prose documentation authored and maintained separately from
+# both content/templates/.agentic/config.json (a bare JSON template file)
+# and the JSON block embedded in content/commands/ds-init-project.md (a
+# markdown command doc). Comparing the two seeds against this catalog - not
+# against each other - means neither seed can "drift in lockstep" with its
+# sibling and still pass: the catalog is the fixed reference point, and if
+# it and a seed disagree, that is asserted by name.
+CATALOG_PATH = REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md"
+TEMPLATE_SEED_PATH = REPO_ROOT / "content" / "templates" / ".agentic" / "config.json"
+INIT_PROJECT_SEED_ANCHOR = "### 6f. Create `.agentic/config.json`"
+
+# Keys present in both seed JSONs that do NOT get their own catalog bullet:
+# `scaffolding_version` is a schema-version marker, not a behavioral toggle,
+# and is documented separately (never in the bullet list). The five
+# `deferred_wrap_*` tuning params are named inline, in one parenthetical,
+# inside the `deferred_wrap_daemon` bullet (risk-config-and-tiers.md:54)
+# rather than getting individual bullets of their own. This set has to be
+# named and small on purpose: any FUTURE key added to a seed without its own
+# catalog bullet must be added here explicitly, in the same PR, or this test
+# fails it as an undocumented extra key - it cannot silently ride along the
+# way `worktree_read_guard_exemptions` almost did in the other direction.
+_SEED_KEYS_WITHOUT_OWN_BULLET = {
+    "scaffolding_version",
+    "deferred_wrap_idle_minutes",
+    "deferred_wrap_heartbeat_seconds",
+    "deferred_wrap_timeout_minutes",
+    "deferred_wrap_inprogress_reclaim_minutes",
+    "deferred_wrap_pending_ttl_days",
+}
+
+
+def _catalog_toggle_keys() -> set:
+    """Parse the '### Project config' catalog bullets in
+    risk-config-and-tiers.md into a set of toggle key names, bounded to the
+    section between that heading and the next heading (so an unrelated
+    bullet list elsewhere in the file, e.g. under 'Graph-derived risk
+    signal', can never be swept in by accident)."""
+    text = CATALOG_PATH.read_text(encoding="utf-8")
+    start = text.index("### Project config")
+    heading_match = re.search(r"\n#{2,4} ", text[start + 1:])
+    end = start + 1 + heading_match.start() if heading_match else len(text)
+    window = text[start:end]
+    keys = set(re.findall(r"^- `([a-zA-Z_][a-zA-Z0-9_]*)`", window, re.MULTILINE))
+    assert keys, "catalog bullet parse returned no keys - anchor or regex is broken"
+    return keys
+
+
+def _fenced_json_object_keys(text: str, anchor: str) -> set:
+    """Extract the top-level key set of the first fenced ```json code block
+    that appears after `anchor` in `text`. Used for the seed JSON embedded
+    inside content/commands/ds-init-project.md, which is markdown prose
+    around a JSON block rather than a standalone JSON file."""
+    anchor_idx = text.index(anchor)
+    fence_start = text.index("```json", anchor_idx)
+    body_start = text.index("\n", fence_start) + 1
+    fence_end = text.index("```", body_start)
+    obj = json.loads(text[body_start:fence_end])
+    return set(obj.keys())
+
+
+def test_toggle_catalog_key_set_matches_both_seed_sources():
+    """Every key the '### Project config' catalog documents (plus the named
+    schema/tuning exemptions) must appear in BOTH seed sources, and neither
+    seed may carry an undocumented extra key. Two independent seed origins
+    are checked separately against the (third, independent) catalog:
+    content/templates/.agentic/config.json (a bare JSON template file) and
+    the JSON block embedded in content/commands/ds-init-project.md (a
+    fenced block inside a markdown command doc) - so a defect in only one
+    of the two seeds is named by file, not masked by comparing the seeds to
+    each other."""
+    catalog_keys = _catalog_toggle_keys()
+    expected_keys = catalog_keys | _SEED_KEYS_WITHOUT_OWN_BULLET
+
+    template_keys = set(json.loads(TEMPLATE_SEED_PATH.read_text(encoding="utf-8")).keys())
+    init_project_keys = _fenced_json_object_keys(
+        (REPO_ROOT / "content" / "commands" / "ds-init-project.md").read_text(encoding="utf-8"),
+        INIT_PROJECT_SEED_ANCHOR,
+    )
+
+    for label, seed_keys, path in (
+        (
+            "content/templates/.agentic/config.json",
+            template_keys,
+            TEMPLATE_SEED_PATH,
+        ),
+        (
+            "content/commands/ds-init-project.md seed JSON block",
+            init_project_keys,
+            REPO_ROOT / "content" / "commands" / "ds-init-project.md",
+        ),
+    ):
+        rel = path.relative_to(REPO_ROOT)
+        missing_from_seed = expected_keys - seed_keys
+        assert not missing_from_seed, (
+            f"{rel}: {label} is missing key(s) the '### Project config' catalog "
+            f"documents: {sorted(missing_from_seed)}"
+        )
+        extra_in_seed = seed_keys - expected_keys
+        assert not extra_in_seed, (
+            f"{rel}: {label} has key(s) not documented in the '### Project config' "
+            f"catalog and not in the named schema/tuning exemption set: "
+            f"{sorted(extra_in_seed)}"
         )
 
 
