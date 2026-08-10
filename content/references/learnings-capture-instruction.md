@@ -120,8 +120,11 @@ learnings_candidate:
 }
 ```
 
-This is the only definition of the field. `content/agents/engineer.md` and
+This is the canonical definition of the field. `content/agents/engineer.md` and
 `content/references/digest-return-pattern.md` both point here rather than restate it.
+Two role-scoped restatements remain inline and are known to be narrower: `content/agents/investigator.md`
+and `content/agents/debugger.md` each declare a 3-value `kind` enum that omits `decision`.
+DS-154 Unit C folds both into this definition; until then, change the enum here and in those two files together.
 
 ## Session identity
 
