@@ -635,7 +635,19 @@ _COMPLETION_RE = re.compile(
 #      genuine completion mentioning "Other ... sessions are still
 #      running" as an unrelated aside) - disclosed as a residual trade-off
 #      below, not chased further, matching the discipline already applied
-#      to the sub-heading gap.
+#      to the sub-heading gap. CONVERSE DISCLOSURE (Skeptic Major, round
+#      3 sign-off): this veto is deliberately NON-GENERALIZING - it catches
+#      only the phrasings measured in the corpus, not "continuing work" as
+#      a concept. A leading "Done." paired with any OTHER realistic
+#      in-progress phrasing not in the 3-phrase list ("next up", "in
+#      flight", "underway", "pending the review", "I'll pick this up
+#      when...", "round 2 is running now", etc.) is granted the warrant
+#      and goes quiet. This is a deliberate precision-over-recall choice,
+#      not an oversight: the measured incidence of these other phrasings
+#      in the real corpus is 0 of 90 newly-recognised main-agent turns,
+#      and the broader alternative's measured cost (6 wrongly-suppressed
+#      genuine completions, see above) is worse than this gap's cost. Not
+#      widened without a fresh corpus measurement justifying it.
 _RUNNING_FIELD_ACTIVE_RE = re.compile(
     r"^\s*running\s*:\s*(?!nothing\b)(?!none\b)\S", re.IGNORECASE | re.MULTILINE
 )
@@ -746,7 +758,7 @@ def _has_continuing_work_signal(text: str) -> bool:
 # Known residual gap, NOT rounded to zero: a completion declared under a
 # markdown sub-heading (e.g. "## Done") several lines into the body, rather
 # than on the identity line, is still not recognised - see
-# `hooks/tests/fixtures/turn-shape-completion-corpus.json` case 15.
+# `hooks/tests/fixtures/turn-shape-completion-corpus.json` case A9.
 _LEADING_COMPLETION_RE = re.compile(
     r"\A\s*\*{0,2}"
     r"(?:"
