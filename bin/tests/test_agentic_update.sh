@@ -994,6 +994,149 @@ fi
 
 rm -rf "$TEMP_HOME"
 
+# seed_fake_hooks_source: commit REAL, mutually-distinguishable content at
+# all six hooks_source_paths() locations under FAKE_REPO (hooks/,
+# bin/ds-identity, .codex/config/hooks.json, .codex/hooks/, .gemini/hooks/,
+# .kimi/hooks/). Without this, FAKE_REPO ships only README.md + a stub
+# .claude/install.sh, so compute_hooks_source_hash returns the SAME
+# empty-input digest (e3b0c442...) for every one of those six paths,
+# zero of them, or any subset - a fixture that cannot distinguish "the
+# right six paths were hashed" from "an arbitrary wrong list was hashed".
+# Must be called after setup_git_fixture, before sync_fake_hooks_snapshot.
+seed_fake_hooks_source() {
+  (
+    cd "$FAKE_REPO"
+    mkdir -p hooks bin .codex/config .codex/hooks .gemini/hooks .kimi/hooks
+    echo "fake-hooks-content" > hooks/fake-hook.sh
+    printf '#!/usr/bin/env bash\necho fake-identity\n' > bin/ds-identity
+    chmod +x bin/ds-identity
+    echo '{"hooks": []}' > .codex/config/hooks.json
+    echo "fake-codex-hook-content" > .codex/hooks/fake.sh
+    echo "fake-gemini-hook-content" > .gemini/hooks/fake.sh
+    echo "fake-kimi-hook-content" > .kimi/hooks/fake.sh
+    git add hooks bin/ds-identity .codex .gemini .kimi
+    git commit -m "seed fake hooks source for hash fixture" -q
+    git push -q origin main 2>/dev/null
+  )
+}
+
+# sync_fake_hooks_snapshot: write a REAL session-stable snapshot for
+# FAKE_REPO under the isolated TEMP_HOME by calling the actual PRODUCT
+# writer, sync_hooks_snapshot (scripts/lib/hooks-snapshot.sh) - the same
+# function install.sh calls and the same one bin/ds-update's
+# _hooks_snapshot_diverged compares against. Deliberately does NOT
+# hand-compute an expected hash in this test file (that would just be a
+# fourth unpinned copy of the six-path list); the meta this writes is
+# exactly what a real install.sh run would produce for FAKE_REPO's seeded
+# content. Must be called after seed_fake_hooks_source.
+sync_fake_hooks_snapshot() {
+  local hooks_snapshot_lib="$SCRIPT_DIR/../scripts/lib/hooks-snapshot.sh"
+  (
+    HOME="$TEMP_HOME"
+    export HOME
+    # shellcheck source=/dev/null
+    source "$hooks_snapshot_lib"
+    sync_hooks_snapshot "$FAKE_REPO" >/dev/null
+  )
+}
+
+# ---------------------------------------------------------------------------
+# Test 18 (DS-54): a hooks-snapshot that has drifted from the checkout's live
+# hook source (here: no snapshot has EVER been created - the never_migrated
+# state) forces the adapter install loop on the old_head==new_head
+# ("Already up to date") early-return path, even with no --mode/--profile/
+# --identity/--adapters forcing flag.
+#
+# Before this fix, this path printed "Already up to date" and returned 0
+# WITHOUT ever invoking install.sh - an operator who manually `git pull`ed a
+# hooks/ fix before running ds-update got a silent no-op (the dogfooding gap
+# this ticket closes).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE
+# (old_head==new_head). No snapshot is ever written for FAKE_REPO in this
+# TEMP_HOME, so _hooks_snapshot_diverged must report "diverged" (never_migrated).
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: exits 0"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "hooks.*snapshot.*drifted\|forcing adapter install"; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: reports forced install"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: missing forced-install message (got: $OUT)"
+fi
+
+if echo "$ARGS_RECORDED" | grep -qx -- "RAN"; then
+  _pass "T18 already-up-to-date + hooks-snapshot never migrated: install.sh actually ran"
+else
+  _fail "T18 already-up-to-date + hooks-snapshot never migrated: install.sh did NOT run (recorded: $ARGS_RECORDED) - the DS-54 dogfooding gap reproduces here"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 19 (DS-54, negative/mutation-verification case): when the local
+# hooks-snapshot's stored source_hash ALREADY matches the checkout's live
+# hook source, the old_head==new_head path must NOT force an adapter
+# install - proves _hooks_snapshot_diverged is not just "always true", and
+# that T18 is exercising the actual comparison, not a constant.
+#
+# FAKE_REPO carries REAL, distinguishable content at all six
+# hooks_source_paths() locations (seed_fake_hooks_source), and the snapshot
+# is written by the actual product function (sync_fake_hooks_snapshot calls
+# sync_hooks_snapshot) - so this test can distinguish "the right six paths
+# were compared" from "an arbitrary/wrong list was compared" (Major 2 fix:
+# the prior all-absent-paths fixture produced the same empty-input digest
+# for any list, correct or corrupted, and could not tell the difference).
+# ---------------------------------------------------------------------------
+setup_git_fixture
+setup_git_fixture_with_argv_install
+seed_fake_hooks_source
+sync_fake_hooks_snapshot
+# No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE.
+
+INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"
+export INSTALL_ARGS_LOG
+invoke_updater --no-doctor
+unset INSTALL_ARGS_LOG
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+ARGS_RECORDED="$(cat "$TEMP_HOME/install_args.log" 2>/dev/null)"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T19 already-up-to-date + hooks-snapshot matching: exits 0"
+else
+  _fail "T19 already-up-to-date + hooks-snapshot matching: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if echo "$OUT" | grep -qi "forcing adapter install"; then
+  _fail "T19 already-up-to-date + hooks-snapshot matching: unexpectedly forced adapter install (got: $OUT)"
+else
+  _pass "T19 already-up-to-date + hooks-snapshot matching: did NOT force adapter install"
+fi
+
+if [[ -z "$ARGS_RECORDED" ]]; then
+  _pass "T19 already-up-to-date + hooks-snapshot matching: install.sh did NOT run"
+else
+  _fail "T19 already-up-to-date + hooks-snapshot matching: install.sh unexpectedly ran (recorded: $ARGS_RECORDED)"
+fi
+
+rm -rf "$TEMP_HOME"
+
 # ---------------------------------------------------------------------------
 # push_ahead_nontrigger_commit: like push_ahead_commit, but the pushed
 # commit only touches README.md - not a REBUILD_TRIGGER path - so

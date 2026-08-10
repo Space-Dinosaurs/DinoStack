@@ -12,8 +12,9 @@
 # Upstream deps: scripts/lib/repo-dir.sh (resolve_repo_dir; optional - a
 #                inline $HOME/DinoStack fallback applies if the lib is
 #                absent), scripts/lib/hooks-snapshot.sh (hooks_snapshot_dir,
-#                compute_hooks_source_hash, hooks_config_points_at_snapshot -
-#                required; the script stays silent if this lib is missing),
+#                hooks_source_paths, compute_hooks_source_hash,
+#                hooks_config_points_at_snapshot - required; the script
+#                stays silent if this lib is missing),
 #                python3 (JSON read, realpath), grep. All fail-open.
 # Downstream consumers: hooks/session-start-wrap.sh (composes this script's
 #                       stdout into its systemMessage alongside the version
@@ -137,13 +138,11 @@ except Exception:
 " "$meta_file" 2>/dev/null || echo "")"
 
 if [[ -n "$_meta_hash" ]]; then
-  _live_hash="$(compute_hooks_source_hash \
-    "$ae_repo_dir/hooks" \
-    "$ae_repo_dir/bin/ds-identity" \
-    "$ae_repo_dir/.codex/config/hooks.json" \
-    "$ae_repo_dir/.codex/hooks" \
-    "$ae_repo_dir/.gemini/hooks" \
-    "$ae_repo_dir/.kimi/hooks" 2>/dev/null || echo "")"
+  _hsc_source_paths=()
+  while IFS= read -r _hsc_source_path; do
+    _hsc_source_paths+=("$_hsc_source_path")
+  done < <(hooks_source_paths "$ae_repo_dir" 2>/dev/null || true)
+  _live_hash="$(compute_hooks_source_hash ${_hsc_source_paths[@]+"${_hsc_source_paths[@]}"} 2>/dev/null || echo "")"
 
   if [[ -n "$_live_hash" ]] && [[ "$_live_hash" != "$_meta_hash" ]]; then
     echo "dinostack: hook scripts changed since the last snapshot sync. Run install.sh (or /ds-update) to refresh the live session's hooks."

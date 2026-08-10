@@ -47,6 +47,18 @@
  *                git not on PATH, pull failure). Safe to retry; idempotent
  *                adapter installs and config writes.
  *
+ * DS-54 cross-language asymmetry (known, intentional for now): unlike
+ * bin/ds-update's `_hooks_snapshot_diverged` check, this file has NO
+ * equivalent comparison of the live hooks/ source hash against the
+ * session-stable snapshot's stored hash on its "already up to date" /
+ * "no rebuild needed" (`!rebuild`) branch - it relies ENTIRELY on the
+ * unconditional `runDoctor()` call at the end of main() (which runs
+ * `ds-doctor --fix`, and that check now independently detects and repairs
+ * hooks-snapshot staleness) to close the same dogfooding gap
+ * transitively. This is coverage via a different, less direct path than
+ * bin/ds-update's; porting `_hooks_snapshot_diverged` here has not been
+ * done and is not required for `runDoctor()`'s self-heal to still work.
+ *
  * Performance: Standard. TUI is synchronous; git and install script
  *              operations block until completion. Rebuild-skip path skips
  *              all adapter install.sh executions and is near-instant.

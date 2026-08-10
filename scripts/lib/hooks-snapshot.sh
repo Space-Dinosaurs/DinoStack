@@ -15,6 +15,24 @@
 #     -> prints "<basename(realpath repo_dir)>-<sha256_12(realpath repo_dir)>".
 #   hooks_snapshot_dir <repo_dir>
 #     -> prints "$HOME/.agentic/hooks-snapshot/$(hooks_snapshot_key repo_dir)".
+#   hooks_source_paths <repo_dir>
+#     -> prints, one per line, the six paths that together define "the hook
+#        source" for <repo_dir> (hooks/, bin/ds-identity, and the four
+#        in-scope adapters' hook sources) - the SOLE list, so
+#        sync_hooks_snapshot's hash, hooks/lib/hooks-staleness-core.sh's
+#        stale_but_stable check, and bin/ds-update's _hooks_snapshot_diverged
+#        check all pass the same argument list to compute_hooks_source_hash
+#        below and can never independently drift on what the six paths are.
+#        A fourth consumer, sync_hooks_snapshot's own copy loop, drives `cp`
+#        (not compute_hooks_source_hash) from this same list - the single
+#        most important property to preserve on any future edit here is
+#        that ALL FOUR consumers keep calling this one function rather than
+#        any of them reverting to a hand-copied path list, since that was
+#        the exact reader/writer divergence this function exists to close.
+#        Read one line at a time (`while IFS= read -r line; do arr+=("$line");
+#        done < <(hooks_source_paths "$repo_dir")`) rather than word-splitting
+#        the output, and never with `mapfile`/`readarray` (bash 3.2, the
+#        macOS system bash, ships neither).
 #   compute_hooks_source_hash <path>...
 #     -> prints a single sha256 hex digest over the sorted (relpath, content)
 #        pairs of every file under the given paths (files or directories).
@@ -46,7 +64,19 @@
 #
 # Downstream consumers: .claude/install.sh, .gemini/install.sh,
 #   .codex/install.sh, .kimi/install.sh, .claude/uninstall.sh,
-#   hooks/lib/hooks-staleness-core.sh.
+#   .codex/uninstall.sh, hooks/lib/hooks-staleness-core.sh, bin/ds-doctor,
+#   bin/ds-update. This list must be maintained by mechanical sweep, not
+#   hand-listing (a hand-listed copy of this field has already gone stale
+#   twice). Sweep command (copy this ONE line verbatim, run from the repo
+#   root):
+#     grep -rl -e 'hooks-snapshot\.sh' -e 'hooks_snapshot_key' -e 'hooks_snapshot_dir' -e 'hooks_source_paths' -e 'compute_hooks_source_hash' -e 'sync_hooks_snapshot' -e 'remove_hooks_snapshot' -e 'hooks_config_points_at_snapshot' .
+#   Then classify each hit as a genuine code consumer (sources this file
+#   or calls one of its functions) vs. a comment/prose-only mention
+#   (excluded - e.g. bin/ds-base-sync, which invokes
+#   hooks-staleness-core.sh instead and is documented there as never
+#   calling sync_hooks_snapshot itself) or a test file (excluded from this
+#   field; test coverage is not a "downstream consumer" in the sense this
+#   field tracks).
 #
 # Failure modes:
 #   - Bounded-delete guard (mandatory on every rm -rf path): fails closed
@@ -99,6 +129,28 @@ hooks_snapshot_dir() {
   local key
   key="$(hooks_snapshot_key "$repo_dir")"
   printf '%s/.agentic/hooks-snapshot/%s\n' "$HOME" "$key"
+}
+
+# ---------------------------------------------------------------------------
+# hooks_source_paths <repo_dir>
+#   Prints, one per line, the SOLE list of paths that define "the hook
+#   source" for <repo_dir>. Every caller that needs this list (sync_hooks_
+#   snapshot's own copy loop AND its hash computation below,
+#   hooks/lib/hooks-staleness-core.sh's stale_but_stable check, and
+#   bin/ds-update's _hooks_snapshot_diverged check) must call this function
+#   rather than hand-copying the six paths - unpinned copies previously
+#   existed at both the hash layer and the copy layer and could silently
+#   disagree on drift.
+# ---------------------------------------------------------------------------
+hooks_source_paths() {
+  local repo_dir="$1"
+  printf '%s\n' \
+    "$repo_dir/hooks" \
+    "$repo_dir/bin/ds-identity" \
+    "$repo_dir/.codex/config/hooks.json" \
+    "$repo_dir/.codex/hooks" \
+    "$repo_dir/.gemini/hooks" \
+    "$repo_dir/.kimi/hooks"
 }
 
 # ---------------------------------------------------------------------------
@@ -417,48 +469,51 @@ sync_hooks_snapshot() {
   fi
 
   # --- Copy the source set, preserving checkout-relative layout ---
-  # Plain cp -R (NOT rsync) followed by a targeted rm of the
-  # excluded paths - matches compute_hooks_source_hash's exclusions so a
-  # hooks/tests/ or hooks/AGENTS.md edit alone never trips staleness.
-  cp -R "$real_repo_dir/hooks" "$stage_dir/hooks" || {
-    rm -rf -- "$stage_dir"
-    return 1
-  }
+  # Driven by hooks_source_paths() - the SOLE list - so the copy set can
+  # never independently drift from the hash set below. Plain cp -R/cp (NOT
+  # rsync), then a targeted rm of the excluded top-level hooks/tests and
+  # hooks/AGENTS.md paths - this matches compute_hooks_source_hash's
+  # exclusions ONLY at that top level. compute_hooks_source_hash excludes
+  # any "tests" path component or "AGENTS.md" basename at ANY depth under
+  # every walked root, not just under hooks/; the copy step here does not.
+  # This asymmetry is latent (pre-existing since round 2, unreachable today
+  # because no in-scope adapter's hooks source currently nests a "tests"
+  # dir or an "AGENTS.md" file below its top level) - a nested
+  # .codex/hooks/tests/ or .gemini/hooks/AGENTS.md would be hashed as
+  # excluded but copied into the snapshot anyway. Directory vs file is
+  # handled explicitly per-entry (cp -R vs cp) since the two need different
+  # cp invocations; everything else about the loop is uniform.
+  local -a _copy_source_paths=()
+  local _copy_source_path _copy_src _copy_rel _copy_dest
+  while IFS= read -r _copy_source_path; do
+    _copy_source_paths+=("$_copy_source_path")
+  done < <(hooks_source_paths "$real_repo_dir")
+
+  for _copy_src in ${_copy_source_paths[@]+"${_copy_source_paths[@]}"}; do
+    [[ -e "$_copy_src" ]] || continue
+    _copy_rel="${_copy_src#"$real_repo_dir"/}"
+    _copy_dest="$stage_dir/$_copy_rel"
+    mkdir -p "$(dirname "$_copy_dest")" || {
+      rm -rf -- "$stage_dir"
+      return 1
+    }
+    if [[ -d "$_copy_src" ]]; then
+      cp -R "$_copy_src" "$_copy_dest" || {
+        rm -rf -- "$stage_dir"
+        return 1
+      }
+    else
+      cp "$_copy_src" "$_copy_dest" || {
+        rm -rf -- "$stage_dir"
+        return 1
+      }
+    fi
+  done
+
   rm -rf "$stage_dir/hooks/tests"
   rm -f "$stage_dir/hooks/AGENTS.md"
-  mkdir -p "$stage_dir/bin"
-  cp "$real_repo_dir/bin/ds-identity" "$stage_dir/bin/ds-identity" || {
-    rm -rf -- "$stage_dir"
-    return 1
-  }
-  chmod 700 "$stage_dir/bin/ds-identity" || {
-    rm -rf -- "$stage_dir"
-    return 1
-  }
-  if [[ -f "$real_repo_dir/.codex/config/hooks.json" ]]; then
-    mkdir -p "$stage_dir/.codex/config"
-    cp "$real_repo_dir/.codex/config/hooks.json" "$stage_dir/.codex/config/hooks.json" || {
-      rm -rf -- "$stage_dir"
-      return 1
-    }
-  fi
-  if [[ -d "$real_repo_dir/.codex/hooks" ]]; then
-    mkdir -p "$stage_dir/.codex"
-    cp -R "$real_repo_dir/.codex/hooks" "$stage_dir/.codex/hooks" || {
-      rm -rf -- "$stage_dir"
-      return 1
-    }
-  fi
-  if [[ -d "$real_repo_dir/.gemini/hooks" ]]; then
-    mkdir -p "$stage_dir/.gemini"
-    cp -R "$real_repo_dir/.gemini/hooks" "$stage_dir/.gemini/hooks" || {
-      rm -rf -- "$stage_dir"
-      return 1
-    }
-  fi
-  if [[ -d "$real_repo_dir/.kimi/hooks" ]]; then
-    mkdir -p "$stage_dir/.kimi"
-    cp -R "$real_repo_dir/.kimi/hooks" "$stage_dir/.kimi/hooks" || {
+  if [[ -f "$stage_dir/bin/ds-identity" ]]; then
+    chmod 700 "$stage_dir/bin/ds-identity" || {
       rm -rf -- "$stage_dir"
       return 1
     }
@@ -466,13 +521,11 @@ sync_hooks_snapshot() {
 
   # --- Compute + persist the source hash + metadata (atomic write) ---
   local source_hash=""
-  source_hash="$(compute_hooks_source_hash \
-    "$real_repo_dir/hooks" \
-    "$real_repo_dir/bin/ds-identity" \
-    "$real_repo_dir/.codex/config/hooks.json" \
-    "$real_repo_dir/.codex/hooks" \
-    "$real_repo_dir/.gemini/hooks" \
-    "$real_repo_dir/.kimi/hooks")"
+  local -a _sync_source_paths=()
+  while IFS= read -r _sync_source_path; do
+    _sync_source_paths+=("$_sync_source_path")
+  done < <(hooks_source_paths "$real_repo_dir")
+  source_hash="$(compute_hooks_source_hash ${_sync_source_paths[@]+"${_sync_source_paths[@]}"})"
 
   local snapshotted_at=""
   snapshotted_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")"
