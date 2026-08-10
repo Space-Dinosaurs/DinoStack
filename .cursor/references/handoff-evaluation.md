@@ -19,10 +19,14 @@ Public API: Read-only reference document, addressed by its retained
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
                Assumes the reader already has Contract A/B/D (`## Batch
-               state contracts` in content/commands/ds-implement-ticket.md)
-               and the "Batch-mode escalation routing
-               (mark-blocked-and-continue)" subsection (Phase 6) in
-               context - both are named, not repeated, here.
+               state contracts` in content/commands/ds-implement-ticket.md),
+               the "Batch-mode escalation routing
+               (mark-blocked-and-continue)" subsection (Phase 6), and the
+               "Interrupt vs. pause path note" / "Resume banners"
+               paragraphs (Phase 12a section, same file) in context - this
+               reference's own precedence note (below) names the latter
+               two as the source of truth for the duplicated resume-banner
+               text. All three are named, not repeated, here.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (Phase 12a
                       extraction site pointer; Phase 0a-open-goal's
@@ -93,4 +97,4 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 
 **On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
-> Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the SessionEnd hook (`hooks/session-end-wrap.js`, once per session, on a terminal reason) or on crash - see Contract D. These are two distinct paths; `last_summary` is only populated on graceful pause (the SessionEnd hook cannot synthesize it).
+> Note: see the "Interrupt vs. pause path note" and "Resume banners" paragraphs in `content/commands/ds-implement-ticket.md` §"Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)" for the `paused_at`/`interrupted_at` distinction and the canonical resume-banner wording. The kernel command file is the SOURCE OF TRUTH for both resume-banner lines (kept there so `scripts/codex-skills.py`'s `documents()` transform, which only reads content/commands/*.md, still sees these operational literals - the `hooks/session-end-wrap.js` path and the `/ds-implement-ticket` resume-banner self-reference both need adapter-specific rewriting); the full print examples above ALSO show the resume line inline, for readability of the complete printed output - if the two ever disagree, the kernel paragraph governs.

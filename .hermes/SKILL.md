@@ -3987,10 +3987,14 @@ Public API: Read-only reference document, addressed by its retained
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
                Assumes the reader already has Contract A/B/D (`## Batch
-               state contracts` in content/commands/ds-implement-ticket.md)
-               and the "Batch-mode escalation routing
-               (mark-blocked-and-continue)" subsection (Phase 6) in
-               context - both are named, not repeated, here.
+               state contracts` in content/commands/ds-implement-ticket.md),
+               the "Batch-mode escalation routing
+               (mark-blocked-and-continue)" subsection (Phase 6), and the
+               "Interrupt vs. pause path note" / "Resume banners"
+               paragraphs (Phase 12a section, same file) in context - this
+               reference's own precedence note (below) names the latter
+               two as the source of truth for the duplicated resume-banner
+               text. All three are named, not repeated, here.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (Phase 12a
                       extraction site pointer; Phase 0a-open-goal's
@@ -4061,7 +4065,7 @@ Exit cleanly. Do NOT advance to the next ticket. Emit breadcrumb: `[phase: batch
 
 **On no trigger, open-goal mode:** the goal-met short-circuit above already handles the `termination_reason == "goal_met"` case before triggers are evaluated, so reaching this branch means the goal was not yet met on this iteration. Apply the "Advance to next iteration" write from Phase 0a-open-goal - Contract A+B write incrementing `open_goal.iteration` AND appending the next `pending` synthetic `tickets[]` entry IN THE SAME WRITE (keeps `iteration == len(tickets[])` intact) - and continue the outer loop at Phase 1.
 
-> Note: `paused_at` and `pause_reason` are written by Phase 12a on graceful handoff. `interrupted_at` and `interrupt_reason` are written by the SessionEnd hook (`hooks/session-end-wrap.js`, once per session, on a terminal reason) or on crash - see Contract D. These are two distinct paths; `last_summary` is only populated on graceful pause (the SessionEnd hook cannot synthesize it).
+> Note: see the "Interrupt vs. pause path note" and "Resume banners" paragraphs in `content/commands/ds-implement-ticket.md` §"Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)" for the `paused_at`/`interrupted_at` distinction and the canonical resume-banner wording. The kernel command file is the SOURCE OF TRUTH for both resume-banner lines (kept there so `scripts/codex-skills.py`'s `documents()` transform, which only reads content/commands/*.md, still sees these operational literals - the `hooks/session-end-wrap.js` path and the `/ds-implement-ticket` resume-banner self-reference both need adapter-specific rewriting); the full print examples above ALSO show the resume line inline, for readability of the complete printed output - if the two ever disagree, the kernel paragraph governs.
 
 ---
 
@@ -6944,6 +6948,11 @@ Public API: Read-only reference document, addressed by its retained
             config doc).
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
+               Assumes the reader already has the "Caller enumeration"
+               block (`content/commands/ds-implement-ticket.md` §"Tracker
+               Writeback Helper") in context - this reference's own
+               precedence note (below) names it as the source of truth
+               for the five duplicated statements.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (Phase 11,
                       W1-W7), content/commands/ds-ticket-status-sync.md,
@@ -6962,6 +6971,8 @@ Performance: n/a (static reference document).
 ## Tracker Writeback Helper
 
 Reusable subagent invocation pattern. Used by Phase 11 (existing), the 7 W1-W7 sites in `content/commands/ds-implement-ticket.md`, and awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
+
+> Note: five statements in this reference - the awaiting-caller enumeration, `forward_only_guard` applicability, the step 4.d.iv stderr split, the `SKIPPED:` line format, and the "never reads `.agentic/tracker-states.json`" ranking rule - are duplicated verbatim in the "Caller enumeration" block of `content/commands/ds-implement-ticket.md` §"Tracker Writeback Helper". The duplication is intentional and kept in the kernel command file because `scripts/codex-skills.py`'s `documents()` transform only reads `content/commands/*.md`; this reference is a symlinked resource the transform never scans. The kernel "Caller enumeration" block is the SOURCE OF TRUTH for all five - if the two ever disagree, the kernel block governs.
 
 **Invocation contract:**
 
@@ -14203,6 +14214,13 @@ All work lives in `$REPO`.
 
 Full reference (invocation contract, forward-only guard algorithm, diagnostic enrichment, failure/skip logging): `content/references/tracker-writeback.md`. Reusable subagent invocation pattern used by Phase 11, the 7 writeback call sites below (W1-W7), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise. Read that reference before invoking this Helper from any call site or modifying its algorithm.
 
+**Caller enumeration (kept in the kernel so `scripts/codex-skills.py` can transform these caller-name tokens; `content/references/tracker-writeback.md` is a symlinked resource the transform never scans, so it points back here instead of repeating them):**
+- Fire-and-forget applies at W1-W7 and Phase 11; the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - are enumerated in the forward-only guard's step 4.d.iv (see the reference for the full algorithm).
+- `forward_only_guard: true` for every writeback caller - the 7 W1-W7 sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F.
+- On the step 4.d.iv unmatched-state-name branch, fire-and-forget call sites (W1-W7, Phase 11) each emit one stderr line per fire. **Callers that await the result** - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - do NOT get that per-ticket stderr line; they instead read `unmatched_state_name` from each ticket's return payload, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+- Fire-and-forget call sites (W1-W7, Phase 11) emit a `SKIPPED:` stderr line for a `skipped_unconfigured_state` outcome. Callers that await the result - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - read `status` and `diagnostic` from the return payload instead and format them per their own operator-visible-line conventions.
+- **This ranking never reads `.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state and the 6 `tracker_state_values` strings resolved once in Setup above. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
+
 ---
 
 ## Tracker Create Helper
@@ -17156,6 +17174,12 @@ fi
 **Trigger:** `.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session) OR set by Phase 0a-open-goal (`goal_mode=open_goal`) OR by the Phase 0a-pre single-ticket-capped carve-out (`max_wallclock_min` alone). Skip when batch-state.json is absent - covers ordinary uncapped single-ticket invocations, unchanged.
 
 Full reference (goal-met short-circuit, the four handoff triggers, the mode-specific on-trigger `batch-state.json` writes for batch/single-ticket-capped vs. open-goal, and the no-trigger continue/advance paths): `content/references/handoff-evaluation.md`. After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket. Read that reference before evaluating this phase or modifying its trigger set or write contract.
+
+**Resume banners (canonical here; printed by the on-trigger write paths in the reference above).**
+- Batch and single-ticket-capped: `Resume: /ds-implement-ticket from this directory`
+- Open-goal: `Resume: /ds-implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`
+
+**Interrupt vs. pause path note (canonical here).** `paused_at`/`pause_reason` are written by Phase 12a on graceful handoff; `interrupted_at`/`interrupt_reason` are written by the SessionEnd hook (`hooks/session-end-wrap.js`, once per session, on a terminal reason) or on crash - see Contract D. These are two distinct paths; `last_summary` is only populated on graceful pause (the SessionEnd hook cannot synthesize it). On the goal-met short-circuit's clean COMPLETE exit, `.agentic/loop-state-$LOOP_KEY.json` is set to `status: "complete"` alongside `batch-state.json` (Contract A).
 
 ---
 

@@ -524,6 +524,156 @@ class CodexSkillGenerationTests(unittest.TestCase):
             for item in unsupported
         ))
 
+    def test_referenced_content_reachable_from_codex_skills_has_no_new_unguarded_spawn_literal(self) -> None:
+        """Regression guard for the Unit 5 (DS-143 split) codex-spawn-contract
+        regression: scripts/codex-skills.py's ``documents()`` only transforms
+        content/commands/*.md, content/SKILL.md, and assembled METHODOLOGY.md -
+        it never sees content/references/**, even though every Codex skill's
+        ``resources/references`` entry is a symlink straight into that
+        directory (verbatim, untransformed). A raw `isolation: "worktree"` /
+        `run_in_background` literal that lands in a content/references/**
+        file a Codex skill can reach is therefore inexecutable on Codex and
+        invisible to test_generated_spawn_contract_is_executable_codex_semantics
+        above, because ``Path.rglob`` does not descend into symlinked
+        directories - it only ever sees the skills' own non-symlinked *.md.
+
+        This test walks the same `.codex/skills` tree WITH symlinks followed
+        (`os.walk(..., followlinks=True)`), so it does reach content/references/**.
+        A small, explicit allowlist of files already known to carry raw
+        Claude-only spawn/session literals as inert reference-doc prose
+        (pre-existing accepted state) is exempt. Any OTHER reachable file
+        containing the pattern fails the build - which is exactly what would
+        have caught the Unit 5 regression (a NEW reference file introducing
+        an unguarded, unlisted spawn/session literal with no kernel-side
+        executable counterpart). Unit 5 itself was abandoned as an
+        extraction (content/references/qa-loop-state.md does not exist on
+        this branch), so that allowlist entry is deliberately NOT present
+        here.
+        """
+        allowlisted_reference_files = {
+            "delegation-detail.md",
+            "qa-gate.md",
+            "agent-team.md",
+            "subagent-protocol.md",
+        }
+        pattern = re.compile(r"\bisolation\s*:|run_in_background")
+        offenders: list[str] = []
+        skills_root = self.repo / ".codex/skills"
+        repo_real = self.repo.resolve()
+        references_real = (self.repo / "content/references").resolve()
+        seen_real_paths: set[Path] = set()
+        for dirpath, _dirnames, filenames in os.walk(skills_root, followlinks=True):
+            for filename in filenames:
+                if not filename.endswith(".md"):
+                    continue
+                candidate = Path(dirpath) / filename
+                real = candidate.resolve()
+                if real in seen_real_paths:
+                    continue
+                seen_real_paths.add(real)
+                # Only content/references/** is in scope: it is the one canonical
+                # source tree that is reachable from every Codex skill's resources
+                # symlink AND is never a documents() transform input (unlike
+                # content/sections/**, which feeds assembled_methodology(), or
+                # content/commands/**, which is a direct WORKFLOWS document).
+                if references_real not in real.parents:
+                    continue
+                if real.name in allowlisted_reference_files:
+                    continue
+                text = real.read_text(encoding="utf-8")
+                if pattern.search(text):
+                    offenders.append(str(real.relative_to(repo_real)))
+        self.assertFalse(
+            offenders,
+            "found unguarded isolation:/run_in_background literal(s) reachable from a "
+            "Codex skill's resources tree, outside the accepted allowlist: "
+            f"{sorted(offenders)} - either restore the executable spawn-contract "
+            "paragraph to the owning content/commands/*.md kernel file (so "
+            "scripts/codex-skills.py's documents() can transform it) with an adjacent "
+            "pointer from the reference file, or add the file to "
+            "allowlisted_reference_files with a stated reason if it is genuinely inert "
+            "reference-doc prose citing the kernel paragraph.",
+        )
+
+    def test_unit1_unit6_codex_restorations_pinned_in_kernel(self) -> None:
+        """Regression guard for the two live Codex-transform regressions
+        salvaged from the abandoned PR #624 (DS-143 Unit 5 QA-loop-state
+        extraction). Unit 5 itself is NOT ported (no content/references/
+        qa-loop-state.md on this branch) - Phase 6b and Phase 8.5 stay
+        inline in the kernel, unmoved. What this test pins is the two
+        genuine repairs that DID land:
+
+        - Unit 1 (#620, merged) had dropped 10 codexified occurrences from
+          `content/commands/ds-implement-ticket.md`'s Tracker Writeback
+          Helper section. 9 of the 10 are restored as a "Caller
+          enumeration" bullet list (the 10th was a legitimate relocation to
+          content/references/tracker-writeback.md's own citation of
+          ds-wrap.md and stays where it is).
+        - Unit 6 (#621, merged) had dropped 4 occurrences from Phase 12a.
+          All 4 are restored as the "Resume banners" and "Interrupt vs.
+          pause path note" paragraphs.
+
+        A future tidy-up that silently deletes either restoration would
+        reintroduce the exact codex-skill-compatibility gap Unit 1/6
+        shipped, invisibly - scripts/codex-skills.py's `documents()`
+        transform only sees these tokens while they live in the kernel
+        command file, not in the symlinked content/references/** tree they
+        point back to.
+
+        Confirmed red pre-fix (mutation test performed manually, not part
+        of the automated suite): deleting the "Caller enumeration" bullet
+        list, or deleting the "Resume banners"/"Interrupt vs. pause path
+        note" paragraphs, from content/commands/ds-implement-ticket.md each
+        independently turns this test red.
+        """
+        kernel_path = self.repo / "content/commands/ds-implement-ticket.md"
+        kernel = kernel_path.read_text(encoding="utf-8")
+
+        # --- Unit 1: Tracker Writeback Helper "Caller enumeration" ---
+        twh_start = kernel.index("## Tracker Writeback Helper")
+        twh_end = kernel.index("## Tracker Create Helper", twh_start)
+        twh = kernel[twh_start:twh_end]
+        self.assertIn("**Caller enumeration", twh)
+        self.assertEqual(twh.count("/ds-wrap"), 5, (
+            "expected 5 '/ds-wrap' occurrences in the Tracker Writeback Helper "
+            "section (1 pre-existing in the intro paragraph + 4 restored by "
+            "the Caller enumeration block) - got a different count, which "
+            "means the restoration was partially or fully reverted"
+        ))
+        self.assertEqual(twh.count("`/ds-ticket-status-sync`"), 5, (
+            "expected 5 '`/ds-ticket-status-sync`' occurrences in the Tracker "
+            "Writeback Helper section (1 pre-existing + 4 restored) - got a "
+            "different count"
+        ))
+        self.assertIn(".agentic/tracker-states.json", twh)
+
+        # --- Unit 6: Phase 12a "Resume banners" / "Interrupt vs. pause path note" ---
+        phase12a_start = kernel.index(
+            "## Phase 12a: Handoff evaluation (batch, open-goal, and single-ticket-capped)"
+        )
+        phase12a_end = kernel.index("## Phase 12b: Operator Runbook", phase12a_start)
+        phase12a = kernel[phase12a_start:phase12a_end]
+        self.assertIn("**Resume banners", phase12a)
+        self.assertIn("Resume: /ds-implement-ticket from this directory", phase12a)
+        self.assertIn(
+            "Resume: /ds-implement-ticket ... goal_mode=open_goal ...", phase12a
+        )
+        self.assertIn("**Interrupt vs. pause path note", phase12a)
+        self.assertIn("hooks/session-end-wrap.js", phase12a)
+        self.assertIn(".agentic/loop-state-", phase12a)
+
+        # The generated Codex skill must carry the transformed (native
+        # /ds-implement-ticket and ds-codex-dispatch-aware) forms of these
+        # tokens - not merely leave them absent because the kernel
+        # restoration itself never landed in the built artifact.
+        generated_ticket = (
+            self.repo / ".codex/skills/implement-ticket/SKILL.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Caller enumeration", generated_ticket)
+        self.assertIn("Resume banners", generated_ticket)
+        self.assertIn("$AE_PROJECT_DIR/.agentic/tracker-states.json", generated_ticket)
+        self.assertIn("$AE_PROJECT_DIR/.agentic/loop-state-", generated_ticket)
+
     def test_wrap_busy_lock_uses_codex_command_polling_and_session_binding(self) -> None:
         wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")
         busy = re.search(

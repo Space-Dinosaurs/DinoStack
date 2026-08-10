@@ -480,7 +480,26 @@ def test_regression_ere_pattern_with_backslash_escaped_parens_is_extracted_at_al
 
 
 def test_regression_pattern_slot_literal_not_dropped_by_meaningfulness_filter():
-    report = pmi.analyze(REPO_ROOT, TARGET, NINE_RANGES)
+    # DS-143 Unit 5 note: this fixture originally relied on the QA_GATE/
+    # QA_EVIDENCE members of NINE_RANGES still containing 3 of the
+    # 'mark-blocked-and-continue' target occurrences - true only while
+    # those two sections were still un-extracted. Unit 5 (the QA-loop-state
+    # split) was abandoned as an extraction (salvage-and-narrow fix instead,
+    # see content/commands/ds-implement-ticket.md's Phase 6b/8.5 - both
+    # stayed inline), so this fixture no longer depends on that extraction
+    # having happened. It is repointed anyway to a heading the
+    # progressive-disclosure split provably never touches (Sections
+    # 03/05/06/11 pattern; "## Batch state contracts (binding)" is the
+    # binding contract every extracted phase must keep citing, so it cannot
+    # itself be extracted) rather than to QA_GATE/QA_EVIDENCE, so this
+    # fixture stays robust even if a future split unit resumes the QA-loop
+    # extraction.
+    ranges = [
+        r
+        for r in NINE_RANGES
+        if r.dest != "content/references/qa-loop-state.md"
+    ] + [_range_for_heading("## Batch state contracts (binding)", "content/references/_hypothetical-batch-state-split.md")]
+    report = pmi.analyze(REPO_ROOT, TARGET, ranges)
     hits = {
         a.detail: a
         for a in report.assertions
@@ -496,8 +515,8 @@ def test_regression_pattern_slot_literal_not_dropped_by_meaningfulness_filter():
     mark_blocked = [a for d, a in hits.items() if "mark-blocked-and-continue" in d and d.startswith("asserts")]
     assert mark_blocked, f"expected a 'mark-blocked-and-continue' hit, got: {list(hits)}"
     assert any(a.breaks for a in mark_blocked), (
-        "'mark-blocked-and-continue' has 3 of its 11 target occurrences inside "
-        "a move range and must break"
+        "'mark-blocked-and-continue' has an occurrence inside the "
+        "'## Batch state contracts (binding)' move range and must break"
     )
 
 
