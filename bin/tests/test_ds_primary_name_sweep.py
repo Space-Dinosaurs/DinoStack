@@ -335,10 +335,6 @@ def test_codex_generated_identity_commands_use_ds_identity() -> None:
 # referenced the old name, so nothing was deferred there. That file
 # therefore no longer appears in this residue set.
 #
-# `agentic-factory` is unrelated to the bin/agentic-* rename program
-# entirely - it is the sibling `agentic-factory/` track name in the
-# parent ai-tools repo, referenced as a worked example in
-# planning-artifacts.md - and is expected to remain indefinitely.
 RESIDUE_TOKEN_PATTERN = re.compile(r"agentic-[a-zA-Z][a-zA-Z0-9-]*")
 # Exact protected token set - NOT a prefix check. A prefix check
 # (`token.startswith("dinostack")`) silently drops any token
@@ -365,20 +361,21 @@ PROTECTED_TOKENS = {
     "agentic-engineering-profile",
     "agentic-engineering-preset",
 }
-EXPECTED_RESIDUE_SET = {
-    ("content/references/planning-artifacts.md", "agentic-factory"),
-}
+EXPECTED_RESIDUE_SET: set[tuple[str, str]] = set()
 
 
 def test_content_residue_set_pinned_to_known_exceptions() -> None:
     """Scans every file under content/** for `agentic-<word>` tokens,
     excludes the protected `dinostack` skill noun and its marker
     extensions, and asserts the remaining (file, token) set is exactly
-    EXPECTED_RESIDUE_SET - no more, no fewer. A third stray old name
-    anywhere under content/** turns this RED; renaming either of the two
-    known exceptions (or removing them) also turns it RED until this set
-    is updated to match, which is the point: the residue set can no
-    longer silently drift out of sync with what the docstring claims."""
+    EXPECTED_RESIDUE_SET - no more, no fewer. The set is currently empty:
+    the sole prior exception (`content/references/planning-artifacts.md`,
+    `agentic-factory`) was a worked-example track name that named an
+    operator's private repo and was neutralized to a generic name. Any
+    stray old name anywhere under content/** turns this RED; adding a new
+    exception requires updating this set to match, which is the point:
+    the residue set can no longer silently drift out of sync with what
+    the docstring claims."""
     assert CONTENT_DIR.is_dir(), f"{CONTENT_DIR} is missing"
 
     found: set[tuple[str, str]] = set()

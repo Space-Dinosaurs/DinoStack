@@ -296,7 +296,7 @@ Interactive path is preferred for features still being framed. Mechanical path i
 
 **Unit counting rule:** only units whose risk is Elevated or above count. Trivial units contribute zero.
 
-**"Cross-track" (mechanical):** a depth-1 directory under the repo root with its own `AGENTS.md`. Nested `AGENTS.md` files (e.g. `webapp/factory/AGENTS.md`) do not create new tracks.
+**"Cross-track" (mechanical):** a depth-1 directory under the repo root with its own `AGENTS.md`. Nested `AGENTS.md` files (e.g. `app/factory/AGENTS.md`) do not create new tracks.
 
 <div class="callout">
 All triggers are mechanical. Operator judgment is not a field. Evaluate after orchestration-planner returns.
