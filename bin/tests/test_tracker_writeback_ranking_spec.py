@@ -892,9 +892,9 @@ def test_toggle_doc_sync_full_eight_site_checklist():
 # surviving prior sweeps: a check keyed to one exact string, or even one
 # regex shape, finds only the sites written in that exact form.
 #
-# Site inventory (all reference the same fact: 8 enforce-*.py hooks post-
-# merge with the sibling turn-shape-hook unit, 7 of them call log_fire,
-# split 5 deny + 2 allow_advisory - `enforce-planning-artifact-spawn.py`
+# Site inventory (all reference the same fact: 9 enforce-*.py hooks post-
+# merge with the sibling turn-shape-hook unit, 8 of them call log_fire,
+# split 6 deny + 2 allow_advisory - `enforce-planning-artifact-spawn.py`
 # and `enforce-turn-shape.py`):
 #   hooks/AGENTS.md:43  - "N of the M enforce-*.py hooks" (table cell)
 #   hooks/AGENTS.md:48  - bare cardinal "the N enforce-*.py hooks'"
@@ -974,7 +974,7 @@ _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
 
 
 def test_enforcer_subcount_is_current_across_all_known_sites():
-    # Positive: every known site carries the current 7-caller / 8-enforcer
+    # Positive: every known site carries the current 8-caller / 9-enforcer
     # phrasing, in its own grammatical form.
     for path, expected in _ENFORCER_SUBCOUNT_SITES:
         text = path.read_text(encoding="utf-8")
