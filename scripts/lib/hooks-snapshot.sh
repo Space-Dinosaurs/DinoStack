@@ -64,8 +64,19 @@
 #
 # Downstream consumers: .claude/install.sh, .gemini/install.sh,
 #   .codex/install.sh, .kimi/install.sh, .claude/uninstall.sh,
-#   hooks/lib/hooks-staleness-core.sh, bin/ds-doctor,
-#   bin/ds-update.
+#   .codex/uninstall.sh, hooks/lib/hooks-staleness-core.sh, bin/ds-doctor,
+#   bin/ds-update. This list must be maintained by mechanical sweep, not
+#   hand-listing (a hand-listed copy of this field has already gone stale
+#   twice): `grep -rl 'hooks-snapshot\.sh\|hooks_snapshot_key\|
+#   hooks_snapshot_dir\|hooks_source_paths\|compute_hooks_source_hash\|
+#   sync_hooks_snapshot\|remove_hooks_snapshot\|hooks_config_points_at_
+#   snapshot' .` from the repo root, then classify each hit as a genuine
+#   code consumer (sources this file or calls one of its functions) vs. a
+#   comment/prose-only mention (excluded - e.g. bin/ds-base-sync, which
+#   invokes hooks-staleness-core.sh instead and is documented there as
+#   never calling sync_hooks_snapshot itself) or a test file (excluded from
+#   this field; test coverage is not a "downstream consumer" in the sense
+#   this field tracks).
 #
 # Failure modes:
 #   - Bounded-delete guard (mandatory on every rm -rf path): fails closed
