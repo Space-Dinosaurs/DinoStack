@@ -161,11 +161,25 @@ resolve_git_hooks_dir() {
 #   `cd ""` SUCCEEDS and resolves to the shell's CURRENT working directory,
 #   so without this guard the two shells would echo different, silently
 #   wrong answers for the same empty input. No current caller passes an
-#   empty <dir> (verified: _pc_git_common_dir_abs already returns early on
-#   an empty git-common-dir before ever calling this; resolve_primary_checkout
-#   returns 1 on `repo_dir=""` via its own upstream `git -C ""` failure) -
-#   the guard exists so a FUTURE caller cannot be silently bitten by this
-#   inter-shell divergence.
+#   empty <dir> today, but NOT because any upstream `git -C ""` call fails -
+#   it does not: `git -C "" rev-parse ...` is treated the same as omitting
+#   `-C` entirely and succeeds against the process CWD (verified both
+#   shells). Concretely: _pc_git_common_dir_abs already returns early on an
+#   empty git-common-dir before ever calling this helper (and an empty
+#   <dir> passed to IT would still succeed via `git -C ""`'s CWD fallback,
+#   so this guard is never reached that way either); resolve_primary_checkout
+#   never calls this helper with `repo_dir=""` because its own `-ef`
+#   identity check (comparing a real common-dir against a malformed,
+#   literal "/.git" git-dir - "" concatenated with the relative ".git" -
+#   for repo_dir="") evaluates false for empty input, so it takes the
+#   linked-worktree branch instead (which echoes a case-stripped
+#   common_dir directly, never calling this helper) rather than the
+#   primary-checkout branch that would. Verified: `resolve_primary_checkout
+#   ""` returns rc=0 and echoes this checkout's own resolved path, in both
+#   shells - not a failure at all. The guard exists so a FUTURE caller
+#   cannot be silently bitten by the bash/zsh inter-shell divergence
+#   documented above, independent of how today's callers happen to avoid
+#   it.
 #   On any OTHER canonicalisation failure (a non-empty <dir> that does not
 #   exist, a permission error, or a path that is a file, not a directory),
 #   falls back to echoing <dir> unchanged and still returns 0 - this
@@ -201,18 +215,45 @@ _pc_canonicalize_dir() {
 #   /var/folders -> /private/var/folders), then re-appends the missing
 #   trailing path components verbatim - they cannot contain a symlink to
 #   resolve, because a symlink target must itself exist to be dereferenced.
-#   Echoes the resulting path and always returns 0; the degenerate case
-#   <path>="/" is its own existing ancestor, so the loop always terminates.
-#   <path>="" is treated as "/" up front - `existing` is then guaranteed to
-#   be either "/" or a "/"-stripped, still-non-empty prefix of <path> by the
-#   time _pc_canonicalize_dir is called, so it is never the empty string
-#   that helper now rejects.
+#   Always returns 0.
+#
+#   Known, harmless edge behaviours (none of these are bugs - documented so
+#   a future change doesn't "fix" them into something that IS a bug):
+#     - <path>="/" (or any input whose only existing ancestor is "/") echoes
+#       the EMPTY STRING, not "/" - the final `${canonical_existing%/}`
+#       strip removes a lone trailing slash unconditionally. Every current
+#       caller only ever appends this result as a prefix, so an empty
+#       prefix is equivalent to no prefix.
+#     - A trailing slash on <path> itself survives verbatim into the
+#       output's tail (e.g. "/tmp/gone/" canonicalises to
+#       "/private/tmp/gone/", not "/private/tmp/gone") - the walk only
+#       strips components from the END via `${existing%/*}`, which does not
+#       touch a trailing slash already present.
+#     - <path>="" is treated as "/" up front, so it produces the same empty
+#       string as the "/" case above.
+#
+#   Termination guard (DS-152 round 5, Critical): if the walk-up reduces
+#   `existing` to a slash-free, still-nonexistent fragment (e.g. a
+#   relative <path> like "toolbox/hooks" evaluated in a CWD that has no
+#   "toolbox" entry), `${existing%/*}` becomes a no-op on that fragment and
+#   the loop would otherwise never terminate, growing `tail` without bound.
+#   The `*/*` case guard below detects exactly this and stops climbing,
+#   leaving the unresolved fragment as the base for _pc_canonicalize_dir
+#   (which fails closed - falls back to echoing it unchanged - rather than
+#   hanging). This is a safety net: _pc_is_legacy_sibling_hook anchors its
+#   own input to an absolute path before ever reaching here specifically to
+#   avoid needing it, but a future caller that does not anchor its input is
+#   still protected from a hang rather than merely from a wrong answer.
 # ---------------------------------------------------------------------------
 _pc_canonicalize_missing_dir() {
   local path="$1"
   local existing="${path:-/}"
   local tail=""
-  while [[ ! -d "$existing" && "$existing" != "/" && -n "$existing" ]]; do
+  while [[ ! -d "$existing" && "$existing" != "/" ]]; do
+    case "$existing" in
+      */*) : ;;
+      *) break ;;
+    esac
     tail="/${existing##*/}${tail}"
     existing="${existing%/*}"
     [[ -z "$existing" ]] && existing="/"
@@ -252,11 +293,21 @@ _pc_git_common_dir_abs() {
 }
 
 # ---------------------------------------------------------------------------
-# _pc_is_legacy_sibling_hook <target> <repo_common_dir> [primary_checkout]
+# _pc_is_legacy_sibling_hook <target> <repo_common_dir> [primary_checkout] [hooks_dir]
 #   Internal helper (not part of the public API). A pre-DS-152 install could
 #   have symlinked the shared hook at ANY worktree's own
 #   "<worktree>/hooks/pre-commit" (repo_dir itself, not necessarily the
-#   primary checkout). Returns 0 (true) iff <target> ends in
+#   primary checkout). <target> is the RAW symlink target text (from
+#   `readlink`), which may be a RELATIVE path - per POSIX symlink semantics
+#   a relative target resolves against the symlink's OWN directory
+#   (<hooks_dir>, the directory the pre-commit symlink itself lives in),
+#   NOT the calling process's CWD. When <target> is not absolute and
+#   [hooks_dir] is given, it is anchored against <hooks_dir> before any
+#   further use (DS-152 round 5) - both for correctness (a relative target
+#   evaluated against CWD names the wrong directory) and because an
+#   unanchored relative target with a slash-free first component could
+#   otherwise reach _pc_canonicalize_missing_dir's walk-up in a form that
+#   never becomes absolute. Returns 0 (true) iff <target> ends in
 #   "/hooks/pre-commit" AND either:
 #     - the directory it hangs off of still exists, and THAT directory's own
 #       git-common-dir matches <repo_common_dir> - i.e. <target> is some
@@ -289,12 +340,23 @@ _pc_git_common_dir_abs() {
 #   worktree roots.
 # ---------------------------------------------------------------------------
 _pc_is_legacy_sibling_hook() {
-  local target="$1" repo_common_dir="$2" primary_checkout="${3:-}"
+  local target="$1" repo_common_dir="$2" primary_checkout="${3:-}" hooks_dir="${4:-}"
   case "$target" in
     */hooks/pre-commit) : ;;
     *) return 1 ;;
   esac
   local target_repo_dir="${target%/hooks/pre-commit}"
+
+  # Anchor a relative target against the symlink's own directory (see
+  # docstring above) - never against the process CWD.
+  case "$target_repo_dir" in
+    /*) : ;;
+    *)
+      if [[ -n "$hooks_dir" ]]; then
+        target_repo_dir="$hooks_dir/$target_repo_dir"
+      fi
+      ;;
+  esac
 
   if [[ ! -d "$target_repo_dir" ]]; then
     if [[ -n "$primary_checkout" ]]; then
@@ -475,7 +537,7 @@ uninstall_precommit_hook() {
       # would have symlinked directly.
       local repo_common_dir
       if repo_common_dir="$(_pc_git_common_dir_abs "$repo_dir" 2>/dev/null)" \
-        && _pc_is_legacy_sibling_hook "$current_target" "$repo_common_dir" "$primary_checkout"; then
+        && _pc_is_legacy_sibling_hook "$current_target" "$repo_common_dir" "$primary_checkout" "$hooks_dir"; then
         rm "$hook_dst"
         echo "  - pre-commit hook removed (legacy pre-DS-152 target: $current_target)"
       else

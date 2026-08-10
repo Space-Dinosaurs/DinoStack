@@ -943,6 +943,139 @@ else
   _fail "dangling-foreign-target case (DS-152 round 3 regression): dangling hook outside known worktree roots was removed - the path constraint failed to scope the fix. Output: $OUT"
 fi
 
+# ============================================================
+# Test 13: DS-152 round 5 (Critical) - a dangling legacy hook whose RAW
+#          (readlink) target is a RELATIVE path, whose first path component
+#          does not exist, must not hang uninstall_precommit_hook.
+#          `${existing%/*}` is a no-op on a slash-free string, so pre-fix
+#          code (d2af1489) walked "toolbox" -> "toolbox" -> ... forever,
+#          growing `tail` unbounded. Wrapped in `timeout` so a regression
+#          here fails a single assertion instead of hanging the whole
+#          suite (and CI) - a hung test is its own incident.
+# ============================================================
+
+HANG_MAIN="$TMP_ROOT/hang-main-repo"
+_make_fixture_repo "$HANG_MAIN"
+
+HANG_HOOKS_DIR="$(git -C "$HANG_MAIN" rev-parse --git-path hooks)"
+case "$HANG_HOOKS_DIR" in
+  /*) : ;;
+  *) HANG_HOOKS_DIR="$HANG_MAIN/$HANG_HOOKS_DIR" ;;
+esac
+HANG_HOOK_DST="$HANG_HOOKS_DIR/pre-commit"
+
+# A relative symlink target whose first component ("toolbox") does not
+# exist anywhere resolvable - the exact shape that hung pre-fix code, and
+# the exact shape a real relative pre-DS-152 hook target could take
+# (`.husky/hooks/pre-commit`, `toolbox/hooks/pre-commit`, etc).
+mkdir -p "$HANG_HOOKS_DIR"
+ln -s "toolbox/hooks/pre-commit" "$HANG_HOOK_DST"
+
+HANG_OUT_FILE="$TMP_ROOT/hang-out.txt"
+timeout 8 bash -c "
+  set -uo pipefail
+  . '$LIB'
+  _ae_is_ours() { return 1; }
+  AE_DRY_RUN=false
+  uninstall_precommit_hook '$HANG_MAIN'
+" > "$HANG_OUT_FILE" 2>&1
+HANG_RC=$?
+
+if [[ $HANG_RC -ne 124 ]]; then
+  _pass "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook did not hang (rc=$HANG_RC, not 124/timeout)"
+else
+  _fail "hang regression case (DS-152 round 5 regression, Critical): uninstall_precommit_hook HUNG - killed by timeout (rc=124). Output: $(cat "$HANG_OUT_FILE" 2>&1)"
+fi
+
+if [[ $HANG_RC -eq 0 ]]; then
+  _pass "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook exits 0 (non-fatal - a relative target anchored against the hooks dir cannot be verified as a legacy sibling without an existing directory, so it is correctly left alone)"
+else
+  _fail "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook exited $HANG_RC (expected 0, non-fatal). Output: $(cat "$HANG_OUT_FILE" 2>&1)"
+fi
+
+if grep -qi "not ours" "$HANG_OUT_FILE"; then
+  _pass "hang regression case (DS-152 round 5, Critical): correctly reported as not ours rather than silently removed"
+else
+  _fail "hang regression case (DS-152 round 5 regression, Critical): did not report the expected 'not ours' outcome. Output: $(cat "$HANG_OUT_FILE" 2>&1)"
+fi
+
+# ------------------------------------------------------------------
+# Test 13b: DS-152 round 5 (Critical, safety-net unit) - the termination
+#           guard inside _pc_canonicalize_missing_dir itself must hold
+#           even when called directly with an unanchored, slash-free,
+#           non-existent path - i.e. independent of
+#           _pc_is_legacy_sibling_hook's own anchoring fix. This is the
+#           safety net the round-5 fix explicitly adds on top of the
+#           root-cause anchor.
+# ------------------------------------------------------------------
+
+HANG_UNIT_OUT_FILE="$TMP_ROOT/hang-unit-out.txt"
+timeout 8 bash -c "
+  set -uo pipefail
+  . '$LIB'
+  _pc_canonicalize_missing_dir 'toolbox'
+" > "$HANG_UNIT_OUT_FILE" 2>&1
+HANG_UNIT_RC=$?
+
+if [[ $HANG_UNIT_RC -ne 124 ]]; then
+  _pass "hang regression unit case (DS-152 round 5, Critical): _pc_canonicalize_missing_dir('toolbox') did not hang (rc=$HANG_UNIT_RC, not 124/timeout)"
+else
+  _fail "hang regression unit case (DS-152 round 5 regression, Critical): _pc_canonicalize_missing_dir('toolbox') HUNG - killed by timeout (rc=124)."
+fi
+
+# ------------------------------------------------------------------
+# Test 13c: DS-152 round 5 (Critical, anchor correctness) - isolates the
+#           anchoring fix from the termination guard: this fixture's
+#           dangling... no, EXISTING target resolves correctly ONLY when
+#           the relative readlink target is anchored against the
+#           symlink's own directory (hooks_dir), never against the
+#           process CWD. Without the anchor, `-d target_repo_dir` is
+#           checked against a path relative to the test runner's CWD (this
+#           repo checkout) rather than the real sibling worktree, so the
+#           hook is wrongly left in place - it would NOT hang (the
+#           termination guard alone prevents that), so Test 13/13b cannot
+#           distinguish "anchored correctly" from "merely didn't hang".
+#           This test can.
+# ------------------------------------------------------------------
+
+ANCHOR_MAIN="$TMP_ROOT/anchor-main-repo"
+_make_fixture_repo "$ANCHOR_MAIN"
+
+ANCHOR_WT="$TMP_ROOT/anchor-wt"
+git -C "$ANCHOR_MAIN" worktree add -q "$ANCHOR_WT" -b anchor-wt-test-branch >/dev/null 2>&1
+
+ANCHOR_HOOKS_DIR="$(git -C "$ANCHOR_MAIN" rev-parse --git-path hooks)"
+case "$ANCHOR_HOOKS_DIR" in
+  /*) : ;;
+  *) ANCHOR_HOOKS_DIR="$ANCHOR_MAIN/$ANCHOR_HOOKS_DIR" ;;
+esac
+ANCHOR_HOOK_DST="$ANCHOR_HOOKS_DIR/pre-commit"
+
+# The RELATIVE path from the symlink's own directory (ANCHOR_HOOKS_DIR) to
+# the real sibling worktree's hooks/pre-commit - exactly the raw text a
+# relative pre-DS-152 install would have written via `ln -s`.
+ANCHOR_REL_TARGET="$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$ANCHOR_WT/hooks/pre-commit" "$ANCHOR_HOOKS_DIR")"
+
+mkdir -p "$ANCHOR_HOOKS_DIR"
+ln -s "$ANCHOR_REL_TARGET" "$ANCHOR_HOOK_DST"
+
+OUT="$(uninstall_precommit_hook "$ANCHOR_MAIN" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "anchor-correctness case (DS-152 round 5, Critical): uninstall_precommit_hook exits 0"
+else
+  _fail "anchor-correctness case (DS-152 round 5, Critical): uninstall_precommit_hook exited $RC. Output: $OUT"
+fi
+
+# `! -e` alone follows symlinks and would false-pass on a dangling
+# leftover symlink - assert `! -L` too.
+if [[ ! -e "$ANCHOR_HOOK_DST" ]] && [[ ! -L "$ANCHOR_HOOK_DST" ]]; then
+  _pass "anchor-correctness case (DS-152 round 5, Critical): relative legacy target correctly resolved against the symlink's own directory and removed"
+else
+  _fail "anchor-correctness case (DS-152 round 5 regression, Critical): relative legacy target was NOT removed - it was resolved against the wrong base directory (CWD instead of the symlink's own directory: $ANCHOR_HOOKS_DIR). Output: $OUT"
+fi
+
 # ---- Results ----
 
 echo ""
