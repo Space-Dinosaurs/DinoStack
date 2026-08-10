@@ -172,6 +172,25 @@ def is_advisory(returncode: int, stdout: str, contains: str | None = None) -> bo
     return True
 
 
+def is_blocking(returncode: int, stdout: str, contains: str | None = None) -> bool:
+    """DS-156: _execution_prose_flag's BLOCKING finding shape - the process
+    exit code is still 0 (per the module's Public API contract - the
+    process never exits non-zero), but stdout carries {"decision":
+    "block", "reason": "TURN-SHAPE: <finding>"}, the same shape
+    hooks/enforce-no-abdication.py uses."""
+    if returncode != 0:
+        return False
+    obj = parse_output(stdout)
+    if obj.get("decision") != "block":
+        return False
+    reason = obj.get("reason", "")
+    if not reason.startswith("TURN-SHAPE:"):
+        return False
+    if contains is not None and contains not in reason:
+        return False
+    return True
+
+
 def check(label: str, condition: bool):
     global total, failed
     total += 1
@@ -216,7 +235,32 @@ decision_msg = (
     "- Proceed with X (Recommended)\n"
 )
 rc, out, err = run_hook(make_payload(decision_msg))
-check("d. '## Operator decisions' heading present -> QUIET", is_quiet(rc, out))
+# DS-156 CORE REGRESSION TEST (the operator's founding complaint - see
+# content/references/conductor-turn-format.md's "Worked non-example"): a
+# decision-warrant turn whose status region carries narrative prose beyond
+# the structured slots now BLOCKS, exactly this shape. Previously
+# (pre-DS-156) the decision warrant alone suppressed the status-only
+# check and this was QUIET - the assertion is flipped, not deleted.
+check(
+    "d. '## Operator decisions' heading present, but narrative prose in "
+    "the status region -> BLOCKING (DS-156 core regression test)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+
+decision_compliant_msg = (
+    IDENTITY_OK + "\n"
+    "State: did a first thing.\n"
+    "Running: doing a second thing.\n"
+    "\n"
+    "## Operator decisions\n"
+    "- Proceed with X (Recommended)\n"
+)
+rc, out, err = run_hook(make_payload(decision_compliant_msg))
+check(
+    "d2. '## Operator decisions' heading present, status region uses only "
+    "recognized slot lines -> QUIET",
+    is_quiet(rc, out),
+)
 
 # ---------------------------------------------------------------------------
 # e. completion warrant: '[phase: complete]' / explicit phrase pass;
@@ -225,13 +269,14 @@ check("d. '## Operator decisions' heading present -> QUIET", is_quiet(rc, out))
 
 completion_explicit_msg = (
     IDENTITY_OK + "\n"
-    "First line of prose.\n"
-    "Second line of prose.\n"
-    "Task is complete.\n"
+    "State: first thing done.\n"
+    "Blocked: nothing.\n"
+    "State: task is complete.\n"
 )
 rc, out, err = run_hook(make_payload(completion_explicit_msg))
 check(
-    "e1. explicit terminal phrase ('task is complete') -> QUIET (completion warrant recognized)",
+    "e1. explicit terminal phrase ('task is complete') on a recognized "
+    "slot line -> QUIET (completion warrant recognized)",
     is_quiet(rc, out),
 )
 
@@ -270,8 +315,9 @@ forced_yield_extra_msg = (
 )
 rc, out, err = run_hook(make_payload(forced_yield_extra_msg))
 check(
-    "f. Waiting: line + extra prose, no other warrant -> ADVISORY (forced-yield)",
-    is_advisory(rc, out, "forced-yield"),
+    "f. Waiting: line + extra prose, no other warrant -> BLOCKING (DS-156: "
+    "_execution_prose_flag replaces the advisory forced-yield check)",
+    is_blocking(rc, out, "sole-stoppage"),
 )
 
 # ---------------------------------------------------------------------------
@@ -384,7 +430,15 @@ completion_plus_waiting_msg = (
     "Waiting: nothing further.\n"
 )
 rc, out, err = run_hook(make_payload(completion_plus_waiting_msg))
-check("l1. completion warrant + Waiting: line -> QUIET (shape check skipped)", is_quiet(rc, out))
+check(
+    "l1. completion warrant + Waiting: line, but a non-slot/non-Waiting: "
+    "narrative sentence is present too -> BLOCKING (DS-156: this is not "
+    "sole-stoppage since completion also fired, so the GENERAL branch "
+    "applies and the narrative sentence is an unrecognized status-region "
+    "line - this is exactly the worked non-example the spec exists to "
+    "catch)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
 
 decision_plus_waiting_msg = (
     IDENTITY_OK + "\n"
@@ -409,8 +463,8 @@ stoppage_with_explanation_msg = (
 )
 rc, out, err = run_hook(make_payload(stoppage_with_explanation_msg))
 check(
-    "m. stoppage-only + one explanatory sentence -> ADVISORY (forced-yield)",
-    is_advisory(rc, out, "forced-yield"),
+    "m. stoppage-only + one explanatory sentence -> BLOCKING (DS-156)",
+    is_blocking(rc, out, "sole-stoppage"),
 )
 
 # ---------------------------------------------------------------------------
@@ -507,9 +561,18 @@ _r_with_identity = IDENTITY_OK + "\nTask is complete.\n"
 _r_without_identity = "not an identity line at all\nTask is complete.\n"
 _rc_a, _out_a, _ = run_hook(make_payload(_r_with_identity))
 _rc_b, _out_b, _ = run_hook(make_payload(_r_without_identity))
+# DS-156: this pair now BLOCKS (a completion-warrant execution turn whose
+# status region contains a narrative sentence rather than a recognized
+# slot/Waiting: line is exactly what _execution_prose_flag's general
+# branch catches) - but the SAME verdict, for the SAME reason, regardless
+# of the first line's shape, which is still the point of this regression
+# guard: no code path branches on the identity line's SHAPE, only (DS-156)
+# on its LENGTH.
 check(
-    "r. well-formed vs. missing identity line produce the SAME verdict (no live enforcement)",
-    is_quiet(_rc_a, _out_a) and is_quiet(_rc_b, _out_b),
+    "r. well-formed vs. missing identity line produce the SAME verdict "
+    "(no live shape enforcement on the identity line)",
+    is_blocking(_rc_a, _out_a, "unrecognized line in the status region")
+    and is_blocking(_rc_b, _out_b, "unrecognized line in the status region"),
 )
 
 # ---------------------------------------------------------------------------
@@ -548,8 +611,8 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         json.dumps({"last_assistant_message": "", "transcript_path": transcript_path})
     )
     check(
-        "o1. transcript fallback, single string-content block -> ADVISORY (forced-yield)",
-        is_advisory(rc, out, "forced-yield"),
+        "o1. transcript fallback, single string-content block -> BLOCKING (DS-156)",
+        is_blocking(rc, out, "sole-stoppage"),
     )
 
     # o2. two-block assistant content (list-of-text-blocks form) via
@@ -577,8 +640,9 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         json.dumps({"last_assistant_message": "", "transcript_path": transcript_path})
     )
     check(
-        "o2. transcript fallback, two-block content joined with newline -> ADVISORY (forced-yield)",
-        is_advisory(rc, out, "forced-yield"),
+        "o2. transcript fallback, two-block content joined with newline -> "
+        "BLOCKING (DS-156)",
+        is_blocking(rc, out, "sole-stoppage"),
     )
 
 
@@ -601,17 +665,35 @@ def _nlines(n: int, prefix: str = "Line") -> str:
     return "\n".join(f"{prefix} {i}." for i in range(1, n + 1)) + "\n"
 
 
+def _status_slot_lines(n: int, label: str = "State") -> str:
+    """DS-156: recognized State:/Running:/Blocked: slot-line filler for
+    tests that need N charged status-region lines on a GENERAL-branch
+    execution turn (decision and/or completion present). Unlike
+    _nlines()'s generic narrative sentences, each line here matches
+    _STATUS_SLOT_LINE_RE and therefore passes _execution_prose_flag's
+    shape whitelist while still charging 1 in the volume check (a slot
+    line is never exempt the way a well-formed Waiting: line can be) -
+    letting these fixtures keep pinning the SAME volume-charge math as
+    before DS-156 without tripping the new BLOCKING shape check."""
+    return "\n".join(f"{label}: filler {i}." for i in range(1, n + 1)) + "\n"
+
+
 # s1. decision warrant, body AT the flat budget (10 lines) -> QUIET.
 # (A9: relabeled - the old per-warrant DECISION budget of 3 no longer
-# exists; this now pins the flat BASE_BODY_BUDGET boundary.)
-s1_msg = IDENTITY_OK + "\n" + _nlines(BASE_BODY_BUDGET) + "\n## Operator decisions\n- Proceed with X (Recommended)\n"
+# exists; this now pins the flat BASE_BODY_BUDGET boundary.) DS-156:
+# filler is now recognized State: slot lines, not generic narrative
+# ("Line N.") - the general branch of _execution_prose_flag would BLOCK
+# unrecognized status-region prose before the volume check is ever
+# reached; _status_slot_lines() preserves the identical charge (1 per
+# line) while staying shape-compliant.
+s1_msg = IDENTITY_OK + "\n" + _status_slot_lines(BASE_BODY_BUDGET) + "\n## Operator decisions\n- Proceed with X (Recommended)\n"
 rc, out, err = run_hook(make_payload(s1_msg))
 check("s1. decision warrant, body at flat budget (10 lines) -> QUIET", is_quiet(rc, out))
 
 # s2. decision warrant, body ONE line OVER the flat budget (11 lines) ->
 # ADVISORY. (A9/flip: resized from the old 4-line boundary - see plan test
 # strategy table - to re-pin the new 10-line boundary.)
-s2_msg = IDENTITY_OK + "\n" + _nlines(BASE_BODY_BUDGET + 1) + "\n## Operator decisions\n- Proceed with X (Recommended)\n"
+s2_msg = IDENTITY_OK + "\n" + _status_slot_lines(BASE_BODY_BUDGET + 1) + "\n## Operator decisions\n- Proceed with X (Recommended)\n"
 rc, out, err = run_hook(make_payload(s2_msg))
 check(
     "s2. decision warrant, body 1 line over flat budget -> ADVISORY (turn volume exceeded)",
@@ -620,7 +702,7 @@ check(
 
 # s3. completion warrant, body AT the flat budget (10 lines) -> QUIET.
 # (A9: relabeled from the old COMPLETION budget of 6.)
-s3_msg = IDENTITY_COMPLETE + "\n" + _nlines(BASE_BODY_BUDGET, prefix="Shipped item")
+s3_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(BASE_BODY_BUDGET, label="State")
 rc, out, err = run_hook(make_payload(s3_msg))
 check("s3. completion warrant, body at flat budget (10 lines) -> QUIET", is_quiet(rc, out))
 
@@ -629,7 +711,7 @@ check("s3. completion warrant, body at flat budget (10 lines) -> QUIET", is_quie
 # of 6) - this WAS the round-2 false positive. Under the flat 10-line
 # budget it is QUIET; the assertion is inverted deliberately, not deleted,
 # so a regression back to a tight per-warrant budget is caught.
-s4_msg = IDENTITY_COMPLETE + "\n" + _nlines(7, prefix="Shipped item")
+s4_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(7, label="State")
 rc, out, err = run_hook(make_payload(s4_msg))
 check(
     "s4. FLIP: completion warrant, 7-line body (was ADVISORY under the deleted "
@@ -640,7 +722,7 @@ check(
 # s4b. Same shape resized to 11 lines, over the flat budget -> ADVISORY.
 # Keeps a genuine over-budget pin for the completion-warrant shape now that
 # s4 itself is QUIET.
-s4b_msg = IDENTITY_COMPLETE + "\n" + _nlines(BASE_BODY_BUDGET + 1, prefix="Shipped item")
+s4b_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(BASE_BODY_BUDGET + 1, label="State")
 rc, out, err = run_hook(make_payload(s4b_msg))
 check(
     "s4b. completion warrant, 11-line body (over flat budget) -> ADVISORY (turn volume exceeded)",
@@ -670,10 +752,25 @@ with open(
     _completion_fixture = json.load(_cf)
 
 for _case in _completion_fixture["cases"]:
-    _filler = _nlines(_case["filler_lines"], prefix="Detail") if _case["filler_lines"] > 0 else ""
+    _expect_quiet = _case["expected"] == "quiet"
+    # DS-156: a QUIET-expected case is a completion-warrant EXECUTION turn -
+    # its filler must be recognized State: slot lines, or the general
+    # branch of _execution_prose_flag would BLOCK on generic "Detail N."
+    # narrative before the turn ever reaches QUIET. An ADVISORY-expected
+    # case is a ZERO-warrant turn (the completion warrant was vetoed or
+    # never granted) routing to the unchanged, raw-line _status_only_flag,
+    # which is unaffected by the shape check - its filler stays generic
+    # narrative exactly as before.
+    if _case["filler_lines"] > 0:
+        _filler = (
+            _status_slot_lines(_case["filler_lines"], label="State")
+            if _expect_quiet
+            else _nlines(_case["filler_lines"], prefix="Detail")
+        )
+    else:
+        _filler = ""
     _msg = _case["template"] + "\n" + _filler
     rc, out, err = run_hook(make_payload(_msg))
-    _expect_quiet = _case["expected"] == "quiet"
     _outcome_ok = is_quiet(rc, out) if _expect_quiet else is_advisory(rc, out, "status-only")
     check(
         f"c-{_case['id']} ({_case['shape_class']}): {_case['source']} -> "
@@ -681,70 +778,78 @@ for _case in _completion_fixture["cases"]:
         _outcome_ok,
     )
 
-# s5. answer warrant, body AT the flat budget (10 lines total, including
-# the quoted line that supplies the warrant) -> QUIET. (A9: resized from
-# the old, now-deleted, WEAK_FALLBACK boundary of 6 to the new flat
-# boundary of 10 - amendment A1/finding-3a's whole "fallback budget"
-# concept no longer exists; the answer warrant gets no special budget at
-# all any more, generous or reduced.)
+# s5/s6/s6c DS-156 RE-DERIVATION: these used to pin the flat
+# BASE_BODY_BUDGET=10 boundary for an answer-warrant turn. DS-156
+# introduces a SEPARATE, much higher ANSWER_BODY_BUDGET=50 for Answer
+# turns specifically (Answer always wins the shape question, per §4) - a
+# 10-line answer turn was never close to interesting under the new
+# ceiling, so these are re-pinned against the ACTUAL boundary that now
+# governs Answer-turn volume.
+ANSWER_BODY_BUDGET = 50
+
+# s5. answer warrant, charge AT ANSWER_BODY_BUDGET (50 non-blank body
+# lines total, including the quoted line that supplies the warrant) ->
+# QUIET.
 s5_msg = (
     IDENTITY_OK
     + "\n"
     + '"Here is the direct answer to your question."\n'
-    + _nlines(BASE_BODY_BUDGET - 1, prefix="Detail")
+    + _nlines(ANSWER_BODY_BUDGET - 1, prefix="Detail")
 )
 rc, out, err = run_hook(make_payload(s5_msg))
-check("s5. answer warrant, body at flat budget (10 lines total) -> QUIET", is_quiet(rc, out))
+check("s5. answer warrant, charge at ANSWER_BODY_BUDGET (50) -> QUIET", is_quiet(rc, out))
 
-# s6. FLIP (plan test-strategy table): under the deleted per-warrant model
-# this 7-line answer turn was ADVISORY (over the old WEAK_FALLBACK budget
-# of 6). Under the flat 10-line budget it is QUIET.
+# s6. answer warrant, charge ONE line OVER ANSWER_BODY_BUDGET (51) ->
+# ADVISORY, citing the answer-specific budget (50), never the flat
+# BASE_BODY_BUDGET (10) an execution turn would be held to.
 s6_msg = (
     IDENTITY_OK
     + "\n"
     + '"Here is the direct answer to your question."\n'
-    + _nlines(6, prefix="Detail")
+    + _nlines(ANSWER_BODY_BUDGET, prefix="Detail")
 )
 rc, out, err = run_hook(make_payload(s6_msg))
 check(
-    "s6. FLIP: answer warrant, 7-line body (was ADVISORY under the deleted "
-    "per-warrant fallback budget of 6) -> now QUIET under the flat budget",
-    is_quiet(rc, out),
+    "s6. answer warrant, charge one line over ANSWER_BODY_BUDGET (51) -> "
+    "ADVISORY (turn volume exceeded)",
+    is_advisory(rc, out, "turn volume exceeded"),
+)
+check(
+    "s6b. advisory cites the answer-specific budget (50), not the flat "
+    "execution-turn budget (10)",
+    "advisory budget is 50" in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
 )
 
-# s6c. Same shape resized to 11 lines total, over the flat budget ->
-# ADVISORY, and the message cites "budget is 10" (the flat budget), not
-# the deleted per-warrant fallback value of 6 (A9: s6b's old assertion
-# "budget is 6" becomes "budget is 10").
+# s6c. FALSE-POSITIVE-BY-DEFAULT gate (§9 length discipline): a body well
+# under the answer budget but well OVER the flat BASE_BODY_BUDGET stays
+# QUIET on an answer turn - proving the higher ceiling is genuinely in
+# effect, not merely documented. 20 lines is comfortably over
+# BASE_BODY_BUDGET=10 but comfortably under ANSWER_BODY_BUDGET=50.
 s6c_msg = (
     IDENTITY_OK
     + "\n"
     + '"Here is the direct answer to your question."\n'
-    + _nlines(10, prefix="Detail")
+    + _nlines(19, prefix="Detail")
 )
 rc, out, err = run_hook(make_payload(s6c_msg))
 check(
-    "s6c. answer warrant, 11-line body (over flat budget) -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
-)
-check(
-    "s6c-b. advisory cites the flat budget (10), not a deleted per-warrant fallback (6)",
-    "budget is 10" in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
+    "s6c. answer turn, 20-line body (over the flat 10-line budget, well "
+    "under the 50-line answer budget) -> QUIET - proving length alone no "
+    "longer charges on an Answer turn",
+    is_quiet(rc, out),
 )
 
-# s5c. FLIP + REGRESSION repurpose (DS-151 amendment): under the deleted
-# per-warrant model, an incidental quoted fragment bought the whole turn
-# the most generous budget via max() across warrants - closing that bypass
-# was finding 3's whole point. Under the flat charge model, warrant
-# COMPOSITION no longer affects the budget AT ALL (there is only one
-# budget), so this fixture is repurposed per the plan's instruction:
-# assert that the SAME body length yields an IDENTICAL verdict whether or
-# not the incidental quote is present (both QUIET), proving the quote
-# genuinely no longer matters to the volume determination - not even in
-# the direction of buying a bigger budget, nor in the direction of costing
-# one. A completion warrant is present in BOTH variants (not just the
-# quoted one) so removing the quote does not also remove every warrant and
-# trip the unrelated status-only check.
+# s5c. DS-156 CONTRAST (supersedes the deleted DS-151 "identical verdict"
+# fixture - warrant composition now changes far more than the budget
+# alone): an incidental quoted fragment does not just change WHICH BUDGET
+# applies, it changes the ENTIRE shape check that runs, because Answer
+# always wins the shape question (§4). The SAME narrative body -
+# "Also did thing N." lines, which are not a recognized State:/Running:/
+# Blocked:/Waiting: slot line - is QUIET as an Answer turn (routes to
+# _answer_relevance_flag + the 50-line ceiling, neither of which inspects
+# line SHAPE) but BLOCKS as a pure completion execution turn (routes to
+# _execution_prose_flag's general branch, which rejects unrecognized
+# status-region prose).
 s5c_with_quote_msg = (
     IDENTITY_COMPLETE
     + "\n"
@@ -752,7 +857,12 @@ s5c_with_quote_msg = (
     + _nlines(7, prefix="Also did thing")
 )
 rc, out, err = run_hook(make_payload(s5c_with_quote_msg))
-check("s5c. incidental quote present, 9-line body, completion warrant -> QUIET", is_quiet(rc, out))
+check(
+    "s5c. incidental quote grants the answer warrant, which wins the shape "
+    "question -> QUIET (routes to _answer_relevance_flag, not the "
+    "structural shape check)",
+    is_quiet(rc, out),
+)
 
 s5c_no_quote_msg = (
     IDENTITY_COMPLETE
@@ -762,23 +872,12 @@ s5c_no_quote_msg = (
 )
 rc, out, err = run_hook(make_payload(s5c_no_quote_msg))
 check(
-    "s5c-b. same 9-line body WITHOUT the quote, same completion warrant -> "
-    "IDENTICAL verdict (QUIET) - the quote's presence no longer changes the budget",
-    is_quiet(rc, out),
-)
-
-# s5c-over. 12-line variant (with the quote) to keep a genuine ADVISORY pin
-# for this shape now that the base fixture is QUIET both ways.
-s5c_over_msg = (
-    IDENTITY_COMPLETE
-    + "\n"
-    + 'Merged "fix: resolve turn-shape gate regression" into main.\n'
-    + _nlines(10, prefix="Also did thing")
-)
-rc, out, err = run_hook(make_payload(s5c_over_msg))
-check(
-    "s5c-over. 12-line variant of the same shape -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
+    "s5c-b. same narrative body WITHOUT the quote, same completion warrant "
+    "-> BLOCKING (DS-156: no answer warrant means this is a pure execution "
+    "turn, and the narrative body is unrecognized status-region prose) - "
+    "DIFFERENT verdict from s5c, proving warrant composition now changes "
+    "the enforcement posture itself, not just the budget",
+    is_blocking(rc, out, "unrecognized line in the status region"),
 )
 
 # s7. decisions-block exemption: a large number of decision items (10, well
@@ -788,7 +887,7 @@ check(
 # that content/sections/02-delegation.md's ban on a decision-item cap is
 # respected (no item-count limit is applied anywhere in this hook).
 s7_decision_items = "\n".join(f"{i}. Action {i} - reason. Reply STOP to skip." for i in range(1, 11))
-s7_msg = IDENTITY_OK + "\n" + _nlines(BASE_BODY_BUDGET) + "\n## Operator decisions\n" + s7_decision_items + "\n"
+s7_msg = IDENTITY_OK + "\n" + _status_slot_lines(BASE_BODY_BUDGET) + "\n## Operator decisions\n" + s7_decision_items + "\n"
 rc, out, err = run_hook(make_payload(s7_msg))
 check(
     "s7. decisions-block exemption: 10 decision items, body at flat budget -> QUIET",
@@ -805,7 +904,7 @@ check(
 # line count, same as s9's boundary case, at 10 lines (9 prose + 1
 # Waiting:) -> QUIET. s8_over below (11 lines) pins the genuine over-budget
 # case.
-s8_msg = IDENTITY_COMPLETE + "\n" + _nlines(9, prefix="Shipped item") + "Waiting: nothing further.\n"
+s8_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(9, label="State") + "Waiting: nothing further.\n"
 rc, out, err = run_hook(make_payload(s8_msg))
 check(
     "s8. stoppage+completion combo, 10 lines (9 prose + 1 Waiting:, not sole "
@@ -817,7 +916,7 @@ check(
     "forced-yield" not in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
 )
 
-s8_over_msg = IDENTITY_COMPLETE + "\n" + _nlines(10, prefix="Shipped item") + "Waiting: nothing further.\n"
+s8_over_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(10, label="State") + "Waiting: nothing further.\n"
 rc, out, err = run_hook(make_payload(s8_over_msg))
 check(
     "s8-over. same combo shape, 11 lines (over flat budget) -> ADVISORY (turn volume exceeded)",
@@ -829,7 +928,7 @@ check(
 # per-warrant COMPLETION budget no longer exists; this pins the flat
 # 10-line boundary for the combo shape, identical to s8 above by
 # construction - kept as a separate fixture per the plan's fixture table.)
-s9_msg = IDENTITY_COMPLETE + "\n" + _nlines(9, prefix="Shipped item") + "Waiting: nothing further.\n"
+s9_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(9, label="State") + "Waiting: nothing further.\n"
 rc, out, err = run_hook(make_payload(s9_msg))
 check("s9. stoppage+completion combo, at the flat budget (10 lines) -> QUIET", is_quiet(rc, out))
 
@@ -883,11 +982,16 @@ check(
 # flat budget) -> QUIET, even though the raw line count (12) would exceed
 # a tight per-warrant budget under the deleted model.
 s11_code_lines = "\n".join(f"line_{i} = {i}" for i in range(1, 11))
+# DS-156: "Here is the diff." / "Applied cleanly." are recognized State:
+# slot lines, not generic narrative - the general branch of
+# _execution_prose_flag would BLOCK unrecognized status-region prose
+# before the volume check ever runs. The fence content itself is
+# unaffected (still excluded from the shape check's domain entirely).
 s11_msg = (
     IDENTITY_OK
-    + "\nHere is the diff.\n```python\n"
+    + "\nState: here is the diff.\n```python\n"
     + s11_code_lines
-    + "\n```\nApplied cleanly.\n\n## Operator decisions\n- Proceed with X (Recommended)\n"
+    + "\n```\nState: applied cleanly.\n\n## Operator decisions\n- Proceed with X (Recommended)\n"
 )
 rc, out, err = run_hook(make_payload(s11_msg))
 check(
@@ -902,12 +1006,14 @@ check(
 # after the fix, the 10 lines beyond FENCE_FREE_LINES=20 count at full
 # weight, pushing the charge to 2 + 10 = 12, which exceeds the flat
 # BASE_BODY_BUDGET=10 -> ADVISORY.
+# DS-156: wrapper lines converted to recognized State: slot lines (same
+# reason as s11 above) - the fenced content itself is unaffected.
 s12_fence_lines = "\n".join(f"Prose line {i}, not code at all." for i in range(1, 31))
 s12_msg = (
     IDENTITY_COMPLETE
-    + "\nHere is the summary.\n```\n"
+    + "\nState: here is the summary.\n```\n"
     + s12_fence_lines
-    + "\n```\nDone reporting.\n"
+    + "\n```\nState: done reporting.\n"
 )
 rc, out, err = run_hook(make_payload(s12_msg))
 check(
@@ -921,9 +1027,9 @@ check(
 s12b_fence_lines = "\n".join(f"Prose line {i}." for i in range(1, FENCE_FREE_LINES + 1))
 s12b_msg = (
     IDENTITY_COMPLETE
-    + "\nHere is the summary.\n```\n"
+    + "\nState: here is the summary.\n```\n"
     + s12b_fence_lines
-    + "\n```\nDone reporting.\n"
+    + "\n```\nState: done reporting.\n"
 )
 rc, out, err = run_hook(make_payload(s12b_msg))
 check(
@@ -943,47 +1049,66 @@ check(
 # unclosed path gets no allowance BY CONTRAST with the closed path, not by
 # a bare number alone.
 s13_fence_body = "\n".join(f"line_{i} = {i}" for i in range(1, 16))
-s13_msg = IDENTITY_COMPLETE + "\nHere is the diff.\nMore prose here.\n```python\n" + s13_fence_body + "\n"
+# DS-156 RE-DERIVATION: an unclosed fence's content is NOT fenced from
+# _execution_prose_flag's general-branch perspective either (_segment
+# fails closed on both consumers), so this now BLOCKS before the volume
+# check is ever reached - the buffered "line_i = i" lines are unrecognized
+# status-region prose regardless of the volume model's own "every buffered
+# line counts at full weight" charge-model story, which never gets
+# evaluated on an execution turn any more. Wrapper lines are still
+# converted to State: slot lines for consistency (they no longer determine
+# the outcome, since the fence body itself is what trips the finding).
+s13_msg = IDENTITY_COMPLETE + "\nState: here is the diff.\nState: more prose here.\n```python\n" + s13_fence_body + "\n"
 rc, out, err = run_hook(make_payload(s13_msg))
 check(
-    "s13. unclosed fence (15 lines) at true EOF -> every buffered line counts "
-    "at full weight -> ADVISORY (turn volume exceeded)",
-    is_advisory(rc, out, "turn volume exceeded"),
+    "s13. unclosed fence (15 lines) at true EOF -> BLOCKING (DS-156: the "
+    "buffered fence body is unrecognized status-region prose, caught by "
+    "the structural shape check before the volume model's own "
+    "unclosed-fence charge story is ever reached)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
 )
 
 s13_closed_msg = (
     IDENTITY_COMPLETE
-    + "\nHere is the diff.\nMore prose here.\n```python\n"
+    + "\nState: here is the diff.\nState: more prose here.\n```python\n"
     + s13_fence_body
-    + "\n```\nDone reporting.\n"
+    + "\n```\nState: done reporting.\n"
 )
 rc, out, err = run_hook(make_payload(s13_closed_msg))
 check(
     "s13-closed. IDENTICAL 15-line fence content, validly CLOSED -> QUIET "
-    "(the contrast: unclosed gets no allowance, closed does)",
+    "(the contrast: unclosed still blocks, closed correctly excludes the "
+    "fence from the shape check's domain)",
     is_quiet(rc, out),
 )
 
-# s13b. Boundary pair for the unclosed-fence path: buffered count lands
-# exactly AT the flat budget (4 prose + 1 opener + 5 buffered = 10) ->
-# QUIET; one buffered line more (6) pushes to 11 -> ADVISORY. (A9:
-# relabeled and resized from the old "exactly at the completion budget (6
-# lines)" boundary, which no longer exists.)
+# s13b/s13c DS-156 RE-DERIVATION: this used to be a boundary pair for the
+# unclosed-fence VOLUME charge (exactly at budget vs. one over). That
+# boundary no longer exists as a distinguishable outcome on an execution
+# turn: _execution_prose_flag's general branch returns on the FIRST
+# unrecognized line, so both the "at budget" and "one over" variants now
+# produce the IDENTICAL verdict (BLOCKING) regardless of the buffered
+# line count - the shape check fires unconditionally on any unrecognized
+# content, before volume math is ever computed.
 _s13b_prose = "\n".join(f"Prose line {i}." for i in range(1, 5))
 _s13b_fence = "\n".join(f"fence line {i}" for i in range(1, 6))
 s13b_msg = IDENTITY_COMPLETE + "\n" + _s13b_prose + "\n```\n" + _s13b_fence + "\n"
 rc, out, err = run_hook(make_payload(s13b_msg))
 check(
-    "s13b. unclosed fence, buffered count exactly at the flat budget (10) -> QUIET",
-    is_quiet(rc, out),
+    "s13b. unclosed fence, buffered count at the OLD flat-budget boundary "
+    "(10) -> BLOCKING (DS-156: the boundary is moot - unrecognized content "
+    "blocks regardless of count)",
+    is_blocking(rc, out, "unrecognized line in the status region"),
 )
 
 _s13c_fence = "\n".join(f"fence line {i}" for i in range(1, 7))
 s13c_msg = IDENTITY_COMPLETE + "\n" + _s13b_prose + "\n```\n" + _s13c_fence + "\n"
 rc, out, err = run_hook(make_payload(s13c_msg))
 check(
-    "s13c. unclosed fence, buffered count ONE over the flat budget (11) -> ADVISORY",
-    is_advisory(rc, out, "turn volume exceeded"),
+    "s13c. unclosed fence, buffered count one line MORE than s13b -> "
+    "IDENTICAL verdict (BLOCKING) - proving the old volume boundary "
+    "distinction is genuinely moot now, not merely untested",
+    is_blocking(rc, out, "unrecognized line in the status region"),
 )
 
 
@@ -1007,7 +1132,7 @@ def _fence(n: int) -> str:
 # lines) -> ADVISORY, charge 69. Must be >=2 fences - a 1-fence fixture
 # passes under the old buggy per-fence-cap code too (s12b already pins
 # that boundary).
-v1_msg = IDENTITY_COMPLETE + "\n" + "\n".join(_fence(20) for _ in range(4)) + "\nTask is complete.\n"
+v1_msg = IDENTITY_COMPLETE + "\n" + "\n".join(_fence(20) for _ in range(4)) + "\nState: complete.\n"
 rc, out, err = run_hook(make_payload(v1_msg))
 check(
     "v1. CF-1 gate: four 20-line closed fences -> ADVISORY, charge 69",
@@ -1016,7 +1141,7 @@ check(
 
 # v2. Minimal multiplication case: two 20-line closed fences -> ADVISORY,
 # charge 25.
-v2_msg = IDENTITY_COMPLETE + "\n" + "\n".join(_fence(20) for _ in range(2)) + "\nTask is complete.\n"
+v2_msg = IDENTITY_COMPLETE + "\n" + "\n".join(_fence(20) for _ in range(2)) + "\nState: complete.\n"
 rc, out, err = run_hook(make_payload(v2_msg))
 check(
     "v2. two 20-line closed fences (minimal multiplication case) -> ADVISORY, charge 25",
@@ -1114,7 +1239,13 @@ v7b_msg = IDENTITY_OK + "\n" + "\n".join(f"Waiting: item {i}." for i in range(1,
 rc, out, err = run_hook(make_payload(v7b_msg))
 check("v7b. 50 well-formed Waiting: lines (sole warrant) -> QUIET", is_quiet(rc, out))
 
-# v8. False-positive gate: a realistic 7-line completion turn -> QUIET.
+# v8 DS-156 RE-DERIVATION: this used to be a false-positive gate proving a
+# realistic multi-line completion narrative stays QUIET. Under DS-156 this
+# IS the shape the spec exists to catch - a completion-warrant turn with
+# narrative prose beyond the structured slots - so the assertion is
+# flipped to BLOCKING, not deleted; v8b below is the replacement
+# false-positive gate, using the CORRECT (compliant) shape for the same
+# real-world content.
 v8_msg = (
     IDENTITY_COMPLETE
     + "\nShipped unit 3.\nRan lint, typecheck, tests - all green.\n"
@@ -1122,7 +1253,23 @@ v8_msg = (
     + "Cleaned up the worktree.\nTask is complete.\n"
 )
 rc, out, err = run_hook(make_payload(v8_msg))
-check("v8. realistic 7-line completion turn -> QUIET (false-positive gate)", is_quiet(rc, out))
+check(
+    "v8. realistic 7-line completion NARRATIVE (the exact shape DS-156 "
+    "targets) -> BLOCKING",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+
+# v8b. The CORRECT shape for the same completion moment - a single State:
+# status slot, nothing else - stays QUIET. This is the genuine
+# false-positive gate DS-156 requires: a compliant, realistic execution
+# turn must never be flagged.
+v8b_msg = IDENTITY_COMPLETE + "\nState: unit 3 shipped, merged to main, worktree cleaned up.\n"
+rc, out, err = run_hook(make_payload(v8b_msg))
+check(
+    "v8b. same completion moment, compliant single State: slot -> QUIET "
+    "(false-positive gate)",
+    is_quiet(rc, out),
+)
 
 # v9. False-positive gate: a realistic 7-line answer turn -> QUIET.
 v9_msg = (
@@ -1150,7 +1297,7 @@ check("v9. realistic 7-line answer turn -> QUIET (false-positive gate)", is_quie
 t1_msg = (
     IDENTITY_OK
     + "\n"
-    + _nlines(3)
+    + _status_slot_lines(3)
     + "\n## Operator decisions\n1. Proceed with X (Recommended)\n   reason: matches existing pattern.\n   Reply STOP to skip.\n"
 )
 rc, out, err = run_hook(make_payload(t1_msg))
@@ -1164,7 +1311,7 @@ check("t1. single decision item, 3 lines (at budget) -> QUIET", is_quiet(rc, out
 t2_msg = (
     IDENTITY_OK
     + "\n"
-    + _nlines(3)
+    + _status_slot_lines(3)
     + "\n## Operator decisions\n1. Proceed with X (Recommended)\n"
     + "\n".join(f"   Extra narrative line {i} that should not be here." for i in range(1, 41))
     + "\n"
@@ -1204,7 +1351,7 @@ check(
 t3_items = "\n".join(
     f"{i}. Action {i} (Recommended) - reason. Reply STOP to skip." for i in range(1, 21)
 )
-t3_msg = IDENTITY_OK + "\n" + _nlines(3) + "\n## Operator decisions\n" + t3_items + "\n"
+t3_msg = IDENTITY_OK + "\n" + _status_slot_lines(3) + "\n## Operator decisions\n" + t3_items + "\n"
 rc, out, err = run_hook(make_payload(t3_msg))
 check("t3. 20 short (1-line) decision items, none over per-item budget -> QUIET", is_quiet(rc, out))
 
@@ -1214,7 +1361,7 @@ check("t3. 20 short (1-line) decision items, none over per-item budget -> QUIET"
 t4_msg = (
     IDENTITY_OK
     + "\n"
-    + _nlines(3)
+    + _status_slot_lines(3)
     + "\n## Operator decisions\n"
     + "1. Short item (Recommended) - fine.\n"
     + "2. Sprawling item (Recommended)\n   reason line one, not bulleted.\n   reason line two, not bulleted.\n   reason line three, not bulleted.\n"
@@ -1251,14 +1398,14 @@ _spec.loader.exec_module(_hook_mod)
 # flip under the new flat whole-message budget - s12/s12b already pin the
 # tighter over/at-cap contrast for that reason.)
 _u3_at_cap = "\n".join(f"boundary fence line {i}" for i in range(1, _hook_mod.FENCE_FREE_LINES + 1))
-u3_at_msg = IDENTITY_COMPLETE + "\n```\n" + _u3_at_cap + "\n```\nTask is complete.\n"
+u3_at_msg = IDENTITY_COMPLETE + "\n```\n" + _u3_at_cap + "\n```\nState: complete.\n"
 rc, out, err = run_hook(make_payload(u3_at_msg))
 check("u3a. fence content exactly AT FENCE_FREE_LINES -> QUIET (fully free)", is_quiet(rc, out))
 
 _u3_over_cap = "\n".join(
     f"boundary fence line {i}" for i in range(1, _hook_mod.FENCE_FREE_LINES + _hook_mod.BASE_BODY_BUDGET + 5)
 )
-u3_over_msg = IDENTITY_COMPLETE + "\n```\n" + _u3_over_cap + "\n```\nTask is complete.\n"
+u3_over_msg = IDENTITY_COMPLETE + "\n```\n" + _u3_over_cap + "\n```\nState: complete.\n"
 rc, out, err = run_hook(make_payload(u3_over_msg))
 check(
     "u3b. fence content well over FENCE_FREE_LINES (enough to also cross the "
@@ -1505,15 +1652,17 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         is_quiet(rc, out),
     )
 
-    # w5. The bonus grants the `answer` warrant but does NOT buy free lines
-    # in the charge model - an over-budget answer to a genuine question
-    # still fires the volume check (no unbounded free-line regression).
-    long_answer = IDENTITY_OK + "\n" + _nlines(11, prefix="Line")
+    # w5. The bonus grants the `answer` warrant but does NOT buy an
+    # unbounded free-line pool - a reply over the answer-specific
+    # ANSWER_BODY_BUDGET (50, DS-156 - not the flat BASE_BODY_BUDGET of 10
+    # an execution turn is held to) still fires the volume check.
+    long_answer = IDENTITY_OK + "\n" + _nlines(51, prefix="Line")
     rc, out, err = run_hook(
         json.dumps({"last_assistant_message": long_answer, "transcript_path": question_transcript})
     )
     check(
-        "w5. answer bonus does not exempt an over-budget reply -> ADVISORY (turn volume exceeded)",
+        "w5. answer bonus does not exempt a reply over ANSWER_BODY_BUDGET (50) "
+        "-> ADVISORY (turn volume exceeded)",
         is_advisory(rc, out, "turn volume exceeded"),
     )
 
@@ -1607,8 +1756,9 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         json.dumps({"last_assistant_message": "", "transcript_path": stale_fy_transcript})
     )
     check(
-        "w7. stale question does not mask a malformed forced-yield turn -> ADVISORY (forced-yield)",
-        is_advisory(rc, out, "forced-yield"),
+        "w7. stale question does not mask a malformed sole-stoppage turn -> "
+        "BLOCKING (DS-156)",
+        is_blocking(rc, out, "sole-stoppage"),
     )
 
     # w8. REGRESSION (DS-155 round 4, Major fix - supersedes the round-3
@@ -1846,6 +1996,189 @@ with tempfile.TemporaryDirectory() as tmp_dir:
             _outcome_ok,
         )
 
+
+# ---------------------------------------------------------------------------
+# DS-156. Required §9 hook-contract coverage: _execution_prose_flag
+# (BLOCKING), _answer_relevance_flag (ADVISORY), ANSWER_BODY_BUDGET,
+# STATUS_LINE_MAX_CHARS, and the false-positive discipline the module
+# docstring's governing principle demands (a guard that fires on correct,
+# fully-warranted turns is worse than no hook at all).
+# ---------------------------------------------------------------------------
+
+# n3. log_fire() logs decision='deny' (not 'allow_advisory') on a
+# BLOCKING _execution_prose_flag finding.
+_calls_deny: list = []
+_deny_msg = IDENTITY_OK + "\nSome narrative sentence.\n\n## Operator decisions\n- Proceed with X (Recommended)\n"
+_out_deny = _run_main_with_stdin(make_payload(_deny_msg), _calls_deny)
+check(
+    "n3. log_fire called with decision='deny' on a BLOCKING finding",
+    len(_calls_deny) == 1
+    and _calls_deny[0][0] == "enforce-turn-shape"
+    and _calls_deny[0][1] == "deny",
+)
+check(
+    "n3b. main() emits {\"decision\": \"block\", ...} on the same input via the module import path",
+    json.loads(_out_deny).get("decision") == "block",
+)
+
+# ds156-a. Answer turn with a long, substantive body -> QUIET, proving
+# length alone no longer charges (spec item a). Deliberately well over
+# BASE_BODY_BUDGET (10) but comfortably under ANSWER_BODY_BUDGET (50).
+ds156_a_msg = (
+    IDENTITY_OK
+    + '\n"The root cause is a stale cache entry keyed on mtime and size."\n'
+    + _nlines(15, prefix="Supporting detail")
+)
+rc, out, err = run_hook(make_payload(ds156_a_msg))
+check("ds156-a. answer turn, 16-line substantive body -> QUIET (length alone does not charge)", is_quiet(rc, out))
+
+# ds156-b. Answer turn opening with a filler phrase -> ADVISORY naming ban
+# 2. Per §4/§9 an Answer turn has NO identity line - the prose IS the
+# payload, so the ban-2 opening-anchor check is exercised against the
+# TRUE start of the message, matching the module's own "Worked example -
+# an Answer turn" (no identity line at all).
+ds156_b_msg = (
+    'Good question. "The root cause is a stale cache entry."\n'
+    + "Clearing the cache between runs fixes it.\n"
+)
+rc, out, err = run_hook(make_payload(ds156_b_msg))
+check(
+    "ds156-b. answer turn opens with a filler phrase -> ADVISORY naming ban 2",
+    is_advisory(rc, out, "relevance ban 2"),
+)
+
+# ds156-c. Answer turn ending with a recap phrase -> ADVISORY naming ban 5.
+ds156_c_msg = (
+    IDENTITY_OK
+    + '\n"The root cause is a stale cache entry keyed on mtime and size."\n'
+    + "Clearing the cache between runs fixes it.\n\n"
+    + "To summarize, clear the cache between runs.\n"
+)
+rc, out, err = run_hook(make_payload(ds156_c_msg))
+check(
+    "ds156-c. answer turn closes with a recap phrase -> ADVISORY naming ban 5",
+    is_advisory(rc, out, "relevance ban 5"),
+)
+
+# ds156-d. Answer+Decision combo: prose above, '## Operator decisions'
+# last -> QUIET, proving the precedence rule (Answer always wins the
+# shape question, so the prose above the heading is never shape-checked).
+ds156_d_msg = (
+    IDENTITY_OK
+    + '\n"Yes, PR #612 is ready to merge - CI is green and sign-off is in."\n'
+    + "\n## Operator decisions\n1. Merge PR #612 (Recommended) - all checks passing. Reply STOP to hold.\n"
+)
+rc, out, err = run_hook(make_payload(ds156_d_msg))
+check(
+    "ds156-d. Answer+Decision combo, prose above and decisions last -> QUIET "
+    "(Answer wins the shape question)",
+    is_quiet(rc, out),
+)
+
+# ds156-e. Decision-only turn with one narrative sentence beyond the
+# structured slots -> BLOCKING. This is the core regression test for the
+# operator's founding complaint - already pinned above as case "d", but
+# restated here under its own name per the spec's explicit test list.
+ds156_e_msg = (
+    IDENTITY_OK
+    + "\nState: unit 2 merged, unit 3 in review.\n"
+    + "One more thing worth mentioning here that is not a status slot.\n"
+    + "\n## Operator decisions\n1. Merge unit 3 (Recommended) - CI green. Reply STOP to hold.\n"
+)
+rc, out, err = run_hook(make_payload(ds156_e_msg))
+check(
+    "ds156-e. decision-only turn, one narrative sentence beyond the "
+    "structured slots -> BLOCKING",
+    is_blocking(rc, out, "unrecognized line in the status region"),
+)
+
+# ds156-f. Sole-stoppage turn: a Waiting: line plus a FENCED narrative
+# aside -> still flagged, proving the sole-stoppage domain is the raw
+# RAW-line domain (fence-blind), not the fence-aware status region.
+ds156_f_msg = (
+    IDENTITY_OK
+    + "\nWaiting: engineer - unit 3 review.\n"
+    + "```\nAn aside, fenced, that is still not a Waiting: line.\n```\n"
+)
+rc, out, err = run_hook(make_payload(ds156_f_msg))
+check(
+    "ds156-f. sole-stoppage turn, Waiting: line + FENCED narrative aside -> "
+    "BLOCKING (fence-blind raw-line domain)",
+    is_blocking(rc, out, "sole-stoppage"),
+)
+
+# ds156-g. Execution turn whose State: line exceeds STATUS_LINE_MAX_CHARS
+# (200) -> flagged.
+ds156_g_msg = IDENTITY_COMPLETE + "\nState: " + ("x" * 210) + "\n"
+rc, out, err = run_hook(make_payload(ds156_g_msg))
+check(
+    "ds156-g. execution turn, State: line over 200 chars -> BLOCKING",
+    is_blocking(rc, out, "status slot line is"),
+)
+
+# ds156-h. Execution turn whose POSITION-1 (identity) line exceeds
+# STATUS_LINE_MAX_CHARS (200) -> flagged, on BOTH branches.
+ds156_h_general_msg = (
+    "unit-1 · " + ("x" * 210) + " · [phase: complete]\nState: done.\n"
+)
+rc, out, err = run_hook(make_payload(ds156_h_general_msg))
+check(
+    "ds156-h1. general branch: identity line over 200 chars -> BLOCKING",
+    is_blocking(rc, out, "identity line is"),
+)
+
+ds156_h_sole_msg = (
+    "unit-1 · " + ("x" * 210) + " · [phase: implement]\nWaiting: engineer - unit 3.\n"
+)
+rc, out, err = run_hook(make_payload(ds156_h_sole_msg))
+check(
+    "ds156-h2. sole-stoppage branch: identity line over 200 chars -> BLOCKING",
+    is_blocking(rc, out, "identity line is"),
+)
+
+# ds156-i. A 140-char Waiting: line on a sole-stoppage turn -> NOT flagged
+# by the shape check (WAITING_LINE_MAX_CHARS is a volume-check-only bound,
+# never imported into the shape check).
+ds156_i_msg = IDENTITY_OK + "\nWaiting: " + ("y" * 135) + "\n"
+rc, out, err = run_hook(make_payload(ds156_i_msg))
+check(
+    "ds156-i. 140-char Waiting: line, sole-stoppage turn -> QUIET (no length "
+    "bound on Waiting: lines in the shape check)",
+    is_quiet(rc, out),
+)
+
+# ---------------------------------------------------------------------------
+# False-positive discipline (mandatory pre-completion adversarial check,
+# per the spawn brief): the legitimate turns most likely to trip
+# _execution_prose_flag must pass.
+# ---------------------------------------------------------------------------
+
+# fp1. A multi-ticket State: line (long but under 200 chars, compliant shape).
+fp1_msg = (
+    IDENTITY_OK
+    + "\nState: DS-140 unit 2 merged, DS-141 unit 1 in review, DS-142 blocked on credentials.\n"
+)
+rc, out, err = run_hook(make_payload(fp1_msg))
+check("fp1. multi-ticket State: line -> QUIET", is_quiet(rc, out))
+
+# fp2. A long branch name in the identity line (under 200 chars) -> QUIET.
+fp2_msg = (
+    "DS-156 · fix/ds-156-turn-shape-hook-implementation-with-a-fairly-long-descriptive-name · [phase: implement]\n"
+    + "State: engineer spawned, awaiting result.\n"
+)
+rc, out, err = run_hook(make_payload(fp2_msg))
+check("fp2. long (but compliant-length) branch name in identity line -> QUIET", is_quiet(rc, out))
+
+# fp3. Forced-yield turn with many Waiting: lines (already pinned as
+# s10/s10c above; restated here under the false-positive-discipline name).
+fp3_msg = IDENTITY_OK + "\n" + "\n".join(f"Waiting: agent-{i} - unit {i} review." for i in range(1, 8)) + "\n"
+rc, out, err = run_hook(make_payload(fp3_msg))
+check("fp3. forced-yield turn with 7 Waiting: lines -> QUIET", is_quiet(rc, out))
+
+# fp4. Answer+Decision combo (restated here under the false-positive-
+# discipline name; already pinned above as ds156-d).
+rc, out, err = run_hook(make_payload(ds156_d_msg))
+check("fp4. Answer+Decision combo -> QUIET", is_quiet(rc, out))
 
 # ---------------------------------------------------------------------------
 # Summary
