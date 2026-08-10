@@ -61,7 +61,11 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
 
 Downstream consumers: end users running from any cwd; CI pipelines; shell
                       aliases; any non-TTY automation that cannot launch the
-                      interactive scripts/update.js TUI.
+                      interactive scripts/update.js TUI. The ds-doctor --fix
+                      subprocess is invoked with cwd pinned to the resolved
+                      repo_dir (see _run_doctor) for consistency with this
+                      file's other subprocess calls, not because doctor's
+                      --fix targets are cwd-sensitive today.
 
 Failure modes: exit 1 on non-main branch, dirty working tree, pull failure,
                or adapter install failure. exit 2 when ds-doctor --fix
@@ -730,8 +734,18 @@ def _run_doctor(repo_dir: Path) -> int:
     unfixable, 0 on other errors.
 
     cwd is pinned to the resolved repo_dir (not inherited from the invoking
-    shell) so --fix's filesystem side effects land on the checkout this
-    updater is scoped to, matching every other subprocess call in this file.
+    shell) for consistency with every other subprocess call in this file,
+    which all pass cwd=str(repo_dir) explicitly rather than relying on the
+    ambient shell cwd. This is defense-in-depth, not a fix for an observed
+    defect: ds-doctor's --fix targets (~/.claude/settings.json, ~/.local/bin,
+    <repo_dir>/.git/hooks - all resolved via _load_repo_dir()/_home(), which
+    read ~/.agentic/agentic-engineering-config.json and $HOME, never cwd) are
+    HOME- or config-derived and are not cwd-sensitive today. The sole
+    cwd-dependent read in ds-doctor is the optional role-models.yml probe at
+    bin/ds-doctor:947 (_os.getcwd()), which only fires under --cross-harness
+    (ds-update never passes it) and is read-only (doc.ok/doc.fail/doc.warn,
+    no writes) - this pin is what scopes that probe correctly if
+    --cross-harness is ever wired through in the future.
     """
     try:
         result = subprocess.run(
@@ -752,9 +766,26 @@ def _run_doctor(repo_dir: Path) -> int:
                 "continuing (non-critical).",
                 file=sys.stderr,
             )
-    except FileNotFoundError:
+    except FileNotFoundError as exc:
+        # subprocess.run() with a missing cwd raises the same exception type
+        # as a missing executable (both ENOENT); disambiguate via .filename
+        # so the message names the actual failure rather than always
+        # blaming a missing ds-doctor binary.
+        if exc.filename == str(repo_dir):
+            print(
+                f"warning: ds-doctor could not run because {repo_dir} does "
+                "not exist; skipping health check.",
+                file=sys.stderr,
+            )
+        else:
+            print(
+                "warning: ds-doctor not found on PATH; skipping health check.",
+                file=sys.stderr,
+            )
+    except NotADirectoryError:
         print(
-            "warning: ds-doctor not found on PATH; skipping health check.",
+            f"warning: ds-doctor could not run because {repo_dir} is not a "
+            "directory; skipping health check.",
             file=sys.stderr,
         )
     except Exception as exc:
