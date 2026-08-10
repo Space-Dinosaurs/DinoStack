@@ -147,7 +147,7 @@ elif [[ -n "${CI:-}" ]]; then
   echo "FAIL: neither 'timeout' nor 'gtimeout' found on PATH - required in CI for the round-5 hang-regression assertions (Tests 13/13b)" >&2
   exit 1
 else
-  echo "SKIP: neither 'timeout' nor 'gtimeout' found on PATH - skipping the round-5 hang-regression assertions (Tests 13/13b non-hang-detection checks still run unguarded, but the hang-detection assertion itself cannot be trusted without a timeout binary). Install GNU coreutils (e.g. 'brew install coreutils') for local coverage."
+  echo "SKIP: neither 'timeout' nor 'gtimeout' found on PATH - skipping the entirety of Tests 13 and 13b (all 4 of their assertions - 3 from Test 13, 1 from Test 13b; total PASS count drops from 54 to 50), since none of them can run safely without a timeout binary to bound a potential hang. Test 13c (anchor correctness) is unaffected and still runs. Install GNU coreutils (e.g. 'brew install coreutils') for local coverage of Tests 13/13b."
 fi
 
 _pass() {
