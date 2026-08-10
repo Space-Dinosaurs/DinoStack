@@ -34,6 +34,24 @@ Data model:
   ~/.agentic/learnings-shards/<repo-key>/.rolled-up.json     - rollup bookkeeping.
   ~/.agentic/learnings-shards/<repo-key>/.lock               - per-repo exclusive lock.
 
+  .rolled-up.json shape:
+    {"updated_ts": "<utc>", "shards": {"<shard file name>":
+       {"rolled_ids": ["<entry id>", ...], "rolled_ts": "<utc>"}}}
+
+  Bookkeeping is keyed on the SET of entry ids already rolled up, never on a
+  count or a position. `_read_shard` skips malformed lines by contract, so any
+  count is a positional index into PARSED rows: the moment an already-rolled
+  line stops parsing, every later row shifts down one and an un-rolled entry
+  falls behind the index permanently. A count also has a mirror image in the
+  other direction (bookkeeping claiming more rows than the shard now holds).
+  A set membership test has neither: malformed lines, shrinkage, reordering
+  and duplicates are all non-events, because `id` is a CLI-owned uuid4 the
+  caller can never supply.
+
+  The id set is bounded by construction: on every write it is intersected with
+  the ids the shard actually holds right now, and a shard is capped at 5
+  entries, so a shard's `rolled_ids` can never exceed the cap.
+
   Entry fields:
     id           (CLI-owned) uuid4, assigned on append.
     ts           (CLI-owned) UTC ISO8601, assigned on append.
@@ -96,10 +114,15 @@ Failure modes:
   append: over-cap append is a soft-fail no-op (stderr + exit 0). description over
     500 chars is truncated, not rejected.
   rollup: absent store, absent repo dir, and absent shard file all emit "[]" and exit
-    0 - not errors. Idempotent: entries already marked rolled-up are never re-emitted,
-    so a second rollup over the same shard set emits "[]" and changes nothing. A
-    corrupt .rolled-up.json is treated as empty bookkeeping (entries may be re-emitted
-    once) rather than as a hard failure.
+    0 - not errors. Idempotent: entries whose id is already recorded are never
+    re-emitted, so a second rollup over the same shard set emits "[]" and changes
+    nothing. A corrupt .rolled-up.json, or a shard record in any shape other than
+    the id-keyed one above (including the pre-DS-154 count shape), is treated as
+    UNKNOWN bookkeeping and its entries are re-emitted once, rather than as a hard
+    failure. Re-emission is the safe direction: a duplicate is recoverable
+    conductor-side, a lost learning is not. A parsed row with no CLI-owned string
+    `id` cannot be tracked, so it is emitted and never recorded - it will be
+    emitted again by the next rollup. The CLI never writes such a row.
   list: absent store emits "[]" and exits 0. Malformed JSONL lines are skipped.
 
   Locking: append, rollup and list take the same per-repo-key exclusive lock for
@@ -299,6 +322,10 @@ def _ensure_lock_bootstrap(repo: str) -> Path:
     store_root().mkdir(mode=0o700, parents=True, exist_ok=True)
     lock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
     lock.touch(exist_ok=True)
+    # touch() honours the ambient umask (0o644 observed), while every other
+    # artefact in the store is deliberately 0o700/0o600. Unreachable inside a
+    # 0o700 parent, but consistency here is free.
+    os.chmod(lock, 0o600)
     return lock
 
 
@@ -353,6 +380,24 @@ def _read_rollup_state(repo: str) -> dict:
     return shards if isinstance(shards, dict) else {}
 
 
+def _rolled_ids(entry: object) -> set[str] | None:
+    """Ids already rolled up for one shard, or None when the record is unknown.
+
+    None means "this record cannot be trusted against these rows" - a corrupt
+    record, or the pre-DS-154 count shape ({"rolled_count": N}), or anything
+    else that is not an id list. The caller re-emits on None. That is the safe
+    direction by design: a duplicate entry is recoverable conductor-side, a
+    silently dropped learning is not, and this store exists precisely so a
+    learning is never lost.
+    """
+    if not isinstance(entry, dict):
+        return None
+    ids = entry.get("rolled_ids")
+    if not isinstance(ids, list):
+        return None
+    return {item for item in ids if isinstance(item, str)}
+
+
 def _write_rollup_state(repo: str, shards: dict) -> None:
     path = repo_dir(repo) / ROLLUP_STATE_NAME
     payload = {
@@ -376,8 +421,10 @@ _ARRAY_EMITTED = False
 def _emit_array(rows: list[dict]) -> None:
     """Emit the stdout JSON array for rollup/list and flush it immediately."""
     global _ARRAY_EMITTED
-    _ARRAY_EMITTED = True
+    # Set AFTER print(), not before: the flag's whole job is to answer "did an
+    # array reach stdout?", and setting it first claims yes before anything has.
     print(json.dumps(rows, indent=2))
+    _ARRAY_EMITTED = True
     sys.stdout.flush()
 
 
@@ -440,20 +487,41 @@ def cmd_rollup(args: argparse.Namespace) -> int:
         emitted: list[dict] = []
         for path in _shard_files(args.repo, args.session_key):
             rows = _read_shard(path)
-            entry = state.get(path.name)
-            already = 0
-            if isinstance(entry, dict) and isinstance(entry.get("rolled_count"), int):
-                already = max(0, entry["rolled_count"])
-            if already > len(rows):
-                # Bookkeeping claims more entries than the shard now holds, so
-                # it cannot be trusted against these rows. Self-heal by
-                # re-emitting rather than stranding every entry forever.
-                already = 0
-            fresh = rows[already:]
+            # None (unknown/legacy record) degrades to "nothing rolled up yet",
+            # so the shard's entries are re-emitted rather than stranded.
+            rolled = _rolled_ids(state.get(path.name))
+            if rolled is None:
+                rolled = set()
+
+            fresh: list[dict] = []
+            present: set[str] = set()   # ids the shard holds RIGHT NOW
+            newly: set[str] = set()     # ids emitted by THIS pass
+            for row in rows:
+                row_id = row.get("id")
+                if not isinstance(row_id, str):
+                    # No CLI-owned id, so it cannot be tracked. Emit it - loss
+                    # is the one direction that is not recoverable - and never
+                    # record it. The CLI never writes such a row.
+                    fresh.append(row)
+                    continue
+                present.add(row_id)
+                if row_id in rolled or row_id in newly:
+                    # Already rolled up, or a duplicate row within this same
+                    # pass. Membership has no ordering and no mirror image.
+                    continue
+                newly.add(row_id)
+                fresh.append(row)
+
             if not fresh:
                 continue
             emitted.extend(fresh)
-            state[path.name] = {"rolled_count": len(rows), "rolled_ts": _now()}
+            # Intersecting with `present` bounds the set: it can never hold
+            # more ids than the shard itself, and the shard is capped at
+            # ENTRY_CAP_PER_SHARD entries.
+            state[path.name] = {
+                "rolled_ids": sorted((rolled & present) | newly),
+                "rolled_ts": _now(),
+            }
 
         # Emit-then-mark, both INSIDE the lock and with an explicit flush.
         # Marking first (or printing after release, where stdout is block
@@ -532,6 +600,12 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str]) -> int:
+    # Per-invocation state. One process per invocation in practice, but a stale
+    # True here would suppress the soft-fail "[]" of a LATER call and mask a
+    # real failure from any in-process caller (a test, chiefly).
+    global _ARRAY_EMITTED
+    _ARRAY_EMITTED = False
+
     args = build_parser().parse_args(argv[1:])
     try:
         return args.func(args)

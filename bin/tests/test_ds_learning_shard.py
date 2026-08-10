@@ -20,6 +20,13 @@ Coverage:
   9. a linked git worktree and its primary checkout produce the SAME repo-key,
      so an isolation-worktree engineer's appends are visible to a conductor
      rolling up from the primary checkout.
+ 10. rollup bookkeeping is keyed on the CLI-owned uuid4 entry id, never on a
+     count or a position. A positional index into parsed rows loses an
+     un-rolled entry the moment an ALREADY-rolled line stops parsing (every
+     later row shifts down one), and has a mirror image in the other direction
+     as well. The id-set tests cover corruption in both directions, duplicate
+     rows, reordered rows, an unknown/legacy count-shaped state record, and
+     the bound on the id set itself.
 
 Every subprocess runs under a fake $HOME so the developer's real
 ~/.agentic/learnings-shards store is never touched.
@@ -562,8 +569,12 @@ def test_append_recovers_from_a_newline_less_partial_line(env):
     assert [r["domain_tag"] for r in read_entries(home, repo, "sess-partial")][-1] == "after-crash"
 
 
-def test_rollup_self_heals_a_stale_rolled_count(env):
-    """rolled_count > len(rows) must not strand every entry forever."""
+def test_rollup_self_heals_an_untrustworthy_state_record(env):
+    """A shard record in any non-id-keyed shape must re-emit, never strand.
+
+    Re-emission is the safe direction: a duplicate is recoverable
+    conductor-side, a lost learning is not.
+    """
     home, repo = env
     append(home, repo, "sess-stale", **{"--domain-tag": "only"})
     run(home, "rollup", "--repo", str(repo))
@@ -571,12 +582,162 @@ def test_rollup_self_heals_a_stale_rolled_count(env):
     state_path = next(store_dir(home).rglob(".rolled-up.json"))
     state = json.loads(state_path.read_text(encoding="utf-8"))
     for name in state["shards"]:
-        state["shards"][name]["rolled_count"] = 99
+        state["shards"][name] = {"garbage": True}
     state_path.write_text(json.dumps(state), encoding="utf-8")
 
     proc = run(home, "rollup", "--repo", str(repo))
     assert proc.returncode == 0, proc.stderr
     assert [r["domain_tag"] for r in json.loads(proc.stdout)] == ["only"]
+
+
+# --- 11. id-keyed rollup bookkeeping (Major: positional index loses entries) --
+
+
+def _state_path(home: Path) -> Path:
+    return next(store_dir(home).rglob(".rolled-up.json"))
+
+
+def _corrupt_line(shard: Path, index: int) -> None:
+    """Make one physical line of a shard unparseable, in place."""
+    lines = shard.read_text(encoding="utf-8").splitlines()
+    lines[index] = "{not json"
+    shard.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def test_corrupting_an_already_rolled_line_does_not_lose_a_fresh_entry(env):
+    """The defect a positional rolled_count cannot survive.
+
+    rolled_count is an index into PARSED rows, and _read_shard skips malformed
+    lines by contract. Corrupting an already-rolled line shifts every later row
+    down one, so the row at that index is skipped forever. Keyed on ids there
+    is no index to shift.
+    """
+    home, repo = env
+    for tag in ("e1", "e2", "e3"):
+        append(home, repo, "sess-shift", **{"--domain-tag": tag})
+
+    first = run(home, "rollup", "--repo", str(repo))
+    assert [r["domain_tag"] for r in json.loads(first.stdout)] == ["e1", "e2", "e3"]
+
+    for tag in ("e4", "e5"):
+        append(home, repo, "sess-shift", **{"--domain-tag": tag})
+
+    shard = next(store_dir(home).rglob("*.jsonl"))
+    _corrupt_line(shard, 1)  # already-rolled e2
+
+    second = run(home, "rollup", "--repo", str(repo))
+    assert second.returncode == 0, second.stderr
+    emitted = [r["domain_tag"] for r in json.loads(second.stdout)]
+    assert emitted == ["e4", "e5"], f"e4 must not fall behind an index: {emitted}"
+
+
+def test_malformed_line_that_was_never_rolled_up_does_not_block_later_entries(env):
+    """The mirror direction: a corrupt line among UN-rolled rows."""
+    home, repo = env
+    append(home, repo, "sess-mal", **{"--domain-tag": "a"})
+    append(home, repo, "sess-mal", **{"--domain-tag": "b"})
+    append(home, repo, "sess-mal", **{"--domain-tag": "c"})
+
+    shard = next(store_dir(home).rglob("*.jsonl"))
+    _corrupt_line(shard, 1)  # never-rolled "b"
+
+    proc = run(home, "rollup", "--repo", str(repo))
+    assert proc.returncode == 0, proc.stderr
+    assert [r["domain_tag"] for r in json.loads(proc.stdout)] == ["a", "c"]
+
+
+def test_duplicate_rows_are_emitted_once(env):
+    """A duplicated physical line shares one id and must not double-emit."""
+    home, repo = env
+    append(home, repo, "sess-dup", **{"--domain-tag": "solo"})
+
+    shard = next(store_dir(home).rglob("*.jsonl"))
+    line = shard.read_text(encoding="utf-8").splitlines()[0]
+    shard.write_text(line + "\n" + line + "\n", encoding="utf-8")
+
+    proc = run(home, "rollup", "--repo", str(repo))
+    assert proc.returncode == 0, proc.stderr
+    emitted = json.loads(proc.stdout)
+    assert [r["domain_tag"] for r in emitted] == ["solo"], "duplicate id emitted twice"
+
+    again = run(home, "rollup", "--repo", str(repo))
+    assert json.loads(again.stdout) == []
+
+
+def test_reordered_rows_are_not_re_emitted(env):
+    """Membership has no ordering; a positional index does."""
+    home, repo = env
+    for tag in ("r1", "r2", "r3"):
+        append(home, repo, "sess-reorder", **{"--domain-tag": tag})
+    run(home, "rollup", "--repo", str(repo))
+
+    shard = next(store_dir(home).rglob("*.jsonl"))
+    lines = shard.read_text(encoding="utf-8").splitlines()
+    shard.write_text("\n".join(reversed(lines)) + "\n", encoding="utf-8")
+
+    proc = run(home, "rollup", "--repo", str(repo))
+    assert proc.returncode == 0, proc.stderr
+    assert json.loads(proc.stdout) == [], "reordering must not re-emit"
+
+
+def test_pre_existing_count_shaped_state_re_emits_rather_than_losing(env):
+    """Nothing is in production, so no migration - but never crash, never lose."""
+    home, repo = env
+    append(home, repo, "sess-legacy", **{"--domain-tag": "kept-1"})
+    append(home, repo, "sess-legacy", **{"--domain-tag": "kept-2"})
+    run(home, "rollup", "--repo", str(repo))
+
+    state_path = _state_path(home)
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    # Exactly the pre-DS-154 shape, id list removed.
+    state["shards"] = {
+        name: {"rolled_count": 2, "rolled_ts": "2026-01-01T00:00:00Z"}
+        for name in state["shards"]
+    }
+    state_path.write_text(json.dumps(state), encoding="utf-8")
+
+    proc = run(home, "rollup", "--repo", str(repo))
+    assert proc.returncode == 0, proc.stderr
+    assert proc.stderr == "" or "soft-fail" not in proc.stderr, proc.stderr
+    emitted = [r["domain_tag"] for r in json.loads(proc.stdout)]
+    assert emitted == ["kept-1", "kept-2"], f"count-shaped state must not lose: {emitted}"
+
+    # And the rewritten state is id-keyed again, so idempotency resumes.
+    assert json.loads(run(home, "rollup", "--repo", str(repo)).stdout) == []
+
+
+def test_rollup_state_is_id_keyed_and_bounded_by_the_shard(env):
+    """Schema assertion plus the stated bound: never more ids than the shard holds."""
+    home, repo = env
+    for tag in ("b1", "b2"):
+        append(home, repo, "sess-bound", **{"--domain-tag": tag})
+    run(home, "rollup", "--repo", str(repo))
+
+    state = json.loads(_state_path(home).read_text(encoding="utf-8"))
+    (record,) = state["shards"].values()
+    assert "rolled_count" not in record, "positional bookkeeping must be gone"
+    assert isinstance(record["rolled_ids"], list)
+
+    shard = next(store_dir(home).rglob("*.jsonl"))
+    live_ids = {json.loads(line)["id"] for line in shard.read_text(encoding="utf-8").splitlines()}
+    assert set(record["rolled_ids"]) == live_ids
+    assert len(record["rolled_ids"]) <= 5, "bounded by ENTRY_CAP_PER_SHARD"
+
+    # Truncating the shard must shrink the id set, not grow it unboundedly.
+    shard.write_text("", encoding="utf-8")
+    for tag in ("b3",):
+        append(home, repo, "sess-bound", **{"--domain-tag": tag})
+    run(home, "rollup", "--repo", str(repo))
+    state = json.loads(_state_path(home).read_text(encoding="utf-8"))
+    (record,) = state["shards"].values()
+    assert len(record["rolled_ids"]) == 1
+
+
+def test_lock_file_is_not_group_or_world_readable(env):
+    home, repo = env
+    append(home, repo, "sess-lockmode")
+    lock = next(store_dir(home).rglob(".lock"))
+    assert lock.stat().st_mode & 0o077 == 0
 
 
 def test_store_root_is_not_world_readable(env):
