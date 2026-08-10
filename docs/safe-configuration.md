@@ -101,12 +101,18 @@ hook installed separately:
   `/ds-init-project` set it); set to `false` to opt out once enabled;
   disable via `AE_ABDICATION_GUARD_DISABLE=1`.
 - [`enforce-turn-shape.py`](../hooks/enforce-turn-shape.py) - Stop hook;
-  advisory only - it never blocks the stop, it only checks the conductor's
-  final turn against the fixed-shape/warranted-turn rule and logs a finding;
-  controlled by `turn_shape_guard_enabled` in `.agentic/config.json`, default
-  `true` (absent key resolves to on - the inverse of the abdication guard's
-  fail-open-to-inactive, because this hook never blocks); set to `false` to
-  opt out; disable per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Unlike its
+  checks the conductor's final turn against the fixed-shape/warranted-turn
+  rule. As of DS-156 this is NOT uniformly advisory: `_execution_prose_flag`
+  (a non-Answer turn's structural shape) is BLOCKING and can block the stop,
+  injecting a directive to reshape the turn; `_answer_relevance_flag`
+  (opening-preamble/closing-recap phrasing on an Answer turn) remains
+  advisory-only and only logs a finding; controlled by
+  `turn_shape_guard_enabled` in `.agentic/config.json`, default `true`
+  (absent key resolves to on - the inverse of the abdication guard's
+  fail-open-to-inactive default; the risk profile is now closer to
+  symmetric with the abdication guard than before DS-156, since the
+  structural check can block); set to `false` to opt out of both; disable
+  per-session via `AE_TURN_SHAPE_GUARD_DISABLE=1`. Unlike its
   sibling enforcers, its `~/.claude/settings.json` registration is **guarded**
   (`test -f ... && python3 ... || exit 0`), so a reverted PR removing the
   script cannot leave a dangling blocking Stop entry.

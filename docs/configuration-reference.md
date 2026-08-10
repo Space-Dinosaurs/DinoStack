@@ -85,7 +85,7 @@ it manually.
 | `rework_detection` | `true` | bool | Disables the Phase 9 ledger write, Phase 1 detection, the notice, the `/ds-ticket-triage` badge, and the escalation with a single flag when `false` |
 | `pending_merge_sweep` | `true` | bool | Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable |
 | `tracker_state_diagnostic` | `true` | bool | Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable |
-| `turn_shape_guard_enabled` | `true` | bool | Advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule; never blocks the stop, only logs; absent key resolves to on; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1` |
+| `turn_shape_guard_enabled` | `true` | bool | Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 NOT uniformly advisory: the execution-turn structural check (`_execution_prose_flag`) is BLOCKING and can block the stop; the answer-turn phrasing check (`_answer_relevance_flag`) remains advisory-only and only logs; absent key resolves to on; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1` |
 
 ### Tuning parameters
 
@@ -109,7 +109,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AE_ABDICATION_GUARD_DISABLE=1` | guard active | Abdication guard Stop hook (only relevant when `abdication_guard_enabled: true`) |
 | `AE_SINGULARITY_GUARD_DISABLE=1` | guard active | Orchestrator-singularity hook (prevents subagents from spawning subagents) |
 | `AE_TIER_GUARD_DISABLE=1` | guard active | Tier-enforcement hook (prevents sub-Opus on mandated Tier-3 spawns) |
-| `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape advisory hook (only relevant when `turn_shape_guard_enabled: true`) |
+| `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape guard - both the blocking structural check and the advisory phrasing check (only relevant when `turn_shape_guard_enabled: true`) |
 | `AGENTIC_QUIET=1` | output enabled | Version-check hook user-facing output |
 | `AGENTIC_WRAP_DAEMON=1` | (unset) | **INTERNAL** - set by the deferred-wrap daemon only; users must not set this |
 
