@@ -17208,6 +17208,36 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` records the gitignore-gate skips regardless of overall status. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
 
+### Phase 11e step 0: shard rollup (soft-fail, runs BEFORE the candidate-file sweep)
+
+**Why here.** Subagents record learnings in flight into the per-session shard store via `bin/ds-learning-shard append` (see `content/references/learnings-capture-instruction.md`). Nothing else drains that store on the ticket path. Rolling up **before** the candidate-file sweep below is the whole point: entries folded into `.agentic/learnings.md` now are read off disk by the same sweep and ride the same commit onto the PR branch. Rolling up after it would ship nothing until some later session.
+
+**The CLI performs zero classification.** `rollup` emits raw entries as a JSON array on stdout and exits 0 on every path, soft-fails included. The conductor classifies each emitted entry through the existing guardrail-first table in `content/references/capture-classification.md` - the same gate every mandatory trigger already uses - and forwards only the `Capture: MUST` items to `learnings-agent`, emitting the `Capture: MUST/SKIP` declaration for each exactly as at any other trigger. There is no second classification path; `SKIP` items are dropped, not written.
+
+**Session key.** `--session-key` is optional. Pass `$SESSION_KEY` when the conductor has one (the value it supplied in this ticket's spawn briefs); when it is unset or empty, omit the flag and roll up every shard for this repo.
+
+**Absolute soft-fail.** A rollup failure, an unparseable array, or an absent `ds-learning-shard` binary is a warning and nothing more: the sweep, the commit, the push, the PR, and Phase 12 all proceed unchanged. `|| true` is mandatory on the invocation; no `exit` is permitted here either.
+
+```bash
+# @harness:phase11e-shard-rollup
+# Drain this session's in-flight learning shards BEFORE the candidate-file sweep
+# below, so anything folded into .agentic/learnings.md rides the same commit.
+# Soft-fail: zero `exit` statements; a failure here changes nothing downstream.
+if command -v ds-learning-shard >/dev/null 2>&1; then
+  if [ -n "${SESSION_KEY:-}" ]; then
+    KC_ROLLUP=$(ds-learning-shard rollup --repo "$REPO" --session-key "$SESSION_KEY" || true)
+  else
+    KC_ROLLUP=$(ds-learning-shard rollup --repo "$REPO" || true)
+  fi
+  echo "[phase: knowledge-commit | step=shard-rollup]"
+  echo "$KC_ROLLUP"
+else
+  echo "[phase: knowledge-commit | step=shard-rollup | status=unavailable] ds-learning-shard not on PATH - skipping rollup."
+fi
+```
+
+The conductor then classifies each entry in that array per `content/references/capture-classification.md` and forwards the `Capture: MUST` ones to `learnings-agent` before running the sweep below. If the array is empty, there is nothing to classify and the sweep runs unchanged.
+
 ```bash
 # @harness:phase11e-knowledge-commit
 # Phase 11e: commit this session's knowledge files onto the PR branch.
