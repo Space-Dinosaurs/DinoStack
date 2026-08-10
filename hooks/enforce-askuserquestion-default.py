@@ -143,7 +143,7 @@ def main() -> None:
             "options with no recommended default. Per METHODOLOGY.md "
             "§Delegation (AskUserQuestion precondition), a multiple-choice "
             "ballot is disallowed when a best option is derivable. Derive "
-            "the best option from the five default sources, then EITHER "
+            "the best option from the six default sources, then EITHER "
             "proceed with it directly (no AskUserQuestion call) OR re-issue "
             'with exactly one option whose label ends in "(Recommended)" '
             "and proceed-unless-told-otherwise framing. Genuinely "

@@ -1562,6 +1562,53 @@ def test_smoke(tmp_dir: str) -> int:
     return failed
 
 
+def test_six_source_enumeration() -> int:
+    """PR #626 Skeptic Major regression guard: _BALLOT_REASON still shipped
+    the stale five-source enumeration (missing the product-intent layer)
+    while the sibling _ABDICATION_REASON in the same file had already been
+    updated to six sources - the two deny messages contradicted each other.
+    The closure grep that should have caught this
+    (`five[ -]source|five default source|5-source|source 5\\b`) cannot: Python
+    string concatenation splits "...consult the five " and "default sources
+    (..." across two source lines, so no line-oriented grep matches. This
+    test imports the ASSEMBLED constants instead of grepping source lines,
+    so a future stale-count regression in either constant fails here
+    regardless of how the string literal is wrapped across source lines."""
+    print("\n  [Six-source enumeration: assembled-constant pin, not source-line grep]")
+    failed = 0
+
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "enforce_no_abdication_under_test", HOOK_PATH
+    )
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+
+    for const_name in ("_ABDICATION_REASON", "_BALLOT_REASON"):
+        value = getattr(mod, const_name)
+        value_lower = value.lower()
+
+        no_five = "five" not in value_lower
+        print(f"    [{'PASS' if no_five else 'FAIL'}] {const_name} does not say 'five' anywhere")
+        if not no_five:
+            failed += 1
+
+        has_six = "six default sources" in value_lower or "consult the six" in value_lower
+        print(f"    [{'PASS' if has_six else 'FAIL'}] {const_name} names six default sources")
+        if not has_six:
+            failed += 1
+
+        has_intent_layer = "product-intent layer" in value_lower and (
+            "vision.md" in value_lower or "requirements.md" in value_lower
+        )
+        print(f"    [{'PASS' if has_intent_layer else 'FAIL'}] {const_name} enumerates the product-intent layer member")
+        if not has_intent_layer:
+            failed += 1
+
+    return failed
+
+
 # ---------------------------------------------------------------------------
 # Main runner
 # ---------------------------------------------------------------------------
@@ -1594,6 +1641,9 @@ def main() -> None:
         # Abdication-reason two-exit wording pin (Skeptic Major 1).
         total_failed += test_abdication_reason_two_exit_wording(tmp_dir)
 
+        # Six-source enumeration pin (PR #626 Skeptic Major).
+        total_failed += test_six_source_enumeration()
+
         # Transcript fallback.
         total_failed += test_transcript_fallback(tmp_dir)
 
@@ -1611,6 +1661,7 @@ def main() -> None:
         + 1   # unwritable counter + #54360 conjunction regression
         + 4   # reason-precedence pin
         + 5   # abdication-reason two-exit wording pin
+        + 6   # six-source enumeration pin (2 constants x 3 assertions)
         + 2   # transcript fallback
         + 3   # smoke checks
     )
