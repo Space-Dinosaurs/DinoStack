@@ -884,18 +884,19 @@ def test_toggle_doc_sync_full_eight_site_checklist():
 # The log_fire() enforcer-caller subcount ("N of the M enforce-*.py hooks
 # call lib/enforcement_log.py") is restated across hooks/AGENTS.md and
 # content/references/events-log.md in at least FOUR different grammatical
-# forms - "six of the seven", the bare cardinal "the six enforce-*.py
-# hooks", "one of the six consumer hooks", and a decomposed enumeration
-# ("(five hooks) ... (`enforce-planning-artifact-spawn.py`)" that sums to
-# the same total without using the word "six" or "seven" at all - none of
+# forms - "seven of the eight", the bare cardinal "the seven enforce-*.py
+# hooks", "one of the seven consumer hooks", and a decomposed enumeration
+# ("(six hooks) ... (`enforce-turn-shape.py`)" that sums to
+# the same total without using the word "seven" or "eight" at all - none of
 # which a single-phrasing sweep catches as a set. This is why sites kept
 # surviving prior sweeps: a check keyed to one exact string, or even one
 # regex shape, finds only the sites written in that exact form.
 #
 # Site inventory (all reference the same fact: 8 enforce-*.py hooks post-
 # merge with the sibling turn-shape-hook unit, 7 of them call log_fire,
-# split 5 deny + 2 allow_advisory - `enforce-planning-artifact-spawn.py`
-# and `enforce-turn-shape.py`):
+# split 6 deny + 2 allow_advisory - `enforce-turn-shape.py` is counted in
+# BOTH, since it can log either value depending on which of its two checks
+# fired):
 #   hooks/AGENTS.md:43  - "N of the M enforce-*.py hooks" (table cell)
 #   hooks/AGENTS.md:48  - bare cardinal "the N enforce-*.py hooks'"
 #   hooks/AGENTS.md:81  - "N of the M enforce-*.py hooks" (prose)
@@ -942,20 +943,27 @@ _ENFORCER_SUBCOUNT_SITES = [
     ),
 ]
 
-# Bidirectional and case-insensitive: "six" followed by "enforce" within one
-# sentence (catches "six of the seven enforce-*.py", "the six enforce-*.py
-# hooks", and the capitalized "Six of the seven enforce-*.py hooks"), OR
-# "enforce" followed by "six" within one sentence (catches "...enforce-
-# shippable-edit" - one of the six consumer hooks"). The `[^.]{0,80}` bound
-# stops the match from crossing a sentence boundary into an unrelated "six".
+# Bidirectional and case-insensitive: "five" followed by "enforce" within one
+# sentence (catches "five of the seven enforce-*.py", "the five enforce-*.py
+# hooks", and the capitalized "Five of the seven enforce-*.py hooks"), OR
+# "enforce" followed by "five" within one sentence (catches "...enforce-
+# shippable-edit" - one of the five consumer hooks"). The `[^.]{0,80}` bound
+# stops the match from crossing a sentence boundary into an unrelated "five".
 # Known limitation (tracked as a follow-up, not fixed here): this sweep is
-# lowercase/capitalized-word-form and value-keyed to "six" - it goes silent
-# once the live count moves past seven (when "seven" itself becomes stale),
-# and it does not catch numeral ("6 of the 7") or decomposed-enumeration
-# forms (the events-log.md:130 defect this pass fixed is pinned by exact
-# membership text above, not by this regex).
+# lowercase/capitalized-word-form and value-keyed to "five" (the STALE
+# pre-DS-156 deny-subset count) - it goes silent once the live deny-subset
+# count moves past six (when "six" itself becomes stale), and it does not
+# catch numeral ("5 of the 7") forms. DS-156 retargeted this sweep's marker
+# word from "six" to "five": DS-156 bumps the events-log.md decomposed
+# deny-subset enumeration from five hooks to six (adding
+# `enforce-turn-shape.py`), making "six" the CURRENT, correct cardinal for
+# that subset (see the site inventory above) - a sweep still keyed to "six"
+# as its stale marker would flag the very phrasing the positive pin above
+# now requires. Retargeted to "five", the subset count DS-156 just retired,
+# to keep catching a stale restatement without colliding with the current
+# text it must coexist with.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
-    r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b",
+    r"\bfive\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bfive\b",
     re.IGNORECASE,
 )
 
@@ -970,7 +978,7 @@ def test_enforcer_subcount_is_current_across_all_known_sites():
             f"phrasing: '{expected}'"
         )
 
-    # Negative, phrasing-agnostic: no stale "six ... enforce" (or reversed)
+    # Negative, phrasing-agnostic: no stale "five ... enforce" (or reversed)
     # survives in either file, regardless of which of the three grammatical
     # forms it was written in. This is the part a positive-only pin cannot
     # do - a half-fix that bumps the count-table cell but leaves a bare-
