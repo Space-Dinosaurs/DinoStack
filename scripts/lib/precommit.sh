@@ -175,8 +175,12 @@ resolve_git_hooks_dir() {
 #   linked-worktree branch instead (which echoes a case-stripped
 #   common_dir directly, never calling this helper) rather than the
 #   primary-checkout branch that would. Verified: `resolve_primary_checkout
-#   ""` returns rc=0 and echoes this checkout's own resolved path, in both
-#   shells - not a failure at all. The guard exists so a FUTURE caller
+#   ""` returns rc=0 and echoes the EMPTY STRING, in both shells - not a
+#   failure at all, but not a real path either (traced:
+#   `_pc_git_common_dir_abs ""` -> "/.git", `git_dir` -> "/.git", `-ef`
+#   false since neither exists, so the linked-worktree branch strips the
+#   "/.git" suffix off "/.git" itself, yielding ""). The guard exists so a
+#   FUTURE caller
 #   cannot be silently bitten by the bash/zsh inter-shell divergence
 #   documented above, independent of how today's callers happen to avoid
 #   it.
@@ -307,7 +311,13 @@ _pc_git_common_dir_abs() {
 #   evaluated against CWD names the wrong directory) and because an
 #   unanchored relative target with a slash-free first component could
 #   otherwise reach _pc_canonicalize_missing_dir's walk-up in a form that
-#   never becomes absolute. Returns 0 (true) iff <target> ends in
+#   never becomes absolute. When <target> is not absolute and [hooks_dir]
+#   is OMITTED, returns 1 (fails closed - no removal) rather than falling
+#   back to resolving the relative target against the process CWD (DS-152
+#   round 6, Minor 2): the sole production caller always passes hooks_dir,
+#   so this is unreachable today, but the failure direction here is hook
+#   DELETION, so an unreachable-and-fail-open combination would be the
+#   wrong one to leave in place. Returns 0 (true) iff <target> ends in
 #   "/hooks/pre-commit" AND either:
 #     - the directory it hangs off of still exists, and THAT directory's own
 #       git-common-dir matches <repo_common_dir> - i.e. <target> is some
@@ -334,8 +344,9 @@ _pc_git_common_dir_abs() {
 #       own worktree roots prevents widening into a foreign dangling hook
 #       that merely happens to be unreachable.
 #   Returns 1 (false) - never aborts - when <target> does not match the
-#   suffix, or (for an existing target directory) its common-dir resolves to
-#   a different repo, or (for an already-deleted target directory) no
+#   suffix, or <target> is relative and [hooks_dir] was omitted (see
+#   above), or (for an existing target directory) its common-dir resolves
+#   to a different repo, or (for an already-deleted target directory) no
 #   primary_checkout was given or the path falls outside both known
 #   worktree roots.
 # ---------------------------------------------------------------------------
@@ -348,12 +359,20 @@ _pc_is_legacy_sibling_hook() {
   local target_repo_dir="${target%/hooks/pre-commit}"
 
   # Anchor a relative target against the symlink's own directory (see
-  # docstring above) - never against the process CWD.
+  # docstring above) - never against the process CWD. Fail CLOSED (return
+  # 1, no removal) rather than falling back to an unanchored, CWD-relative
+  # resolution when [hooks_dir] is omitted: the one production call site
+  # always passes it, so this branch is unreachable today, but the
+  # direction of a wrong decision here is HOOK DELETION - an
+  # unreachable-and-fail-OPEN combination is the wrong one to ship
+  # (DS-152 round 6, Minor 2).
   case "$target_repo_dir" in
     /*) : ;;
     *)
       if [[ -n "$hooks_dir" ]]; then
         target_repo_dir="$hooks_dir/$target_repo_dir"
+      else
+        return 1
       fi
       ;;
   esac

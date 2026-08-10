@@ -123,6 +123,33 @@ _fail() {
   FAIL=$((FAIL + 1))
 }
 
+# ------------------------------------------------------------------
+# DS-152 round 6 (Minor 3): `timeout` is not a stock macOS binary - it is
+# present on this machine only via Homebrew coreutils, and its absence
+# under `command -v timeout` yields rc=127 from `timeout 8 ...`, which is
+# NOT 124. Test 13/13b's sole hang-detection assertion checks `rc -ne 124`,
+# so an absent `timeout` makes those assertions PASS while testing nothing
+# (the "green means the check never ran" class - see
+# bin/tests/test_check_resident_budget.sh:155-156 for the canonical
+# guarded-assertion pattern this follows). Resolve `timeout` or its GNU
+# coreutils alias `gtimeout` explicitly once, up front, and hard-fail under
+# `${CI}` rather than silently skipping if neither is found - CI is ubuntu
+# (stock `timeout`), so this only ever fires for a local dev sandbox
+# missing GNU coreutils, and the fix is a one-line `brew install
+# coreutils`, not a broken assertion someone has to root-cause blind.
+# ------------------------------------------------------------------
+PC_TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then
+  PC_TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  PC_TIMEOUT_BIN="gtimeout"
+elif [[ -n "${CI:-}" ]]; then
+  echo "FAIL: neither 'timeout' nor 'gtimeout' found on PATH - required in CI for the round-5 hang-regression assertions (Tests 13/13b)" >&2
+  exit 1
+else
+  echo "SKIP: neither 'timeout' nor 'gtimeout' found on PATH - skipping the round-5 hang-regression assertions (Tests 13/13b non-hang-detection checks still run unguarded, but the hang-detection assertion itself cannot be trusted without a timeout binary). Install GNU coreutils (e.g. 'brew install coreutils') for local coverage."
+fi
+
 _pass() {
   echo "PASS: $1"
   PASS=$((PASS + 1))
@@ -954,49 +981,53 @@ fi
 #          suite (and CI) - a hung test is its own incident.
 # ============================================================
 
-HANG_MAIN="$TMP_ROOT/hang-main-repo"
-_make_fixture_repo "$HANG_MAIN"
+if [[ -n "$PC_TIMEOUT_BIN" ]]; then
+  HANG_MAIN="$TMP_ROOT/hang-main-repo"
+  _make_fixture_repo "$HANG_MAIN"
 
-HANG_HOOKS_DIR="$(git -C "$HANG_MAIN" rev-parse --git-path hooks)"
-case "$HANG_HOOKS_DIR" in
-  /*) : ;;
-  *) HANG_HOOKS_DIR="$HANG_MAIN/$HANG_HOOKS_DIR" ;;
-esac
-HANG_HOOK_DST="$HANG_HOOKS_DIR/pre-commit"
+  HANG_HOOKS_DIR="$(git -C "$HANG_MAIN" rev-parse --git-path hooks)"
+  case "$HANG_HOOKS_DIR" in
+    /*) : ;;
+    *) HANG_HOOKS_DIR="$HANG_MAIN/$HANG_HOOKS_DIR" ;;
+  esac
+  HANG_HOOK_DST="$HANG_HOOKS_DIR/pre-commit"
 
-# A relative symlink target whose first component ("toolbox") does not
-# exist anywhere resolvable - the exact shape that hung pre-fix code, and
-# the exact shape a real relative pre-DS-152 hook target could take
-# (`.husky/hooks/pre-commit`, `toolbox/hooks/pre-commit`, etc).
-mkdir -p "$HANG_HOOKS_DIR"
-ln -s "toolbox/hooks/pre-commit" "$HANG_HOOK_DST"
+  # A relative symlink target whose first component ("toolbox") does not
+  # exist anywhere resolvable - the exact shape that hung pre-fix code, and
+  # the exact shape a real relative pre-DS-152 hook target could take
+  # (`.husky/hooks/pre-commit`, `toolbox/hooks/pre-commit`, etc).
+  mkdir -p "$HANG_HOOKS_DIR"
+  ln -s "toolbox/hooks/pre-commit" "$HANG_HOOK_DST"
 
-HANG_OUT_FILE="$TMP_ROOT/hang-out.txt"
-timeout 8 bash -c "
-  set -uo pipefail
-  . '$LIB'
-  _ae_is_ours() { return 1; }
-  AE_DRY_RUN=false
-  uninstall_precommit_hook '$HANG_MAIN'
-" > "$HANG_OUT_FILE" 2>&1
-HANG_RC=$?
+  HANG_OUT_FILE="$TMP_ROOT/hang-out.txt"
+  "$PC_TIMEOUT_BIN" 8 bash -c "
+    set -uo pipefail
+    . '$LIB'
+    _ae_is_ours() { return 1; }
+    AE_DRY_RUN=false
+    uninstall_precommit_hook '$HANG_MAIN'
+  " > "$HANG_OUT_FILE" 2>&1
+  HANG_RC=$?
 
-if [[ $HANG_RC -ne 124 ]]; then
-  _pass "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook did not hang (rc=$HANG_RC, not 124/timeout)"
+  if [[ $HANG_RC -ne 124 ]]; then
+    _pass "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook did not hang (rc=$HANG_RC, not 124/timeout)"
+  else
+    _fail "hang regression case (DS-152 round 5 regression, Critical): uninstall_precommit_hook HUNG - killed by timeout (rc=124). Output: $(cat "$HANG_OUT_FILE" 2>&1)"
+  fi
+
+  if [[ $HANG_RC -eq 0 ]]; then
+    _pass "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook exits 0 (non-fatal - a relative target anchored against the hooks dir cannot be verified as a legacy sibling without an existing directory, so it is correctly left alone)"
+  else
+    _fail "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook exited $HANG_RC (expected 0, non-fatal). Output: $(cat "$HANG_OUT_FILE" 2>&1)"
+  fi
+
+  if grep -qi "not ours" "$HANG_OUT_FILE"; then
+    _pass "hang regression case (DS-152 round 5, Critical): correctly reported as not ours rather than silently removed"
+  else
+    _fail "hang regression case (DS-152 round 5 regression, Critical): did not report the expected 'not ours' outcome. Output: $(cat "$HANG_OUT_FILE" 2>&1)"
+  fi
 else
-  _fail "hang regression case (DS-152 round 5 regression, Critical): uninstall_precommit_hook HUNG - killed by timeout (rc=124). Output: $(cat "$HANG_OUT_FILE" 2>&1)"
-fi
-
-if [[ $HANG_RC -eq 0 ]]; then
-  _pass "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook exits 0 (non-fatal - a relative target anchored against the hooks dir cannot be verified as a legacy sibling without an existing directory, so it is correctly left alone)"
-else
-  _fail "hang regression case (DS-152 round 5, Critical): uninstall_precommit_hook exited $HANG_RC (expected 0, non-fatal). Output: $(cat "$HANG_OUT_FILE" 2>&1)"
-fi
-
-if grep -qi "not ours" "$HANG_OUT_FILE"; then
-  _pass "hang regression case (DS-152 round 5, Critical): correctly reported as not ours rather than silently removed"
-else
-  _fail "hang regression case (DS-152 round 5 regression, Critical): did not report the expected 'not ours' outcome. Output: $(cat "$HANG_OUT_FILE" 2>&1)"
+  echo "SKIP: Test 13 (hang regression case) - no timeout binary resolved"
 fi
 
 # ------------------------------------------------------------------
@@ -1009,24 +1040,28 @@ fi
 #           root-cause anchor.
 # ------------------------------------------------------------------
 
-HANG_UNIT_OUT_FILE="$TMP_ROOT/hang-unit-out.txt"
-timeout 8 bash -c "
-  set -uo pipefail
-  . '$LIB'
-  _pc_canonicalize_missing_dir 'toolbox'
-" > "$HANG_UNIT_OUT_FILE" 2>&1
-HANG_UNIT_RC=$?
+if [[ -n "$PC_TIMEOUT_BIN" ]]; then
+  HANG_UNIT_OUT_FILE="$TMP_ROOT/hang-unit-out.txt"
+  "$PC_TIMEOUT_BIN" 8 bash -c "
+    set -uo pipefail
+    . '$LIB'
+    _pc_canonicalize_missing_dir 'toolbox'
+  " > "$HANG_UNIT_OUT_FILE" 2>&1
+  HANG_UNIT_RC=$?
 
-if [[ $HANG_UNIT_RC -ne 124 ]]; then
-  _pass "hang regression unit case (DS-152 round 5, Critical): _pc_canonicalize_missing_dir('toolbox') did not hang (rc=$HANG_UNIT_RC, not 124/timeout)"
+  if [[ $HANG_UNIT_RC -ne 124 ]]; then
+    _pass "hang regression unit case (DS-152 round 5, Critical): _pc_canonicalize_missing_dir('toolbox') did not hang (rc=$HANG_UNIT_RC, not 124/timeout)"
+  else
+    _fail "hang regression unit case (DS-152 round 5 regression, Critical): _pc_canonicalize_missing_dir('toolbox') HUNG - killed by timeout (rc=124)."
+  fi
 else
-  _fail "hang regression unit case (DS-152 round 5 regression, Critical): _pc_canonicalize_missing_dir('toolbox') HUNG - killed by timeout (rc=124)."
+  echo "SKIP: Test 13b (hang regression unit case) - no timeout binary resolved"
 fi
 
 # ------------------------------------------------------------------
 # Test 13c: DS-152 round 5 (Critical, anchor correctness) - isolates the
 #           anchoring fix from the termination guard: this fixture's
-#           dangling... no, EXISTING target resolves correctly ONLY when
+#           EXISTING target resolves correctly ONLY when
 #           the relative readlink target is anchored against the
 #           symlink's own directory (hooks_dir), never against the
 #           process CWD. Without the anchor, `-d target_repo_dir` is
