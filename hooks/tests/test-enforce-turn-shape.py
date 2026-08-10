@@ -10,9 +10,22 @@ Each case pipes a JSON payload into the hook via stdin and asserts:
 The hook MUST NEVER emit a blocking decision under any input - there is no
 {"decision": "block", ...} shape this hook can produce.
 
-Test coverage (mirrors the 14-case spec in the DS-122 spawn brief):
-  a. identity check fires on a missing identity line
-  b. identity check passes on a well-formed identity line
+DS-155: the identity-line check is REMOVED (operator decision - see
+hooks/enforce-turn-shape.py's module docstring "DS-155 round 3 history
+note"). Cases a/a2/b/x (round-1/round-2 identity-check and
+ticket-context-exemption coverage) are DELETED with the check they
+tested, not merely renumbered - a deleted check should make this suite
+SMALLER, not just different. `_IDENTITY_LINE_RE` itself is ALSO fully
+DELETED (round 4: round 3's "retain it, the forced-yield check depends
+on it" rationale was verified wrong by execution - _forced_yield_flag
+reasons positionally via _body_after_identity_line, with no regex
+dependency at all). It has zero occurrences anywhere in the hook source
+now, and test "q" (which used to pin its catastrophic-backtracking fix)
+is deleted along with it - see "r" below for the surviving regression
+guard, which pins the check's absence rather than the regex's presence.
+
+Test coverage (mirrors the 14-case spec in the DS-122 spawn brief, minus
+the deleted identity-check cases):
   c. status-only flag fires (>2 body lines, no warrant)
   d. status-only flag does not fire when '## Operator decisions' is present
   e. completion warrant recognizes '[phase: complete]' / explicit terminal
@@ -29,8 +42,24 @@ Test coverage (mirrors the 14-case spec in the DS-122 spawn brief):
      Waiting: line IS flagged
   n. log_fire() is called exactly once when a finding is emitted, and NOT
      called on a clean turn (patches _load_log_fire directly)
-  r. the worked example embedded in the identity-line advisory matches
-     _IDENTITY_LINE_RE itself (DS-132)
+  r. DS-155: well-formed vs. missing/malformed identity line produce the
+     IDENTICAL verdict - pins that no code path still branches on the
+     identity line's shape for a live finding (supersedes the
+     round-1/round-2 versions of this test, which pinned the now-deleted
+     finding's own worked-example text; test "q", which pinned
+     _IDENTITY_LINE_RE's catastrophic-backtracking fix directly, is
+     DELETED along with the regex itself in round 4 - there is nothing
+     left to pin a performance guard for)
+  w. DS-155 answer-warrant transcript bonus (_transcript_answer_bonus):
+     genuine-question detection, the recency gate
+     (_has_intervening_assistant_turn), and its corpus-measured fixes -
+     w8/w8b (round 4: the assistant's own earlier narration-then-tool-call
+     step must not count as a competing "intervening" turn), w9 (round 3:
+     the mirror image - when the current turn's own entry is not yet on
+     disk, a genuinely stale-by-one question must still be caught), and
+     w10 (round 5: message.id-scoped tool_use attribution must not leak
+     past the ONE text entry it explains and excuse an unrelated,
+     genuinely separate completed turn elsewhere in the same window)
   s. DS-151 turn-charge model (rewritten from the deleted per-warrant
      exclusion model - see hooks/enforce-turn-shape.py's "Charge model"
      docstring section): flat BASE_BODY_BUDGET=10 at/over boundary per
@@ -72,11 +101,9 @@ import importlib.util
 import io
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
-import time
 
 HOOK_PATH = os.path.join(os.path.dirname(__file__), "..", "enforce-turn-shape.py")
 
@@ -154,44 +181,24 @@ def check(label: str, condition: bool):
     print(f"  [{status}] {label}")
 
 
-# ---------------------------------------------------------------------------
-# a. identity check fires on a missing identity line
-# ---------------------------------------------------------------------------
-
-rc, out, err = run_hook(make_payload("Done."))
-check("a. missing identity line -> ADVISORY (identity finding)", is_advisory(rc, out, "identity"))
-
-# ---------------------------------------------------------------------------
-# a2. REGRESSION: the advisory must carry a worked example, not just the
-#     word "identity" - a middle dot and a bracketed [phase: ...] tag must
-#     both be present in the additionalContext so the conductor can copy
-#     the shape instead of guessing it.
-# ---------------------------------------------------------------------------
-
-rc, out, err = run_hook(make_payload("Done."))
-_ctx = parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", "")
-check(
-    "a2. missing identity line -> advisory includes a `·` and a `[phase:` example",
-    "·" in _ctx and "[phase:" in _ctx,
-)
-
-# ---------------------------------------------------------------------------
-# b. identity check passes on a well-formed one
-# ---------------------------------------------------------------------------
-
-rc, out, err = run_hook(make_payload(IDENTITY_COMPLETE))
-check("b. well-formed identity + completion -> QUIET", is_quiet(rc, out))
-
-# ---------------------------------------------------------------------------
-# c. status-only flag fires
-# ---------------------------------------------------------------------------
-
-status_only_msg = (
+# DS-155 round 3: the identity-line check is REMOVED (operator decision -
+# see hooks/enforce-turn-shape.py's module docstring "DS-155 round 3
+# history note"). FLAGGED_STATUS_ONLY_MSG replaces the round-1/round-2
+# "Done." placeholder everywhere a generically-flagged message is needed
+# (config toggle, loop guard, exit-code checks) - "Done." alone no longer
+# produces ANY finding now that there is no identity check to catch it.
+FLAGGED_STATUS_ONLY_MSG = (
     IDENTITY_OK + "\n"
     "Did a first thing.\n"
     "Did a second thing.\n"
     "Did a third thing.\n"
 )
+
+# ---------------------------------------------------------------------------
+# c. status-only flag fires
+# ---------------------------------------------------------------------------
+
+status_only_msg = FLAGGED_STATUS_ONLY_MSG
 rc, out, err = run_hook(make_payload(status_only_msg))
 check("c. >2 body lines, no warrant -> ADVISORY (status-only)", is_advisory(rc, out, "status-only"))
 
@@ -311,35 +318,35 @@ with tempfile.TemporaryDirectory() as tmp_dir:
 
     # i1. config.json absent entirely -> guard stays ON.
     i1_cwd = _fresh_cwd("i1")
-    rc, out, err = run_hook(make_payload("Done.", cwd=i1_cwd))
-    check("i1. config.json absent -> guard ON (ADVISORY on flagged message)", is_advisory(rc, out, "identity"))
+    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i1_cwd))
+    check("i1. config.json absent -> guard ON (ADVISORY on flagged message)", is_advisory(rc, out, "status-only"))
 
     # i2. config.json present, key explicitly false -> guard OFF.
     i2_cwd = _fresh_cwd("i2")
     with open(os.path.join(i2_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"turn_shape_guard_enabled": False}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=i2_cwd))
+    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i2_cwd))
     check("i2. turn_shape_guard_enabled=false -> QUIET (guard disabled)", is_quiet(rc, out))
 
     # i3. config.json present, key explicitly true -> guard ON.
     i3_cwd = _fresh_cwd("i3")
     with open(os.path.join(i3_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"turn_shape_guard_enabled": True}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=i3_cwd))
-    check("i3. turn_shape_guard_enabled=true -> ADVISORY (guard on)", is_advisory(rc, out, "identity"))
+    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i3_cwd))
+    check("i3. turn_shape_guard_enabled=true -> ADVISORY (guard on)", is_advisory(rc, out, "status-only"))
 
     # i4. config.json present but key absent -> guard stays ON.
     i4_cwd = _fresh_cwd("i4")
     with open(os.path.join(i4_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"some_other_key": True}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=i4_cwd))
-    check("i4. config.json present, key absent -> guard ON", is_advisory(rc, out, "identity"))
+    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i4_cwd))
+    check("i4. config.json present, key absent -> guard ON", is_advisory(rc, out, "status-only"))
 
 # ---------------------------------------------------------------------------
 # j. output is ALWAYS exit 0 regardless of findings
 # ---------------------------------------------------------------------------
 
-rc_flagged, _, _ = run_hook(make_payload("Done."))
+rc_flagged, _, _ = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG))
 rc_clean, _, _ = run_hook(make_payload(IDENTITY_COMPLETE))
 check("j1. exit code is 0 on a flagged turn", rc_flagged == 0)
 check("j2. exit code is 0 on a clean turn", rc_clean == 0)
@@ -429,26 +436,14 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# q. REGRESSION (Skeptic Minor, round 2): pin the catastrophic-backtracking
-#    fix on _IDENTITY_LINE_RE. A first line with ~3200 middle-dot/period
-#    characters and no '[phase:' tag must classify in well under a second -
-#    a generous 1.0s bound (measured value is now microseconds) that is
-#    loose enough to avoid flaking on a slow CI runner while still catching
-#    a regression to the unbounded '.*' form (measured 13.8s pre-fix).
-# ---------------------------------------------------------------------------
-
-_pathological_msg = "x" + ("·" * 3200) + "\nno phase tag here at all\n"
-_start = time.monotonic()
-rc, out, err = run_hook(make_payload(_pathological_msg))
-_elapsed = time.monotonic() - _start
-check(
-    f"q. pathological identity-line input completes in <1.0s (took {_elapsed:.4f}s)",
-    _elapsed < 1.0,
-)
-
-# ---------------------------------------------------------------------------
-# n. log_fire() called exactly once on a finding, not called on a clean turn
-#    (patches _load_log_fire directly via module import, per spec)
+# Import the hook module directly (needed by "n"/"r" below). DS-155 round
+# 4: test "q" (pinning _IDENTITY_LINE_RE's catastrophic-backtracking fix)
+# is DELETED, not merely retargeted - the regex itself is now fully
+# deleted from the hook (round 3's "retain it, nothing else depends on
+# it" call was based on a wrong assumption about the forced-yield check;
+# verified by execution that _forced_yield_flag reasons positionally via
+# _body_after_identity_line, with no regex dependency at all), so there
+# is nothing left for a performance regression guard to protect.
 # ---------------------------------------------------------------------------
 
 _spec = importlib.util.spec_from_file_location(
@@ -456,6 +451,11 @@ _spec = importlib.util.spec_from_file_location(
 )
 _mod = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_mod)
+
+# ---------------------------------------------------------------------------
+# n. log_fire() called exactly once on a finding, not called on a clean turn
+#    (patches _load_log_fire directly via module import, per spec)
+# ---------------------------------------------------------------------------
 
 
 def _run_main_with_stdin(payload: str, calls: list):
@@ -478,7 +478,7 @@ def _run_main_with_stdin(payload: str, calls: list):
 
 
 _calls_flagged: list = []
-_out_flagged = _run_main_with_stdin(make_payload("Done."), _calls_flagged)
+_out_flagged = _run_main_with_stdin(make_payload(FLAGGED_STATUS_ONLY_MSG), _calls_flagged)
 check(
     "n1. log_fire called exactly once with hook_name='enforce-turn-shape', "
     "decision='allow_advisory' on a finding",
@@ -493,19 +493,23 @@ check("n2. log_fire NOT called on a clean turn", len(_calls_clean) == 0)
 
 
 # ---------------------------------------------------------------------------
-# r. REGRESSION: the worked example embedded in the identity-line advisory
-#    finding must itself satisfy _IDENTITY_LINE_RE - an example that fails
-#    the regex it is teaching is worse than no example at all. Extracted
-#    from the live advisory output (not re-typed here) so this pins against
-#    source drift instead of just re-asserting a copy of the literal.
+# r. REGRESSION (DS-155 round 3, updated round 4 - _IDENTITY_LINE_RE
+#    itself is now fully deleted, not merely unreferenced from main()):
+#    a message whose first line is a well-formed identity line produces
+#    the IDENTICAL result (QUIET) as the same message with a
+#    missing/malformed first line, given the same downstream content -
+#    proving the identity-line check is genuinely gone, not just
+#    unreachable, and guarding against a future re-introduction of a live
+#    branch on identity-line shape without an explicit design decision.
 # ---------------------------------------------------------------------------
 
-_r_match = re.search(r"`([^`]*)`", _ctx)
-check("r. advisory contains a backtick-quoted example", _r_match is not None)
-_r_example = _r_match.group(1) if _r_match else ""
+_r_with_identity = IDENTITY_OK + "\nTask is complete.\n"
+_r_without_identity = "not an identity line at all\nTask is complete.\n"
+_rc_a, _out_a, _ = run_hook(make_payload(_r_with_identity))
+_rc_b, _out_b, _ = run_hook(make_payload(_r_without_identity))
 check(
-    "r. embedded advisory example matches _IDENTITY_LINE_RE",
-    bool(_mod._IDENTITY_LINE_RE.match(_r_example)),
+    "r. well-formed vs. missing identity line produce the SAME verdict (no live enforcement)",
+    is_quiet(_rc_a, _out_a) and is_quiet(_rc_b, _out_b),
 )
 
 # ---------------------------------------------------------------------------
@@ -1285,7 +1289,14 @@ def _read_counter_state(cwd: str) -> dict:
 
 with tempfile.TemporaryDirectory() as lg_tmp_dir:
     lg_real = os.path.realpath(lg_tmp_dir)
-    flagged_msg = "Done."
+    # DS-155 round 3: flagged_msg is FLAGGED_STATUS_ONLY_MSG, not the bare
+    # "Done." these L. fixtures used pre-DS-155 - "Done." was flagged by
+    # the now-fully-DELETED identity-line check (not merely the round-2
+    # exemption around it), so restoring the literal round-1 string would
+    # make every is_advisory() assertion below fail. The round-2-only
+    # scaffolding (_write_fake_git_branch calls) IS fully reverted/removed
+    # here, per instruction - it existed solely to scope that exemption.
+    flagged_msg = FLAGGED_STATUS_ONLY_MSG
 
     # L1. Layer 1: stop_hook_active=true on a flagged message -> QUIET.
     rc, out, err = run_hook(
@@ -1299,7 +1310,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     os.makedirs(os.path.join(cap_dir, ".agentic"), exist_ok=True)
     _make_counter_state(cap_dir, CONSECUTIVE_BLOCK_CAP - 1, 0)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
-    check("L2a. counter at 1/2 -> ADVISORY (fires, increments to 2)", is_advisory(rc, out, "identity"))
+    check("L2a. counter at 1/2 -> ADVISORY (fires, increments to 2)", is_advisory(rc, out, "status-only"))
     check("L2b. counter incremented to 2", _read_counter_state(cap_dir)["count"] == 2)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
     check("L2c. counter at CAP=2 -> QUIET (advisory halted)", is_quiet(rc, out))
@@ -1326,7 +1337,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
             }
         )
     )
-    check("L3. new genuine user message (2>1) resets counter -> ADVISORY again", is_advisory(rc, out, "identity"))
+    check("L3. new genuine user message (2>1) resets counter -> ADVISORY again", is_advisory(rc, out, "status-only"))
 
     # L4. A clean turn resets the counter -> next flagged turn advisories
     # again. Seeded at CAP-1 (below the cap) so the clean turn is classifiable
@@ -1340,7 +1351,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     check("L4a. clean turn -> QUIET (no advisory)", is_quiet(rc, out))
     check("L4b. clean turn resets counter to 0", _read_counter_state(clean_reset_dir)["count"] == 0)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=clean_reset_dir))
-    check("L4c. after clean-turn reset -> ADVISORY again", is_advisory(rc, out, "identity"))
+    check("L4c. after clean-turn reset -> ADVISORY again", is_advisory(rc, out, "status-only"))
 
     # L5. Counter write failure (unwritable .agentic/) -> QUIET, fail-open.
     unwrite_dir = os.path.join(lg_real, "unwritable_cwd")
@@ -1361,6 +1372,445 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
         "L6. loop-guard path never blocks (exit 0, no block decision)",
         rc == 0 and parse_output(out).get("decision") != "block",
     )
+
+
+# ---------------------------------------------------------------------------
+# w. DS-155 answer-warrant transcript bonus (_transcript_answer_bonus).
+#    A plain-prose reply with no quoted fragment and no other warrant must
+#    satisfy the `answer` warrant (and so avoid the status-only flag) when
+#    the operator's most recent GENUINE transcript message looks like a
+#    direct question. Confirms the bonus is soft-fail (no question, no
+#    transcript, or a non-genuine trailing message all fall back to
+#    today's narrower behavior) and does NOT create an unbounded free-line
+#    pool in the charge model.
+# ---------------------------------------------------------------------------
+
+PLAIN_PROSE_ANSWER = (
+    IDENTITY_OK
+    + "\nThe root cause is a stale cache entry keyed on mtime and size.\n"
+    + "Clearing __pycache__ between runs fixes it.\n"
+    + "No other change is needed.\n"
+)
+
+with tempfile.TemporaryDirectory() as tmp_dir:
+    # w1. Genuine last user message ends with "?" -> answer bonus granted,
+    # plain-prose reply is QUIET (no status-only, under budget).
+    question_transcript = _write_transcript(
+        tmp_dir,
+        [{"role": "user", "content": "Why did the cache test fail on the second run?"}],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": PLAIN_PROSE_ANSWER,
+                "transcript_path": question_transcript,
+            }
+        )
+    )
+    check(
+        "w1. plain-prose reply to a genuine transcript question -> QUIET (answer bonus)",
+        is_quiet(rc, out),
+    )
+
+    # w2. Same plain-prose reply, but the last genuine user message is a
+    # STATEMENT (no "?") -> bonus withheld, status-only still fires. Proves
+    # w1 is not QUIET merely because the body is short-ish - the bonus is
+    # doing the work.
+    statement_transcript = _write_transcript(
+        tmp_dir,
+        [{"role": "user", "content": "Go ahead and clear the cache between runs."}],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": PLAIN_PROSE_ANSWER,
+                "transcript_path": statement_transcript,
+            }
+        )
+    )
+    check(
+        "w2. plain-prose reply, transcript message is a statement not a question -> ADVISORY (status-only)",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # w3. No transcript_path at all -> falls back to today's narrower
+    # behavior (no bonus available) -> ADVISORY (status-only).
+    rc, out, err = run_hook(json.dumps({"last_assistant_message": PLAIN_PROSE_ANSWER}))
+    check(
+        "w3. no transcript_path -> ADVISORY (status-only), today's behavior preserved",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # w4. A tool_result-only trailing "user" line (real CC transcripts record
+    # every tool_result as type:"user") must NOT be mistaken for the
+    # operator's question - loop_guard.last_genuine_user_text must skip it.
+    tool_result_only_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "Why did the cache test fail on the second run?"},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}],
+            },
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": PLAIN_PROSE_ANSWER,
+                "transcript_path": tool_result_only_transcript,
+            }
+        )
+    )
+    check(
+        "w4. trailing tool_result line does not mask an earlier genuine question -> QUIET",
+        is_quiet(rc, out),
+    )
+
+    # w5. The bonus grants the `answer` warrant but does NOT buy free lines
+    # in the charge model - an over-budget answer to a genuine question
+    # still fires the volume check (no unbounded free-line regression).
+    long_answer = IDENTITY_OK + "\n" + _nlines(11, prefix="Line")
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": long_answer, "transcript_path": question_transcript})
+    )
+    check(
+        "w5. answer bonus does not exempt an over-budget reply -> ADVISORY (turn volume exceeded)",
+        is_advisory(rc, out, "turn volume exceeded"),
+    )
+
+    # w6. REGRESSION (DS-155 round 2, Major 1 demonstrated repro): operator
+    # asks a genuine question, then TWO intervening assistant TEXT turns
+    # (a Waiting: turn, then a status-narration turn - mirroring "unit 1
+    # merged, continuing with unit 2") happen, then the CURRENT turn is
+    # pure narration (status-only, no warrant). Without the recency gate
+    # this would incorrectly go QUIET under the now-stale original
+    # question. The current turn's own text is NOT supplied via
+    # last_assistant_message - it is pulled from the transcript tail (the
+    # realistic Stop-time shape: the current turn's entry is already the
+    # newest line on disk) so the recency scan sees exactly what a live
+    # transcript would contain.
+    stale_status_only = IDENTITY_OK + "\n" + _nlines(3, prefix="Note")
+    stale_question_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK + "\nWaiting: engineer spawned, blocks merge.",
+            },
+            {
+                "role": "user",
+                "content": "<task-notification>Unit 1 complete</task-notification>",
+            },
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK + "\nUnit 1 merged, continuing with unit 2.",
+            },
+            {"role": "assistant", "content": stale_status_only},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": stale_question_transcript})
+    )
+    check(
+        "w6. stale question (2 intervening assistant turns) -> ADVISORY (status-only), bonus withheld",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # w6b. Companion positive control: IDENTICAL shape, but the current
+    # turn is the IMMEDIATELY next assistant entry after the question (no
+    # intervening assistant text turn - the harness-injected notification
+    # does not count) -> the bonus IS granted -> QUIET. Proves w6 fails
+    # because of staleness specifically, not because the transcript-tail
+    # fallback path is broken.
+    fresh_question_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "user",
+                "content": "<task-notification>background check-in</task-notification>",
+            },
+            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": fresh_question_transcript})
+    )
+    check(
+        "w6b. same question, NO intervening assistant turn -> QUIET (bonus granted)",
+        is_quiet(rc, out),
+    )
+
+    # w7. REGRESSION (DS-155 round 2, Major 1 second half): the stale-
+    # question leak also affected _forced_yield_flag, not just
+    # _status_only_flag - a malformed Waiting: turn (extra prose beside
+    # the Waiting: line, no other warrant) must still be flagged even
+    # under a stale question, since the answer bonus must not paper over
+    # a genuinely malformed forced-yield shape.
+    stale_forced_yield = (
+        IDENTITY_OK
+        + "\nSome unrelated explanation sentence here.\n"
+        + "Waiting: operator approval to proceed.\n"
+    )
+    stale_fy_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK + "\nWaiting: engineer spawned, blocks merge.",
+            },
+            {"role": "assistant", "content": stale_forced_yield},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": stale_fy_transcript})
+    )
+    check(
+        "w7. stale question does not mask a malformed forced-yield turn -> ADVISORY (forced-yield)",
+        is_advisory(rc, out, "forced-yield"),
+    )
+
+    # w8. REGRESSION (DS-155 round 4, Major fix - supersedes the round-3
+    # version of this test, which hand-built a SAME-ENTRY mixed
+    # [text, tool_use] array; corpus measurement (see
+    # hooks/tests/fixtures/turn-shape-corpus-samples.json) found that
+    # shape occurs 4 times in 169,745 real assistant entries (0.002%) and
+    # is NOT what real transcripts actually do). This fixture instead uses
+    # a REAL corpus-derived SEPARATE-entry span: thinking -> tool_use ->
+    # tool_result -> text (sample-3, the simplest span containing the
+    # pure-text-immediately-before-a-SEPARATE-tool_use pattern measured
+    # 30,027 times). A genuine fresh answer turn with this real shape must
+    # be QUIET, identical to the same final answer text delivered as a
+    # single entry with no scaffolding at all.
+    text_then_tool_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "Why did the cache test fail?"},
+            {"role": "assistant", "content": [{"type": "thinking", "thinking": "Let me check the log."}]},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "log output"}],
+            },
+            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": text_then_tool_transcript})
+    )
+    check(
+        "w8. corpus-derived split-entry (thinking->tool_use->tool_result->text) -> QUIET (not a false intervening turn)",
+        is_quiet(rc, out),
+    )
+
+    # w8b. REGRESSION (DS-155 round 4): the SPLIT-entry shape this fix
+    # actually targets - a PURE-TEXT entry immediately followed by a
+    # SEPARATE tool_use entry (not merged into one array). This is the
+    # shape round 3's same-entry-only check could never catch (measured
+    # 30,027 times in the corpus vs. 4 same-entry occurrences) and is the
+    # literal ticket symptom: the model narrates in plain text, THEN
+    # separately calls a tool, then answers.
+    split_text_then_tool_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "Why did the cache test fail?"},
+            {"role": "assistant", "content": [{"type": "text", "text": "Let me check the log."}]},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "log output"}],
+            },
+            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {"last_assistant_message": "", "transcript_path": split_text_then_tool_transcript}
+        )
+    )
+    check(
+        "w8b. pure-text entry immediately followed by a SEPARATE tool_use entry -> QUIET",
+        is_quiet(rc, out),
+    )
+
+    # w9. REGRESSION (DS-155 round 3, Minor fix - the mirror image of w8):
+    # when the CURRENT turn's own assistant entry is NOT yet on disk at
+    # Stop time (last_assistant_message supplied directly and does NOT
+    # match anything in the transcript), the one genuinely earlier
+    # completed turn in the transcript must NOT be silently skipped as if
+    # it were "this turn's own entry" - the question is stale-by-one and
+    # must be correctly detected.
+    stale_by_one_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK + "\nWaiting: engineer spawned, blocks merge.",
+            },
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": stale_status_only,
+                "transcript_path": stale_by_one_transcript,
+            }
+        )
+    )
+    check(
+        "w9. current turn's own entry not yet on disk -> ADVISORY (status-only), correctly stale-by-one",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # w10. REGRESSION (DS-155 round 4): the tool_use-pending flag must be
+    # scoped to AT MOST ONE preceding text entry, not leak forward and
+    # excuse an EARLIER, genuinely separate completed turn that has no
+    # tool_use of its own. Shape: [Q] [turn A - a genuinely separate
+    # completed pure-text turn, no tool_use] [turn B's own pre-tool
+    # narration] [turn B's tool_use] [tool_result] [turn B's final answer
+    # = CURRENT]. Turn A must still be detected as an intervening turn
+    # (ADVISORY) even though a tool_use exists later in the same window -
+    # that tool_use belongs to turn B's own narration step, not to turn A.
+    scoping_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "assistant",
+                "content": "genuinely separate turn A final message, no tool use here",
+            },
+            {"role": "assistant", "content": "Let me check something before answering."},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t2", "name": "Bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t2", "content": "ok"}],
+            },
+            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": scoping_transcript})
+    )
+    check(
+        "w10. tool_use attribution is scoped to ONE preceding text entry, not the whole window "
+        "-> ADVISORY (status-only), turn A still detected as intervening",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # ---------------------------------------------------------------------
+    # CORPUS-REPLAY GATE (DS-155 round 5, Major 2 - structural requirement,
+    # not optional). Fixtures MUST be corpus-derived, not hand-assumed:
+    # this replays every sample in
+    # hooks/tests/fixtures/turn-shape-corpus-samples.json - real assistant/
+    # tool-result entry SHAPES, INCLUDING message.id sharing structure
+    # (relabeled opaque placeholders, not real ids - see the fixture's own
+    # "_purpose" note), STRATIFIED BY SHAPE CLASS (single_direct,
+    # own_message_split, genuinely_separate, deep_chain - see the
+    # fixture's "_measurement.shape_classes_covered") rather than by raw
+    # assistant-entry count. Round 4's count-stratified sampling covered
+    # the genuinely_separate class in only 2 of 8 samples and asserted
+    # QUIET on every sample - structurally blind to the over-permissive
+    # ADVISORY direction, which is the direction ALL of round 4's 43 real
+    # corpus mismatches ran. This gate now asserts each sample's OWN
+    # `expected` verdict (quiet or advisory), covering both directions.
+    # Verified (see the round-5 commit message) to reproduce the expected
+    # direction against BOTH round 3 (1e31bbd9: mismatches B1/B2, the
+    # split-entry shape it never learned) and round 4 (69ef2e7a: mismatches
+    # C1, the genuinely-separate-turn shape its positional-only rule
+    # over-exempts).
+    # ---------------------------------------------------------------------
+
+    _FIXTURES_PATH = os.path.join(os.path.dirname(__file__), "fixtures", "turn-shape-corpus-samples.json")
+    with open(_FIXTURES_PATH, "r", encoding="utf-8") as _f:
+        _corpus_fixture = json.load(_f)
+
+    def _build_synthetic_span_entry(block_types: list, message_id, tool_id_box: list) -> dict:
+        """Build a synthetic (content-free) transcript entry matching the
+        given block-type sequence and message.id. Never embeds any real
+        corpus content - every string here is a fixed synthetic
+        placeholder; `message_id` is the fixture's own relabeled opaque
+        placeholder (e.g. "m1"), never a real API-issued id."""
+        blocks = []
+        for bt in block_types:
+            if bt == "text":
+                blocks.append({"type": "text", "text": "Synthetic scaffolding narration before continuing."})
+            elif bt == "thinking":
+                blocks.append({"type": "thinking", "thinking": "Synthetic internal reasoning."})
+            elif bt == "tool_use":
+                tool_id_box[0] += 1
+                blocks.append(
+                    {"type": "tool_use", "id": f"synthetic-tool-{tool_id_box[0]}", "name": "Bash", "input": {}}
+                )
+            elif bt == "tool_result":
+                blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": f"synthetic-tool-{tool_id_box[0]}",
+                        "content": "synthetic tool output",
+                    }
+                )
+            else:
+                blocks.append({"type": bt})
+        entry = {"content": blocks}
+        if message_id is not None:
+            entry["message"] = {"id": message_id}
+        return entry
+
+    def _build_corpus_replay_transcript(tmp_dir_inner: str, sample: dict, final_answer_text: str) -> str:
+        tool_id_box = [0]
+        lines = [
+            {
+                "role": "user",
+                "content": "Synthetic operator question derived from a real corpus span shape?",
+            }
+        ]
+        span = sample["span"]
+        for i, entry_spec in enumerate(span):
+            is_last_final_text = (
+                i == len(span) - 1
+                and entry_spec["role"] == "assistant"
+                and entry_spec["block_types"] == ["text"]
+            )
+            message_id = entry_spec.get("message_id")
+            if is_last_final_text:
+                built = {"role": "assistant", "content": [{"type": "text", "text": final_answer_text}]}
+                if message_id is not None:
+                    built["message"] = {"id": message_id}
+            else:
+                built = _build_synthetic_span_entry(entry_spec["block_types"], message_id, tool_id_box)
+                built["role"] = entry_spec["role"]
+            lines.append(built)
+        return _write_transcript(tmp_dir_inner, lines)
+
+    for _sample in _corpus_fixture["samples"]:
+        _replay_transcript = _build_corpus_replay_transcript(tmp_dir, _sample, PLAIN_PROSE_ANSWER)
+        rc, out, err = run_hook(
+            json.dumps({"last_assistant_message": "", "transcript_path": _replay_transcript})
+        )
+        _expect_quiet = _sample["expected"] == "quiet"
+        _outcome_ok = is_quiet(rc, out) if _expect_quiet else is_advisory(rc, out, "status-only")
+        check(
+            f"corpus-replay {_sample['id']} ({_sample['shape_class']}) -> "
+            f"{'QUIET' if _expect_quiet else 'ADVISORY'} (expected)",
+            _outcome_ok,
+        )
 
 
 # ---------------------------------------------------------------------------

@@ -1,26 +1,50 @@
 #!/usr/bin/env python3
 """
 Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
-         the conductor's final assistant message against the three-part
-         turn-shape contract in content/sections/02-delegation.md /
+         the conductor's final assistant message against the turn-shape
+         contract in content/sections/02-delegation.md /
          content/rules/conventions.md ("Operator decisions go last in the
-         turn", "Waiting:" forced-yield shape, and the identity/phase
-         breadcrumb convention). It NEVER blocks - this is the single most
-         important property of this hook, unlike its sibling
-         enforce-no-abdication.py, which does block. A finding here is
-         surfaced purely as feedback text so the conductor can self-correct
-         on its next turn.
+         turn" and "Waiting:" forced-yield shape). It NEVER blocks - this
+         is the single most important property of this hook, unlike its
+         sibling enforce-no-abdication.py, which does block. A finding
+         here is surfaced purely as feedback text so the conductor can
+         self-correct on its next turn.
 
-         Five checks, run in this fixed order:
+         DS-155 round 3 history note (identity-line check REMOVED, not
+         disabled): this hook previously ran a fifth check flagging a
+         missing/malformed "<ticket> · <branch> · [phase: ...]" first
+         line. Two successive rounds each replaced the "does this turn owe
+         a breadcrumb" predicate with a more careful version, and each was
+         falsified in turn: round 1 inferred it from transcript content
+         (a prior well-formed identity line anywhere in the session) and
+         was both poisonable (a single fabricated identity line
+         "established" context forever) and non-bootstrapping (a session
+         whose early turns were all malformed never got flagged); round
+         2's replacement read REAL state instead (git branch naming
+         convention, `.agentic/` ticket-loop state) and was falsified
+         empirically against the very session that authored it - a
+         Stop-event hook only ever observes the CONDUCTOR's own checkout,
+         which structurally never leaves the base branch, so the
+         branch-name signal is keyed on a state the consuming session can
+         never present. The operator's decision: delete the check rather
+         than author a third predicate. The identity/phase breadcrumb
+         REMAINS a documented convention
+         (content/references/conductor-turn-format.md) - it is simply no
+         longer machine-enforced by this hook. DS-155 round 4 update: the
+         former identity-line regex is now fully DELETED too, not merely
+         unused - round 3 kept it on the theory that the forced-yield
+         check depended on it; that theory was wrong (verified by
+         execution: _forced_yield_flag reasons positionally via
+         _body_after_identity_line, never via a regex match), so the
+         regex genuinely had no consumer anywhere in this repo and its
+         catastrophic-backtracking guard was protecting nothing. The
+         canonical shape stays documented in
+         content/references/conductor-turn-format.md alone.
 
-         1. Identity-line check: the first non-blank line of the message
-            should loosely match a "<token> . <token> . <token> [phase:
-            ...]" breadcrumb shape (three middle-dot-separated tokens plus
-            a bracketed phase tag). A missing/malformed identity line is
-            flagged.
+         Four checks, run in this fixed order:
 
-         2. Warrant classification (RUNS FIRST relative to checks 3-5
-            below, and is AUTHORITATIVE over them): classifies which of
+         1. Warrant classification (RUNS FIRST, and is AUTHORITATIVE over
+            checks 2a-4 below): classifies which of
             four warrants justify the turn's content -
               - decision:   an "## Operator decisions" heading is present.
               - stoppage:   at least one "Waiting:" line is present.
@@ -32,8 +56,31 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
                              pulling main") must not accidentally launder
                              into a completion warrant.
               - answer:     a quoted fragment of the operator's immediately
-                             preceding message. Best-effort and deliberately
-                             the weakest of the four detectors.
+                             preceding message, OR (DS-155)
+                             _transcript_answer_bonus finding that the
+                             operator's most recent GENUINE message (per
+                             loop_guard.last_genuine_user_text) looks like a
+                             direct question (_looks_like_question: a
+                             trailing "?", or a "?" anywhere in a message
+                             under _SHORT_QUESTION_TEXT_MAX_CHARS chars)
+                             AND that question is still the IMMEDIATELY
+                             preceding turn boundary - no genuinely
+                             separate, earlier completed assistant turn
+                             since it was asked
+                             (_has_intervening_assistant_turn: a STALE
+                             question, still sitting there after several
+                             later background-agent check-in turns, grants
+                             nothing; see that function's own docstring
+                             for the corpus-measured fix - a pure-text
+                             entry immediately followed by a SEPARATE
+                             tool_use entry, the real shape, not a mixed
+                             same-entry array - and the false negative
+                             when the current turn's own entry is not yet
+                             on disk). The transcript-derived bonus
+                             licenses a plain-prose reply without the narrow
+                             quoted-fragment shape below. Best-effort and
+                             deliberately the weakest of the four
+                             detectors.
             DS-151: the detection domain is restricted to the identity line
             plus UNFENCED body lines only (see _segment/_classify_warrants
             below) - a warrant token that appears only inside a fenced code
@@ -42,11 +89,11 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             decision/stoppage/completion/answer claim. The identity line
             stays in the domain because it carries "[phase: complete]".
 
-         3a. Status-only flag: fires when the message has MORE than ~1-2
+         2a. Status-only flag: fires when the message has MORE than ~1-2
              lines of prose outside the identity line AND has NONE of the
              four warrants above.
 
-         3b. Forced-yield shape check - STRICTLY SUBORDINATE to (2). Runs
+         2b. Forced-yield shape check - STRICTLY SUBORDINATE to (1). Runs
              ONLY when `stoppage` is the SOLE warrant present (a "Waiting:"
              line exists and none of decision/completion/answer is
              present). When that gate passes, the message must be exactly
@@ -56,10 +103,10 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
              warrant, this check is skipped entirely - no flag, regardless
              of how much other prose accompanies it.
 
-            Known implementation seam (DS-151 amendment A7): 3a and 3b
+            Known implementation seam (DS-151 amendment A7): 2a and 2b
             still operate on the raw, unsegmented body-line list
             (_body_after_identity_line), NOT on _segment's fence-aware
-            structure that checks 4 and 5 below consume. This is a
+            structure that checks 3 and 4 below consume. This is a
             deliberate scope boundary, not an oversight: neither check's
             correctness depends on fence-awareness (a fenced "Waiting:"
             line inside a code block is already extremely unlikely prose,
@@ -69,7 +116,7 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             fence-related false positive/negative is ever reported against
             either check, migrate it onto _segment then.
 
-         4. Turn-charge volume check (DS-151): a mechanical backstop for
+         3. Turn-charge volume check (DS-151): a mechanical backstop for
             the "1-3 status lines per turn" promise in
             content/references/conductor-turn-format.md, which was
             previously enforced by prose only. Rewritten from a
@@ -80,9 +127,9 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             `charge(message) > BASE_BODY_BUDGET` replaces the deleted
             per-warrant BODY_BUDGET_* table entirely. Skipped entirely when
             zero warrants are present - that case is already exclusively
-            owned by the status-only flag (3a).
+            owned by the status-only flag (2a).
 
-         5. Operator-decisions item-sprawl check: flags any single
+         4. Operator-decisions item-sprawl check: flags any single
             "## Operator decisions" item (a numbered or bulleted top-level
             line, with continuation lines - INCLUDING fenced content,
             amendment A2 - folded in) whose line count exceeds
@@ -94,7 +141,7 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             same rule mandates - a different axis from the banned count
             cap, not a restatement of it.
 
-         Checks 4 and 5 both consume the shared _segment/_regions/
+         Checks 3 and 4 both consume the shared _segment/_regions/
          _decision_items helpers - the single source of truth for fence and
          region structure. This is deliberate: two independent parsers
          drifting apart (the old _count_core_body_lines and the old
@@ -236,7 +283,7 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
              it would add complexity without closing any bypass.
 
          This ordering (warrant classification is authoritative; checks
-         3a/3b/4/5 are all downstream of it) is the whole design. Two prior
+         2a/2b/3/4 are all downstream of it) is the whole design. Two prior
          review rounds rejected an earlier version of this hook that fired
          on correct, fully-warranted turns - a guard that fires on correct
          behavior trains the conductor to ignore its own feedback channel,
@@ -275,6 +322,22 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
          advisory-only behavior rather than silently swallowing findings.
          This hook NEVER blocks - the guard only suppresses advisories; every
          exit stays 0.
+
+         Undocumented-until-DS-155 UX cost of the above: the loop guard
+         bounds how many TIMES the model is re-invoked, but it does nothing
+         about what the operator SEES on each re-invocation. The harness
+         does not retract or replace the already-streamed flagged message
+         when `additionalContext` re-invokes the model - the operator sees
+         BOTH the original flagged turn AND the corrected re-invocation
+         turn, back to back, for every single advisory fire. At
+         CONSECUTIVE_BLOCK_CAP=2 that is up to two extra visible duplicate
+         turns stacked on top of the one substantive turn the operator
+         actually wanted, on ONE user-facing exchange. This is a real,
+         user-visible cost of the advisory mechanism itself, not a bug in
+         the loop-count bound - see also
+         content/references/conductor-turn-format.md's Hook contract
+         section and residual-false-positive list, which name the same
+         cost from the operator-facing side.
 
 Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             stdin. ALWAYS exits 0. On a clean turn (no findings), emits
@@ -413,19 +476,6 @@ MAX_LINES_PER_DECISION_ITEM = ITEM_FREE_LINES
 # Classifier patterns
 # ---------------------------------------------------------------------------
 
-# Loose identity-line shape: three middle-dot-separated tokens plus a
-# bracketed [phase: ...] tag, anchored to the start of the (stripped) line.
-# Deliberately loose - ticket IDs, branch names, and phase vocabulary vary
-# across projects and sessions; this is a structural check, not a content
-# check.
-#
-# Each `·`-delimited segment is bounded to `[^·\n]*` (not `.*`) so the regex
-# cannot backtrack across segment boundaries - a plain `.*·.*·.*` pattern
-# backtracks cubically on a long first line with many `·` characters and no
-# `[phase:` tag (measured: 3200 dots took 13.8s, exceeding this hook's own
-# 10s registered timeout and its "< 5ms per call" manifest claim).
-_IDENTITY_LINE_RE = re.compile(r"^\S[^·\n]*·[^·\n]*·.*\[phase:.*\]", re.IGNORECASE)
-
 # "## Operator decisions" heading (see content/sections/02-delegation.md
 # "Operator decisions go last in the turn"). Case-insensitive, tolerant of
 # 2+ leading hashes and an optional trailing colon - mirrors
@@ -480,13 +530,6 @@ _QUOTED_FRAGMENT_RE = re.compile(r'"[^"\n]{8,}"|^>\s*\S.{6,}', re.MULTILINE)
 # Used by _decision_items (consumed by both _turn_charge and
 # _decision_item_sprawl_flag).
 _DECISION_ITEM_START_RE = re.compile(r"^ {0,3}(?:\d+[.)]|[-*+])\s+\S")
-
-
-def _first_nonblank_line(text: str) -> str:
-    for line in text.splitlines():
-        if line.strip():
-            return line
-    return ""
 
 
 def _body_after_identity_line(text: str) -> list:
@@ -589,11 +632,20 @@ def _decision_items(decisions: list) -> tuple:
     return items, non_item
 
 
-def _classify_warrants(text: str) -> dict:
-    """Unchanged signature. Detection domain is the identity line plus
-    UNFENCED body lines only (DS-151) - a warrant token inside a fence is
-    an example being discussed, not a warrant. The identity line carries
-    "[phase: complete]", so it MUST remain in the domain."""
+def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
+    """Detection domain is the identity line plus UNFENCED body lines only
+    (DS-151) - a warrant token inside a fence is an example being
+    discussed, not a warrant. The identity line carries "[phase:
+    complete]", so it MUST remain in the domain.
+
+    answer_bonus (DS-155): OR'd into the `answer` warrant alongside
+    _QUOTED_FRAGMENT_RE. Callers pass the result of
+    _transcript_answer_bonus (True when the operator's most recent genuine
+    message looks like a direct question) so a plain-prose reply to a
+    direct question satisfies the warrant without needing a quoted
+    fragment. Defaults to False so every existing single-argument call
+    site (including hooks/tests/test-turn-charge-model.py's direct
+    _turn_charge(text) calls) is unaffected."""
     identity_line, body = _segment(text)
     unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
     domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
@@ -601,7 +653,7 @@ def _classify_warrants(text: str) -> dict:
         "decision": bool(_OPERATOR_DECISIONS_HEADING_RE.search(domain_text)),
         "stoppage": any(_WAITING_LINE_RE.match(ln) for ln in unfenced_lines),
         "completion": bool(_COMPLETION_RE.search(domain_text)),
-        "answer": bool(_QUOTED_FRAGMENT_RE.search(domain_text)),
+        "answer": bool(_QUOTED_FRAGMENT_RE.search(domain_text)) or answer_bonus,
     }
 
 
@@ -637,7 +689,7 @@ def _forced_yield_flag(text: str, warrants: dict):
     return None
 
 
-def _turn_charge(text: str) -> tuple:
+def _turn_charge(text: str, warrants: dict = None) -> tuple:
     """(charge, breakdown). breakdown keys: status, fence, decisions,
     fence_lines, items, waiting_ok, nonblank.
 
@@ -648,10 +700,19 @@ def _turn_charge(text: str) -> tuple:
     aggregate pool spanning both regions would double-charge fenced content
     inside a decision item, since that content is already charged via
     decisions_charge).
+
+    warrants (DS-155): optional already-computed warrant dict. When
+    omitted (every existing test-turn-charge-model.py call site passes
+    only `text`), recomputed internally via _classify_warrants(text) -
+    identical to pre-DS-155 behavior. main()/_volume_flag pass their own
+    already-computed dict so the transcript-derived answer_bonus (see
+    _classify_warrants) is applied exactly once and consistently, rather
+    than recomputed here without it.
     """
     identity_line, body = _segment(text)
     status_lines, decisions_lines, heading_present = _regions(body)
-    warrants = _classify_warrants(text)
+    if warrants is None:
+        warrants = _classify_warrants(text)
     stoppage_sole = warrants["stoppage"] and not (
         warrants["decision"] or warrants["completion"] or warrants["answer"]
     )
@@ -706,7 +767,7 @@ def _volume_flag(text: str, warrants: dict):
     if not any(warrants.get(name) for name in ("decision", "stoppage", "completion", "answer")):
         return None
 
-    charge, breakdown = _turn_charge(text)
+    charge, breakdown = _turn_charge(text, warrants)
     if charge <= BASE_BODY_BUDGET:
         return None
 
@@ -764,6 +825,114 @@ def _decision_item_sprawl_flag(text: str):
 # ---------------------------------------------------------------------------
 
 
+def _resolve_assistant_content(obj: dict):
+    """Return the raw `content` value for an assistant-role transcript
+    line, or None if `obj` is not an assistant entry. Shared resolution
+    step for _extract_assistant_text and _assistant_entry_has_tool_use
+    (DS-155 round 3) - both need the SAME raw content value, just
+    interpreted differently (concatenated text vs. presence of a
+    tool_use block), so this is the single source of truth for "what is
+    this entry's content" - mirrors the same discipline already applied
+    to _segment/_regions/_decision_items."""
+    if not isinstance(obj, dict):
+        return None
+    role = obj.get("role") or obj.get("type", "")
+    if role != "assistant":
+        return None
+    content = obj.get("content")
+    if content is None:
+        msg = obj.get("message", {})
+        if isinstance(msg, dict):
+            content = msg.get("content")
+    return content
+
+
+def _extract_assistant_text(obj: dict) -> str:
+    """Return the text of `obj` if it is an assistant transcript line, else
+    "". Factored out of _last_assistant_text_from_transcript (DS-155) so
+    other assistant-text scans do not re-implement the same shape parsing
+    independently."""
+    content = _resolve_assistant_content(obj)
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        # Joined with "\n", not " " (Skeptic Minor): a space-join collapses
+        # a multi-block message onto a single line, so
+        # _body_after_identity_line() sees an empty body and both the
+        # status-only and forced-yield checks go silently inert on this
+        # fallback path even though they fire correctly on the primary
+        # last_assistant_message path for the same text. Under-flagging is
+        # the safe failure direction (this hook never blocks), but the
+        # fallback should still mirror the primary path's line structure.
+        return "\n".join(parts)
+    return ""
+
+
+def _assistant_entry_has_tool_use(obj: dict) -> bool:
+    """True iff `obj` is an assistant transcript line whose content
+    includes a tool_use block - i.e. this entry is inherently MID-TURN
+    scaffolding: the assistant asked to call a tool, so THIS entry can
+    never be the FINAL message of a completed Stop-triggered turn (Claude
+    Code's Stop event cannot fire mid-tool-call).
+
+    DS-155 round 4 corpus note: real Claude Code transcripts essentially
+    NEVER put `text` and `tool_use` in the SAME entry's content array - a
+    corpus measurement across 3,429 local transcript files / 169,745
+    assistant entries found exactly 4 mixed `('text','tool_use', ...)`
+    entries (0.002%) against 83,085 pure `('tool_use',)` entries and
+    42,195 pure `('text',)` entries. The real "the model spoke, then
+    called a tool" shape is a PURE-TEXT entry followed by a SEPARATE
+    pure-`tool_use` entry (measured 30,027 times in the same corpus) -
+    this function alone cannot detect that shape, since it only inspects
+    ONE entry's own content. See _has_intervening_assistant_turn for how
+    the two are combined: this function still catches the rare same-entry
+    mixed case, and the caller separately tracks tool_use ACROSS entries
+    to catch the common split-entry case.
+    """
+    content = _resolve_assistant_content(obj)
+    if isinstance(content, list):
+        return any(isinstance(b, dict) and b.get("type") == "tool_use" for b in content)
+    return False
+
+
+def _assistant_message_id(obj: dict) -> str:
+    """Return `obj["message"]["id"]` if present and non-empty, else None
+    (DS-155 round 5).
+
+    Every real Claude Code transcript entry carries this field, and
+    entries that are physically split across multiple JSONL lines but
+    belong to ONE logical assistant message share the SAME id - this is
+    the actual delimiter for "these entries are the same message", not
+    proximity in the transcript. Corpus-verified: of 5,480 real adjacent
+    (pure-text entry, tool_use entry) pairs sampled, 5,479 (99.98%) share
+    one message.id; the remaining 1 pair belongs to two DIFFERENT
+    messages that merely happen to be adjacent - exactly the shape that
+    defeated the round-4 purely-positional rule (a genuinely separate,
+    already-completed turn immediately followed by a new turn that opens
+    with a tool call was silently excused). Returns None (not an error) -
+    the caller degrades to a positional fallback - when the field is
+    absent, not a string, or empty; `obj` not being an assistant entry
+    also returns None (obj.get("message") is then typically absent or
+    lacks "id").
+    """
+    if not isinstance(obj, dict):
+        return None
+    msg = obj.get("message")
+    if isinstance(msg, dict):
+        mid = msg.get("id")
+        if isinstance(mid, str) and mid:
+            return mid
+    return None
+
+
 def _last_assistant_text_from_transcript(transcript_path: str) -> str:
     """Best-effort reverse scan for the most recent assistant message text.
 
@@ -788,42 +957,248 @@ def _last_assistant_text_from_transcript(transcript_path: str) -> str:
                 obj = json.loads(raw)
             except Exception:
                 continue
-            if not isinstance(obj, dict):
-                continue
-
-            role = obj.get("role") or obj.get("type", "")
-            if role != "assistant":
-                continue
-
-            content = obj.get("content")
-            if content is None:
-                msg = obj.get("message", {})
-                if isinstance(msg, dict):
-                    content = msg.get("content")
-
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        parts.append(block)
-                # Joined with "\n", not " " (Skeptic Minor): a space-join
-                # collapses a multi-block message onto a single line, so
-                # _body_after_identity_line() sees an empty body and both
-                # the status-only and forced-yield checks go silently inert
-                # on this fallback path even though they fire correctly on
-                # the primary last_assistant_message path for the same
-                # text. Under-flagging is the safe failure direction (this
-                # hook never blocks), but the fallback should still mirror
-                # the primary path's line structure.
-                return "\n".join(parts)
-            return ""
+            text = _extract_assistant_text(obj)
+            if text:
+                return text
+        return ""
     except Exception:
         return ""
-    return ""
+
+
+# Cheap, best-effort "this looks like a direct question" signal used by
+# _transcript_answer_bonus. A trailing '?' (allowing trailing whitespace/
+# quote/paren punctuation) is the strongest reliable signal; a '?' anywhere
+# in a SHORT message also counts (covers "quick question: what's the plan
+# for X? thanks" where the '?' isn't the literal last character). Length-
+# gated deliberately: an incidental '?' buried inside a long paste or diff
+# is not evidence the whole message is a question, so it is NOT credited -
+# under-crediting here just falls back to today's narrower behavior (no
+# crash, no false grant), which is the required soft-fail direction.
+_TRAILING_QUESTION_RE = re.compile(r"\?[\s'\")\]]*$")
+_SHORT_QUESTION_TEXT_MAX_CHARS = 300
+
+
+def _looks_like_question(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if _TRAILING_QUESTION_RE.search(stripped):
+        return True
+    return "?" in stripped and len(stripped) <= _SHORT_QUESTION_TEXT_MAX_CHARS
+
+
+def _has_intervening_assistant_turn(transcript_path: str, current_text: str) -> bool:
+    """True iff a genuinely SEPARATE, EARLIER completed assistant turn
+    exists between the most recent genuine user message and now - i.e. the
+    operator's question is STALE and must not grant the answer bonus.
+    Closes the demonstrated repro: operator asks a question, then several
+    later background-agent check-in turns pass (each its own COMPLETED
+    assistant turn, none of them a reply to the question), and a later
+    unrelated status-only or malformed-forced-yield turn was incorrectly
+    going QUIET under the ORIGINAL question purely because it was still
+    the most recent genuine user line in the transcript.
+
+    History (each round measured against a local Claude Code transcript
+    corpus - 900 files / ~1,623 completed-turn evaluation points, unless
+    noted otherwise - not assumed from a hand-built fixture):
+      - Round 2: introduced this check. Positionally "skip the first
+        non-blank text entry, whatever it is" - two bugs, a false positive
+        (ANY non-blank text entry counted as a boundary candidate, no
+        exemption) and a false negative (the "first one" assumption breaks
+        when the current turn's own entry is not yet on disk).
+      - Round 3: fixed both round-2 bugs. The false-positive fix exempted
+        an entry whose content mixes `text` AND `tool_use` in the SAME
+        array, reasoning that shape is the common "narrate, then call a
+        tool" pattern. MEASURED WRONG round 4: that same-entry shape
+        occurs 4 times in 169,745 real assistant entries (0.002%) - dead
+        code, protecting against a shape that essentially never happens.
+        Round-3 correctness: 1,025 / 1,623 (63.2%).
+      - Round 4: replaced the same-entry check with cross-entry positional
+        tracking - a pure-text entry is transparent scaffolding when a
+        tool_use entry was seen immediately before it (in time) during the
+        reverse scan, consumed by AT MOST one preceding text entry. This
+        matched the REAL shape (a pure-text entry followed by a SEPARATE
+        tool_use entry, measured 30,027 times) and raised correctness to
+        1,580 / 1,623 (97.4%). Still wrong on the remaining 43: pure
+        POSITION cannot distinguish "this text precedes ITS OWN later tool
+        call" from "this text is a genuinely separate, already-completed
+        turn that HAPPENS to be followed by an unrelated turn's tool call"
+        - both look identical by position alone. Demonstrated live: a
+        completed turn immediately followed by new work opening with a
+        tool call was silently excused as if it belonged to that new work.
+      - Round 5 (current): every real transcript entry carries
+        `message.id` (see _assistant_message_id), and entries that
+        genuinely belong to the SAME logical assistant message share one.
+        That is the real delimiter "position" was only ever a proxy for.
+        Scope the tool_use exemption to a SHARED message.id instead of
+        position. Corpus-verified: of 5,480 real adjacent (pure-text,
+        tool_use) entry pairs, 5,479 (99.98%) share one message.id: the
+        id-scoped rule keeps round 4's fix for the common case exact,
+        while separately and correctly rejecting the 1-in-5,480 case where
+        they do not. Correctness: 1,620 / 1,623 (99.8%).
+
+    NAMED RESIDUAL (round 5, not rounded to zero): 3 of 1,623 evaluation
+    points remain wrong, all in the same direction (expected stale=True,
+    got False). All 3 share one shape: a pure-text entry and its own later
+    tool_use entry share message.id, but a harness-injected/system
+    bookkeeping line (a system-role entry, or a non-genuine `user`
+    system-reminder) is interleaved BETWEEN them in the transcript. This
+    id-set match does not require the two entries to be CONTIGUOUS, so it
+    still (correctly, in the sense that they genuinely are one API
+    response) treats them as one message and exempts the text entry. A
+    stricter contiguity-tracking refinement is a POSSIBLE further fix
+    (reset id-pending tracking on any interruption by a non-assistant,
+    non-tool_result line) but is NOT implemented here - it was not the
+    validated fix for this round, and the gap is disclosed rather than
+    hidden.
+
+    Reverse-scans the transcript. For each line, in order:
+      1. A genuine user turn (loop_guard.is_genuine_user_turn) is the
+         boundary - stop, no intervening turn found (False).
+      2. Any assistant entry whose content includes a tool_use block is
+         transparent (it can never be a completed turn's final message -
+         Stop cannot fire mid-tool-call). If it carries a message.id, add
+         that id to a PENDING set (ids are globally unique, so this set
+         never needs an entry removed - a later same-id text entry is
+         unambiguously the same message, not a positional coincidence).
+         If it has NO message.id, set a positional fallback flag instead.
+      3. An assistant entry with pure text and no tool_use of its own:
+         - If its message.id is in the pending set: transparent mid-turn
+           scaffolding (the SAME logical message narrated, then called a
+           tool). The id stays in the set (safe - ids are unique).
+         - Else, if it has NO message.id and the positional fallback flag
+           is set: transparent (FALLBACK for transcripts that never carry
+           message.id - reproduces round 4's own rule exactly for that
+           class of input). Clear the flag (consumed once).
+         - Else, if its text matches `current_text` AND the current-turn
+           slot has not been consumed yet: treat it as THIS turn's own
+           entry and skip it (consume the slot, once).
+         - Otherwise: a genuinely different, earlier completed turn -
+           stale (True).
+
+    Fails CLOSED toward True (i.e. "stale, do not grant" - the narrower,
+    safer direction) on any read/parse error, when loop_guard is
+    unavailable, on an empty transcript_path, or when no genuine user
+    boundary is found at all (the scan cannot positively confirm
+    recency).
+    """
+    lg = _LOOP_GUARD
+    if lg is None or not transcript_path:
+        return True
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return True
+
+    current_stripped = current_text.strip()
+
+    try:
+        consumed_current_turn_slot = False
+        pending_message_ids = set()
+        positional_pending = False
+        for raw in reversed(lines):
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                continue
+            if lg.is_genuine_user_turn(obj):
+                return False  # reached the boundary - no intervening turn
+            if _assistant_entry_has_tool_use(obj):
+                entry_id = _assistant_message_id(obj)
+                if entry_id is not None:
+                    # PRIMARY mechanism: track the tool_use's message.id.
+                    # IDs are globally unique per assistant message, so
+                    # adding to a set never needs to be "consumed" or reset
+                    # - a later (older, in reverse scan) text entry sharing
+                    # this exact id is unambiguously part of the SAME
+                    # logical message, never a coincidence of position.
+                    pending_message_ids.add(entry_id)
+                else:
+                    # FALLBACK: no message.id on this tool_use entry (a
+                    # transcript shape that predates the id field, or a
+                    # synthetic/hand-built payload). Degrade to the
+                    # positional rule alone.
+                    positional_pending = True
+                continue  # tool_use entry - always mid-turn, never a boundary marker
+            assistant_text = _extract_assistant_text(obj)
+            if not assistant_text.strip():
+                continue  # empty text, no tool_use - never a boundary marker
+            # Pure text, no tool_use of its own.
+            entry_id = _assistant_message_id(obj)
+            if entry_id is not None and entry_id in pending_message_ids:
+                # This text entry shares a message.id with a tool_use entry
+                # already seen in this reverse scan - the SAME logical
+                # assistant message narrated, then called a tool. Mid-turn
+                # scaffolding, never a boundary marker.
+                continue
+            if entry_id is None and positional_pending:
+                # FALLBACK: this text entry has no message.id, so identity
+                # cannot be verified - fall back to the positional rule
+                # (the most recently seen unconsumed tool_use, regardless
+                # of id, explains AT MOST one preceding text entry). This
+                # reproduces the prior (pre-message.id) behavior exactly
+                # for any transcript shape that never carries message.id.
+                positional_pending = False
+                continue
+            if not consumed_current_turn_slot and assistant_text.strip() == current_stripped:
+                consumed_current_turn_slot = True
+                continue
+            return True  # a genuinely different, earlier completed turn
+        return True  # no genuine user boundary found - cannot confirm recency
+    except Exception:
+        return True
+
+
+def _transcript_answer_bonus(transcript_path: str, current_text: str) -> bool:
+    """True iff the operator's most recent GENUINE message (per
+    loop_guard.last_genuine_user_text - filters tool_result/meta/harness-
+    injected lines) looks like a direct question, per _looks_like_question,
+    AND that question is still the IMMEDIATELY preceding turn boundary
+    with no intervening completed assistant turn since it was asked (per
+    _has_intervening_assistant_turn, compared against `current_text` - the
+    turn under evaluation) - a stale question grants nothing.
+
+    Licenses a plain-prose reply to satisfy the `answer` warrant without
+    needing _QUOTED_FRAGMENT_RE's narrow quoted-fragment/blockquote shape -
+    the module docstring already calls that detector "the weakest of the
+    four" and the ticket symptom (a substantive plain-prose answer flagged
+    status-only) traces directly to it.
+
+    Soft-fail, matching every other transcript-derived signal in this
+    hook: any error (missing/unreadable transcript, no genuine turn found,
+    loop_guard unavailable, stale question) returns False - i.e. today's
+    narrower behavior. Never raises, never widens the warrant on an
+    unconfirmed or stale signal.
+
+    Known residual gap: loop_guard's harness-injected-text filter treats
+    ANY text block containing a marker like "<system-reminder>" as
+    non-genuine in its entirety (see loop_guard._extract_genuine_user_text)
+    - if a live harness ever concatenates the operator's own typed
+    question and an injected system-reminder into ONE text block (rather
+    than as separate content blocks, which is the observed live shape),
+    that whole turn would be invisible to this scan and the bonus would
+    fall through to False on an actual question. That failure direction is
+    safe (under-grant, never a fabricated grant) but is a real,
+    unverified-against-every-harness-version gap, not a closed case.
+    """
+    if not transcript_path:
+        return False
+    lg = _LOOP_GUARD
+    if lg is None:
+        return False
+    try:
+        text = lg.last_genuine_user_text(transcript_path)
+    except Exception:
+        return False
+    if not _looks_like_question(text):
+        return False
+    if _has_intervening_assistant_turn(transcript_path, current_text):
+        return False
+    return True
 
 
 # ---------------------------------------------------------------------------
@@ -917,6 +1292,18 @@ def main() -> None:
         if not isinstance(cwd, str):
             cwd = ""
 
+        # Resolve transcript_path once, up front (DS-155), so every
+        # transcript-derived signal below (loop-guard counting, the
+        # last-assistant-message fallback, the answer-warrant bonus) reads
+        # the same normalized value instead of each re-deriving it locally
+        # with its own type guard.
+        transcript_path = data.get("transcript_path", "")
+        if not isinstance(transcript_path, str):
+            # A non-string value (e.g. a number) would reach open() in
+            # loop_guard.count_user_messages, which Python treats as a raw
+            # file descriptor - guard it here, mirroring the sibling hook.
+            transcript_path = ""
+
         # Config toggle: DELIBERATELY INVERTED from enforce-no-abdication.py's
         # abdication_guard_enabled (which requires explicit True). This hook
         # never blocks, so it defaults ON - only an explicit `false` disables
@@ -955,12 +1342,6 @@ def main() -> None:
                 # Fail open (never emit an advisory without a loop bound).
                 sys.exit(0)
             loop_guard_engaged = True
-            transcript_path = data.get("transcript_path", "")
-            if not isinstance(transcript_path, str):
-                # A non-string value (e.g. a number) would reach open() in
-                # loop_guard.count_user_messages, which Python treats as a raw
-                # file descriptor - guard it here, mirroring the sibling hook.
-                transcript_path = ""
             if transcript_path:
                 current_user_msg_count = lg.count_user_messages(transcript_path)
 
@@ -983,8 +1364,7 @@ def main() -> None:
             msg_text = ""
 
         if not msg_text.strip():
-            transcript_path = data.get("transcript_path", "")
-            if isinstance(transcript_path, str) and transcript_path:
+            if transcript_path:
                 msg_text = _last_assistant_text_from_transcript(transcript_path)
 
         if not msg_text.strip():
@@ -993,30 +1373,29 @@ def main() -> None:
 
         findings = []
 
-        # 1. Identity-line check.
-        identity_line = _first_nonblank_line(msg_text)
-        if not identity_line or not _IDENTITY_LINE_RE.match(identity_line.strip()):
-            findings.append(
-                "identity line missing or malformed - expected "
-                "`DS-123 · fix/foo · [phase: skeptic-review]` "
-                "(two `·`-separated tokens then a bracketed [phase: ...] tag)"
-            )
+        # 1. Warrant classification (authoritative). answer_bonus is
+        # computed from the transcript once, gated on recency
+        # (_has_intervening_assistant_turn - a stale question grants
+        # nothing, DS-155), and OR'd into the `answer` warrant so a
+        # plain-prose reply to a direct operator question no longer needs
+        # a quoted fragment - see _transcript_answer_bonus. (DS-155 round
+        # 3: this hook no longer runs an identity-line check at all - see
+        # the module docstring's "DS-155 round 3 history note".)
+        answer_bonus = _transcript_answer_bonus(transcript_path, msg_text)
+        warrants = _classify_warrants(msg_text, answer_bonus=answer_bonus)
 
-        # 2. Warrant classification (authoritative).
-        warrants = _classify_warrants(msg_text)
-
-        # 3a. Status-only flag.
+        # 2a. Status-only flag.
         if _status_only_flag(msg_text, warrants):
             findings.append(
                 "status-only turn - no decision/stoppage/completion/answer warrant present"
             )
 
-        # 3b. Forced-yield shape check (strictly subordinate to 2).
+        # 2b. Forced-yield shape check (strictly subordinate to 1).
         forced_yield_finding = _forced_yield_flag(msg_text, warrants)
         if forced_yield_finding:
             findings.append(forced_yield_finding)
 
-        # 4. Turn-charge volume check (DS-151). Skipped when no warrant is
+        # 3. Turn-charge volume check (DS-151). Skipped when no warrant is
         # present - that case is already exclusively owned by the
         # status-only flag. Unlike the deleted exclusion model, a
         # sole-stoppage forced-yield turn is NOT unconditionally skipped
@@ -1030,7 +1409,7 @@ def main() -> None:
         if volume_finding:
             findings.append(volume_finding)
 
-        # 5. Operator-decisions per-item sprawl check (DS-151). Independent
+        # 4. Operator-decisions per-item sprawl check (DS-151). Independent
         # of the volume check above - item COUNT stays unbounded, only
         # per-item line count is checked, and a single sprawling item can
         # be under the whole-message charge budget while still violating
