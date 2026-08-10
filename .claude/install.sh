@@ -1020,6 +1020,35 @@ for file_matcher in ("Write", "Edit", "MultiEdit"):
         f"PreToolUse({file_matcher}) shippable-edit guard hook",
     )
 
+# ---- PreToolUse worktree-read guard ("Read" matcher) ------------------------
+# Denies a worktree-isolated subagent (agent_id present) Read that reaches
+# into the PRIMARY checkout instead of the agent's own isolation worktree
+# (DS-150). caller_root comes from the payload's cwd field, primary_root
+# from CLAUDE_PROJECT_DIR; both are realpath-normalized before the
+# containment test. Never fires on a main-session call (agent_id absent) or
+# a subagent that is not worktree-isolated. Fully fail-open on any error.
+# Kill-switch: AE_WORKTREE_READ_GUARD_DISABLE=1.
+ENFORCE_WORKTREE_READ_CMD = f"python3 {hooks_root}/hooks/enforce-worktree-read.py"
+
+ptu_worktree_read_block = None
+for block in ptu_list:
+    if block.get("matcher") == "Read":
+        ptu_worktree_read_block = block
+        break
+
+if ptu_worktree_read_block is None:
+    ptu_worktree_read_block = {"matcher": "Read", "hooks": []}
+    ptu_list.append(ptu_worktree_read_block)
+
+ptu_worktree_read_block.setdefault("hooks", [])
+
+upsert_hook(
+    ptu_worktree_read_block["hooks"],
+    "enforce-worktree-read.py",
+    {"type": "command", "command": ENFORCE_WORKTREE_READ_CMD, "timeout": 5},
+    "PreToolUse(Read) worktree-read guard hook",
+)
+
 # Symlink guard: never write through a symlink (open("w") follows it and truncates
 # the real target). PoC verified: symlinking settings.json to a victim file and
 # running installer overwrites the victim's content through the link.
