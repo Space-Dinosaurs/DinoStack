@@ -40,8 +40,15 @@
 #     the FILE existing (`[[ -f ]]`), not merely the directory - on any
 #     resolution failure (not a git repo, git missing, common-dir has no
 #     parent, candidate file does not exist, etc) falls back to
-#     "<repo_dir>/hooks/pre-commit" unchanged - never errors, and never
-#     returns a target known not to exist.
+#     "<repo_dir>/hooks/pre-commit" - but that fallback itself is NOT
+#     existence-gated (it is echoed unconditionally on every fallback
+#     branch), so resolve_hook_src CAN still return a path that does not
+#     exist, e.g. an ordinary (non-worktree) repo_dir with no
+#     hooks/pre-commit file at all. Only the worktree-linked candidate is
+#     existence-checked. install_precommit_hook's own `[[ -f "$hook_src" ]]`
+#     guard is therefore load-bearing, not redundant belt-and-braces - do
+#     not remove it on the assumption this function already guarantees an
+#     existing source.
 #
 #   install_precommit_hook <repo_dir>
 #     Resolves the real hooks dir via resolve_git_hooks_dir and the symlink
@@ -103,12 +110,45 @@
 #     never propagates a failure to the caller.
 #   - Resolved hooks dir does not yet exist (fresh worktree/repo): created
 #     via mkdir -p before the symlink is written (install only).
+#   - KNOWN RESIDUAL (not a regression - identical on origin/main): a bare
+#     repo + `git worktree add`, `git init --separate-git-dir` + worktree,
+#     and a submodule + worktree all fall back to the worktree's OWN
+#     "hooks/pre-commit" (resolve_hook_src has no better source in these
+#     three layouts - `git worktree list --porcelain` returns the gitdir,
+#     not a working tree, in all three). That fallback target is still
+#     INSIDE the worktree, so the installed symlink dangles the moment that
+#     worktree is removed, same failure mode this module exists to prevent,
+#     just not reachable from an ordinary linked worktree. Test 8 in
+#     bin/tests/test_precommit_worktree.sh asserts this known-dangling
+#     outcome directly rather than leaving it undocumented.
 #   - Safe to source under set -euo pipefail; no top-level side effects
 #     beyond the function definitions.
 #
 # Performance: up to three `git rev-parse` calls per invocation (one in
 # resolve_git_hooks_dir, two in resolve_hook_src).
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# _precommit_canonical_repo_dir <repo_dir>
+#   Internal helper (not part of the public API). Echoes the physical,
+#   symlink-resolved, trailing-slash-free form of <repo_dir> via
+#   `(cd <repo_dir> && pwd -P)`, or <repo_dir> unchanged if that cd fails
+#   (non-existent dir - callers already tolerate an unresolvable repo_dir
+#   downstream). resolve_hook_src's worktree-linked candidate is already
+#   canonical (derived from `git rev-parse --path-format=absolute
+#   --git-common-dir`), but its FALLBACK path and
+#   uninstall_precommit_hook's legacy_hook_src are both built by string
+#   concatenation on the raw repo_dir argument - two callers passing
+#   different (but equivalent) spellings of the same directory (a trailing
+#   slash, or a path through a symlinked parent) would otherwise produce
+#   two different fallback/legacy strings for the same real hook, breaking
+#   the exact-match comparisons in install/uninstall. Canonicalizing once,
+#   consistently, closes that gap.
+# ---------------------------------------------------------------------------
+_precommit_canonical_repo_dir() {
+  local d="$1"
+  (cd "$d" 2>/dev/null && pwd -P) || echo "$d"
+}
 
 # ---------------------------------------------------------------------------
 # resolve_git_hooks_dir <repo_dir>
@@ -139,6 +179,7 @@ resolve_git_hooks_dir() {
 # ---------------------------------------------------------------------------
 resolve_hook_src() {
   local repo_dir="$1"
+  repo_dir="$(_precommit_canonical_repo_dir "$repo_dir")"
   local fallback="$repo_dir/hooks/pre-commit"
 
   local git_dir common_dir
@@ -174,7 +215,7 @@ resolve_hook_src() {
   common_worktree="$(dirname "$common_dir")"
   candidate="$common_worktree/hooks/pre-commit"
   if [[ -z "$common_worktree" || ! -f "$candidate" ]]; then
-    echo "  ! could not resolve a real hooks/pre-commit under the common worktree ($common_worktree) - falling back to $fallback (non-fatal)" >&2
+    echo "  ! could not resolve a real hooks/pre-commit under the common worktree ($common_worktree) - falling back to $fallback (non-fatal, but this hook WILL stop working once this worktree is removed - see Failure modes above)" >&2
     echo "$fallback"
     return 0
   fi
@@ -188,6 +229,7 @@ resolve_hook_src() {
 # ---------------------------------------------------------------------------
 install_precommit_hook() {
   local repo_dir="$1"
+  repo_dir="$(_precommit_canonical_repo_dir "$repo_dir")"
   local hook_src
   hook_src="$(resolve_hook_src "$repo_dir")"
 
@@ -197,9 +239,12 @@ install_precommit_hook() {
     return 0
   fi
 
-  # Defense in depth: resolve_hook_src is expected to only ever return an
-  # existing file (it falls back rather than emit a dangling target), but
-  # never create a link whose source is missing regardless of how it got
+  # This guard is LOAD-BEARING, not redundant belt-and-braces: only
+  # resolve_hook_src's worktree-linked candidate is existence-gated - its
+  # fallback ("$repo_dir/hooks/pre-commit") is echoed unconditionally on
+  # every fallback branch and can itself be a path that does not exist
+  # (e.g. an ordinary repo_dir with no hooks/pre-commit file at all).
+  # Never create a link whose source is missing regardless of how it got
   # here - a dangling symlink is silently treated by git as "no hook",
   # exactly the failure mode this module exists to prevent.
   if [[ ! -f "$hook_src" ]]; then
@@ -248,6 +293,7 @@ install_precommit_hook() {
 # ---------------------------------------------------------------------------
 uninstall_precommit_hook() {
   local repo_dir="$1"
+  repo_dir="$(_precommit_canonical_repo_dir "$repo_dir")"
   local hook_src
   hook_src="$(resolve_hook_src "$repo_dir")"
 

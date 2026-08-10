@@ -59,6 +59,24 @@
 #     asserts the main checkout's hook still resolves AND executes -
 #     confirmed to fail against the pre-fix source (see git history/PR for
 #     the baseline failure output this test was written to catch).
+#   - Major 1 (dangling-at-install for bare/separate-gitdir/submodule
+#     worktrees): Test 8 exercises a bare repo + `git worktree add`, where
+#     dirname(--git-common-dir) has no hooks/pre-commit of its own.
+#     resolve_hook_src falls back to the worktree's own hooks/pre-commit
+#     rather than emitting a target dangling from install time. Test 8 ALSO
+#     asserts the KNOWN, undisclosed-no-longer residual: this fallback
+#     target is still inside the worktree, so removing the worktree leaves
+#     the hook dangling anyway (see the library's Failure-modes "KNOWN
+#     RESIDUAL" bullet) - not a regression, not fixed by this PR, disclosed
+#     rather than silently left unverified.
+#   - Major 2 (uninstall orphaning a legacy-targeted hook): Test 9.
+#   - Minor 1 (install_precommit_hook's `[[ ! -f "$hook_src" ]]` guard was
+#     reachable but had zero coverage): Test 10 - an ordinary repo with no
+#     hooks/pre-commit file at all, the only shape that exercises
+#     resolve_hook_src's unchecked fallback branches.
+#   - Minor 3 (legacy_hook_src used the raw, non-canonicalized repo_dir):
+#     Test 11 - install with a trailing-slash spelling, uninstall with the
+#     canonical spelling of the same directory.
 #   This test re-creates worktree fixtures for all of the above to prevent
 #   regression.
 
@@ -537,6 +555,25 @@ else
   _fail "Test 8 (Major 1 regression): installed hook failed to execute for a bare-repo worktree. rc=$BARE_HOOK_RUN_RC output=$BARE_HOOK_RUN_OUTPUT"
 fi
 
+# Test 8 (Minor 2, known-residual disclosure): unlike Test 6's ordinary
+# linked worktree, this bare-repo layout has no better source than the
+# worktree's OWN hooks/pre-commit (see the manifest's "KNOWN RESIDUAL"
+# Failure-modes bullet) - resolve_hook_src cannot point at anything outside
+# the worktree here because nothing outside it exists. Removing the
+# worktree therefore leaves the installed symlink DANGLING. This is NOT a
+# regression (identical on origin/main) and NOT something this PR fixes -
+# asserting the known-bad outcome directly documents the residual instead
+# of leaving it silently unverified (Test 6, by contrast, asserts the
+# GOOD outcome because an ordinary linked worktree DOES have a better
+# source: the main checkout's own hooks/pre-commit).
+git -C "$BARE_REPO" worktree remove -f "$BARE_WT" >/dev/null 2>&1
+
+if [[ ! -e "$BARE_HOOK_DST" ]]; then
+  _pass "Test 8 (Minor 2, known residual documented): bare-repo worktree hook is DANGLING after worktree removal, as disclosed in the manifest's Failure modes section (not a regression, no better source exists)"
+else
+  _fail "Test 8 (Minor 2 regression): expected the KNOWN residual (dangling hook after bare-repo worktree removal) but the hook still resolves at $BARE_HOOK_DST - either the residual was silently fixed (update the manifest disclosure) or the fixture broke"
+fi
+
 # ============================================================
 # Test 9: Major-2 regression - uninstall recognises a hook installed by the
 #         legacy (pre-this-PR) unconditional "<repo_dir>/hooks/pre-commit"
@@ -605,6 +642,126 @@ if [[ -L "$FOREIGN2_HOOK_DST" ]] && [[ "$(readlink "$FOREIGN2_HOOK_DST")" == "$F
   _pass "Test 9 (Major 2, no over-match): a symlink pointing at neither the resolved nor legacy target is left untouched"
 else
   _fail "Test 9 (Major 2 regression, over-match): the widened uninstall check removed or altered a genuinely foreign hook. Output: $FOREIGN2_OUT"
+fi
+
+# ============================================================
+# Test 10: Minor 1 - install_precommit_hook's own defense-in-depth guard
+#          ("resolved pre-commit hook source does not exist" - the guard
+#          that follows resolve_hook_src's call in install_precommit_hook)
+#          is independently exercised, not merely reachable in theory.
+#          resolve_hook_src's FALLBACK branches are unchecked (see the
+#          manifest's corrected Public-API wording for resolve_hook_src),
+#          so an ordinary (non-worktree) git repo with NO hooks/pre-commit
+#          file at all is the only way to make resolve_hook_src return a
+#          source path that genuinely does not exist, and this guard is
+#          the only thing standing between that and installing a dangling
+#          symlink.
+# ============================================================
+
+NO_HOOK_REPO="$TMP_ROOT/no-hook-repo"
+mkdir -p "$NO_HOOK_REPO"
+git init -q "$NO_HOOK_REPO"
+git -C "$NO_HOOK_REPO" config user.email test@test.com
+git -C "$NO_HOOK_REPO" config user.name test
+
+if [[ ! -f "$NO_HOOK_REPO/hooks/pre-commit" ]]; then
+  _pass "Test 10 setup: no-hook-repo fixture genuinely has no hooks/pre-commit file"
+else
+  _fail "Test 10 setup: unexpectedly found hooks/pre-commit (fixture setup bug)"
+fi
+
+NO_HOOK_SRC="$(resolve_hook_src "$NO_HOOK_REPO")"
+if [[ "$NO_HOOK_SRC" == "$NO_HOOK_REPO/hooks/pre-commit" ]] && [[ ! -f "$NO_HOOK_SRC" ]]; then
+  _pass "Test 10: resolve_hook_src returns the unchecked fallback path, and it genuinely does not exist (confirms the install-side guard is reachable, not dead code)"
+else
+  _fail "Test 10: resolve_hook_src returned an unexpected source for the no-hook fixture: $NO_HOOK_SRC"
+fi
+
+NO_HOOK_OUT="$(install_precommit_hook "$NO_HOOK_REPO" 2>&1)"
+NO_HOOK_RC=$?
+
+if [[ $NO_HOOK_RC -eq 0 ]]; then
+  _pass "Test 10 (Minor 1): install_precommit_hook exits 0 when the resolved source does not exist"
+else
+  _fail "Test 10 (Minor 1): install_precommit_hook exited $NO_HOOK_RC instead of 0. Output: $NO_HOOK_OUT"
+fi
+
+if echo "$NO_HOOK_OUT" | grep -qi "resolved pre-commit hook source does not exist"; then
+  _pass "Test 10 (Minor 1): prints the defense-in-depth skip message"
+else
+  _fail "Test 10 (Minor 1 regression): expected the defense-in-depth skip message. Output: $NO_HOOK_OUT"
+fi
+
+NO_HOOK_REAL_HOOKS_DIR="$(git -C "$NO_HOOK_REPO" rev-parse --git-path hooks)"
+case "$NO_HOOK_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) NO_HOOK_REAL_HOOKS_DIR="$NO_HOOK_REPO/$NO_HOOK_REAL_HOOKS_DIR" ;;
+esac
+NO_HOOK_DST="$NO_HOOK_REAL_HOOKS_DIR/pre-commit"
+
+if [[ ! -e "$NO_HOOK_DST" ]]; then
+  _pass "Test 10 (Minor 1): no dangling symlink was created at $NO_HOOK_DST despite a missing source"
+else
+  _fail "Test 10 (Minor 1 regression): a symlink/file was created at $NO_HOOK_DST despite the resolved source not existing. Output: $NO_HOOK_OUT"
+fi
+
+# ============================================================
+# Test 11: Minor 3 - resolve_hook_src's fallback and
+#          uninstall_precommit_hook's legacy_hook_src must agree on a
+#          canonical spelling of repo_dir, not the raw caller-supplied
+#          string. Installs from a bare-repo + worktree fixture (Test 8's
+#          layout, where the fallback IS the installed target) using a
+#          repo_dir spelled with a trailing slash, then uninstalls using
+#          the canonical (no-trailing-slash) spelling of the SAME
+#          directory. Pre-fix, the installed symlink target embeds the
+#          trailing-slash spelling while uninstall recomputes both
+#          candidates from the canonical spelling - neither matches, and
+#          the hook is orphaned ("not ours, skipping"). Post-fix, both
+#          calls canonicalize repo_dir first, so they agree regardless of
+#          which spelling either caller used.
+# ============================================================
+
+CANON_SRC_REPO="$TMP_ROOT/canon-src-repo"
+_make_fixture_repo "$CANON_SRC_REPO"
+
+CANON_BARE_REPO="$TMP_ROOT/canon-bare-repo.git"
+git clone -q --bare "$CANON_SRC_REPO" "$CANON_BARE_REPO" >/dev/null 2>&1
+
+CANON_WT="$TMP_ROOT/canon-wt-branch"
+git -C "$CANON_BARE_REPO" worktree add -q "$CANON_WT" -b canon-wt-test-branch >/dev/null 2>&1
+
+# Install using a NON-canonical (trailing-slash) spelling of the worktree.
+CANON_INSTALL_OUT="$(install_precommit_hook "$CANON_WT/" 2>&1)"
+CANON_INSTALL_RC=$?
+
+if [[ $CANON_INSTALL_RC -eq 0 ]]; then
+  _pass "Test 11 (Minor 3) setup: install_precommit_hook exits 0 for the trailing-slash spelling"
+else
+  _fail "Test 11 (Minor 3) setup: install_precommit_hook exited $CANON_INSTALL_RC. Output: $CANON_INSTALL_OUT"
+fi
+
+CANON_HOOK_DST="$CANON_BARE_REPO/hooks/pre-commit"
+if [[ -e "$CANON_HOOK_DST" ]]; then
+  _pass "Test 11 (Minor 3) setup: hook installed at $CANON_HOOK_DST via the trailing-slash spelling"
+else
+  _fail "Test 11 (Minor 3) setup: expected a hook at $CANON_HOOK_DST after install. Output: $CANON_INSTALL_OUT"
+fi
+
+# Uninstall using the CANONICAL (no trailing slash) spelling of the SAME
+# directory - this is the cross-spelling mismatch Minor 3 exercises.
+CANON_UNINSTALL_OUT="$(uninstall_precommit_hook "$CANON_WT" 2>&1)"
+CANON_UNINSTALL_RC=$?
+
+if [[ $CANON_UNINSTALL_RC -eq 0 ]]; then
+  _pass "Test 11 (Minor 3): uninstall_precommit_hook exits 0 across the spelling mismatch"
+else
+  _fail "Test 11 (Minor 3): uninstall_precommit_hook exited $CANON_UNINSTALL_RC. Output: $CANON_UNINSTALL_OUT"
+fi
+
+if [[ ! -e "$CANON_HOOK_DST" ]]; then
+  _pass "Test 11 (Minor 3 fixed): hook installed via a trailing-slash repo_dir is correctly removed by uninstall using the canonical spelling"
+else
+  _fail "Test 11 (Minor 3 regression): hook installed via a trailing-slash repo_dir was left ORPHANED by uninstall using the canonical spelling - legacy_hook_src is not canonicalized consistently with the installed target. Output: $CANON_UNINSTALL_OUT"
 fi
 
 # ---- Results ----
