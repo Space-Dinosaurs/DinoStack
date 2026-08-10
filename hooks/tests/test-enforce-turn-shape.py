@@ -1364,6 +1364,188 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
 
 
 # ---------------------------------------------------------------------------
+# w. DS-155 answer-warrant transcript bonus (_transcript_answer_bonus).
+#    A plain-prose reply with no quoted fragment and no other warrant must
+#    satisfy the `answer` warrant (and so avoid the status-only flag) when
+#    the operator's most recent GENUINE transcript message looks like a
+#    direct question. Confirms the bonus is soft-fail (no question, no
+#    transcript, or a non-genuine trailing message all fall back to
+#    today's narrower behavior) and does NOT create an unbounded free-line
+#    pool in the charge model.
+# ---------------------------------------------------------------------------
+
+PLAIN_PROSE_ANSWER = (
+    IDENTITY_OK
+    + "\nThe root cause is a stale cache entry keyed on mtime and size.\n"
+    + "Clearing __pycache__ between runs fixes it.\n"
+    + "No other change is needed.\n"
+)
+
+with tempfile.TemporaryDirectory() as tmp_dir:
+    # w1. Genuine last user message ends with "?" -> answer bonus granted,
+    # plain-prose reply is QUIET (no status-only, under budget).
+    question_transcript = _write_transcript(
+        tmp_dir,
+        [{"role": "user", "content": "Why did the cache test fail on the second run?"}],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": PLAIN_PROSE_ANSWER,
+                "transcript_path": question_transcript,
+            }
+        )
+    )
+    check(
+        "w1. plain-prose reply to a genuine transcript question -> QUIET (answer bonus)",
+        is_quiet(rc, out),
+    )
+
+    # w2. Same plain-prose reply, but the last genuine user message is a
+    # STATEMENT (no "?") -> bonus withheld, status-only still fires. Proves
+    # w1 is not QUIET merely because the body is short-ish - the bonus is
+    # doing the work.
+    statement_transcript = _write_transcript(
+        tmp_dir,
+        [{"role": "user", "content": "Go ahead and clear the cache between runs."}],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": PLAIN_PROSE_ANSWER,
+                "transcript_path": statement_transcript,
+            }
+        )
+    )
+    check(
+        "w2. plain-prose reply, transcript message is a statement not a question -> ADVISORY (status-only)",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # w3. No transcript_path at all -> falls back to today's narrower
+    # behavior (no bonus available) -> ADVISORY (status-only).
+    rc, out, err = run_hook(json.dumps({"last_assistant_message": PLAIN_PROSE_ANSWER}))
+    check(
+        "w3. no transcript_path -> ADVISORY (status-only), today's behavior preserved",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # w4. A tool_result-only trailing "user" line (real CC transcripts record
+    # every tool_result as type:"user") must NOT be mistaken for the
+    # operator's question - loop_guard.last_genuine_user_text must skip it.
+    tool_result_only_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "Why did the cache test fail on the second run?"},
+            {
+                "role": "assistant",
+                "content": [{"type": "tool_use", "id": "t1", "name": "Bash", "input": {}}],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "ok"}],
+            },
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": PLAIN_PROSE_ANSWER,
+                "transcript_path": tool_result_only_transcript,
+            }
+        )
+    )
+    check(
+        "w4. trailing tool_result line does not mask an earlier genuine question -> QUIET",
+        is_quiet(rc, out),
+    )
+
+    # w5. The bonus grants the `answer` warrant but does NOT buy free lines
+    # in the charge model - an over-budget answer to a genuine question
+    # still fires the volume check (no unbounded free-line regression).
+    long_answer = IDENTITY_OK + "\n" + _nlines(11, prefix="Line")
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": long_answer, "transcript_path": question_transcript})
+    )
+    check(
+        "w5. answer bonus does not exempt an over-budget reply -> ADVISORY (turn volume exceeded)",
+        is_advisory(rc, out, "turn volume exceeded"),
+    )
+
+
+# ---------------------------------------------------------------------------
+# x. DS-155 identity-line ticket-less-session exemption
+#    (_session_has_established_identity). A missing/malformed identity line
+#    is NOT flagged, and no fabrication instruction is emitted, when this
+#    transcript has never carried a genuine identity line before. The same
+#    missing identity line on a transcript that HAS an established identity
+#    line (a ticket is genuinely in flight) must still be flagged - the
+#    exemption must not widen into uselessness.
+# ---------------------------------------------------------------------------
+
+with tempfile.TemporaryDirectory() as tmp_dir:
+    # x1. No prior identity line anywhere in the transcript -> ticket-less
+    # conversational session -> the missing-identity finding is exempted.
+    # Message body is short (no other warrant needed) so a fully clean
+    # QUIET result isolates the identity exemption specifically.
+    no_ticket_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "What does this function do?"},
+            {"role": "assistant", "content": "It parses the config file."},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps(
+            {"last_assistant_message": "Sure, that works.", "transcript_path": no_ticket_transcript}
+        )
+    )
+    check(
+        "x1. no prior identity line in transcript -> QUIET (ticket-less session exempted)",
+        is_quiet(rc, out),
+    )
+
+    # x2. MUST-STILL-FIRE case: an earlier assistant turn in the SAME
+    # transcript already carried a well-formed identity line (a ticket is
+    # genuinely in flight), and the CURRENT turn is missing its identity
+    # line AND is status-only (>2 body lines, no warrant). Both findings
+    # must still fire - the exemption is scoped to genuinely ticket-less
+    # sessions, not a blanket widening of the identity check.
+    ticket_in_flight_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "Please fix the bug."},
+            {"role": "assistant", "content": IDENTITY_OK + "\nStarting work now."},
+        ],
+    )
+    status_only_no_identity = "Looked at the code.\n" + _nlines(3, prefix="Note")
+    rc, out, err = run_hook(
+        json.dumps(
+            {
+                "last_assistant_message": status_only_no_identity,
+                "transcript_path": ticket_in_flight_transcript,
+            }
+        )
+    )
+    check(
+        "x2. ticket in flight (prior identity line exists) + missing identity -> ADVISORY (identity)",
+        is_advisory(rc, out, "identity"),
+    )
+    check(
+        "x2b. same turn ALSO still flags status-only -> not silently swallowed by the exemption path",
+        is_advisory(rc, out, "status-only"),
+    )
+
+    # x3. No transcript_path at all -> falls back to today's unconditional
+    # identity check (fail-closed toward "context established").
+    rc, out, err = run_hook(json.dumps({"last_assistant_message": "Done."}))
+    check(
+        "x3. no transcript_path -> ADVISORY (identity), today's behavior preserved",
+        is_advisory(rc, out, "identity"),
+    )
+
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 

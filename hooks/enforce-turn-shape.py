@@ -17,7 +17,15 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
             should loosely match a "<token> . <token> . <token> [phase:
             ...]" breadcrumb shape (three middle-dot-separated tokens plus
             a bracketed phase tag). A missing/malformed identity line is
-            flagged.
+            flagged - UNLESS _session_has_established_identity(transcript_
+            path) finds no earlier identity line anywhere in this
+            transcript (DS-155), in which case the session is treated as
+            ticket-less/conversational and neither flagged nor told to
+            invent a breadcrumb. Named residual gap: a session's genuine
+            FIRST ticket-mode turn is, by definition, exempted too (there
+            is no earlier identity line yet to find) - a false negative on
+            the flag, never a false grant that fabricates telemetry, and
+            this hook only ever advises, never blocks.
 
          2. Warrant classification (RUNS FIRST relative to checks 3-5
             below, and is AUTHORITATIVE over them): classifies which of
@@ -32,7 +40,16 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
                              pulling main") must not accidentally launder
                              into a completion warrant.
               - answer:     a quoted fragment of the operator's immediately
-                             preceding message. Best-effort and deliberately
+                             preceding message, OR (DS-155)
+                             _transcript_answer_bonus finding that the
+                             operator's most recent GENUINE message (per
+                             loop_guard.last_genuine_user_text) looks like a
+                             direct question (_looks_like_question: a
+                             trailing "?", or a "?" anywhere in a message
+                             under _SHORT_QUESTION_TEXT_MAX_CHARS chars).
+                             The transcript-derived bonus licenses a plain-
+                             prose reply without the narrow quoted-fragment
+                             shape below. Best-effort and deliberately
                              the weakest of the four detectors.
             DS-151: the detection domain is restricted to the identity line
             plus UNFENCED body lines only (see _segment/_classify_warrants
@@ -275,6 +292,22 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
          advisory-only behavior rather than silently swallowing findings.
          This hook NEVER blocks - the guard only suppresses advisories; every
          exit stays 0.
+
+         Undocumented-until-DS-155 UX cost of the above: the loop guard
+         bounds how many TIMES the model is re-invoked, but it does nothing
+         about what the operator SEES on each re-invocation. The harness
+         does not retract or replace the already-streamed flagged message
+         when `additionalContext` re-invokes the model - the operator sees
+         BOTH the original flagged turn AND the corrected re-invocation
+         turn, back to back, for every single advisory fire. At
+         CONSECUTIVE_BLOCK_CAP=2 that is up to two extra visible duplicate
+         turns stacked on top of the one substantive turn the operator
+         actually wanted, on ONE user-facing exchange. This is a real,
+         user-visible cost of the advisory mechanism itself, not a bug in
+         the loop-count bound - see also
+         content/references/conductor-turn-format.md's Hook contract
+         section and residual-false-positive list, which name the same
+         cost from the operator-facing side.
 
 Public API: Run as a Claude Code Stop hook (matcher: "*"). Reads JSON from
             stdin. ALWAYS exits 0. On a clean turn (no findings), emits
@@ -589,11 +622,20 @@ def _decision_items(decisions: list) -> tuple:
     return items, non_item
 
 
-def _classify_warrants(text: str) -> dict:
-    """Unchanged signature. Detection domain is the identity line plus
-    UNFENCED body lines only (DS-151) - a warrant token inside a fence is
-    an example being discussed, not a warrant. The identity line carries
-    "[phase: complete]", so it MUST remain in the domain."""
+def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
+    """Detection domain is the identity line plus UNFENCED body lines only
+    (DS-151) - a warrant token inside a fence is an example being
+    discussed, not a warrant. The identity line carries "[phase:
+    complete]", so it MUST remain in the domain.
+
+    answer_bonus (DS-155): OR'd into the `answer` warrant alongside
+    _QUOTED_FRAGMENT_RE. Callers pass the result of
+    _transcript_answer_bonus (True when the operator's most recent genuine
+    message looks like a direct question) so a plain-prose reply to a
+    direct question satisfies the warrant without needing a quoted
+    fragment. Defaults to False so every existing single-argument call
+    site (including hooks/tests/test-turn-charge-model.py's direct
+    _turn_charge(text) calls) is unaffected."""
     identity_line, body = _segment(text)
     unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
     domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
@@ -601,7 +643,7 @@ def _classify_warrants(text: str) -> dict:
         "decision": bool(_OPERATOR_DECISIONS_HEADING_RE.search(domain_text)),
         "stoppage": any(_WAITING_LINE_RE.match(ln) for ln in unfenced_lines),
         "completion": bool(_COMPLETION_RE.search(domain_text)),
-        "answer": bool(_QUOTED_FRAGMENT_RE.search(domain_text)),
+        "answer": bool(_QUOTED_FRAGMENT_RE.search(domain_text)) or answer_bonus,
     }
 
 
@@ -637,7 +679,7 @@ def _forced_yield_flag(text: str, warrants: dict):
     return None
 
 
-def _turn_charge(text: str) -> tuple:
+def _turn_charge(text: str, warrants: dict = None) -> tuple:
     """(charge, breakdown). breakdown keys: status, fence, decisions,
     fence_lines, items, waiting_ok, nonblank.
 
@@ -648,10 +690,19 @@ def _turn_charge(text: str) -> tuple:
     aggregate pool spanning both regions would double-charge fenced content
     inside a decision item, since that content is already charged via
     decisions_charge).
+
+    warrants (DS-155): optional already-computed warrant dict. When
+    omitted (every existing test-turn-charge-model.py call site passes
+    only `text`), recomputed internally via _classify_warrants(text) -
+    identical to pre-DS-155 behavior. main()/_volume_flag pass their own
+    already-computed dict so the transcript-derived answer_bonus (see
+    _classify_warrants) is applied exactly once and consistently, rather
+    than recomputed here without it.
     """
     identity_line, body = _segment(text)
     status_lines, decisions_lines, heading_present = _regions(body)
-    warrants = _classify_warrants(text)
+    if warrants is None:
+        warrants = _classify_warrants(text)
     stoppage_sole = warrants["stoppage"] and not (
         warrants["decision"] or warrants["completion"] or warrants["answer"]
     )
@@ -706,7 +757,7 @@ def _volume_flag(text: str, warrants: dict):
     if not any(warrants.get(name) for name in ("decision", "stoppage", "completion", "answer")):
         return None
 
-    charge, breakdown = _turn_charge(text)
+    charge, breakdown = _turn_charge(text, warrants)
     if charge <= BASE_BODY_BUDGET:
         return None
 
@@ -764,6 +815,47 @@ def _decision_item_sprawl_flag(text: str):
 # ---------------------------------------------------------------------------
 
 
+def _extract_assistant_text(obj: dict) -> str:
+    """Return the text of `obj` if it is an assistant transcript line, else
+    "". Factored out of _last_assistant_text_from_transcript (DS-155) so
+    the new full-transcript scan in _session_has_established_identity does
+    not re-implement the same shape parsing independently - see the module
+    docstring's "single source of truth" rationale already applied to
+    _segment/_regions/_decision_items."""
+    if not isinstance(obj, dict):
+        return ""
+
+    role = obj.get("role") or obj.get("type", "")
+    if role != "assistant":
+        return ""
+
+    content = obj.get("content")
+    if content is None:
+        msg = obj.get("message", {})
+        if isinstance(msg, dict):
+            content = msg.get("content")
+
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(block.get("text", ""))
+            elif isinstance(block, str):
+                parts.append(block)
+        # Joined with "\n", not " " (Skeptic Minor): a space-join collapses
+        # a multi-block message onto a single line, so
+        # _body_after_identity_line() sees an empty body and both the
+        # status-only and forced-yield checks go silently inert on this
+        # fallback path even though they fire correctly on the primary
+        # last_assistant_message path for the same text. Under-flagging is
+        # the safe failure direction (this hook never blocks), but the
+        # fallback should still mirror the primary path's line structure.
+        return "\n".join(parts)
+    return ""
+
+
 def _last_assistant_text_from_transcript(transcript_path: str) -> str:
     """Best-effort reverse scan for the most recent assistant message text.
 
@@ -788,42 +880,128 @@ def _last_assistant_text_from_transcript(transcript_path: str) -> str:
                 obj = json.loads(raw)
             except Exception:
                 continue
-            if not isinstance(obj, dict):
-                continue
-
-            role = obj.get("role") or obj.get("type", "")
-            if role != "assistant":
-                continue
-
-            content = obj.get("content")
-            if content is None:
-                msg = obj.get("message", {})
-                if isinstance(msg, dict):
-                    content = msg.get("content")
-
-            if isinstance(content, str):
-                return content
-            if isinstance(content, list):
-                parts = []
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        parts.append(block.get("text", ""))
-                    elif isinstance(block, str):
-                        parts.append(block)
-                # Joined with "\n", not " " (Skeptic Minor): a space-join
-                # collapses a multi-block message onto a single line, so
-                # _body_after_identity_line() sees an empty body and both
-                # the status-only and forced-yield checks go silently inert
-                # on this fallback path even though they fire correctly on
-                # the primary last_assistant_message path for the same
-                # text. Under-flagging is the safe failure direction (this
-                # hook never blocks), but the fallback should still mirror
-                # the primary path's line structure.
-                return "\n".join(parts)
-            return ""
+            text = _extract_assistant_text(obj)
+            if text:
+                return text
+        return ""
     except Exception:
         return ""
-    return ""
+
+
+def _session_has_established_identity(transcript_path: str) -> bool:
+    """True iff ANY assistant message anywhere in this transcript already
+    carried a well-formed identity line (DS-155 exemption predicate for
+    check 1, the identity-line check).
+
+    Forward full-file scan (not reverse - we need "has this EVER happened
+    in this session", not "most recent"). Used to decide whether the
+    current turn's missing/malformed identity line should be exempted as a
+    ticket-less conversational session rather than flagged.
+
+    This checks REAL PRIOR STATE - whether a genuine identity line was
+    actually produced earlier in this transcript - not the model's own
+    self-report about whether it considers itself "conversational" (that
+    would be exactly as fabricable as the identity-line breadcrumb this
+    hook exists to police, and was explicitly ruled out by the task
+    spec). It is not perfectly reliable: a session's genuinely FIRST
+    ticket-mode turn has, by definition, no earlier identity line to find,
+    so this predicate would incorrectly exempt that one turn too (a false
+    negative on the flag, never a false positive that fabricates
+    telemetry). Named and accepted, not hidden: this hook only ever
+    produces advisory feedback text, never a block, so a missed advisory
+    on exactly one turn costs a small amount of self-correction signal,
+    not correctness. Fails CLOSED toward True (i.e. "context is
+    established, do not exempt" - today's unconditional-check behavior) on
+    any read/parse error or when transcript_path is empty, since open("")
+    raises and is caught by the same except.
+    """
+    try:
+        with open(transcript_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return True
+
+    try:
+        for raw in lines:
+            raw = raw.strip()
+            if not raw:
+                continue
+            try:
+                obj = json.loads(raw)
+            except Exception:
+                continue
+            text = _extract_assistant_text(obj)
+            if not text:
+                continue
+            first_line = _first_nonblank_line(text)
+            if first_line and _IDENTITY_LINE_RE.match(first_line.strip()):
+                return True
+        return False
+    except Exception:
+        return True
+
+
+# Cheap, best-effort "this looks like a direct question" signal used by
+# _transcript_answer_bonus. A trailing '?' (allowing trailing whitespace/
+# quote/paren punctuation) is the strongest reliable signal; a '?' anywhere
+# in a SHORT message also counts (covers "quick question: what's the plan
+# for X? thanks" where the '?' isn't the literal last character). Length-
+# gated deliberately: an incidental '?' buried inside a long paste or diff
+# is not evidence the whole message is a question, so it is NOT credited -
+# under-crediting here just falls back to today's narrower behavior (no
+# crash, no false grant), which is the required soft-fail direction.
+_TRAILING_QUESTION_RE = re.compile(r"\?[\s'\")\]]*$")
+_SHORT_QUESTION_TEXT_MAX_CHARS = 300
+
+
+def _looks_like_question(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped:
+        return False
+    if _TRAILING_QUESTION_RE.search(stripped):
+        return True
+    return "?" in stripped and len(stripped) <= _SHORT_QUESTION_TEXT_MAX_CHARS
+
+
+def _transcript_answer_bonus(transcript_path: str) -> bool:
+    """True iff the operator's most recent GENUINE message (per
+    loop_guard.last_genuine_user_text - filters tool_result/meta/harness-
+    injected lines) looks like a direct question, per _looks_like_question
+    (DS-155).
+
+    Licenses a plain-prose reply to satisfy the `answer` warrant without
+    needing _QUOTED_FRAGMENT_RE's narrow quoted-fragment/blockquote shape -
+    the module docstring already calls that detector "the weakest of the
+    four" and the ticket symptom (a substantive plain-prose answer flagged
+    status-only) traces directly to it.
+
+    Soft-fail, matching every other transcript-derived signal in this
+    hook: any error (missing/unreadable transcript, no genuine turn found,
+    loop_guard unavailable) returns False - i.e. today's narrower
+    behavior. Never raises, never widens the warrant on an unconfirmed
+    signal.
+
+    Known residual gap: loop_guard's harness-injected-text filter treats
+    ANY text block containing a marker like "<system-reminder>" as
+    non-genuine in its entirety (see loop_guard._extract_genuine_user_text)
+    - if a live harness ever concatenates the operator's own typed
+    question and an injected system-reminder into ONE text block (rather
+    than as separate content blocks, which is the observed live shape),
+    that whole turn would be invisible to this scan and the bonus would
+    fall through to False on an actual question. That failure direction is
+    safe (under-grant, never a fabricated grant) but is a real,
+    unverified-against-every-harness-version gap, not a closed case.
+    """
+    if not transcript_path:
+        return False
+    lg = _LOOP_GUARD
+    if lg is None:
+        return False
+    try:
+        text = lg.last_genuine_user_text(transcript_path)
+    except Exception:
+        return False
+    return _looks_like_question(text)
 
 
 # ---------------------------------------------------------------------------
@@ -917,6 +1095,18 @@ def main() -> None:
         if not isinstance(cwd, str):
             cwd = ""
 
+        # Resolve transcript_path once, up front (DS-155), so every
+        # transcript-derived signal below (loop-guard counting, the
+        # last-assistant-message fallback, the identity-line exemption, the
+        # answer-warrant bonus) reads the same normalized value instead of
+        # each re-deriving it locally with its own type guard.
+        transcript_path = data.get("transcript_path", "")
+        if not isinstance(transcript_path, str):
+            # A non-string value (e.g. a number) would reach open() in
+            # loop_guard.count_user_messages, which Python treats as a raw
+            # file descriptor - guard it here, mirroring the sibling hook.
+            transcript_path = ""
+
         # Config toggle: DELIBERATELY INVERTED from enforce-no-abdication.py's
         # abdication_guard_enabled (which requires explicit True). This hook
         # never blocks, so it defaults ON - only an explicit `false` disables
@@ -955,12 +1145,6 @@ def main() -> None:
                 # Fail open (never emit an advisory without a loop bound).
                 sys.exit(0)
             loop_guard_engaged = True
-            transcript_path = data.get("transcript_path", "")
-            if not isinstance(transcript_path, str):
-                # A non-string value (e.g. a number) would reach open() in
-                # loop_guard.count_user_messages, which Python treats as a raw
-                # file descriptor - guard it here, mirroring the sibling hook.
-                transcript_path = ""
             if transcript_path:
                 current_user_msg_count = lg.count_user_messages(transcript_path)
 
@@ -983,8 +1167,7 @@ def main() -> None:
             msg_text = ""
 
         if not msg_text.strip():
-            transcript_path = data.get("transcript_path", "")
-            if isinstance(transcript_path, str) and transcript_path:
+            if transcript_path:
                 msg_text = _last_assistant_text_from_transcript(transcript_path)
 
         if not msg_text.strip():
@@ -993,17 +1176,29 @@ def main() -> None:
 
         findings = []
 
-        # 1. Identity-line check.
+        # 1. Identity-line check. Exempted (DS-155) for a ticket-less
+        # conversational session - see _session_has_established_identity
+        # for the predicate and its named residual gap (the session's
+        # genuine first ticket-mode turn is exempted too, since there is
+        # by definition no earlier identity line to find yet).
         identity_line = _first_nonblank_line(msg_text)
         if not identity_line or not _IDENTITY_LINE_RE.match(identity_line.strip()):
-            findings.append(
-                "identity line missing or malformed - expected "
-                "`DS-123 · fix/foo · [phase: skeptic-review]` "
-                "(two `·`-separated tokens then a bracketed [phase: ...] tag)"
-            )
+            if _session_has_established_identity(transcript_path):
+                findings.append(
+                    "identity line missing or malformed - expected "
+                    "`DS-123 · fix/foo · [phase: skeptic-review]` "
+                    "(two `·`-separated tokens then a bracketed [phase: ...] tag)"
+                )
+            # else: no prior identity line anywhere in this transcript -
+            # treat as a ticket-less conversational session and do not
+            # demand one, and do not instruct the model to fabricate one.
 
-        # 2. Warrant classification (authoritative).
-        warrants = _classify_warrants(msg_text)
+        # 2. Warrant classification (authoritative). answer_bonus (DS-155)
+        # is computed from the transcript once and OR'd into the `answer`
+        # warrant so a plain-prose reply to a direct operator question no
+        # longer needs a quoted fragment - see _transcript_answer_bonus.
+        answer_bonus = _transcript_answer_bonus(transcript_path)
+        warrants = _classify_warrants(msg_text, answer_bonus=answer_bonus)
 
         # 3a. Status-only flag.
         if _status_only_flag(msg_text, warrants):
