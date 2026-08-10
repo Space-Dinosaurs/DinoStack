@@ -6,7 +6,11 @@
 #          a git worktree - there ".git" is a FILE (a gitdir pointer), not a
 #          directory, so a plain `ln -s`/`rm` against
 #          "$REPO_DIR/.git/hooks/..." fails or silently no-ops (DS-58, both
-#          the install side and the symmetric uninstall side).
+#          the install side and the symmetric uninstall side). Also covers
+#          DS-152: install_precommit_hook must source the hook BODY from the
+#          durable PRIMARY checkout, never from whichever worktree repo_dir
+#          happens to be, so an ephemeral/scratch worktree's removal can
+#          never dangle the ONE shared hook every worktree of a repo uses.
 #
 # Public API: ./bin/tests/test_precommit_worktree.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -37,6 +41,17 @@
 #     the real (shared, main-repo) hooks dir; a foreign hook is preserved.
 #   This test re-creates worktree fixtures for both sides to prevent
 #   regression.
+#   - DS-152: install_precommit_hook always symlinks the shared hooks dir
+#     at the PRIMARY checkout's hooks/pre-commit, even when invoked with an
+#     ephemeral worktree as repo_dir - so removing that worktree afterward
+#     can never dangle the shared hook. Tests 2 and 3 below assert against
+#     the primary checkout's hook_src (not repo_dir's) to reflect this: DS-58
+#     only ever needed the DESTINATION (the real, shared hooks dir) resolved
+#     correctly and a working, non-"Not a directory" symlink installed -
+#     which worktree's own copy of hooks/pre-commit happened to be the
+#     SOURCE was an incidental implementation detail of DS-58, not part of
+#     what it was fixing. Test 6 covers the DS-152 scratch-worktree-removal
+#     scenario directly.
 
 set -uo pipefail
 
@@ -78,6 +93,25 @@ _cleanup() {
   [[ -n "${TMP_ROOT:-}" && -d "$TMP_ROOT" ]] && rm -rf "$TMP_ROOT"
 }
 trap _cleanup EXIT
+
+# ------------------------------------------------------------------
+# Sandbox-isolation guarantee: every fixture below lives under a fresh
+# `mktemp -d` directory (TMP_ROOT), never under $REPO_DIR (this real
+# checkout's own .git/hooks are never touched, by construction - fixture
+# repos are `git init`-ed from scratch and are their own independent
+# repositories with their own independent .git dirs). Assert TMP_ROOT is
+# genuinely outside REPO_DIR before creating any fixture, so a future
+# change to the mktemp call cannot silently reintroduce the "fakes $HOME
+# but not git --git-path hooks, escapes its sandbox" hazard recorded for
+# this class of test.
+# ------------------------------------------------------------------
+case "$TMP_ROOT" in
+  "$REPO_DIR"/*|"$REPO_DIR")
+    echo "FAIL: TMP_ROOT ($TMP_ROOT) is inside REPO_DIR ($REPO_DIR) - refusing to run, this would risk touching the real repo's .git/hooks" >&2
+    exit 1
+    ;;
+esac
+_pass "sandbox isolation: TMP_ROOT ($TMP_ROOT) is outside REPO_DIR ($REPO_DIR)"
 
 # _make_fixture_repo <dir>
 #   git-inits <dir>, commits a tracked hooks/pre-commit file.
@@ -122,7 +156,12 @@ else
 fi
 
 NORMAL_HOOK_DST="$NORMAL_REPO/.git/hooks/pre-commit"
-if [[ -L "$NORMAL_HOOK_DST" ]] && [[ "$(readlink "$NORMAL_HOOK_DST")" == "$NORMAL_REPO/hooks/pre-commit" ]]; then
+# -ef (same-inode) rather than a literal string match: the primary-checkout
+# resolution canonicalises repo_dir (`pwd -P`), so on a host where TMPDIR
+# itself is a symlink (e.g. macOS /var/folders -> /private/var/folders) the
+# resolved hook_src legitimately differs, byte-for-byte, from the literal
+# $NORMAL_REPO string while still pointing at the exact same file.
+if [[ -L "$NORMAL_HOOK_DST" ]] && [[ "$NORMAL_HOOK_DST" -ef "$NORMAL_REPO/hooks/pre-commit" ]]; then
   _pass "normal case: pre-commit symlink installed at $NORMAL_HOOK_DST"
 else
   _fail "normal case: pre-commit symlink not found/correct at $NORMAL_HOOK_DST. Output: $OUT"
@@ -174,8 +213,12 @@ else
   _fail "worktree case: real hooks dir resolved to unexpected path: $REAL_HOOKS_DIR"
 fi
 
-if [[ -L "$WT_HOOK_DST" ]] && [[ "$(readlink "$WT_HOOK_DST")" == "$WT_BRANCH/hooks/pre-commit" ]]; then
-  _pass "worktree case: pre-commit symlink installed at real hooks dir ($WT_HOOK_DST)"
+# DS-152: source is the PRIMARY checkout (WT_MAIN), not the invoking
+# worktree (WT_BRANCH) - see the file header note above. -ef (same-inode)
+# rather than a literal string match, for the same TMPDIR-symlink reason as
+# Test 1's NORMAL_HOOK_DST assertion.
+if [[ -L "$WT_HOOK_DST" ]] && [[ "$WT_HOOK_DST" -ef "$WT_MAIN/hooks/pre-commit" ]]; then
+  _pass "worktree case: pre-commit symlink installed at real hooks dir, sourced from primary checkout ($WT_HOOK_DST)"
 else
   _fail "worktree case: pre-commit symlink not found/correct at $WT_HOOK_DST. Output: $OUT"
 fi
@@ -201,7 +244,10 @@ case "$UNINSTALL_REAL_HOOKS_DIR" in
 esac
 UNINSTALL_HOOK_DST="$UNINSTALL_REAL_HOOKS_DIR/pre-commit"
 
-if [[ -L "$UNINSTALL_HOOK_DST" ]] && [[ "$(readlink "$UNINSTALL_HOOK_DST")" == "$UNINSTALL_WT_BRANCH/hooks/pre-commit" ]]; then
+# DS-152: source is the PRIMARY checkout (UNINSTALL_WT_MAIN), not the
+# invoking worktree (UNINSTALL_WT_BRANCH) - see the file header note above.
+# -ef (same-inode) for the same TMPDIR-symlink reason as Test 1/2 above.
+if [[ -L "$UNINSTALL_HOOK_DST" ]] && [[ "$UNINSTALL_HOOK_DST" -ef "$UNINSTALL_WT_MAIN/hooks/pre-commit" ]]; then
   _pass "uninstall setup: pre-commit hook installed at real hooks dir before uninstall test"
 else
   _fail "uninstall setup: pre-commit hook not installed at $UNINSTALL_HOOK_DST as expected"
@@ -302,6 +348,129 @@ if echo "$OUT" | grep -qi "skipping pre-commit hook removal"; then
   _pass "non-repo case: uninstall prints a non-fatal skip warning"
 else
   _fail "non-repo case: uninstall expected a non-fatal skip warning. Output: $OUT"
+fi
+
+# ============================================================
+# Test 6: DS-152 - installing FROM an ephemeral scratch worktree must not
+#         dangle the shared hook once that worktree is removed. This is the
+#         direct regression test for the bug: running install.sh with
+#         repo_dir pointed at a soon-to-be-deleted worktree (e.g. a Skeptic
+#         QA-regression scratch dir) must symlink the shared hook at the
+#         durable PRIMARY checkout's hooks/pre-commit, not at the scratch
+#         worktree's own copy.
+# ============================================================
+
+SCRATCH_MAIN="$TMP_ROOT/scratch-main-repo"
+_make_fixture_repo "$SCRATCH_MAIN"
+
+SCRATCH_WT="$TMP_ROOT/scratch-wt"
+git -C "$SCRATCH_MAIN" worktree add -q "$SCRATCH_WT" -b scratch-wt-test-branch >/dev/null 2>&1
+
+# Install run directly from the scratch worktree - simulates an install.sh
+# invocation whose repo_dir happens to be the ephemeral worktree, with no
+# prior install having run from the primary checkout first.
+OUT="$(install_precommit_hook "$SCRATCH_WT" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "scratch-worktree case: install_precommit_hook exits 0"
+else
+  _fail "scratch-worktree case: install_precommit_hook exited $RC. Output: $OUT"
+fi
+
+SCRATCH_REAL_HOOKS_DIR="$(git -C "$SCRATCH_WT" rev-parse --git-path hooks)"
+case "$SCRATCH_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) SCRATCH_REAL_HOOKS_DIR="$SCRATCH_WT/$SCRATCH_REAL_HOOKS_DIR" ;;
+esac
+SCRATCH_HOOK_DST="$SCRATCH_REAL_HOOKS_DIR/pre-commit"
+
+# -ef (same-inode) rather than a literal string match, for the same
+# TMPDIR-symlink reason as Test 1/2/3 above.
+if [[ -L "$SCRATCH_HOOK_DST" ]] && [[ "$SCRATCH_HOOK_DST" -ef "$SCRATCH_MAIN/hooks/pre-commit" ]]; then
+  _pass "scratch-worktree case (DS-152): shared hook sourced from the primary checkout, not the scratch worktree"
+else
+  _fail "scratch-worktree case (DS-152 regression): shared hook not sourced from primary checkout ($SCRATCH_MAIN/hooks/pre-commit); got $(readlink "$SCRATCH_HOOK_DST" 2>&1). Output: $OUT"
+fi
+
+# Now delete the scratch worktree entirely, exactly as the Skeptic
+# QA-regression protocol would after a scratch session ends.
+git -C "$SCRATCH_MAIN" worktree remove --force "$SCRATCH_WT" >/dev/null 2>&1
+
+if [[ -e "$SCRATCH_HOOK_DST" ]]; then
+  _pass "scratch-worktree case (DS-152): shared hook still resolves after the scratch worktree is removed (not dangling)"
+else
+  _fail "scratch-worktree case (DS-152 regression): shared hook is DANGLING after scratch worktree removal - readlink: $(readlink "$SCRATCH_HOOK_DST" 2>&1)"
+fi
+
+# Re-running install from the (now-durable, still-present) primary checkout
+# must report the hook as already correctly linked - no re-point needed.
+OUT="$(install_precommit_hook "$SCRATCH_MAIN" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]] && echo "$OUT" | grep -qi "already linked"; then
+  _pass "scratch-worktree case (DS-152): re-running install from the primary checkout reports the hook already linked"
+else
+  _fail "scratch-worktree case (DS-152 regression): re-running install from the primary checkout did not report already-linked. Output: $OUT"
+fi
+
+# ============================================================
+# Test 7: DS-152 - a dangling hook target is warned about loudly
+# ============================================================
+
+DANGLE_MAIN="$TMP_ROOT/dangle-main-repo"
+_make_fixture_repo "$DANGLE_MAIN"
+
+DANGLE_REAL_HOOKS_DIR="$(git -C "$DANGLE_MAIN" rev-parse --git-path hooks)"
+case "$DANGLE_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) DANGLE_REAL_HOOKS_DIR="$DANGLE_MAIN/$DANGLE_REAL_HOOKS_DIR" ;;
+esac
+DANGLE_HOOK_DST="$DANGLE_REAL_HOOKS_DIR/pre-commit"
+
+# Hand-craft a dangling symlink whose target string contains a DinoStack
+# path component (so a real _ae_is_ours reclaims it) but the target itself
+# is gone - simulating the exact post-cleanup state the bug report
+# describes. The module-level _ae_is_ours stub (see top of file) always
+# returns "not ours" by design for the other tests above; temporarily
+# override it here to match the real per-adapter predicate's actual
+# broken-symlink-reclaim behaviour (see .claude/install.sh _ae_is_ours),
+# then restore the stub so later tests are unaffected.
+mkdir -p "$DANGLE_REAL_HOOKS_DIR"
+ln -s "$TMP_ROOT/gone-DinoStack/hooks/pre-commit" "$DANGLE_HOOK_DST"
+
+_ae_is_ours() {
+  local dst="$1"
+  [[ -L "$dst" ]] || return 1
+  local current_target
+  current_target="$(readlink "$dst")"
+  [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+  return 1
+}
+
+OUT="$(install_precommit_hook "$DANGLE_MAIN" 2>&1)"
+RC=$?
+
+_ae_is_ours() {
+  return 1
+}
+
+if [[ $RC -eq 0 ]]; then
+  _pass "dangling-hook case: install_precommit_hook exits 0"
+else
+  _fail "dangling-hook case: install_precommit_hook exited $RC. Output: $OUT"
+fi
+
+if echo "$OUT" | grep -qi "dangling"; then
+  _pass "dangling-hook case (DS-152): dangling target is warned about loudly"
+else
+  _fail "dangling-hook case (DS-152 regression): no loud warning about the dangling hook target. Output: $OUT"
+fi
+
+if [[ -L "$DANGLE_HOOK_DST" ]] && [[ "$DANGLE_HOOK_DST" -ef "$DANGLE_MAIN/hooks/pre-commit" ]]; then
+  _pass "dangling-hook case (DS-152): dangling hook repaired to point at the primary checkout"
+else
+  _fail "dangling-hook case (DS-152 regression): dangling hook not repaired. Output: $OUT"
 fi
 
 # ---- Results ----
