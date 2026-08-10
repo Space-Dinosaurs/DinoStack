@@ -81,7 +81,8 @@ _init_repo() {
 # ---------------------------------------------------------------------------
 # Trigger 1: scripts/lib/precommit.sh missing entirely.
 # ---------------------------------------------------------------------------
-T1="$(mktemp -d)/trigger1-repo"
+TMPROOT1="$(mktemp -d)"
+T1="$TMPROOT1/trigger1-repo"
 _init_repo "$T1"
 
 if python3 -c "
@@ -103,7 +104,8 @@ fi
 # Trigger 2: scripts/lib/precommit.sh present but resolve_hook_src
 # undefined there (an unrelated library file, or a stale pre-#640 copy).
 # ---------------------------------------------------------------------------
-T2="$(mktemp -d)/trigger2-repo"
+TMPROOT2="$(mktemp -d)"
+T2="$TMPROOT2/trigger2-repo"
 _init_repo "$T2"
 mkdir -p "$T2/scripts/lib"
 cat > "$T2/scripts/lib/precommit.sh" <<'LIB_EOF'
@@ -138,7 +140,8 @@ fi
 # patching os.environ["PATH"] before the call reaches the child process
 # exactly as it would if the operator's real PATH lacked bash).
 # ---------------------------------------------------------------------------
-T3="$(mktemp -d)/trigger3-repo"
+TMPROOT3="$(mktemp -d)"
+T3="$TMPROOT3/trigger3-repo"
 _init_repo "$T3"
 mkdir -p "$T3/scripts/lib"
 cp "$REAL_LIB" "$T3/scripts/lib/precommit.sh"
@@ -165,7 +168,8 @@ fi
 # subprocess.run to raise directly - exercises the real except clause
 # without a real 10 s wait.
 # ---------------------------------------------------------------------------
-T4="$(mktemp -d)/trigger4-repo"
+TMPROOT4="$(mktemp -d)"
+T4="$TMPROOT4/trigger4-repo"
 _init_repo "$T4"
 mkdir -p "$T4/scripts/lib"
 cp "$REAL_LIB" "$T4/scripts/lib/precommit.sh"
@@ -234,6 +238,8 @@ if [[ -e "$E2E_REPO/.git/hooks/pre-commit" || -L "$E2E_REPO/.git/hooks/pre-commi
 else
   _pass "End-to-end: no pre-commit symlink was written when the hook source could not be resolved"
 fi
+
+rm -rf "$TMPROOT1" "$TMPROOT2" "$TMPROOT3" "$TMPROOT4" "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
 # Summary

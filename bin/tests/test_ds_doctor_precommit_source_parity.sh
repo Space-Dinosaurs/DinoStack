@@ -261,6 +261,38 @@ else
   _fail "Env scrub: ambient GIT_DIR=$PRIMARY/.git changed the resolved answer for repo_dir=$WORKTREE - got '$PY_WT_GITDIR_SET', expected '$REAL_PRIMARY_HOOK'"
 fi
 
+# ---------------------------------------------------------------------------
+# Regression: _resolve_git_hooks_dir must ALSO scrub the ambient git env -
+# this is the WRITE DESTINATION resolver, not the symlink SOURCE resolver
+# above, and the two are separate functions with separate subprocess.run
+# calls. Reuses ORDINARY (Topology 1, repo A) and PRIMARY (Topology 2,
+# repo B) as two distinct ordinary repos: with GIT_DIR pointed at repo B
+# while resolving repo A's hooks dir, the answer must still be repo A's
+# own hooks dir - not repo B's (the exact failure mode: GIT_DIR silently
+# overrides -C for git plumbing commands regardless of which repo_dir was
+# actually passed in).
+# ---------------------------------------------------------------------------
+PY_HOOKS_DIR_GITDIR_SET="$(python3 -c "
+import importlib.util, os
+from importlib.machinery import SourceFileLoader
+loader = SourceFileLoader('ds_doctor', '$DOCTOR')
+spec = importlib.util.spec_from_loader('ds_doctor', loader)
+mod = importlib.util.module_from_spec(spec)
+loader.exec_module(mod)
+os.environ['GIT_DIR'] = '$PRIMARY/.git'
+result = mod._resolve_git_hooks_dir(mod.Path('$ORDINARY'))
+print(result if result is not None else '')
+")"
+
+REAL_ORDINARY_HOOKS_DIR="$(python3 -c "import os; print(os.path.realpath('$ORDINARY/.git/hooks'))")"
+REAL_PRIMARY_HOOKS_DIR="$(python3 -c "import os; print(os.path.realpath('$PRIMARY/.git/hooks'))")"
+
+if [[ "$(python3 -c "import os; print(os.path.realpath('$PY_HOOKS_DIR_GITDIR_SET'))" 2>/dev/null)" == "$REAL_ORDINARY_HOOKS_DIR" ]]; then
+  _pass "Env scrub: _resolve_git_hooks_dir - ambient GIT_DIR does not change the resolved hooks DIRECTORY for an explicit repo_dir"
+else
+  _fail "Env scrub: _resolve_git_hooks_dir - ambient GIT_DIR=$PRIMARY/.git changed the resolved hooks dir for repo_dir=$ORDINARY - got '$PY_HOOKS_DIR_GITDIR_SET', expected '$REAL_ORDINARY_HOOKS_DIR' (repo B's own would be '$REAL_PRIMARY_HOOKS_DIR')"
+fi
+
 rm -rf "$TMP1" "$TMP2" "$TMP3"
 
 # ---------------------------------------------------------------------------

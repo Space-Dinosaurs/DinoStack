@@ -838,23 +838,45 @@ def check_local_bin_stale(doc: Doctor) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _scrubbed_git_env() -> dict:
-    """A copy of the current process environment with GIT_DIR,
-    GIT_WORK_TREE, GIT_COMMON_DIR, and GIT_INDEX_FILE removed.
+_GIT_ENV_OVERRIDE_VARS = (
+    "GIT_DIR",
+    "GIT_WORK_TREE",
+    "GIT_COMMON_DIR",
+    "GIT_INDEX_FILE",
+    "GIT_OBJECT_DIRECTORY",
+    "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+    "GIT_CEILING_DIRECTORIES",
+    "GIT_CONFIG_GLOBAL",
+    "GIT_CONFIG_SYSTEM",
+)
 
-    Every subprocess `git` invocation in this file passes an explicit
-    `-C <repo_dir>`, which should be authoritative - but an ambient
-    GIT_DIR/GIT_WORK_TREE in the calling process's environment silently
-    overrides `-C` for git plumbing commands. A caller with
-    GIT_DIR=<primary>/.git set (e.g. from a wrapper script, a git hook, or a
-    parent process mid-rebase) would make `_resolve_hook_src(<worktree>)`
-    resolve against the PRIMARY repo instead of the worktree actually
-    passed in, silently producing a different answer than the one
-    <repo_dir> alone implies. Scrub before every subprocess git call this
-    module makes so the explicit argument is the only thing that matters.
+
+def _scrubbed_git_env() -> dict:
+    """A copy of the current process environment with the git repo/config
+    override variables in _GIT_ENV_OVERRIDE_VARS removed (GIT_DIR,
+    GIT_WORK_TREE, GIT_COMMON_DIR, GIT_INDEX_FILE, GIT_OBJECT_DIRECTORY,
+    GIT_ALTERNATE_OBJECT_DIRECTORIES, GIT_CEILING_DIRECTORIES,
+    GIT_CONFIG_GLOBAL, GIT_CONFIG_SYSTEM).
+
+    Every subprocess `git` invocation this module makes - both the direct
+    `git -C <repo_dir> ...` call in _resolve_git_hooks_dir and the one
+    embedded inside the bash -c ...; resolve_hook_src <repo_dir> call in
+    _resolve_hook_src - passes an explicit `-C <repo_dir>`, which should be
+    authoritative. An ambient GIT_DIR/GIT_WORK_TREE in the calling
+    process's environment silently overrides `-C` for git plumbing
+    commands regardless. A caller with GIT_DIR=<primary>/.git set (e.g.
+    from a wrapper script, a git hook, or a parent process mid-rebase)
+    would make either resolver silently answer for the PRIMARY repo
+    instead of the worktree actually passed in. GIT_CONFIG_GLOBAL/
+    GIT_CONFIG_SYSTEM matter too: `--git-path hooks` honors a global
+    core.hooksPath, so a redirected global/system config file can move the
+    answer just as effectively as GIT_DIR can. Scrub before every
+    subprocess git call this module makes so the explicit repo_dir
+    argument is the only thing that matters - see the module-level
+    _GIT_ENV_OVERRIDE_VARS tuple for the exact list.
     """
     env = dict(os.environ)
-    for var in ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR", "GIT_INDEX_FILE"):
+    for var in _GIT_ENV_OVERRIDE_VARS:
         env.pop(var, None)
     return env
 
@@ -888,6 +910,7 @@ def _resolve_git_hooks_dir(repo_dir: Path) -> Path | None:
         result = subprocess.run(
             ["git", "-C", str(repo_dir), "rev-parse", "--git-path", "hooks"],
             capture_output=True, text=True, timeout=10,
+            env=_scrubbed_git_env(),
         )
     except (OSError, subprocess.SubprocessError):
         return None
