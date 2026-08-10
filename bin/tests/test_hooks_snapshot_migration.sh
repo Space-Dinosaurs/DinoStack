@@ -21,25 +21,26 @@
 #                install.sh/uninstall.sh still builds/runs against the REAL
 #                checkout (like bin/tests/test_kimi_install_symlink.sh) -
 #                only $HOME is sandboxed, and these real-tree effects are
-#                NOT limited to the .claude uninstall.sh call: EVERY
-#                install.sh run in this file (.claude, .gemini, .codex,
-#                .kimi - each invoked twice, first run and idempotent
-#                second run) calls install_precommit_hook (writes
-#                <repo>/.git/hooks/pre-commit) and runs .claude/build.sh +
-#                .cursor/build.sh (regenerates adapter build artifacts in
-#                the live tree) - same three effects documented in
-#                bin/tests/test_local_bin_ds_prefix_install.sh; empirically
-#                idempotent, but none of these runs are read-only. On top
-#                of that, the .claude section's uninstall.sh run (below)
+#                NOT limited to the .claude uninstall.sh call: the .claude
+#                install.sh runs in this file (first run and idempotent
+#                second run) call install_precommit_hook (writes
+#                <repo>/.git/hooks/pre-commit) and every install.sh run
+#                also runs .claude/build.sh + .cursor/build.sh (regenerates
+#                adapter build artifacts in the live tree) - same effects
+#                documented in bin/tests/test_local_bin_ds_prefix_install.sh;
+#                empirically idempotent, but none of these runs are
+#                read-only. The .claude section's uninstall.sh run (below)
 #                also calls uninstall_precommit_hook, which resolves the
 #                git hooks directory via `git rev-parse --git-path hooks`
 #                relative to the REAL REPO_DIR, independent of $HOME faking
 #                - left unguarded it would remove this checkout's real
-#                <repo>/.git/hooks/pre-commit. That call is saved before
-#                and restored immediately after via
-#                bin/tests/lib/precommit-hook-guard.sh (same guard used by
-#                bin/tests/test_uninstall_ds_prefix.sh); the guard does not
-#                cover the earlier install.sh pre-commit-hook writes above.
+#                <repo>/.git/hooks/pre-commit. precommit_hook_guard_save is
+#                called at the very top of this file, before the first
+#                install.sh invocation of any adapter, so it covers every
+#                pre-commit-hook write in this file (not just the uninstall
+#                call) - restored unconditionally via
+#                bin/tests/lib/precommit-hook-guard.sh in the EXIT trap
+#                (same guard used by bin/tests/test_uninstall_ds_prefix.sh).
 #
 # Performance: ~20-40 s wall time (4 adapters x 2 install.sh runs each,
 #              each run includes a real build.sh pass).
@@ -70,6 +71,11 @@ _cleanup() {
   precommit_hook_guard_restore
 }
 trap _cleanup EXIT INT TERM
+
+# Save the real pre-commit hook slot BEFORE the first install.sh invocation
+# of any adapter below - see header. precommit_hook_guard_restore in the
+# EXIT trap above covers every exit path once save runs this early.
+precommit_hook_guard_save "$REPO_DIR"
 
 _run_install() {
   local install_sh="$1"
@@ -201,15 +207,13 @@ cat > "$HOME_CLAUDE_UNINSTALL/.claude/settings.json" <<'EOF'
 EOF
 
 # uninstall_precommit_hook (called by .claude/uninstall.sh) resolves the
-# git hooks dir independent of $HOME - save/restore the real checkout's
-# pre-commit hook around this one call (see header and
-# bin/tests/lib/precommit-hook-guard.sh).
-precommit_hook_guard_save "$REPO_DIR"
+# git hooks dir independent of $HOME - already covered by the
+# precommit_hook_guard_save call at the top of this file (see header and
+# bin/tests/lib/precommit-hook-guard.sh). No additional save/restore needed
+# around this specific call.
 if HOME="$HOME_CLAUDE_UNINSTALL" bash "$REPO_DIR/.claude/uninstall.sh" > "$HOME_CLAUDE_UNINSTALL/.uninstall_out" 2>&1; then
-  precommit_hook_guard_restore
   _pass "claude: uninstall.sh run succeeds"
 else
-  precommit_hook_guard_restore
   _fail "claude: uninstall.sh exited non-zero"
   cat "$HOME_CLAUDE_UNINSTALL/.uninstall_out" >&2
 fi

@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # Purpose: Regression tests for the profile-agnostic installer (D-4).
 #          Hermetic, sandboxed HOME. Exits 0 on all pass, 1 on any failure.
+#          NOT fully hermetic on one axis: every .claude/install.sh
+#          invocation in this file (direct or via scripts/install-profiles.sh)
+#          also calls install_precommit_hook, which resolves the git hooks
+#          directory via `git rev-parse --git-path hooks` relative to the
+#          REAL REPO_DIR, independent of $HOME faking - left unguarded it
+#          would rewrite this checkout's real <repo>/.git/hooks/pre-commit
+#          symlink. Guarded via bin/tests/lib/precommit-hook-guard.sh: saved
+#          once at the top of this file (before the first install.sh call)
+#          and restored unconditionally in the cleanup EXIT trap.
 #
 # Public API: ./bin/tests/test_install_profiles.sh
 set -euo pipefail
@@ -13,9 +22,14 @@ fail() {
 	FAILS=$((FAILS + 1))
 }
 
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
+precommit_hook_guard_save "$REPO_DIR"
+
 cleanup() {
 	chmod -R u+w "$SANDBOX" 2>/dev/null || true
 	rm -rf "$SANDBOX"
+	precommit_hook_guard_restore
 }
 trap cleanup EXIT
 

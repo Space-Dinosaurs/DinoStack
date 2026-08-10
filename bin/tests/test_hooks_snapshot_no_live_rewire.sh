@@ -19,7 +19,16 @@
 #                ~/.codex, ~/.gemini, ~/.kimi, and ~/.agentic/hooks-snapshot
 #                are never touched. The checkout's own hooks/ file IS mutated
 #                during the test and is always restored via `git checkout --`
-#                in a trap, even on failure.
+#                in a trap, even on failure. Separately, each
+#                .claude/install.sh run in this file also calls
+#                install_precommit_hook, which resolves the git hooks
+#                directory via `git rev-parse --git-path hooks` relative to
+#                the REAL REPO_DIR, independent of $HOME faking - left
+#                unguarded it would rewrite this checkout's real
+#                <repo>/.git/hooks/pre-commit symlink. Guarded via
+#                bin/tests/lib/precommit-hook-guard.sh: saved before the
+#                first install.sh call and restored unconditionally in the
+#                EXIT trap.
 #
 # Performance: ~10-15 s wall time (one .claude/install.sh run, which builds
 #              all adapters via .claude/build.sh + .cursor/build.sh).
@@ -28,6 +37,9 @@ set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 MUTATE_TARGET="$REPO_DIR/hooks/skill-auto-load-check.sh"
+
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
 
 PASS=0
 FAIL=0
@@ -46,11 +58,15 @@ TMP_ROOT="$(mktemp -d)"
 _cleanup() {
   rm -rf "$TMP_ROOT"
   git -C "$REPO_DIR" checkout -- "$MUTATE_TARGET" 2>/dev/null || true
+  precommit_hook_guard_restore
 }
 trap _cleanup EXIT
 
 # Ensure a clean starting point regardless of prior state.
 git -C "$REPO_DIR" checkout -- "$MUTATE_TARGET" 2>/dev/null || true
+
+# Save the real pre-commit hook slot before the first install.sh call below.
+precommit_hook_guard_save "$REPO_DIR"
 
 FAKE_HOME="$TMP_ROOT/home"
 mkdir -p "$FAKE_HOME/.claude"
