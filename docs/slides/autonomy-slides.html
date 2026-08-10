@@ -1789,7 +1789,7 @@ hr {
 ;" data-marpit-pagination-total="11">
 <h2 id="warrant-bound-turn-shape">Warrant-bound turn shape</h2>
 <p>Shape follows the warrant: an execution turn (decision/stoppage/completion, no answer) is the structured slot block only - zero prose. An answer turn (a direct operator question) is prose only - no slots, no line cap, just a relevance rule.</p>
-<p>A Stop hook (<code>enforce-turn-shape.py</code>) enforces this. As of DS-156: the execution-turn structural check BLOCKS; the answer-turn phrasing check stays advisory-only. Controlled by <code>turn_shape_guard_enabled</code> (default on).</p>
+<p>A Stop hook (<code>enforce-turn-shape.py</code>) enforces this. As of DS-156: the execution-turn structural check BLOCKS; the answer-turn phrasing check stays advisory-only. Controlled by <code>turn_shape_guard_enabled</code> (default on). <strong>DS-156 contract, not yet shipped</strong> - the shipped hook remains uniformly advisory until the blocking check lands.</p>
 <div class="callout">
 A structural yes/no shape check earns blocking; a curated-phrase-list heuristic on prose does not.
 </div>

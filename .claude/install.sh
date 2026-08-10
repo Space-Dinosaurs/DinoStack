@@ -769,6 +769,9 @@ upsert_hook(
 # shape, answer-turn phrasing). As of DS-156 NOT uniformly advisory: the
 # execution-turn structural check can block the stop; the answer-turn
 # phrasing check stays advisory-only and surfaces via additionalContext.
+# DS-156 CONTRACT, NOT YET SHIPPED: the blocking structural check
+# (_execution_prose_flag) is Unit 2's implementation target; the hook this
+# script installs today remains uniformly advisory until that lands.
 # Registered AFTER enforce-no-abdication.py.
 # Default ON (turn_shape_guard_enabled must be explicitly false in
 # .agentic/config.json to disable). Disable via:
