@@ -6,7 +6,13 @@
 #          a git worktree - there ".git" is a FILE (a gitdir pointer), not a
 #          directory, so a plain `ln -s`/`rm` against
 #          "$REPO_DIR/.git/hooks/..." fails or silently no-ops (DS-58, both
-#          the install side and the symmetric uninstall side).
+#          the install side and the symmetric uninstall side). Also covers
+#          the follow-up fix: the symlink SOURCE must be the common repo's
+#          own "hooks/pre-commit", not the worktree's - a worktree's working
+#          tree is ephemeral, and pointing the shared hook at a path inside
+#          it leaves a dangling symlink once that worktree is removed (git
+#          silently treats a dangling hook symlink as "no hook", not an
+#          error - the commit-time regression that motivated this addendum).
 #
 # Public API: ./bin/tests/test_precommit_worktree.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -14,11 +20,12 @@
 # Upstream deps: bash, git, mktemp.
 #
 # Downstream consumers: developer running locally before commit; can be
-#                       wired into CI.
+#                       wired into CI (.github/workflows/bin-tests.yml).
 #
 # Failure modes: any assertion failure prints the failing assertion and exits 1.
 #                All fixtures live under a temporary directory; the real repo
-#                and its .git/hooks are never touched.
+#                and its .git/hooks are never touched (verified by this test
+#                itself via a before/after checksum of the real hook).
 #
 # Performance: < 2 s wall time (pure git + shell, no network).
 #
@@ -35,7 +42,19 @@
 #     the hook installed. uninstall_precommit_hook shares the same
 #     resolve_git_hooks_dir resolution and removes the AE-owned hook from
 #     the real (shared, main-repo) hooks dir; a foreign hook is preserved.
-#   This test re-creates worktree fixtures for both sides to prevent
+#   - post-DS-58 dangling-symlink regression (worktree-hijack): the hooks
+#     DIRECTORY resolution (DS-58) was correct, but install_precommit_hook
+#     still symlinked "<repo_dir>/hooks/pre-commit" as the TARGET - inside
+#     the worktree itself. Once that worktree was removed, the shared
+#     .git/hooks/pre-commit symlink dangled and git silently ran no hook at
+#     all (no error - commits just stopped being checked). Fixed via
+#     resolve_hook_src, which points the symlink at the COMMON repo's own
+#     hooks/pre-commit when repo_dir is a linked worktree. Test 6 below
+#     creates a REAL linked worktree, installs from it, removes it, and
+#     asserts the main checkout's hook still resolves AND executes -
+#     confirmed to fail against the pre-fix source (see git history/PR for
+#     the baseline failure output this test was written to catch).
+#   This test re-creates worktree fixtures for all of the above to prevent
 #   regression.
 
 set -uo pipefail
@@ -46,6 +65,24 @@ LIB="$REPO_DIR/scripts/lib/precommit.sh"
 if [[ ! -f "$LIB" ]]; then
   echo "FAIL: $LIB not found" >&2
   exit 1
+fi
+
+# Checksum the REAL checkout's actual hook before running anything, so Test 7
+# (below) can assert this test file never touched it. All fixtures in this
+# file operate on isolated temp repos under $TMP_ROOT - never on $REPO_DIR.
+# Resolved via `git rev-parse --git-path hooks` (not a hardcoded
+# "$REPO_DIR/.git/hooks") so this also works correctly when the test itself
+# is being run from a linked worktree, where ".git" is a file, not a dir.
+REAL_HOOKS_DIR_FOR_CHECKSUM="$(git -C "$REPO_DIR" rev-parse --git-path hooks 2>/dev/null)"
+case "$REAL_HOOKS_DIR_FOR_CHECKSUM" in
+  /*) : ;;
+  "") : ;;
+  *) REAL_HOOKS_DIR_FOR_CHECKSUM="$REPO_DIR/$REAL_HOOKS_DIR_FOR_CHECKSUM" ;;
+esac
+REAL_HOOK_PATH_FOR_CHECKSUM="$REAL_HOOKS_DIR_FOR_CHECKSUM/pre-commit"
+REAL_HOOK_CHECKSUM_BEFORE=""
+if [[ -n "$REAL_HOOKS_DIR_FOR_CHECKSUM" ]] && [[ -e "$REAL_HOOK_PATH_FOR_CHECKSUM" ]]; then
+  REAL_HOOK_CHECKSUM_BEFORE="$(shasum -a 256 "$REAL_HOOK_PATH_FOR_CHECKSUM" 2>/dev/null | awk '{print $1}')"
 fi
 
 # shellcheck source=scripts/lib/precommit.sh
@@ -74,6 +111,12 @@ _ae_is_ours() {
 AE_DRY_RUN=false
 
 TMP_ROOT="$(mktemp -d)"
+# Resolve to the physical path (macOS /tmp -> /private/tmp symlink) so that
+# string-equality comparisons against paths git resolves via
+# `rev-parse --path-format=absolute` (which follows symlinks) agree with the
+# path this script builds by string concatenation - otherwise the two are
+# semantically the same location but never string-equal.
+TMP_ROOT="$(cd "$TMP_ROOT" && pwd -P)"
 _cleanup() {
   [[ -n "${TMP_ROOT:-}" && -d "$TMP_ROOT" ]] && rm -rf "$TMP_ROOT"
 }
@@ -174,10 +217,23 @@ else
   _fail "worktree case: real hooks dir resolved to unexpected path: $REAL_HOOKS_DIR"
 fi
 
-if [[ -L "$WT_HOOK_DST" ]] && [[ "$(readlink "$WT_HOOK_DST")" == "$WT_BRANCH/hooks/pre-commit" ]]; then
-  _pass "worktree case: pre-commit symlink installed at real hooks dir ($WT_HOOK_DST)"
+# The symlink TARGET must be the common (main) repo's own hooks/pre-commit,
+# NOT the worktree's - the worktree's working tree is ephemeral and a
+# target inside it dangles once the worktree is removed (the bug this test
+# file's Test 6 exercises end-to-end).
+if [[ -L "$WT_HOOK_DST" ]] && [[ "$(readlink "$WT_HOOK_DST")" == "$WT_MAIN/hooks/pre-commit" ]]; then
+  _pass "worktree case: pre-commit symlink installed at real hooks dir, targeting the MAIN repo's hooks/pre-commit ($WT_HOOK_DST)"
 else
-  _fail "worktree case: pre-commit symlink not found/correct at $WT_HOOK_DST. Output: $OUT"
+  _fail "worktree case: pre-commit symlink not found/correct (expected target $WT_MAIN/hooks/pre-commit) at $WT_HOOK_DST. Output: $OUT"
+fi
+
+# A second install run from the same worktree must be a no-op (the resolved
+# source already matches) rather than rewriting the symlink.
+OUT2="$(install_precommit_hook "$WT_BRANCH" 2>&1)"
+if echo "$OUT2" | grep -qi "already linked"; then
+  _pass "worktree case: re-running install_precommit_hook from the worktree is a no-op"
+else
+  _fail "worktree case: expected 'already linked' no-op on re-install. Output: $OUT2"
 fi
 
 # ============================================================
@@ -201,8 +257,8 @@ case "$UNINSTALL_REAL_HOOKS_DIR" in
 esac
 UNINSTALL_HOOK_DST="$UNINSTALL_REAL_HOOKS_DIR/pre-commit"
 
-if [[ -L "$UNINSTALL_HOOK_DST" ]] && [[ "$(readlink "$UNINSTALL_HOOK_DST")" == "$UNINSTALL_WT_BRANCH/hooks/pre-commit" ]]; then
-  _pass "uninstall setup: pre-commit hook installed at real hooks dir before uninstall test"
+if [[ -L "$UNINSTALL_HOOK_DST" ]] && [[ "$(readlink "$UNINSTALL_HOOK_DST")" == "$UNINSTALL_WT_MAIN/hooks/pre-commit" ]]; then
+  _pass "uninstall setup: pre-commit hook installed at real hooks dir before uninstall test, targeting the MAIN repo"
 else
   _fail "uninstall setup: pre-commit hook not installed at $UNINSTALL_HOOK_DST as expected"
 fi
@@ -302,6 +358,77 @@ if echo "$OUT" | grep -qi "skipping pre-commit hook removal"; then
   _pass "non-repo case: uninstall prints a non-fatal skip warning"
 else
   _fail "non-repo case: uninstall expected a non-fatal skip warning. Output: $OUT"
+fi
+
+# ============================================================
+# Test 6: post-DS-58 worktree-hijack regression - a REAL linked worktree is
+#         created, install_precommit_hook runs from it, the worktree is then
+#         REMOVED, and the main checkout's shared hook must still resolve
+#         AND execute. A plain `test -e` on a dangling symlink is FALSE (it
+#         does not follow to a missing target), so this alone is enough to
+#         catch the bug - but this test goes further and actually invokes
+#         the hook to prove it runs, not just that the path resolves.
+# ============================================================
+
+HIJACK_MAIN="$TMP_ROOT/hijack-main-repo"
+_make_fixture_repo "$HIJACK_MAIN"
+
+HIJACK_WT="$TMP_ROOT/hijack-wt-branch"
+git -C "$HIJACK_MAIN" worktree add -q "$HIJACK_WT" -b hijack-wt-test-branch >/dev/null 2>&1
+
+install_precommit_hook "$HIJACK_WT" >/dev/null 2>&1
+
+MAIN_HOOK_DST="$HIJACK_MAIN/.git/hooks/pre-commit"
+
+if [[ -L "$MAIN_HOOK_DST" ]]; then
+  _pass "Test 6 setup: main repo's .git/hooks/pre-commit is a symlink after install-from-worktree"
+else
+  _fail "Test 6 setup: main repo's .git/hooks/pre-commit is not a symlink at $MAIN_HOOK_DST"
+fi
+
+# Remove the worktree - this is the moment the pre-fix bug fires: if the
+# symlink target was inside $HIJACK_WT, it now dangles.
+git -C "$HIJACK_MAIN" worktree remove -f "$HIJACK_WT" >/dev/null 2>&1
+
+if [[ -e "$MAIN_HOOK_DST" ]]; then
+  _pass "Test 6: main repo's pre-commit symlink still resolves (test -e true) after the worktree was removed"
+else
+  _fail "Test 6 (worktree-hijack regression): main repo's pre-commit symlink is DANGLING after worktree removal - test -e is false at $MAIN_HOOK_DST"
+fi
+
+if [[ -x "$MAIN_HOOK_DST" ]]; then
+  _pass "Test 6: main repo's pre-commit symlink still resolves to an executable (test -x true)"
+else
+  _fail "Test 6 (worktree-hijack regression): main repo's pre-commit symlink does not resolve to an executable at $MAIN_HOOK_DST"
+fi
+
+HOOK_RUN_OUTPUT="$("$MAIN_HOOK_DST" 2>&1)"
+HOOK_RUN_RC=$?
+if [[ $HOOK_RUN_RC -eq 0 ]] && [[ "$HOOK_RUN_OUTPUT" == "fixture pre-commit" ]]; then
+  _pass "Test 6: main repo's pre-commit hook actually EXECUTES after the worktree was removed (output: $HOOK_RUN_OUTPUT)"
+else
+  _fail "Test 6 (worktree-hijack regression): main repo's pre-commit hook failed to execute after worktree removal. rc=$HOOK_RUN_RC output=$HOOK_RUN_OUTPUT"
+fi
+
+# ============================================================
+# Test 7: real checkout's actual .git/hooks/pre-commit is never touched by
+#         this test file. All fixtures above use isolated temp repos; this
+#         asserts that invariant directly rather than trusting it.
+# ============================================================
+
+if [[ -n "$REAL_HOOKS_DIR_FOR_CHECKSUM" ]] && [[ -e "$REAL_HOOK_PATH_FOR_CHECKSUM" ]]; then
+  REAL_HOOK_CHECKSUM_AFTER="$(shasum -a 256 "$REAL_HOOK_PATH_FOR_CHECKSUM" 2>/dev/null | awk '{print $1}')"
+  if [[ "$REAL_HOOK_CHECKSUM_AFTER" == "$REAL_HOOK_CHECKSUM_BEFORE" ]]; then
+    _pass "Test 7: real checkout's .git/hooks/pre-commit checksum unchanged by this test run ($REAL_HOOK_CHECKSUM_AFTER)"
+  else
+    _fail "Test 7: real checkout's .git/hooks/pre-commit checksum CHANGED - before=$REAL_HOOK_CHECKSUM_BEFORE after=$REAL_HOOK_CHECKSUM_AFTER"
+  fi
+else
+  if [[ -z "$REAL_HOOK_CHECKSUM_BEFORE" ]]; then
+    _pass "Test 7: real checkout's .git/hooks/pre-commit did not exist before or after this test run"
+  else
+    _fail "Test 7: real checkout's .git/hooks/pre-commit existed before this run (checksum $REAL_HOOK_CHECKSUM_BEFORE) but is missing after"
+  fi
 fi
 
 # ---- Results ----

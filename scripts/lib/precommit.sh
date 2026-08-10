@@ -17,29 +17,53 @@
 #     and echoes nothing on resolution failure (not a git repo, git
 #     missing, etc).
 #
+#   resolve_hook_src <repo_dir>
+#     Echoes the symlink TARGET path for the hooks/pre-commit source file -
+#     "<repo_dir>/hooks/pre-commit" for an ordinary checkout (byte-for-byte
+#     identical to the original DS-58 behavior), but the COMMON repo's
+#     "<main worktree>/hooks/pre-commit" when <repo_dir> is a linked
+#     worktree. This matters because the hooks DIRECTORY (resolved by
+#     resolve_git_hooks_dir, per DS-58) is shared across every worktree of a
+#     repo, but a worktree's own working tree is ephemeral - pointing the
+#     shared hook at a path inside it leaves a dangling symlink (which git
+#     silently treats as "no hook", not an error) once that worktree is
+#     removed. Detects "linked worktree" by comparing
+#     `git rev-parse --path-format=absolute --git-dir` against
+#     `--git-common-dir`: equal means an ordinary (or bare main) checkout,
+#     different means a linked worktree, in which case the target becomes
+#     "$(dirname <git-common-dir>)/hooks/pre-commit". On any resolution
+#     failure (not a git repo, git missing, common-dir has no parent, etc)
+#     falls back to "<repo_dir>/hooks/pre-commit" unchanged - never errors.
+#
 #   install_precommit_hook <repo_dir>
-#     Resolves the real hooks dir via resolve_git_hooks_dir, mkdir -p's it
-#     if needed, and symlinks hooks/pre-commit into it. Honours the
-#     caller's $AE_DRY_RUN ("true"/"false") and reuses the caller's
-#     _ae_is_ours function (must already be defined in the sourcing script)
-#     to detect and re-point stale symlinks from another methodology
-#     checkout. If hooks-dir resolution fails for any reason, prints a
-#     non-fatal warning and returns 0 - never aborts the caller.
+#     Resolves the real hooks dir via resolve_git_hooks_dir and the symlink
+#     source via resolve_hook_src, mkdir -p's the hooks dir if needed, and
+#     symlinks the resolved source into it. Honours the caller's
+#     $AE_DRY_RUN ("true"/"false") and reuses the caller's _ae_is_ours
+#     function (must already be defined in the sourcing script) to detect
+#     and re-point stale symlinks from another methodology checkout. An
+#     existing symlink that already matches the resolved source (including
+#     an already-correctly-repointed worktree install) is left untouched
+#     (reported as "already linked", not rewritten). If hooks-dir
+#     resolution fails for any reason, prints a non-fatal warning and
+#     returns 0 - never aborts the caller.
 #
 #   uninstall_precommit_hook <repo_dir>
-#     Resolves the real hooks dir via resolve_git_hooks_dir and removes the
-#     pre-commit symlink there iff it is a symlink pointing exactly at
-#     "<repo_dir>/hooks/pre-commit" (the same ownership check the original
-#     per-adapter uninstall blocks used - never deletes a foreign hook, a
-#     real file, or a symlink pointing elsewhere). If hooks-dir resolution
-#     fails for any reason, prints a non-fatal warning and returns 0 -
-#     never aborts the caller.
+#     Resolves the real hooks dir via resolve_git_hooks_dir and the expected
+#     symlink target via resolve_hook_src (the same resolution
+#     install_precommit_hook used, so a worktree-repointed symlink is
+#     recognised as ours), and removes the pre-commit symlink there iff it
+#     is a symlink pointing exactly at that resolved target (the same
+#     ownership check the original per-adapter uninstall blocks used -
+#     never deletes a foreign hook, a real file, or a symlink pointing
+#     elsewhere). If hooks-dir resolution fails for any reason, prints a
+#     non-fatal warning and returns 0 - never aborts the caller.
 #
 # Upstream dependencies:
-#   git (rev-parse --git-path), the caller's $REPO_DIR/hooks/pre-commit
-#   source file, the caller's $AE_DRY_RUN variable (install only), the
-#   caller's _ae_is_ours function (install only; duplicated per-adapter
-#   helper).
+#   git (rev-parse --git-path / --git-dir / --git-common-dir), the caller's
+#   $REPO_DIR/hooks/pre-commit source file, the caller's $AE_DRY_RUN
+#   variable (install only), the caller's _ae_is_ours function (install
+#   only; duplicated per-adapter helper).
 #
 # Downstream consumers:
 #   .claude/install.sh, .cursor/install.sh, .opencode/install.sh,
@@ -50,12 +74,17 @@
 #   - `git rev-parse --git-path hooks` fails (not a git repo, git missing):
 #     resolve_git_hooks_dir returns 1; both install_precommit_hook and
 #     uninstall_precommit_hook print a non-fatal warning and return 0.
+#   - `git rev-parse --git-dir`/`--git-common-dir` fails, or the common
+#     dir's parent can't be determined: resolve_hook_src falls back to
+#     "<repo_dir>/hooks/pre-commit" (today's pre-worktree-fix behavior) -
+#     never propagates a failure to the caller.
 #   - Resolved hooks dir does not yet exist (fresh worktree/repo): created
 #     via mkdir -p before the symlink is written (install only).
 #   - Safe to source under set -euo pipefail; no top-level side effects
 #     beyond the function definitions.
 #
-# Performance: one `git rev-parse` call per invocation.
+# Performance: up to three `git rev-parse` calls per invocation (one in
+# resolve_git_hooks_dir, two in resolve_hook_src).
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -82,12 +111,51 @@ resolve_git_hooks_dir() {
 }
 
 # ---------------------------------------------------------------------------
+# resolve_hook_src <repo_dir>
+#   See "Public API" above.
+# ---------------------------------------------------------------------------
+resolve_hook_src() {
+  local repo_dir="$1"
+  local fallback="$repo_dir/hooks/pre-commit"
+
+  local git_dir common_dir
+  if ! git_dir="$(git -C "$repo_dir" rev-parse --path-format=absolute --git-dir 2>/dev/null)" || [[ -z "$git_dir" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+  if ! common_dir="$(git -C "$repo_dir" rev-parse --path-format=absolute --git-common-dir 2>/dev/null)" || [[ -z "$common_dir" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+
+  if [[ "$git_dir" == "$common_dir" ]]; then
+    # Ordinary checkout (or the main worktree of a repo that also has
+    # linked worktrees) - unchanged from the original DS-58 behavior.
+    echo "$fallback"
+    return 0
+  fi
+
+  # Linked worktree: git-dir and git-common-dir diverge. The common repo's
+  # own working tree is the parent of the common .git dir - use ITS
+  # hooks/pre-commit as the symlink target so it outlives this worktree.
+  local common_worktree
+  common_worktree="$(dirname "$common_dir")"
+  if [[ -z "$common_worktree" || ! -d "$common_worktree" ]]; then
+    echo "$fallback"
+    return 0
+  fi
+
+  echo "$common_worktree/hooks/pre-commit"
+}
+
+# ---------------------------------------------------------------------------
 # install_precommit_hook <repo_dir>
 #   See "Public API" above.
 # ---------------------------------------------------------------------------
 install_precommit_hook() {
   local repo_dir="$1"
-  local hook_src="$repo_dir/hooks/pre-commit"
+  local hook_src
+  hook_src="$(resolve_hook_src "$repo_dir")"
 
   local hooks_dir
   if ! hooks_dir="$(resolve_git_hooks_dir "$repo_dir")"; then
@@ -136,7 +204,8 @@ install_precommit_hook() {
 # ---------------------------------------------------------------------------
 uninstall_precommit_hook() {
   local repo_dir="$1"
-  local hook_src="$repo_dir/hooks/pre-commit"
+  local hook_src
+  hook_src="$(resolve_hook_src "$repo_dir")"
 
   local hooks_dir
   if ! hooks_dir="$(resolve_git_hooks_dir "$repo_dir")"; then
