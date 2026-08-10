@@ -105,13 +105,24 @@
 #   only), the caller's _ae_is_ours function (install only; duplicated
 #   per-adapter helper).
 #
-# NOTE: bin/ds-doctor:783 independently hardcodes the same
-#   "<repo_dir>/hooks/pre-commit is the expected symlink target" invariant
-#   (`expected_src = doc.repo_dir / "hooks" / "pre-commit"`) with no shared
-#   source between the two - harmless today only because ds-doctor's own
-#   repo_dir/.git/hooks hardcode already fails first from a worktree, so
-#   the two never actually disagree in a live run. If resolve_hook_src's
-#   resolution logic changes again, check bin/ds-doctor for drift too.
+# NOTE: bin/ds-doctor:784 (line shifts; search for `expected_src = doc.repo_dir`)
+#   independently hardcodes the same "<repo_dir>/hooks/pre-commit is the
+#   expected symlink target" invariant (`expected_src = doc.repo_dir /
+#   "hooks" / "pre-commit"`) with no shared source between the two -
+#   harmless today only because ds-doctor's own repo_dir/.git/hooks
+#   hardcode already fails first from a worktree, so the two never
+#   actually disagree in a live run. This is a KNOWN, UNFIXED drift as of
+#   this PR (disclosed, not silently missed) - as of this commit,
+#   `bin/ds-doctor` has no `resolve_hook_src` call and no shell-out to this
+#   file, and no `bin/tests/test_ds_doctor_precommit_source_parity.sh` (or
+#   equivalent) exists to pin agreement between the two. The correct fix is
+#   to make bin/ds-doctor call THIS function - e.g. via a shell-out such as
+#   `bash -c 'source "$1"; resolve_hook_src "$2"'` against this file -
+#   rather than reimplement its git-dir-vs-git-common-dir resolution logic
+#   in Python a second time; a concurrent unit may be pursuing exactly
+#   that, but verify both the shell-out and the parity test actually exist
+#   before citing either as landed. If resolve_hook_src's resolution logic
+#   changes again in the meantime, check bin/ds-doctor for drift too.
 #
 # Downstream consumers:
 #   .claude/install.sh, .cursor/install.sh, .opencode/install.sh,
@@ -143,7 +154,16 @@
 #     beyond the function definitions.
 #
 # Performance: up to three `git rev-parse` calls per invocation (one in
-# resolve_git_hooks_dir, two in resolve_hook_src).
+# resolve_git_hooks_dir, two in resolve_hook_src). uninstall_precommit_hook
+# additionally, ONLY on the dangling-hook path (an existing symlink whose
+# target does not resolve, and which matched neither exact-match
+# candidate): one call into _precommit_is_orphaned_worktree_target, which
+# spawns up to four `cd` subshells (one per enumerated worktrees-container
+# candidate, short-circuiting on the first match) plus the one `cd`
+# subshell for the target's own container - never more than five `cd`
+# calls total, no `basename` calls (removed along with the basename-shape
+# pre-check; see the helper's own manifest). A live/resolving hook or a
+# clean uninstall never reaches this path at all.
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -191,16 +211,35 @@ _precommit_canonical_repo_dir() {
 #   already been confirmed `[[ ! -e "$target" ]]` by the caller - is a
 #   hook that WOULD have been installed by this module's own
 #   install_precommit_hook for some OTHER, now-removed worktree of the
-#   SAME repo (<repo_dir>, already canonicalized by the caller): a dangling
-#   target ending in "/hooks/pre-commit" whose containing "worktrees"
-#   directory sits directly under "<repo_dir>/.claude/worktrees" or
-#   "<repo_dir>/.agentic/worktrees" - the two locations this repo's own
-#   tooling creates isolation/feature worktrees under (see
-#   content/references/worktree-lifecycle.md). uninstall_precommit_hook's
-#   two existing exact-match candidates (hook_src, legacy_hook_src_*) are
-#   both derived from the CURRENTLY INVOKING repo_dir and so can never
-#   match a target naming a *different*, already-deleted worktree - this
-#   helper is the third, narrower candidate that closes exactly that gap.
+#   SAME repo (<repo_dir>, already canonicalized by the caller):
+#   uninstall_precommit_hook's two existing exact-match candidates
+#   (hook_src, legacy_hook_src_*) are both derived from the CURRENTLY
+#   INVOKING repo_dir and so can never match a target naming a *different*,
+#   already-deleted worktree - this helper is the third, narrower candidate
+#   that closes exactly that gap.
+#
+#   "Ours" is decided against a small, ENUMERATED list of candidate
+#   worktree-container directories under <repo_dir> - NOT a generic
+#   pattern match, and NOT a claim that this is every location worktrees
+#   could ever be created. Each candidate is a real, documented location
+#   this repo's own tooling is known to create worktrees under:
+#     - "<repo_dir>/.claude/worktrees"  (the live Claude Code harness's
+#       own isolation-worktree auto-lock directory)
+#     - "<repo_dir>/.agentic/worktrees" (AGENTS.md's documented
+#       isolation/feature worktree path)
+#     - "<repo_dir>/.worktrees"         (content/references/subagent-protocol.md:333's
+#       manually-managed fan-out path,
+#       "${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug}")
+#     - "<repo_dir>/evals/.worktrees"   (content/commands/ds-cleanup-worktrees.md:38's
+#       "evals/.worktrees/wt-*" instance)
+#   This list is a known INCOMPLETE enumeration, not a closed set derived
+#   from any single source of truth - if methodology or harness tooling
+#   ever documents creating worktrees under a fifth location, that
+#   location must be added here explicitly; nothing in this function
+#   discovers new locations on its own. A dangling target naming a
+#   worktree under an undocumented fifth location fails closed (left
+#   dangling, not deleted) until this list is updated - the same outcome
+#   as on origin/main today, not a regression.
 #
 #   Deliberately does NOT use a generic walk-up-the-target's-ancestors
 #   algorithm (canonicalize the target's longest existing ancestor and
@@ -210,37 +249,60 @@ _precommit_canonical_repo_dir() {
 #   `${x%/*}` is a no-op there, so an unguarded loop hangs and grows
 #   memory unboundedly - a hazard that does NOT exist on origin/main today
 #   and this helper must not introduce), and (2) it is unnecessary here:
-#   this repo's worktree layout is a FIXED, two-candidate shape
-#   ("<repo_dir>/.claude/worktrees/<name>/hooks/pre-commit" or the
-#   ".agentic/" sibling), so the anchor to canonicalize is already known
-#   up front - "<repo_dir>/.claude/worktrees" or "<repo_dir>/.agentic/worktrees"
-#   - and can be canonicalized directly with a single `cd + pwd -P per
-#   candidate (bounded, no loop) rather than discovered by walking. String
-#   manipulation on the (possibly non-canonical, non-existent) target is
-#   used ONLY to test its coarse SHAPE - does it plausibly look like
-#   ".../.claude/worktrees/<name>/hooks/pre-commit"? - before any
-#   filesystem call; the actual containment decision is always made by
-#   comparing two REAL, `cd`-canonicalized, existing directories
-#   (<repo_dir>'s own ".claude/worktrees" or ".agentic/worktrees", and the
-#   target's own "worktrees" segment, when that segment still exists on
-#   disk) - so a symlinked path component anywhere in either side is
-#   resolved correctly by `cd`, never by fragile string comparison.
+#   every candidate above resolves to a worktree at exactly ONE directory
+#   level below its container ("<container>/<name>/hooks/pre-commit"), so
+#   the SAME fixed two-strip arithmetic (strip "/hooks/pre-commit", then
+#   strip one more trailing path component) yields the correct container
+#   root for every candidate, and each container path is already known up
+#   front - each can be canonicalized directly with a single `cd + pwd -P`
+#   (bounded, no loop, four iterations of a fixed `for`) rather than
+#   discovered by walking. String manipulation on the (possibly
+#   non-canonical, non-existent) target is used ONLY to compute this fixed
+#   two-strip candidate root before any filesystem call; the actual
+#   containment decision is always made by comparing two REAL,
+#   `cd`-canonicalized, existing directories (one of <repo_dir>'s four
+#   enumerated candidates above, and the target's own container segment,
+#   when that segment still exists on disk) - so a symlinked path
+#   component anywhere in either side is resolved correctly by `cd`, never
+#   by fragile string comparison. There is deliberately no basename-shape
+#   pre-check (e.g. "does the parent directory's own name look like
+#   .claude or .agentic?") - that check does not generalise across the
+#   four candidates above (".worktrees" and "evals/.worktrees" do not share
+#   the ".claude/agentic + worktrees" two-segment shape) and was removed;
+#   the real, `cd`-canonicalized comparison against the enumerated list is
+#   both necessary and sufficient on its own.
 #
 #   A RELATIVE target (readlink() can return either form) is anchored
 #   against <hooks_dir> per POSIX symlink-resolution semantics (relative
 #   to the symlink's OWN directory, never the process's CWD) before the
 #   shape test - never resolved against $PWD.
 #
+#   NOT covered by the FAILS-CLOSED enumeration below, disclosed
+#   separately because it is a positive-match (deletion) case, not a
+#   failure: a dangling target whose path reaches one of the four
+#   enumerated candidates THROUGH a symlink located OUTSIDE <repo_dir> (a
+#   symlinked path component anywhere before the container segment) still
+#   matches and IS deleted - `cd`-canonicalization resolves that symlink
+#   on both sides of the comparison before it happens, so the real,
+#   physical container directory is what is actually compared, not the
+#   symlinked spelling. This is deliberate, not an oversight: the object
+#   being deleted is always identified by comparing REAL directories (the
+#   repo's own enumerated container, physically, against the target's own
+#   container, physically) - a symlink hop on the way there changes the
+#   SPELLING of the path, never the physical directory the comparison
+#   ultimately identifies as "ours". Test 19 in
+#   bin/tests/test_precommit_worktree.sh exercises this directly.
+#
 #   FAILS CLOSED (returns 1, "not ours - leave it dangling") whenever the
 #   real containment cannot be positively confirmed: <target> is not
 #   dangling, does not end in "/hooks/pre-commit", <hooks_dir> is empty and
-#   <target> is relative, the target's own "worktrees" segment no longer
-#   exists on disk (nothing left to canonicalize and compare), or neither
-#   "<repo_dir>/.claude/worktrees" nor "<repo_dir>/.agentic/worktrees"
-#   exists. The asymmetry is deliberate: the failure direction here is
-#   DELETION, and a false negative (an orphan that stays dangling one more
-#   run) is far cheaper than a false positive (deleting a hook this
-#   function merely guessed was ours).
+#   <target> is relative, the target's own container segment no longer
+#   exists on disk (nothing left to canonicalize and compare), or none of
+#   the four enumerated candidates above exists / matches. The asymmetry
+#   is deliberate: the failure direction here is DELETION, and a false
+#   negative (an orphan that stays dangling one more run) is far cheaper
+#   than a false positive (deleting a hook this function merely guessed
+#   was ours).
 # ---------------------------------------------------------------------------
 _precommit_is_orphaned_worktree_target() {
   local target="$1"
@@ -273,16 +335,7 @@ _precommit_is_orphaned_worktree_target() {
   local worktrees_root="${worktree_dir%/*}"
   [[ "$worktrees_root" == "$worktree_dir" || -z "$worktrees_root" ]] && return 1
 
-  case "$(basename "$worktrees_root")" in
-    worktrees) : ;;
-    *) return 1 ;;
-  esac
-  case "$(basename "${worktrees_root%/*}")" in
-    .claude | .agentic) : ;;
-    *) return 1 ;;
-  esac
-
-  # The target's own "worktrees" ancestor must still exist on disk to be
+  # The target's own container ancestor must still exist on disk to be
   # canonicalized at all - if the whole container is gone too, there is
   # nothing real left to compare against; fail closed.
   [[ -d "$worktrees_root" ]] || return 1
@@ -291,7 +344,12 @@ _precommit_is_orphaned_worktree_target() {
   [[ -z "$canonical_target_root" ]] && return 1
 
   local candidate canonical_candidate
-  for candidate in "$repo_dir/.claude/worktrees" "$repo_dir/.agentic/worktrees"; do
+  for candidate in \
+    "$repo_dir/.claude/worktrees" \
+    "$repo_dir/.agentic/worktrees" \
+    "$repo_dir/.worktrees" \
+    "$repo_dir/evals/.worktrees"
+  do
     canonical_candidate="$(cd "$candidate" 2>/dev/null && pwd -P)" || continue
     [[ -z "$canonical_candidate" ]] && continue
     if [[ "$canonical_target_root" == "$canonical_candidate" ]]; then

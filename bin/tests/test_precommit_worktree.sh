@@ -17,7 +17,14 @@
 # Public API: ./bin/tests/test_precommit_worktree.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, git, mktemp.
+# Upstream deps: bash, git, mktemp. HARD dependency (the script `exit 1`s at
+#                startup if missing): bin/tests/lib/precommit-hook-guard.sh
+#                (real-hook save/restore, see the sandbox-guard block
+#                below). Optional: `timeout` or `gtimeout` (Test 18's hang
+#                guard is skipped with a printed SKIP line when neither is
+#                available and ${CI} is not "true"; hard-fails at startup
+#                under CI when neither is available - see the resolver
+#                block below).
 #
 # Downstream consumers: developer running locally before commit; can be
 #                       wired into CI (.github/workflows/bin-tests.yml).
@@ -30,9 +37,16 @@
 #                checksum alone is insufficient because `shasum` follows a
 #                symlink and hashes its resolved content, so it cannot
 #                detect a re-point at a byte-identical hooks/pre-commit in
-#                a different checkout; see Test 7).
+#                a different checkout; see Test 7 - plus, as of the sandbox
+#                guard below, bin/tests/lib/precommit-hook-guard.sh's own
+#                save/restore of the real hook as a second, independent
+#                layer). An ambient GIT_DIR (or its sibling env vars, or a
+#                global core.hooksPath) could otherwise make `git -C <dir>`
+#                silently ignore `-C` and operate against a DIFFERENT repo
+#                entirely - see Test 0 and Test 13.
 #
-# Performance: < 2 s wall time (pure git + shell, no network).
+# Performance: ~3 s wall time (pure git + shell, no network; 68 assertions
+#              across 23 fixture scenarios as of this revision).
 #
 # Regression coverage:
 #   - DS-58 (install side): `ln -s "$REPO_DIR/hooks/pre-commit"
@@ -82,6 +96,42 @@
 #     parent, non-canonical repo_dir spelling - the cross-version boundary
 #     where pre-this-PR code always used the raw spelling but the legacy
 #     candidate had become canonical-only): Test 12.
+#   - Sandbox guard (Test 0, Test 13): an ambient GIT_DIR (or sibling env
+#     vars, or a global core.hooksPath) makes `git -C <dir>` silently
+#     IGNORE `-C` and operate against a DIFFERENT repo - Test 13
+#     reproduces the escape directly (env-prefix scoped, never leaked into
+#     this script's own shell) and confirms resolve_git_hooks_dir fails
+#     closed with the guard genuinely in effect; Test 0 pins that the
+#     guard's `unset` block actually ran before any fixture.
+#   - Orphan cleanup, delta over #640 (live defect, reproduced against
+#     origin/main pre-fix - a dangling hook naming a DIFFERENT,
+#     already-removed worktree of the SAME repo can never match either of
+#     uninstall_precommit_hook's two exact-match candidates, both derived
+#     from the CURRENTLY invoking repo_dir): Test 14 (.claude/worktrees/),
+#     Test 15 (.agentic/worktrees/), Test 17 (a RELATIVE dangling target,
+#     anchored against the hooks dir per POSIX, not the process CWD),
+#     Test 20 (.worktrees/, added after Major 1 round 2 found the
+#     "fixed two-candidate shape" premise was false), Test 21
+#     (evals/.worktrees/, same round). Test 19 covers the deliberate
+#     positive-match case where the dangling target reaches one of these
+#     candidates through a symlink OUTSIDE the repo (still removed - see
+#     _precommit_is_orphaned_worktree_target's own manifest for why).
+#   - Distinct DANGLING warning (round 2, Major 2 predecessor bullet folded
+#     in here): a dangling hook matching none of the three
+#     uninstall_precommit_hook cases now gets a distinct "DANGLING"
+#     warning instead of the generic "points elsewhere" message - Test 16.
+#   - False-positive guard (a genuinely foreign dangling hook, or one with
+#     the RIGHT shape but the WRONG repo_dir, must never be deleted):
+#     Test 16 (outside any worktrees root entirely), Test 22 (re-run after
+#     Major 1 round 2 widened the candidate list to four - a same-shaped
+#     ".worktrees/<name>/hooks/pre-commit" target rooted at a different,
+#     unrelated repo must still be left alone).
+#   - Hang guard (Test 18): _precommit_is_orphaned_worktree_target must
+#     return promptly for a pathological, deeply-nested, non-existent
+#     dangling target - pins the deliberate choice not to implement a
+#     generic walk-up-the-target's-ancestors algorithm (see the helper's
+#     own manifest), so a future regression to an unguarded walk-up loop
+#     is caught by a timeout kill, not a silent merge.
 #   This test re-creates worktree fixtures for all of the above to prevent
 #   regression.
 
@@ -387,7 +437,7 @@ else
   _fail "uninstall-from-worktree case: uninstall_precommit_hook exited $RC. Output: $OUT"
 fi
 
-if [[ ! -e "$UNINSTALL_HOOK_DST" ]]; then
+if [[ ! -L "$UNINSTALL_HOOK_DST" ]] && [[ ! -e "$UNINSTALL_HOOK_DST" ]]; then
   _pass "uninstall-from-worktree case (DS-58 fixed): AE-owned pre-commit hook actually removed"
 else
   _fail "uninstall-from-worktree case (DS-58 regression): pre-commit hook still present at $UNINSTALL_HOOK_DST. Output: $OUT"
@@ -690,7 +740,7 @@ else
   _fail "Test 9 (Major 2): uninstall_precommit_hook exited $LEGACY_RC. Output: $LEGACY_OUT"
 fi
 
-if [[ ! -e "$LEGACY_HOOK_DST" ]]; then
+if [[ ! -L "$LEGACY_HOOK_DST" ]] && [[ ! -e "$LEGACY_HOOK_DST" ]]; then
   _pass "Test 9 (Major 2): legacy-targeted (pre-this-PR) hook is removed by uninstall"
 else
   _fail "Test 9 (Major 2 regression): legacy-targeted hook still present at $LEGACY_HOOK_DST after uninstall - orphaned, will dangle once the worktree is removed. Output: $LEGACY_OUT"
@@ -839,7 +889,7 @@ else
   _fail "Test 11 (Minor 3): uninstall_precommit_hook exited $CANON_UNINSTALL_RC. Output: $CANON_UNINSTALL_OUT"
 fi
 
-if [[ ! -e "$CANON_HOOK_DST" ]]; then
+if [[ ! -L "$CANON_HOOK_DST" ]] && [[ ! -e "$CANON_HOOK_DST" ]]; then
   _pass "Test 11 (Minor 3 fixed): hook installed via a trailing-slash repo_dir is correctly removed by uninstall using the canonical spelling"
 else
   _fail "Test 11 (Minor 3 regression): hook installed via a trailing-slash repo_dir was left ORPHANED by uninstall using the canonical spelling - legacy_hook_src is not canonicalized consistently with the installed target. Output: $CANON_UNINSTALL_OUT"
@@ -894,7 +944,7 @@ else
   _fail "Test 12 (Major 1): uninstall_precommit_hook exited $MAJOR1_RC. Output: $MAJOR1_OUT"
 fi
 
-if [[ ! -e "$MAJOR1_HOOK_DST" ]]; then
+if [[ ! -L "$MAJOR1_HOOK_DST" ]] && [[ ! -e "$MAJOR1_HOOK_DST" ]]; then
   _pass "Test 12 (Major 1 fixed): legacy hook installed under a non-canonical (symlinked-parent) spelling is removed by uninstall"
 else
   _fail "Test 12 (Major 1 regression): legacy hook installed under a non-canonical spelling was left ORPHANED by uninstall - the legacy candidate must match both the raw and the canonical repo_dir spellings. Output: $MAJOR1_OUT"
@@ -1159,6 +1209,210 @@ if [[ -n "$_TIMEOUT_BIN" ]]; then
   fi
 else
   echo "SKIP: Test 18 (hang guard) - neither timeout nor gtimeout available locally (non-CI); the CI guard above hard-fails this scenario when \${CI}=true"
+fi
+
+# ============================================================
+# Test 19: a dangling target that reaches one of the four enumerated
+#          worktrees-container candidates THROUGH a symlink located
+#          OUTSIDE <repo_dir> is still recognised and removed - the
+#          physical, `cd`-canonicalized container directory is what is
+#          compared, not the symlinked spelling of the path that reaches
+#          it. Documented as a deliberate positive-match case in the
+#          helper's own manifest (distinct from the FAILS-CLOSED
+#          enumeration, since it is a removal, not a refusal).
+# ============================================================
+
+SYMOUT_MAIN="$TMP_ROOT/symout-main-repo"
+_make_fixture_repo "$SYMOUT_MAIN"
+mkdir -p "$SYMOUT_MAIN/.claude/worktrees"
+
+SYMOUT_WT="$SYMOUT_MAIN/.claude/worktrees/agent-symout-test"
+git -C "$SYMOUT_MAIN" worktree add -q "$SYMOUT_WT" -b symout-wt-test-branch >/dev/null 2>&1
+
+# A symlink OUTSIDE $SYMOUT_MAIN that resolves into the real worktree - the
+# dangling target below is spelled THROUGH this external symlink, never
+# through $SYMOUT_MAIN's own (canonical) path.
+SYMOUT_EXTERNAL_LINK="$TMP_ROOT/symout-external-alias"
+ln -s "$SYMOUT_MAIN" "$SYMOUT_EXTERNAL_LINK"
+
+SYMOUT_REAL_HOOKS_DIR="$(git -C "$SYMOUT_MAIN" rev-parse --git-path hooks)"
+case "$SYMOUT_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) SYMOUT_REAL_HOOKS_DIR="$SYMOUT_MAIN/$SYMOUT_REAL_HOOKS_DIR" ;;
+esac
+SYMOUT_HOOK_DST="$SYMOUT_REAL_HOOKS_DIR/pre-commit"
+
+mkdir -p "$SYMOUT_REAL_HOOKS_DIR"
+ln -s "$SYMOUT_EXTERNAL_LINK/.claude/worktrees/agent-symout-test/hooks/pre-commit" "$SYMOUT_HOOK_DST"
+
+if [[ -L "$SYMOUT_HOOK_DST" ]] && [[ "$(readlink "$SYMOUT_HOOK_DST")" == "$SYMOUT_EXTERNAL_LINK"* ]]; then
+  _pass "Test 19 setup: hook installed via a target spelled through an EXTERNAL symlink, not the repo's own canonical path"
+else
+  _fail "Test 19 setup: hook not installed as expected at $SYMOUT_HOOK_DST"
+fi
+
+git -C "$SYMOUT_MAIN" worktree remove -f "$SYMOUT_WT" >/dev/null 2>&1
+
+SYMOUT_OUT="$(uninstall_precommit_hook "$SYMOUT_MAIN" 2>&1)"
+
+if [[ ! -L "$SYMOUT_HOOK_DST" ]] && [[ ! -e "$SYMOUT_HOOK_DST" ]]; then
+  _pass "Test 19 (symlink-outside-repo orphan cleanup): a dangling target reaching this repo's own .claude/worktrees THROUGH an external symlink is still removed. Output: $SYMOUT_OUT"
+else
+  _fail "Test 19 (symlink-outside-repo orphan cleanup regression): hook still present at $SYMOUT_HOOK_DST. Output: $SYMOUT_OUT"
+fi
+
+# ============================================================
+# Test 20: orphan cleanup, the ".worktrees/" candidate added for Major 1
+#          (content/references/subagent-protocol.md:333's manually-managed
+#          fan-out path, "${REPO}/.worktrees/${FEATURE_BRANCH}-${unit_slug}").
+# ============================================================
+
+DOTWT_MAIN="$TMP_ROOT/dotwt-main-repo"
+_make_fixture_repo "$DOTWT_MAIN"
+mkdir -p "$DOTWT_MAIN/.worktrees"
+
+DOTWT_WT="$DOTWT_MAIN/.worktrees/feature-x-unit1"
+git -C "$DOTWT_MAIN" worktree add -q "$DOTWT_WT" -b feature-x-unit1 >/dev/null 2>&1
+
+DOTWT_REAL_HOOKS_DIR="$(git -C "$DOTWT_MAIN" rev-parse --git-path hooks)"
+case "$DOTWT_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) DOTWT_REAL_HOOKS_DIR="$DOTWT_MAIN/$DOTWT_REAL_HOOKS_DIR" ;;
+esac
+DOTWT_HOOK_DST="$DOTWT_REAL_HOOKS_DIR/pre-commit"
+
+mkdir -p "$DOTWT_REAL_HOOKS_DIR"
+ln -s "$DOTWT_WT/hooks/pre-commit" "$DOTWT_HOOK_DST"
+
+git -C "$DOTWT_MAIN" worktree remove -f "$DOTWT_WT" >/dev/null 2>&1
+
+DOTWT_OUT="$(uninstall_precommit_hook "$DOTWT_MAIN" 2>&1)"
+
+if [[ ! -L "$DOTWT_HOOK_DST" ]] && [[ ! -e "$DOTWT_HOOK_DST" ]]; then
+  _pass "Test 20 (orphan cleanup, .worktrees/ candidate): dangling hook naming an already-removed .worktrees/ worktree is removed. Output: $DOTWT_OUT"
+else
+  _fail "Test 20 (orphan cleanup regression, .worktrees/): dangling hook still present at $DOTWT_HOOK_DST. Output: $DOTWT_OUT"
+fi
+
+# ============================================================
+# Test 21: orphan cleanup, the "evals/.worktrees/" candidate added for
+#          Major 1 (content/commands/ds-cleanup-worktrees.md:38's
+#          "evals/.worktrees/wt-*" instance).
+# ============================================================
+
+EVALSWT_MAIN="$TMP_ROOT/evalswt-main-repo"
+_make_fixture_repo "$EVALSWT_MAIN"
+mkdir -p "$EVALSWT_MAIN/evals/.worktrees"
+
+EVALSWT_WT="$EVALSWT_MAIN/evals/.worktrees/wt-abc123"
+git -C "$EVALSWT_MAIN" worktree add -q "$EVALSWT_WT" -b evalswt-test-branch >/dev/null 2>&1
+
+EVALSWT_REAL_HOOKS_DIR="$(git -C "$EVALSWT_MAIN" rev-parse --git-path hooks)"
+case "$EVALSWT_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) EVALSWT_REAL_HOOKS_DIR="$EVALSWT_MAIN/$EVALSWT_REAL_HOOKS_DIR" ;;
+esac
+EVALSWT_HOOK_DST="$EVALSWT_REAL_HOOKS_DIR/pre-commit"
+
+mkdir -p "$EVALSWT_REAL_HOOKS_DIR"
+ln -s "$EVALSWT_WT/hooks/pre-commit" "$EVALSWT_HOOK_DST"
+
+git -C "$EVALSWT_MAIN" worktree remove -f "$EVALSWT_WT" >/dev/null 2>&1
+
+EVALSWT_OUT="$(uninstall_precommit_hook "$EVALSWT_MAIN" 2>&1)"
+
+if [[ ! -L "$EVALSWT_HOOK_DST" ]] && [[ ! -e "$EVALSWT_HOOK_DST" ]]; then
+  _pass "Test 21 (orphan cleanup, evals/.worktrees/ candidate): dangling hook naming an already-removed evals/.worktrees/ worktree is removed. Output: $EVALSWT_OUT"
+else
+  _fail "Test 21 (orphan cleanup regression, evals/.worktrees/): dangling hook still present at $EVALSWT_HOOK_DST. Output: $EVALSWT_OUT"
+fi
+
+# ============================================================
+# Test 22: false-positive guard, re-run for the WIDENED candidate set - a
+#          dangling target whose shape matches a candidate (e.g.
+#          ".worktrees/<name>/hooks/pre-commit") but under a COMPLETELY
+#          DIFFERENT repo's own directory tree must NOT be recognised as
+#          this repo's orphan, even though the string shape is identical.
+#          The widened candidate list only ever compares against THIS
+#          repo_dir's own four candidate paths - never a generic pattern
+#          match - so a same-shaped target rooted at a different physical
+#          directory must fail closed.
+# ============================================================
+
+FOREIGN4_MAIN="$TMP_ROOT/foreign4-main-repo"
+_make_fixture_repo "$FOREIGN4_MAIN"
+
+FOREIGN4_OTHER_REPO="$TMP_ROOT/foreign4-other-repo"
+mkdir -p "$FOREIGN4_OTHER_REPO/.worktrees/some-other-feature/hooks"
+
+FOREIGN4_REAL_HOOKS_DIR="$(git -C "$FOREIGN4_MAIN" rev-parse --git-path hooks)"
+case "$FOREIGN4_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) FOREIGN4_REAL_HOOKS_DIR="$FOREIGN4_MAIN/$FOREIGN4_REAL_HOOKS_DIR" ;;
+esac
+FOREIGN4_HOOK_DST="$FOREIGN4_REAL_HOOKS_DIR/pre-commit"
+
+# Same SHAPE (".worktrees/<name>/hooks/pre-commit") as Test 20, but rooted
+# at a totally different, unrelated repo directory - never removed by
+# $FOREIGN4_MAIN's own uninstall run.
+FOREIGN4_UNRELATED_TARGET="$FOREIGN4_OTHER_REPO/.worktrees/some-other-feature/hooks/pre-commit"
+mkdir -p "$FOREIGN4_REAL_HOOKS_DIR"
+ln -s "$FOREIGN4_UNRELATED_TARGET" "$FOREIGN4_HOOK_DST"
+
+FOREIGN4_OUT="$(uninstall_precommit_hook "$FOREIGN4_MAIN" 2>&1)"
+
+if [[ -L "$FOREIGN4_HOOK_DST" ]] && [[ "$(readlink "$FOREIGN4_HOOK_DST")" == "$FOREIGN4_UNRELATED_TARGET" ]]; then
+  _pass "Test 22 (no over-match, widened candidate set): a same-shaped dangling hook rooted at a DIFFERENT repo's .worktrees/ is left untouched"
+else
+  _fail "Test 22 (over-match regression, widened candidate set): a same-shaped but foreign dangling hook was removed or altered. Output: $FOREIGN4_OUT"
+fi
+
+# ============================================================
+# Test 23: exact-match guard - a candidate comparison that degraded from
+#          exact string equality to a PREFIX match would still pass every
+#          test above (none of them constructs a sibling directory whose
+#          name happens to start with a real candidate's own path), so it
+#          is asserted directly here: a dangling hook rooted at
+#          "<repo_dir>/.worktrees-decoy" (a real, EXISTING sibling
+#          directory of "<repo_dir>/.worktrees" that is NOT itself a
+#          recognised candidate, and is not a prefix-relationship
+#          coincidence - it merely SHARES ".worktrees" as its own string
+#          prefix) must be left untouched. A `==` comparison correctly
+#          distinguishes these; a `== *` glob comparison would not.
+# ============================================================
+
+DECOY_MAIN="$TMP_ROOT/decoy-main-repo"
+_make_fixture_repo "$DECOY_MAIN"
+# The REAL ".worktrees" candidate must also exist (even though unused) so
+# that a prefix-match mutation has something real to match AGAINST - if
+# only the decoy directory existed, the real candidate's own `cd` would
+# fail and skip the comparison entirely, making this fixture unable to
+# distinguish exact-match from prefix-match regardless of which the
+# library actually implements.
+mkdir -p "$DECOY_MAIN/.worktrees"
+mkdir -p "$DECOY_MAIN/.worktrees-decoy"
+
+DECOY_WT="$DECOY_MAIN/.worktrees-decoy/some-unrelated-dir"
+git -C "$DECOY_MAIN" worktree add -q "$DECOY_WT" -b decoy-test-branch >/dev/null 2>&1
+
+DECOY_REAL_HOOKS_DIR="$(git -C "$DECOY_MAIN" rev-parse --git-path hooks)"
+case "$DECOY_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) DECOY_REAL_HOOKS_DIR="$DECOY_MAIN/$DECOY_REAL_HOOKS_DIR" ;;
+esac
+DECOY_HOOK_DST="$DECOY_REAL_HOOKS_DIR/pre-commit"
+
+mkdir -p "$DECOY_REAL_HOOKS_DIR"
+ln -s "$DECOY_WT/hooks/pre-commit" "$DECOY_HOOK_DST"
+
+git -C "$DECOY_MAIN" worktree remove -f "$DECOY_WT" >/dev/null 2>&1
+
+DECOY_OUT="$(uninstall_precommit_hook "$DECOY_MAIN" 2>&1)"
+
+if [[ -L "$DECOY_HOOK_DST" ]]; then
+  _pass "Test 23 (exact-match guard): a dangling hook rooted at a sibling '.worktrees-decoy' directory (shares a string PREFIX with the real '.worktrees' candidate, but is not it) is left untouched"
+else
+  _fail "Test 23 (exact-match guard regression): a dangling hook under a merely-prefix-sharing sibling directory was incorrectly removed - the candidate comparison is matching by prefix, not exact identity. Output: $DECOY_OUT"
 fi
 
 # ---- Results ----
