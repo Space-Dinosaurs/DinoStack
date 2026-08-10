@@ -6,8 +6,9 @@ Purpose: The single standing "watch for learnings" instruction every agent role
          cost multiple review rounds to reconcile.
 
 Public API: Read-only reference. Two consumable parts: the capture procedure
-            (split by whether the reading agent can write) and the
-            `learnings_candidate[]` entry shape.
+            (split by whether the shard CLI is the reading agent's capture path,
+            and otherwise by whether its return contract defines
+            `learnings_candidate[]`) and the `learnings_candidate[]` entry shape.
 
 Upstream deps: bin/ds-learning-shard (owns the --event-type enum, the flag
                names, and the per-session cap this document describes);
@@ -15,9 +16,15 @@ Upstream deps: bin/ds-learning-shard (owns the --event-type enum, the flag
                gate that classifies what this document collects).
 
 Downstream consumers: every agent in content/agents/ (via a pointer);
-                      content/agents/engineer.md and
-                      content/references/digest-return-pattern.md, both of which
-                      defer the `learnings_candidate[]` shape to this file.
+                      content/agents/engineer.md,
+                      content/agents/investigator.md,
+                      content/agents/debugger.md and
+                      content/references/digest-return-pattern.md, all four of which
+                      defer the `learnings_candidate[]` shape to this file;
+                      content/references/conductor-operating-rules.md, whose
+                      `kind`-to-`event_type` map consumes the enum declared here and
+                      must change in lockstep with it (see "One co-dependent site"
+                      below).
 
 Failure modes: Prose; does not execute. If the flag names or the --event-type
                enum here drift from bin/ds-learning-shard, agents emit invalid
@@ -52,7 +59,20 @@ guardrail-first gate in `content/references/capture-classification.md`. If you j
 importance yourself you will drop exactly the entries that look small in the moment
 and are expensive to re-derive cold. Record it and move on.
 
-## If you can write (Edit/Write available)
+## If the shard CLI is your capture path
+
+**This branch has a fixed membership list, not a capability test.** Exactly four roles
+capture through `ds-learning-shard`: `engineer`, `adr-generator`, `product-discovery`
+and `release-orchestrator`. Every other agent in `content/agents/` belongs to the next
+section. Do not infer your branch from your `tools:` grant - most read-only roles do
+hold `Bash` and are still not in this branch, because the split is by role, not by
+capability. If your own role file does not give you a positive "the CLI is yours"
+instruction, you are in the next section.
+
+Holding `Bash` is a precondition of this branch, never the rule that assigns it:
+`learning-extractor`, `learnings-agent` and `wrap-ticket` hold `Edit`/`Write` but no
+`Bash`, so they could not run the CLI in any case - and all three are the capture
+pipeline's own writers besides.
 
 Call the CLI the moment the learning occurs:
 
@@ -79,16 +99,34 @@ ds-learning-shard append \
   failure.** The one exception is a malformed invocation (argparse exit 2), which
   means you typed a flag wrong; fix the flag.
 
-Also populate `learnings_candidate[]` in your return digest as usual. The two paths
-are complementary: the shard survives your context, the digest reaches the conductor
-this turn.
+If your own return contract also defines `learnings_candidate[]`, populate it too.
+`engineer` is the only role in this branch that does; `adr-generator`,
+`product-discovery` and `release-orchestrator` return formats declare no such field,
+so for those three the shard is the whole capture path. Where both apply the paths are
+complementary: the shard survives your context, the digest reaches the conductor this
+turn.
 
-## If you cannot write (read-only agent)
+## If the shard CLI is not your capture path
 
-Agents declaring `disallowedTools: [Edit, Write, Agent]` cannot run the CLI and
-cannot delegate to something that can. Populate `learnings_candidate[]` in your
-return digest instead. That is your entire capture path, and the conductor is
-forbidden from re-reading your transcript, so anything not in that field is lost.
+Every role other than the four named above is here, whether or not it holds `Bash`.
+What you can capture depends on whether your own return contract defines the
+`learnings_candidate[]` field:
+
+- **Contract defines `learnings_candidate[]`** (`investigator`, `debugger`): populate
+  it. That is your entire capture path, and the conductor is forbidden from
+  re-reading your transcript, so anything not in that field is lost.
+- **Contract does not define it** (every other role in this branch): you have no capture
+  channel, and you must not invent one. The conductor's routing hop in
+  `content/references/conductor-operating-rules.md` consumes `learnings_candidate[]`
+  only from `engineer`, `investigator` and `debugger` returns, so a block emitted by
+  any other role is unread output appended to a return format the conductor parses.
+  Surface an incidental discovery in whatever narrative section your output format
+  already provides, or not at all. `skeptic` is the sharp case: its sign-off is
+  checked for a fixed set of required elements, so an appended block is unparsed
+  text sitting inside a validated format - never add one.
+
+Adding the field to another read-only role is a two-sided change - the role's return
+contract and the routing hop - never a pointer on its own.
 
 ## `learnings_candidate[]` (canonical definition)
 
@@ -120,11 +158,19 @@ learnings_candidate:
 }
 ```
 
-This is the canonical definition of the field. `content/agents/engineer.md` and
-`content/references/digest-return-pattern.md` both point here rather than restate it.
-Two role-scoped restatements remain inline and are known to be narrower: `content/agents/investigator.md`
-and `content/agents/debugger.md` each declare a 3-value `kind` enum that omits `decision`.
-DS-154 Unit C folds both into this definition; until then, change the enum here and in those two files together.
+This is the canonical definition of the field and the only place it is declared.
+`content/agents/engineer.md`, `content/agents/investigator.md`,
+`content/agents/debugger.md` and `content/references/digest-return-pattern.md` all
+point here rather than restate it.
+
+**One co-dependent site.** `content/references/conductor-operating-rules.md`
+§"Routing hop for `learnings_candidate[]`" maps each `kind` onto a
+`learnings-agent` `event_type`. It consumes the enum rather than declaring it, so it
+is not a second definition - but adding, removing or renaming a `kind` value here
+without updating that map leaves the conductor with no `event_type` for the new
+value. Change the two together, and change `bin/ds-learning-shard`'s
+`--event-type` enum in the same pass: this table and that CLI flag are the same
+four values by construction.
 
 ## Session identity
 

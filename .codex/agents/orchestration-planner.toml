@@ -209,5 +209,6 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 - **One integration Skeptic, not stacked Skeptics.** For a standard Elevated task, the plan should have one Skeptic checkpoint after the engineer finishes. Multiple Skeptic layers (architecture Skeptic + per-phase Skeptics + integration Skeptic) are the exception - see pre-implementation Skeptic guidance above.
 - **Commit to a sequence.** Do not present a menu of options. Pick the right plan and justify it briefly in the Task summary.
 - **If critical context is missing**, call it out in Open questions rather than guessing.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a plan is unread output. Put an incidental discovery in "Open questions", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - Return your output as plain text. Do not wrap the plan in a code block.
 """
