@@ -233,6 +233,10 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 
 ### Routing hop for `learnings_candidate[]` (new input source)
 
+The `kind` map in step 2b below is a **consumer** of the `kind` enum, not a second declaration of it: the enum is defined once in `content/references/learnings-capture-instruction.md`, alongside the `--event-type` enum of `bin/ds-learning-shard`. Adding, removing or renaming a `kind` value there without updating this map leaves the conductor with no `event_type` for the new value, so change the two together.
+
+`engineer`, `investigator` and `debugger` are the only roles whose return contract declares `learnings_candidate[]`, and this hop reads it from those three only. No other agent should emit the field; if one is ever given it, its return contract and this list are a single change.
+
 When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-6 sweep:
 
 1. Run guardrail-first classification (steps a, b, c from capture-classification.md).

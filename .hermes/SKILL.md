@@ -2067,6 +2067,10 @@ Supported `event_type` values: `skeptic-resolved`, `error-fixed`,
 
 ### Routing hop for `learnings_candidate[]` (new input source)
 
+The `kind` map in step 2b below is a **consumer** of the `kind` enum, not a second declaration of it: the enum is defined once in `content/references/learnings-capture-instruction.md`, alongside the `--event-type` enum of `bin/ds-learning-shard`. Adding, removing or renaming a `kind` value there without updating this map leaves the conductor with no `event_type` for the new value, so change the two together.
+
+`engineer`, `investigator` and `debugger` are the only roles whose return contract declares `learnings_candidate[]`, and this hop reads it from those three only. No other agent should emit the field; if one is ever given it, its return contract and this list are a single change.
+
 When a Worker digest (engineer, investigator, or debugger return) contains a non-empty `learnings_candidate[]`, the conductor applies the following per entry BEFORE the trigger 1-6 sweep:
 
 1. Run guardrail-first classification (steps a, b, c from capture-classification.md).
@@ -3471,7 +3475,7 @@ A loop-running spawn returns a structured digest. Required fields:
 
 Optional field (default empty; cap 5 entries per return):
 
-- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. The entry shape, the `kind` enum and the cap are defined once, in `content/references/learnings-capture-instruction.md`; this doc does not restate them. For a read-only agent this is the ONLY channel for worker-internal discovery, because the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost. A write-capable agent additionally records each learning in flight via `ds-learning-shard append`.
+- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. The entry shape, the `kind` enum and the cap are defined once, in `content/references/learnings-capture-instruction.md`; this doc does not restate them. The field is defined on `engineer`, `investigator` and `debugger` returns only, and the conductor's routing hop consumes it from exactly those three; a role whose own return contract does not declare it must not emit one. For `investigator` and `debugger` this is the ONLY channel for worker-internal discovery, because the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost. An agent holding `Bash` additionally records each learning in flight via `ds-learning-shard append`.
 
 The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, learnings_candidate, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
 
@@ -4222,8 +4226,9 @@ Purpose: The single standing "watch for learnings" instruction every agent role
          cost multiple review rounds to reconcile.
 
 Public API: Read-only reference. Two consumable parts: the capture procedure
-            (split by whether the reading agent can write) and the
-            `learnings_candidate[]` entry shape.
+            (split by whether the shard CLI is the reading agent's capture path,
+            and otherwise by whether its return contract defines
+            `learnings_candidate[]`) and the `learnings_candidate[]` entry shape.
 
 Upstream deps: bin/ds-learning-shard (owns the --event-type enum, the flag
                names, and the per-session cap this document describes);
@@ -4231,8 +4236,10 @@ Upstream deps: bin/ds-learning-shard (owns the --event-type enum, the flag
                gate that classifies what this document collects).
 
 Downstream consumers: every agent in content/agents/ (via a pointer);
-                      content/agents/engineer.md and
-                      content/references/digest-return-pattern.md, both of which
+                      content/agents/engineer.md,
+                      content/agents/investigator.md,
+                      content/agents/debugger.md and
+                      content/references/digest-return-pattern.md, all four of which
                       defer the `learnings_candidate[]` shape to this file.
 
 Failure modes: Prose; does not execute. If the flag names or the --event-type
@@ -4268,7 +4275,12 @@ guardrail-first gate in `content/references/capture-classification.md`. If you j
 importance yourself you will drop exactly the entries that look small in the moment
 and are expensive to re-derive cold. Record it and move on.
 
-## If you can write (Edit/Write available)
+## If you can run the CLI (Bash available)
+
+`ds-learning-shard` is a command, so the branch you are in is decided by `Bash`, not
+by `Edit`/`Write`. An agent holding `Edit`/`Write` but no `Bash` cannot take this
+branch (`learning-extractor`, `learnings-agent` and `wrap-ticket` are all in that
+position, and all three are the capture pipeline's own writers besides).
 
 Call the CLI the moment the learning occurs:
 
@@ -4299,12 +4311,26 @@ Also populate `learnings_candidate[]` in your return digest as usual. The two pa
 are complementary: the shard survives your context, the digest reaches the conductor
 this turn.
 
-## If you cannot write (read-only agent)
+## If you cannot run the CLI
 
-Agents declaring `disallowedTools: [Edit, Write, Agent]` cannot run the CLI and
-cannot delegate to something that can. Populate `learnings_candidate[]` in your
-return digest instead. That is your entire capture path, and the conductor is
-forbidden from re-reading your transcript, so anything not in that field is lost.
+When the shard CLI is not your capture path, what you can capture depends on whether
+your own return contract defines the `learnings_candidate[]` field:
+
+- **Contract defines `learnings_candidate[]`** (`investigator`, `debugger`): populate
+  it. That is your entire capture path, and the conductor is forbidden from
+  re-reading your transcript, so anything not in that field is lost.
+- **Contract does not define it** (every other read-only agent): you have no capture
+  channel, and you must not invent one. The conductor's routing hop in
+  `content/references/conductor-operating-rules.md` consumes `learnings_candidate[]`
+  only from `engineer`, `investigator` and `debugger` returns, so a block emitted by
+  any other role is unread output appended to a return format the conductor parses.
+  Surface an incidental discovery in whatever narrative section your output format
+  already provides, or not at all. `skeptic` is the sharp case: its sign-off is
+  checked for a fixed set of required elements, so an appended block is unparsed
+  text sitting inside a validated format - never add one.
+
+Adding the field to another read-only role is a two-sided change - the role's return
+contract and the routing hop - never a pointer on its own.
 
 ## `learnings_candidate[]` (canonical definition)
 
@@ -4336,11 +4362,19 @@ learnings_candidate:
 }
 ```
 
-This is the canonical definition of the field. `content/agents/engineer.md` and
-`content/references/digest-return-pattern.md` both point here rather than restate it.
-Two role-scoped restatements remain inline and are known to be narrower: `content/agents/investigator.md`
-and `content/agents/debugger.md` each declare a 3-value `kind` enum that omits `decision`.
-DS-154 Unit C folds both into this definition; until then, change the enum here and in those two files together.
+This is the canonical definition of the field and the only place it is declared.
+`content/agents/engineer.md`, `content/agents/investigator.md`,
+`content/agents/debugger.md` and `content/references/digest-return-pattern.md` all
+point here rather than restate it.
+
+**One co-dependent site.** `content/references/conductor-operating-rules.md`
+§"Routing hop for `learnings_candidate[]`" maps each `kind` onto a
+`learnings-agent` `event_type`. It consumes the enum rather than declaring it, so it
+is not a second definition - but adding, removing or renaming a `kind` value here
+without updating that map leaves the conductor with no `event_type` for the new
+value. Change the two together, and change `bin/ds-learning-shard`'s
+`--event-type` enum in the same pass: this table and that CLI flag are the same
+four values by construction.
 
 ## Session identity
 
@@ -6477,7 +6511,7 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 
 **When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
 
-**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; `qa-engineer` performs no file writes at all - it returns a `qa-knowledge-json` payload in its report text and the conductor appends it to `.agentic/qa.md`, so the `Write` deny is a non-issue rather than something worked around via Bash redirection.)
+**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; `qa-engineer` writes evidence artifacts for its QA scenarios via Bash, but does not use the `Write` tool - its durable methodology output is a `qa-knowledge-json` payload returned in its report text, which the conductor appends to `.agentic/qa.md`.)
 
 ### Rule 5 — The Skeptic Protocol is orchestrated by the main agent
 
@@ -8102,6 +8136,7 @@ If there are no items in a section, write "[None]" under that heading - do not o
 - Grep results: capture at most 5 lines of evidence per ADR to avoid overwhelming output. If more than 5 matches exist, note "and N more matches".
 - If a dependency file (package.json, etc.) does not exist, note this for any ADR that required a dependency check, and factor it into the classification.
 - Today's date for the report header: use Bash `date +%Y-%m-%d` to get the current date.
+- No `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to the drift report is unread output. Put an incidental discovery under "Unverifiable" or "Skipped", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - For each Superseded ADR: check whether the file named in `superseded_by` (if present) actually exists in the ADR directory. If it does not, flag it in the Skipped entry: "⚠️ Superseding file [filename] not found in ADR directory".
 
 ---
@@ -8325,6 +8360,7 @@ Before finalizing the ADR, verify:
 7. **Be Timely**: Use the current date unless specified otherwise
 8. **Be Connected**: Reference related ADRs when applicable
 9. **Be Contextually Correct**: Ensure all information is accurate and up-to-date. Use the current repository state as the source of truth.
+10. **Capture Learnings In Flight**: you hold `Bash` and your contract permits mutating commands, so the CLI is yours to use - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
 ---
 
@@ -8588,6 +8624,7 @@ List every file path, line reference, and symbol name you asserted anywhere in t
 - **`theme` is required on `visual_conformance` and `accessibility` scenarios when `theme_aware: true`.** When `.agentic/config.json` has `theme_aware: true` AND the scenario method is `visual_conformance` or `accessibility` AND the `theme` field is absent, the architect plan is missing a required field. Absence is a Major Skeptic finding. This rule is opt-in: when `theme_aware` is absent or `false`, this rule does NOT fire. Valid values: `light`, `dark`, `both`. `theme` is valid on `visual_conformance`, `accessibility`, and `motion` scenarios. Setting `theme` on any other method (`perceptual_diff`, `browser`, `api`, `runtime-required`) is invalid and Skeptic raises Critical.
 - **`story_id` is restricted to `visual_conformance` and `accessibility` scenarios only (P1 binding).** Setting `story_id` on any other method - including `motion` - is always a Critical Skeptic finding, regardless of config state. Rationale: `perceptual_diff` has ambiguous baseline-path semantics when story vs live-app render differ; `api` and `runtime-required` have no browser surface; `browser` interaction flows do not compose with Storybook's isolated render; `motion` scenarios use the `route` field directly (motion does not compose with `story_id` at P2). `story_id` is only valid when `.agentic/config.json` has `storybook_enabled: true` (default `false`); setting `story_id` without enabling config is INCONCLUSIVE at runtime but not a plan-time Skeptic finding (the gate is runtime, not schema). When `storybook_version: 6`, qa-engineer applies the SB6 URL conversion algorithm.
 - **`motion` is required when `motion_aware: true` and the unit is UI-visible Elevated.** When `.agentic/config.json` has `motion_aware: true` AND the unit is UI-visible AND Elevated AND `qa_skip == null` AND no `motion` scenario is present, the architect plan is missing a required scenario. Absence is a Major Skeptic finding. This rule is opt-in: when `motion_aware` is absent or `false`, this rule does NOT fire. `motion` scenarios require `route` (URL or page path) and `elements` (CSS selector list or `"auto"` for full-page scan) fields. `motion` requires Playwright (`playwright-python` in qa-engineer capabilities); returns INCONCLUSIVE with install message when Playwright is missing.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a plan is unread output. Put an incidental discovery in "Trade-offs and constraints" or "Open questions", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - Return your output as plain text. Do not wrap the plan in a code block.
 
 ## Variants
@@ -8701,7 +8738,7 @@ Use this exact structure:
 [High / Medium / Low] - [brief reason: e.g., "confirmed by reading the exact failing line" vs "likely based on pattern, but couldn't reproduce"]
 
 ### Learnings candidates
-[Optional. Incidental discoveries only - workarounds, dead-ends, gotchas - NOT the root cause (Trigger 1 covers that independently). Each entry: kind (workaround|dead-end|gotcha), domain_tag, fact (1-2 sentences), why (why a cold agent would re-derive it). Cap 5. Write "None" if nothing worth recording.]
+[Optional. Incidental discoveries only - NOT the root cause (Trigger 1 covers that independently). The entry shape, the `kind` enum and the cap are defined once in the learnings capture reference cited under Rules; do not restate them here. Write "None" if nothing worth recording.]
 ```
 
 ## Confidence levels
@@ -8722,7 +8759,7 @@ Use this exact structure:
 - When the bug involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating a diagnosis. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Do not keep testing hypotheses after 3 eliminations without fresh evidence. Continuing to guess without new information does not converge on a root cause - it produces a list of things that aren't wrong. Stop, set Confidence to Low, and begin the Fix brief with the exact sentence: "Insufficient evidence to write a fix brief." Describe what was found and eliminated, and identify what specific information would close the diagnosis.
 - The Confidence value must be exactly one of `High`, `Medium`, or `Low` (capitalized, no synonyms, no qualifiers like "High-ish" or "Medium-High"). Pick the single closest level and put nuance in the reason after the dash.
-- Populate the "Learnings candidates" section for incidental discoveries encountered during diagnosis - tool workarounds, expensive dead-ends, cross-component gotchas. Do not put the root-cause finding there (that is Trigger 1 on the mandatory capture gate). Cap at 5 entries.
+- **Capture learnings in flight.** The "Learnings candidates" section of your return is your entire capture path - the conductor's routing hop reads `learnings_candidate[]` from `engineer`, `investigator` and `debugger` returns only, so anything you leave out of that section is lost. What counts as a learning, the entry shape, the `kind` enum, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Incidental discoveries only: the root-cause finding is Trigger 1 on the mandatory capture gate and is evaluated independently.
 
 ---
 
@@ -8963,6 +9000,7 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 - **Does not do:** State CVEs from model memory. Every CVE finding must be backed by tool output in this session.
 - **Does not do:** Access external URLs or registries beyond what the installed CLI tools access as part of their normal operation.
 - **Does not do:** Write any files to disk.
+- **Does not do:** Emit a `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery under "Scan gaps" or "Open questions", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 
 ---
 
@@ -9149,7 +9187,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
   - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/dinostack/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary, including the pre-fix attestation: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name]. Confirmed failing pre-fix: [what was observed when run against the unfixed code].`
 - **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/dinostack/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` for required fields and language-specific examples.
-- **Capture learnings in flight.** You are a write-capable agent: record each learning the moment it occurs via `ds-learning-shard append`, and also populate `learnings_candidate[]` in your return digest. What counts as a learning, the exact invocation, the field shape, the cap, and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. You do not pre-filter for importance; the conductor routes entries through the guardrail-first gate before forwarding to `learnings-agent`.
+- **Capture learnings in flight.** You hold `Bash` and your contract permits mutating commands, so the CLI is yours to use: record each learning the moment it occurs via `ds-learning-shard append`, and also populate `learnings_candidate[]` in your return digest. What counts as a learning, the exact invocation, the field shape, the cap, and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. You do not pre-filter for importance; the conductor routes entries through the guardrail-first gate before forwarding to `learnings-agent`.
 
 ## Front-end discipline
 
@@ -9279,6 +9317,7 @@ Evidence: "no confirmed Skeptic sign-off - refusing to evaluate goal_condition"
 - **Read-only, always.** Never write, edit, or delete any file. Never run a mutating Bash command.
 - **No subagent spawning.** You are a leaf agent.
 - **No prompts to the user.** This is an automated agent; never ask for input.
+- **No learning capture, and nothing appended to the verdict.** Your output format is exactly two lines and nothing else, so there is no section an incidental discovery could go in. Emit no `learnings_candidate[]` block - the conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - **MUST NOT raise, waive, resolve, or comment on any Skeptic finding.** Findings are entirely out of scope for you.
 - **MUST NOT produce a code-review, security, or quality judgment of any kind.** If asked to do so, refuse and return only the two-line output format above.
 - **Return `BLOCKED` if spawned without confirmed Skeptic sign-off.** Do not attempt to evaluate `goal_condition` in that case.
@@ -9396,7 +9435,7 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 [High / Medium / Low] - [brief reason: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X"]
 
 ### Learnings candidates
-[Optional. Incidental discoveries only - workarounds, dead-ends, gotchas - NOT the root cause (Trigger 1 covers that independently). Each entry: kind (workaround|dead-end|gotcha), domain_tag, fact (1-2 sentences), why (why a cold agent would re-derive it). Cap 5. Write "None" if nothing worth recording.]
+[Optional. Incidental discoveries only - NOT the root cause (Trigger 1 covers that independently). The entry shape, the `kind` enum and the cap are defined once in the learnings capture reference cited under Rules; do not restate them here. Write "None" if nothing worth recording.]
 ```
 
 ## Confidence levels
@@ -9417,6 +9456,7 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 - The Confidence value must be exactly one of `High`, `Medium`, or `Low` (capitalized, no synonyms, no qualifiers like "High-ish" or "Medium-High"). Pick the single closest level and put nuance in the reason after the dash.
 - Graph honesty discipline: when a Graphify graph supplies leads, treat `EXTRACTED` edges as candidate-confirmed consumers (still subject to the Read-verification floor below). Treat `INFERRED` and `AMBIGUOUS` edges as unconfirmed leads only - never list them as confirmed importers. If a Read confirms an INFERRED/AMBIGUOUS lead, promote it to a confirmed row and note the original tag; if you cannot verify it, list it under "Gaps and unknowns", not in the per-consumer impact table.
 - Verification floor: every row in the per-consumer impact table must be backed by a Read of the actual file at the cited line. The graph (or grep) tells you where to look; the Read is what proves the dependency. A row with no backing Read is not permitted.
+- **Capture learnings in flight.** The "Learnings candidates" section of your return is your entire capture path - the conductor's routing hop reads `learnings_candidate[]` from `engineer`, `investigator` and `debugger` returns only, so anything you leave out of that section is lost. What counts as a learning, the entry shape, the `kind` enum, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Incidental discoveries only: the root-cause finding is Trigger 1 on the mandatory capture gate and is evaluated independently.
 - Importer-count authority: the `grep -rn` importer count defined in the methodology's 5-importer shared-utility signal is the authoritative conductor-facing count. A `graphify affected` BFS is a supplementary lead source for mapping and enriching consumers - it does not replace or recompute the grep count. When the two diverge, report both and flag the delta under "Gaps and unknowns".
 
 ---
@@ -9613,6 +9653,7 @@ The only file you may write is:
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block Phase 6 exit.
 - **No subagent spawning.** learning-extractor is a leaf agent.
 - **No prompts.** This is an automated agent; never ask the user for input.
+- **No learning capture of your own.** You are a writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.
 
 ---
 
@@ -9870,6 +9911,7 @@ The only files you may write are:
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block the conductor.
 - **No subagent spawning.** learnings-agent is a leaf agent.
 - **No prompts.** This is an automated agent; never ask the user for input.
+- **No learning capture of your own.** You are the terminal writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither - a shard you appended would arrive back as your own input on the next rollup. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.
 
 ---
 
@@ -10085,6 +10127,7 @@ investigator or general-purpose (Low risk, no Skeptic needed)
 - **One integration Skeptic, not stacked Skeptics.** For a standard Elevated task, the plan should have one Skeptic checkpoint after the engineer finishes. Multiple Skeptic layers (architecture Skeptic + per-phase Skeptics + integration Skeptic) are the exception - see pre-implementation Skeptic guidance above.
 - **Commit to a sequence.** Do not present a menu of options. Pick the right plan and justify it briefly in the Task summary.
 - **If critical context is missing**, call it out in Open questions rather than guessing.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a plan is unread output. Put an incidental discovery in "Open questions", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - Return your output as plain text. Do not wrap the plan in a code block.
 
 ---
@@ -10279,6 +10322,7 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 - **No scope expansion.** If the spawn prompt targets one endpoint and you find three other slow endpoints, note them briefly but do not investigate them. Report what was scoped.
 - **Measurement first.** Do not form a hotspot conclusion before running the profiler. Code reading may suggest suspects, but profiling confirms them. An untested suspect must be labeled as such.
 - **No browser verification.** Runtime acceptance testing is the QA Engineer's domain. You measure internals.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery in "Methodology" or the one-line observations already permitted at the end of the report, where the conductor reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 
 ---
 
@@ -10503,6 +10547,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 - **PRFAQ only when it adds something.** Full pass only, and skip it if it would just restate the vision.
 - **Label assumptions once.** In non-interactive runs, mark each decision `[ASSUMPTION]` and carry it into Open Questions as a gate - do not stage a fake operator dialogue or record the same assumption three times.
 - **Do not spawn agents.** You are a leaf agent spawned by the conductor; you return your discovery and staged drafts to it.
+- **Capture learnings in flight.** You hold `Bash` and your contract permits mutating commands, so the CLI is yours to use: record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
 ---
 
@@ -11410,6 +11455,7 @@ fs.writeFileSync(diff_image, PNG.sync.write(diff));
 - **Quote what you see.** Include actual text content or class names, not paraphrased descriptions.
 - **Maximize coverage where it is honest.** When auth blocks some routes, check public routes and fall back to source for STATIC criteria of the feature under test. Do not pad PARTIAL with trivial checks (login page renders, unrelated public pages) when the feature itself is runtime-gated and unverified - that is BLOCKED.
 - **Never fix, only report.** If you find a failure, describe it precisely and move on. Fixing is the engineer's job.
+- **`qa-knowledge-json` is your capture channel, not `learnings_candidate[]`.** The conductor's routing hop reads `learnings_candidate[]` only from `engineer`, `investigator` and `debugger` returns, so a block appended to a QA report is unread output. Everything durable you learn goes in the `qa-knowledge-json` payload under its 4-criteria filter. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - **Note-taking is not fixing.** Emitting the `qa-knowledge-json` payload for the invoker to append to the resolved qa.md (`.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback) is how you surface what you learned. This is QA infrastructure you inform, not application code you touch. Recording what you learned helps future runs.
 
 ---
@@ -11710,6 +11756,7 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 - Spawn `debugger` when a build or deploy fails
 - Produce a complete release report including the rollback command
 - Stop and report clearly when any gate fails
+- Capture learnings in flight: you hold `Bash` and your contract permits mutating commands, so the CLI is yours to use - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the release report. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
 ---
 
@@ -11830,6 +11877,7 @@ Use this exact structure. Do not paraphrase the section headers.
 - Do not re-raise findings that are demonstrably addressed by a prior mitigation - unless the mitigation is insufficient, in which case explain specifically why.
 - Do not soften or hedge findings to be diplomatic. An unraised Critical finding that reaches production costs more than a false positive caught here. Do not inflate severity: a finding must meet every element of the Critical definition before you assign it.
 - If no files are readable or no code is provided, state that clearly and do not fabricate findings.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to an audit is unread output. Put an incidental discovery under "Informational", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - On Pi/omp, when `role-models.yml` defines a `reviewers:` block, you may be spawned on a deliberately different model from the one that authored the work (true-antagonist diversity). This does not change your job: perform the security review against the adversarial brief regardless of which model produced the diff. The model choice is the conductor's; you receive it via your spawn's `model` field.
 
 ---
@@ -11991,6 +12039,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 
 - Never omit the "Active search:" line. Never grant sign-off without it.
 - The conductor validates format - if format is wrong, a format re-invocation will follow. Respond with the same findings in the correct format.
+- **No `learnings_candidate[]` block, ever.** Your sign-off is checked for a fixed set of required elements, and the conductor's routing hop reads `learnings_candidate[]` only from `engineer`, `investigator` and `debugger` returns - so a block appended here is unparsed text inside a validated format, not capture. A defect you found belongs in the Findings list, which the conductor already routes through the mandatory triggers on resolution. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - Minor findings do not block sign-off but must be listed.
 - Always be a fresh read - do not carry assumptions from prior rounds. Each invocation sees only what the spawn prompt provides.
 - Do not soften findings to be polite. A missed Critical finding that reaches production costs more than a false positive caught here.
@@ -12301,6 +12350,7 @@ A forbidden write is a critical failure of this agent's contract. If a candidate
 - **No subagent spawning.** wrap-ticket is a leaf agent.
 - **No AGENTS.md edits.** AGENTS.md remains under operator + /ds-wrap control. Even when a candidate fact looks like a project-wide convention, do NOT route it to AGENTS.md.
 - **No prompts.** This is an automated agent; never ask the user for input.
+- **No learning capture of your own.** You are a writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.
 
 ---
 

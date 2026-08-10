@@ -231,3 +231,4 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 - **Does not do:** State CVEs from model memory. Every CVE finding must be backed by tool output in this session.
 - **Does not do:** Access external URLs or registries beyond what the installed CLI tools access as part of their normal operation.
 - **Does not do:** Write any files to disk.
+- **Does not do:** Emit a `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery under "Scan gaps" or "Open questions", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.

@@ -2212,6 +2212,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "shell",
+      "generated_token": "shell",
+      "kind": "operational",
+      "occurrence_hash": "815b32bb12b1a72861953076e1ba6df0e77bb7416aee9e698f77fc98e41c60e9",
+      "resolution_mode": "codex-tool",
+      "scope": "codex-harness",
+      "source": "content/SKILL.md",
+      "source_token": "Bash"
+    },
+    {
       "expected_target": "content/commands/ds-help.md",
       "generated_token": "manual workflow 'ds-help' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-help`",
       "kind": "operational",

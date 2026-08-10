@@ -253,3 +253,4 @@ The only files you may write are:
 - **Soft-fail on any error.** If a read fails, a write is denied, or any unexpected condition arises, return the JSON shape with `skipped_reason` populated. NEVER raise or block the conductor.
 - **No subagent spawning.** learnings-agent is a leaf agent.
 - **No prompts.** This is an automated agent; never ask the user for input.
+- **No learning capture of your own.** You are the terminal writer of the learnings pipeline, not a producer into it: you hold no `Bash`, so you cannot run `ds-learning-shard`, and your return JSON defines no `learnings_candidate[]` field. Emit neither - a shard you appended would arrive back as your own input on the next rollup. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md` for the capture instruction this exempts you from and why.

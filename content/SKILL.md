@@ -103,8 +103,9 @@ Run `/ds-help` for the full command inventory.
 
 - **references/learnings-capture-instruction.md** - the standing "watch for learnings"
   instruction: what counts as a learning, the in-flight `ds-learning-shard append` path for
-  write-capable agents, the `learnings_candidate[]` path for read-only agents, and the
-  canonical definition of that field; read when acting as any subagent role.
+  agents holding `Bash`, the `learnings_candidate[]` path for the three roles whose return
+  contract declares that field, and its canonical definition; read when acting as any
+  subagent role.
 
 ## Rules (read on trigger)
 
