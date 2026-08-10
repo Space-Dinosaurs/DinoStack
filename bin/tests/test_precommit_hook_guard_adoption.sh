@@ -89,9 +89,9 @@ TMP_ROOT="$(mktemp -d)"
 PREFIX_COPY="$REPO_DIR/bin/tests/.tmp-precommit-guard-verify-prefix-$$.sh"
 POSTFIX_COPY="$REPO_DIR/bin/tests/.tmp-precommit-guard-verify-postfix-$$.sh"
 _cleanup() {
+  precommit_hook_guard_restore
   rm -rf "$TMP_ROOT"
   rm -f "$PREFIX_COPY" "$POSTFIX_COPY"
-  precommit_hook_guard_restore
 }
 trap _cleanup EXIT INT TERM
 
