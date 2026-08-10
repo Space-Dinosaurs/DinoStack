@@ -3475,7 +3475,7 @@ A loop-running spawn returns a structured digest. Required fields:
 
 Optional field (default empty; cap 5 entries per return):
 
-- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. The entry shape, the `kind` enum and the cap are defined once, in `content/references/learnings-capture-instruction.md`; this doc does not restate them. The field is defined on `engineer`, `investigator` and `debugger` returns only, and the conductor's routing hop consumes it from exactly those three; a role whose own return contract does not declare it must not emit one. For `investigator` and `debugger` this is the ONLY channel for worker-internal discovery, because the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost. An agent holding `Bash` additionally records each learning in flight via `ds-learning-shard append`.
+- **`learnings_candidate[]`** - worker-internal discoveries the conductor should route through the learnings pipeline. The entry shape, the `kind` enum and the cap are defined once, in `content/references/learnings-capture-instruction.md`; this doc does not restate them. The field is defined on `engineer`, `investigator` and `debugger` returns only, and the conductor's routing hop consumes it from exactly those three; a role whose own return contract does not declare it must not emit one. For `investigator` and `debugger` this is the ONLY channel for worker-internal discovery, because the conductor's §Conductor consumption step 3 forbids transcript re-reading, so anything not surfaced here is lost. Four roles - `engineer`, `adr-generator`, `product-discovery` and `release-orchestrator` - additionally (for `engineer`) or exclusively (for the other three) record each learning in flight via `ds-learning-shard append`; that membership is a fixed list, not a `Bash`-capability test.
 
 The engineer DONE summary and the Skeptic sign-off together supply these fields. `content/agents/engineer.md` specifies the DONE return-summary schema (status, files_modified, quality_gate_results, commit_sha, learnings_candidate, and the rest); `content/sections/02-delegation.md` §Worker preamble specifies the execution contract - the spawn-input fields (outputs, tool_scope, completion_conditions, verification, output_paths, task_id) the conductor fills before spawning; `content/references/skeptic-protocol.md` specifies the sign-off format. This doc does not restate those schemas - it names the discipline of consuming the result as an opaque digest rather than re-reading the internal loop.
 
@@ -4240,7 +4240,11 @@ Downstream consumers: every agent in content/agents/ (via a pointer);
                       content/agents/investigator.md,
                       content/agents/debugger.md and
                       content/references/digest-return-pattern.md, all four of which
-                      defer the `learnings_candidate[]` shape to this file.
+                      defer the `learnings_candidate[]` shape to this file;
+                      content/references/conductor-operating-rules.md, whose
+                      `kind`-to-`event_type` map consumes the enum declared here and
+                      must change in lockstep with it (see "One co-dependent site"
+                      below).
 
 Failure modes: Prose; does not execute. If the flag names or the --event-type
                enum here drift from bin/ds-learning-shard, agents emit invalid
@@ -4275,12 +4279,20 @@ guardrail-first gate in `content/references/capture-classification.md`. If you j
 importance yourself you will drop exactly the entries that look small in the moment
 and are expensive to re-derive cold. Record it and move on.
 
-## If you can run the CLI (Bash available)
+## If the shard CLI is your capture path
 
-`ds-learning-shard` is a command, so the branch you are in is decided by `Bash`, not
-by `Edit`/`Write`. An agent holding `Edit`/`Write` but no `Bash` cannot take this
-branch (`learning-extractor`, `learnings-agent` and `wrap-ticket` are all in that
-position, and all three are the capture pipeline's own writers besides).
+**This branch has a fixed membership list, not a capability test.** Exactly four roles
+capture through `ds-learning-shard`: `engineer`, `adr-generator`, `product-discovery`
+and `release-orchestrator`. Every other agent in `content/agents/` belongs to the next
+section. Do not infer your branch from your `tools:` grant - most read-only roles do
+hold `Bash` and are still not in this branch, because the split is by role, not by
+capability. If your own role file does not give you a positive "the CLI is yours"
+instruction, you are in the next section.
+
+Holding `Bash` is a precondition of this branch, never the rule that assigns it:
+`learning-extractor`, `learnings-agent` and `wrap-ticket` hold `Edit`/`Write` but no
+`Bash`, so they could not run the CLI in any case - and all three are the capture
+pipeline's own writers besides.
 
 Call the CLI the moment the learning occurs:
 
@@ -4307,19 +4319,23 @@ ds-learning-shard append \
   failure.** The one exception is a malformed invocation (argparse exit 2), which
   means you typed a flag wrong; fix the flag.
 
-Also populate `learnings_candidate[]` in your return digest as usual. The two paths
-are complementary: the shard survives your context, the digest reaches the conductor
-this turn.
+If your own return contract also defines `learnings_candidate[]`, populate it too.
+`engineer` is the only role in this branch that does; `adr-generator`,
+`product-discovery` and `release-orchestrator` return formats declare no such field,
+so for those three the shard is the whole capture path. Where both apply the paths are
+complementary: the shard survives your context, the digest reaches the conductor this
+turn.
 
-## If you cannot run the CLI
+## If the shard CLI is not your capture path
 
-When the shard CLI is not your capture path, what you can capture depends on whether
-your own return contract defines the `learnings_candidate[]` field:
+Every role other than the four named above is here, whether or not it holds `Bash`.
+What you can capture depends on whether your own return contract defines the
+`learnings_candidate[]` field:
 
 - **Contract defines `learnings_candidate[]`** (`investigator`, `debugger`): populate
   it. That is your entire capture path, and the conductor is forbidden from
   re-reading your transcript, so anything not in that field is lost.
-- **Contract does not define it** (every other read-only agent): you have no capture
+- **Contract does not define it** (every other role in this branch): you have no capture
   channel, and you must not invent one. The conductor's routing hop in
   `content/references/conductor-operating-rules.md` consumes `learnings_candidate[]`
   only from `engineer`, `investigator` and `debugger` returns, so a block emitted by
@@ -8360,7 +8376,7 @@ Before finalizing the ADR, verify:
 7. **Be Timely**: Use the current date unless specified otherwise
 8. **Be Connected**: Reference related ADRs when applicable
 9. **Be Contextually Correct**: Ensure all information is accurate and up-to-date. Use the current repository state as the source of truth.
-10. **Capture Learnings In Flight**: you hold `Bash` and your contract permits mutating commands, so the CLI is yours to use - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
+10. **Capture Learnings In Flight**: the shard CLI is your capture path - `adr-generator` is one of the four roles the reference names, and your contract permits mutating commands - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
 ---
 
@@ -9187,7 +9203,7 @@ Keep prose brief. A reviewer reading the structured block plus prose summary plu
   - When fixing a qa-engineer FAIL: see `~/DinoStack/.claude/skills/dinostack/references/qa-regression-obligation.md` for the symmetric obligation, including the documented-exception path via `.agentic/qa-regressions.md` when a regression test is genuinely infeasible. Reference the test in the fix summary, including the pre-fix attestation: `QA fail (scenario id N: <title>) -> fixed by [description]. Regression test added: [file, test name]. Confirmed failing pre-fix: [what was observed when run against the unfixed code].`
 - **Doc-sync for reality-asserting changes.** When a change adds, removes, or renames a command, agent, reference, or rule; changes a documented path, convention, config, or behavior; or alters any count or list a doc states, update the affected intent-layer docs (README, CONTRIBUTING, SKILL.md, and cross-references) in the same change and attest in the summary: `Doc-sync: [clause N triggered] -> updated [doc paths]: [what changed].` (or `Doc-sync: predicate not triggered` when it does not trip). See `~/DinoStack/.claude/skills/dinostack/references/doc-sync-obligation.md` for the trigger predicate, exemptions, and tiers.
 - **Module manifests for non-trivial files.** When creating or substantially modifying a file that exports a public symbol consumed by another module, exceeds ~50 LOC, or implements a side-effecting operation, include a manifest header. See `~/DinoStack/.claude/skills/dinostack/rules/module-manifest.md` for required fields and language-specific examples.
-- **Capture learnings in flight.** You hold `Bash` and your contract permits mutating commands, so the CLI is yours to use: record each learning the moment it occurs via `ds-learning-shard append`, and also populate `learnings_candidate[]` in your return digest. What counts as a learning, the exact invocation, the field shape, the cap, and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. You do not pre-filter for importance; the conductor routes entries through the guardrail-first gate before forwarding to `learnings-agent`.
+- **Capture learnings in flight.** The shard CLI is your capture path - `engineer` is one of the four roles the reference names, and your contract permits mutating commands: record each learning the moment it occurs via `ds-learning-shard append`, and also populate `learnings_candidate[]` in your return digest. What counts as a learning, the exact invocation, the field shape, the cap, and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. You do not pre-filter for importance; the conductor routes entries through the guardrail-first gate before forwarding to `learnings-agent`.
 
 ## Front-end discipline
 
@@ -10547,7 +10563,7 @@ Both templates open with the staged-proposal banner. Keep it verbatim on every p
 - **PRFAQ only when it adds something.** Full pass only, and skip it if it would just restate the vision.
 - **Label assumptions once.** In non-interactive runs, mark each decision `[ASSUMPTION]` and carry it into Open Questions as a gate - do not stage a fake operator dialogue or record the same assumption three times.
 - **Do not spawn agents.** You are a leaf agent spawned by the conductor; you return your discovery and staged drafts to it.
-- **Capture learnings in flight.** You hold `Bash` and your contract permits mutating commands, so the CLI is yours to use: record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
+- **Capture learnings in flight.** The shard CLI is your capture path - `product-discovery` is one of the four roles the reference names, and your contract permits mutating commands: record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the end. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
 ---
 
@@ -11756,7 +11772,7 @@ Fill in every field. Do not write "N/A" for fields that are relevant - if the va
 - Spawn `debugger` when a build or deploy fails
 - Produce a complete release report including the rollback command
 - Stop and report clearly when any gate fails
-- Capture learnings in flight: you hold `Bash` and your contract permits mutating commands, so the CLI is yours to use - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the release report. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
+- Capture learnings in flight: the shard CLI is your capture path - `release-orchestrator` is one of the four roles the reference names, and your contract permits mutating commands - record each learning the moment it occurs via `ds-learning-shard append` rather than batching it to the release report. What counts as a learning, the exact invocation, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Your return format defines no `learnings_candidate[]` field; the shard is your whole capture path.
 
 ---
 

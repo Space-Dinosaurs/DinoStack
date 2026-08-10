@@ -20,7 +20,11 @@ Downstream consumers: every agent in content/agents/ (via a pointer);
                       content/agents/investigator.md,
                       content/agents/debugger.md and
                       content/references/digest-return-pattern.md, all four of which
-                      defer the `learnings_candidate[]` shape to this file.
+                      defer the `learnings_candidate[]` shape to this file;
+                      content/references/conductor-operating-rules.md, whose
+                      `kind`-to-`event_type` map consumes the enum declared here and
+                      must change in lockstep with it (see "One co-dependent site"
+                      below).
 
 Failure modes: Prose; does not execute. If the flag names or the --event-type
                enum here drift from bin/ds-learning-shard, agents emit invalid
@@ -55,12 +59,20 @@ guardrail-first gate in `content/references/capture-classification.md`. If you j
 importance yourself you will drop exactly the entries that look small in the moment
 and are expensive to re-derive cold. Record it and move on.
 
-## If you can run the CLI (Bash available)
+## If the shard CLI is your capture path
 
-`ds-learning-shard` is a command, so the branch you are in is decided by `Bash`, not
-by `Edit`/`Write`. An agent holding `Edit`/`Write` but no `Bash` cannot take this
-branch (`learning-extractor`, `learnings-agent` and `wrap-ticket` are all in that
-position, and all three are the capture pipeline's own writers besides).
+**This branch has a fixed membership list, not a capability test.** Exactly four roles
+capture through `ds-learning-shard`: `engineer`, `adr-generator`, `product-discovery`
+and `release-orchestrator`. Every other agent in `content/agents/` belongs to the next
+section. Do not infer your branch from your `tools:` grant - most read-only roles do
+hold `Bash` and are still not in this branch, because the split is by role, not by
+capability. If your own role file does not give you a positive "the CLI is yours"
+instruction, you are in the next section.
+
+Holding `Bash` is a precondition of this branch, never the rule that assigns it:
+`learning-extractor`, `learnings-agent` and `wrap-ticket` hold `Edit`/`Write` but no
+`Bash`, so they could not run the CLI in any case - and all three are the capture
+pipeline's own writers besides.
 
 Call the CLI the moment the learning occurs:
 
@@ -87,19 +99,23 @@ ds-learning-shard append \
   failure.** The one exception is a malformed invocation (argparse exit 2), which
   means you typed a flag wrong; fix the flag.
 
-Also populate `learnings_candidate[]` in your return digest as usual. The two paths
-are complementary: the shard survives your context, the digest reaches the conductor
-this turn.
+If your own return contract also defines `learnings_candidate[]`, populate it too.
+`engineer` is the only role in this branch that does; `adr-generator`,
+`product-discovery` and `release-orchestrator` return formats declare no such field,
+so for those three the shard is the whole capture path. Where both apply the paths are
+complementary: the shard survives your context, the digest reaches the conductor this
+turn.
 
-## If you cannot run the CLI
+## If the shard CLI is not your capture path
 
-When the shard CLI is not your capture path, what you can capture depends on whether
-your own return contract defines the `learnings_candidate[]` field:
+Every role other than the four named above is here, whether or not it holds `Bash`.
+What you can capture depends on whether your own return contract defines the
+`learnings_candidate[]` field:
 
 - **Contract defines `learnings_candidate[]`** (`investigator`, `debugger`): populate
   it. That is your entire capture path, and the conductor is forbidden from
   re-reading your transcript, so anything not in that field is lost.
-- **Contract does not define it** (every other read-only agent): you have no capture
+- **Contract does not define it** (every other role in this branch): you have no capture
   channel, and you must not invent one. The conductor's routing hop in
   `content/references/conductor-operating-rules.md` consumes `learnings_candidate[]`
   only from `engineer`, `investigator` and `debugger` returns, so a block emitted by

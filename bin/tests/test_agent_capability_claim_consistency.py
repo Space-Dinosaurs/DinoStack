@@ -48,6 +48,17 @@ REPO = Path(__file__).resolve().parents[2]
 AGENTS_DIR = REPO / "content" / "agents"
 
 # A blanket claim that Bash must never be used to change state.
+#
+# Deliberately a narrow whitelist of the four wordings that have actually
+# shipped here, not a general "prohibition-shaped sentence" pattern. A fifth
+# variant would evade it - that is the accepted cost. Any broader pattern (e.g.
+# matching "no writes" or a generic never-plus-mutation-verb) fires on
+# content/agents/architect.md:232 ("no writes, no package installs, no git
+# commits"), which is a legitimate scope statement, not a capability claim;
+# turning this gate into a false-positive generator would cost more than the
+# evasion it closes. Widen only by adding a literal that has been observed in a
+# real spec, and re-run against the pre-fix tree to confirm the gate still
+# flags exactly skeptic.md and qa-engineer.md.
 PROHIBITION = re.compile(
     r"(never use (it|`Bash`) to (write|modify|mutate)"
     r"|contract forbids using it to mutate"
