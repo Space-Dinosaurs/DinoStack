@@ -91,9 +91,11 @@ DS-54 dogfooding gap (old_head==new_head path): when nothing new was pulled
           landed in an earlier, un-triggered pull. _hooks_snapshot_diverged
           closes this: it directly compares the live hooks/ source hash
           against the session-stable snapshot's stored source_hash (reusing
-          compute_hooks_source_hash, never reimplementing the hash/exclusion
-          algorithm) and, when they diverge (including when no snapshot has
-          ever been created), forces the full adapter-install loop on the
+          hooks_source_paths and compute_hooks_source_hash from
+          scripts/lib/hooks-snapshot.sh - never reimplementing the path
+          list or the hash/exclusion algorithm) and, when they diverge
+          (including when no snapshot has ever been created), forces the
+          full adapter-install loop on the
           old_head==new_head early-return path - mirroring the existing
           forced_install pattern for --mode/--profile/--identity/--adapters
           rather than making the HEAD-diff itself smarter (HEAD is the wrong
@@ -104,12 +106,27 @@ DS-54 dogfooding gap (old_head==new_head path): when nothing new was pulled
           needs no equivalent check: hooks/ is itself a REBUILD_TRIGGER, so
           any pull THIS invocation makes that touches hooks/ already forces
           the normal rebuild path; and both early-return paths already call
-          `ds-doctor --fix` unconditionally (see _run_doctor), which since
-          this same DS-54 fix also independently detects and repairs
-          hooks-snapshot staleness (bin/ds-doctor
+          `ds-doctor --fix` (see _run_doctor) UNLESS the operator passed
+          `--no-doctor`, and this same DS-54 fix also independently detects
+          and repairs hooks-snapshot staleness there (bin/ds-doctor
           check_hooks_snapshot_staleness) - so a stale snapshot left by an
-          earlier un-triggered pull is caught there too, whenever --no-doctor
-          is not passed.
+          earlier un-triggered pull is caught there too, whenever
+          --no-doctor is not passed.
+
+          Friction cost (named, not hidden): _hooks_snapshot_diverged
+          compares the LIVE hooks/ source hash on disk, so any operator with
+          UNCOMMITTED local hooks/ edits (dirty working tree under hooks/,
+          bin/ds-identity, or the four in-scope adapters' hook sources) has
+          a live hash that differs from whatever the last sync_hooks_snapshot
+          call captured - i.e. every DinoStack developer actively working on
+          a hook file. Every such `ds-update` run on the old_head==new_head
+          path is forced into the full adapter-install loop, and adapter
+          install.sh runs can themselves generate working-tree changes
+          (regenerated symlinks, cache files). This is the expected
+          trade-off of closing the dogfooding gap, not a bug - --no-doctor
+          does not suppress it (it only skips the separate _run_doctor()
+          step), but a plain `git status` before running ds-update makes
+          the cause visible.
 
 Performance: network-bound (git fetch); rebuild decision and adapter installs
              add seconds only when adapter sources changed.
@@ -373,10 +390,12 @@ def _hooks_snapshot_diverged(repo_dir: Path) -> bool:
     make this function untestable against an isolated fixture. Instead this
     calls hooks_snapshot_dir(repo_dir) with the already-resolved repo_dir
     (the same explicit-argument shape sync_hooks_snapshot itself uses) and
-    reuses compute_hooks_source_hash - the actual hashing/exclusion
-    function - with the identical argument list hooks-staleness-core.sh's
-    own stale_but_stable check uses, so the two can never independently
-    drift on what counts as "the hook source".
+    reuses BOTH hooks_source_paths (the SOLE path-list function - never a
+    hand-copied argument list; hooks-staleness-core.sh's own
+    stale_but_stable check and sync_hooks_snapshot itself call the same
+    function) and compute_hooks_source_hash (the actual hashing/exclusion
+    function), so the three call sites can never independently drift on
+    what counts as "the hook source".
 
     scripts/lib/hooks-snapshot.sh is resolved relative to THIS file's own
     location (Path(__file__).resolve(), matching _load_shared_config's
@@ -405,13 +424,11 @@ def _hooks_snapshot_diverged(repo_dir: Path) -> bool:
         'except Exception:\n'
         '    print(\'\')\n'
         '" "$meta_file")"\n'
-        'live_hash="$(compute_hooks_source_hash \\\n'
-        '  "$2/hooks" \\\n'
-        '  "$2/bin/ds-identity" \\\n'
-        '  "$2/.codex/config/hooks.json" \\\n'
-        '  "$2/.codex/hooks" \\\n'
-        '  "$2/.gemini/hooks" \\\n'
-        '  "$2/.kimi/hooks")"\n'
+        '_diverged_source_paths=()\n'
+        'while IFS= read -r _diverged_source_path; do\n'
+        '  _diverged_source_paths+=("$_diverged_source_path")\n'
+        'done < <(hooks_source_paths "$2")\n'
+        'live_hash="$(compute_hooks_source_hash "${_diverged_source_paths[@]}")"\n'
         'if [[ -n "$meta_hash" ]] && [[ "$live_hash" != "$meta_hash" ]]; then\n'
         '  echo diverged\n'
         'fi\n'

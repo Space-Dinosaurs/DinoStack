@@ -994,34 +994,49 @@ fi
 
 rm -rf "$TEMP_HOME"
 
-# write_matching_hooks_snapshot_meta: construct a .snapshot-meta.json under
-# TEMP_HOME whose source_hash matches compute_hooks_source_hash's actual
-# output for FAKE_REPO's (mostly-absent) hook paths, so
-# _hooks_snapshot_diverged reports "not diverged" for this fixture. Sources
-# the REAL scripts/lib/hooks-snapshot.sh from THIS checkout (the same file
-# bin/ds-update itself sources) - not from FAKE_REPO, which never ships that
-# asset. Must be called after setup_git_fixture.
-write_matching_hooks_snapshot_meta() {
+# seed_fake_hooks_source: commit REAL, mutually-distinguishable content at
+# all six hooks_source_paths() locations under FAKE_REPO (hooks/,
+# bin/ds-identity, .codex/config/hooks.json, .codex/hooks/, .gemini/hooks/,
+# .kimi/hooks/). Without this, FAKE_REPO ships only README.md + a stub
+# .claude/install.sh, so compute_hooks_source_hash returns the SAME
+# empty-input digest (e3b0c442...) for every one of those six paths,
+# zero of them, or any subset - a fixture that cannot distinguish "the
+# right six paths were hashed" from "an arbitrary wrong list was hashed".
+# Must be called after setup_git_fixture, before sync_fake_hooks_snapshot.
+seed_fake_hooks_source() {
+  (
+    cd "$FAKE_REPO"
+    mkdir -p hooks bin .codex/config .codex/hooks .gemini/hooks .kimi/hooks
+    echo "fake-hooks-content" > hooks/fake-hook.sh
+    printf '#!/usr/bin/env bash\necho fake-identity\n' > bin/ds-identity
+    chmod +x bin/ds-identity
+    echo '{"hooks": []}' > .codex/config/hooks.json
+    echo "fake-codex-hook-content" > .codex/hooks/fake.sh
+    echo "fake-gemini-hook-content" > .gemini/hooks/fake.sh
+    echo "fake-kimi-hook-content" > .kimi/hooks/fake.sh
+    git add hooks bin/ds-identity .codex .gemini .kimi
+    git commit -m "seed fake hooks source for hash fixture" -q
+    git push -q origin main 2>/dev/null
+  )
+}
+
+# sync_fake_hooks_snapshot: write a REAL session-stable snapshot for
+# FAKE_REPO under the isolated TEMP_HOME by calling the actual PRODUCT
+# writer, sync_hooks_snapshot (scripts/lib/hooks-snapshot.sh) - the same
+# function install.sh calls and the same one bin/ds-update's
+# _hooks_snapshot_diverged compares against. Deliberately does NOT
+# hand-compute an expected hash in this test file (that would just be a
+# fourth unpinned copy of the six-path list); the meta this writes is
+# exactly what a real install.sh run would produce for FAKE_REPO's seeded
+# content. Must be called after seed_fake_hooks_source.
+sync_fake_hooks_snapshot() {
   local hooks_snapshot_lib="$SCRIPT_DIR/../scripts/lib/hooks-snapshot.sh"
   (
     HOME="$TEMP_HOME"
     export HOME
     # shellcheck source=/dev/null
     source "$hooks_snapshot_lib"
-    snapshot_dir="$(hooks_snapshot_dir "$FAKE_REPO")"
-    mkdir -p "$snapshot_dir"
-    live_hash="$(compute_hooks_source_hash \
-      "$FAKE_REPO/hooks" \
-      "$FAKE_REPO/bin/ds-identity" \
-      "$FAKE_REPO/.codex/config/hooks.json" \
-      "$FAKE_REPO/.codex/hooks" \
-      "$FAKE_REPO/.gemini/hooks" \
-      "$FAKE_REPO/.kimi/hooks")"
-    python3 -c "
-import json, sys
-with open(sys.argv[1], 'w') as f:
-    json.dump({'source_hash': sys.argv[2]}, f)
-" "$snapshot_dir/.snapshot-meta.json" "$live_hash"
+    sync_hooks_snapshot "$FAKE_REPO" >/dev/null
   )
 }
 
@@ -1078,10 +1093,19 @@ rm -rf "$TEMP_HOME"
 # hook source, the old_head==new_head path must NOT force an adapter
 # install - proves _hooks_snapshot_diverged is not just "always true", and
 # that T18 is exercising the actual comparison, not a constant.
+#
+# FAKE_REPO carries REAL, distinguishable content at all six
+# hooks_source_paths() locations (seed_fake_hooks_source), and the snapshot
+# is written by the actual product function (sync_fake_hooks_snapshot calls
+# sync_hooks_snapshot) - so this test can distinguish "the right six paths
+# were compared" from "an arbitrary/wrong list was compared" (Major 2 fix:
+# the prior all-absent-paths fixture produced the same empty-input digest
+# for any list, correct or corrupted, and could not tell the difference).
 # ---------------------------------------------------------------------------
 setup_git_fixture
 setup_git_fixture_with_argv_install
-write_matching_hooks_snapshot_meta
+seed_fake_hooks_source
+sync_fake_hooks_snapshot
 # No push_ahead_* call: FAKE_REPO is already at the same commit as FAKE_REMOTE.
 
 INSTALL_ARGS_LOG="$TEMP_HOME/install_args.log"

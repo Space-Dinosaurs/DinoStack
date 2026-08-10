@@ -1227,6 +1227,14 @@ Stdout (always, on any exit): exactly one breadcrumb line, plus zero or more
   [phase: base-sync | status=fetch-failed | branch=<base>]
 ```
 
+**DS-54 advisory line (unconditional, AFTER the breadcrumb, never affects exit code).** After `ae_base_branch_sync` returns - on EVERY invocation, regardless of `<repo>`, `<base-branch>`, or the exit status above - the CLI wrapper (`bin/ds-base-sync`, not the library function) runs `hooks/lib/hooks-staleness-core.sh` from the OPERATOR'S OWN DinoStack checkout (resolved independently of `<repo>` - see [hooks-snapshot dogfooding gap](../../hooks/AGENTS.md) - a merge in ANY project should surface hook-snapshot staleness in the operator's own AE install, not just when `<repo>` happens to be that checkout). When that classifier has a nonempty finding, one additional line is printed, prefixed `ds-base-sync: `:
+
+```
+ds-base-sync: dinostack: hooks are not yet snapshotted - a bare 'git pull' can silently change a live session's hook behavior. Run install.sh to enable the session-stable hooks snapshot.
+```
+
+(or the equivalent `half_applied`/`stale_but_stable` message - see `hooks/lib/hooks-staleness-core.sh`). This line is absent when the classifier finds nothing to report (the common case - snapshot already current), and its presence or absence never changes the exit code documented above. It is read-only: `bin/ds-base-sync` never calls `sync_hooks_snapshot` itself, satisfying the DS-54 invariant that a passive/automatic trigger (this call runs unconditionally at `/ds-implement-ticket` Phase 12, not on operator request) may never auto-rewire a live session's hooks - only an explicit `ds-doctor --fix` or an adapter `install.sh` run does that.
+
 **Structural rule.** `ref-locked-elsewhere` is reachable ONLY from the HEAD-elsewhere path - it requires `<base-branch>` to be checked out in a worktree OTHER than `<repo>`, a condition that cannot exist when `<repo>` itself has `<base-branch>` checked out (the HEAD-on-base path), so it is never emitted there. `refused-unknown` is NOT the symmetric opposite: it is reachable from BOTH paths - from HEAD-on-base as the generic "unrecognized git refusal" catch-all, and from HEAD-elsewhere when the post-refusal rev-list counts come back empty (`origin/<base-branch>` absent post-fetch, e.g. a `--single-branch` clone) - a state where "checked out in another worktree" cannot be confirmed, so `ref-locked-elsewhere` is correctly withheld in favor of `refused-unknown`. Each path computes and returns its own terminal status; there is no shared post-refusal code path between the two.
 
 **Exercising `refused-unknown` in a test or by hand.** Because `refused-unknown` requires a `pull --ff-only` refusal that is neither a dirty-overwrite conflict nor a real divergence, the easiest reliable way to construct it in a scratch clone is to create `.git/index.lock` in the clone before invoking the tool (HEAD on base) - this produces `error: ... Unable to create '.../index.lock': File exists.`, which does not match the dirty-overwrite grep and is not a divergence, landing on `status=refused-unknown` with exit 4. Removing the lock and re-running syncs normally (`status=ff-pulled`, exit 0).
@@ -1400,7 +1408,7 @@ ae_base_branch_sync() {
 }
 ```
 
-`bin/ds-base-sync` sources this function from `scripts/lib/base-branch-sync.sh`, performs the argc check (exactly 2 args) plus repo-dir/git-repo-ness validation the same way `ds-resolve-worktree` does (all exit 3 on failure, mirroring that tool's error style), calls `ae_base_branch_sync "$1" "$2"` (which independently re-validates non-empty `$1`/`$2` as its own defense-in-depth precondition), and does `exit $?`. The library function `return`s, never `exit`s; only the CLI wrapper `exit`s.
+`bin/ds-base-sync` sources this function from `scripts/lib/base-branch-sync.sh`, performs the argc check (exactly 2 args) plus repo-dir/git-repo-ness validation the same way `ds-resolve-worktree` does (all exit 3 on failure, mirroring that tool's error style), calls `ae_base_branch_sync "$1" "$2"`, captures its exit status, prints the DS-54 advisory line above if the classifier has a finding, then exits with the CAPTURED status (never the classifier's own exit code - the classifier's status is deliberately never inspected for exit-code purposes, only its stdout). The library function `return`s, never `exit`s; only the CLI wrapper `exit`s. The advisory print happens strictly between the capture and the final `exit`, so it can never change which status is returned.
 
 ## Divergence diagnostic format
 
