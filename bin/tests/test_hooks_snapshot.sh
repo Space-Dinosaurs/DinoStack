@@ -127,6 +127,35 @@ else
   _fail "first sync omitted the executable identity/telemetry helper"
 fi
 
+# Per-path copy assertions for the remaining four in-scope adapter sources
+# (Skeptic round-4 Minor 1: every source in hooks_source_paths() must have
+# its own positive content assertion here, so dropping any single path from
+# the copy loop reddens exactly its own check - not just the hooks/ and
+# bin/ds-identity checks already above).
+if [[ "$(cat "$SNAP_DIR/.codex/config/hooks.json" 2>/dev/null)" == '{"hooks":{}}' ]]; then
+  _pass "first sync copies .codex/config/hooks.json"
+else
+  _fail "first sync omitted or corrupted .codex/config/hooks.json"
+fi
+
+if [[ "$(cat "$SNAP_DIR/.codex/hooks/risk-reminder.sh" 2>/dev/null)" == "codex-risk" ]]; then
+  _pass "first sync copies .codex/hooks"
+else
+  _fail "first sync omitted or corrupted .codex/hooks"
+fi
+
+if [[ "$(cat "$SNAP_DIR/.gemini/hooks/risk-reminder.sh" 2>/dev/null)" == "gemini-risk" ]]; then
+  _pass "first sync copies .gemini/hooks"
+else
+  _fail "first sync omitted or corrupted .gemini/hooks"
+fi
+
+if [[ "$(cat "$SNAP_DIR/.kimi/hooks/session-start.sh" 2>/dev/null)" == "kimi-start" ]]; then
+  _pass "first sync copies .kimi/hooks"
+else
+  _fail "first sync omitted or corrupted .kimi/hooks"
+fi
+
 SAME_PROCESS_RC=0
 HOME="$FAKE_HOME" bash -c "
   source '$LIB'

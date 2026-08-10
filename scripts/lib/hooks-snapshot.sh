@@ -23,6 +23,12 @@
 #        stale_but_stable check, and bin/ds-update's _hooks_snapshot_diverged
 #        check all pass the same argument list to compute_hooks_source_hash
 #        below and can never independently drift on what the six paths are.
+#        A fourth consumer, sync_hooks_snapshot's own copy loop, drives `cp`
+#        (not compute_hooks_source_hash) from this same list - the single
+#        most important property to preserve on any future edit here is
+#        that ALL FOUR consumers keep calling this one function rather than
+#        any of them reverting to a hand-copied path list, since that was
+#        the exact reader/writer divergence this function exists to close.
 #        Read one line at a time (`while IFS= read -r line; do arr+=("$line");
 #        done < <(hooks_source_paths "$repo_dir")`) rather than word-splitting
 #        the output, and never with `mapfile`/`readarray` (bash 3.2, the
@@ -58,7 +64,8 @@
 #
 # Downstream consumers: .claude/install.sh, .gemini/install.sh,
 #   .codex/install.sh, .kimi/install.sh, .claude/uninstall.sh,
-#   hooks/lib/hooks-staleness-core.sh.
+#   hooks/lib/hooks-staleness-core.sh, bin/ds-doctor,
+#   bin/ds-update.
 #
 # Failure modes:
 #   - Bounded-delete guard (mandatory on every rm -rf path): fails closed
@@ -116,11 +123,13 @@ hooks_snapshot_dir() {
 # ---------------------------------------------------------------------------
 # hooks_source_paths <repo_dir>
 #   Prints, one per line, the SOLE list of paths that define "the hook
-#   source" for <repo_dir>. Every caller that needs this list (the sync
-#   writer below, hooks/lib/hooks-staleness-core.sh's stale_but_stable
-#   check, and bin/ds-update's _hooks_snapshot_diverged check) must call
-#   this function rather than hand-copying the six paths - three unpinned
-#   copies previously existed and could silently disagree on drift.
+#   source" for <repo_dir>. Every caller that needs this list (sync_hooks_
+#   snapshot's own copy loop AND its hash computation below,
+#   hooks/lib/hooks-staleness-core.sh's stale_but_stable check, and
+#   bin/ds-update's _hooks_snapshot_diverged check) must call this function
+#   rather than hand-copying the six paths - unpinned copies previously
+#   existed at both the hash layer and the copy layer and could silently
+#   disagree on drift.
 # ---------------------------------------------------------------------------
 hooks_source_paths() {
   local repo_dir="$1"
@@ -451,9 +460,16 @@ sync_hooks_snapshot() {
   # --- Copy the source set, preserving checkout-relative layout ---
   # Driven by hooks_source_paths() - the SOLE list - so the copy set can
   # never independently drift from the hash set below. Plain cp -R/cp (NOT
-  # rsync), then a targeted rm of the excluded hooks/ paths - matches
-  # compute_hooks_source_hash's exclusions so a hooks/tests/ or
-  # hooks/AGENTS.md edit alone never trips staleness. Directory vs file is
+  # rsync), then a targeted rm of the excluded top-level hooks/tests and
+  # hooks/AGENTS.md paths - this matches compute_hooks_source_hash's
+  # exclusions ONLY at that top level. compute_hooks_source_hash excludes
+  # any "tests" path component or "AGENTS.md" basename at ANY depth under
+  # every walked root, not just under hooks/; the copy step here does not.
+  # This asymmetry is latent (pre-existing since round 2, unreachable today
+  # because no in-scope adapter's hooks source currently nests a "tests"
+  # dir or an "AGENTS.md" file below its top level) - a nested
+  # .codex/hooks/tests/ or .gemini/hooks/AGENTS.md would be hashed as
+  # excluded but copied into the snapshot anyway. Directory vs file is
   # handled explicitly per-entry (cp -R vs cp) since the two need different
   # cp invocations; everything else about the loop is uniform.
   local -a _copy_source_paths=()
