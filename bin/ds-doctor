@@ -8,22 +8,31 @@ Purpose: Inspect global dinostack install health and (with --fix)
          (reverse direction), that hook commands in ~/.claude/settings.json
          point into repo_dir, that every managed hook script referenced in
          settings.json actually exists on disk (orphaned-hook detection),
-         and that the repo_dir pre-commit hook is wired. With --fix,
+         that the repo_dir pre-commit hook is wired, and that the
+         session-stable hooks snapshot (DS-54) is not dormant relative to the
+         checkout's live hook source (never_migrated / half_applied /
+         stale_but_stable - see check_hooks_snapshot_staleness). With --fix,
          re-points ours-to-own broken/stale symlinks and rewrites hook paths
          in settings.json (atomic read-merge-write); when the expected
          in-repo target for an ours-to-own symlink no longer exists at all
          (e.g. a renamed command), --fix DELETES the stale symlink from
          ~/.claude/{agents,commands,skills} or ~/.local/bin instead of
-         re-pointing it. The orphaned-hook check is read-only (FAIL only, no
-         --fix repair - the fix is restoring the script or re-running
-         install.sh). Never invokes install.sh, never touches real files or
-         foreign symlinks. NOTE: the reverse ~/.local/bin stale-link check
-         (check_local_bin_stale) is checked-out-tree-relative, not just
-         rename-relative - on an older commit or a feature branch where a
-         given bin/ tool does not yet exist, --fix will remove the user's
-         PATH wrapper for it too. This is bounded and self-healing: the
-         wrapper is recreated by the forward check the next time --fix runs
-         against a checkout where the tool exists again.
+         re-pointing it; and for hooks-snapshot staleness, --fix calls
+         sync_hooks_snapshot(repo_dir) - the identical call every adapter
+         install.sh already makes unconditionally on every run, so this
+         introduces no new mutation hazard (DS-54 invariant: only fires when
+         the operator explicitly passes --fix, a deliberate action, never
+         from a bare read-only scan). The orphaned-hook check is read-only
+         (FAIL only, no --fix repair - the fix is restoring the script or
+         re-running install.sh). Otherwise never invokes install.sh, never
+         touches real files or foreign symlinks. NOTE: the reverse
+         ~/.local/bin stale-link check (check_local_bin_stale) is
+         checked-out-tree-relative, not just rename-relative - on an older
+         commit or a feature branch where a given bin/ tool does not yet
+         exist, --fix will remove the user's PATH wrapper for it too. This is
+         bounded and self-healing: the wrapper is recreated by the forward
+         check the next time --fix runs against a checkout where the tool
+         exists again.
 
 Public API: ds-doctor [--fix] [--dry-run] [--cross-harness] [--json]
             --cross-harness: also validate the cross-harness team stack
@@ -36,31 +45,48 @@ Public API: ds-doctor [--fix] [--dry-run] [--cross-harness] [--json]
               FAIL <kind>: <detail>
               FIX symlink: <dst> : <old/broken target> -> <new target>
               FIX symlink: <dst> : <old/broken target> -> (removed, stale)
+              FIX hooks_snapshot [<state>]: <message>
               SKIP <kind>: <dst> (reason)
             Exits 0 (all pass / --fix resolved all), 1 (findings in read-only
             or dry-run mode), 2 (--fix ran but one or more items could not be
             fixed).
 
-Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, sys, tempfile).
-               Reads ~/.agentic/agentic-engineering-config.json (repo_dir source),
-               ~/.claude/settings.json (hook inspection/repair),
-               ~/.claude/agents/, ~/.claude/commands/, ~/.claude/skills/.
-               Reads <repo_dir>/bin/{agentic-,ds-}* (bin wrapper check).
-               Reads <repo_dir>/.git/hooks/pre-commit (pre-commit check).
+Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, subprocess,
+               sys, tempfile). Reads ~/.agentic/agentic-engineering-config.json
+               (repo_dir source), ~/.claude/settings.json (hook
+               inspection/repair), ~/.claude/agents/, ~/.claude/commands/,
+               ~/.claude/skills/. Reads <repo_dir>/bin/{agentic-,ds-}* (bin
+               wrapper check). Reads <repo_dir>/.git/hooks/pre-commit
+               (pre-commit check). check_hooks_snapshot_staleness shells out
+               to bash <repo_dir>/hooks/lib/hooks-staleness-core.sh (DS-54;
+               reuses its compute_hooks_source_hash-backed classification
+               rather than reimplementing hashing/exclusion rules) and, on
+               --fix, to bash -c 'source <repo_dir>/scripts/lib/
+               hooks-snapshot.sh; sync_hooks_snapshot <repo_dir>'.
 
 Downstream consumers: developers diagnosing broken installs after cloning to a
-                      new path; bootstrap guard advisory for two-clone setups.
+                      new path; bootstrap guard advisory for two-clone setups;
+                      bin/ds-update's _run_doctor() (runs `ds-doctor --fix`
+                      unconditionally on both its "already up to date" and
+                      "no rebuild needed" early-return paths, so this check
+                      also closes the "merged fix, checkout already at latest
+                      HEAD" dogfooding gap without any ds-update-side change).
 
 Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                ~/.claude/settings.json -> check (c) skipped with SKIP output.
                All file errors swallowed; a failing check is counted as FAIL.
                Never modifies files unless --fix is passed (without --dry-run).
+               check_hooks_snapshot_staleness: missing
+               hooks/lib/hooks-staleness-core.sh -> SKIP (no crash); a
+               subprocess timeout or exception -> WARN, not FAIL (this check
+               must never block the rest of doctor's findings).
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
              run shells out to `ds-team discover` and `omp models ls`,
              each under a timeout (up to ~30-60 s worst case) -- so a
              --cross-harness run is bounded by those subprocess timeouts, not
-             sub-100 ms.
+             sub-100 ms. check_hooks_snapshot_staleness shells out to bash
+             once (sub-50ms per hooks-staleness-core.sh's own perf note).
 """
 
 from __future__ import annotations
@@ -814,6 +840,90 @@ def check_git_precommit(doc: Doctor) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Check (f2): DS-54 hooks-snapshot staleness (never_migrated / half_applied /
+# stale_but_stable). Reuses hooks/lib/hooks-staleness-core.sh (which itself
+# reuses compute_hooks_source_hash from scripts/lib/hooks-snapshot.sh) as a
+# blackbox classifier rather than reimplementing the hashing/exclusion rules
+# here - the two must never independently drift on what counts as "the hook
+# source". See that script's own header for the state definitions.
+# ---------------------------------------------------------------------------
+
+
+def check_hooks_snapshot_staleness(doc: Doctor) -> None:
+    core_script = doc.repo_dir / "hooks" / "lib" / "hooks-staleness-core.sh"
+    if not core_script.is_file():
+        doc.skip("hooks_snapshot", core_script, "hooks-staleness-core.sh not found")
+        return
+
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["bash", str(core_script)],
+            capture_output=True, text=True, timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        doc.warn("hooks_snapshot", f"could not run staleness check: {exc}")
+        return
+
+    message = (result.stdout or "").strip()
+    if not message:
+        doc.ok("hooks_snapshot", "hooks snapshot is current (no drift detected)")
+        return
+
+    if "not yet snapshotted" in message:
+        state = "never_migrated"
+    elif "partially applied" in message:
+        state = "half_applied"
+    elif "changed since the last snapshot sync" in message:
+        state = "stale_but_stable"
+    else:
+        state = "unknown"
+
+    # Mirrors repoint_symlink's convention: always announce the finding as
+    # FIX (a fixable drift), and only perform the actual repair in live-fix
+    # mode. Read-only/dry-run counts a FIX line as a finding (exit 1); live
+    # mode counts it as an applied repair unless the repair itself fails
+    # (which additionally emits a FAIL below via _fix_hooks_snapshot).
+    doc._emit("FIX", f"hooks_snapshot [{state}]: {message}")
+    if doc.fix:
+        _fix_hooks_snapshot(doc, state)
+
+
+def _fix_hooks_snapshot(doc: Doctor, state: str) -> None:
+    """--fix repair: call sync_hooks_snapshot(repo_dir) - the identical call
+    every adapter install.sh already makes unconditionally on every run, so
+    this introduces no new mutation hazard (DS-54 invariant). Only reached
+    when the operator explicitly passed --fix (never during a bare
+    read-only scan), matching the "deliberate action" shape install.sh
+    itself already represents.
+    """
+    import subprocess
+
+    snapshot_lib = doc.repo_dir / "scripts" / "lib" / "hooks-snapshot.sh"
+    if not snapshot_lib.is_file():
+        doc.fail("hooks_snapshot", f"cannot fix: {snapshot_lib} not found")
+        doc.mark_unfixable(snapshot_lib)
+        return
+
+    script = f'set -euo pipefail; source "{snapshot_lib}"; sync_hooks_snapshot "{doc.repo_dir}"'
+    try:
+        result = subprocess.run(
+            ["bash", "-c", script],
+            capture_output=True, text=True, timeout=60,
+        )
+    except (OSError, subprocess.SubprocessError) as exc:
+        doc.fail("hooks_snapshot", f"sync_hooks_snapshot failed: {exc}")
+        doc.mark_unfixable(doc.repo_dir)
+        return
+
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "unknown error").strip()
+        doc.fail("hooks_snapshot", f"sync_hooks_snapshot failed ({state}): {detail}")
+        doc.mark_unfixable(doc.repo_dir)
+
+
+# ---------------------------------------------------------------------------
 # Cross-harness team health (team.yml / role-models.yml / harnesses / models)
 # ---------------------------------------------------------------------------
 
@@ -1102,6 +1212,9 @@ def main() -> int:
 
     # (f) git pre-commit hook
     check_git_precommit(doc)
+
+    # (f2) DS-54 hooks-snapshot staleness
+    check_hooks_snapshot_staleness(doc)
 
     # (g) cross-harness team stack (opt-in via --cross-harness)
     if args.cross_harness:

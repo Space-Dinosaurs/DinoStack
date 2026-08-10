@@ -504,6 +504,60 @@ echo "=== Case 15 (round-4 CRITICAL regression): invoked via a PATH symlink stil
   _assert_eq "case15: symlink invocation local ref == origin ref" "$ORIGIN_SHA" "$LOCAL_SHA"
 }
 
+echo "=== Case 16 (DS-54): hooks-snapshot staleness advisory note is printed after a sync, and never affects the exit code ==="
+# Uses an isolated FAKE_HOME with repo_dir pointed at REPO_DIR (the real
+# checkout, which actually ships hooks/lib/hooks-staleness-core.sh - the
+# scratch <repo> fixtures used by the other cases do not) so the note fires
+# deterministically regardless of this machine's real ~/.agentic state.
+# Read-only: hooks-staleness-core.sh never writes; nothing under REPO_DIR
+# itself is ever touched.
+{
+  C="$TMP_ROOT/case16"
+  _make_origin_and_clone "$C"
+  _seed_advance "$C" "advance16"
+
+  FAKE_HOME="$TMP_ROOT/case16-home"
+  mkdir -p "$FAKE_HOME/.agentic"
+  cat > "$FAKE_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$REPO_DIR"
+}
+EOF
+  # No snapshot has ever been synced under FAKE_HOME for REPO_DIR -> never_migrated.
+  OUT="$(HOME="$FAKE_HOME" "$TOOL" "$C/repo" base 2>&1)"; RC=$?
+  _assert_eq "case16: exit 0 (advisory note does not affect exit code)" "0" "$RC"
+  _assert_contains "case16: breadcrumb ff-pulled" "$OUT" "status=ff-pulled"
+  _assert_contains "case16: advisory note present" "$OUT" "ds-base-sync: dinostack: hooks are not yet snapshotted"
+}
+
+echo "=== Case 17 (DS-54): advisory note ABSENT when the operator's hooks snapshot is already current ==="
+{
+  C="$TMP_ROOT/case17"
+  _make_origin_and_clone "$C"
+  _seed_advance "$C" "advance17"
+
+  FAKE_HOME="$TMP_ROOT/case17-home"
+  mkdir -p "$FAKE_HOME/.agentic"
+  cat > "$FAKE_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$REPO_DIR"
+}
+EOF
+  # Sync the snapshot under FAKE_HOME for REPO_DIR first (mirrors what
+  # install.sh does), so hooks-staleness-core.sh classifies "current"
+  # (silent - no note).
+  (
+    HOME="$FAKE_HOME"
+    export HOME
+    # shellcheck source=/dev/null
+    source "$REPO_DIR/scripts/lib/hooks-snapshot.sh"
+    sync_hooks_snapshot "$REPO_DIR" >/dev/null
+  )
+  OUT="$(HOME="$FAKE_HOME" "$TOOL" "$C/repo" base 2>&1)"; RC=$?
+  _assert_eq "case17: exit 0" "0" "$RC"
+  _assert_not_contains "case17: advisory note ABSENT (snapshot already current)" "$OUT" "ds-base-sync:"
+}
+
 echo "=== Locale robustness note (Finding N2 / LC_ALL=C) ==="
 echo "Not independently reproducible as a test case on this git build: Apple"
 echo "Git 2.39.5 ships no locale catalogs, so a translated-message failure"
