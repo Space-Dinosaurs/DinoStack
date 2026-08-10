@@ -27,6 +27,15 @@
 #                hanging: `grep -nE '/dev/tty|ae_confirm|read -p'
 #                .claude/install.sh scripts/lib/identity.sh` (a bare
 #                `/dev/tty` grep on install.sh alone finds only 1 of 4).
+#                Separately, the .claude/install.sh run below also calls
+#                install_precommit_hook, which resolves the git hooks
+#                directory via `git rev-parse --git-path hooks` relative to
+#                the REAL REPO_DIR, independent of $HOME faking - left
+#                unguarded it would rewrite this checkout's real
+#                <repo>/.git/hooks/pre-commit symlink. Guarded via
+#                bin/tests/lib/precommit-hook-guard.sh: saved before the
+#                install.sh call and restored unconditionally in the EXIT
+#                trap.
 #
 # Performance: ~10-15 s wall time (one .claude/install.sh run, which builds
 #              all adapters via .claude/build.sh + .cursor/build.sh).
@@ -34,6 +43,9 @@
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
+
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
 
 PASS=0
 FAIL=0
@@ -50,12 +62,16 @@ _pass() {
 
 TMP_ROOT="$(mktemp -d)"
 _cleanup() {
+  precommit_hook_guard_restore
   rm -rf "$TMP_ROOT"
 }
 trap _cleanup EXIT
 
 FAKE_HOME="$TMP_ROOT/home"
 mkdir -p "$FAKE_HOME/.claude"
+
+# Save the real pre-commit hook slot before the install.sh call below.
+precommit_hook_guard_save "$REPO_DIR"
 
 # ---------------------------------------------------------------------------
 # Seed 1: skill_auto_load key present -> suppresses the ae_write_config

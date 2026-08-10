@@ -104,3 +104,14 @@ __pycache__/
 # masking a real future bin/ds-* tool: no shipped tool name ends in that
 # suffix, so this pattern can only ever match the test's own residue.
 bin/ds-*-test-fixture
+
+# SIGKILL residue backstop for
+# bin/tests/test_precommit_hook_guard_adoption.sh's truncated-copy fixtures
+# (.tmp-precommit-guard-verify-{prefix,postfix}-<pid>.sh). These MUST live
+# directly in bin/tests/ (not under mktemp -d) because the truncated copy's
+# own REPO_DIR resolution is `$(dirname "$0")/../..`, which assumes exactly
+# that location - see the comment above PREFIX_COPY/POSTFIX_COPY in that
+# file. The EXIT/INT/TERM trap already removes them on every catchable
+# signal; this only covers the uncatchable SIGKILL case so a stray copy
+# never gets swept into a `git add -A`.
+bin/tests/.tmp-precommit-guard-verify-*.sh
