@@ -57,21 +57,23 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, re,
                - single source of truth shared with scripts/update.js and
                install-all.sh; do not reintroduce a local literal for either).
                Invokes: git (fetch, pull, rev-parse, diff, status, etc.),
-               bash <adapter>/install.sh, ds-doctor.
+               bash <adapter>/install.sh, ds-doctor. The ds-doctor --fix
+               subprocess is invoked with cwd pinned to the resolved
+               repo_dir (see _run_doctor) for consistency with this file's
+               other subprocess calls, not because doctor's --fix targets
+               are cwd-sensitive today.
 
 Downstream consumers: end users running from any cwd; CI pipelines; shell
                       aliases; any non-TTY automation that cannot launch the
-                      interactive scripts/update.js TUI. The ds-doctor --fix
-                      subprocess is invoked with cwd pinned to the resolved
-                      repo_dir (see _run_doctor) for consistency with this
-                      file's other subprocess calls, not because doctor's
-                      --fix targets are cwd-sensitive today.
+                      interactive scripts/update.js TUI.
 
 Failure modes: exit 1 on non-main branch, dirty working tree, pull failure,
                or adapter install failure. exit 2 when ds-doctor --fix
                exits 2 (unfixable issues). Cache write (version-check-cache)
                is non-fatal: failures emit a warning and execution continues.
-               Missing ds-doctor binary: warning, exit 0.
+               Missing ds-doctor binary: warning, exit 0. Missing repo_dir
+               (does not exist) or repo_dir that is not a directory: warning,
+               exit 0 (see _run_doctor).
 
 Advisory: when a pull changes any file under hooks/, a non-blocking
           informational note is printed to stderr (_hooks_touched /

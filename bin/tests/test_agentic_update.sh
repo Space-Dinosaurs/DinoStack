@@ -998,8 +998,8 @@ rm -rf "$TEMP_HOME"
 # push_ahead_nontrigger_commit: like push_ahead_commit, but the pushed
 # commit only touches README.md - not a REBUILD_TRIGGER path - so
 # _needs_rebuild() returns False and main()'s "No rebuild needed" branch
-# (bin/ds-update:627-634, doctor call at :630) fires instead of the
-# rebuild-triggered branch (Step 14, doctor call at :720).
+# (bin/ds-update:627-634, doctor call at :634) fires instead of the
+# rebuild-triggered branch (Step 14, doctor call at :724).
 # Must be called after setup_git_fixture.
 # ---------------------------------------------------------------------------
 push_ahead_nontrigger_commit() {
@@ -1112,14 +1112,14 @@ STUBEOF
 # ---------------------------------------------------------------------------
 # Test 18a (regression, dormant sandbox-escape hazard fix): "Already up to
 # date" branch. old_head == new_head (no push), so main() returns
-# _run_doctor(repo_dir) directly at bin/ds-update:584.
+# _run_doctor(repo_dir) directly at bin/ds-update:588.
 # ---------------------------------------------------------------------------
 setup_git_fixture
 
 _run_doctor_cwd_check "T18a"
 
 if echo "$OUT" | grep -q "Already up to date"; then
-  _pass "T18a doctor cwd: reached the 'Already up to date' branch (:584)"
+  _pass "T18a doctor cwd: reached the 'Already up to date' branch (:588)"
 else
   _fail "T18a doctor cwd: did not reach 'Already up to date' (got: $OUT)"
 fi
@@ -1130,7 +1130,7 @@ rm -rf "$TEMP_HOME"
 # Test 18b (regression, dormant sandbox-escape hazard fix): "No rebuild
 # needed" branch. old_head != new_head but the pulled commit only touches a
 # non-REBUILD_TRIGGER path, so _needs_rebuild() is False and main() calls
-# _run_doctor(repo_dir) at bin/ds-update:630.
+# _run_doctor(repo_dir) at bin/ds-update:634.
 # ---------------------------------------------------------------------------
 setup_git_fixture
 push_ahead_nontrigger_commit
@@ -1138,7 +1138,7 @@ push_ahead_nontrigger_commit
 _run_doctor_cwd_check "T18b"
 
 if echo "$OUT" | grep -q "No rebuild needed"; then
-  _pass "T18b doctor cwd: reached the 'No rebuild needed' branch (:630)"
+  _pass "T18b doctor cwd: reached the 'No rebuild needed' branch (:634)"
 else
   _fail "T18b doctor cwd: did not reach 'No rebuild needed' (got: $OUT)"
 fi
@@ -1150,7 +1150,7 @@ rm -rf "$TEMP_HOME"
 # Step 14 branch. push_ahead_commit's pushed commit adds .claude/install.sh,
 # an exact-path REBUILD_TRIGGER, so _needs_rebuild() is True and control
 # reaches _run_adapter_installs -> Step 14's _run_doctor(repo_dir) at
-# bin/ds-update:720.
+# bin/ds-update:724.
 # ---------------------------------------------------------------------------
 setup_git_fixture
 push_ahead_commit
@@ -1158,7 +1158,7 @@ push_ahead_commit
 _run_doctor_cwd_check "T18c"
 
 if echo "$OUT" | grep -q "Rebuild triggered by"; then
-  _pass "T18c doctor cwd: reached the rebuild-triggered Step 14 branch (:720)"
+  _pass "T18c doctor cwd: reached the rebuild-triggered Step 14 branch (:724)"
 else
   _fail "T18c doctor cwd: did not reach 'Rebuild triggered by' (got: $OUT)"
 fi
