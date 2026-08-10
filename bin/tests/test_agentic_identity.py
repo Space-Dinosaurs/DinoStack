@@ -37,6 +37,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import socket
 import stat
 import subprocess
@@ -847,7 +848,19 @@ def test_lock_timeout_gives_up_after_budget_exhausted_without_raising_to_caller(
     returns False rather than raising to its caller, and the give-up path
     terminates within a bounded window rather than hanging. Shrinks the
     module's lock-retry budget/per-attempt cap for the duration of the test
-    so the exhaustion path resolves quickly and deterministically."""
+    so the exhaustion path resolves quickly and deterministically.
+
+    DS-158 round 3 Minor 1: this is a version-agnostic INVARIANT test (it
+    also passes against the pre-round-2 code, verified in an ephemeral
+    worktree at base 6701a1c5 with only this test file applied: 1 failed,
+    1 passed) - it provides zero regression coverage for round 2 or round
+    3's specific fixes. It is deliberately kept loose (elapsed < 5.0) so it
+    keeps holding across future budget-shape changes; the tight,
+    round-3-specific wall-clock bound lives in
+    test_lock_retry_lock_timeout_clamped_to_remaining_budget and
+    test_lock_retry_backoff_sleep_clamped_to_remaining_budget below, which
+    are the actual regression coverage for Major 1/Major 3 of this round.
+    """
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp).resolve()
         log_path = root / "session-log" / "lock-timeout-exhausted.jsonl"
@@ -890,6 +903,360 @@ def test_lock_timeout_gives_up_after_budget_exhausted_without_raising_to_caller(
         print(
             "PASS test_lock_timeout_gives_up_after_budget_exhausted_without_raising_to_caller"
         )
+
+
+class _FakeTimeModule:
+    """Deterministic stand-in for the `time` module used by DS-158 round 3's
+    total-wall-clock regression tests.
+
+    Rebinding `_mod.time` (not patching attributes on the real stdlib `time`
+    module) means only lookups from inside ds-identity's own functions are
+    affected - every other module's `import time` binding is untouched, so
+    this carries none of the risk of globally freezing `time.monotonic()`
+    for the whole test process (e.g. confusing a pytest-timeout watchdog).
+    `monotonic()` and `sleep()` are faked against an internal fake clock
+    that only ever advances by exactly what `sleep()` is asked to advance
+    it by; unrecognized attributes fall through to the real module via
+    `__getattr__`.
+    """
+
+    def __init__(self, real_time_module):
+        self._real = real_time_module
+        self._now = 0.0
+
+    def monotonic(self):
+        return self._now
+
+    def sleep(self, seconds):
+        self._now += seconds
+
+    def __getattr__(self, name):
+        return getattr(self._real, name)
+
+
+def test_hook_ceiling_matches_python_budget():
+    """DS-158 round 3 Major 1: the JS caller's spawnSync ceiling must stay
+    provably derived from this module's SESSION_LOG_LOCK_BUDGET_SECONDS,
+    not merely agree with it by coincidence of two hand-maintained numbers.
+    Parses both source files and asserts:
+      - hooks/stop-context.js's SESSION_LOG_LOCK_BUDGET_MS (in
+        milliseconds) equals SESSION_LOG_LOCK_BUDGET_SECONDS (in seconds)
+        here, exactly (no unit-conversion drift).
+      - the JS ceiling constant is literally the SUM of that budget
+        constant and a named headroom constant (WRITE_HOOK_SPAWN_CEILING_MS
+        = SESSION_LOG_LOCK_BUDGET_MS + HELPER_STARTUP_HEADROOM_MS), not a
+        third, independently-chosen literal - so bumping the Python budget
+        without touching the JS file already breaks this test, and vice
+        versa for a JS-side ceiling bump that isn't grounded in these two
+        named constants.
+    """
+    hook_js_path = _REPO_ROOT / "hooks" / "stop-context.js"
+    js_source = hook_js_path.read_text(encoding="utf-8")
+
+    budget_ms_match = re.search(
+        r"const SESSION_LOG_LOCK_BUDGET_MS\s*=\s*(\d+);", js_source
+    )
+    headroom_ms_match = re.search(
+        r"const HELPER_STARTUP_HEADROOM_MS\s*=\s*(\d+);", js_source
+    )
+    ceiling_match = re.search(
+        r"const WRITE_HOOK_SPAWN_CEILING_MS\s*=\s*"
+        r"SESSION_LOG_LOCK_BUDGET_MS\s*\+\s*HELPER_STARTUP_HEADROOM_MS;",
+        js_source,
+    )
+    assert budget_ms_match, (
+        "hooks/stop-context.js must define SESSION_LOG_LOCK_BUDGET_MS as a "
+        "literal integer constant"
+    )
+    assert headroom_ms_match, (
+        "hooks/stop-context.js must define HELPER_STARTUP_HEADROOM_MS as a "
+        "literal integer constant"
+    )
+    assert ceiling_match, (
+        "hooks/stop-context.js's WRITE_HOOK_SPAWN_CEILING_MS must be defined "
+        "as the literal sum of SESSION_LOG_LOCK_BUDGET_MS + "
+        "HELPER_STARTUP_HEADROOM_MS, not an independent literal"
+    )
+
+    budget_ms = int(budget_ms_match.group(1))
+    assert budget_ms / 1000.0 == _mod.SESSION_LOG_LOCK_BUDGET_SECONDS, (
+        f"hooks/stop-context.js SESSION_LOG_LOCK_BUDGET_MS ({budget_ms}ms) "
+        "must equal bin/ds-identity's SESSION_LOG_LOCK_BUDGET_SECONDS "
+        f"({_mod.SESSION_LOG_LOCK_BUDGET_SECONDS}s) exactly"
+    )
+
+    assert re.search(
+        r"timeout:\s*WRITE_HOOK_SPAWN_CEILING_MS,", js_source
+    ), (
+        "the spawnSync call's `timeout` must reference "
+        "WRITE_HOOK_SPAWN_CEILING_MS, not a standalone literal"
+    )
+
+    print("PASS test_hook_ceiling_matches_python_budget")
+
+
+def test_lock_retry_lock_timeout_clamped_to_remaining_budget():
+    """DS-158 round 3 Major 3: pins that a single lock attempt's `timeout`
+    argument is clamped to the REMAINING shared budget, not the flat
+    per-attempt cap. Mutation table (measured against this test):
+      - unmutated code                                    -> PASS
+      - drop the `lock_deadline - time.monotonic()` term
+        from lock_timeout's min(...) (M3)                  -> FAILS
+
+    Uses a fake, deterministic clock (see _FakeTimeModule) rather than real
+    wall-clock sleeps, so this test has zero timing-jitter flakiness: the
+    mocked lock call advances the fake clock by exactly the `timeout` value
+    it was passed (modeling a real flock that blocks for its full timeout
+    before giving up), and every other duration in this test is exact
+    floating-point addition, not measured real time.
+
+    Budget (0.2s) is deliberately SMALLER than the per-attempt cap (0.4s):
+    with the clamp intact, attempt 0's lock_timeout is clipped to the full
+    remaining budget (0.2s) and the retry loop gives up immediately after
+    (remaining hits exactly 0). Without the clamp, attempt 0 spends the
+    full uncapped 0.4s before the same give-up check fires - double the
+    correct total.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve()
+        log_path = root / "session-log" / "lock-clamp-dev.jsonl"
+        log_path.parent.mkdir(parents=True)
+        line = json.dumps({"session_uuid": "lock-clamp"}, separators=(",", ":"))
+
+        original_lock = _mod._lock_fd_exclusive
+        original_time = _mod.time
+        original_budget = _mod.SESSION_LOG_LOCK_BUDGET_SECONDS
+        original_cap = _mod.SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS
+
+        fake_time = _FakeTimeModule(original_time)
+
+        def blocking_timeout(fd, *, timeout):
+            # Models a real flock that genuinely blocks for its full
+            # timeout before reporting contention - this is what makes the
+            # `timeout` argument's own magnitude observable as elapsed
+            # wall clock, which is exactly what M3 corrupts.
+            fake_time.sleep(timeout)
+            raise RuntimeError("forced test lock timeout")
+
+        _mod._lock_fd_exclusive = blocking_timeout
+        _mod.time = fake_time
+        _mod.SESSION_LOG_LOCK_BUDGET_SECONDS = 0.2
+        _mod.SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS = 0.4
+        try:
+            ok = _mod._append_jsonl_safely(log_path, line)
+            elapsed = fake_time.monotonic()
+        finally:
+            _mod._lock_fd_exclusive = original_lock
+            _mod.time = original_time
+            _mod.SESSION_LOG_LOCK_BUDGET_SECONDS = original_budget
+            _mod.SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS = original_cap
+
+        assert ok is False
+        assert elapsed < 0.3, (
+            "a single lock attempt must be clamped to the remaining shared "
+            f"budget (expected ~0.2s), got {elapsed:.4f}s - the per-attempt "
+            "cap is winning over the remaining-budget clamp"
+        )
+        print("PASS test_lock_retry_lock_timeout_clamped_to_remaining_budget")
+
+
+def test_lock_retry_backoff_sleep_clamped_to_remaining_budget():
+    """DS-158 round 3 Major 3: pins that the backoff sleep BETWEEN lock
+    retries is clamped to the REMAINING shared budget, not just to its own
+    linear-backoff cap. Mutation table (measured against this test):
+      - unmutated code                                    -> PASS
+      - drop the `remaining` term from the backoff sleep's
+        min(...) call (M2)                                 -> FAILS
+
+    Same deterministic fake-clock approach as
+    test_lock_retry_lock_timeout_clamped_to_remaining_budget. Here the
+    mocked lock call consumes ZERO fake time (an instantaneous EAGAIN-style
+    contention), isolating the backoff-sleep clamp from the lock-timeout
+    clamp covered by that sibling test - only the backoff `time.sleep(...)`
+    calls advance the fake clock.
+
+    Budget (0.12s) is tuned so the second attempt's linear-backoff term
+    (0.10s) exceeds the actual remaining budget at that point (0.06s):
+    with the clamp intact, that sleep is clipped to 0.06s and the loop
+    gives up on the third attempt; without it, the sleep overshoots to the
+    full 0.10s, pushing the total past what the clamp would allow.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve()
+        log_path = root / "session-log" / "backoff-clamp-dev.jsonl"
+        log_path.parent.mkdir(parents=True)
+        line = json.dumps({"session_uuid": "backoff-clamp"}, separators=(",", ":"))
+
+        original_lock = _mod._lock_fd_exclusive
+        original_time = _mod.time
+        original_budget = _mod.SESSION_LOG_LOCK_BUDGET_SECONDS
+        original_cap = _mod.SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS
+
+        fake_time = _FakeTimeModule(original_time)
+
+        def instant_timeout(fd, *, timeout):
+            # Zero fake-time cost: isolates the backoff-sleep clamp from
+            # the lock-timeout clamp (covered by the sibling test above).
+            raise RuntimeError("forced test lock timeout")
+
+        _mod._lock_fd_exclusive = instant_timeout
+        _mod.time = fake_time
+        _mod.SESSION_LOG_LOCK_BUDGET_SECONDS = 0.12
+        _mod.SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS = 1.0
+        try:
+            ok = _mod._append_jsonl_safely(log_path, line)
+            elapsed = fake_time.monotonic()
+        finally:
+            _mod._lock_fd_exclusive = original_lock
+            _mod.time = original_time
+            _mod.SESSION_LOG_LOCK_BUDGET_SECONDS = original_budget
+            _mod.SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS = original_cap
+
+        assert ok is False
+        assert elapsed < 0.15, (
+            "backoff sleeps must be clamped to the remaining shared budget "
+            f"(expected ~0.13s), got {elapsed:.4f}s - the linear-backoff cap "
+            "is winning over the remaining-budget clamp"
+        )
+        print("PASS test_lock_retry_backoff_sleep_clamped_to_remaining_budget")
+
+
+def test_write_hook_checkpoint_survives_sigkill_mid_global_append():
+    """DS-158 round 3 Major 2 regression: the --status-file checkpoint must
+    retain a CONFIRMED project outcome, and must NOT assert a global outcome
+    it never observed, when the write-hook subprocess is killed while the
+    global append is still contended.
+
+    This runs the real `bin/ds-identity write-hook` subcommand as an actual
+    subprocess (not an in-process call), holds a real flock on the global
+    session log from a second process so the global append genuinely
+    blocks/retries, waits for the checkpoint to confirm the project append
+    landed, then SIGKILLs the write-hook process mid-global-attempt - the
+    exact failure mode the round 3 Skeptic measured against round 2's code
+    (project landed on disk, health reported it as failed because the
+    process never got to print its final stdout status line).
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        fake_home = tmp_path / "home"
+        fake_home.mkdir()
+        project_dir = tmp_path / "project"
+        project_dir.mkdir()
+        subprocess.run(
+            ["git", "init", "-q"], cwd=project_dir, check=True,
+            capture_output=True,
+        )
+
+        dev_id = "sigkill-dev"
+        global_identity = fake_home / ".agentic" / "identity.yml"
+        _write_identity_file(global_identity, dev_id, provisional=False)
+
+        global_log_path = fake_home / ".agentic" / "session-log" / f"{dev_id}.jsonl"
+        global_log_path.parent.mkdir(parents=True, exist_ok=True)
+        global_log_path.touch()
+
+        status_file = tmp_path / "status.json"
+
+        env = dict(os.environ)
+        env["HOME"] = str(fake_home)
+        for key in ("AGENTIC_CONFIG_DIR", "CLAUDE_CONFIG_DIR", "CODEX_HOME",
+                    "PI_CODING_AGENT_DIR", "AE_IDENTITY_DEBUG"):
+            env.pop(key, None)
+
+        locker_ready = tmp_path / "locker-ready"
+        locker_release = tmp_path / "locker-release"
+        locker_script = (
+            "import fcntl, os, sys, time\n"
+            f"fd = os.open({str(global_log_path)!r}, os.O_RDONLY)\n"
+            "fcntl.flock(fd, fcntl.LOCK_EX)\n"
+            f"open({str(locker_ready)!r}, 'w').close()\n"
+            f"while not os.path.exists({str(locker_release)!r}):\n"
+            "    time.sleep(0.01)\n"
+            "os.close(fd)\n"
+        )
+        locker = subprocess.Popen([sys.executable, "-c", locker_script])
+        proc = None
+        try:
+            deadline = time.monotonic() + 5.0
+            while not locker_ready.exists():
+                assert time.monotonic() < deadline, "locker never acquired the global lock"
+                time.sleep(0.01)
+
+            request = json.dumps({
+                "identity": {
+                    "developer_id": dev_id,
+                    "provisional": False,
+                    "identity_scope": "global",
+                },
+                "session_uuid": "sigkill-session",
+                "branch": "main",
+                "data": {
+                    "wall_seconds": 1,
+                    "tokens": {"input": 1, "output": 1, "cache_creation": 0, "cache_read": 0},
+                    "spawn_count": 1,
+                    "by_agent": {},
+                },
+            })
+
+            proc = subprocess.Popen(
+                [
+                    sys.executable, str(_BIN_PATH), "write-hook",
+                    "--cwd", str(project_dir),
+                    "--status-file", str(status_file),
+                ],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env,
+                text=True,
+            )
+            proc.stdin.write(request)
+            proc.stdin.close()
+
+            checkpoint_deadline = time.monotonic() + 5.0
+            checkpoint_seen = False
+            while time.monotonic() < checkpoint_deadline:
+                if status_file.exists():
+                    try:
+                        data = json.loads(status_file.read_text(encoding="utf-8"))
+                    except (OSError, json.JSONDecodeError):
+                        data = None
+                    if isinstance(data, dict) and data.get("project") is True:
+                        checkpoint_seen = True
+                        break
+                time.sleep(0.02)
+
+            assert checkpoint_seen, (
+                "checkpoint must show project:true before the global append "
+                "contends against the held lock"
+            )
+
+            proc.kill()
+            proc.wait(timeout=5)
+        finally:
+            locker_release.touch()
+            locker.wait(timeout=5)
+            if proc is not None and proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=5)
+
+        final = json.loads(status_file.read_text(encoding="utf-8"))
+        assert final.get("project") is True, (
+            f"checkpoint must retain the confirmed project outcome, got {final!r}"
+        )
+        assert "global" not in final, (
+            "checkpoint must NOT contain a global key while the global "
+            f"append was still interrupted mid-attempt, got {final!r}"
+        )
+
+        project_log = project_dir / ".agentic" / "session-log" / f"{dev_id}.jsonl"
+        project_rows = [
+            json.loads(line)
+            for line in project_log.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
+        assert [row["session_uuid"] for row in project_rows] == ["sigkill-session"], project_rows
+        print("PASS test_write_hook_checkpoint_survives_sigkill_mid_global_append")
 
 
 def test_missing_log_race_dedups_against_locked_append_fd():
@@ -3622,6 +3989,10 @@ if __name__ == "__main__":
     test_append_retries_when_canonical_parent_rotates_before_publication()
     test_lock_timeout_retries_with_backoff_and_succeeds()
     test_lock_timeout_gives_up_after_budget_exhausted_without_raising_to_caller()
+    test_hook_ceiling_matches_python_budget()
+    test_lock_retry_lock_timeout_clamped_to_remaining_budget()
+    test_lock_retry_backoff_sleep_clamped_to_remaining_budget()
+    test_write_hook_checkpoint_survives_sigkill_mid_global_append()
     test_missing_log_race_dedups_against_locked_append_fd()
     test_profile_confirmed_beats_confirmed_global()
     test_project_confirmed_beats_confirmed_profile()

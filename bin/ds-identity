@@ -15,7 +15,7 @@ Public API:
   ds-identity auto [--force] [--scope {global,profile,project}] [--profile-dir <dir>]
   ds-identity confirm [--scope {global,profile,project}] [--profile-dir <dir>]
   ds-identity resolve-hook --cwd <dir>  (internal Stop-hook API)
-  ds-identity write-hook --cwd <dir>    (internal Stop-hook API)
+  ds-identity write-hook --cwd <dir> [--status-file <path>]  (internal Stop-hook API)
   ds-identity --help
 
   Helpers: ScopeTarget, _resolve_scope_target(args, command),
@@ -88,6 +88,26 @@ Failure modes: exits 1 on validation error, 2 on file-exists-without-force.
                records only to the matching scope. Profile records additionally
                match config_dir; project records match repo_root. Untagged
                legacy records retain their historical filter behavior.
+               write-hook (cmd_write_hook): each session-log append retries a
+               contended flock with linear backoff (attempt-capped by
+               SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS, 1.0s) inside an
+               8-attempt loop, all bounded by a SESSION_LOG_LOCK_BUDGET_SECONDS
+               (5.0s) wall-clock deadline. As of DS-158 round 3, that deadline
+               is SHARED across the whole write-hook invocation - the project
+               and global appends draw from ONE deadline computed once by
+               cmd_write_hook, not one budget each - so a permanently-contended
+               lock on either target costs this budget once. A give-up (budget
+               exhausted or 8 attempts spent) returns False for that target
+               without raising; the record is silently NOT written for that
+               target, project/global outcomes are independent, and hooks/
+               stop-context.js's spawnSync ceiling (WRITE_HOOK_SPAWN_CEILING_MS)
+               is derived from this same budget by construction (see that
+               file and bin/tests/test_agentic_identity.py::
+               test_hook_ceiling_matches_python_budget). The optional
+               --status-file argument lets the caller recover which
+               sub-write(s) actually completed if this process is killed
+               (e.g. by that ceiling) before it can print its final stdout
+               status line - see _write_hook_checkpoint.
 
 Performance: Standard. File I/O is bounded. gh/git subprocesses have strict
              time plus stdout/stderr byte ceilings.
@@ -143,6 +163,15 @@ PENDING_INTERNAL_STALE_SECONDS = 60
 # the JS caller's subprocess ceiling (see hooks/stop-context.js
 # writeTelemetrySafely's spawnSync `timeout` comment) sets the same total
 # ceiling either way. Bumping one obliges bumping the other, by construction.
+#
+# DS-158 round 3 Major 1: this is the budget for ONE write-hook INVOCATION,
+# not one append call. cmd_write_hook calls _append_jsonl_safely twice
+# (project log, then global log); both draw from a single deadline computed
+# once by cmd_write_hook and passed through _append_jsonl_safely's
+# `deadline` parameter, so a permanently-contended lock on one target cannot
+# cost this budget twice. bin/tests/test_agentic_identity.py::
+# test_hook_ceiling_matches_python_budget parses hooks/stop-context.js and
+# fails if its spawnSync ceiling stops being derived from this constant.
 SESSION_LOG_LOCK_BUDGET_SECONDS = 5.0
 SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS = 1.0
 
@@ -1158,6 +1187,7 @@ def _write_jsonl_safely(
     line: str,
     *,
     session_uuid: str | None,
+    deadline: float | None = None,
 ) -> tuple[bool, bool]:
     """Atomically append/upsert through a locked, still-canonical pathname.
 
@@ -1166,6 +1196,13 @@ def _write_jsonl_safely(
     inode retry after its replacement. A displaced open descriptor is never
     written, and a post-publication displacement is retried through the
     canonical name with session-UUID idempotence.
+
+    `deadline` (a `time.monotonic()` timestamp) lets a caller share one lock-
+    retry budget across multiple calls in the same invocation (DS-158 round
+    3 Major 1) - e.g. cmd_write_hook's project-then-global append pair.
+    Defaults to a fresh SESSION_LOG_LOCK_BUDGET_SECONDS-wide deadline when
+    omitted, preserving this function's single-call behavior for every other
+    caller (including the test suite).
     """
     temp_name: str | None = None
     try:
@@ -1183,7 +1220,11 @@ def _write_jsonl_safely(
         # clock across every attempt (not per attempt) so a run of unlucky
         # collisions cannot compound into an unbounded wait.
         max_attempts = 8
-        lock_deadline = time.monotonic() + SESSION_LOG_LOCK_BUDGET_SECONDS
+        lock_deadline = (
+            deadline
+            if deadline is not None
+            else time.monotonic() + SESSION_LOG_LOCK_BUDGET_SECONDS
+        )
         for attempt in range(max_attempts):
             parent_fd: int | None = None
             log_fd: int | None = None
@@ -1324,8 +1365,17 @@ def _write_jsonl_safely(
         return False, False
 
 
-def _append_jsonl_safely(path: Path, line: str) -> bool:
-    """Safely publish one JSONL record, replacing its cumulative UUID row."""
+def _append_jsonl_safely(
+    path: Path,
+    line: str,
+    *,
+    deadline: float | None = None,
+) -> bool:
+    """Safely publish one JSONL record, replacing its cumulative UUID row.
+
+    `deadline` forwards to `_write_jsonl_safely` - see that function's
+    docstring for the shared-budget use case (DS-158 round 3 Major 1).
+    """
     session_uuid: str | None = None
     try:
         row = json.loads(line)
@@ -1339,6 +1389,7 @@ def _append_jsonl_safely(path: Path, line: str) -> bool:
         path,
         line,
         session_uuid=session_uuid,
+        deadline=deadline,
     )
     return success
 
@@ -2236,6 +2287,37 @@ def cmd_show(args: argparse.Namespace) -> int:
     return 0
 
 
+def _write_hook_checkpoint(status_file: str | None, status: dict) -> None:
+    """Best-effort atomic checkpoint of cmd_write_hook's in-progress status.
+
+    DS-158 round 3 Major 2: the caller (hooks/stop-context.js) SIGKILLs this
+    process if the whole invocation exceeds its own ceiling. A killed
+    process cannot flush a final stdout status line, so without this
+    checkpoint the caller cannot tell "neither write landed" apart from
+    "the project write landed but we never got to global" - it can only see
+    the absence of stdout, and DS-158 round 2 mistakenly reported that as a
+    uniform failure for every target even when a write in fact landed.
+
+    Called after each individual sub-write completes (never before), so
+    `status` only ever contains keys for writes whose outcome is actually
+    known - an absent key means "not yet attempted or interrupted mid-
+    attempt", which the caller must treat as unknown, never as False.
+
+    No-ops when `status_file` is unset (e.g. an older caller, or direct CLI
+    invocation without the flag). Failures are swallowed - this is a
+    diagnostic aid, never a correctness dependency for the write itself.
+    """
+    if not status_file:
+        return
+    try:
+        tmp = f"{status_file}.tmp.{os.getpid()}"
+        with open(tmp, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(status, separators=(",", ":")))
+        os.replace(tmp, status_file)
+    except OSError:
+        pass
+
+
 def cmd_resolve_hook(args: argparse.Namespace) -> int:
     """Emit a bounded JSON identity result for the Node Stop hook."""
     cwd = _absolute_lexical(args.cwd)
@@ -2303,6 +2385,7 @@ def cmd_write_hook(args: argparse.Namespace) -> int:
     ):
         return 1
     status = {"project": False, "global": False, "pending": False}
+    status_file = getattr(args, "status_file", None)
     if current_identity is not None and not current_identity["provisional"]:
         attributed = {
             "ts": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
@@ -2318,13 +2401,29 @@ def cmd_write_hook(args: argparse.Namespace) -> int:
         }
         line = json.dumps(attributed, separators=(",", ":"), ensure_ascii=False)
         developer_id = str(current_identity["developer_id"])
+        # DS-158 round 3 Major 1: ONE shared deadline across both appends
+        # below, not one budget per append - a permanently-contended global
+        # lock must not cost this invocation SESSION_LOG_LOCK_BUDGET_SECONDS
+        # twice. See _write_jsonl_safely's docstring and the constant's own
+        # comment at its definition.
+        hook_deadline = time.monotonic() + SESSION_LOG_LOCK_BUDGET_SECONDS
         status["project"] = _append_jsonl_safely(
             cwd / ".agentic" / "session-log" / f"{developer_id}.jsonl",
             line,
+            deadline=hook_deadline,
         )
+        # DS-158 round 3 Major 2: checkpoint after each sub-write so a
+        # SIGKILL between here and the final stdout print still lets the
+        # caller recover which target(s) actually landed.
+        _write_hook_checkpoint(status_file, {"project": status["project"]})
         status["global"] = _append_jsonl_safely(
             GLOBAL_SESSION_LOG_DIR / f"{developer_id}.jsonl",
             line,
+            deadline=hook_deadline,
+        )
+        _write_hook_checkpoint(
+            status_file,
+            {"project": status["project"], "global": status["global"]},
         )
     else:
         pending = {
@@ -2343,6 +2442,7 @@ def cmd_write_hook(args: argparse.Namespace) -> int:
             if current_identity[IDENTITY_SCOPE_FIELD] == "profile":
                 pending["config_dir"] = current_identity["config_dir"]
         status["pending"] = _write_pending_record_safely(pending)
+        _write_hook_checkpoint(status_file, {"pending": status["pending"]})
 
     print(json.dumps(status, separators=(",", ":")))
     return 0
@@ -2405,6 +2505,7 @@ def main(argv: list[str]) -> int:
 
     p_write_hook = sub.add_parser("write-hook", help=argparse.SUPPRESS)
     p_write_hook.add_argument("--cwd", required=True, help=argparse.SUPPRESS)
+    p_write_hook.add_argument("--status-file", default=None, help=argparse.SUPPRESS)
     p_write_hook.set_defaults(func=cmd_write_hook)
 
     args = p.parse_args(argv[1:])

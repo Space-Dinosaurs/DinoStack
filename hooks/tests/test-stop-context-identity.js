@@ -936,6 +936,85 @@ console.log('\n[TELEMETRY] concurrent helper appends remain complete JSONL recor
   cleanup(tmpDir);
 }
 
+console.log('\n[CEILING] full Stop hook run stays bounded by the production write-hook ceiling when BOTH project and global logs are permanently contended');
+{
+  // DS-158 round 3 Minor 6: the other TELEMETRY/J-suite concurrency tests
+  // in this file invoke `bin/ds-identity write-hook` DIRECTLY (bypassing
+  // stop-context.js entirely) with a harness timeout (10000ms) more
+  // permissive than production's spawnSync ceiling - they cannot fail on a
+  // regression to that ceiling. This test runs the REAL Stop hook
+  // end-to-end against a permanently-held flock on BOTH the project and
+  // global session logs (not just global - locking only global leaves the
+  // project append uncontended and never exercises Major 1's shared-vs-
+  // doubled budget distinction, since only a target that ALSO genuinely
+  // contends can absorb a share of the budget) and measures the full run's
+  // wall clock from the JS side (not via in-script `date` arithmetic,
+  // which is non-portable across BSD/GNU `date`), asserting it stays
+  // bounded by the production ceiling plus a small margin - not the
+  // harness's own generous outer timeout. A regression to round 2's
+  // per-append budget (or an unshared JS ceiling) would let this run
+  // consume roughly double the shared budget before the JS-side spawnSync
+  // ceiling force-kills it.
+  const { tmpDir, fakeHome, projectDir, globalIdentityDir } = makeTmp('ae-id-ceiling-');
+  writeIdentity(globalIdentityDir, 'ceiling-dev', false);
+  execFileSync('git', ['init', '-q'], { cwd: projectDir });
+
+  const globalLog = sessionLogFor(fakeHome, 'ceiling-dev');
+  const projectLog = sessionLogFor(projectDir, 'ceiling-dev');
+  fs.mkdirSync(path.dirname(globalLog), { recursive: true });
+  fs.mkdirSync(path.dirname(projectLog), { recursive: true });
+  fs.writeFileSync(globalLog, '');
+  fs.writeFileSync(projectLog, '');
+
+  const ready = path.join(tmpDir, 'ready');
+  const release = path.join(tmpDir, 'release');
+  const payloadFile = path.join(tmpDir, 'payload.json');
+  fs.writeFileSync(payloadFile, JSON.stringify({
+    cwd: projectDir,
+    session_id: 'ceiling-uuid',
+    transcript: [],
+  }));
+
+  const script = [
+    // Locks BOTH targets from a single process before signaling ready, so
+    // the hook's project AND global appends are simultaneously contended
+    // for the entire run.
+    'python3 -c \'import fcntl,os,sys,time;',
+    'fd1=os.open(sys.argv[1], os.O_RDONLY); fcntl.flock(fd1, fcntl.LOCK_EX);',
+    'fd2=os.open(sys.argv[2], os.O_RDONLY); fcntl.flock(fd2, fcntl.LOCK_EX);',
+    'open(sys.argv[3],"w").close();',
+    'exec("while not os.path.exists(sys.argv[4]): time.sleep(0.002)");',
+    'os.close(fd1); os.close(fd2)\'',
+    '"$1" "$2" "$3" "$4" & locker=$!;',
+    'while [ ! -f "$3" ]; do sleep 0.002; done;',
+    '"$5" "$6" < "$7" >/dev/null 2>&1; hookrc=$?;',
+    'touch "$4"; wait "$locker";',
+    'exit "$hookrc"',
+  ].join(' ');
+
+  const started = Date.now();
+  const result = spawnSync('bash', [
+    '-c', script, 'bash', projectLog, globalLog, ready, release,
+    process.execPath, hookScript, payloadFile,
+  ], { env: buildEnv(fakeHome), encoding: 'utf8', timeout: 10000 });
+  const elapsedMs = Date.now() - started;
+
+  assert(!result.error && result.status === 0,
+    `Stop hook exits 0 even when both logs are permanently contended (status=${result.status}, error=${result.error && result.error.message})`);
+  // Measured: fixed (shared-deadline) code lands at ~5330-5370ms across
+  // repeated local runs; reverting to a separate 5s budget per append (the
+  // exact Major 1 regression) lands at ~6180-6200ms, because the JS-side
+  // spawnSync ceiling (unmutated, still 6000ms) force-kills the child
+  // before Python's own doubled budget would otherwise let it run to
+  // ~10s. 5800ms sits between the two with margin on both sides.
+  assert(elapsedMs < 5800,
+    `Stop hook run stays bounded by the production write-hook ceiling `
+    + `(~5300-5400ms observed for a shared budget; a reversion to a `
+    + `separate per-append budget lands at ~6200ms - the JS-side spawnSync `
+    + `ceiling still caps it below the theoretical ~10s), got ${elapsedMs}ms`);
+  cleanup(tmpDir);
+}
+
 // ---------------------------------------------------------------------------
 // Summary
 // ---------------------------------------------------------------------------
