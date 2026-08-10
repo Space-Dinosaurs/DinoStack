@@ -543,6 +543,13 @@ All work lives in `$REPO`.
 
 Full reference (invocation contract, forward-only guard algorithm, diagnostic enrichment, failure/skip logging): `$AE_REPO_DIR/content/references/tracker-writeback.md`. Reusable subagent invocation pattern used by Phase 11, the 7 writeback call sites below (W1-W7), and the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F. Gated on `TRACKER != none`; no-op otherwise. Read that reference before invoking this Helper from any call site or modifying its algorithm.
 
+**Caller enumeration (kept in the kernel so `$AE_REPO_DIR/scripts/codex-skills.py` can transform these caller-name tokens; `$AE_REPO_DIR/content/references/tracker-writeback.md` is a symlinked resource the transform never scans, so it points back here instead of repeating them):**
+- Fire-and-forget applies at W1-W7 and Phase 11; the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - are enumerated in the forward-only guard's step 4.d.iv (see the reference for the full algorithm).
+- `forward_only_guard: true` for every writeback caller - the 7 W1-W7 sites, Phase 11 (preserving its prior hardcoded `Testing` behavior), and the awaiting callers - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F.
+- On the step 4.d.iv unmatched-state-name branch, fire-and-forget call sites (W1-W7, Phase 11) each emit one stderr line per fire. **Callers that await the result** - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - do NOT get that per-ticket stderr line; they instead read `unmatched_state_name` from each ticket's return payload, accumulate across their sweep, and print exactly ONE aggregate line at the end.
+- Fire-and-forget call sites (W1-W7, Phase 11) emit a `SKIPPED:` stderr line for a `skipped_unconfigured_state` outcome. Callers that await the result - 3 modes of manual workflow 'ds-ticket-status-sync' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `$wrap` Part F - read `status` and `diagnostic` from the return payload instead and format them per their own operator-visible-line conventions.
+- **This ranking never reads `$AE_PROJECT_DIR/.agentic/tracker-states.json`.** It uses only the live pre-read of the ticket's own current state and the 6 `tracker_state_values` strings resolved once in Setup above. The Phase 2c cache remains Phase 2c-only and purely advisory; no writeback subagent reads or writes it.
+
 ---
 
 ## Tracker Create Helper
@@ -3496,6 +3503,12 @@ fi
 **Trigger:** `$AE_PROJECT_DIR/.agentic/batch-state.json` exists (set by Phase 0a when Phase 0 produced ≥ 2 entries during this session) OR set by Phase 0a-open-goal (`goal_mode=open_goal`) OR by the Phase 0a-pre single-ticket-capped carve-out (`max_wallclock_min` alone). Skip when batch-state.json is absent - covers ordinary uncapped single-ticket invocations, unchanged.
 
 Full reference (goal-met short-circuit, the four handoff triggers, the mode-specific on-trigger `batch-state.json` writes for batch/single-ticket-capped vs. open-goal, and the no-trigger continue/advance paths): `$AE_REPO_DIR/content/references/handoff-evaluation.md`. After Phase 12 completes for a ticket and BEFORE the conductor advances to the next ticket in the batch, first apply the goal-met short-circuit, then (if it did not fire) evaluate the four handoff triggers. If a trigger fires, gracefully pause the batch and exit cleanly; if none fire, continue to the next ticket. Read that reference before evaluating this phase or modifying its trigger set or write contract.
+
+**Resume banners (canonical here; printed by the on-trigger write paths in the reference above).**
+- Batch and single-ticket-capped: `Resume: $implement-ticket from this directory`
+- Open-goal: `Resume: $implement-ticket ... goal_mode=open_goal ... (raise max_iterations/max_wallclock_min to continue, or accept the goal as unmet)`
+
+**Interrupt vs. pause path note (canonical here).** `paused_at`/`pause_reason` are written by Phase 12a on graceful handoff; `interrupted_at`/`interrupt_reason` are written by the SessionEnd hook (`$AE_REPO_DIR/hooks/session-end-wrap.js`, once per session, on a terminal reason) or on crash - see Contract D. These are two distinct paths; `last_summary` is only populated on graceful pause (the SessionEnd hook cannot synthesize it). On the goal-met short-circuit's clean COMPLETE exit, `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` is set to `status: "complete"` alongside `batch-state.json` (Contract A).
 
 ---
 
