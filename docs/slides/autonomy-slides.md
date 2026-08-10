@@ -408,7 +408,7 @@ Piecemeal questions past the threshold paper over a structural gap and burn oper
 
 Shape follows the warrant: an execution turn (decision/stoppage/completion, no answer) is the structured slot block only - zero prose. An answer turn (a direct operator question) is prose only - no slots, no line cap, just a relevance rule.
 
-A Stop hook (`enforce-turn-shape.py`) enforces this. As of DS-156: the execution-turn structural check BLOCKS; the answer-turn phrasing check stays advisory-only. Controlled by `turn_shape_guard_enabled` (default on). **DS-156 contract, not yet shipped** - the shipped hook remains uniformly advisory until the blocking check lands.
+A Stop hook (`enforce-turn-shape.py`) enforces this. As of DS-156: the execution-turn structural check BLOCKS; the answer-turn phrasing check stays advisory-only. Controlled by `turn_shape_guard_enabled` (default on). **DS-156 CONTRACT, NOT YET SHIPPED** - the shipped hook remains uniformly advisory until the blocking check lands.
 
 <div class="callout">
 A structural yes/no shape check earns blocking; a curated-phrase-list heuristic on prose does not.
