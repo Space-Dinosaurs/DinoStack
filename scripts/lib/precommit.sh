@@ -22,8 +22,14 @@
 #          static-analysis prefix that actually runs when invoked via a
 #          worktree's own copy is identical to the primary checkout's copy
 #          at the same commit - sourcing from the primary checkout changes
-#          WHICH FILE is symlinked, never what the hook does when triggered
-#          from a worktree commit.
+#          WHICH FILE is symlinked, not what the hook does when triggered
+#          from a worktree commit, PROVIDED the primary checkout's own
+#          hooks/pre-commit exists. install_precommit_hook verifies this
+#          before writing or re-pointing any symlink (DS-152 round 2) and
+#          refuses - loudly, non-fatally - to create a NEW dangling symlink
+#          if the primary checkout's copy is itself missing (a pruned
+#          worktree, or a primary checkout checked out to a commit that
+#          predates hooks/pre-commit).
 #
 # Public API:
 #   resolve_git_hooks_dir <repo_dir>
@@ -45,25 +51,34 @@
 #   install_precommit_hook <repo_dir>
 #     Resolves the real hooks dir via resolve_git_hooks_dir, mkdir -p's it
 #     if needed, and symlinks the PRIMARY checkout's hooks/pre-commit
-#     (via resolve_primary_checkout; falls back to repo_dir's own
-#     hooks/pre-commit if primary-checkout resolution fails) into it.
-#     Honours the caller's $AE_DRY_RUN ("true"/"false") and reuses the
+#     (via resolve_primary_checkout; on primary-checkout resolution failure,
+#     warns loudly and falls back to repo_dir's own hooks/pre-commit) into
+#     it. Honours the caller's $AE_DRY_RUN ("true"/"false") and reuses the
 #     caller's _ae_is_ours function (must already be defined in the sourcing
 #     script) to detect and re-point stale symlinks from another
-#     methodology checkout. Warns loudly (without aborting) whenever the
-#     existing hook target is found dangling, and whenever a re-point is
-#     refused because the existing symlink is not "ours". If hooks-dir
-#     resolution fails for any reason, prints a non-fatal warning and
-#     returns 0 - never aborts the caller.
+#     methodology checkout. Verifies the resolved hook_src actually exists
+#     before EVER writing or re-pointing a symlink to it - a fresh install
+#     or a re-point onto a missing source warns loudly and skips (non-fatal)
+#     rather than creating a new dangling symlink. Also warns loudly
+#     (without aborting) whenever the PRE-EXISTING hook target is found
+#     dangling, and whenever a re-point is refused because the existing
+#     symlink is not "ours". If hooks-dir resolution fails for any reason,
+#     prints a non-fatal warning and returns 0 - never aborts the caller.
 #
 #   uninstall_precommit_hook <repo_dir>
 #     Resolves the real hooks dir via resolve_git_hooks_dir and removes the
 #     pre-commit symlink there iff it is a symlink pointing exactly at the
-#     primary checkout's "hooks/pre-commit" (the same ownership check the
-#     original per-adapter uninstall blocks used - never deletes a foreign
-#     hook, a real file, or a symlink pointing elsewhere). If hooks-dir
+#     primary checkout's "hooks/pre-commit" OR at a "legacy" pre-DS-152
+#     target: some OTHER worktree's own hooks/pre-commit that still shares
+#     repo_dir's git-common-dir (see _pc_is_legacy_sibling_hook) - the same
+#     ownership check the original per-adapter uninstall blocks used,
+#     extended so a hook installed by pre-DS-152 code from a worktree can
+#     still be removed post-upgrade. Never deletes a foreign hook, a real
+#     file, or a symlink pointing at an unrelated repo. If hooks-dir
 #     resolution fails for any reason, prints a non-fatal warning and
-#     returns 0 - never aborts the caller.
+#     returns 0 - never aborts the caller. On primary-checkout resolution
+#     failure, warns loudly and falls back to repo_dir's own hooks/pre-commit
+#     for the ownership comparison.
 #
 # Upstream dependencies:
 #   git (rev-parse --git-path/--git-dir/--git-common-dir), the primary
@@ -80,17 +95,25 @@
 #   - `git rev-parse --git-path hooks` fails (not a git repo, git missing):
 #     resolve_git_hooks_dir returns 1; both install_precommit_hook and
 #     uninstall_precommit_hook print a non-fatal warning and return 0.
-#   - `resolve_primary_checkout` fails (rev-parse error, or a common-dir
-#     that does not end in "/.git"): install_precommit_hook falls back to
-#     repo_dir's own hooks/pre-commit, matching the pre-DS-152 behaviour
-#     rather than aborting.
+#   - `resolve_primary_checkout` fails (rev-parse error, a common-dir that
+#     does not end in "/.git" - measured for --separate-git-dir and bare
+#     linked worktrees): both install_precommit_hook and
+#     uninstall_precommit_hook print a loud, non-fatal warning and fall
+#     back to repo_dir's own hooks/pre-commit, matching the pre-DS-152
+#     behaviour rather than aborting.
+#   - The resolved hook_src does not exist (a pruned/moved primary
+#     checkout, or one checked out to a commit without hooks/pre-commit):
+#     install_precommit_hook warns loudly and skips the write (non-fatal) -
+#     it never creates a NEW dangling symlink. A PRE-EXISTING dangling
+#     symlink is separately detected and warned about every install run.
 #   - Resolved hooks dir does not yet exist (fresh worktree/repo): created
 #     via mkdir -p before the symlink is written (install only).
 #   - Safe to source under set -euo pipefail; no top-level side effects
 #     beyond the function definitions.
 #
 # Performance: up to three `git rev-parse` calls per install invocation
-#   (hooks dir, git-dir, git-common-dir); one for uninstall.
+#   (hooks dir, git-dir, git-common-dir); up to two for uninstall (hooks
+#   dir, plus one more when a legacy-target ownership check is needed).
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
@@ -117,6 +140,57 @@ resolve_git_hooks_dir() {
 }
 
 # ---------------------------------------------------------------------------
+# _pc_git_common_dir_abs <dir>
+#   Internal helper (not part of the public API). Echoes the absolute
+#   `git -C <dir> rev-parse --git-common-dir` for <dir>, normalising a
+#   checkout-relative result to absolute exactly like resolve_git_hooks_dir
+#   does. Returns non-zero and echoes nothing if <dir> is not a git checkout
+#   (missing, deleted, or never a repo). Shared by resolve_primary_checkout
+#   and _pc_is_legacy_sibling_hook so both compare common-dirs computed the
+#   SAME way - avoids the raw-string mismatches a symlinked TMPDIR/HOME
+#   component would otherwise cause between the two call sites.
+# ---------------------------------------------------------------------------
+_pc_git_common_dir_abs() {
+  local dir="$1"
+  local common_dir
+  if ! common_dir="$(git -C "$dir" rev-parse --git-common-dir 2>/dev/null)" || [[ -z "$common_dir" ]]; then
+    return 1
+  fi
+  case "$common_dir" in
+    /*) : ;;
+    *) common_dir="$dir/$common_dir" ;;
+  esac
+  echo "$common_dir"
+}
+
+# ---------------------------------------------------------------------------
+# _pc_is_legacy_sibling_hook <target> <repo_common_dir>
+#   Internal helper (not part of the public API). A pre-DS-152 install could
+#   have symlinked the shared hook at ANY worktree's own
+#   "<worktree>/hooks/pre-commit" (repo_dir itself, not necessarily the
+#   primary checkout). Returns 0 (true) iff <target> ends in
+#   "/hooks/pre-commit", the directory it hangs off of still exists, and
+#   THAT directory's own git-common-dir matches <repo_common_dir> - i.e.
+#   <target> is some worktree of the exact same repo family repo_dir
+#   belongs to, regardless of which worktree wrote it or how its path was
+#   originally spelled. Returns 1 (false) - never aborts - when <target>
+#   does not match the suffix, the directory no longer exists (cannot be
+#   verified), or its common-dir resolves to a different repo.
+# ---------------------------------------------------------------------------
+_pc_is_legacy_sibling_hook() {
+  local target="$1" repo_common_dir="$2"
+  case "$target" in
+    */hooks/pre-commit) : ;;
+    *) return 1 ;;
+  esac
+  local target_repo_dir="${target%/hooks/pre-commit}"
+  [[ -d "$target_repo_dir" ]] || return 1
+  local target_common_dir
+  target_common_dir="$(_pc_git_common_dir_abs "$target_repo_dir")" || return 1
+  [[ "$target_common_dir" == "$repo_common_dir" ]]
+}
+
+# ---------------------------------------------------------------------------
 # resolve_primary_checkout <repo_dir>
 #   See "Public API" above.
 # ---------------------------------------------------------------------------
@@ -124,20 +198,14 @@ resolve_primary_checkout() {
   local repo_dir="$1"
   local common_dir git_dir canonical_repo_dir
 
-  if ! common_dir="$(git -C "$repo_dir" rev-parse --git-common-dir 2>/dev/null)" || [[ -z "$common_dir" ]]; then
-    return 1
-  fi
+  common_dir="$(_pc_git_common_dir_abs "$repo_dir")" || return 1
   if ! git_dir="$(git -C "$repo_dir" rev-parse --git-dir 2>/dev/null)" || [[ -z "$git_dir" ]]; then
     return 1
   fi
 
-  # Both `--git-common-dir` and `--git-dir` can be checkout-relative in a
-  # normal (non-worktree) repo; normalise to absolute either way, matching
-  # resolve_git_hooks_dir's own normalisation above.
-  case "$common_dir" in
-    /*) : ;;
-    *) common_dir="$repo_dir/$common_dir" ;;
-  esac
+  # `--git-dir` can be checkout-relative in a normal (non-worktree) repo;
+  # normalise to absolute, matching _pc_git_common_dir_abs's own
+  # normalisation of --git-common-dir above.
   case "$git_dir" in
     /*) : ;;
     *) git_dir="$repo_dir/$git_dir" ;;
@@ -181,8 +249,10 @@ install_precommit_hook() {
 
   local primary_checkout
   if ! primary_checkout="$(resolve_primary_checkout "$repo_dir")"; then
-    # Resolution failed - fall back to repo_dir's own hooks/pre-commit
-    # rather than aborting (pre-DS-152 behaviour).
+    # Resolution failed (e.g. a --separate-git-dir or bare linked worktree)
+    # - warn loudly and fall back to repo_dir's own hooks/pre-commit rather
+    # than aborting (pre-DS-152 behaviour).
+    echo "  ! could not resolve the primary checkout for $repo_dir - falling back to its own hooks/pre-commit"
     primary_checkout="$repo_dir"
   fi
   local hook_src="$primary_checkout/hooks/pre-commit"
@@ -209,8 +279,12 @@ install_precommit_hook() {
     elif _ae_is_ours "$hook_dst"; then
       # Stale symlink pointing to another methodology checkout (including a
       # now-deleted ephemeral worktree) - re-point at the durable primary
-      # checkout, never at repo_dir directly.
-      if [[ "$AE_DRY_RUN" == "true" ]]; then
+      # checkout, never at repo_dir directly. Never write a NEW symlink at a
+      # source that does not exist - that would trade one dangling target
+      # for another.
+      if [[ ! -e "$hook_src" ]]; then
+        echo "  ! cannot re-point pre-commit hook - primary checkout's hook source is missing: $hook_src (leaving existing symlink untouched, non-fatal)"
+      elif [[ "$AE_DRY_RUN" == "true" ]]; then
         echo "  ~ pre-commit hook (would re-point to primary checkout)"
       else
         ln -sfn "$hook_src" "$hook_dst"
@@ -226,7 +300,11 @@ install_precommit_hook() {
   elif [[ -e "$hook_dst" ]]; then
     echo "  ! pre-commit hook is a real file (not a symlink) - skipping to preserve existing hook"
   else
-    if [[ "$AE_DRY_RUN" == "true" ]]; then
+    # Never symlink to a source that does not exist - a fresh install must
+    # not create a new dangling hook (DS-152 round 2).
+    if [[ ! -e "$hook_src" ]]; then
+      echo "  ! cannot install pre-commit hook - primary checkout's hook source is missing: $hook_src (non-fatal, skipping)"
+    elif [[ "$AE_DRY_RUN" == "true" ]]; then
       echo "  + pre-commit hook (would create)"
     else
       ln -s "$hook_src" "$hook_dst"
@@ -244,6 +322,7 @@ uninstall_precommit_hook() {
 
   local primary_checkout
   if ! primary_checkout="$(resolve_primary_checkout "$repo_dir")"; then
+    echo "  ! could not resolve the primary checkout for $repo_dir - falling back to its own hooks/pre-commit"
     primary_checkout="$repo_dir"
   fi
   local hook_src="$primary_checkout/hooks/pre-commit"
@@ -259,11 +338,23 @@ uninstall_precommit_hook() {
   if [[ -L "$hook_dst" ]]; then
     local current_target
     current_target="$(readlink "$hook_dst")"
+
     if [[ "$current_target" == "$hook_src" ]]; then
       rm "$hook_dst"
       echo "  - pre-commit hook removed"
     else
-      echo "  = pre-commit hook points elsewhere: $current_target - not ours, skipping"
+      # Not a match against the primary checkout's own hook_src - check
+      # whether it is a "legacy" pre-DS-152 target: some other worktree of
+      # the exact same repo family, which older install_precommit_hook code
+      # would have symlinked directly.
+      local repo_common_dir
+      if repo_common_dir="$(_pc_git_common_dir_abs "$repo_dir" 2>/dev/null)" \
+        && _pc_is_legacy_sibling_hook "$current_target" "$repo_common_dir"; then
+        rm "$hook_dst"
+        echo "  - pre-commit hook removed (legacy pre-DS-152 target: $current_target)"
+      else
+        echo "  = pre-commit hook points elsewhere: $current_target - not ours, skipping"
+      fi
     fi
   elif [[ -e "$hook_dst" ]]; then
     echo "  = pre-commit hook is a real file - not removing"

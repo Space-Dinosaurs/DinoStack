@@ -1,4 +1,17 @@
 #!/usr/bin/env bash
+# DS-152 round 2 (Major 1 sandbox hazard) - this MUST be the first
+# executable statement in the file, before REPO_DIR or anything else is
+# resolved. If GIT_DIR (in particular) is set in the invoking environment,
+# git IGNORES `-C <dir>` entirely for every `git -C <dir> rev-parse ...`
+# call - both in this suite's own fixture setup and in the
+# scripts/lib/precommit.sh functions under test - and resolves against the
+# AMBIENT GIT_DIR instead of the intended fixture repo. Demonstrated: a
+# caller exporting GIT_DIR before invoking this script caused
+# install_precommit_hook to write a pre-commit symlink into the REAL
+# repo's ambient hooks dir (not a fixture), with 12/27 assertions then
+# failing on top of that corruption. Clearing these before any other line
+# runs defeats that class of leak outright.
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES
 # Purpose: Regression test for scripts/lib/precommit.sh's install_precommit_hook
 #          and uninstall_precommit_hook. Ensures both resolve the REAL git
 #          hooks directory (via `git rev-parse --git-path hooks`) instead of
@@ -52,19 +65,45 @@
 #     SOURCE was an incidental implementation detail of DS-58, not part of
 #     what it was fixing. Test 6 covers the DS-152 scratch-worktree-removal
 #     scenario directly.
+#   - DS-152 round 2 (Skeptic findings):
+#     Major 1 (sandbox hazard): the leading `unset GIT_DIR ...` line above,
+#     plus Test 0 below asserting those vars are actually empty, plus
+#     wrapping the whole suite in bin/tests/lib/precommit-hook-guard.sh's
+#     save/restore (defense in depth - restores the REAL repo's hook if
+#     anything still slips through). Verified by re-running this suite with
+#     GIT_DIR exported before invocation; see the fix commit message for the
+#     transcript.
+#     Major 2 (missing hook_src is now reachable): Test 8 asserts
+#     install_precommit_hook refuses to create a dangling symlink when the
+#     primary checkout's own hooks/pre-commit does not exist, and warns
+#     loudly rather than silently succeeding.
+#     Minor (silent primary-checkout fallback): Test 9 asserts a loud
+#     warning fires when resolve_primary_checkout fails and
+#     install_precommit_hook falls back to repo_dir directly.
+#     Minor (uninstall ownership too narrow for legacy targets): Test 10
+#     asserts uninstall_precommit_hook still removes a hook that was
+#     installed by pre-DS-152 code pointing at a worktree's own
+#     hooks/pre-commit rather than the primary checkout's.
 
 set -uo pipefail
 
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 LIB="$REPO_DIR/scripts/lib/precommit.sh"
+GUARD="$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
 
 if [[ ! -f "$LIB" ]]; then
   echo "FAIL: $LIB not found" >&2
   exit 1
 fi
+if [[ ! -f "$GUARD" ]]; then
+  echo "FAIL: $GUARD not found" >&2
+  exit 1
+fi
 
 # shellcheck source=scripts/lib/precommit.sh
 . "$LIB"
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$GUARD"
 
 PASS=0
 FAIL=0
@@ -88,11 +127,41 @@ _ae_is_ours() {
 
 AE_DRY_RUN=false
 
+# ------------------------------------------------------------------
+# DS-152 round 2 (Major 1): save the REAL repo's pre-commit hook slot
+# before ANY fixture is created and restore it unconditionally on exit -
+# defense in depth alongside the leading `unset GIT_DIR ...` above. Even if
+# some future change to this suite (or an ambient git env var this file did
+# not anticipate) causes a library call to resolve against REPO_DIR instead
+# of a fixture, the real hook is protected and restored. This is the same
+# guard used by the four suites that invoke a REAL install.sh/uninstall.sh
+# against this live checkout (bin/tests/test_uninstall_ds_prefix.sh,
+# bin/tests/test_hooks_snapshot_migration.sh,
+# bin/tests/test_local_bin_ds_prefix_install.sh,
+# .claude/tests/install-converge.test.sh) - do not hand-roll a second,
+# weaker guard beside it.
+# ------------------------------------------------------------------
+precommit_hook_guard_save "$REPO_DIR"
+
 TMP_ROOT="$(mktemp -d)"
 _cleanup() {
   [[ -n "${TMP_ROOT:-}" && -d "$TMP_ROOT" ]] && rm -rf "$TMP_ROOT"
+  precommit_hook_guard_restore
 }
 trap _cleanup EXIT
+
+# ============================================================
+# Test 0: DS-152 round 2 (Major 1) - the leaked-git-env-var sandbox hazard
+#         is actually neutralised, not merely documented.
+# ============================================================
+
+if [[ -z "${GIT_DIR:-}" && -z "${GIT_WORK_TREE:-}" && -z "${GIT_COMMON_DIR:-}" \
+      && -z "${GIT_INDEX_FILE:-}" && -z "${GIT_OBJECT_DIRECTORY:-}" \
+      && -z "${GIT_ALTERNATE_OBJECT_DIRECTORIES:-}" && -z "${GIT_CEILING_DIRECTORIES:-}" ]]; then
+  _pass "sandbox isolation: no leaked GIT_* environment overrides are set"
+else
+  _fail "sandbox isolation: a GIT_* environment override survived the leading unset (GIT_DIR=${GIT_DIR:-<unset>})"
+fi
 
 # ------------------------------------------------------------------
 # Sandbox-isolation guarantee: every fixture below lives under a fresh
@@ -103,7 +172,9 @@ trap _cleanup EXIT
 # genuinely outside REPO_DIR before creating any fixture, so a future
 # change to the mktemp call cannot silently reintroduce the "fakes $HOME
 # but not git --git-path hooks, escapes its sandbox" hazard recorded for
-# this class of test.
+# this class of test. This is a PATH check only - it does not by itself
+# guard against a leaked GIT_DIR (which ignores -C entirely regardless of
+# path); that hazard is handled by the unset + guard above.
 # ------------------------------------------------------------------
 case "$TMP_ROOT" in
   "$REPO_DIR"/*|"$REPO_DIR")
@@ -471,6 +542,186 @@ if [[ -L "$DANGLE_HOOK_DST" ]] && [[ "$DANGLE_HOOK_DST" -ef "$DANGLE_MAIN/hooks/
   _pass "dangling-hook case (DS-152): dangling hook repaired to point at the primary checkout"
 else
   _fail "dangling-hook case (DS-152 regression): dangling hook not repaired. Output: $OUT"
+fi
+
+# ============================================================
+# Test 8: DS-152 round 2 (Major 2) - install must refuse to create a NEW
+#         dangling symlink when the primary checkout's own hooks/pre-commit
+#         does not exist (a pruned/moved primary checkout, or one checked
+#         out to a commit without hooks/pre-commit). Pre-DS-152 this state
+#         was unreachable, because the source was always the invoking
+#         checkout itself, which necessarily existed.
+# ============================================================
+
+MISSING_SRC_MAIN="$TMP_ROOT/missing-src-main-repo"
+_make_fixture_repo "$MISSING_SRC_MAIN"
+# Remove the primary checkout's own hooks/pre-commit AFTER the fixture repo
+# is committed (so it is still a valid git repo, just missing this one
+# tracked-but-now-deleted-on-disk file) - simulates a primary checkout that
+# was moved/pruned or checked out to a commit predating hooks/pre-commit.
+rm -f "$MISSING_SRC_MAIN/hooks/pre-commit"
+
+MISSING_SRC_HOOKS_DIR="$(git -C "$MISSING_SRC_MAIN" rev-parse --git-path hooks)"
+case "$MISSING_SRC_HOOKS_DIR" in
+  /*) : ;;
+  *) MISSING_SRC_HOOKS_DIR="$MISSING_SRC_MAIN/$MISSING_SRC_HOOKS_DIR" ;;
+esac
+MISSING_SRC_HOOK_DST="$MISSING_SRC_HOOKS_DIR/pre-commit"
+
+OUT="$(install_precommit_hook "$MISSING_SRC_MAIN" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "missing-source case: install_precommit_hook exits 0 (non-fatal)"
+else
+  _fail "missing-source case: install_precommit_hook exited $RC. Output: $OUT"
+fi
+
+if echo "$OUT" | grep -qi "hook source is missing"; then
+  _pass "missing-source case (DS-152 round 2, Major 2): loud warning printed for a missing hook_src"
+else
+  _fail "missing-source case (DS-152 round 2 regression, Major 2): no loud warning for a missing hook_src. Output: $OUT"
+fi
+
+if [[ ! -e "$MISSING_SRC_HOOK_DST" ]]; then
+  _pass "missing-source case (DS-152 round 2, Major 2): no NEW dangling symlink was created"
+else
+  _fail "missing-source case (DS-152 round 2 regression, Major 2): a dangling symlink was created at $MISSING_SRC_HOOK_DST despite a missing source"
+fi
+
+# Symmetric sub-case: a re-point (via _ae_is_ours) onto a missing source
+# must also refuse, leaving the existing (foreign-checkout) symlink intact.
+MISSING_SRC_REPOINT_MAIN="$TMP_ROOT/missing-src-repoint-main-repo"
+_make_fixture_repo "$MISSING_SRC_REPOINT_MAIN"
+rm -f "$MISSING_SRC_REPOINT_MAIN/hooks/pre-commit"
+
+MISSING_SRC_REPOINT_HOOKS_DIR="$(git -C "$MISSING_SRC_REPOINT_MAIN" rev-parse --git-path hooks)"
+case "$MISSING_SRC_REPOINT_HOOKS_DIR" in
+  /*) : ;;
+  *) MISSING_SRC_REPOINT_HOOKS_DIR="$MISSING_SRC_REPOINT_MAIN/$MISSING_SRC_REPOINT_HOOKS_DIR" ;;
+esac
+MISSING_SRC_REPOINT_HOOK_DST="$MISSING_SRC_REPOINT_HOOKS_DIR/pre-commit"
+
+mkdir -p "$MISSING_SRC_REPOINT_HOOKS_DIR"
+ln -s "$TMP_ROOT/gone-DinoStack/hooks/pre-commit" "$MISSING_SRC_REPOINT_HOOK_DST"
+
+_ae_is_ours() {
+  local dst="$1"
+  [[ -L "$dst" ]] || return 1
+  local current_target
+  current_target="$(readlink "$dst")"
+  [[ "$current_target" == */DinoStack/* || "$current_target" == *-DinoStack/* ]] && return 0
+  return 1
+}
+
+OUT="$(install_precommit_hook "$MISSING_SRC_REPOINT_MAIN" 2>&1)"
+RC=$?
+
+_ae_is_ours() {
+  return 1
+}
+
+if echo "$OUT" | grep -qi "hook source is missing"; then
+  _pass "missing-source re-point case (DS-152 round 2, Major 2): loud warning printed instead of re-pointing onto a missing source"
+else
+  _fail "missing-source re-point case (DS-152 round 2 regression, Major 2): no loud warning for a missing hook_src during a re-point. Output: $OUT"
+fi
+
+if [[ -L "$MISSING_SRC_REPOINT_HOOK_DST" ]] && [[ "$(readlink "$MISSING_SRC_REPOINT_HOOK_DST")" == "$TMP_ROOT/gone-DinoStack/hooks/pre-commit" ]]; then
+  _pass "missing-source re-point case (DS-152 round 2, Major 2): existing symlink left untouched rather than re-pointed onto a missing source"
+else
+  _fail "missing-source re-point case (DS-152 round 2 regression, Major 2): existing symlink was altered despite the intended re-point target missing"
+fi
+
+# ============================================================
+# Test 9: DS-152 round 2 (Minor) - a silent fallback to repo_dir when
+#         resolve_primary_checkout fails must warn loudly, not just be
+#         documented in a comment.
+# ============================================================
+
+# A STANDALONE --separate-git-dir checkout (no worktrees added from it) is
+# NOT the failure case: --git-dir == --git-common-dir there (both point at
+# the relocated gitdir), so resolve_primary_checkout correctly takes its
+# "not a linked worktree" branch and repo_dir is authoritative - no
+# fallback needed. The measured failure (per Skeptic round 2) requires a
+# LINKED WORKTREE of a --separate-git-dir primary: --git-common-dir then
+# resolves to the relocated gitdir path, which does not end in a literal
+# "/.git" path component the way a normal-worktree's common-dir always
+# does, so resolve_primary_checkout's suffix-strip fails (rc=1).
+SEPARATE_GITDIR_ROOT="$TMP_ROOT/separate-gitdir-root"
+SEPARATE_GITDIR_ACTUAL="$TMP_ROOT/separate-gitdir-actual-dotgit"
+mkdir -p "$SEPARATE_GITDIR_ROOT/hooks"
+git init -q --separate-git-dir="$SEPARATE_GITDIR_ACTUAL" "$SEPARATE_GITDIR_ROOT"
+git -C "$SEPARATE_GITDIR_ROOT" config user.email test@test.com
+git -C "$SEPARATE_GITDIR_ROOT" config user.name test
+printf '#!/usr/bin/env bash\necho fixture pre-commit\n' > "$SEPARATE_GITDIR_ROOT/hooks/pre-commit"
+chmod +x "$SEPARATE_GITDIR_ROOT/hooks/pre-commit"
+git -C "$SEPARATE_GITDIR_ROOT" add hooks/pre-commit
+git -C "$SEPARATE_GITDIR_ROOT" commit -q -m "fixture: add pre-commit hook"
+
+SEPARATE_GITDIR_WT="$TMP_ROOT/separate-gitdir-wt"
+git -C "$SEPARATE_GITDIR_ROOT" worktree add -q "$SEPARATE_GITDIR_WT" -b separate-gitdir-wt-branch >/dev/null 2>&1
+
+OUT="$(install_precommit_hook "$SEPARATE_GITDIR_WT" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "separate-git-dir case: install_precommit_hook exits 0 (non-fatal)"
+else
+  _fail "separate-git-dir case: install_precommit_hook exited $RC. Output: $OUT"
+fi
+
+if echo "$OUT" | grep -qi "could not resolve the primary checkout"; then
+  _pass "separate-git-dir case (DS-152 round 2, Minor): loud warning printed for the silent primary-checkout fallback"
+else
+  _fail "separate-git-dir case (DS-152 round 2 regression, Minor): resolve_primary_checkout fell back to repo_dir with no warning. Output: $OUT"
+fi
+
+# ============================================================
+# Test 10: DS-152 round 2 (Minor) - uninstall must still remove a hook that
+#          was installed by PRE-DS-152 code pointing at a worktree's own
+#          hooks/pre-commit, not the primary checkout's.
+# ============================================================
+
+LEGACY_MAIN="$TMP_ROOT/legacy-main-repo"
+_make_fixture_repo "$LEGACY_MAIN"
+
+LEGACY_WT="$TMP_ROOT/legacy-wt"
+git -C "$LEGACY_MAIN" worktree add -q "$LEGACY_WT" -b legacy-wt-test-branch >/dev/null 2>&1
+
+LEGACY_HOOKS_DIR="$(git -C "$LEGACY_WT" rev-parse --git-path hooks)"
+case "$LEGACY_HOOKS_DIR" in
+  /*) : ;;
+  *) LEGACY_HOOKS_DIR="$LEGACY_WT/$LEGACY_HOOKS_DIR" ;;
+esac
+LEGACY_HOOK_DST="$LEGACY_HOOKS_DIR/pre-commit"
+
+# Hand-craft the PRE-DS-152 install shape: the shared hook symlinked
+# directly at the WORKTREE's own hooks/pre-commit (what
+# `hook_src="$repo_dir/hooks/pre-commit"` would have written), not the
+# primary checkout's.
+mkdir -p "$LEGACY_HOOKS_DIR"
+ln -s "$LEGACY_WT/hooks/pre-commit" "$LEGACY_HOOK_DST"
+
+OUT="$(uninstall_precommit_hook "$LEGACY_WT" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "legacy-target uninstall case: uninstall_precommit_hook exits 0"
+else
+  _fail "legacy-target uninstall case: uninstall_precommit_hook exited $RC. Output: $OUT"
+fi
+
+if [[ ! -e "$LEGACY_HOOK_DST" ]]; then
+  _pass "legacy-target uninstall case (DS-152 round 2, Minor): pre-DS-152 worktree-targeted hook actually removed"
+else
+  _fail "legacy-target uninstall case (DS-152 round 2 regression, Minor): pre-DS-152 hook still present at $LEGACY_HOOK_DST, current target: $(readlink "$LEGACY_HOOK_DST" 2>&1). Output: $OUT"
+fi
+
+if echo "$OUT" | grep -qi "not ours"; then
+  _fail "legacy-target uninstall case (DS-152 round 2 regression, Minor): reported 'not ours' despite the target being a legacy sibling worktree hook. Output: $OUT"
+else
+  _pass "legacy-target uninstall case (DS-152 round 2, Minor): did not falsely report 'not ours'"
 fi
 
 # ---- Results ----
