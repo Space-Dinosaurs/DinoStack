@@ -13,7 +13,11 @@ Public API: Read-only reference. Two consumable parts: the capture procedure
 Upstream deps: bin/ds-learning-shard (owns the --event-type enum, the flag
                names, and the per-session cap this document describes);
                content/references/capture-classification.md (the conductor-side
-               gate that classifies what this document collects).
+               gate that classifies what this document collects);
+               content/references/subagent-protocol.md §11 Output Expectations,
+               "SESSION_KEY at spawn time" (the producing side of the SESSION_KEY
+               contract - it owns the derivation rule and the every-spawn scope
+               that §Session identity below consumes).
 
 Downstream consumers: every agent in content/agents/ (via a pointer);
                       content/agents/engineer.md,
@@ -176,10 +180,13 @@ four values by construction.
 
 `SESSION_KEY` arrives **in your spawn brief**. It is the only source.
 
-The producing side of that contract is `content/references/subagent-protocol.md`
-§"Spawning Workers", which obliges the conductor to derive one key per session and
-include it in **every** Worker's spawn prompt. That is where the derivation rule
-lives; do not restate it here, and never apply it yourself.
+Never derive one yourself. The conductor owns the derivation and is obliged to put
+the key in **every** Worker's spawn prompt; that obligation, its rule, and its
+harness caveats live in `content/references/subagent-protocol.md` §11 Output
+Expectations, "**`SESSION_KEY` at spawn time**", and are restated at the two spawn
+checklists a conductor actually fills - `content/references/agent-team.md`
+§Spawning and `content/references/delegation-detail.md` §Worker Preamble and
+Execution Contract Template.
 
 - **If your brief has no `SESSION_KEY`, skip shard capture silently.** Do not invent
   a key, do not ask for one, do not block. `learnings_candidate[]` still applies and

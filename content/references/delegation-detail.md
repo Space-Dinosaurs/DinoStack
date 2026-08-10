@@ -257,10 +257,13 @@ Execution contract template:
 - task_id: [unique task identifier for multi-unit correlation, or omit for single-unit]
 - brief_path: [path to the Brief governing this unit, or "n/a" if architect plan is the sole artifact - arrives already absolute in the engineer's contract, normalized at spawn construction]
 - plan_path: [path to the Plan directory governing this unit, or "n/a" if Brief-tier or below - arrives already absolute in the engineer's contract, normalized at spawn construction]
+- SESSION_KEY: [the session's learnings-shard key, derived once per session and passed verbatim on every spawn thereafter]
 
 When `brief_path` or `plan_path` is populated, the engineer reads it before starting. Success criteria, non-goals, and the verification gate supersede any informal interpretation of the ticket. If the engineer discovers a conflict between the Brief and the architect plan, it returns BLOCKED so the conductor can resolve.
 
 The `verification` field is **mandatory**. Its purpose is to force the conductor to specify *how the change will be verified before implementation begins*, not as a Skeptic afterthought. As coding gets cheaper, verification is the expensive thing, and the protocol reorganizes around verification rather than around shipping code. If the verification path is not knowable up front (truly novel surface, no existing tests, no feasible new test), state that explicitly as `"self-evident review"` and accept that the Skeptic and any QA gate are the only line of defense - do not leave the field blank.
+
+The `SESSION_KEY` field is **mandatory and never omitted**. It is the one line in this template whose obligation is wider than the template itself: it belongs in **every** Worker's spawn prompt, including Trivial-path solo spawns and the non-`engineer` roles this contract does not otherwise cover. Omitting it raises no error - the Worker simply skips shard capture in silence, so the learning is lost with no signal. Derive the value once per session and pass that same value every time; the derivation rule, the harness caveats, and the reason the scope is blanket rather than per-role live in `content/references/subagent-protocol.md` §11 Output Expectations, "**`SESSION_KEY` at spawn time**".
 
 The `task_id` field is included for Elevated multi-unit spawns only (when `.agentic/tasks.jsonl` is in use). Omit for Trivial or single-unit spawns. Workers receive `task_id` for identification; the conductor correlates the worker's return summary with the correct task entry and handles all writes to the task-state file.
 

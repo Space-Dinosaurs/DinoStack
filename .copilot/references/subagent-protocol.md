@@ -1,3 +1,41 @@
+<!--
+Purpose: The outer orchestration frame for multi-agent sessions: when the main
+         agent delegates, how it spawns, what it must put into a spawn prompt, and
+         what it expects back. Normative for every spawn in the methodology.
+
+Public API: Read-only reference, reached on trigger from the pointer table in
+            `content/sections/12-protocol-details.md`. Consumable parts most often
+            cited elsewhere: Section 2 (the Seven Rules), Section 6 (decomposition
+            and review scope), Section 7 (shared-repo and worktree isolation),
+            Section 10 (Input Contract), Section 11 (Output Expectations, including
+            the two spawn-prompt obligations: `.agentic/context.md` content and
+            `SESSION_KEY`), and Section 13 (conductor context budget).
+
+Upstream deps: content/references/risk-config-and-tiers.md (role-default tier table
+               the Input Contract's model-param rule defers to);
+               content/references/learnings-capture-instruction.md §Session identity
+               (the consuming side of the `SESSION_KEY` contract, which fixes the
+               spawn brief as the only source an agent may read the key from).
+
+Downstream consumers: content/references/agent-team.md §Spawning and
+                      content/references/delegation-detail.md §Worker Preamble and
+                      Execution Contract Template, the two spawn checklists a
+                      conductor actually fills - both restate the `SESSION_KEY`
+                      line and point back here for its derivation rule, so a change
+                      to that rule must be reflected in both;
+                      content/references/skeptic-protocol.md (Section 9 of this file
+                      defines their relationship);
+                      content/sections/12-protocol-details.md (the pointer table
+                      naming which sections are reachable on which trigger).
+
+Failure modes: Prose; does not execute. Its characteristic failure is silence, not
+               error: a spawn obligation stated only here, with no pointer from the
+               table and no restatement in a spawn checklist, is not resident in a
+               conductor's context and is simply never performed.
+
+Performance: Standard.
+-->
+
 # The Subagent Protocol — Orchestration Methodology
 
 ## 1. Overview
@@ -392,6 +430,8 @@ When spawning an `engineer` Worker on an Elevated-risk task, the conductor inclu
 
 The conductor OMITS the `model` param to accept the spawned agent's frontmatter role-default tier (see the Role-default tier table in `content/references/risk-config-and-tiers.md`); it passes an explicit `model` param only to OVERRIDE a specific spawn - upgrading a Tier-2 agent to Tier 3 for a novel-architecture unit, asserting a mandated-Tier-3 Skeptic, or a Tier-1 mechanical task. Claude Code: `haiku`/`opus` for the override; other harnesses resolve from tier-map or omit. Codex/Gemini: if a tier-map file exists (`.agentic/tier-map.yml` project-local or `~/.agentic/tier-map.yml` user-global), pass `--model <resolved-name>` from it; if no tier-map exists, omit `--model` and the CLI uses its session default (there is no hardcoded fallback). The model param is an implementation detail of the spawn call, not part of the spawn prompt text.
 
+Two spawn-prompt obligations are wider than this contract and are stated in Section 11 rather than here, because they hold for every Worker on every path rather than for contract-carrying `engineer` spawns only: the `.agentic/context.md` content, and the `SESSION_KEY` line. See Section 11, "**Spawning Workers**" and "**`SESSION_KEY` at spawn time**".
+
 Scope: this contract applies to `engineer` spawns only for Phase 1.1. Other named Workers (`architect`, `investigator`, `debugger`, `qa-engineer`, `security-auditor`, `perf-analyst`, `release-orchestrator`, `dependency-auditor`, `orchestration-planner`, `general-purpose`) and Trivial-path solo `engineer` spawns are out of scope - use the existing freeform preamble for those.
 
 ---
@@ -434,6 +474,8 @@ Three rules govern that derivation, each with a live counter-example in this rep
 **Pass it as a literal string and persist nothing.** No file records the key. Nothing needs it to survive a restart: a shard is a per-session file by construction, and `ds-learning-shard rollup` reads every shard under the repo's shard directory regardless of how many sessions produced them. A key file under the conductor's `.agentic/` would in any case be unreachable from a worktree-isolated Worker, for exactly the reason given above about `.agentic/context.md`.
 
 **Every spawn, not only the roles that can capture.** Just four roles can call `ds-learning-shard append`, and that membership list is enumerated in `content/references/learnings-capture-instruction.md` and cross-checked against the agent files by `bin/tests/test_agent_capability_claim_consistency.py`, which exists because the list has desynchronized before. Scoping this obligation to those four would make this paragraph a further site restating the list; a blanket rule cannot desync from a list it never restates. The cost is one ignored line in the briefs of roles that will not use it.
+
+**Where a conductor actually meets this rule.** This file is trigger-loaded, so a rule stated only here is not resident when a conductor composes a spawn prompt. The `SESSION_KEY` line therefore also appears in the two checklists a conductor fills at spawn time: `content/references/agent-team.md` §Spawning (the ``When spawning `engineer`, include:`` list) and `content/references/delegation-detail.md` §Worker Preamble and Execution Contract Template. Both carry the field and defer to this paragraph for the derivation rule, so neither restates the four-role list either. Change all three together.
 
 **Memory update serialization:** When parallel Workers produce memory update requests, the main agent serializes these writes: it invokes `/ds-memory-update` for each request sequentially after all Workers have returned. Workers must not invoke `/ds-memory-update` directly from within a parallel session — concurrent writes to `.claude/rules/decisions.md` may conflict.
 

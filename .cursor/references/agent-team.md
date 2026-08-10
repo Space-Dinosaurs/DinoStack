@@ -184,6 +184,7 @@ When spawning `engineer`, include:
 - Relevant file paths or codebase root
 - Acceptance criteria
 - Session context (`.agentic/context.md` content, supplied verbatim by the main agent - a worktree-isolated Worker cannot read this path directly, since its worktree branches from `origin/main`, where `.agentic/` is untracked)
+- `SESSION_KEY: <value>` - the session's learnings-shard key, supplied verbatim by the main agent on every spawn. Derive it once per session and reuse the same value; a brief that omits the line makes the Worker skip shard capture silently, with no error anywhere. Derivation rule and rationale: `content/references/subagent-protocol.md` §11 Output Expectations, "**`SESSION_KEY` at spawn time**"
 - For Elevated-path spawns: the execution contract block from `METHODOLOGY.md` (Worker preamble section), with all required fields filled in from the architect's plan or orchestration-planner output
 
 When spawned via `/ds-implement-ticket` Phase 5 with a `task_id` in the execution contract, the engineer includes `task_id` in its return summary for conductor correlation. The conductor handles all `.agentic/tasks.jsonl` writes.
