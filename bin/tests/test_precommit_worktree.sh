@@ -87,13 +87,97 @@
 
 set -uo pipefail
 
+# Sandbox guard, FIRST executable statement: an ambient GIT_DIR (or its
+# siblings) makes `git -C <dir>` silently IGNORE `-C` and operate on
+# whatever repo the ambient env points at instead - reproduced directly by
+# Test 13 below. Every fixture in this file passes an explicit repo_dir to
+# resolve_git_hooks_dir/resolve_hook_src/install_precommit_hook/
+# uninstall_precommit_hook expecting `-C` to be honoured; an ambient GIT_DIR
+# defeats that silently and can make this file's fixtures operate on an
+# unrelated repo's real hooks (in the worst case, the actual DinoStack
+# checkout's own .git/hooks, if this test happens to run from a session
+# that leaked GIT_DIR into its environment). Unset the full family, not
+# just GIT_DIR - GIT_WORK_TREE/_COMMON_DIR/_INDEX_FILE/_OBJECT_DIRECTORY/
+# _ALTERNATE_OBJECT_DIRECTORIES/_CEILING_DIRECTORIES can each independently
+# redirect git's notion of "which repo" or "which objects".
+unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES
+
+# A global (or system) `core.hooksPath` is honoured by `--git-path hooks`
+# and is NOT covered by the unset list above (it is read from config, not
+# env) - point both config scopes at /dev/null so no ambient
+# ~/.gitconfig-level hooksPath override can redirect any fixture's
+# resolved hooks directory either.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
+
 REPO_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 LIB="$REPO_DIR/scripts/lib/precommit.sh"
+GUARD_LIB="$REPO_DIR/bin/tests/lib/precommit-hook-guard.sh"
 
 if [[ ! -f "$LIB" ]]; then
   echo "FAIL: $LIB not found" >&2
   exit 1
 fi
+
+if [[ ! -f "$GUARD_LIB" ]]; then
+  echo "FAIL: $GUARD_LIB not found" >&2
+  exit 1
+fi
+
+# shellcheck source=bin/tests/lib/precommit-hook-guard.sh
+. "$GUARD_LIB"
+
+PASS=0
+FAIL=0
+
+_fail() {
+  echo "FAIL: $1" >&2
+  FAIL=$((FAIL + 1))
+}
+
+_pass() {
+  echo "PASS: $1"
+  PASS=$((PASS + 1))
+}
+
+# Test 0: the sandbox guard above actually took effect in THIS shell before
+# any fixture runs - asserted directly rather than merely trusted. Uses
+# `env` + a literal name list rather than bash's `${!_v}` indirect
+# expansion, which is NOT valid syntax under zsh (this suite is required to
+# pass under both).
+_SANDBOX_GUARD_CLEAN=1
+if env | grep -qE '^(GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_INDEX_FILE|GIT_OBJECT_DIRECTORY|GIT_ALTERNATE_OBJECT_DIRECTORIES|GIT_CEILING_DIRECTORIES)='; then
+  _SANDBOX_GUARD_CLEAN=0
+fi
+if [[ "$_SANDBOX_GUARD_CLEAN" -eq 1 ]]; then
+  _pass "Test 0 (sandbox guard): all seven ambient git env vars are unset before any fixture runs"
+else
+  _fail "Test 0 (sandbox guard regression): at least one ambient git env var is still set"
+fi
+
+# Resolve a timeout binary once - required to make any hang-guard assertion
+# (Test 18) meaningful. Without a real resolver, a `timeout`-wrapped
+# assertion silently returns 127 (command not found) and the comparison
+# against a non-124 rc passes having tested nothing. Hard-fail under CI
+# rather than silently skip (same pattern as
+# bin/tests/test_check_resident_budget.sh's own guard).
+_TIMEOUT_BIN=""
+if command -v timeout >/dev/null 2>&1; then
+  _TIMEOUT_BIN="timeout"
+elif command -v gtimeout >/dev/null 2>&1; then
+  _TIMEOUT_BIN="gtimeout"
+elif [[ "${CI:-}" == "true" ]]; then
+  echo "FAIL: neither timeout nor gtimeout is available under CI - the hang-guard assertion (Test 18) cannot run and must not silently pass" >&2
+  exit 1
+fi
+
+# Belt-and-suspenders: even with the env sandbox guard above, snapshot and
+# guarantee restoration of this REAL checkout's own pre-commit hook, the
+# same guard bin/tests/test_uninstall_ds_prefix.sh and friends already rely
+# on for scripts that invoke real install/uninstall paths against the live
+# repo. This file's own fixtures never pass $REPO_DIR to install/uninstall
+# functions, but the guard is cheap and removes any doubt.
+precommit_hook_guard_save "$REPO_DIR"
 
 # Checksum the REAL checkout's actual hook before running anything, so Test 7
 # (below) can assert this test file never touched it. All fixtures in this
@@ -127,19 +211,6 @@ fi
 # shellcheck source=scripts/lib/precommit.sh
 . "$LIB"
 
-PASS=0
-FAIL=0
-
-_fail() {
-  echo "FAIL: $1" >&2
-  FAIL=$((FAIL + 1))
-}
-
-_pass() {
-  echo "PASS: $1"
-  PASS=$((PASS + 1))
-}
-
 # Stub matching the real per-adapter _ae_is_ours contract closely enough for
 # this test: nothing pre-existing points at another methodology checkout, so
 # it always reports "not ours" (never re-points a stale symlink).
@@ -157,6 +228,11 @@ TMP_ROOT="$(mktemp -d)"
 # semantically the same location but never string-equal.
 TMP_ROOT="$(cd "$TMP_ROOT" && pwd -P)"
 _cleanup() {
+  # Restore the real checkout's own hook FIRST (belt-and-suspenders; see
+  # the precommit_hook_guard_save call above), then remove the temp
+  # fixture root. Order matters only in that both must run unconditionally
+  # even if one of this file's assertions failed earlier.
+  precommit_hook_guard_restore
   [[ -n "${TMP_ROOT:-}" && -d "$TMP_ROOT" ]] && rm -rf "$TMP_ROOT"
 }
 trap _cleanup EXIT
@@ -822,6 +898,267 @@ if [[ ! -e "$MAJOR1_HOOK_DST" ]]; then
   _pass "Test 12 (Major 1 fixed): legacy hook installed under a non-canonical (symlinked-parent) spelling is removed by uninstall"
 else
   _fail "Test 12 (Major 1 regression): legacy hook installed under a non-canonical spelling was left ORPHANED by uninstall - the legacy candidate must match both the raw and the canonical repo_dir spellings. Output: $MAJOR1_OUT"
+fi
+
+# ============================================================
+# Test 13: sandbox guard - reproduce the ambient-GIT_DIR escape class this
+#          file's top-of-script `unset` guard exists to prevent (a dangling
+#          target confirmed to reproduce against origin/main pre-fix: an
+#          ambient GIT_DIR makes `git -C <dir>` silently IGNORE `-C` and
+#          resolve against the ambient repo instead), using an isolated
+#          decoy repo under $TMP_ROOT - never the real checkout - then
+#          confirms the leak is scoped to a single command (env-prefix, not
+#          export) and that resolve_git_hooks_dir fails closed with the
+#          guard genuinely in effect.
+# ============================================================
+
+SANDBOX_DECOY_REPO="$TMP_ROOT/sandbox-decoy-repo"
+mkdir -p "$SANDBOX_DECOY_REPO"
+git init -q "$SANDBOX_DECOY_REPO"
+
+SANDBOX_PLAIN_DIR="$TMP_ROOT/sandbox-plain-dir"
+mkdir -p "$SANDBOX_PLAIN_DIR"
+
+# Env-PREFIX form (scoped to this one command only, never `export`) - proves
+# the vulnerability class without leaking GIT_DIR into this script's shell.
+SANDBOX_LEAK_OUT="$(GIT_DIR="$SANDBOX_DECOY_REPO/.git" git -C "$SANDBOX_PLAIN_DIR" rev-parse --git-path hooks 2>&1)"
+SANDBOX_LEAK_RC=$?
+
+if [[ $SANDBOX_LEAK_RC -eq 0 ]] && [[ "$SANDBOX_LEAK_OUT" == "$SANDBOX_DECOY_REPO/.git/hooks" ]]; then
+  _pass "Test 13 (sandbox guard): reproduces the ambient-GIT_DIR escape class - 'git -C <plain-dir>' silently resolves to a DIFFERENT repo's hooks dir ($SANDBOX_LEAK_OUT) instead of failing, when GIT_DIR is set"
+else
+  _fail "Test 13 setup: expected the ambient-GIT_DIR escape to reproduce (rc=$SANDBOX_LEAK_RC out=$SANDBOX_LEAK_OUT) - fixture does not demonstrate the vulnerability class this guard defends against"
+fi
+
+if [[ -z "${GIT_DIR:-}" ]]; then
+  _pass "Test 13 (sandbox guard): GIT_DIR was NOT leaked into this script's own shell by the demonstration above (env-prefix scoping worked)"
+else
+  _fail "Test 13 (sandbox guard regression): GIT_DIR leaked into this script's own shell: $GIT_DIR"
+fi
+
+if ! resolve_git_hooks_dir "$SANDBOX_PLAIN_DIR" >/dev/null 2>&1; then
+  _pass "Test 13 (sandbox guard): resolve_git_hooks_dir on a non-repo dir fails closed with no ambient GIT_DIR set (the guard is genuinely in effect for this file's own fixtures)"
+else
+  _fail "Test 13 (sandbox guard regression): resolve_git_hooks_dir unexpectedly succeeded on a non-repo, non-worktree dir"
+fi
+
+# ============================================================
+# Test 14: orphan cleanup (delta over #640) - a DANGLING pre-commit symlink
+#          whose target names a DIFFERENT, ALREADY-REMOVED worktree of this
+#          same repo under "<repo_dir>/.claude/worktrees/<name>" must be
+#          recognised and removed by uninstall_precommit_hook, even though
+#          neither of #640's two exact-match candidates (both derived from
+#          the CURRENTLY invoking repo_dir) can ever match it. Reproduced
+#          against origin/main pre-fix: the dangling symlink survives
+#          uninstall permanently ("not ours, skipping").
+# ============================================================
+
+ORPHAN_MAIN="$TMP_ROOT/orphan-main-repo"
+_make_fixture_repo "$ORPHAN_MAIN"
+mkdir -p "$ORPHAN_MAIN/.claude/worktrees"
+
+ORPHAN_WT="$ORPHAN_MAIN/.claude/worktrees/agent-orphan-test"
+git -C "$ORPHAN_MAIN" worktree add -q "$ORPHAN_WT" -b orphan-wt-test-branch >/dev/null 2>&1
+
+ORPHAN_REAL_HOOKS_DIR="$(git -C "$ORPHAN_MAIN" rev-parse --git-path hooks)"
+case "$ORPHAN_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) ORPHAN_REAL_HOOKS_DIR="$ORPHAN_MAIN/$ORPHAN_REAL_HOOKS_DIR" ;;
+esac
+ORPHAN_HOOK_DST="$ORPHAN_REAL_HOOKS_DIR/pre-commit"
+
+# Simulate a hook that was installed FROM the (now-gone) worktree - the
+# target names the worktree's own hooks/pre-commit, exactly what
+# install_precommit_hook's KNOWN-RESIDUAL fallback produces for this repo's
+# own isolation-worktree layout.
+mkdir -p "$ORPHAN_REAL_HOOKS_DIR"
+ln -s "$ORPHAN_WT/hooks/pre-commit" "$ORPHAN_HOOK_DST"
+
+if [[ -L "$ORPHAN_HOOK_DST" ]] && [[ "$(readlink "$ORPHAN_HOOK_DST")" == "$ORPHAN_WT/hooks/pre-commit" ]]; then
+  _pass "Test 14 setup: orphan-candidate hook installed, targeting the worktree's own hooks/pre-commit"
+else
+  _fail "Test 14 setup: orphan-candidate hook not installed as expected at $ORPHAN_HOOK_DST"
+fi
+
+git -C "$ORPHAN_MAIN" worktree remove -f "$ORPHAN_WT" >/dev/null 2>&1
+
+if [[ -L "$ORPHAN_HOOK_DST" ]] && [[ ! -e "$ORPHAN_HOOK_DST" ]]; then
+  _pass "Test 14 setup: hook is now a DANGLING symlink after the worktree was removed - reproduces the live defect's starting state"
+else
+  _fail "Test 14 setup: expected a dangling symlink at $ORPHAN_HOOK_DST after worktree removal"
+fi
+
+# Run uninstall from the PRIMARY checkout (ORPHAN_MAIN itself) - not from
+# the gone worktree, which no longer exists to run anything from. This is
+# the realistic trigger: a later uninstall run (e.g. via .claude/uninstall.sh
+# from the primary checkout) is the only remaining opportunity to clean up
+# an orphan left behind by a worktree that is already gone.
+ORPHAN_OUT="$(uninstall_precommit_hook "$ORPHAN_MAIN" 2>&1)"
+ORPHAN_RC=$?
+
+if [[ $ORPHAN_RC -eq 0 ]]; then
+  _pass "Test 14 (orphan cleanup): uninstall_precommit_hook exits 0"
+else
+  _fail "Test 14 (orphan cleanup): uninstall_precommit_hook exited $ORPHAN_RC. Output: $ORPHAN_OUT"
+fi
+
+if [[ ! -L "$ORPHAN_HOOK_DST" ]]; then
+  _pass "Test 14 (orphan cleanup, delta over #640): dangling hook naming an already-removed .claude/worktrees/ worktree is REMOVED. Output: $ORPHAN_OUT"
+else
+  _fail "Test 14 (orphan cleanup regression): dangling hook naming an already-removed worktree still present at $ORPHAN_HOOK_DST - the live defect this delta exists to fix. Output: $ORPHAN_OUT"
+fi
+
+# ============================================================
+# Test 15: orphan cleanup, the ".agentic/worktrees/" sibling layout.
+# ============================================================
+
+ORPHAN2_MAIN="$TMP_ROOT/orphan2-main-repo"
+_make_fixture_repo "$ORPHAN2_MAIN"
+mkdir -p "$ORPHAN2_MAIN/.agentic/worktrees"
+
+ORPHAN2_WT="$ORPHAN2_MAIN/.agentic/worktrees/some-feature-branch"
+git -C "$ORPHAN2_MAIN" worktree add -q "$ORPHAN2_WT" -b some-feature-branch >/dev/null 2>&1
+
+ORPHAN2_REAL_HOOKS_DIR="$(git -C "$ORPHAN2_MAIN" rev-parse --git-path hooks)"
+case "$ORPHAN2_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) ORPHAN2_REAL_HOOKS_DIR="$ORPHAN2_MAIN/$ORPHAN2_REAL_HOOKS_DIR" ;;
+esac
+ORPHAN2_HOOK_DST="$ORPHAN2_REAL_HOOKS_DIR/pre-commit"
+
+mkdir -p "$ORPHAN2_REAL_HOOKS_DIR"
+ln -s "$ORPHAN2_WT/hooks/pre-commit" "$ORPHAN2_HOOK_DST"
+
+git -C "$ORPHAN2_MAIN" worktree remove -f "$ORPHAN2_WT" >/dev/null 2>&1
+
+ORPHAN2_OUT="$(uninstall_precommit_hook "$ORPHAN2_MAIN" 2>&1)"
+
+if [[ ! -L "$ORPHAN2_HOOK_DST" ]]; then
+  _pass "Test 15 (orphan cleanup, .agentic/worktrees/): dangling hook naming an already-removed .agentic/worktrees/ worktree is removed. Output: $ORPHAN2_OUT"
+else
+  _fail "Test 15 (orphan cleanup regression, .agentic/worktrees/): dangling hook still present at $ORPHAN2_HOOK_DST. Output: $ORPHAN2_OUT"
+fi
+
+# ============================================================
+# Test 16: false-positive guard - a dangling hook pointing OUTSIDE any
+#          worktrees root (a genuinely foreign, unrelated project) must be
+#          left untouched, and gets the NEW distinct "DANGLING" warning
+#          rather than the generic "points elsewhere" message, so a
+#          permanently-broken foreign hook stays visible instead of being
+#          silently tolerated forever.
+# ============================================================
+
+FOREIGN3_MAIN="$TMP_ROOT/foreign3-main-repo"
+_make_fixture_repo "$FOREIGN3_MAIN"
+
+FOREIGN3_REAL_HOOKS_DIR="$(git -C "$FOREIGN3_MAIN" rev-parse --git-path hooks)"
+case "$FOREIGN3_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) FOREIGN3_REAL_HOOKS_DIR="$FOREIGN3_MAIN/$FOREIGN3_REAL_HOOKS_DIR" ;;
+esac
+FOREIGN3_HOOK_DST="$FOREIGN3_REAL_HOOKS_DIR/pre-commit"
+
+# Points at a path that superficially resembles the orphan shape (ends in
+# "/hooks/pre-commit") but is NOT under this repo's .claude/worktrees or
+# .agentic/worktrees at all - e.g. some unrelated scratch checkout.
+FOREIGN3_UNRELATED_TARGET="$TMP_ROOT/some-other-project/scratch/hooks/pre-commit"
+mkdir -p "$FOREIGN3_REAL_HOOKS_DIR"
+ln -s "$FOREIGN3_UNRELATED_TARGET" "$FOREIGN3_HOOK_DST"
+
+FOREIGN3_OUT="$(uninstall_precommit_hook "$FOREIGN3_MAIN" 2>&1)"
+
+if [[ -L "$FOREIGN3_HOOK_DST" ]] && [[ "$(readlink "$FOREIGN3_HOOK_DST")" == "$FOREIGN3_UNRELATED_TARGET" ]]; then
+  _pass "Test 16 (no over-match): a dangling hook pointing outside any worktrees root is left untouched, not deleted as a false-positive orphan"
+else
+  _fail "Test 16 (over-match regression): a genuinely foreign dangling hook was removed or altered. Output: $FOREIGN3_OUT"
+fi
+
+if echo "$FOREIGN3_OUT" | grep -qi "DANGLING"; then
+  _pass "Test 16 (distinct dangling warning): the foreign dangling hook gets the new distinct DANGLING warning, not just the generic 'points elsewhere' message"
+else
+  _fail "Test 16 regression: expected a distinct DANGLING warning for an unresolvable, non-orphan hook. Output: $FOREIGN3_OUT"
+fi
+
+# ============================================================
+# Test 17: orphan cleanup also recognises a RELATIVE dangling target,
+#          anchored against the hooks dir per POSIX symlink-resolution
+#          semantics (relative to the symlink's OWN directory, never the
+#          process CWD) - not merely the absolute-target shape every other
+#          orphan test above exercises.
+# ============================================================
+
+ORPHAN3_MAIN="$TMP_ROOT/orphan3-main-repo"
+_make_fixture_repo "$ORPHAN3_MAIN"
+mkdir -p "$ORPHAN3_MAIN/.claude/worktrees"
+
+ORPHAN3_WT="$ORPHAN3_MAIN/.claude/worktrees/agent-relative-test"
+git -C "$ORPHAN3_MAIN" worktree add -q "$ORPHAN3_WT" -b orphan3-wt-test-branch >/dev/null 2>&1
+
+ORPHAN3_REAL_HOOKS_DIR="$(git -C "$ORPHAN3_MAIN" rev-parse --git-path hooks)"
+case "$ORPHAN3_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) ORPHAN3_REAL_HOOKS_DIR="$ORPHAN3_MAIN/$ORPHAN3_REAL_HOOKS_DIR" ;;
+esac
+ORPHAN3_HOOK_DST="$ORPHAN3_REAL_HOOKS_DIR/pre-commit"
+
+# A RELATIVE target from the real hooks dir to the worktree's own
+# hooks/pre-commit (computed with python's relpath equivalent via a plain
+# `..` walk, since both paths are already known and fixed for this
+# fixture).
+ORPHAN3_RELATIVE_TARGET="../../.claude/worktrees/agent-relative-test/hooks/pre-commit"
+mkdir -p "$ORPHAN3_REAL_HOOKS_DIR"
+ln -s "$ORPHAN3_RELATIVE_TARGET" "$ORPHAN3_HOOK_DST"
+
+# Confirm the relative link actually resolves to the real fixture file
+# BEFORE worktree removal (i.e. the relative-path arithmetic above is
+# correct for this fixture's real directory depth), so a failure below is
+# never mistaken for a fixture bug.
+if [[ -e "$ORPHAN3_HOOK_DST" ]]; then
+  _pass "Test 17 setup: relative-target symlink resolves correctly before worktree removal (fixture arithmetic confirmed)"
+else
+  _fail "Test 17 setup: relative-target symlink does NOT resolve before worktree removal at $ORPHAN3_HOOK_DST -> $ORPHAN3_RELATIVE_TARGET (fixture bug, not a library bug)"
+fi
+
+git -C "$ORPHAN3_MAIN" worktree remove -f "$ORPHAN3_WT" >/dev/null 2>&1
+
+ORPHAN3_OUT="$(uninstall_precommit_hook "$ORPHAN3_MAIN" 2>&1)"
+
+if [[ ! -L "$ORPHAN3_HOOK_DST" ]]; then
+  _pass "Test 17 (relative-target orphan cleanup): a RELATIVE dangling target naming an already-removed worktree is also removed. Output: $ORPHAN3_OUT"
+else
+  _fail "Test 17 (relative-target orphan cleanup regression): relative-target dangling hook still present at $ORPHAN3_HOOK_DST. Output: $ORPHAN3_OUT"
+fi
+
+# ============================================================
+# Test 18: hang guard - _precommit_is_orphaned_worktree_target must return
+#          PROMPTLY even for a pathological, deeply-nested, entirely
+#          non-existent dangling target. This module deliberately does NOT
+#          implement a generic walk-up-the-target's-ancestors algorithm
+#          (see the function's own manifest for why) specifically to avoid
+#          needing an unbounded-loop termination guard; this test pins that
+#          design choice so a future edit that reintroduces a walk-up loop
+#          without a termination guard is caught by a hang, not a silent
+#          merge.
+# ============================================================
+
+if [[ -n "$_TIMEOUT_BIN" ]]; then
+  HANG_REPO="$TMP_ROOT/hang-repo"
+  _make_fixture_repo "$HANG_REPO"
+  mkdir -p "$HANG_REPO/.claude/worktrees"
+  PATHOLOGICAL_TARGET="/nope/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/hooks/pre-commit"
+
+  "$_TIMEOUT_BIN" 5 bash -c '. "$1"; _ae_is_ours() { return 1; }; _precommit_is_orphaned_worktree_target "$2" "$3" "$4"' _ "$LIB" "$PATHOLOGICAL_TARGET" "$HANG_REPO" "$HANG_REPO/.git/hooks" >/dev/null 2>&1
+  HANG_RC=$?
+  # 124 is `timeout`'s own "killed after timeout" exit code - anything else
+  # (0 or 1, the function's real true/false result) proves it returned
+  # promptly rather than hanging.
+  if [[ $HANG_RC -ne 124 ]]; then
+    _pass "Test 18 (hang guard): _precommit_is_orphaned_worktree_target returns promptly for a pathological non-existent target (rc=$HANG_RC, not a timeout-124 kill)"
+  else
+    _fail "Test 18 (hang guard regression): _precommit_is_orphaned_worktree_target HUNG on a pathological target and was killed by timeout after 5s"
+  fi
+else
+  echo "SKIP: Test 18 (hang guard) - neither timeout nor gtimeout available locally (non-CI); the CI guard above hard-fails this scenario when \${CI}=true"
 fi
 
 # ---- Results ----

@@ -83,6 +83,19 @@
 #     reason, prints a non-fatal warning and returns 0 - never aborts the
 #     caller.
 #
+#     A THIRD case is also recognised, orthogonal to the two exact-match
+#     candidates above: a DANGLING symlink whose target names a DIFFERENT,
+#     already-removed worktree of this same repo (neither exact-match
+#     candidate is derived from a gone worktree's path, so this case can
+#     never be caught by them - see _precommit_is_orphaned_worktree_target).
+#     This is what "uninstall" means for that stale entry: no live worktree
+#     remains to uninstall FROM, so the only actionable owner is whichever
+#     current repo_dir's uninstall run happens to notice the dangling link.
+#     A dangling hook that does NOT match any of the three cases gets a
+#     distinct "DANGLING" warning (see below) instead of the generic
+#     "points elsewhere" message, so a permanently-broken hook stays
+#     visible on every run rather than being silently tolerated forever.
+#
 # Upstream dependencies:
 #   git (rev-parse --git-path / --git-dir / --git-common-dir), the COMMON
 #   repo's hooks/pre-commit source file (the caller's own
@@ -169,6 +182,124 @@ _precommit_canonical_repo_dir() {
     return 0
   fi
   (cd "$d" 2>/dev/null && pwd -P) || echo "$d"
+}
+
+# ---------------------------------------------------------------------------
+# _precommit_is_orphaned_worktree_target <target> <repo_dir> <hooks_dir>
+#   Internal helper (not part of the public API). Returns 0 (true) iff
+#   <target> - the readlink() of a DANGLING pre-commit symlink, i.e. it has
+#   already been confirmed `[[ ! -e "$target" ]]` by the caller - is a
+#   hook that WOULD have been installed by this module's own
+#   install_precommit_hook for some OTHER, now-removed worktree of the
+#   SAME repo (<repo_dir>, already canonicalized by the caller): a dangling
+#   target ending in "/hooks/pre-commit" whose containing "worktrees"
+#   directory sits directly under "<repo_dir>/.claude/worktrees" or
+#   "<repo_dir>/.agentic/worktrees" - the two locations this repo's own
+#   tooling creates isolation/feature worktrees under (see
+#   content/references/worktree-lifecycle.md). uninstall_precommit_hook's
+#   two existing exact-match candidates (hook_src, legacy_hook_src_*) are
+#   both derived from the CURRENTLY INVOKING repo_dir and so can never
+#   match a target naming a *different*, already-deleted worktree - this
+#   helper is the third, narrower candidate that closes exactly that gap.
+#
+#   Deliberately does NOT use a generic walk-up-the-target's-ancestors
+#   algorithm (canonicalize the target's longest existing ancestor and
+#   re-append the missing tail) - that approach was considered and
+#   rejected for two reasons: (1) it requires an explicit termination
+#   guard against a slash-free non-existent path component (a bare
+#   `${x%/*}` is a no-op there, so an unguarded loop hangs and grows
+#   memory unboundedly - a hazard that does NOT exist on origin/main today
+#   and this helper must not introduce), and (2) it is unnecessary here:
+#   this repo's worktree layout is a FIXED, two-candidate shape
+#   ("<repo_dir>/.claude/worktrees/<name>/hooks/pre-commit" or the
+#   ".agentic/" sibling), so the anchor to canonicalize is already known
+#   up front - "<repo_dir>/.claude/worktrees" or "<repo_dir>/.agentic/worktrees"
+#   - and can be canonicalized directly with a single `cd + pwd -P per
+#   candidate (bounded, no loop) rather than discovered by walking. String
+#   manipulation on the (possibly non-canonical, non-existent) target is
+#   used ONLY to test its coarse SHAPE - does it plausibly look like
+#   ".../.claude/worktrees/<name>/hooks/pre-commit"? - before any
+#   filesystem call; the actual containment decision is always made by
+#   comparing two REAL, `cd`-canonicalized, existing directories
+#   (<repo_dir>'s own ".claude/worktrees" or ".agentic/worktrees", and the
+#   target's own "worktrees" segment, when that segment still exists on
+#   disk) - so a symlinked path component anywhere in either side is
+#   resolved correctly by `cd`, never by fragile string comparison.
+#
+#   A RELATIVE target (readlink() can return either form) is anchored
+#   against <hooks_dir> per POSIX symlink-resolution semantics (relative
+#   to the symlink's OWN directory, never the process's CWD) before the
+#   shape test - never resolved against $PWD.
+#
+#   FAILS CLOSED (returns 1, "not ours - leave it dangling") whenever the
+#   real containment cannot be positively confirmed: <target> is not
+#   dangling, does not end in "/hooks/pre-commit", <hooks_dir> is empty and
+#   <target> is relative, the target's own "worktrees" segment no longer
+#   exists on disk (nothing left to canonicalize and compare), or neither
+#   "<repo_dir>/.claude/worktrees" nor "<repo_dir>/.agentic/worktrees"
+#   exists. The asymmetry is deliberate: the failure direction here is
+#   DELETION, and a false negative (an orphan that stays dangling one more
+#   run) is far cheaper than a false positive (deleting a hook this
+#   function merely guessed was ours).
+# ---------------------------------------------------------------------------
+_precommit_is_orphaned_worktree_target() {
+  local target="$1"
+  local repo_dir="$2"
+  local hooks_dir="$3"
+
+  # Only a DANGLING target is ever eligible - a target that still resolves
+  # is adjudicated by the caller's exact-match checks, never by this guess.
+  [[ -e "$target" ]] && return 1
+
+  case "$target" in
+    /*) : ;;
+    *)
+      # POSIX: a relative symlink target resolves against the symlink's
+      # OWN directory, not the caller's CWD. Anchor it against hooks_dir;
+      # fail closed if that anchor is unavailable.
+      [[ -z "$hooks_dir" ]] && return 1
+      target="$hooks_dir/$target"
+      ;;
+  esac
+
+  case "$target" in
+    */hooks/pre-commit) : ;;
+    *) return 1 ;;
+  esac
+
+  local worktree_dir="${target%/hooks/pre-commit}"
+  [[ "$worktree_dir" == "$target" || -z "$worktree_dir" ]] && return 1
+
+  local worktrees_root="${worktree_dir%/*}"
+  [[ "$worktrees_root" == "$worktree_dir" || -z "$worktrees_root" ]] && return 1
+
+  case "$(basename "$worktrees_root")" in
+    worktrees) : ;;
+    *) return 1 ;;
+  esac
+  case "$(basename "${worktrees_root%/*}")" in
+    .claude | .agentic) : ;;
+    *) return 1 ;;
+  esac
+
+  # The target's own "worktrees" ancestor must still exist on disk to be
+  # canonicalized at all - if the whole container is gone too, there is
+  # nothing real left to compare against; fail closed.
+  [[ -d "$worktrees_root" ]] || return 1
+  local canonical_target_root
+  canonical_target_root="$(cd "$worktrees_root" 2>/dev/null && pwd -P)" || return 1
+  [[ -z "$canonical_target_root" ]] && return 1
+
+  local candidate canonical_candidate
+  for candidate in "$repo_dir/.claude/worktrees" "$repo_dir/.agentic/worktrees"; do
+    canonical_candidate="$(cd "$candidate" 2>/dev/null && pwd -P)" || continue
+    [[ -z "$canonical_candidate" ]] && continue
+    if [[ "$canonical_target_root" == "$canonical_candidate" ]]; then
+      return 0
+    fi
+  done
+
+  return 1
 }
 
 # ---------------------------------------------------------------------------
@@ -362,6 +493,11 @@ uninstall_precommit_hook() {
     if [[ "$current_target" == "$hook_src" || "$current_target" == "$legacy_hook_src_raw" || "$current_target" == "$legacy_hook_src_canonical" ]]; then
       rm "$hook_dst"
       echo "  - pre-commit hook removed"
+    elif _precommit_is_orphaned_worktree_target "$current_target" "$repo_dir" "$hooks_dir"; then
+      rm "$hook_dst"
+      echo "  - pre-commit hook removed (orphaned symlink from an already-removed worktree: $current_target)"
+    elif [[ ! -e "$hook_dst" ]]; then
+      echo "  ! pre-commit hook is DANGLING (points at a missing target, not ours to remove): $current_target - this hook is currently broken and silently NOT running" >&2
     else
       echo "  = pre-commit hook points elsewhere: $current_target - not ours, skipping"
     fi
