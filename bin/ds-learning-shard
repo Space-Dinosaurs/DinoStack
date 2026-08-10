@@ -1,0 +1,395 @@
+#!/usr/bin/env python3
+"""
+Purpose: CLI for the per-session learning shard store
+         (~/.agentic/learnings-shards/<repo-key>/<session-key>.jsonl), which lets a
+         write-capable subagent (chiefly `engineer`) record a learning the moment it
+         hits one, in-flight and harness-agnostic, instead of relying on an operator
+         remembering to run /ds-wrap at end of session. A conductor-side rollup later
+         folds the raw entries into .agentic/learnings.md / MEMORY.md.
+
+         The store is deliberately in the HOME directory, OUTSIDE any repo: an
+         isolation-worktree engineer's .agentic/ is worktree-local and is deleted
+         before the PR opens, so a shard written in-repo is gone before anything can
+         read it.
+
+Public API:
+  ds-learning-shard append --repo <path> --session-key <key> --agent-id <id>
+                          --role <role> --event-type {workaround,dead-end,gotcha,decision}
+                          --domain-tag <tag> --description <text> [--resolution <text>]
+  ds-learning-shard rollup --repo <path> [--session-key <key>]
+  ds-learning-shard list   --repo <path> [--session-key <key>]
+  ds-learning-shard --help
+
+Data model:
+  ~/.agentic/learnings-shards/<repo-key>/<session-key>.jsonl - one JSON object per line.
+  ~/.agentic/learnings-shards/<repo-key>/.rolled-up.json     - rollup bookkeeping.
+  ~/.agentic/learnings-shards/<repo-key>/.lock               - per-repo exclusive lock.
+
+  Entry fields:
+    id           (CLI-owned) uuid4, assigned on append.
+    ts           (CLI-owned) UTC ISO8601, assigned on append.
+    session_key  caller-supplied, opaque. Never read from the environment and never
+                 generated here - the caller owns session identity.
+    agent_id     caller-supplied.
+    role         caller-supplied.
+    event_type   caller-supplied; one of workaround | dead-end | gotcha | decision.
+    domain_tag   caller-supplied.
+    description  caller-supplied; TRUNCATED to 500 chars (never rejected).
+    resolution   caller-supplied, optional; null when omitted.
+
+  IMPORTANT: id and ts are CLI-owned. A caller can never set them.
+
+  repo-key: "<sanitized-basename>-<first 12 hex of sha256(resolved absolute repo path)>".
+  The path hash is what makes the key collision-resistant: two different checkouts
+  with the SAME directory basename get different keys. A bare basename must never
+  be used as the key.
+
+  Cap: 5 entries per (repo-key, session-key) shard. The 6th and later appends in a
+  session are a soft-fail no-op - "cap reached, entry dropped" on stderr, exit 0.
+  The agent must never have to count, and must never be blocked.
+
+  Classification: this CLI performs ZERO judgment. `rollup` emits the raw entries
+  verbatim; deciding what is worth keeping is conductor-side and out of scope here.
+
+Upstream deps: Python 3 stdlib only (argparse, hashlib, json, os, re, sys, uuid,
+               datetime, pathlib). Shared helpers: bin/_lib
+               (acquire_exclusive_lock, atomic_write).
+
+Downstream consumers: none yet - DS-154 Unit A ships the CLI only. Later units wire
+                      it into the agent and command layers.
+
+Failure modes:
+  Soft-fail throughout: this CLI must never block a caller's task. Any unexpected
+  error prints ONE line to stderr and exits 0. That includes lock timeouts, I/O
+  failures, and malformed bookkeeping. Argparse usage errors are the one exception
+  (exit 2), since a malformed invocation is a caller bug, not a runtime condition.
+  append: over-cap append is a soft-fail no-op (stderr + exit 0). description over
+    500 chars is truncated, not rejected.
+  rollup: absent store, absent repo dir, and absent shard file all emit "[]" and exit
+    0 - not errors. Idempotent: entries already marked rolled-up are never re-emitted,
+    so a second rollup over the same shard set emits "[]" and changes nothing. A
+    corrupt .rolled-up.json is treated as empty bookkeeping (entries may be re-emitted
+    once) rather than as a hard failure.
+  list: absent store emits "[]" and exits 0. Malformed JSONL lines are skipped.
+
+  Locking: append, rollup and list take the same per-repo-key exclusive lock for
+  their full read/modify/write critical section. acquire_exclusive_lock (bin/_lib)
+  opens the lock file in 'r' mode and requires it to already exist, so every
+  subcommand mkdir -p's the parent and touch()es the lock file first.
+
+Performance: Standard. Single small append or single-directory scan; no indexing.
+  Shards are capped at 5 entries each, so files stay tiny.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import re
+import sys
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
+
+# Shared helpers from bin/_lib (same directory; bin/ is on sys.path at runtime).
+# .resolve() follows a PATH symlink (e.g. ~/.local/bin/ds-learning-shard ->
+# repo bin/ds-learning-shard, as created by install.sh) back to the real
+# bin/ directory so _lib.py is found on a bare `ds-learning-shard` invocation.
+import sys as _sys
+import importlib.util as _ilu
+import importlib.machinery as _ilm
+
+_LIB_PATH = Path(__file__).resolve().parent / "_lib.py"
+if "_lib" in _sys.modules:
+    _lib_mod = _sys.modules["_lib"]
+else:
+    _loader = _ilm.SourceFileLoader("_lib", str(_LIB_PATH))
+    _spec = _ilu.spec_from_loader("_lib", _loader)
+    _lib_mod = _ilu.module_from_spec(_spec)  # type: ignore[arg-type]
+    _loader.exec_module(_lib_mod)
+    _sys.modules["_lib"] = _lib_mod
+    del _loader, _spec
+acquire_exclusive_lock = _lib_mod.acquire_exclusive_lock
+atomic_write = _lib_mod.atomic_write
+del _sys, _ilu, _ilm, _lib_mod
+
+PROG = "ds-learning-shard"
+
+EVENT_TYPES = ("workaround", "dead-end", "gotcha", "decision")
+
+DESCRIPTION_MAX_CHARS = 500
+ENTRY_CAP_PER_SHARD = 5
+
+ROLLUP_STATE_NAME = ".rolled-up.json"
+LOCK_NAME = ".lock"
+
+_SAFE_CHARS = re.compile(r"[^A-Za-z0-9._-]")
+
+
+def store_root() -> Path:
+    """Root of the shard store. Resolved at call time so $HOME is honoured."""
+    return Path(os.path.expanduser("~/.agentic/learnings-shards"))
+
+
+def _sanitize(text: str) -> str:
+    """Replace anything outside [A-Za-z0-9._-] with '_'."""
+    return _SAFE_CHARS.sub("_", text)
+
+
+def repo_key(repo: str) -> str:
+    """Build a filesystem-safe, collision-resistant key for a repo path.
+
+    Format: "<sanitized-basename>-<sha256(resolved abs path)[:12]>".
+
+    The hash is over the RESOLVED ABSOLUTE path, so two different checkouts that
+    share a directory basename get different keys. A bare basename (the only
+    precedent in this repo, bin/ds-identity's local `project_slug = cwd.name`) is
+    deliberately not used - it collides across paths.
+    """
+    resolved = str(Path(repo).expanduser().resolve())
+    digest = hashlib.sha256(resolved.encode("utf-8")).hexdigest()[:12]
+    base = _sanitize(Path(resolved).name) or "repo"
+    return f"{base[:40]}-{digest}"
+
+
+def session_stem(session_key: str) -> str:
+    """Deterministic filesystem-safe stem for an opaque caller-supplied session key.
+
+    A key that is already safe and short is used verbatim (readable shard names in
+    the common case). Anything else is sanitized, truncated, and suffixed with a
+    hash of the RAW key so two distinct keys can never share one shard file.
+    """
+    safe = _sanitize(session_key)
+    if safe == session_key and 0 < len(session_key) <= 64:
+        return session_key
+    digest = hashlib.sha256(session_key.encode("utf-8")).hexdigest()[:12]
+    return f"{safe[:48]}-{digest}"
+
+
+def repo_dir(repo: str) -> Path:
+    return store_root() / repo_key(repo)
+
+
+def shard_path(repo: str, session_key: str) -> Path:
+    return repo_dir(repo) / f"{session_stem(session_key)}.jsonl"
+
+
+def _lock_path(repo: str) -> Path:
+    return repo_dir(repo) / LOCK_NAME
+
+
+def _ensure_lock_bootstrap(repo: str) -> Path:
+    """mkdir -p the repo shard dir and touch its lock file.
+
+    acquire_exclusive_lock opens the lock file in 'r' mode and requires it to
+    already exist - mirrors bin/ds-feedback's bootstrap.
+    """
+    lock = _lock_path(repo)
+    lock.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    lock.touch(exist_ok=True)
+    return lock
+
+
+def _read_shard(path: Path) -> list[dict]:
+    """Parse one shard file. Absent file returns []; malformed lines are skipped."""
+    if not path.is_file():
+        return []
+    rows: list[dict] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            parsed = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, dict):
+            rows.append(parsed)
+    return rows
+
+
+def _shard_files(repo: str, session_key: str | None) -> list[Path]:
+    """Shard files for a repo, or just the one session's shard when given."""
+    directory = repo_dir(repo)
+    if session_key is not None:
+        one = shard_path(repo, session_key)
+        return [one] if one.is_file() else []
+    if not directory.is_dir():
+        return []
+    return sorted(p for p in directory.glob("*.jsonl") if p.is_file())
+
+
+def _read_rollup_state(repo: str) -> dict:
+    """Read .rolled-up.json. Absent or corrupt is treated as empty bookkeeping."""
+    path = repo_dir(repo) / ROLLUP_STATE_NAME
+    if not path.is_file():
+        return {}
+    try:
+        parsed = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    shards = parsed.get("shards")
+    return shards if isinstance(shards, dict) else {}
+
+
+def _write_rollup_state(repo: str, shards: dict) -> None:
+    path = repo_dir(repo) / ROLLUP_STATE_NAME
+    payload = {
+        "updated_ts": _now(),
+        "shards": shards,
+    }
+    atomic_write(path, json.dumps(payload, indent=2, sort_keys=True) + "\n", mode=0o600)
+
+
+def _now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def cmd_append(args: argparse.Namespace) -> int:
+    lock = _ensure_lock_bootstrap(args.repo)
+    path = shard_path(args.repo, args.session_key)
+
+    with acquire_exclusive_lock(lock):
+        existing = _read_shard(path)
+        if len(existing) >= ENTRY_CAP_PER_SHARD:
+            # Soft-fail: the agent must never have to count, and must never be
+            # blocked. Dropping the entry is the intended behaviour, not an error.
+            print(
+                f"{PROG}: cap reached, entry dropped "
+                f"({ENTRY_CAP_PER_SHARD} per session)",
+                file=sys.stderr,
+            )
+            return 0
+
+        description = args.description
+        if len(description) > DESCRIPTION_MAX_CHARS:
+            description = description[:DESCRIPTION_MAX_CHARS]
+
+        record = {
+            # CLI-owned - never trusted from the caller.
+            "id": str(uuid.uuid4()),
+            "ts": _now(),
+            # Caller-supplied.
+            "session_key": args.session_key,
+            "agent_id": args.agent_id,
+            "role": args.role,
+            "event_type": args.event_type,
+            "domain_tag": args.domain_tag,
+            "description": description,
+            "resolution": args.resolution,
+        }
+        with open(path, "a", encoding="utf-8") as handle:
+            handle.write(json.dumps(record, separators=(",", ":")) + "\n")
+        os.chmod(path, 0o600)
+
+    print(f"{PROG}: appended 1 entry ({len(existing) + 1}/{ENTRY_CAP_PER_SHARD}).")
+    return 0
+
+
+def cmd_rollup(args: argparse.Namespace) -> int:
+    root = store_root()
+    if not root.is_dir() or not repo_dir(args.repo).is_dir():
+        # Absent store is not an error.
+        print("[]")
+        return 0
+
+    lock = _ensure_lock_bootstrap(args.repo)
+    with acquire_exclusive_lock(lock):
+        state = _read_rollup_state(args.repo)
+        emitted: list[dict] = []
+        for path in _shard_files(args.repo, args.session_key):
+            rows = _read_shard(path)
+            entry = state.get(path.name)
+            already = 0
+            if isinstance(entry, dict) and isinstance(entry.get("rolled_count"), int):
+                already = max(0, entry["rolled_count"])
+            fresh = rows[already:]
+            if not fresh:
+                continue
+            emitted.extend(fresh)
+            state[path.name] = {"rolled_count": len(rows), "rolled_ts": _now()}
+
+        if emitted:
+            _write_rollup_state(args.repo, state)
+
+    # Raw entries, verbatim. No judgment, no classification - that is conductor-side.
+    print(json.dumps(emitted, indent=2))
+    return 0
+
+
+def cmd_list(args: argparse.Namespace) -> int:
+    if not store_root().is_dir() or not repo_dir(args.repo).is_dir():
+        print("[]")
+        return 0
+
+    lock = _ensure_lock_bootstrap(args.repo)
+    with acquire_exclusive_lock(lock):
+        rows: list[dict] = []
+        for path in _shard_files(args.repo, args.session_key):
+            rows.extend(_read_shard(path))
+
+    print(json.dumps(rows, indent=2))
+    return 0
+
+
+def build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog=PROG,
+        description=(
+            "Manage the home-dir per-session learning shard store "
+            "(~/.agentic/learnings-shards/)."
+        ),
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    p_append = sub.add_parser("append", help="Append one learning entry to this session's shard")
+    p_append.add_argument("--repo", required=True, help="Repo path the learning belongs to")
+    p_append.add_argument(
+        "--session-key",
+        required=True,
+        help="Opaque caller-supplied session key (never read from the environment)",
+    )
+    p_append.add_argument("--agent-id", required=True, help="Agent id that hit the learning")
+    p_append.add_argument("--role", required=True, help="Agent role (e.g. engineer)")
+    p_append.add_argument(
+        "--event-type", required=True, choices=EVENT_TYPES, help="Kind of learning"
+    )
+    p_append.add_argument("--domain-tag", required=True, help="Short domain tag")
+    p_append.add_argument(
+        "--description",
+        required=True,
+        help=f"What happened (truncated to {DESCRIPTION_MAX_CHARS} chars, never rejected)",
+    )
+    p_append.add_argument("--resolution", default=None, help="How it was resolved (optional)")
+    p_append.set_defaults(func=cmd_append)
+
+    p_rollup = sub.add_parser(
+        "rollup", help="Emit not-yet-rolled-up entries as a JSON array and mark them"
+    )
+    p_rollup.add_argument("--repo", required=True, help="Repo path to roll up")
+    p_rollup.add_argument("--session-key", default=None, help="Limit to one session's shard")
+    p_rollup.set_defaults(func=cmd_rollup)
+
+    p_list = sub.add_parser("list", help="List shard entries as a JSON array (diagnostic)")
+    p_list.add_argument("--repo", required=True, help="Repo path to list")
+    p_list.add_argument("--session-key", default=None, help="Limit to one session's shard")
+    p_list.set_defaults(func=cmd_list)
+
+    return p
+
+
+def main(argv: list[str]) -> int:
+    args = build_parser().parse_args(argv[1:])
+    try:
+        return args.func(args)
+    except Exception as exc:  # noqa: BLE001 - soft-fail: never block the caller
+        print(f"{PROG}: soft-fail: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

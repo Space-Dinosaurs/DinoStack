@@ -1,6 +1,6 @@
 # bin/
 
-Sixteen CLI entry points (13 Python, 1 Bash, 2 Node) that the dinostack
+Seventeen CLI entry points (14 Python, 1 Bash, 2 Node) that the dinostack
 methodology exposes as PATH-wired commands. Each binary ships with a
 module-manifest docstring (Purpose / Public API / Upstream deps / Downstream
 consumers / Failure modes / Performance) that is the authoritative description
@@ -24,6 +24,7 @@ sunset (external cron jobs and shell aliases reference it).
 | `ds-feedback` | Python | Manage the home-dir feedback store (`~/.agentic/feedback.jsonl`) - append/list/mark operator and agent friction items. |
 | `ds-help` | Python | Print the static slash-command reference to stdout. Zero file I/O; never fails. |
 | `ds-identity` | Python | Manage per-developer identity files used by the Stop hook for session telemetry attribution. |
+| `ds-learning-shard` | Python | Manage the home-dir per-session learning shard store (`~/.agentic/learnings-shards/<repo-key>/<session-key>.jsonl`) - `append` one in-flight learning (capped at 5 per session, soft-fail), `rollup` the not-yet-folded raw entries idempotently, `list` for diagnostics. Performs no classification. |
 | `ds-memory` | Python | Query `.agentic/events.jsonl`, `MEMORY.md`, and `.agentic/context.md`; return compact Markdown summaries. |
 | `ds-migrate` | Python | Apply additive project scaffolding migrations (`check` / `apply` / `diff` subcommands). |
 | `ds-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
