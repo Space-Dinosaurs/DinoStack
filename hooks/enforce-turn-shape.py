@@ -96,6 +96,23 @@ Purpose: ADVISORY Claude Code Stop hook (DS-122) that checks the SHAPE of
                              identity-line restriction is what separates a
                              genuine completion report from a completed
                              sub-item inside a still-in-progress turn.
+                             (DS-156 round 3) A completion claim - from
+                             EITHER _COMPLETION_RE or
+                             _LEADING_COMPLETION_RE - is further VETOED
+                             outright when a continuing-work signal is
+                             present anywhere in the domain
+                             (_has_continuing_work_signal: a non-empty
+                             Conductor-template "Running:" field, or one of
+                             three phrases measured from real false
+                             positives - "one to go", "remaining after",
+                             "is/are still running"). This closes the
+                             remaining false-positive shape the
+                             identity-line restriction alone could not: a
+                             genuinely short, sentence-complete completion
+                             declaration ON the identity line, with the
+                             still-in-progress signal appearing separately
+                             in the body ("Security audit complete." ...
+                             "Skeptic is still running.").
               - answer:     a quoted fragment of the operator's immediately
                              preceding message, OR (DS-155)
                              _transcript_answer_bonus finding that the
@@ -538,17 +555,32 @@ _WAITING_LINE_RE = re.compile(r"^\s*waiting\s*:\s*\S", re.IGNORECASE)
 #
 # DS-156 additions (structured-field sentinels, safe anywhere in the domain
 # because the label itself is what makes them unambiguous, not their
-# position): `status: DONE` / `status: DONE_WITH_CONCERNS` - this repo's own
-# engineer-role return contract's terminal enum values (see
-# content/references/conductor-turn-format.md and the Engineer role's
-# `quality_gate_results` block); `state: complete` / `state: work complete`
-# - the Conductor template's own "State:" field (content/references/
-# conductor-turn-format.md's "Conductor\nState: ...\nRunning: ...\nBlocked:
-# ..." shape); `run complete` / `review complete` - this repo's fixed
-# PR-review-run closing phrase. Corpus-measured (DS-156, see
-# _LEADING_COMPLETION_RE's docstring for the full method): 0 false positives
-# found across an 80-item hand-labelled sample of newly-recognised
-# completions that included these four additions.
+# position): `state: complete` / `state: work complete` - the Conductor
+# template's own "State:" field (content/references/conductor-turn-format.md's
+# "Conductor\nState: ...\nRunning: ...\nBlocked: ..." shape); `run complete`
+# / this repo's fixed PR-review-run closing phrase; `all state files are
+# written` - the same PR-review-run's other closing phrase.
+#
+# DS-156 round 3 (Skeptic-caught sampling-frame error - see
+# _LEADING_COMPLETION_RE's docstring): `status: DONE` / `status:
+# DONE_WITH_CONCERNS` and `review complete` are DELETED, not narrowed. Both
+# were justified by an unfiltered corpus that was ~48% subagent (sidechain)
+# transcript turns - a population `enforce-turn-shape.py` never evaluates,
+# since it is registered on the `Stop` event only (`.claude/install.sh`),
+# which fires for the main agent; subagent turns fire `SubagentStop`
+# instead, a different, unregistered event. Re-measured on main-agent-only
+# turns (isSidechain absent/false): `status: DONE` / `DONE_WITH_CONCERNS`
+# contributed 0 of 103 newly-recognised main-agent completions (all 72 of
+# its overall-corpus hits were sidechain engineer-role returns); `review
+# complete` likewise contributed 0. Worse than merely useless: a conductor
+# never emits `Status: DONE` itself - its only appearance in a real
+# conductor turn is a RELAY of a subagent's return text (`"The engineer
+# returned Status: DONE, spawning the Skeptic now."`), which is exactly a
+# still-in-progress turn the guard must still flag. Per AGENTS.md's "prefer
+# deletion once nothing is load-bearing" rule, both are removed rather than
+# re-scoped. `state: complete` (14), `run complete` (29), and `all state
+# files are written` (25) DO have nonzero main-agent contribution and are
+# kept, gated by `_has_continuing_work_signal` below.
 _COMPLETION_RE = re.compile(
     r"\[phase:\s*complete\]"
     r"|\ball\s+(?:done|complete)\b"
@@ -556,13 +588,70 @@ _COMPLETION_RE = re.compile(
     r"|\btask(?:s)?\s+(?:is|are)\s+complete\b"
     r"|\bwork\s+is\s+complete\b"
     r"|\bnothing\s+(?:left|more)\s+to\s+do\b"
-    r"|\bstatus\s*:\s*done(?:_with_concerns)?\b"
     r"|\bstate\s*:\s*(?:work\s+)?complete\b"
     r"|\brun\s+(?:is\s+)?complete\b"
-    r"|\breview\s+(?:is\s+)?complete\b"
     r"|\ball\s+state\s+files\s+are\s+(?:written|updated|current)\b",
     re.IGNORECASE,
 )
+
+# DS-156: a continuing-work signal - when present ANYWHERE in the domain, it
+# vetoes the completion warrant regardless of which pattern above or below
+# would otherwise have granted it (see _classify_warrants). Two components:
+#
+#   1. `_RUNNING_FIELD_ACTIVE_RE` - the Conductor template's own "Running:"
+#      field carrying a non-empty, non-"nothing"/non-"none" value. Round 3
+#      finding: `state: complete` (and the leading-declaration pattern
+#      below) both matched turns like "State: work complete and live.\n
+#      Running: knowledge PR #1027 auto-merge watcher.\nBlocked: none." -
+#      the SAME template's sibling field says work is still running, which
+#      the pre-round-3 regex ignored entirely. 7 of the 103 newly-recognised
+#      main-agent turns in the round-2 measurement were this exact shape.
+#   2. `_CONTINUING_WORK_PHRASE_RE` - derived from 4 REAL main-agent turns
+#      the round-3 Skeptic review hand-labelled as false positives (not a
+#      hand-written phrase list assumed to generalise - each phrase below
+#      is traceable to one of these 4):
+#        - "Self-hosting is done. Two Phase 5 deliverables down, one to
+#          go." -> `\bone\s+(?:more\s+)?to\s+go\b`
+#        - "Done and moving." / body: "Unit C running ... Remaining after
+#          C: unit F's re-review, then tests, CI wiring, doc sync." ->
+#          `\bremaining\s+after\b`
+#        - "Security audit complete." / body: "I will wait for the
+#          integration Skeptic to finish ... Skeptic is still running." ->
+#          `\b(?:is|are)\s+still\s+running\b`
+#        - "Done." / body: "the two background agents ... are still
+#          running; I'll fold their results in when they land." -> the
+#          same `(?:is|are)\s+still\s+running` phrase.
+#      A broader first attempt (also matching bare "waiting on/for" and
+#      "still <adjective>" generally) was measured and REJECTED: it
+#      additionally caught 6 genuinely-complete main-agent turns where the
+#      phrase described something OTHER than this turn's own work ("AUT-405
+#      is waiting on [these images]", "three things waiting on you:",
+#      "Other Claude Code sessions are still running the pre-refresh hooks"
+#      - an unrelated session, not this turn's own dependency). Narrowing to
+#      the 3 phrases actually present in the 4 confirmed real false
+#      positives, plus the Running: field check, catches all 4 confirmed
+#      false positives and all 7 Running:-field cases while introducing
+#      exactly 1 new over-suppression in the same measurement pass (a
+#      genuine completion mentioning "Other ... sessions are still
+#      running" as an unrelated aside) - disclosed as a residual trade-off
+#      below, not chased further, matching the discipline already applied
+#      to the sub-heading gap.
+_RUNNING_FIELD_ACTIVE_RE = re.compile(
+    r"^\s*running\s*:\s*(?!nothing\b)(?!none\b)\S", re.IGNORECASE | re.MULTILINE
+)
+_CONTINUING_WORK_PHRASE_RE = re.compile(
+    r"\b(?:is|are)\s+still\s+running\b"
+    r"|\bone\s+(?:more\s+)?to\s+go\b"
+    r"|\bremaining\s+after\b",
+    re.IGNORECASE,
+)
+
+
+def _has_continuing_work_signal(text: str) -> bool:
+    return bool(_RUNNING_FIELD_ACTIVE_RE.search(text)) or bool(
+        _CONTINUING_WORK_PHRASE_RE.search(text)
+    )
+
 
 # DS-156: a LEADING completion declaration - the identity line (the very
 # start of the domain, matched via \A / .match() so MULTILINE is never
@@ -570,9 +659,13 @@ _COMPLETION_RE = re.compile(
 # terminal claim. Two shapes:
 #   1. Up to 3 leading words, then "is"/"are", then "done"/"complete"/
 #      "completed", then up to 2 short trailing modifiers ("and verified",
-#      ", deployed") before terminal punctuation. Covers "Done.",
-#      "Verification complete.", "Both PRs are done and verified.",
-#      "Amend done, all clean.".
+#      " deployed") before terminal punctuation. Covers "Done.",
+#      "Verification complete.", "Both PRs are done and verified.".
+#      Terminal punctuation is `[.!:]` ONLY (round 3: comma removed - see
+#      docstring below, Skeptic Major 3) - a trailing comma marks a clause
+#      boundary, not a sentence boundary, and matching through it let the
+#      pattern grant the warrant on a leading CLAUSE while ignoring
+#      whatever continuation followed the comma.
 #   2. A leading past-participle completion verb (merged/shipped/deployed/
 #      pushed/landed) followed within 40 chars by a completion-adjacent
 #      word (live/deployed/merged/complete/done/cleaned up). Covers "Merged
@@ -582,41 +675,78 @@ _COMPLETION_RE = re.compile(
 # in this session): extracted every FINAL assistant-turn text (grouped by
 # transcript `message.id`, excluding any group that itself contains a
 # tool_use block, i.e. the same "completed turn" scope the Stop hook acts
-# on) from ~/.claude/projects - 3,336 files, 165,442 assistant entries,
-# 6,744 candidate final-turn texts. Applied the PRE-FIX
-# _classify_warrants/_status_only_flag to find turns already flagged
-# status-only: 1,231 of 6,744 (18.3%). Hand-labelled samples (not the full
-# 1,231 - see below) as genuine-completion vs genuine-status-only.
+# on) from ~/.claude/projects - 3,341 files, 165,965 assistant entries.
 #
-# Round 1 (7 candidate anywhere-scoped phrases, incl. a "merged and
-# (live|deployed)" phrase): 220-item random preview plus a targeted
-# 50-item hand-verified sample of newly-matched turns found 3 false
-# positives (idx 17, 24, 36 of that sample), ALL traced to the
+# Round 1 measured on the UNFILTERED corpus (6,744 candidate final turns,
+# 1,231 already flagged status-only): 7 candidate anywhere-scoped phrases,
+# incl. a "merged and (live|deployed)" phrase. A 50-item hand-verified
+# sample of newly-matched turns found 3 false positives, ALL traced to the
 # "merged/shipped and (live|deployed)" phrase matching a COMPLETED
 # SUB-ITEM's description inside a turn whose OVERALL state was still
-# in-progress (CI running, another unit still building, a future-tense
-# "I'll report when it's merged and live"). All 3 shared one property:
-# the matching text was NOT the identity line (line 1) of the turn - it
-# was buried in the body, several lines after an identity line that
-# itself carried the real (in-progress) state.
+# in-progress, and all 3 NOT on the identity line.
 #
-# Round 2 (this version): moved the past-participle phrase, plus a new
-# generalised "done/complete" leading-sentence pattern, to an
-# IDENTITY-LINE-ONLY match (`\A`, not `re.MULTILINE`). Re-verified: an
-# 80-item hand-labelled sample of turns newly recognised as completion
-# under the final regex found 0 false positives (see git history / PR
-# description for the sample). A parallel 80-item sample of turns still
-# flagged status-only after the fix found the residual gap is real but
-# small - confirmed misses include a completion buried under a "## Done"
-# sub-heading (not the identity line) and "Status: DONE_WITH_CONCERNS"
-# variants not yet covered by that exact spelling at the time of
-# sampling. Net effect on the full 1,231-turn flagged set: 198 turns
-# (16.1%) newly recognised as completion; 1,033 (83.9%) remain correctly
-# flagged status-only. NOT rounded to zero - the residual gap (turns whose
-# completion declaration sits below the identity line, or uses wording
-# outside the patterns above) is real and disclosed, not chased further
-# here per the same "measured, not assumed" discipline that motivated this
-# fix in the first place.
+# Round 2 (shipped as commit cf6bc9d5) fixed round 1's defect by moving
+# that phrase, plus a new "done/complete" leading-sentence pattern, to an
+# IDENTITY-LINE-ONLY match. Its own 80-item precision/recall samples found
+# 0 false positives and were reported as the closing measurement - but
+# both samples were STILL drawn from the round-1 UNFILTERED corpus.
+#
+# Round 3 (this version - Skeptic Major 1/2/3 on commit cf6bc9d5): that
+# unfiltered corpus is ~48% turns this hook never evaluates -
+# `enforce-turn-shape.py` is registered on `Stop` only, which fires for
+# the main agent; subagent turns fire the unregistered `SubagentStop`
+# event instead. Splitting the corpus by `isSidechain` (3,535 main-agent /
+# 3,225 sidechain candidate final turns) and re-deriving every figure on
+# the main-agent population alone: pre-fix (origin/main) flagged
+# status-only 981 of 3,535 (not 1,231 of 6,744); round 2's fix (commit
+# cf6bc9d5) recognised 103 of those 981 as completions (not 198/16.1%) -
+# 103/981 = 10.5%.
+#
+# Independently hand-labelling all 103 (not a random sub-sample - the full
+# newly-recognised main-agent set) found 4 genuine false positives (3.9%)
+# and 7 borderline (the Running:-field shape above), none caught by round
+# 2's identity-line restriction because the false-positive shape here is
+# different: round 1's traps put the risky phrase in the BODY; these put a
+# genuinely short, sentence-complete completion declaration ON the
+# identity line, with the continuing-work signal appearing SEPARATELY,
+# later in the body ("Security audit complete." ... "Skeptic is still
+# running."). Position alone cannot distinguish this shape - hence
+# `_has_continuing_work_signal` above.
+#
+# After applying all round-3 fixes (delete `status: DONE`/`DONE_WITH_
+# CONCERNS`/`review complete` outright - 0 main-agent contribution each;
+# drop the comma from `_LEADING_COMPLETION_RE`'s terminator class; gate
+# every remaining pattern on `_has_continuing_work_signal`), re-running the
+# full pipeline on the same 981-turn population: 90 are newly recognised as
+# completions (9.2%), 891 remain correctly flagged status-only (90.8%). 13
+# of round 2's 103 are correctly reverted back to flagged - the 4 confirmed
+# false positives, the 7 Running:-field cases, and 2 further instances of
+# the same `(?:is|are)\s+still\s+running` phrase caught along the way.
+#
+# Independently re-labelled this round-3 set of 90 (not sampled - all 90,
+# same full-population discipline as round 2): 0 confirmed false
+# positives. One residual is disclosed rather than chased: of the 13
+# turns reverted to flagged, 1 was itself a genuine completion ("Other
+# Claude Code sessions are still running the pre-refresh hooks in memory"
+# - an aside about an UNRELATED session, not this turn's own dependency)
+# over-suppressed by the same `(?:is|are)\s+still\s+running` phrase that
+# correctly catches the 3 real false positives using that exact shape.
+# Distinguishing "my own dependent work is still running" from "an
+# unrelated process is running" requires semantic understanding this
+# lexical guard does not have - not attempted here, matching the
+# discipline already applied to the sub-heading gap below.
+#
+# Also re-checked (Skeptic Major 3): Confirmed by execution that a leading
+# declaration followed by a body continuing-work signal, OR a relayed
+# `Status: DONE` substring inside ongoing prose ("The engineer returned
+# Status: DONE, spawning the Skeptic now."), no longer grants the warrant
+# under this version - the former via `_has_continuing_work_signal`, the
+# latter because the `status: DONE` sentinel is deleted outright.
+#
+# Known residual gap, NOT rounded to zero: a completion declared under a
+# markdown sub-heading (e.g. "## Done") several lines into the body, rather
+# than on the identity line, is still not recognised - see
+# `hooks/tests/fixtures/turn-shape-completion-corpus.json` case 15.
 _LEADING_COMPLETION_RE = re.compile(
     r"\A\s*\*{0,2}"
     r"(?:"
@@ -624,7 +754,7 @@ _LEADING_COMPLETION_RE = re.compile(
     r"(?:\s*,?\s*(?:and\s+)?[a-z]+){0,2}"
     r"|(?:merged|shipped|deployed|pushed|landed)\b.{0,40}?"
     r"\b(?:live|deployed|merged|complete|completed|done|cleaned up)\b"
-    r")\*{0,2}[.!,:]",
+    r")\*{0,2}[.!:]",
     re.IGNORECASE,
 )
 
@@ -773,11 +903,16 @@ def _classify_warrants(text: str, answer_bonus: bool = False) -> dict:
     identity_line, body = _segment(text)
     unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
     domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
+    completion_claimed = bool(_COMPLETION_RE.search(domain_text)) or bool(
+        _LEADING_COMPLETION_RE.match(domain_text)
+    )
     return {
         "decision": bool(_OPERATOR_DECISIONS_HEADING_RE.search(domain_text)),
         "stoppage": any(_WAITING_LINE_RE.match(ln) for ln in unfenced_lines),
-        "completion": bool(_COMPLETION_RE.search(domain_text))
-        or bool(_LEADING_COMPLETION_RE.match(domain_text)),
+        # DS-156 round 3: a completion claim is vetoed outright when a
+        # continuing-work signal is present anywhere in the same domain -
+        # see _has_continuing_work_signal's docstring.
+        "completion": completion_claimed and not _has_continuing_work_signal(domain_text),
         "answer": bool(_QUOTED_FRAGMENT_RE.search(domain_text)) or answer_bonus,
     }
 

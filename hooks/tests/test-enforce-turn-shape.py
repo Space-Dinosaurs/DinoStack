@@ -648,15 +648,18 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# c. DS-156 widened completion warrant (real-corpus-motivated - see
-#    hooks/tests/fixtures/turn-shape-completion-corpus.json for the
-#    hand-labelled sample and the measured before/after numbers cited in
-#    _LEADING_COMPLETION_RE's docstring). Each `c*` case below is a
-#    SYNTHETIC message built from the fixture's own sanitized `template`
-#    field (never real transcript prose - the fixture stores which
-#    structural SHAPE each real turn used, not its content), matching this
-#    file's existing s/v/t-series pattern of programmatically-built
-#    messages rather than embedded corpus text.
+# c. DS-156 widened completion warrant (real-corpus-motivated, round 2 -
+#    see hooks/tests/fixtures/turn-shape-completion-corpus.json for the
+#    main-agent-only hand-labelled set and the measured before/after
+#    numbers cited in _LEADING_COMPLETION_RE's docstring). Each `c*` case
+#    below is built from the fixture's own `template` field, reconstructed
+#    from a REAL main-agent transcript turn (sanitized to remove any
+#    proprietary content), a round-1 regression pin, or an explicitly
+#    labelled Skeptic-constructed adversarial probe - the fixture's own
+#    `source` field states which, never a description of which regex
+#    branch the case exercises. Matches this file's existing s/v/t-series
+#    pattern of programmatically-built messages rather than embedding raw
+#    corpus text inline here.
 # ---------------------------------------------------------------------------
 
 with open(
@@ -673,7 +676,7 @@ for _case in _completion_fixture["cases"]:
     _expect_quiet = _case["expected"] == "quiet"
     _outcome_ok = is_quiet(rc, out) if _expect_quiet else is_advisory(rc, out, "status-only")
     check(
-        f"c-{_case['id']} ({_case['shape_class']}): {_case['note']} -> "
+        f"c-{_case['id']} ({_case['shape_class']}): {_case['source']} -> "
         f"{'QUIET' if _expect_quiet else 'ADVISORY'} (expected)",
         _outcome_ok,
     )
