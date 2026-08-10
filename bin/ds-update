@@ -581,7 +581,7 @@ def main() -> int:
         _reset_version_check_cache()
         # Skip to doctor
         if not args.no_doctor:
-            return _run_doctor()
+            return _run_doctor(repo_dir)
         return 0
 
     # ------------------------------------------------------------------
@@ -627,7 +627,7 @@ def main() -> int:
         print("No rebuild needed (no adapter source changed).")
         _reset_version_check_cache()
         if not args.no_doctor:
-            doctor_rc = _run_doctor()
+            doctor_rc = _run_doctor(repo_dir)
             if doctor_rc != 0:
                 return doctor_rc
         print("Done.")
@@ -717,7 +717,7 @@ def _run_adapter_installs(
     # Step 14: doctor
     # ------------------------------------------------------------------
     if not args.no_doctor:
-        doctor_rc = _run_doctor()
+        doctor_rc = _run_doctor(repo_dir)
         if doctor_rc != 0:
             return doctor_rc
 
@@ -725,11 +725,18 @@ def _run_adapter_installs(
     return 0
 
 
-def _run_doctor() -> int:
-    """Run ds-doctor --fix. Return 0 on success, 2 on unfixable, 0 on other errors."""
+def _run_doctor(repo_dir: Path) -> int:
+    """Run ds-doctor --fix, scoped to repo_dir. Return 0 on success, 2 on
+    unfixable, 0 on other errors.
+
+    cwd is pinned to the resolved repo_dir (not inherited from the invoking
+    shell) so --fix's filesystem side effects land on the checkout this
+    updater is scoped to, matching every other subprocess call in this file.
+    """
     try:
         result = subprocess.run(
             ["ds-doctor", "--fix"],
+            cwd=str(repo_dir),
             # Inherit stdio so doctor output flows to the terminal
         )
         if result.returncode == 2:

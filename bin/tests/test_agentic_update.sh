@@ -995,6 +995,92 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 18 (regression, dormant sandbox-escape hazard fix): ds-doctor --fix
+# must run with cwd pinned to repo_dir, never inherited from the invoking
+# shell's cwd. A stub ds-doctor on PATH records the cwd it was invoked in
+# (it never runs the real binary) so the assertion is deterministic and
+# side-effect-free.
+#
+# Everything below operates inside temp dirs this test creates. Before/after
+# checksums of the REAL bin/agentic-update (the test runner's own copy, not
+# the FAKE_REPO fixture) assert the test never touches the real checkout.
+# ---------------------------------------------------------------------------
+setup_git_fixture
+
+STUB_BIN="$TEMP_HOME/stubbin"
+mkdir -p "$STUB_BIN"
+DOCTOR_CWD_LOG="$TEMP_HOME/doctor_cwd.log"
+cat > "$STUB_BIN/ds-doctor" <<STUBEOF
+#!/usr/bin/env bash
+pwd > "$DOCTOR_CWD_LOG"
+exit 0
+STUBEOF
+chmod +x "$STUB_BIN/ds-doctor"
+
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | awk '{print $1}'
+  else
+    shasum -a 256 "$1" | awk '{print $1}'
+  fi
+}
+
+REAL_SUM_BEFORE="$(sha256_of "$UPDATER")"
+
+OTHER_DIR="$(mktemp -d)"
+ORIGINAL_PATH="$PATH"
+PATH="$STUB_BIN:$PATH"
+export PATH
+
+(
+  cd "$OTHER_DIR"
+  invoke_updater
+)
+
+PATH="$ORIGINAL_PATH"
+export PATH
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+REAL_SUM_AFTER="$(sha256_of "$UPDATER")"
+
+if [[ "$RC" == "0" ]]; then
+  _pass "T18 doctor cwd: exits 0"
+else
+  _fail "T18 doctor cwd: expected exit 0, got $RC (output: $OUT)"
+fi
+
+if [[ -f "$DOCTOR_CWD_LOG" ]]; then
+  RECORDED_CWD="$(cat "$DOCTOR_CWD_LOG")"
+  RECORDED_REAL="$(cd "$RECORDED_CWD" 2>/dev/null && pwd -P)"
+  EXPECTED_REAL="$(cd "$FAKE_REPO" && pwd -P)"
+  OTHER_REAL="$(cd "$OTHER_DIR" && pwd -P)"
+
+  if [[ "$RECORDED_REAL" == "$EXPECTED_REAL" ]]; then
+    _pass "T18 doctor cwd: ds-doctor invoked with cwd == repo_dir"
+  else
+    _fail "T18 doctor cwd: ds-doctor invoked with cwd '$RECORDED_REAL', expected repo_dir '$EXPECTED_REAL' - the sandbox-escape bug reproduces here"
+  fi
+
+  if [[ "$RECORDED_REAL" != "$OTHER_REAL" ]]; then
+    _pass "T18 doctor cwd: ds-doctor cwd is NOT the invoking shell's cwd"
+  else
+    _fail "T18 doctor cwd: ds-doctor cwd equals the invoking shell's cwd ($OTHER_REAL) - inherited-cwd bug reproduces here"
+  fi
+else
+  _fail "T18 doctor cwd: stub ds-doctor was never invoked (no cwd log written)"
+fi
+
+if [[ "$REAL_SUM_BEFORE" == "$REAL_SUM_AFTER" ]]; then
+  _pass "T18 doctor cwd: real repo's bin/agentic-update unchanged (sandbox intact)"
+else
+  _fail "T18 doctor cwd: real repo's bin/agentic-update CHECKSUM CHANGED - test escaped its sandbox"
+fi
+
+rm -rf "$OTHER_DIR"
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo
