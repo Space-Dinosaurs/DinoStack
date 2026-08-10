@@ -884,10 +884,10 @@ def test_toggle_doc_sync_full_eight_site_checklist():
 # The log_fire() enforcer-caller subcount ("N of the M enforce-*.py hooks
 # call lib/enforcement_log.py") is restated across hooks/AGENTS.md and
 # content/references/events-log.md in at least FOUR different grammatical
-# forms - "six of the seven", the bare cardinal "the six enforce-*.py
-# hooks", "one of the six consumer hooks", and a decomposed enumeration
-# ("(five hooks) ... (`enforce-planning-artifact-spawn.py`)" that sums to
-# the same total without using the word "six" or "seven" at all - none of
+# forms - "seven of the eight", the bare cardinal "the seven enforce-*.py
+# hooks", "one of the seven consumer hooks", and a decomposed enumeration
+# ("(six hooks) ... (`enforce-turn-shape.py`)" that sums to
+# the same total without using the word "seven" or "eight" at all - none of
 # which a single-phrasing sweep catches as a set. This is why sites kept
 # surviving prior sweeps: a check keyed to one exact string, or even one
 # regex shape, finds only the sites written in that exact form.
@@ -953,25 +953,36 @@ _ENFORCER_SUBCOUNT_SITES = [
     ),
 ]
 
-# Bidirectional and case-insensitive: "seven" followed by "enforce" within one
-# sentence (catches "seven of the eight enforce-*.py", "the seven enforce-*.py
-# hooks", and the capitalized "Seven of the eight enforce-*.py hooks"), OR
-# "enforce" followed by "seven" within one sentence (catches "...enforce-
-# shippable-edit" - one of the seven consumer hooks"). The `[^.]{0,80}` bound
-# stops the match from crossing a sentence boundary into an unrelated "seven".
-# Target word bumped from "six" to "seven" in the same pass that bumped the
-# live phrasing from seven/eight to eight/nine - "six" is now itself a live,
-# correct cardinal (the deny-hook enumeration at events-log.md:130), so
-# leaving the sentinel on "six" would false-positive against that legitimate
-# use; "seven" is the value that just went stale.
+# Bidirectional and case-insensitive: "six" followed by "enforce" within one
+# sentence (catches "six of the seven enforce-*.py", "the six enforce-*.py
+# hooks", and the capitalized "Six of the seven enforce-*.py hooks"), OR
+# "enforce" followed by "six" within one sentence (catches "...enforce-
+# shippable-edit" - one of the six consumer hooks", and the pre-DS-156
+# decomposed deny-subset enumeration "(six hooks - `enforce-...`)"). The
+# `[^.]{0,80}` bound stops the match from crossing a sentence boundary into
+# an unrelated "six".
+# Target word is "six" because this repo has TWO independent enforcer-count
+# facts that both restate stale cardinals in prose, and "six" is the shared
+# most-recently-retired value across both: (1) the total-consumer-count
+# fact ("N of the M enforce-*.py hooks call log_fire"), which moved
+# seven-of-eight -> eight-of-nine when DS-150 added `enforce-worktree-read.py`
+# (that transition's own regression is already caught by the positive pins
+# above requiring the literal "eight of the nine" text - a revert to
+# seven-of-eight would fail those asserts directly); and (2) the deny-subset
+# count ("N hooks" in the decomposed enumeration at events-log.md:130), which
+# moved five -> six when DS-150 added `enforce-worktree-read.py` to the deny
+# group, then six -> seven when DS-156 added `enforce-turn-shape.py` to the
+# deny group. "seven" cannot be used as this sweep's stale marker: it is now
+# itself a live, correct cardinal (the deny-hook enumeration currently reads
+# "seven hooks"), so a sweep still keyed to "seven" would false-positive
+# against that legitimate use, mirroring why an earlier pass retired "six" as
+# a marker only to have DS-156's deny-subset change make "six" stale again.
 # Known limitation (tracked as a follow-up, not fixed here): this sweep is
 # lowercase/capitalized-word-form and value-keyed to a single cardinal - it
-# goes silent once the live count moves past eight (when "eight" itself
-# becomes stale), and it does not catch numeral ("7 of the 8") or decomposed-
-# enumeration forms (the events-log.md:130 defect a prior pass fixed is
-# pinned by exact membership text above, not by this regex).
+# goes silent once the live deny-subset count moves past seven (when "seven"
+# itself becomes stale), and it does not catch numeral ("6 of the 7") forms.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
-    r"\bseven\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bseven\b",
+    r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b",
     re.IGNORECASE,
 )
 
@@ -986,7 +997,7 @@ def test_enforcer_subcount_is_current_across_all_known_sites():
             f"phrasing: '{expected}'"
         )
 
-    # Negative, phrasing-agnostic: no stale "six ... enforce" (or reversed)
+    # Negative, phrasing-agnostic: no stale "five ... enforce" (or reversed)
     # survives in either file, regardless of which of the three grammatical
     # forms it was written in. This is the part a positive-only pin cannot
     # do - a half-fix that bumps the count-table cell but leaves a bare-
