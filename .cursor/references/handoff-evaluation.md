@@ -19,10 +19,14 @@ Public API: Read-only reference document, addressed by its retained
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
                Assumes the reader already has Contract A/B/D (`## Batch
-               state contracts` in content/commands/ds-implement-ticket.md)
-               and the "Batch-mode escalation routing
-               (mark-blocked-and-continue)" subsection (Phase 6) in
-               context - both are named, not repeated, here.
+               state contracts` in content/commands/ds-implement-ticket.md),
+               the "Batch-mode escalation routing
+               (mark-blocked-and-continue)" subsection (Phase 6), and the
+               "Interrupt vs. pause path note" / "Resume banners"
+               paragraphs (Phase 12a section, same file) in context - this
+               reference's own precedence note (below) names the latter
+               two as the source of truth for the duplicated resume-banner
+               text. All three are named, not repeated, here.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (Phase 12a
                       extraction site pointer; Phase 0a-open-goal's

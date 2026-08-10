@@ -671,8 +671,8 @@ class CodexSkillGenerationTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("Caller enumeration", generated_ticket)
         self.assertIn("Resume banners", generated_ticket)
-        self.assertIn(".agentic/tracker-states.json", generated_ticket)
-        self.assertIn(".agentic/loop-state-", generated_ticket)
+        self.assertIn("$AE_PROJECT_DIR/.agentic/tracker-states.json", generated_ticket)
+        self.assertIn("$AE_PROJECT_DIR/.agentic/loop-state-", generated_ticket)
 
     def test_wrap_busy_lock_uses_codex_command_polling_and_session_binding(self) -> None:
         wrap = (self.repo / ".codex/skills/wrap/SKILL.md").read_text(encoding="utf-8")

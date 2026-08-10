@@ -19,6 +19,11 @@ Public API: Read-only reference document, addressed by its retained
             config doc).
 
 Upstream deps: none (prose reference only; no code, no runtime execution).
+               Assumes the reader already has the "Caller enumeration"
+               block (`content/commands/ds-implement-ticket.md` §"Tracker
+               Writeback Helper") in context - this reference's own
+               precedence note (below) names it as the source of truth
+               for the five duplicated statements.
 
 Downstream consumers: content/commands/ds-implement-ticket.md (Phase 11,
                       W1-W7), content/commands/ds-ticket-status-sync.md,
@@ -37,6 +42,8 @@ Performance: n/a (static reference document).
 ## Tracker Writeback Helper
 
 Reusable subagent invocation pattern. Used by Phase 11 (existing), the 7 W1-W7 sites in `content/commands/ds-implement-ticket.md`, and awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F. Gated on `TRACKER != none`; no-op otherwise.
+
+> Note: five statements in this reference - the awaiting-caller enumeration, `forward_only_guard` applicability, the step 4.d.iv stderr split, the `SKIPPED:` line format, and the "never reads `.agentic/tracker-states.json`" ranking rule - are duplicated verbatim in the "Caller enumeration" block of `content/commands/ds-implement-ticket.md` §"Tracker Writeback Helper". The duplication is intentional and kept in the kernel command file because `scripts/codex-skills.py`'s `documents()` transform only reads `content/commands/*.md`; this reference is a symlinked resource the transform never scans. The kernel "Caller enumeration" block is the SOURCE OF TRUTH for all five - if the two ever disagree, the kernel block governs.
 
 **Invocation contract:**
 
