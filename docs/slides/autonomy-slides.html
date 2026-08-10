@@ -1787,11 +1787,11 @@ hr {
 }
 " lang="C" data-marpit-pagination="10" style="--paginate:true;--theme:default;--style:@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap')
 ;" data-marpit-pagination-total="11">
-<h2 id="fixed-shape-warranted-turns">Fixed-shape, warranted turns</h2>
-<p>Every conductor turn has a bounded shape: result first, decisions last, nothing that isn't load-bearing for what the operator needs to act on next.</p>
-<p>An advisory Stop hook (<code>enforce-turn-shape.py</code>) checks the final turn against this rule and logs a finding - it never blocks the stop. Controlled by <code>turn_shape_guard_enabled</code> (default on).</p>
+<h2 id="warrant-bound-warranted-turns">Warrant-bound, warranted turns</h2>
+<p>Shape is bound to which warrant fired. An execution turn (decision/stoppage/completion, no answer) is the structured slot block and nothing else - zero prose. An answer turn (a direct operator question) is prose and nothing else - no slots, no line cap, only a relevance rule.</p>
+<p>A Stop hook (<code>enforce-turn-shape.py</code>) checks the final turn against this rule. As of DS-156 it is not uniformly advisory: the structural check on an execution turn's shape is BLOCKING; the phrasing check on answer-turn prose stays advisory-only and only logs. Controlled by <code>turn_shape_guard_enabled</code> (default on).</p>
 <div class="callout">
-Advisory, not enforcement: the rule is about respecting operator attention, not gating the session.
+A structural yes/no shape check earns blocking; a curated-phrase-list heuristic on prose does not.
 </div>
 </section>
 </foreignObject></svg><svg data-marpit-svg="" viewBox="0 0 1280 720"><foreignObject width="1280" height="720"><section id="11" data-paginate="true" data-class="lead" data-theme="default" data-style="@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@500;600;700;800;900&amp;family=Nunito+Sans:wght@400;600;700&amp;family=JetBrains+Mono:wght@300;400;500&amp;display=swap');

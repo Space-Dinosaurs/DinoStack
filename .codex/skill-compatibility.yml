@@ -1502,16 +1502,6 @@
       "source_token": "model-param mapping"
     },
     {
-      "expected_target": "content/references/conductor-turn-format.md",
-      "generated_token": "$AE_REPO_DIR/content/references/conductor-turn-format.md",
-      "kind": "operational",
-      "occurrence_hash": "b50adf3567e8d736c42b06367775cd33aa1d69548bdbb841f1c30f544de910c0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/conductor-turn-format.md"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -2000,6 +1990,16 @@
       "scope": "dinostack-repository",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "/ds-implement-ticket"
+    },
+    {
+      "expected_target": "content/references/conductor-turn-format.md",
+      "generated_token": "$AE_REPO_DIR/content/references/conductor-turn-format.md",
+      "kind": "operational",
+      "occurrence_hash": "eee62532a454790c3efdaf496da3bb152ee99b91a100547d8c0384616117ad2f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/conductor-turn-format.md"
     },
     {
       "expected_target": "content/references/risk-config-and-tiers.md",
