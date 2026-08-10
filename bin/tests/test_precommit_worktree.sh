@@ -45,8 +45,16 @@
 #                silently ignore `-C` and operate against a DIFFERENT repo
 #                entirely - see Test 0 and Test 13.
 #
-# Performance: ~3 s wall time (pure git + shell, no network; 68 assertions
-#              across 23 fixture scenarios as of this revision).
+# Performance: ~3 s wall time (pure git + shell, no network). Do NOT
+#              hand-maintain an assertion/scenario count here - two prior
+#              rounds each shipped a stale figure the moment a test was
+#              added without updating this comment (round 2 wrote "68
+#              assertions across 23 fixture scenarios" and immediately
+#              undercounted its own round-2 addition; round 3 found that
+#              same miss again). The one number that can never drift is
+#              printed by this script itself on every run: the final
+#              "Results: N passed, N failed." line - read that instead of
+#              trusting any count written here.
 #
 # Regression coverage:
 #   - DS-58 (install side): `ln -s "$REPO_DIR/hooks/pre-commit"
@@ -128,10 +136,43 @@
 #     unrelated repo must still be left alone).
 #   - Hang guard (Test 18): _precommit_is_orphaned_worktree_target must
 #     return promptly for a pathological, deeply-nested, non-existent
-#     dangling target - pins the deliberate choice not to implement a
-#     generic walk-up-the-target's-ancestors algorithm (see the helper's
-#     own manifest), so a future regression to an unguarded walk-up loop
-#     is caught by a timeout kill, not a silent merge.
+#     dangling target. As of round 3 this function DOES implement a
+#     bounded upward ancestor walk (see Major 2 below and the helper's own
+#     manifest for why the round-1/round-2 fixed-strip design was
+#     replaced) - this test now pins that the walk's own bound
+#     (_PRECOMMIT_MAX_ANCESTOR_DEPTH and its termination guard) keeps it
+#     fast even on a pathological input, not that no walk exists at all.
+#   - Exact-match guard, both directions (round 3, Minor 1): a candidate
+#     comparison that degrades from exact string equality to a prefix
+#     match in either direction is wrong. Test 23 covers the FORWARD
+#     direction (target is a superstring of a real candidate, e.g.
+#     ".worktrees-decoy" vs ".worktrees"); Test 27 covers the REVERSE
+#     direction (an ancestor being tested canonicalizes to a STRING PREFIX
+#     of a real candidate, e.g. repo_dir itself is a prefix of
+#     "repo_dir/.claude/worktrees") - a sibling mutation class Test 23
+#     alone does not reach, found missing by a round-3 Skeptic review.
+#   - Danglingness-gate ordering and existence (round 3, Major 1 - a live,
+#     resolving relative-target hook was silently deleted because `[[ -e
+#     "$target" ]]` ran before the relative-target anchoring block,
+#     testing existence against this script's own process CWD instead of
+#     hooks_dir): Test 24 (relative live target, isolates the reorder fix
+#     - reddens under the pre-fix ordering) and Test 25 (absolute live
+#     target, isolates the gate's mere EXISTENCE from its ordering -
+#     reddens if the `-e` check is deleted outright, which round 3 found
+#     was NOT covered by any assertion before Test 25 was added; deleting
+#     it left the full suite green).
+#   - Bounded upward search / depth-2 evidence (round 3, Major 2 - the
+#     round-2 "every candidate resolves at exactly ONE directory level
+#     below its container" premise was false:
+#     content/references/subagent-protocol.md:333-334's own documented
+#     worktree-add command uses a FEATURE_BRANCH value that, under this
+#     repo's branch-naming convention, contains a "/" - landing the
+#     worktree TWO levels below ".worktrees", not one; AGENTS.md:48's
+#     ".agentic/worktrees/<branch-name>" has the identical hazard for any
+#     slash-containing branch name): Test 26, both for ".worktrees/" (the
+#     literal subagent-protocol.md example shape) and for
+#     ".agentic/worktrees/" (the AGENTS.md sibling shape). Reddens against
+#     a reverted fixed-single-strip mutation of the container computation.
 #   This test re-creates worktree fixtures for all of the above to prevent
 #   regression.
 
@@ -1052,7 +1093,7 @@ else
   _fail "Test 14 (orphan cleanup): uninstall_precommit_hook exited $ORPHAN_RC. Output: $ORPHAN_OUT"
 fi
 
-if [[ ! -L "$ORPHAN_HOOK_DST" ]]; then
+if [[ ! -L "$ORPHAN_HOOK_DST" ]] && [[ ! -e "$ORPHAN_HOOK_DST" ]]; then
   _pass "Test 14 (orphan cleanup, delta over #640): dangling hook naming an already-removed .claude/worktrees/ worktree is REMOVED. Output: $ORPHAN_OUT"
 else
   _fail "Test 14 (orphan cleanup regression): dangling hook naming an already-removed worktree still present at $ORPHAN_HOOK_DST - the live defect this delta exists to fix. Output: $ORPHAN_OUT"
@@ -1083,7 +1124,7 @@ git -C "$ORPHAN2_MAIN" worktree remove -f "$ORPHAN2_WT" >/dev/null 2>&1
 
 ORPHAN2_OUT="$(uninstall_precommit_hook "$ORPHAN2_MAIN" 2>&1)"
 
-if [[ ! -L "$ORPHAN2_HOOK_DST" ]]; then
+if [[ ! -L "$ORPHAN2_HOOK_DST" ]] && [[ ! -e "$ORPHAN2_HOOK_DST" ]]; then
   _pass "Test 15 (orphan cleanup, .agentic/worktrees/): dangling hook naming an already-removed .agentic/worktrees/ worktree is removed. Output: $ORPHAN2_OUT"
 else
   _fail "Test 15 (orphan cleanup regression, .agentic/worktrees/): dangling hook still present at $ORPHAN2_HOOK_DST. Output: $ORPHAN2_OUT"
@@ -1173,7 +1214,7 @@ git -C "$ORPHAN3_MAIN" worktree remove -f "$ORPHAN3_WT" >/dev/null 2>&1
 
 ORPHAN3_OUT="$(uninstall_precommit_hook "$ORPHAN3_MAIN" 2>&1)"
 
-if [[ ! -L "$ORPHAN3_HOOK_DST" ]]; then
+if [[ ! -L "$ORPHAN3_HOOK_DST" ]] && [[ ! -e "$ORPHAN3_HOOK_DST" ]]; then
   _pass "Test 17 (relative-target orphan cleanup): a RELATIVE dangling target naming an already-removed worktree is also removed. Output: $ORPHAN3_OUT"
 else
   _fail "Test 17 (relative-target orphan cleanup regression): relative-target dangling hook still present at $ORPHAN3_HOOK_DST. Output: $ORPHAN3_OUT"
@@ -1413,6 +1454,253 @@ if [[ -L "$DECOY_HOOK_DST" ]]; then
   _pass "Test 23 (exact-match guard): a dangling hook rooted at a sibling '.worktrees-decoy' directory (shares a string PREFIX with the real '.worktrees' candidate, but is not it) is left untouched"
 else
   _fail "Test 23 (exact-match guard regression): a dangling hook under a merely-prefix-sharing sibling directory was incorrectly removed - the candidate comparison is matching by prefix, not exact identity. Output: $DECOY_OUT"
+fi
+
+# ============================================================
+# Test 24: danglingness-gate ordering (round-3 Major 1) - a RELATIVE
+#          symlink target naming a LIVE, still-existing worktree (never
+#          removed) must be PRESERVED, not deleted. Pre-fix, `[[ -e
+#          "$target" ]]` was evaluated BEFORE the relative-target
+#          anchoring block, so it tested existence against this test
+#          script's own process CWD (never guaranteed to be hooks_dir) -
+#          a live, correctly-resolving-from-hooks_dir target looked
+#          "dangling" purely because of that mismatch, and was deleted.
+#          Matched control: an ABSOLUTE live target (unaffected by the
+#          anchoring reorder, since absolute paths skip that block
+#          entirely) is verified separately in Test 25 below - together
+#          the two isolate "the reorder fix" from "the danglingness gate
+#          existing at all", the second of which round 3 also found
+#          entirely uncovered (deleting the gate line outright still
+#          passed 69/69 pre this test's addition).
+# ============================================================
+
+LIVE_MAIN="$TMP_ROOT/live-main-repo"
+_make_fixture_repo "$LIVE_MAIN"
+mkdir -p "$LIVE_MAIN/.claude/worktrees"
+
+LIVE_WT="$LIVE_MAIN/.claude/worktrees/agent-LIVE"
+git -C "$LIVE_MAIN" worktree add -q "$LIVE_WT" -b live-wt-test-branch >/dev/null 2>&1
+# Deliberately NEVER removed - this worktree stays alive for the whole test.
+
+LIVE_REAL_HOOKS_DIR="$(git -C "$LIVE_MAIN" rev-parse --git-path hooks)"
+case "$LIVE_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) LIVE_REAL_HOOKS_DIR="$LIVE_MAIN/$LIVE_REAL_HOOKS_DIR" ;;
+esac
+LIVE_HOOK_DST="$LIVE_REAL_HOOKS_DIR/pre-commit"
+
+LIVE_RELATIVE_TARGET="../../.claude/worktrees/agent-LIVE/hooks/pre-commit"
+mkdir -p "$LIVE_REAL_HOOKS_DIR"
+ln -s "$LIVE_RELATIVE_TARGET" "$LIVE_HOOK_DST"
+
+# Fixture-correctness precondition 1: the relative target genuinely
+# resolves when anchored against its own directory (hooks_dir) - i.e. it
+# is a LIVE hook, not actually dangling.
+if [[ -e "$LIVE_HOOK_DST" ]]; then
+  _pass "Test 24 setup: relative live-worktree target resolves correctly via its own symlink directory (genuinely live, not dangling)"
+else
+  _fail "Test 24 setup: relative live-worktree target does NOT resolve at $LIVE_HOOK_DST -> $LIVE_RELATIVE_TARGET (fixture bug, not a library bug)"
+fi
+
+# Fixture-correctness precondition 2: this is the exact CWD-mismatch this
+# Major exercises - the SAME relative string, tested bare against this
+# script's own process CWD (never hooks_dir), reports FALSE. This is not
+# a library call - it is establishing that the reproduction's precondition
+# genuinely holds in this fixture, independent of any library code.
+if [[ ! -e "$LIVE_RELATIVE_TARGET" ]]; then
+  _pass "Test 24 setup: the bare relative target string does NOT resolve from this script's own CWD (confirms the CWD-mismatch precondition the round-3 Major depends on)"
+else
+  _fail "Test 24 setup: the bare relative target unexpectedly resolved from this script's CWD - fixture does not exercise the CWD-mismatch bug (or this script happens to be running from hooks_dir, which would be a coincidence, not a guarantee)"
+fi
+
+LIVE_OUT="$(uninstall_precommit_hook "$LIVE_MAIN" 2>&1)"
+LIVE_RC=$?
+
+if [[ $LIVE_RC -eq 0 ]]; then
+  _pass "Test 24 (danglingness-gate ordering): uninstall_precommit_hook exits 0"
+else
+  _fail "Test 24 (danglingness-gate ordering): uninstall_precommit_hook exited $LIVE_RC. Output: $LIVE_OUT"
+fi
+
+if [[ -L "$LIVE_HOOK_DST" ]] && [[ -e "$LIVE_HOOK_DST" ]] && [[ "$(readlink "$LIVE_HOOK_DST")" == "$LIVE_RELATIVE_TARGET" ]]; then
+  _pass "Test 24 (round-3 Major 1 fixed): a RELATIVE target naming a LIVE, still-existing worktree is PRESERVED, not deleted, by uninstall_precommit_hook. Output: $LIVE_OUT"
+else
+  _fail "Test 24 (round-3 Major 1 regression): a LIVE worktree's relative-target hook was deleted (readlink target after: $(readlink "$LIVE_HOOK_DST" 2>&1 || echo '<gone>')) - the danglingness gate misjudged a live, resolving target as dangling. Output: $LIVE_OUT"
+fi
+
+# ============================================================
+# Test 25: danglingness-gate existence (round-3 Major 1's Minor sibling) -
+#          an ABSOLUTE target naming the SAME live, still-existing
+#          worktree must ALSO be preserved. Absolute targets skip the
+#          relative-anchoring block entirely, so this case is UNAFFECTED
+#          by the reorder fix in Test 24 - it isolates the danglingness
+#          gate's own EXISTENCE (as opposed to its ordering): deleting
+#          `[[ -e "$target" ]] && return 1` outright, regardless of where
+#          it sits, reddens this test but not Test 24 alone (an absolute
+#          live target was never subject to the CWD-mismatch bug - only a
+#          missing gate would delete it).
+# ============================================================
+
+LIVE2_MAIN="$TMP_ROOT/live2-main-repo"
+_make_fixture_repo "$LIVE2_MAIN"
+mkdir -p "$LIVE2_MAIN/.claude/worktrees"
+
+LIVE2_WT="$LIVE2_MAIN/.claude/worktrees/agent-LIVE2"
+git -C "$LIVE2_MAIN" worktree add -q "$LIVE2_WT" -b live2-wt-test-branch >/dev/null 2>&1
+# Deliberately never removed.
+
+LIVE2_REAL_HOOKS_DIR="$(git -C "$LIVE2_MAIN" rev-parse --git-path hooks)"
+case "$LIVE2_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) LIVE2_REAL_HOOKS_DIR="$LIVE2_MAIN/$LIVE2_REAL_HOOKS_DIR" ;;
+esac
+LIVE2_HOOK_DST="$LIVE2_REAL_HOOKS_DIR/pre-commit"
+
+# Absolute target, naming the live worktree's OWN hooks/pre-commit - the
+# same shape install_precommit_hook's KNOWN-RESIDUAL fallback produces,
+# but for a worktree that has NOT been removed (still genuinely live).
+mkdir -p "$LIVE2_REAL_HOOKS_DIR"
+ln -s "$LIVE2_WT/hooks/pre-commit" "$LIVE2_HOOK_DST"
+
+if [[ -e "$LIVE2_HOOK_DST" ]]; then
+  _pass "Test 25 setup: absolute live-worktree target resolves correctly (genuinely live, not dangling)"
+else
+  _fail "Test 25 setup: absolute live-worktree target does NOT resolve at $LIVE2_HOOK_DST (fixture bug, not a library bug)"
+fi
+
+LIVE2_OUT="$(uninstall_precommit_hook "$LIVE2_MAIN" 2>&1)"
+
+if [[ -L "$LIVE2_HOOK_DST" ]] && [[ -e "$LIVE2_HOOK_DST" ]]; then
+  _pass "Test 25 (danglingness-gate existence): an ABSOLUTE target naming a LIVE, still-existing worktree is PRESERVED, not deleted. Output: $LIVE2_OUT"
+else
+  _fail "Test 25 (danglingness-gate existence regression): a LIVE worktree's absolute-target hook was deleted - the danglingness gate is missing or broken independent of ordering. Output: $LIVE2_OUT"
+fi
+
+# ============================================================
+# Test 26: depth-2 evidence (round-3 Major 2) -
+#          content/references/subagent-protocol.md:333-334's own
+#          documented, copy-pasteable worktree-add command uses a
+#          FEATURE_BRANCH value that, per this repo's branch-naming
+#          convention (content/rules/conventions.md), takes the form
+#          "feature/<name>" / "fix/<name>" / "chore/<name>" - so the
+#          resulting worktree lands at
+#          ".worktrees/feature/<name>-<unit_slug>", TWO path components
+#          below ".worktrees", not one. A fixed single-strip
+#          implementation would compute ".worktrees/feature" as the
+#          candidate root, matching nothing, and leave a genuine orphan
+#          uncleaned (visible only as a DANGLING warning, not silent -
+#          Major, not Critical, per the round-3 finding).
+# ============================================================
+
+DEPTH2_MAIN="$TMP_ROOT/depth2-main-repo"
+_make_fixture_repo "$DEPTH2_MAIN"
+mkdir -p "$DEPTH2_MAIN/.worktrees"
+
+DEPTH2_WT="$DEPTH2_MAIN/.worktrees/feature/my-thing-unit1"
+git -C "$DEPTH2_MAIN" worktree add -q "$DEPTH2_WT" -b feature/my-thing-unit1 >/dev/null 2>&1
+
+if [[ -d "$DEPTH2_WT/hooks" ]]; then
+  _pass "Test 26 setup: depth-2 worktree fixture created at $DEPTH2_WT (two path components below .worktrees, matching subagent-protocol.md's own FEATURE_BRANCH=feature/<name> example)"
+else
+  _fail "Test 26 setup: depth-2 worktree fixture missing at $DEPTH2_WT (fixture setup bug)"
+fi
+
+DEPTH2_REAL_HOOKS_DIR="$(git -C "$DEPTH2_MAIN" rev-parse --git-path hooks)"
+case "$DEPTH2_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) DEPTH2_REAL_HOOKS_DIR="$DEPTH2_MAIN/$DEPTH2_REAL_HOOKS_DIR" ;;
+esac
+DEPTH2_HOOK_DST="$DEPTH2_REAL_HOOKS_DIR/pre-commit"
+
+mkdir -p "$DEPTH2_REAL_HOOKS_DIR"
+ln -s "$DEPTH2_WT/hooks/pre-commit" "$DEPTH2_HOOK_DST"
+
+git -C "$DEPTH2_MAIN" worktree remove -f "$DEPTH2_WT" >/dev/null 2>&1
+
+DEPTH2_OUT="$(uninstall_precommit_hook "$DEPTH2_MAIN" 2>&1)"
+
+if [[ ! -L "$DEPTH2_HOOK_DST" ]] && [[ ! -e "$DEPTH2_HOOK_DST" ]]; then
+  _pass "Test 26 (round-3 Major 2 fixed, depth-2 evidence): a dangling hook naming an already-removed depth-2 '.worktrees/feature/<name>-<unit>' worktree is removed by the bounded upward search. Output: $DEPTH2_OUT"
+else
+  _fail "Test 26 (round-3 Major 2 regression): depth-2 dangling hook still present at $DEPTH2_HOOK_DST - a fixed single-strip container computation cannot reach '.worktrees' from two levels down. Output: $DEPTH2_OUT"
+fi
+
+# Also exercise the equivalent AGENTS.md:48 hazard for .agentic/worktrees -
+# a branch name containing a slash (".agentic/worktrees/<branch-name>",
+# where <branch-name> is itself "fix/my-thing") lands the worktree at
+# depth 2 under .agentic/worktrees the same way.
+DEPTH2B_MAIN="$TMP_ROOT/depth2b-main-repo"
+_make_fixture_repo "$DEPTH2B_MAIN"
+mkdir -p "$DEPTH2B_MAIN/.agentic/worktrees"
+
+DEPTH2B_WT="$DEPTH2B_MAIN/.agentic/worktrees/fix/my-thing"
+git -C "$DEPTH2B_MAIN" worktree add -q "$DEPTH2B_WT" -b fix/my-thing >/dev/null 2>&1
+
+DEPTH2B_REAL_HOOKS_DIR="$(git -C "$DEPTH2B_MAIN" rev-parse --git-path hooks)"
+case "$DEPTH2B_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) DEPTH2B_REAL_HOOKS_DIR="$DEPTH2B_MAIN/$DEPTH2B_REAL_HOOKS_DIR" ;;
+esac
+DEPTH2B_HOOK_DST="$DEPTH2B_REAL_HOOKS_DIR/pre-commit"
+
+mkdir -p "$DEPTH2B_REAL_HOOKS_DIR"
+ln -s "$DEPTH2B_WT/hooks/pre-commit" "$DEPTH2B_HOOK_DST"
+
+git -C "$DEPTH2B_MAIN" worktree remove -f "$DEPTH2B_WT" >/dev/null 2>&1
+
+DEPTH2B_OUT="$(uninstall_precommit_hook "$DEPTH2B_MAIN" 2>&1)"
+
+if [[ ! -L "$DEPTH2B_HOOK_DST" ]] && [[ ! -e "$DEPTH2B_HOOK_DST" ]]; then
+  _pass "Test 26 (depth-2 evidence, .agentic/worktrees/<slash-branch>): a dangling hook naming an already-removed depth-2 '.agentic/worktrees/fix/<name>' worktree (AGENTS.md:48's <branch-name> containing a slash) is removed. Output: $DEPTH2B_OUT"
+else
+  _fail "Test 26 (depth-2 evidence regression, .agentic/worktrees/<slash-branch>): dangling hook still present at $DEPTH2B_HOOK_DST. Output: $DEPTH2B_OUT"
+fi
+
+# ============================================================
+# Test 27: reverse-prefix guard (round-3 Minor 1) - Test 23 above only
+#          covers the FORWARD prefix direction (target is a superstring of
+#          a real candidate). The REVERSE direction is a distinct mutation
+#          class: `[[ "$canonical_candidate" == "$canonical_target_root"* ]]`
+#          would match whenever the ANCESTOR being tested canonicalizes to
+#          exactly <repo_dir> itself (or any ancestor of a real candidate),
+#          since every real candidate's path literally starts with
+#          <repo_dir> as a string prefix. Shipped code uses `==` (exact
+#          identity, symmetric), which is correct; this test pins that a
+#          reverse-direction prefix match would also be wrong, closing the
+#          sibling mutation class Test 23 does not reach.
+# ============================================================
+
+REVPFX_MAIN="$TMP_ROOT/revpfx-main-repo"
+_make_fixture_repo "$REVPFX_MAIN"
+mkdir -p "$REVPFX_MAIN/.claude/worktrees"
+
+# A dangling target whose "container" ancestor, at some depth of the
+# bounded upward walk, canonicalizes to <repo_dir> ITSELF - a real,
+# existing directory that is a PREFIX of every one of the four real
+# candidates' own paths (e.g. "$REVPFX_MAIN/.claude/worktrees" starts with
+# "$REVPFX_MAIN"). A reverse-prefix mutation would treat repo_dir itself
+# as matching "$REVPFX_MAIN/.claude/worktrees"* purely by string prefix
+# and delete a target rooted at the repo's OWN top-level directory - never
+# a real worktree-container relationship.
+REVPFX_ROGUE_DIR="$REVPFX_MAIN/some-unrelated-subdir"
+mkdir -p "$REVPFX_ROGUE_DIR/hooks"
+
+REVPFX_REAL_HOOKS_DIR="$(git -C "$REVPFX_MAIN" rev-parse --git-path hooks)"
+case "$REVPFX_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) REVPFX_REAL_HOOKS_DIR="$REVPFX_MAIN/$REVPFX_REAL_HOOKS_DIR" ;;
+esac
+REVPFX_HOOK_DST="$REVPFX_REAL_HOOKS_DIR/pre-commit"
+
+mkdir -p "$REVPFX_REAL_HOOKS_DIR"
+ln -s "$REVPFX_ROGUE_DIR/hooks/pre-commit" "$REVPFX_HOOK_DST"
+
+REVPFX_OUT="$(uninstall_precommit_hook "$REVPFX_MAIN" 2>&1)"
+
+if [[ -L "$REVPFX_HOOK_DST" ]]; then
+  _pass "Test 27 (reverse-prefix guard): a dangling target rooted at an unrelated top-level subdirectory of repo_dir (which is itself a string PREFIX of every real candidate) is left untouched"
+else
+  _fail "Test 27 (reverse-prefix guard regression): a dangling target under an unrelated repo-root subdirectory was incorrectly removed - the candidate comparison is matching by reverse prefix, not exact identity. Output: $REVPFX_OUT"
 fi
 
 # ---- Results ----
