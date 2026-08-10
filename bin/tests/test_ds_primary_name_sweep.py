@@ -453,8 +453,17 @@ def _tracked_repo_files() -> list[Path]:
 # brand name in this source file would make the guard trip over its OWN
 # source and fail unconditionally the moment it was added. Do NOT "clean
 # this up" into a plain string literal - that reintroduces exactly the
-# self-triggering bug this comment exists to prevent. (H-e-l-i-o-s)
+# self-triggering bug this comment exists to prevent.
 _FORBIDDEN_BRAND_TOKEN = "".join(chr(c) for c in (72, 101, 108, 105, 111, 115))
+
+
+# Floor on the number of files `git ls-files -z` must enumerate before this
+# guard's scan is trusted. The tree currently has ~1163 tracked files; this
+# is set well below that (not a maintenance tripwire) purely to catch the
+# `git ls-files` call itself failing or returning empty - a scan over zero
+# files passes vacuously having checked nothing, per this repo's "green
+# often means the check did not run" lesson.
+MIN_EXPECTED_TRACKED_FILE_COUNT = 500
 
 
 def test_no_sibling_product_brand_name_in_tracked_tree() -> None:
@@ -465,11 +474,21 @@ def test_no_sibling_product_brand_name_in_tracked_tree() -> None:
     the sibling product is unreleased and non-open-source and must never be
     named here."""
     token_lower = _FORBIDDEN_BRAND_TOKEN.lower()
+    tracked_files = _tracked_repo_files()
+    assert len(tracked_files) >= MIN_EXPECTED_TRACKED_FILE_COUNT, (
+        f"`git ls-files -z` enumeration itself failed or returned suspiciously few files "
+        f"({len(tracked_files)} < {MIN_EXPECTED_TRACKED_FILE_COUNT}) - this guard would "
+        "otherwise pass vacuously having scanned nothing"
+    )
+
     failures = []
-    for path in _tracked_repo_files():
+    for path in tracked_files:
         try:
             text = path.read_text(encoding="utf-8", errors="ignore")
-        except Exception:  # pragma: no cover - defensive
+        except IsADirectoryError:
+            # Expected: a small number of tracked entries are symlinks to
+            # directories (their real contents are tracked and scanned
+            # separately via their own paths).
             continue
         if token_lower in text.lower():
             failures.append(str(path.relative_to(REPO_ROOT)))
