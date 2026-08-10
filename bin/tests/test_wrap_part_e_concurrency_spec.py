@@ -36,26 +36,36 @@ Three invariants pinned, one per Skeptic finding:
    against a regression back to the ambiguous "does not pause or affect any
    other target's pipeline" wording this PR replaced.
 
-Round-3 fix (this revision) closes a relocated defect in the round-2 fix
-above: the Escalation quiescing procedure's own outcome enumeration was not
-total, and its own headline contradicted its own qualifier. Two more
-invariants pinned:
+Round-3 fix closed a relocated defect in the round-2 fix above: the
+Escalation quiescing procedure's own outcome enumeration was not total, and
+its own headline contradicted its own qualifier. Three more invariants
+were pinned then (items 4-6 below). Items 4 and 5 were themselves
+superseded by the round-4 structural rewrite described further below -
+they are retained here only as history of what was fixed and why; do not
+read them as the file's live guarantee. Items 7-9 are the live invariants
+for the write/skip split and the two carve-outs it governs.
 
-4. **Quiesced-skip is a third, explicit outcome** (Round-3 Major, Gap A):
-   step 2's per-sibling outcome enumeration must be total - a sibling that
-   is neither signed off nor has exhausted its own re-route/format budget,
-   but for which step 1 bars the next round that would advance it, must
-   resolve to a defined third outcome ("quiesced skip") treated identically
-   to an escalated target for steps 3-5. Without this, that sibling has no
-   reachable terminal state and step 5's termination predicate is
-   unsatisfiable for it.
+4. **Quiesced-skip is a third, explicit outcome** (Round-3 Major, Gap A,
+   SUPERSEDED by item 7): at the time of this fix, step 2's per-sibling
+   outcome enumeration was made total by naming a third outcome
+   ("quiesced skip") for a sibling that is neither signed off nor has
+   exhausted its own re-route/format budget, but for which step 1 bars
+   the next round that would advance it. Round 4 replaced this
+   enumeration entirely with a structural default rule, because
+   enumerating named cases is exactly the shape that produced three
+   successive relocated gaps (rounds 1, 2, and this round itself, which
+   found a fourth case the round-2 enumeration had not named). Do not
+   treat enumeration-totality as this file's live invariant -
+   it is not, and reintroducing that framing is the defect item 7 exists
+   to prevent.
 
-5. **Headline/qualifier agreement on first-Skeptic spawns** (Round-3 Major,
-   Gap B): step 1's "stop spawning" headline must scope to re-route/format-
-   re-invocation rounds only (matching its own qualifier), and must
-   explicitly permit a sibling's first Skeptic spawn for a Worker that
-   already returned before the escalation was detected - otherwise the
-   headline and qualifier disagree about whether that spawn is allowed.
+5. **Headline/qualifier agreement on first-Skeptic spawns** (Round-3
+   Major, Gap B, SUPERSEDED by item 8): at the time of this fix, step 1's
+   "stop spawning" headline was scoped to re-route/format-re-invocation
+   rounds only (matching its own qualifier), permitting a sibling's FIRST
+   Skeptic spawn for a Worker that already returned before escalation was
+   detected. Round 4 generalized this carve-out beyond "first spawn
+   only" - item 8 is the live invariant.
 
 6. **Skeptic sign-off carries the same `Target:` prefix as the Worker
    brief** (Round-3 Minor 1): the Part E Skeptic brief's sign-off format
@@ -63,6 +73,37 @@ invariants pinned:
    brief's existing `Target:` echo-back requirement - otherwise sign-off
    attribution across N out-of-order Skeptic returns rests on free-form
    text while draft attribution is structurally pinned.
+
+Round-4 fix (this revision) replaces step 2's outcome enumeration with a
+single affirmative condition and a structural default for everything
+else, closing the class of bug that produced rounds 1-3 (a resolution
+matching no named outcome) by construction rather than by finding and
+naming one more case. Three more invariants are pinned:
+
+7. **The write/skip split is structural, not enumerated** (Round-4
+   Major): a sibling target proceeds to its own step-4 write if and only
+   if it reaches a validated sign-off before quiescing finishes for it;
+   every other resolution - named or not - is a quiesced skip by
+   negation, with no exception. This is the invariant the file now
+   guards: an exhaustive-enumeration framing (a list of named outcomes
+   each individually proven total) is the exact defect class rounds 1-3
+   kept relocating into rather than closing, and this file's own
+   regression assertion below forbids the literal phrase "this
+   enumeration is total" from resurfacing as a claim about step 2.
+
+8. **Step 1's already-in-flight-Skeptic carve-out covers any round, not
+   just the first** (Round-4 Minor 1): a Worker call spawned before
+   escalation was detected, whose Skeptic review would close out a later
+   re-route round (not just a target's first Worker->Skeptic pipeline),
+   is explicitly permitted to complete - only the decision to start the
+   NEXT round after that Skeptic returns is barred.
+
+9. **A pipeline that never returns resolves via the structural default,
+   with no new timeout mechanism** (Round-4 Minor 2): a hung Worker or
+   Skeptic call is, definitionally, not an affirmative sign-off, so it
+   already resolves to quiesced skip once the main agent concludes the
+   call will not return - stated explicitly rather than left to match no
+   named outcome.
 
 **Baseline note (Round-3 Minor 2 fix):** each assertion below is verified
 against TWO baselines - `d8c6e677` (the pre-round-2-fix PR content, i.e.
@@ -409,4 +450,100 @@ def test_part_e_skeptic_signoff_carries_target_prefix() -> None:
     assert "plus the `Target: <path>` prefix line required above" in text, (
         "step 3's sign-off-format validation no longer requires the "
         "Target: prefix line as a mandatory element"
+    )
+
+
+def test_module_docstring_pins_round4_structural_rule_not_enumeration() -> None:
+    """PR #629 round-5 Major 1 regression guard: this module's own
+    docstring must describe the round-4 structural default rule (items
+    7-9) as the file's live invariant, and must not describe
+    enumeration-totality as still binding - that framing is the exact
+    defect class rounds 1-3 kept relocating into, and the docstring is
+    the only place in this file explaining WHY the shape is what it is.
+    A maintainer following a stale docstring that still called
+    quiesced-skip enumeration "must be total" (the pre-fix wording) could
+    reintroduce the round-3 defect. This test reads this module's own
+    __doc__, not content/commands/ds-wrap.md - it guards THIS file's
+    header against going stale relative to the assertions below it, the
+    exact failure Major 1 found."""
+    docstring = __doc__ or ""
+    assert "must be total" not in docstring, (
+        "the module docstring still frames the enumeration as needing to "
+        "be total - that framing is the round-3 defect class; the live "
+        "invariant is the round-4 structural default rule (item 7)"
+    )
+    assert "Round-4 fix" in docstring, (
+        "the module docstring has no round-4 entry - it stops at round-3 "
+        "and omits the three invariants round-4 actually pins"
+    )
+    assert (
+        "structural default rule" in docstring
+        or "structural, not enumerated" in docstring
+    ), (
+        "the module docstring does not describe the round-4 structural "
+        "invariant that replaced the round-3 enumeration"
+    )
+    assert "SUPERSEDED by item 7" in docstring and "SUPERSEDED by item 8" in docstring, (
+        "the module docstring no longer marks the round-3 items it "
+        "superseded as superseded - a reader could mistake items 4/5 for "
+        "still-live invariants"
+    )
+
+
+def test_step6_quiesced_skip_report_covers_each_reachable_skip_category() -> None:
+    """PR #629 round-5 Major 2 fix: quiescing widened "quiesced skip" to
+    cover reachable outcomes the sole pre-existing Step 6 report string
+    ("... after 3 re-routes - skipped this session.") does not
+    truthfully describe: unresolved findings with round budget unspent,
+    a format-validation failure with round budget unspent, and a
+    pipeline that never returns. Step 6 must define a distinct, truthful
+    report string for each reachable category rather than reusing the
+    3-re-routes string (which is false for these three) or silently
+    omitting the target from the report."""
+    text = _read()
+    assert (
+        'Compression failed for [path] after 3 re-routes - skipped this '
+        "session." in text
+    ), (
+        "Step 6 no longer keeps the own-budget-exhausted report string - "
+        "this is the one case where '3 re-routes' is actually true"
+    )
+    assert (
+        "unresolved findings, round budget unspent when quiescing began"
+        in text
+    ), (
+        "Step 6 has no truthful report string for the unresolved-findings "
+        "quiesced skip (Critical/Major findings remained but budget was "
+        "not exhausted - the 3-re-routes string would be false here)"
+    )
+    assert (
+        "sign-off format validation failed, round budget unspent when "
+        "quiescing began" in text
+    ), (
+        "Step 6 has no truthful report string for the format-validation-"
+        "failure quiesced skip - the 3-re-routes string would be false "
+        "here too"
+    )
+    assert (
+        "the Worker or Skeptic call did not return" in text
+    ), (
+        "Step 6 has no truthful report string for the non-response "
+        "quiesced skip"
+    )
+
+
+def test_escalation_quiescing_step2_catchall_is_pinned() -> None:
+    """Minor (preference, taken): the Skeptic verified by mutation that
+    step 2's catch-all "or any resolution not named here" is unpinned -
+    replacing it with "and nothing else" left all existing tests green.
+    Pin the catch-all itself so a future editor cannot narrow the
+    structural default's scope back toward an enumerated list without
+    tripping a test, matching the pin already on the governing sentence
+    above it."""
+    text = _read()
+    assert "or any resolution not named here" in text, (
+        "step 2's open-ended catch-all for quiesced-skip resolutions has "
+        "been narrowed or removed - the structural default must cover "
+        "every non-affirmative resolution, not only the ones named "
+        "explicitly, and this phrase was the only place that said so"
     )

@@ -20612,6 +20612,16 @@
       "source_token": "`/ds-wrap-deferred`"
     },
     {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "cbcb1032771053377ec1b4bbb3986114796255a1e43b41ba0a68ac2fe1185ea4",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
+    },
+    {
       "expected_target": ".agentic/_wrap.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/_wrap.md",
       "kind": "operational",
@@ -20820,16 +20830,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "true"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "d8190baaba0d473068630837c2410cdfe8519ae4e91bb9191f92194bacb557f0",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "wrap",
