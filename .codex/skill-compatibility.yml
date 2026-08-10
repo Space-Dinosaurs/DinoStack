@@ -17432,16 +17432,6 @@
       "source_token": "/ds-init-project"
     },
     {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "0a10448685386e088c5bd90d7b20d08b2426c104cacc6b55b36b2dce1991e60e",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
       "expected_target": "rm",
       "generated_token": "rm",
       "kind": "operational",
@@ -17772,6 +17762,16 @@
       "source_token": "/ds-wrap"
     },
     {
+      "expected_target": "apply_patch",
+      "generated_token": "Write",
+      "kind": "semantic-reference",
+      "occurrence_hash": "20c2728e7d6f24c17d7d9aa33c3bf4a82b758075db1ee2e140b9810400b01e73",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Write"
+    },
+    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -17892,6 +17892,16 @@
       "source_token": "cwd"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "27bc4622fa81b4499b7d78ca7e96781126108152a352a970fe6f391e8c234823",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/tmp",
       "kind": "display-only",
@@ -17990,16 +18000,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/tracker.yml"
-    },
-    {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "2f2d7203db2b2e81fb698160d5097248583b77703ab1fffa6ce4e22af9d5f8e5",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": ".agentic/wrap/.scaffold-verified",
@@ -18602,16 +18602,6 @@
       "source_token": ".agentic/"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "511006d28d9d6eaadbaeef3508175a48185bcfb8658d1e3aec398b887f9d8a39",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -19152,6 +19142,16 @@
       "source_token": ".agentic/*"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "6d8012277ed39ed9775cdaec43089902aed79a560f9f51b4eac3e81a81cfbf75",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": ".agentic/agents-md-pending.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/agents-md-pending.md",
       "kind": "operational",
@@ -19582,6 +19582,16 @@
       "source_token": ".agentic/compression-state.json"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "8b174470cd61814f6be2dd0352101cb6acf830b7dc30f5264ee203d828cc63d0",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
@@ -19822,6 +19832,16 @@
       "source_token": "2"
     },
     {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "9c9f7baa81843c362bb91b1f8aa08f715234387805a6c597a2b1b25378801c2d",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
+    },
+    {
       "expected_target": "done",
       "generated_token": "done",
       "kind": "operational",
@@ -19842,6 +19862,16 @@
       "source_token": "/ds-wrap"
     },
     {
+      "expected_target": ".agentic/compression-state.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/compression-state.json",
+      "kind": "operational",
+      "occurrence_hash": "9f663cc25ddd3c56a7da95571c75ad09307260a90060847a2297c033e7b3857f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/compression-state.json"
+    },
+    {
       "expected_target": "~/.codex/projects/[hash]/context.md",
       "generated_token": "**Final reminder:** After `$wrap` completes, close the session cleanly so the current Codex Stop hook can finish writing `~/.codex/projects/[hash]/context.md`. The project-local migration remains deferred to `context-writer-migration`.",
       "kind": "operational",
@@ -19850,6 +19880,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "**Final reminder:** After `/ds-wrap` completes, close the session cleanly so the Stop hook can finish writing this session's activity shard and recomposing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting. <!-- gate-reviewed: about context.md, unaffected by the loop-state/batch-state cadence split -->\n"
+    },
+    {
+      "expected_target": ".agentic/memory.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/memory.md",
+      "kind": "operational",
+      "occurrence_hash": "a06eb5caf063bfd014963304d38cc4707d4234ffd6e792d209ebebbabee70c51",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/memory.md"
     },
     {
       "expected_target": "wrap",
@@ -20152,16 +20192,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": ".agentic/compression-state.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/compression-state.json",
-      "kind": "operational",
-      "occurrence_hash": "b6ec66c0ed6cb6ed4d1b86a6b88b0a75a6bf383ee71695b984f86dd01147fd8b",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/compression-state.json"
-    },
-    {
       "expected_target": "cat",
       "generated_token": "cat",
       "kind": "operational",
@@ -20200,6 +20230,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.agentic/memory.md"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "b8522165abf20df6e25962d0ef2ad0054d48c0b7e16bcffd9486abe06dcf4739",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "Read"
     },
     {
       "expected_target": ".agentic/config.json",
@@ -20632,6 +20672,16 @@
       "source_token": ".claude/install.sh"
     },
     {
+      "expected_target": "bin/tests/reach_model.py",
+      "generated_token": "$AE_REPO_DIR/bin/tests/reach_model.py",
+      "kind": "operational",
+      "occurrence_hash": "d2317194e4b41d8d5863844c4b7eb79c95e53917745f98a62e021f01f530c620",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "bin/tests/reach_model.py"
+    },
+    {
       "expected_target": ".agentic/config.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
       "kind": "operational",
@@ -20832,26 +20882,6 @@
       "source_token": ".agentic/wrap/last-wrap"
     },
     {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "e2ecfd8994b57ab7d7b2be26962b55f600df6c727f4383a40424bac91c7d758b",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "e35a3904101efb99551329a6fe8fe73bf7f7d84b9972c9cf3b4cd0d66863286c",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
       "expected_target": ".agentic/deploy.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/deploy.md",
       "kind": "operational",
@@ -20950,16 +20980,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/wrap/pending-<session_id>.json"
-    },
-    {
-      "expected_target": "apply_patch",
-      "generated_token": "Write",
-      "kind": "semantic-reference",
-      "occurrence_hash": "e9fc4bcf3e05e14a0fdca6b339e3e9fc9afe62a1dbda380d496d304c249c4784",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "Write"
     },
     {
       "expected_target": ".agentic/memory.md",
@@ -21300,6 +21320,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "ffdd232231a09d3816b7a3137032f5dc9a6f99564ccb70c7d11e489e9b91c719",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": ".claude/compression-state.json",
