@@ -73,7 +73,12 @@
 #     repo_dir's git-common-dir (see _pc_is_legacy_sibling_hook) - the same
 #     ownership check the original per-adapter uninstall blocks used,
 #     extended so a hook installed by pre-DS-152 code from a worktree can
-#     still be removed post-upgrade. Never deletes a foreign hook, a real
+#     still be removed post-upgrade. Also removed when the legacy target's
+#     own worktree directory has already been deleted, PROVIDED its path
+#     lies under the primary checkout's own ".claude/worktrees/" or
+#     ".agentic/worktrees/" (see _pc_is_legacy_sibling_hook's dangling-target
+#     branch) - the most common pre-fix residue, since a dangling hook is
+#     already broken regardless. Never deletes a foreign hook, a real
 #     file, or a symlink pointing at an unrelated repo. If hooks-dir
 #     resolution fails for any reason, prints a non-fatal warning and
 #     returns 0 - never aborts the caller. On primary-checkout resolution
@@ -140,15 +145,47 @@ resolve_git_hooks_dir() {
 }
 
 # ---------------------------------------------------------------------------
+# _pc_canonicalize_dir <dir>
+#   Internal helper (not part of the public API). Echoes the canonical
+#   (symlink-resolved) absolute form of <dir> via `cd <dir> && pwd -P`,
+#   falling back to echoing <dir> unchanged (and still returning 0) when
+#   canonicalisation fails (e.g. <dir> does not exist). Shared by
+#   resolve_primary_checkout and _pc_git_common_dir_abs so every absolute
+#   path either of them produces is canonicalised the SAME way - a
+#   symlinked TMPDIR/HOME path component (e.g. macOS's
+#   /tmp -> /private/tmp or /var/folders -> /private/var/folders) would
+#   otherwise leave one call site's output canonical and the other's raw,
+#   causing string-equality comparisons downstream to spuriously fail.
+#   Always returns 0 - callers that need to distinguish "could not
+#   canonicalise" should check whether the echoed value differs from what
+#   they passed in; none of the current callers need to.
+# ---------------------------------------------------------------------------
+_pc_canonicalize_dir() {
+  local dir="$1"
+  local canonical
+  if canonical="$(cd "$dir" 2>/dev/null && pwd -P)" && [[ -n "$canonical" ]]; then
+    echo "$canonical"
+  else
+    echo "$dir"
+  fi
+  return 0
+}
+
+# ---------------------------------------------------------------------------
 # _pc_git_common_dir_abs <dir>
-#   Internal helper (not part of the public API). Echoes the absolute
-#   `git -C <dir> rev-parse --git-common-dir` for <dir>, normalising a
-#   checkout-relative result to absolute exactly like resolve_git_hooks_dir
-#   does. Returns non-zero and echoes nothing if <dir> is not a git checkout
-#   (missing, deleted, or never a repo). Shared by resolve_primary_checkout
-#   and _pc_is_legacy_sibling_hook so both compare common-dirs computed the
-#   SAME way - avoids the raw-string mismatches a symlinked TMPDIR/HOME
-#   component would otherwise cause between the two call sites.
+#   Internal helper (not part of the public API). Echoes the CANONICAL
+#   absolute `git -C <dir> rev-parse --git-common-dir` for <dir>: the raw
+#   result is normalised to absolute exactly like resolve_git_hooks_dir
+#   does, then run through _pc_canonicalize_dir. Returns non-zero and
+#   echoes nothing if <dir> is not a git checkout (missing, deleted, or
+#   never a repo). Shared by resolve_primary_checkout and
+#   _pc_is_legacy_sibling_hook so both compare common-dirs computed the
+#   SAME way and in the SAME (canonical) form - `git rev-parse
+#   --git-common-dir` returns a checkout-RELATIVE path from a primary
+#   (non-worktree) checkout but a fully canonical ABSOLUTE path from a
+#   linked worktree, so without this canonicalisation step the two forms
+#   would raw-string-mismatch on any TMPDIR/HOME with a symlinked
+#   component even though they resolve to the identical directory.
 # ---------------------------------------------------------------------------
 _pc_git_common_dir_abs() {
   local dir="$1"
@@ -160,31 +197,57 @@ _pc_git_common_dir_abs() {
     /*) : ;;
     *) common_dir="$dir/$common_dir" ;;
   esac
-  echo "$common_dir"
+  _pc_canonicalize_dir "$common_dir"
 }
 
 # ---------------------------------------------------------------------------
-# _pc_is_legacy_sibling_hook <target> <repo_common_dir>
+# _pc_is_legacy_sibling_hook <target> <repo_common_dir> [primary_checkout]
 #   Internal helper (not part of the public API). A pre-DS-152 install could
 #   have symlinked the shared hook at ANY worktree's own
 #   "<worktree>/hooks/pre-commit" (repo_dir itself, not necessarily the
 #   primary checkout). Returns 0 (true) iff <target> ends in
-#   "/hooks/pre-commit", the directory it hangs off of still exists, and
-#   THAT directory's own git-common-dir matches <repo_common_dir> - i.e.
-#   <target> is some worktree of the exact same repo family repo_dir
-#   belongs to, regardless of which worktree wrote it or how its path was
-#   originally spelled. Returns 1 (false) - never aborts - when <target>
-#   does not match the suffix, the directory no longer exists (cannot be
-#   verified), or its common-dir resolves to a different repo.
+#   "/hooks/pre-commit" AND either:
+#     - the directory it hangs off of still exists, and THAT directory's own
+#       git-common-dir matches <repo_common_dir> - i.e. <target> is some
+#       worktree of the exact same repo family repo_dir belongs to,
+#       regardless of which worktree wrote it or how its path was
+#       originally spelled; or
+#     - the directory it hangs off of has already been DELETED (the most
+#       common pre-fix residue - a scratch/ephemeral worktree that was
+#       cleaned up without ever uninstalling its legacy hook first) AND
+#       [primary_checkout] is given AND <target>'s worktree path lies under
+#       "<primary_checkout>/.claude/worktrees/" or
+#       "<primary_checkout>/.agentic/worktrees/" - the repo's own known
+#       worktree roots. Ownership cannot be verified via git-common-dir once
+#       the directory is gone, so this path constraint stands in for it: the
+#       hook is already broken either way (its target cannot be executed),
+#       and constraining to the repo's own worktree roots prevents widening
+#       into a foreign dangling hook that merely happens to be unreachable.
+#   Returns 1 (false) - never aborts - when <target> does not match the
+#   suffix, or (for an existing target directory) its common-dir resolves to
+#   a different repo, or (for an already-deleted target directory) no
+#   primary_checkout was given or the path falls outside both known
+#   worktree roots.
 # ---------------------------------------------------------------------------
 _pc_is_legacy_sibling_hook() {
-  local target="$1" repo_common_dir="$2"
+  local target="$1" repo_common_dir="$2" primary_checkout="${3:-}"
   case "$target" in
     */hooks/pre-commit) : ;;
     *) return 1 ;;
   esac
   local target_repo_dir="${target%/hooks/pre-commit}"
-  [[ -d "$target_repo_dir" ]] || return 1
+
+  if [[ ! -d "$target_repo_dir" ]]; then
+    if [[ -n "$primary_checkout" ]]; then
+      case "$target_repo_dir" in
+        "$primary_checkout"/.claude/worktrees/*|"$primary_checkout"/.agentic/worktrees/*)
+          return 0
+          ;;
+      esac
+    fi
+    return 1
+  fi
+
   local target_common_dir
   target_common_dir="$(_pc_git_common_dir_abs "$target_repo_dir")" || return 1
   [[ "$target_common_dir" == "$repo_common_dir" ]]
@@ -196,7 +259,7 @@ _pc_is_legacy_sibling_hook() {
 # ---------------------------------------------------------------------------
 resolve_primary_checkout() {
   local repo_dir="$1"
-  local common_dir git_dir canonical_repo_dir
+  local common_dir git_dir
 
   common_dir="$(_pc_git_common_dir_abs "$repo_dir")" || return 1
   if ! git_dir="$(git -C "$repo_dir" rev-parse --git-dir 2>/dev/null)" || [[ -z "$git_dir" ]]; then
@@ -205,29 +268,31 @@ resolve_primary_checkout() {
 
   # `--git-dir` can be checkout-relative in a normal (non-worktree) repo;
   # normalise to absolute, matching _pc_git_common_dir_abs's own
-  # normalisation of --git-common-dir above.
+  # normalisation of --git-common-dir above. Deliberately NOT run through
+  # _pc_canonicalize_dir - it does not need to match common_dir's exact
+  # string form, only its identity (see the `-ef` comparison below).
   case "$git_dir" in
     /*) : ;;
     *) git_dir="$repo_dir/$git_dir" ;;
   esac
 
-  if [[ "$common_dir" == "$git_dir" ]]; then
+  # Compare by inode identity (`-ef`), not string equality: common_dir is
+  # now always canonicalised (via _pc_git_common_dir_abs) while git_dir may
+  # still be a raw, non-canonicalised concatenation on a symlinked
+  # TMPDIR/HOME. Both paths exist as real directories whenever repo_dir is a
+  # valid checkout, so `-ef` correctly identifies "same directory" without
+  # requiring either side's string form to match.
+  if [[ "$common_dir" -ef "$git_dir" ]]; then
     # repo_dir is not a linked worktree (or is itself the primary checkout)
-    # - it is authoritative for its own hook source. Canonicalise via
-    # `pwd -P` (resolving any symlink components, e.g. macOS's
-    # /tmp -> /private/tmp or /var/folders -> /private/var/folders) so this
-    # branch's output is comparable, byte-for-byte, with the linked-worktree
-    # branch below - which is unavoidably canonicalised because that is what
-    # `git rev-parse --git-common-dir` returns for a worktree. Without this,
-    # installing once from a worktree (canonical form) and again directly
-    # from the primary checkout (raw form) would compute two DIFFERENT
-    # hook_src strings for the same real directory, and the "already linked"
-    # equality check below would spuriously treat the hook as stale forever.
-    if canonical_repo_dir="$(cd "$repo_dir" 2>/dev/null && pwd -P)" && [[ -n "$canonical_repo_dir" ]]; then
-      echo "$canonical_repo_dir"
-    else
-      echo "$repo_dir"
-    fi
+    # - it is authoritative for its own hook source. Canonicalise via the
+    # shared helper so this branch's output is comparable, byte-for-byte,
+    # with the linked-worktree branch below (whose common_dir is already
+    # canonical). Without this, installing once from a worktree (canonical
+    # form) and again directly from the primary checkout (raw form) would
+    # compute two DIFFERENT hook_src strings for the same real directory,
+    # and the "already linked" equality check downstream would spuriously
+    # treat the hook as stale forever.
+    _pc_canonicalize_dir "$repo_dir"
     return 0
   fi
 
@@ -349,7 +414,7 @@ uninstall_precommit_hook() {
       # would have symlinked directly.
       local repo_common_dir
       if repo_common_dir="$(_pc_git_common_dir_abs "$repo_dir" 2>/dev/null)" \
-        && _pc_is_legacy_sibling_hook "$current_target" "$repo_common_dir"; then
+        && _pc_is_legacy_sibling_hook "$current_target" "$repo_common_dir" "$primary_checkout"; then
         rm "$hook_dst"
         echo "  - pre-commit hook removed (legacy pre-DS-152 target: $current_target)"
       else

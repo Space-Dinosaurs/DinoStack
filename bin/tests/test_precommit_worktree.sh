@@ -12,6 +12,16 @@
 # failing on top of that corruption. Clearing these before any other line
 # runs defeats that class of leak outright.
 unset GIT_DIR GIT_WORK_TREE GIT_COMMON_DIR GIT_INDEX_FILE GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES GIT_CEILING_DIRECTORIES
+# DS-152 round 3 (Minor - hostile global git config): a global
+# `core.hooksPath` collapses every fixture's hooks dir onto one directory
+# (`git rev-parse --git-path hooks` honours it, and it is not one of the
+# GIT_* env vars unset above). GIT_CONFIG_GLOBAL/GIT_CONFIG_SYSTEM point git
+# at /dev/null instead of the operator's real global/system config for
+# every git invocation in this process, neutralising the vector - same
+# pattern already used by bin/tests/test_agentic_tracker.py and
+# bin/tests/lib/git_fixture.py.
+export GIT_CONFIG_GLOBAL=/dev/null
+export GIT_CONFIG_SYSTEM=/dev/null
 # Purpose: Regression test for scripts/lib/precommit.sh's install_precommit_hook
 #          and uninstall_precommit_hook. Ensures both resolve the REAL git
 #          hooks directory (via `git rev-parse --git-path hooks`) instead of
@@ -333,7 +343,10 @@ else
   _fail "uninstall-from-worktree case: uninstall_precommit_hook exited $RC. Output: $OUT"
 fi
 
-if [[ ! -e "$UNINSTALL_HOOK_DST" ]]; then
+# `! -e` alone follows symlinks and would false-pass on a dangling
+# leftover symlink (target gone, link itself still present) - assert
+# `! -L` too so a botched removal that leaves a dangling symlink is caught.
+if [[ ! -e "$UNINSTALL_HOOK_DST" ]] && [[ ! -L "$UNINSTALL_HOOK_DST" ]]; then
   _pass "uninstall-from-worktree case (DS-58 fixed): AE-owned pre-commit hook actually removed"
 else
   _fail "uninstall-from-worktree case (DS-58 regression): pre-commit hook still present at $UNINSTALL_HOOK_DST. Output: $OUT"
@@ -583,7 +596,9 @@ else
   _fail "missing-source case (DS-152 round 2 regression, Major 2): no loud warning for a missing hook_src. Output: $OUT"
 fi
 
-if [[ ! -e "$MISSING_SRC_HOOK_DST" ]]; then
+# `! -e` alone follows symlinks and would false-pass if a dangling symlink
+# were created instead of no symlink at all - assert `! -L` too.
+if [[ ! -e "$MISSING_SRC_HOOK_DST" ]] && [[ ! -L "$MISSING_SRC_HOOK_DST" ]]; then
   _pass "missing-source case (DS-152 round 2, Major 2): no NEW dangling symlink was created"
 else
   _fail "missing-source case (DS-152 round 2 regression, Major 2): a dangling symlink was created at $MISSING_SRC_HOOK_DST despite a missing source"
@@ -678,6 +693,56 @@ else
 fi
 
 # ============================================================
+# Test 9b: DS-152 round 3 (bare-repo coverage gap) - a linked worktree of a
+#          BARE primary repo hits the same resolve_primary_checkout failure
+#          mode as Test 9's --separate-git-dir case (a common-dir that does
+#          not end in a literal "/.git" path component), but via a
+#          different git construct. The header's failure-modes block claims
+#          this was "measured for --separate-git-dir AND bare linked
+#          worktrees" - this test makes that claim true instead of aspirational.
+# ============================================================
+
+BARE_SOURCE="$TMP_ROOT/bare-source-repo"
+_make_fixture_repo "$BARE_SOURCE"
+
+BARE_MAIN="$TMP_ROOT/bare-main-repo.git"
+git clone -q --bare "$BARE_SOURCE" "$BARE_MAIN" >/dev/null 2>&1
+
+BARE_WT="$TMP_ROOT/bare-wt"
+git -C "$BARE_MAIN" worktree add -q "$BARE_WT" -b bare-wt-test-branch >/dev/null 2>&1
+
+OUT="$(install_precommit_hook "$BARE_WT" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "bare-repo case: install_precommit_hook exits 0 (non-fatal)"
+else
+  _fail "bare-repo case: install_precommit_hook exited $RC. Output: $OUT"
+fi
+
+if echo "$OUT" | grep -qi "could not resolve the primary checkout"; then
+  _pass "bare-repo case (DS-152 round 3, bare-repo coverage gap): loud warning printed for the silent primary-checkout fallback"
+else
+  _fail "bare-repo case (DS-152 round 3 regression, bare-repo coverage gap): resolve_primary_checkout fell back to repo_dir with no warning. Output: $OUT"
+fi
+
+# Falls back to repo_dir's own hooks/pre-commit (BARE_WT's own copy, which
+# `git worktree add` checks out from the bare repo's committed tree) and
+# still installs successfully rather than aborting.
+BARE_HOOKS_DIR="$(git -C "$BARE_WT" rev-parse --git-path hooks)"
+case "$BARE_HOOKS_DIR" in
+  /*) : ;;
+  *) BARE_HOOKS_DIR="$BARE_WT/$BARE_HOOKS_DIR" ;;
+esac
+BARE_HOOK_DST="$BARE_HOOKS_DIR/pre-commit"
+
+if [[ -L "$BARE_HOOK_DST" ]] && [[ "$BARE_HOOK_DST" -ef "$BARE_WT/hooks/pre-commit" ]]; then
+  _pass "bare-repo case (DS-152 round 3, bare-repo coverage gap): falls back to repo_dir's own hooks/pre-commit and installs"
+else
+  _fail "bare-repo case (DS-152 round 3 regression, bare-repo coverage gap): fallback install did not land at repo_dir's own hooks/pre-commit. Output: $OUT"
+fi
+
+# ============================================================
 # Test 10: DS-152 round 2 (Minor) - uninstall must still remove a hook that
 #          was installed by PRE-DS-152 code pointing at a worktree's own
 #          hooks/pre-commit, not the primary checkout's.
@@ -712,7 +777,9 @@ else
   _fail "legacy-target uninstall case: uninstall_precommit_hook exited $RC. Output: $OUT"
 fi
 
-if [[ ! -e "$LEGACY_HOOK_DST" ]]; then
+# `! -e` alone follows symlinks and would false-pass on a dangling
+# leftover symlink - assert `! -L` too.
+if [[ ! -e "$LEGACY_HOOK_DST" ]] && [[ ! -L "$LEGACY_HOOK_DST" ]]; then
   _pass "legacy-target uninstall case (DS-152 round 2, Minor): pre-DS-152 worktree-targeted hook actually removed"
 else
   _fail "legacy-target uninstall case (DS-152 round 2 regression, Minor): pre-DS-152 hook still present at $LEGACY_HOOK_DST, current target: $(readlink "$LEGACY_HOOK_DST" 2>&1). Output: $OUT"
@@ -722,6 +789,159 @@ if echo "$OUT" | grep -qi "not ours"; then
   _fail "legacy-target uninstall case (DS-152 round 2 regression, Minor): reported 'not ours' despite the target being a legacy sibling worktree hook. Output: $OUT"
 else
   _pass "legacy-target uninstall case (DS-152 round 2, Minor): did not falsely report 'not ours'"
+fi
+
+# ============================================================
+# Test 11: DS-152 round 3 (Major) - _pc_git_common_dir_abs must canonicalise,
+#          not just concatenate. Test 10 above only exercises the WORKTREE
+#          invocation of uninstall (both the calling repo_dir AND the legacy
+#          target are worktrees), which - even pre-fix - takes git's own
+#          already-canonical --git-common-dir output on both sides and so
+#          cannot redden this bug. The measured failure requires the
+#          PRIMARY-checkout invocation: repo_common_dir is computed from the
+#          non-worktree branch (pre-fix: raw string concatenation of
+#          repo_dir + ".git", NOT canonicalised) while target_common_dir (a
+#          worktree) is computed from git's own canonical
+#          --git-common-dir output - these differ whenever TMPDIR/HOME has a
+#          symlinked component (e.g. macOS's
+#          /var/folders -> /private/var/folders), and
+#          _pc_is_legacy_sibling_hook silently returns false, leaving the
+#          hook in place. This test targets that exact invocation shape.
+# ============================================================
+
+PRIMARY_INVOKE_MAIN="$TMP_ROOT/primary-invoke-main-repo"
+_make_fixture_repo "$PRIMARY_INVOKE_MAIN"
+
+PRIMARY_INVOKE_WT="$TMP_ROOT/primary-invoke-wt"
+git -C "$PRIMARY_INVOKE_MAIN" worktree add -q "$PRIMARY_INVOKE_WT" -b primary-invoke-wt-test-branch >/dev/null 2>&1
+
+# The shared hooks dir is common to both the primary checkout and its
+# worktree - resolve it from either side.
+PRIMARY_INVOKE_HOOKS_DIR="$(git -C "$PRIMARY_INVOKE_MAIN" rev-parse --git-path hooks)"
+case "$PRIMARY_INVOKE_HOOKS_DIR" in
+  /*) : ;;
+  *) PRIMARY_INVOKE_HOOKS_DIR="$PRIMARY_INVOKE_MAIN/$PRIMARY_INVOKE_HOOKS_DIR" ;;
+esac
+PRIMARY_INVOKE_HOOK_DST="$PRIMARY_INVOKE_HOOKS_DIR/pre-commit"
+
+# Hand-craft the PRE-DS-152 install shape at the shared hooks dir: symlinked
+# at the WORKTREE's own hooks/pre-commit, exactly as Test 10 does, but this
+# time the removal call below targets the PRIMARY checkout, not the
+# worktree.
+mkdir -p "$PRIMARY_INVOKE_HOOKS_DIR"
+ln -s "$PRIMARY_INVOKE_WT/hooks/pre-commit" "$PRIMARY_INVOKE_HOOK_DST"
+
+OUT="$(uninstall_precommit_hook "$PRIMARY_INVOKE_MAIN" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "primary-checkout-invocation legacy-target case (DS-152 round 3, Major): uninstall_precommit_hook exits 0"
+else
+  _fail "primary-checkout-invocation legacy-target case (DS-152 round 3, Major): uninstall_precommit_hook exited $RC. Output: $OUT"
+fi
+
+# `! -e` alone follows symlinks and would false-pass on a dangling leftover
+# symlink - assert `! -L` too.
+if [[ ! -e "$PRIMARY_INVOKE_HOOK_DST" ]] && [[ ! -L "$PRIMARY_INVOKE_HOOK_DST" ]]; then
+  _pass "primary-checkout-invocation legacy-target case (DS-152 round 3, Major): legacy sibling hook removed when uninstall is invoked from the PRIMARY checkout"
+else
+  _fail "primary-checkout-invocation legacy-target case (DS-152 round 3 regression, Major): legacy sibling hook still present at $PRIMARY_INVOKE_HOOK_DST when uninstall was invoked from the primary checkout (this is the _pc_git_common_dir_abs canonicalisation bug), current target: $(readlink "$PRIMARY_INVOKE_HOOK_DST" 2>&1). Output: $OUT"
+fi
+
+# ============================================================
+# Test 12: DS-152 round 3 (dangling-legacy-target-can-never-be-cleaned) - a
+#          legacy hook whose target worktree has ALREADY BEEN DELETED must
+#          still be removable, provided it lies under the repo's own known
+#          worktree roots (.claude/worktrees/ or .agentic/worktrees/).
+# ============================================================
+
+DANGLE_LEGACY_MAIN="$TMP_ROOT/dangle-legacy-main-repo"
+_make_fixture_repo "$DANGLE_LEGACY_MAIN"
+
+DANGLE_LEGACY_HOOKS_DIR="$(git -C "$DANGLE_LEGACY_MAIN" rev-parse --git-path hooks)"
+case "$DANGLE_LEGACY_HOOKS_DIR" in
+  /*) : ;;
+  *) DANGLE_LEGACY_HOOKS_DIR="$DANGLE_LEGACY_MAIN/$DANGLE_LEGACY_HOOKS_DIR" ;;
+esac
+DANGLE_LEGACY_HOOK_DST="$DANGLE_LEGACY_HOOKS_DIR/pre-commit"
+
+# resolve_primary_checkout canonicalises repo_dir (via _pc_canonicalize_dir)
+# before uninstall_precommit_hook passes it to _pc_is_legacy_sibling_hook's
+# path-prefix check, so the fixture's target path must be built from the
+# SAME canonical form - not the raw $DANGLE_LEGACY_MAIN string, which can
+# differ on a symlinked TMPDIR/HOME (e.g. macOS's
+# /var/folders -> /private/var/folders).
+DANGLE_LEGACY_MAIN_CANON="$(cd "$DANGLE_LEGACY_MAIN" && pwd -P)"
+
+# The dangling target's path lies under the repo's own known worktree root
+# (.claude/worktrees/) even though that directory no longer exists on disk -
+# simulating a Claude-harness worktree that was already deleted without its
+# legacy hook being uninstalled first.
+DANGLE_LEGACY_TARGET_DIR="$DANGLE_LEGACY_MAIN_CANON/.claude/worktrees/agent-deleted-example"
+mkdir -p "$DANGLE_LEGACY_HOOKS_DIR"
+ln -s "$DANGLE_LEGACY_TARGET_DIR/hooks/pre-commit" "$DANGLE_LEGACY_HOOK_DST"
+
+# Verify the fixture actually models "already deleted" - the target
+# directory must NOT exist.
+if [[ ! -d "$DANGLE_LEGACY_TARGET_DIR" ]]; then
+  _pass "dangling-legacy-target fixture: target worktree directory does not exist (fixture models an already-deleted worktree)"
+else
+  _fail "dangling-legacy-target fixture: target worktree directory unexpectedly exists (fixture setup bug)"
+fi
+
+OUT="$(uninstall_precommit_hook "$DANGLE_LEGACY_MAIN" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "dangling-legacy-target case (DS-152 round 3): uninstall_precommit_hook exits 0"
+else
+  _fail "dangling-legacy-target case (DS-152 round 3): uninstall_precommit_hook exited $RC. Output: $OUT"
+fi
+
+# `! -e` alone follows symlinks and would false-pass on the exact dangling
+# case this test exists to check - assert `! -L` too.
+if [[ ! -e "$DANGLE_LEGACY_HOOK_DST" ]] && [[ ! -L "$DANGLE_LEGACY_HOOK_DST" ]]; then
+  _pass "dangling-legacy-target case (DS-152 round 3): dangling legacy hook under a known worktree root actually removed"
+else
+  _fail "dangling-legacy-target case (DS-152 round 3 regression): dangling legacy hook still present at $DANGLE_LEGACY_HOOK_DST, current target: $(readlink "$DANGLE_LEGACY_HOOK_DST" 2>&1). Output: $OUT"
+fi
+
+# ------------------------------------------------------------------
+# Test 12b: the SAME dangling-target shape, but OUTSIDE the repo's known
+#           worktree roots, must NOT be removed - the path constraint exists
+#           precisely to avoid widening into a foreign dangling hook that
+#           merely happens to be unreachable.
+# ------------------------------------------------------------------
+
+DANGLE_FOREIGN_MAIN="$TMP_ROOT/dangle-foreign-main-repo"
+_make_fixture_repo "$DANGLE_FOREIGN_MAIN"
+
+DANGLE_FOREIGN_HOOKS_DIR="$(git -C "$DANGLE_FOREIGN_MAIN" rev-parse --git-path hooks)"
+case "$DANGLE_FOREIGN_HOOKS_DIR" in
+  /*) : ;;
+  *) DANGLE_FOREIGN_HOOKS_DIR="$DANGLE_FOREIGN_MAIN/$DANGLE_FOREIGN_HOOKS_DIR" ;;
+esac
+DANGLE_FOREIGN_HOOK_DST="$DANGLE_FOREIGN_HOOKS_DIR/pre-commit"
+
+# Target lies outside both known worktree roots - some unrelated, already
+# deleted directory that happens to end in /hooks/pre-commit.
+DANGLE_FOREIGN_TARGET_DIR="$TMP_ROOT/some-unrelated-deleted-checkout"
+mkdir -p "$DANGLE_FOREIGN_HOOKS_DIR"
+ln -s "$DANGLE_FOREIGN_TARGET_DIR/hooks/pre-commit" "$DANGLE_FOREIGN_HOOK_DST"
+
+OUT="$(uninstall_precommit_hook "$DANGLE_FOREIGN_MAIN" 2>&1)"
+RC=$?
+
+if [[ $RC -eq 0 ]]; then
+  _pass "dangling-foreign-target case (DS-152 round 3): uninstall_precommit_hook exits 0"
+else
+  _fail "dangling-foreign-target case (DS-152 round 3): uninstall_precommit_hook exited $RC. Output: $OUT"
+fi
+
+if [[ -L "$DANGLE_FOREIGN_HOOK_DST" ]] && [[ "$(readlink "$DANGLE_FOREIGN_HOOK_DST")" == "$DANGLE_FOREIGN_TARGET_DIR/hooks/pre-commit" ]]; then
+  _pass "dangling-foreign-target case (DS-152 round 3): dangling hook outside known worktree roots left untouched, not widened into"
+else
+  _fail "dangling-foreign-target case (DS-152 round 3 regression): dangling hook outside known worktree roots was removed - the path constraint failed to scope the fix. Output: $OUT"
 fi
 
 # ---- Results ----
