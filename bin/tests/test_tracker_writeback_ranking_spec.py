@@ -845,14 +845,14 @@ def test_invocation_contract_pass_list_has_diagnostic_and_team_params_referencin
 # more than one sentence - a bare "twenty in text" presence check would stay
 # green even if only one of the two sentences were bumped.
 TOGGLE_COUNT_FILES = [
-    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-one methodology toggles"),
-    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-one methodology toggles (one reserved/inert"),
-    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-one project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-one-toggle project config catalog"),
-    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-one project-level orchestration toggles"),
-    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-one toggles"),
-    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-one methodology toggles"),
-    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 21 behavioral toggles"),
+    (REPO_ROOT / "README.md", "seeded by `/ds-init-project` and holds twenty-two methodology toggles"),
+    (REPO_ROOT / "README.md", "`.agentic/config.json` holds twenty-two methodology toggles (one reserved/inert"),
+    (REPO_ROOT / "content" / "sections" / "04-risk-classification.md", "resolve twenty-two project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "twenty-two-toggle project config catalog"),
+    (REPO_ROOT / "content" / "references" / "risk-config-and-tiers.md", "resolve twenty-two project-level orchestration toggles"),
+    (REPO_ROOT / "content" / "references" / "conventions-detail.md", "seeded with defaults by `/ds-init-project`. Twenty-two toggles"),
+    (REPO_ROOT / "docs" / "components.md", "the committed `.agentic/config.json` holds twenty-two methodology toggles"),
+    (REPO_ROOT / "docs" / "configuration-reference.md", "no behavior change. The 22 behavioral toggles"),
 ]
 
 TOGGLE_SEED_FILES = [
@@ -914,47 +914,53 @@ def test_toggle_doc_sync_full_eight_site_checklist():
 _ENFORCER_SUBCOUNT_SITES = [
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "by seven of the eight enforce-*.py hooks - every one except `enforce-no-abdication.py`",
+        "by eight of the nine enforce-*.py hooks - every one except `enforce-no-abdication.py`",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "for the seven enforce-*.py hooks' best-effort dynamic import",
+        "for the eight enforce-*.py hooks' best-effort dynamic import",
     ),
     (
         REPO_ROOT / "hooks" / "AGENTS.md",
-        "Seven of the eight enforce-*.py hooks additionally",
+        "Eight of the nine enforce-*.py hooks additionally",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "seven of the eight `hooks/enforce-*.py` PreToolUse/Stop hooks",
+        "eight of the nine `hooks/enforce-*.py` PreToolUse/Stop hooks",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        "one of the seven consumer hooks enumerated below",
+        "one of the eight consumer hooks enumerated below",
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (five hooks - `enforce-askuserquestion-default.py`, '
+        '`"deny"` (six hooks - `enforce-askuserquestion-default.py`, '
         "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
-        "`enforce-shippable-edit.py`, `enforce-tier.py`) and `\"allow_advisory\"` "
+        "`enforce-shippable-edit.py`, `enforce-tier.py`, `enforce-worktree-read.py`) "
+        'and `"allow_advisory"` '
         "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
     ),
 ]
 
-# Bidirectional and case-insensitive: "six" followed by "enforce" within one
-# sentence (catches "six of the seven enforce-*.py", "the six enforce-*.py
-# hooks", and the capitalized "Six of the seven enforce-*.py hooks"), OR
-# "enforce" followed by "six" within one sentence (catches "...enforce-
-# shippable-edit" - one of the six consumer hooks"). The `[^.]{0,80}` bound
-# stops the match from crossing a sentence boundary into an unrelated "six".
+# Bidirectional and case-insensitive: "seven" followed by "enforce" within one
+# sentence (catches "seven of the eight enforce-*.py", "the seven enforce-*.py
+# hooks", and the capitalized "Seven of the eight enforce-*.py hooks"), OR
+# "enforce" followed by "seven" within one sentence (catches "...enforce-
+# shippable-edit" - one of the seven consumer hooks"). The `[^.]{0,80}` bound
+# stops the match from crossing a sentence boundary into an unrelated "seven".
+# Target word bumped from "six" to "seven" in the same pass that bumped the
+# live phrasing from seven/eight to eight/nine - "six" is now itself a live,
+# correct cardinal (the deny-hook enumeration at events-log.md:130), so
+# leaving the sentinel on "six" would false-positive against that legitimate
+# use; "seven" is the value that just went stale.
 # Known limitation (tracked as a follow-up, not fixed here): this sweep is
-# lowercase/capitalized-word-form and value-keyed to "six" - it goes silent
-# once the live count moves past seven (when "seven" itself becomes stale),
-# and it does not catch numeral ("6 of the 7") or decomposed-enumeration
-# forms (the events-log.md:130 defect this pass fixed is pinned by exact
-# membership text above, not by this regex).
+# lowercase/capitalized-word-form and value-keyed to a single cardinal - it
+# goes silent once the live count moves past eight (when "eight" itself
+# becomes stale), and it does not catch numeral ("7 of the 8") or decomposed-
+# enumeration forms (the events-log.md:130 defect a prior pass fixed is
+# pinned by exact membership text above, not by this regex).
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
-    r"\bsix\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bsix\b",
+    r"\bseven\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bseven\b",
     re.IGNORECASE,
 )
 

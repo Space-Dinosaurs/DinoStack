@@ -6,7 +6,7 @@ Purpose: Shared fire-logging helper for AE's Python enforce-*.py
          non-passthrough action (deny, or an allow-with-advisory-reason).
          A silent allow (the overwhelming majority of invocations) never
          calls this - only actions are logged, so the file stays small
-         and cheap to read. This exists because seven of the eight
+         and cheap to read. This exists because eight of the nine
          enforce-*.py hooks currently leave no trace of whether they have
          ever fired, making an inert rule indistinguishable from a
          load-bearing one (see MEMORY.md / session notes on the

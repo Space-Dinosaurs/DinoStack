@@ -91,6 +91,42 @@ EOF
 done
 
 # ---------------------------------------------------------------------------
+# Seed 5 (git-level sandbox): running the REAL .claude/install.sh from an
+# isolation worktree calls scripts/lib/precommit.sh's
+# resolve_git_hooks_dir(), which shells out to
+# `git -C "$REPO_DIR" rev-parse --git-path hooks`. From inside a worktree
+# that resolves to the PRIMARY checkout's common `.git/hooks` dir (worktrees
+# share one common git dir), NOT this worktree's own hooks - so an
+# unsandboxed run of this test would re-point the live primary checkout's
+# `.git/hooks/pre-commit` symlink at this disposable worktree, leaving a
+# dangling symlink (a silently dead pre-commit gate) once the worktree is
+# removed. REPO_DIR is derived from install.sh's own on-disk location
+# (`$(dirname "${BASH_SOURCE[0]}")/..`), so it cannot be redirected via an
+# install.sh argument - the sandbox has to intercept the git call itself.
+#
+# A `git` shim is placed ahead of the real git on PATH. It recognises ONLY
+# the exact `rev-parse --git-path hooks` query (regardless of any `-C <dir>`
+# prefix) and answers with a scratch directory inside $TMP_ROOT instead of
+# delegating to the real git binary; every other git invocation (including
+# the `rev-parse --git-dir` repo_dir validation install.sh also performs)
+# passes through untouched to the real git so the rest of install.sh runs
+# exactly as it would unsandboxed.
+# ---------------------------------------------------------------------------
+REAL_GIT="$(command -v git)"
+SCRATCH_HOOKS_DIR="$TMP_ROOT/scratch-git-hooks"
+mkdir -p "$SCRATCH_HOOKS_DIR"
+cat > "$FAKE_BIN/git" <<EOF
+#!/usr/bin/env bash
+joined=" \$* "
+if [[ "\$joined" == *" rev-parse "* && "\$joined" == *" --git-path "* && "\$joined" == *" hooks"* ]]; then
+  echo "$SCRATCH_HOOKS_DIR"
+  exit 0
+fi
+exec "$REAL_GIT" "\$@"
+EOF
+chmod +x "$FAKE_BIN/git"
+
+# ---------------------------------------------------------------------------
 # Seed 4: ~/.claude/settings.json with permissions.defaultMode already set to
 # bypassPermissions -> suppresses the tty_input permissions-configuration
 # prompt (its gate reads perms.get("defaultMode"), which is otherwise only
@@ -99,6 +135,22 @@ done
 cat > "$FAKE_HOME/.claude/settings.json" <<'EOF'
 {"permissions":{"defaultMode":"bypassPermissions"}}
 EOF
+
+# ---------------------------------------------------------------------------
+# Snapshot the AMBIENT git hooks dir (resolved via the real, unsandboxed
+# git) before running install.sh, so we can assert afterward that this
+# test's git shim actually prevented any mutation of it.
+# ---------------------------------------------------------------------------
+AMBIENT_HOOKS_DIR="$("$REAL_GIT" -C "$REPO_DIR" rev-parse --git-path hooks 2>/dev/null)"
+case "$AMBIENT_HOOKS_DIR" in
+  /*) : ;;
+  *) AMBIENT_HOOKS_DIR="$REPO_DIR/$AMBIENT_HOOKS_DIR" ;;
+esac
+AMBIENT_PRECOMMIT="$AMBIENT_HOOKS_DIR/pre-commit"
+AMBIENT_PRECOMMIT_BEFORE=""
+if [[ -L "$AMBIENT_PRECOMMIT" ]]; then
+  AMBIENT_PRECOMMIT_BEFORE="$(readlink "$AMBIENT_PRECOMMIT")"
+fi
 
 echo ""
 echo "=== Running .claude/install.sh against a fully-seeded fake HOME ==="
@@ -169,6 +221,28 @@ if [[ "$READ_CMD" == python3* ]]; then
   _fail "installed command starts with a bare 'python3' invocation (unguarded - CRITICAL-1 regression): '$READ_CMD'"
 else
   _pass "installed command does not start with a bare, unguarded 'python3' invocation"
+fi
+
+# ---------------------------------------------------------------------------
+# Sandbox-effectiveness assertions (MINOR-D): confirm the git shim actually
+# redirected install_precommit_hook() into the scratch dir, and that the
+# AMBIENT (real, unsandboxed) git hooks dir's pre-commit symlink is
+# byte-for-byte unchanged from before this test ran.
+# ---------------------------------------------------------------------------
+if [[ -L "$SCRATCH_HOOKS_DIR/pre-commit" ]]; then
+  _pass "pre-commit hook was installed into the scratch git-hooks sandbox, not the ambient hooks dir"
+else
+  _fail "expected a pre-commit symlink at scratch hooks dir '$SCRATCH_HOOKS_DIR/pre-commit' - sandbox shim may not have intercepted the git call"
+fi
+
+AMBIENT_PRECOMMIT_AFTER=""
+if [[ -L "$AMBIENT_PRECOMMIT" ]]; then
+  AMBIENT_PRECOMMIT_AFTER="$(readlink "$AMBIENT_PRECOMMIT")"
+fi
+if [[ "$AMBIENT_PRECOMMIT_AFTER" == "$AMBIENT_PRECOMMIT_BEFORE" ]]; then
+  _pass "ambient git hooks dir's pre-commit symlink is unchanged by this test run (before: '$AMBIENT_PRECOMMIT_BEFORE', after: '$AMBIENT_PRECOMMIT_AFTER')"
+else
+  _fail "ambient git hooks dir's pre-commit symlink CHANGED (sandbox failed to prevent live mutation): before '$AMBIENT_PRECOMMIT_BEFORE', after '$AMBIENT_PRECOMMIT_AFTER'"
 fi
 
 # ---------------------------------------------------------------------------
