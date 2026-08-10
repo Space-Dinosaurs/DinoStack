@@ -785,6 +785,113 @@ def test_append_retries_when_canonical_parent_rotates_before_publication():
         print("PASS test_append_retries_when_canonical_parent_rotates_before_publication")
 
 
+def test_lock_timeout_retries_with_backoff_and_succeeds():
+    """DS-158 round 2: a transient lock-timeout RuntimeError from
+    _lock_fd_exclusive must be retried by _write_jsonl_safely's attempt
+    loop, not swallowed after a single attempt. Round 1 only raised the
+    per-attempt timeout (2.0s -> 5.0s); that timeout still escaped the
+    loop's `except FileNotFoundError` entirely and was caught only by the
+    function's outer except, one shot, no retry - a bigger single wait does
+    not change that shape. This forces two consecutive lock-timeout raises
+    (matching what a real flock timeout raises, regardless of exact
+    exception subclass) before delegating to the real flock, and asserts
+    the record still lands durably and that more than one attempt occurred.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve()
+        log_path = root / "session-log" / "lock-timeout-dev.jsonl"
+        log_path.parent.mkdir(parents=True)
+        line = json.dumps(
+            {"session_uuid": "lock-timeout-retry", "data": {"tokens": {"total": 3}}},
+            separators=(",", ":"),
+        )
+
+        original_lock = _mod._lock_fd_exclusive
+        attempts = {"n": 0}
+
+        def flaky_lock(fd, *, timeout):
+            attempts["n"] += 1
+            if attempts["n"] <= 2:
+                # Same exception family a real flock timeout raises
+                # (RuntimeError); a plain RuntimeError here (rather than the
+                # production-only _LockTimeoutError subclass) keeps this
+                # test meaningful against a checkout that has not yet
+                # defined that subclass, since what must be proven is that
+                # the RETRY LOOP catches the timeout family, not that one
+                # specific subclass exists.
+                raise RuntimeError("forced test lock timeout")
+            return original_lock(fd, timeout=timeout)
+
+        _mod._lock_fd_exclusive = flaky_lock
+        try:
+            ok = _mod._append_jsonl_safely(log_path, line)
+        finally:
+            _mod._lock_fd_exclusive = original_lock
+
+        assert ok is True, "a transient lock timeout must not drop the record"
+        assert attempts["n"] == 3, (
+            "expected exactly two forced timeouts before the real lock "
+            f"succeeded on the third attempt, got {attempts['n']}"
+        )
+        rows = [
+            json.loads(raw)
+            for raw in log_path.read_text(encoding="utf-8").splitlines()
+            if raw.strip()
+        ]
+        assert [row["session_uuid"] for row in rows] == ["lock-timeout-retry"], rows
+        print("PASS test_lock_timeout_retries_with_backoff_and_succeeds")
+
+
+def test_lock_timeout_gives_up_after_budget_exhausted_without_raising_to_caller():
+    """A permanently-contended lock must still fail closed: _append_jsonl_safely
+    returns False rather than raising to its caller, and the give-up path
+    terminates within a bounded window rather than hanging. Shrinks the
+    module's lock-retry budget/per-attempt cap for the duration of the test
+    so the exhaustion path resolves quickly and deterministically."""
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp).resolve()
+        log_path = root / "session-log" / "lock-timeout-exhausted.jsonl"
+        log_path.parent.mkdir(parents=True)
+        line = json.dumps({"session_uuid": "lock-timeout-exhausted"}, separators=(",", ":"))
+
+        original_lock = _mod._lock_fd_exclusive
+        original_budget = getattr(_mod, "SESSION_LOG_LOCK_BUDGET_SECONDS", None)
+        original_cap = getattr(
+            _mod, "SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS", None
+        )
+
+        def always_timeout(fd, *, timeout):
+            raise RuntimeError("forced permanent test lock timeout")
+
+        _mod._lock_fd_exclusive = always_timeout
+        # Shrink the budget (when present - round-1 code has no such
+        # constant, and the give-up path there is bounded by its own single
+        # 5.0s attempt regardless) so this resolves quickly under test.
+        if original_budget is not None:
+            _mod.SESSION_LOG_LOCK_BUDGET_SECONDS = 0.2
+        if original_cap is not None:
+            _mod.SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS = 0.05
+        try:
+            started = time.monotonic()
+            ok = _mod._append_jsonl_safely(log_path, line)
+            elapsed = time.monotonic() - started
+        finally:
+            _mod._lock_fd_exclusive = original_lock
+            if original_budget is not None:
+                _mod.SESSION_LOG_LOCK_BUDGET_SECONDS = original_budget
+            if original_cap is not None:
+                _mod.SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS = original_cap
+
+        assert ok is False, "a permanently-contended lock must fail closed, not raise"
+        assert elapsed < 5.0, (
+            f"give-up path must not exceed a bounded budget, took {elapsed:.2f}s"
+        )
+        assert log_path.read_text(encoding="utf-8") == ""
+        print(
+            "PASS test_lock_timeout_gives_up_after_budget_exhausted_without_raising_to_caller"
+        )
+
+
 def test_missing_log_race_dedups_against_locked_append_fd():
     """The first flush reads UUIDs only after opening and locking the log fd."""
     with tempfile.TemporaryDirectory() as tmp:
@@ -3513,6 +3620,8 @@ if __name__ == "__main__":
     test_flush_replaces_attributed_total_published_immediately_after_claim()
     test_append_retries_when_canonical_log_rotates_before_flock()
     test_append_retries_when_canonical_parent_rotates_before_publication()
+    test_lock_timeout_retries_with_backoff_and_succeeds()
+    test_lock_timeout_gives_up_after_budget_exhausted_without_raising_to_caller()
     test_missing_log_race_dedups_against_locked_append_fd()
     test_profile_confirmed_beats_confirmed_global()
     test_project_confirmed_beats_confirmed_profile()
