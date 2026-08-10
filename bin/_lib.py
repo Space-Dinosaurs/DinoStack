@@ -30,6 +30,7 @@ Upstream deps: Python 3 stdlib only (contextlib, fcntl, os, time, pathlib).
 
 Downstream consumers: bin/ds-config (atomic_write), bin/ds-defer (both
                       helpers), bin/ds-feedback (both helpers),
+                      bin/ds-learning-shard (both helpers),
                       bin/ds-migrate (atomic_write), bin/ds-tracker
                       (atomic_write). bin/ds-identity does NOT use this
                       module - it ships its own _atomic_write_identity and

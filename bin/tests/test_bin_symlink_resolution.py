@@ -58,6 +58,7 @@ CASES = [
     ("agentic-team", ["--help"], 0),
     ("agentic-tracker", ["--help"], 0),
     ("agentic-branch-prune", ["--help"], 0),
+    ("agentic-learning-shard", ["--help"], 0),
 ]
 
 # Completeness backstop: every bin/agentic-* python CLI that carries the
