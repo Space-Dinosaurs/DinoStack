@@ -949,7 +949,7 @@ _ENFORCER_SUBCOUNT_SITES = [
 # "enforce" followed by "five" within one sentence (catches "...enforce-
 # shippable-edit" - one of the five consumer hooks"). The `[^.]{0,80}` bound
 # stops the match from crossing a sentence boundary into an unrelated "five".
-# Known limitation (tracked as a follow-up, not fixed here): this sweep is
+# Known limitations (tracked as a follow-up, not fixed here): this sweep is
 # lowercase/capitalized-word-form and value-keyed to "five" (the STALE
 # pre-DS-156 deny-subset count) - it goes silent once the live deny-subset
 # count moves past six (when "six" itself becomes stale), and it does not
@@ -961,7 +961,14 @@ _ENFORCER_SUBCOUNT_SITES = [
 # as its stale marker would flag the very phrasing the positive pin above
 # now requires. Retargeted to "five", the subset count DS-156 just retired,
 # to keep catching a stale restatement without colliding with the current
-# text it must coexist with.
+# text it must coexist with. A THIRD limitation this retarget introduces
+# (Skeptic Minor, round 1 finding): keying on "five" no longer catches a
+# stale TOTAL cardinal such as "six of the seven" (the pre-DS-156 total
+# hook count, distinct from the deny-subset count above), which keying on
+# "six" did. The positive pins above still confirm the current "seven of
+# the eight" / "six" phrasing is present, so residual risk is low, but a
+# reverted total-count restatement of the "six of the seven" shape would
+# not be caught by this sweep.
 _STALE_ENFORCER_SUBCOUNT_RE = re.compile(
     r"\bfive\b[^.]{0,80}\benforce|\benforce[^.]{0,80}\bfive\b",
     re.IGNORECASE,
