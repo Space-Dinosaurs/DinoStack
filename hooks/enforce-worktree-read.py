@@ -33,10 +33,12 @@ Purpose: PreToolUse hook that detects a worktree-isolated subagent reading a
            realpath-normalized before the containment test.
 
          Accepted limitations (intentional, not oversights):
-         - Only fires on the `Read` tool. Grep/Glob are not guarded by this
-           hook; scope was fixed by the ticket to Read (the only tool
-           confirmed as a working PreToolUse matcher for this purpose by
-           live capture).
+         - Only fires on the `Read` tool. Grep, Glob, and Bash (e.g. `cat
+           <primary path>`) are not guarded by this hook; scope was fixed
+           by the ticket to Read (the only tool confirmed as a working
+           PreToolUse matcher for this purpose by live capture). Bash in
+           particular is an equally unguarded read path and should not be
+           assumed covered.
          - Config-driven exemption list ships EMPTY - no built-in entries.
            A prior upstream handoff for this ticket carried an rclone.conf
            exemption that does not exist in this repo and was deliberately
@@ -50,7 +52,7 @@ Public API: Run as a Claude Code PreToolUse hook (matcher: "Read"). Reads
             JSON from stdin, writes hookSpecificOutput JSON to stdout only
             when denying, exits 0 always.
 
-Upstream deps: Python 3 stdlib only (json, os, sys, importlib.util).
+Upstream deps: Python 3 stdlib only (json, os, sys, pathlib, importlib.util).
                Reads CLAUDE_PROJECT_DIR from the process environment (the
                primary checkout root, per Claude Code hooks docs). Reads
                an optional exemption list from
@@ -108,6 +110,10 @@ Failure modes: FAIL-OPEN IS THE WHOLE POINT. Every failure mode below
 
 Performance: < 2 ms per call (in-memory JSON parse, a handful of path
              operations, one optional small JSON config read, no network).
+             Measured end-to-end (including interpreter startup) is ~37 ms
+             per invocation; unlike its Task/Write-matched siblings, this
+             hook is registered on the highest-frequency tool in the repo
+             (Read), so its per-call cost is paid far more often.
 """
 
 # Kill-switch + recovery:
@@ -144,8 +150,10 @@ DENY_MESSAGE_TEMPLATE = (
     "{agent_type_suffix}) read {path}, which resolves inside the PRIMARY "
     "checkout ({primary_root}) rather than this agent's own worktree "
     "({caller_root}). Reading outside your own worktree defeats isolation - "
-    "act only on the files inside your own branch. Kill-switch: "
-    "AE_WORKTREE_READ_GUARD_DISABLE=1."
+    "act only on the files inside your own branch. If this file is genuinely "
+    "needed, ask the conductor to include its content in your spawn brief, "
+    "or ask an operator to add its path to worktree_read_guard_exemptions "
+    "in <primary_root>/.agentic/config.json."
 )
 
 

@@ -114,6 +114,7 @@ MANAGED_HOOK_BASENAMES: frozenset[str] = frozenset([
     "enforce-background-spawn.py",
     "enforce-orchestrator-singularity.py",
     "enforce-shippable-edit.py",
+    "enforce-worktree-read.py",
     "post-tool-use-capture-nudge.js",
     "session-end-wrap.js",
     "session-start-version-check.sh",

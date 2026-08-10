@@ -200,7 +200,7 @@ The per-project marker only has effect in combination with the global activation
 
 ## Project config
 
-`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty-one methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
+`.agentic/config.json` is seeded by `/ds-init-project` and holds twenty-two methodology toggles (one, `qa_default_skip`, is reserved/inert). The file is committed alongside `qa.md` and `deploy.md` - it travels with the repo. If absent, every toggle uses its default and nothing breaks.
 
 - `debugger_on_failure` - boolean, default `false`. Interposes a Debugger diagnosis step before each Phase 7 engineer fix pass on quality-gate failures (Elevated path only).
 - `qa_default_skip` - reserved; no-op. Documented for schema completeness; does not alter QA-gate behavior.
@@ -223,6 +223,7 @@ The per-project marker only has effect in combination with the global activation
 - `pending_merge_sweep` - boolean, default `true`. Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable.
 - `tracker_state_diagnostic` - boolean, default `true`. Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable.
 - `turn_shape_guard_enabled` - boolean, default `true` (absent key resolves to on). Advisory Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule and never blocks the stop, only logs; a two-layer loop guard (`stop_hook_active` silent-exit plus a per-`cwd` counter cap of 2, sharing machinery with the abdication guard via `hooks/lib/loop_guard.py`) bounds how many times the advisory can re-invoke the model on consecutive non-conforming turns; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1`.
+- `worktree_read_guard_exemptions` - list of strings, default `[]`. Each entry is a path prefix (relative to the primary checkout root) exempted from the worktree-isolation read guard; a worktree-isolated subagent's `Read` under an exempt prefix is allowed even though it reaches into the primary checkout. Read by `hooks/enforce-worktree-read.py`; kill-switch: `AE_WORKTREE_READ_GUARD_DISABLE=1`.
 
 Full field reference including related tuning keys (`storybook_url`, `deferred_wrap_*`): see `content/rules/conventions.md` §Project Config.
 
@@ -278,7 +279,7 @@ ds-config (interactive settings viewer/editor for methodology mode/profile/toggl
 
 **Hooks / Plugins** - lifecycle event handlers for risk reminders and session context saving. Claude Code uses native hooks; OpenCode uses a plugin that writes session context when the session becomes idle.
 
-**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-one methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
+**Project config / overview layer** - the committed `.agentic/config.json` holds twenty-two methodology toggles (one reserved/inert; full list in the [Project config](#project-config) section above). The operator-owned `docs/overview/{vision,requirements}.md` files capture durable product intent above the task level; Architect and Investigator read them when present and must not contradict them. Both are optional and graceful - if absent, defaults apply and nothing breaks.
 
 ## Identity and Telemetry
 

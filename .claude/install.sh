@@ -1028,7 +1028,17 @@ for file_matcher in ("Write", "Edit", "MultiEdit"):
 # containment test. Never fires on a main-session call (agent_id absent) or
 # a subagent that is not worktree-isolated. Fully fail-open on any error.
 # Kill-switch: AE_WORKTREE_READ_GUARD_DISABLE=1.
-ENFORCE_WORKTREE_READ_CMD = f"python3 {hooks_root}/hooks/enforce-worktree-read.py"
+#
+# Uses a GUARDED command string, unlike a bare `python3 {path}` form:
+# `python3 <missing path>` exits 2 (the BLOCKING PreToolUse code), so if
+# this file were ever removed while the registration survives in the
+# operator's settings.json, every Read in every session (conductor
+# included) would silently deny until hand-fixed. The
+# `test -f ... && ... || exit 0` guard prevents that.
+ENFORCE_WORKTREE_READ_CMD = (
+    f"test -f {hooks_root}/hooks/enforce-worktree-read.py && "
+    f"python3 {hooks_root}/hooks/enforce-worktree-read.py || exit 0"
+)
 
 ptu_worktree_read_block = None
 for block in ptu_list:

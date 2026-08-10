@@ -208,8 +208,44 @@ check_deny(
     "subagent reading primary content while worktree-isolated -> DENY",
     make_payload("Read", PRIMARY_TARGET, agent_id="wk-1", agent_type="engineer", cwd=WORKTREE),
     primary_root=PRIMARY,
-    must_contain=("Worktree-read guard", PRIMARY_TARGET, "wk-1"),
+    must_contain=("Worktree-read guard", PRIMARY_TARGET, "wk-1", "agent_type='engineer'"),
 )
+
+# agent_type must NOT appear in the deny reason when absent from the
+# payload (the field is optional context, never a gate on its own).
+check_deny(
+    "subagent with no agent_type in payload -> DENY, reason omits agent_type=",
+    json.dumps(
+        {
+            "tool_name": "Read",
+            "agent_id": "wk-1",
+            "cwd": WORKTREE,
+            "tool_input": {"file_path": PRIMARY_TARGET},
+        }
+    ),
+    primary_root=PRIMARY,
+    must_contain=("Worktree-read guard", "wk-1"),
+)
+_rc_noat, _stdout_noat, _stderr_noat = run_hook(
+    json.dumps(
+        {
+            "tool_name": "Read",
+            "agent_id": "wk-1",
+            "cwd": WORKTREE,
+            "tool_input": {"file_path": PRIMARY_TARGET},
+        }
+    ),
+    primary_root=PRIMARY,
+)
+total += 1
+_, _reason_noat = is_deny(_rc_noat, _stdout_noat)
+_ok_noat = "agent_type=" not in _reason_noat
+status = "PASS" if _ok_noat else "FAIL"
+if not _ok_noat:
+    failed += 1
+print(f"  [{status}] absent agent_type produces no agent_type= substring in deny reason")
+if not _ok_noat:
+    print(f"         reason: {_reason_noat!r}")
 
 # ---------------------------------------------------------------------------
 # 5. Path outside the primary root entirely -> ALLOW.
@@ -245,12 +281,59 @@ check_deny(
 
 # A non-normalized path (../ segments) that resolves inside primary_root
 # via the worktree itself must still be recognized as "own worktree" ->
-# ALLOW (proves normalization works both directions, not just for denies).
+# ALLOW. NOTE: os.path.abspath() already collapses ".." segments on its
+# own, so this case does NOT by itself prove realpath() (vs. abspath())
+# normalization of the TARGET operand - mutating _resolve_target's
+# realpath() call to abspath() leaves this assertion green (only the
+# symlink DENY case above and the null-byte fail-open case catch that
+# mutation). This case exists to confirm the dotdot form resolves to the
+# correct own-worktree file at all, not to pin realpath-vs-abspath
+# behavior on the target operand.
 _dotdot_path = os.path.join(WORKTREE, "content", "..", "content", "own.md")
 check_allow(
     "dotdot-relative path resolving to own worktree file -> ALLOW",
     make_payload("Read", _dotdot_path, agent_id="wk-1", agent_type="engineer", cwd=WORKTREE),
     primary_root=PRIMARY,
+)
+
+# ---------------------------------------------------------------------------
+# 6b. Non-canonical (symlinked) primary_root and caller_root operands must
+#     still be realpath-normalized before the containment test (MAJOR-3).
+#     make_primary_and_worktree() derives both roots via
+#     os.path.realpath(tempfile.mkdtemp(...)), so every case above hands
+#     the hook already-canonical roots and cannot distinguish "the hook
+#     normalizes primary_root/caller_root itself" from "the fixture
+#     already did it" - stripping either os.path.realpath() call in the
+#     hook (primary_root or caller_root) left all other tests green.
+#     These cases pass a SYMLINK alias (lexically non-canonical) as
+#     CLAUDE_PROJECT_DIR and/or the payload's cwd; the expected DENY only
+#     survives if the hook re-normalizes that operand itself.
+# ---------------------------------------------------------------------------
+print("-- non-canonical symlink primary_root/caller_root still normalized --")
+_symop_primary, _symop_worktree = make_primary_and_worktree()
+_symop_target = os.path.join(_symop_primary, "content", "foo.md")
+
+# primary_root operand is a symlink alias; caller_root operand is canonical.
+_primary_alias_parent = tempfile.mkdtemp(prefix="test-wtread-primary-alias-")
+_primary_alias = os.path.join(_primary_alias_parent, "primary-link")
+os.symlink(_symop_primary, _primary_alias)
+check_deny(
+    "CLAUDE_PROJECT_DIR is a non-canonical symlink alias -> still DENY",
+    make_payload("Read", _symop_target, agent_id="wk-1", agent_type="engineer", cwd=_symop_worktree),
+    primary_root=_primary_alias,
+    must_contain=("Worktree-read guard",),
+)
+
+# caller_root operand (payload cwd) is a symlink alias; primary_root operand
+# is canonical.
+_worktree_alias_parent = tempfile.mkdtemp(prefix="test-wtread-worktree-alias-")
+_worktree_alias = os.path.join(_worktree_alias_parent, "worktree-link")
+os.symlink(_symop_worktree, _worktree_alias)
+check_deny(
+    "payload cwd is a non-canonical symlink alias -> still DENY",
+    make_payload("Read", _symop_target, agent_id="wk-1", agent_type="engineer", cwd=_worktree_alias),
+    primary_root=_symop_primary,
+    must_contain=("Worktree-read guard",),
 )
 
 # ---------------------------------------------------------------------------
