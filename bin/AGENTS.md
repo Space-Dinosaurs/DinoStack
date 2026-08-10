@@ -19,7 +19,7 @@ sunset (external cron jobs and shell aliases reference it).
 | `ds-calibrate` | Python | Render Skeptic calibration rollups (findings density, meta-Skeptic divergence rate) from `.agentic/events.jsonl`. |
 | `ds-cost` | Python | Token / wall-time / dollar rollups per agent, session, task, and developer team from `.agentic/events.jsonl` and session logs. |
 | `ds-disable` | Python | Append the opt-out marker to `AGENTS.md`; optionally update the global config. |
-| `ds-doctor` | Python | Inspect and repair global install health (symlinks, bin wrappers, hook paths in `settings.json`). |
+| `ds-doctor` | Python | Inspect and repair global install health (symlinks, bin wrappers, hook paths in `settings.json`, DS-54 hooks-snapshot staleness). |
 | `ds-emit` | Bash | Append one structured JSON event to `.agentic/events.jsonl` at orchestration boundaries. |
 | `ds-feedback` | Python | Manage the home-dir feedback store (`~/.agentic/feedback.jsonl`) - append/list/mark operator and agent friction items. |
 | `ds-help` | Python | Print the static slash-command reference to stdout. Zero file I/O; never fails. |
@@ -30,7 +30,7 @@ sunset (external cron jobs and shell aliases reference it).
 | `ds-parse-subagent-usage` | Python | Parse a Claude Code subagent transcript JSONL and emit `{tokens, model, wall_seconds}` for `spawn_complete` events. |
 | `ds-status` | Python | Read-only dump of the activation resolver state with provenance and plain-English explainer. |
 | `ds-tracker` | Python | Manage the project-local, gitignored `.agentic/tracker.yml` tracker-config overlay (`init` / `show` / `set` / `resolve` / `path`), merged field-by-field over the `AGENTS.md` tracker resolution chain. |
-| `ds-update` | Python | Non-interactive updater: fetch origin, rebuild adapters, reset version-check cache, run `ds-doctor --fix`. |
+| `ds-update` | Python | Non-interactive updater: fetch origin, rebuild adapters (forcing the loop even when `old_head==new_head` if the local DS-54 hooks-snapshot has diverged from the live checkout), reset version-check cache, run `ds-doctor --fix`. |
 | `ds-wrap-acquire-lock` | Node | Poll-wait (background) for the /ds-wrap directory lock, exiting when acquired, on a 20-minute timeout, or (`--no-wait`) immediately busy; publishes a role-tagged (`--role=agent\|daemon\|commit`) lock descriptor and structurally never removes a lock. |
 | `ds-wrap-release-lock` | Node | Release the `/ds-wrap` directory lock (`.agentic/wrap/lock`) safely where `rm -rf` is permission-denied; owner-scoped - refuses removal when the descriptor names a live foreign-process PID, and refuses to touch anything at the lock path that isn't a lock directory it created. |
 

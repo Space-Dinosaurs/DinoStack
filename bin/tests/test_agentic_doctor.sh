@@ -705,6 +705,222 @@ fi
 rm -rf "$TEMP_HOME"
 
 # ---------------------------------------------------------------------------
+# Test 15 (DS-54, Skeptic round-2 Major 3): half_applied is NOT reported as
+# resolved by --fix. sync_hooks_snapshot only refreshes snapshot CONTENT -
+# it never rewrites an adapter's own hook config. Construct a fixture with a
+# REAL synced snapshot (so it's not never_migrated) plus a
+# TEMP_HOME/.claude/settings.json whose session-start-wrap.sh command still
+# points at the checkout, not the snapshot (half_applied's own trigger
+# condition per hooks/lib/hooks-staleness-core.sh). --fix must exit 2
+# (unfixable) with an actionable message, and a subsequent read-only scan
+# must still report the identical half_applied finding.
+# ---------------------------------------------------------------------------
+setup_hooks_snapshot_fixture
+
+# Pre-sync a real snapshot for REPO_ROOT under this isolated TEMP_HOME, so
+# the fixture starts from "snapshot exists and is current", not
+# never_migrated - isolating the half_applied trigger from the other two
+# states.
+(
+  HOME="$TEMP_HOME"
+  export HOME
+  # shellcheck source=/dev/null
+  source "$REPO_ROOT/scripts/lib/hooks-snapshot.sh"
+  sync_hooks_snapshot "$REPO_ROOT" >/dev/null
+)
+
+# Adapter config still points its session-start-wrap.sh command AT THE
+# CHECKOUT (no "hooks-snapshot" substring) - the exact half_applied trigger.
+mkdir -p "$TEMP_HOME/.claude"
+cat > "$TEMP_HOME/.claude/settings.json" <<EOF
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {"type": "command", "command": "bash $REPO_ROOT/hooks/session-start-wrap.sh"}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+invoke_doctor --fix
+
+RC=$(cat "$TEMP_HOME/.exit")
+OUT=$(cat "$TEMP_HOME/.out")
+
+if [[ "$RC" == "2" ]]; then
+  _pass "T15 hooks_snapshot half_applied: --fix exits 2 (unfixable), not 0"
+else
+  _fail "T15 hooks_snapshot half_applied: expected exit 2, got $RC\n$OUT"
+fi
+
+if echo "$OUT" | grep -qi "half_applied is NOT resolved"; then
+  _pass "T15 hooks_snapshot half_applied: --fix reports half_applied unresolved, not silently claimed fixed"
+else
+  _fail "T15 hooks_snapshot half_applied: --fix did not report half_applied as unresolved\n$OUT"
+fi
+
+if echo "$OUT" | grep -qi "install.sh"; then
+  _pass "T15 hooks_snapshot half_applied: unfixable message names the install.sh remedy"
+else
+  _fail "T15 hooks_snapshot half_applied: unfixable message does not name install.sh\n$OUT"
+fi
+
+invoke_doctor --json
+RC2=$(cat "$TEMP_HOME/.exit")
+OUT2=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT2" | grep -q 'hooks_snapshot \[half_applied\]'; then
+  _pass "T15 hooks_snapshot half_applied: subsequent read-only scan still reports half_applied (not silently cleared)"
+else
+  _fail "T15 hooks_snapshot half_applied: subsequent scan no longer reports half_applied\n$OUT2"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 16 (DS-54, Skeptic round-2 Major 4): a hooks-staleness-core.sh that
+# exits NONZERO must be reported WARN, not silently treated as "current"
+# (OK). The classifier's own contract is "always exits 0" (fail-open); a
+# nonzero exit means it broke mid-run, and empty stdout in that case is NOT
+# evidence of "nothing to report" - it is evidence the check never
+# completed. Uses a standalone broken repo_dir (not REPO_ROOT) whose
+# hooks/lib/hooks-staleness-core.sh is a deliberate `exit 3` stub.
+# ---------------------------------------------------------------------------
+TEMP_HOME="$(mktemp -d)"
+BROKEN_REPO="$TEMP_HOME/broken-repo"
+mkdir -p "$BROKEN_REPO/.git" "$BROKEN_REPO/hooks/lib"
+cat > "$BROKEN_REPO/hooks/lib/hooks-staleness-core.sh" <<'BROKENEOF'
+#!/usr/bin/env bash
+exit 3
+BROKENEOF
+mkdir -p "$TEMP_HOME/.agentic"
+cat > "$TEMP_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$BROKEN_REPO"
+}
+EOF
+
+invoke_doctor --json
+
+OUT=$(cat "$TEMP_HOME/.out")
+
+if python3 -c "
+import json, sys
+data = json.load(open('$TEMP_HOME/.out'))
+found = [f for f in data['findings'] if f['message'].startswith('hooks_snapshot:')]
+sys.exit(0 if found and found[0]['status'] == 'WARN' else 1)
+" 2>/dev/null; then
+  _pass "T16 hooks_snapshot nonzero classifier exit: WARN, not OK/FAIL"
+else
+  _fail "T16 hooks_snapshot nonzero classifier exit: expected a WARN finding\n$OUT"
+fi
+
+if echo "$OUT" | grep -q "hooks snapshot is current"; then
+  _fail "T16 hooks_snapshot nonzero classifier exit: falsely reported current (affirmative green for a check that did not run)\n$OUT"
+else
+  _pass "T16 hooks_snapshot nonzero classifier exit: did NOT falsely report current"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
+# Test 17 (Skeptic round-2 Minor): pin the three literal substrings
+# check_hooks_snapshot_staleness parses out of hooks-staleness-core.sh's
+# stdout to classify never_migrated/half_applied/stale_but_stable. Without
+# this pin, a wording change in hooks-staleness-core.sh silently degrades
+# every classification to "unknown" (fails safe - the finding is still
+# surfaced as a FIX, just mislabeled - hence Minor, not Major) with no test
+# failure anywhere else to catch it.
+# ---------------------------------------------------------------------------
+_HSC_SCRIPT="$REPO_ROOT/hooks/lib/hooks-staleness-core.sh"
+
+if grep -qF "not yet snapshotted" "$_HSC_SCRIPT"; then
+  _pass "T17 literal pin: 'not yet snapshotted' (never_migrated) present in hooks-staleness-core.sh"
+else
+  _fail "T17 literal pin: 'not yet snapshotted' (never_migrated) NOT found in hooks-staleness-core.sh - ds-doctor's classifier will mislabel this state 'unknown'"
+fi
+
+if grep -qF "partially applied" "$_HSC_SCRIPT"; then
+  _pass "T17 literal pin: 'partially applied' (half_applied) present in hooks-staleness-core.sh"
+else
+  _fail "T17 literal pin: 'partially applied' (half_applied) NOT found in hooks-staleness-core.sh - ds-doctor's classifier will mislabel this state 'unknown'"
+fi
+
+if grep -qF "changed since the last snapshot sync" "$_HSC_SCRIPT"; then
+  _pass "T17 literal pin: 'changed since the last snapshot sync' (stale_but_stable) present in hooks-staleness-core.sh"
+else
+  _fail "T17 literal pin: 'changed since the last snapshot sync' (stale_but_stable) NOT found in hooks-staleness-core.sh - ds-doctor's classifier will mislabel this state 'unknown'"
+fi
+
+# ---------------------------------------------------------------------------
+# Test 18 (routed cross-unit item, precommit/worktree alignment): repo_dir
+# being a git WORKTREE (".git" is a FILE - a gitdir pointer - not a
+# directory there) must not crash check_git_precommit with a
+# NotADirectoryError. Before this fix, the hardcoded
+# `repo_dir / ".git" / "hooks" / "pre-commit"` path broke `mkdir(parents=True)`
+# the moment repo_dir's ".git" component turned out to be a file instead of
+# a directory - exactly the git-worktree case. Uses a REAL `git worktree
+# add` linked worktree (not a synthetic stand-in), since only real git
+# plumbing reproduces the file-vs-directory ".git" distinction.
+# ---------------------------------------------------------------------------
+TEMP_HOME="$(mktemp -d)"
+PRIMARY_REPO="$TEMP_HOME/primary-repo"
+mkdir -p "$PRIMARY_REPO"
+(
+  cd "$PRIMARY_REPO"
+  git init -q
+  git config user.email test@test.com
+  git config user.name Test
+  mkdir -p hooks
+  printf '#!/usr/bin/env bash\nexit 0\n' > hooks/pre-commit
+  chmod +x hooks/pre-commit
+  git add hooks/pre-commit
+  git commit -q -m init
+)
+WORKTREE_REPO="$TEMP_HOME/linked-worktree"
+(
+  cd "$PRIMARY_REPO"
+  git worktree add -q -b t18-wt-branch "$WORKTREE_REPO"
+)
+
+mkdir -p "$TEMP_HOME/.agentic"
+cat > "$TEMP_HOME/.agentic/agentic-engineering-config.json" <<EOF
+{
+  "repo_dir": "$WORKTREE_REPO"
+}
+EOF
+
+invoke_doctor --fix
+
+OUT=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT" | grep -qi "NotADirectoryError\|could not re-point.*Not a directory"; then
+  _fail "T18 git_precommit on a worktree repo_dir: crashed with NotADirectoryError (the pre-fix bug reproduces here)\n$OUT"
+else
+  _pass "T18 git_precommit on a worktree repo_dir: no NotADirectoryError crash"
+fi
+
+invoke_doctor --json
+OUT2=$(cat "$TEMP_HOME/.out")
+
+if python3 -c "
+import json, sys
+data = json.load(open('$TEMP_HOME/.out'))
+found = [f for f in data['findings'] if f['message'].startswith('git_precommit:')]
+sys.exit(0 if found and found[0]['status'] in ('OK', 'FIX') else 1)
+" 2>/dev/null; then
+  _pass "T18 git_precommit on a worktree repo_dir: subsequent scan reports OK/FIX, not FAIL"
+else
+  _fail "T18 git_precommit on a worktree repo_dir: subsequent scan did not report OK/FIX\n$OUT2"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

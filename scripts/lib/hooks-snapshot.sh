@@ -15,6 +15,18 @@
 #     -> prints "<basename(realpath repo_dir)>-<sha256_12(realpath repo_dir)>".
 #   hooks_snapshot_dir <repo_dir>
 #     -> prints "$HOME/.agentic/hooks-snapshot/$(hooks_snapshot_key repo_dir)".
+#   hooks_source_paths <repo_dir>
+#     -> prints, one per line, the six paths that together define "the hook
+#        source" for <repo_dir> (hooks/, bin/ds-identity, and the four
+#        in-scope adapters' hook sources) - the SOLE list, so
+#        sync_hooks_snapshot's hash, hooks/lib/hooks-staleness-core.sh's
+#        stale_but_stable check, and bin/ds-update's _hooks_snapshot_diverged
+#        check all pass the same argument list to compute_hooks_source_hash
+#        below and can never independently drift on what the six paths are.
+#        Read one line at a time (`while IFS= read -r line; do arr+=("$line");
+#        done < <(hooks_source_paths "$repo_dir")`) rather than word-splitting
+#        the output, and never with `mapfile`/`readarray` (bash 3.2, the
+#        macOS system bash, ships neither).
 #   compute_hooks_source_hash <path>...
 #     -> prints a single sha256 hex digest over the sorted (relpath, content)
 #        pairs of every file under the given paths (files or directories).
@@ -99,6 +111,26 @@ hooks_snapshot_dir() {
   local key
   key="$(hooks_snapshot_key "$repo_dir")"
   printf '%s/.agentic/hooks-snapshot/%s\n' "$HOME" "$key"
+}
+
+# ---------------------------------------------------------------------------
+# hooks_source_paths <repo_dir>
+#   Prints, one per line, the SOLE list of paths that define "the hook
+#   source" for <repo_dir>. Every caller that needs this list (the sync
+#   writer below, hooks/lib/hooks-staleness-core.sh's stale_but_stable
+#   check, and bin/ds-update's _hooks_snapshot_diverged check) must call
+#   this function rather than hand-copying the six paths - three unpinned
+#   copies previously existed and could silently disagree on drift.
+# ---------------------------------------------------------------------------
+hooks_source_paths() {
+  local repo_dir="$1"
+  printf '%s\n' \
+    "$repo_dir/hooks" \
+    "$repo_dir/bin/ds-identity" \
+    "$repo_dir/.codex/config/hooks.json" \
+    "$repo_dir/.codex/hooks" \
+    "$repo_dir/.gemini/hooks" \
+    "$repo_dir/.kimi/hooks"
 }
 
 # ---------------------------------------------------------------------------
@@ -466,13 +498,11 @@ sync_hooks_snapshot() {
 
   # --- Compute + persist the source hash + metadata (atomic write) ---
   local source_hash=""
-  source_hash="$(compute_hooks_source_hash \
-    "$real_repo_dir/hooks" \
-    "$real_repo_dir/bin/ds-identity" \
-    "$real_repo_dir/.codex/config/hooks.json" \
-    "$real_repo_dir/.codex/hooks" \
-    "$real_repo_dir/.gemini/hooks" \
-    "$real_repo_dir/.kimi/hooks")"
+  local -a _sync_source_paths=()
+  while IFS= read -r _sync_source_path; do
+    _sync_source_paths+=("$_sync_source_path")
+  done < <(hooks_source_paths "$real_repo_dir")
+  source_hash="$(compute_hooks_source_hash "${_sync_source_paths[@]}")"
 
   local snapshotted_at=""
   snapshotted_at="$(date -u +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || echo "")"

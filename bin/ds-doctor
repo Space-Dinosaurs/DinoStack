@@ -22,7 +22,13 @@ Purpose: Inspect global dinostack install health and (with --fix)
          install.sh already makes unconditionally on every run, so this
          introduces no new mutation hazard (DS-54 invariant: only fires when
          the operator explicitly passes --fix, a deliberate action, never
-         from a bare read-only scan). The orphaned-hook check is read-only
+         from a bare read-only scan). sync_hooks_snapshot only refreshes the
+         snapshot CONTENT, never an adapter's own hook config, so it fully
+         resolves never_migrated/stale_but_stable but NOT half_applied
+         (config still points at the checkout) - --fix on half_applied
+         still runs the sync, then reports the finding unfixable with an
+         actionable "re-run that adapter's install.sh" message rather than
+         claiming it resolved. The orphaned-hook check is read-only
          (FAIL only, no --fix repair - the fix is restoring the script or
          re-running install.sh). Otherwise never invokes install.sh, never
          touches real files or foreign symlinks. NOTE: the reverse
@@ -67,10 +73,12 @@ Upstream deps: Python 3 stdlib only (argparse, json, os, pathlib, subprocess,
 Downstream consumers: developers diagnosing broken installs after cloning to a
                       new path; bootstrap guard advisory for two-clone setups;
                       bin/ds-update's _run_doctor() (runs `ds-doctor --fix`
-                      unconditionally on both its "already up to date" and
-                      "no rebuild needed" early-return paths, so this check
-                      also closes the "merged fix, checkout already at latest
-                      HEAD" dogfooding gap without any ds-update-side change).
+                      on both its "already up to date" and "no rebuild
+                      needed" early-return paths UNLESS the operator passed
+                      `--no-doctor`, which skips it - so this check closes
+                      the "merged fix, checkout already at latest HEAD"
+                      dogfooding gap on the common `ds-update` invocation,
+                      not unconditionally).
 
 Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                ~/.claude/settings.json -> check (c) skipped with SKIP output.
@@ -78,8 +86,12 @@ Failure modes: missing config -> falls back to ~/DinoStack; no crash. Missing
                Never modifies files unless --fix is passed (without --dry-run).
                check_hooks_snapshot_staleness: missing
                hooks/lib/hooks-staleness-core.sh -> SKIP (no crash); a
-               subprocess timeout or exception -> WARN, not FAIL (this check
-               must never block the rest of doctor's findings).
+               subprocess timeout, exception, or NONZERO EXIT (the
+               classifier's own contract is "always exits 0" - a nonzero
+               return means it broke mid-run, not "nothing to report") ->
+               WARN, not FAIL and never a silent OK (this check must never
+               block the rest of doctor's findings, and must never report a
+               check that did not run as confirmed current).
 
 Performance: base checks are O(small) (<100 ms). With --cross-harness the
              run shells out to `ds-team discover` and `omp models ls`,
@@ -236,21 +248,28 @@ def _readlink_resolved(dst: Path) -> tuple[str, Path | None]:
 # ---------------------------------------------------------------------------
 
 
-def _is_ours(dst: Path, repo_dir: Path) -> bool:
+def _is_ours(dst: Path, repo_dir: Path, git_hooks_dir: Path | None = None) -> bool:
     """Return True if we own this symlink and may re-point it.
 
     Owned iff ALL of:
     - dst is under ~/.claude/{agents,commands,skills/dinostack}
-      OR under <repo_dir>/.git/hooks OR under LOCAL_BIN
+      OR under the REAL git hooks dir for repo_dir OR under LOCAL_BIN
     - dst is a symlink (not a real file)
     - current target is either already under some DinoStack-looking repo_dir
       OR broken (target does not exist)
+
+    git_hooks_dir: pre-resolved real hooks dir (see _resolve_git_hooks_dir),
+    passed by check_git_precommit so this function does not shell out to git
+    on every call from the OTHER checks that reuse it (check_managed_symlinks,
+    check_local_bin_symlinks) - those never pass a dst under any git hooks
+    dir, so the hardcoded fallback below is a correctness no-op for them.
     """
     if not os.path.islink(str(dst)):
         return False
 
     in_managed = any(_is_relative_to(dst, d) for d in _managed_link_dirs())
-    in_git_hooks = _is_relative_to(dst, repo_dir / ".git" / "hooks")
+    _git_hooks_dir = git_hooks_dir if git_hooks_dir is not None else (repo_dir / ".git" / "hooks")
+    in_git_hooks = _is_relative_to(dst, _git_hooks_dir)
     in_local_bin = _is_relative_to(dst, _local_bin())
 
     if not (in_managed or in_git_hooks or in_local_bin):
@@ -801,13 +820,62 @@ def check_local_bin_stale(doc: Doctor) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Check (e): <repo_dir>/.git/hooks/pre-commit -> <repo_dir>/hooks/pre-commit
+# Check (e): <real git hooks dir>/pre-commit -> <repo_dir>/hooks/pre-commit
 # ---------------------------------------------------------------------------
+
+
+def _resolve_git_hooks_dir(repo_dir: Path) -> Path | None:
+    """Resolve the REAL git hooks directory for repo_dir via
+    `git -C repo_dir rev-parse --git-path hooks`.
+
+    This correctly follows a git WORKTREE's gitdir pointer to the shared
+    hooks dir - the hardcoded `repo_dir / ".git" / "hooks"` form this
+    replaces raises NotADirectoryError when repo_dir is a worktree, because
+    ".git" there is a FILE (a gitdir pointer), not a directory. Aligns with
+    scripts/lib/precommit.sh's resolve_git_hooks_dir (DS-58/DS-152, landing
+    on a separate branch): both call the identical git plumbing command, so
+    the two cannot independently disagree on what "the real hooks dir" is.
+    Does NOT additionally resolve to the PRIMARY checkout's hook source the
+    way that library's resolve_primary_checkout does (DS-152) - out of
+    scope here; ds-doctor's repo_dir is already normally the canonical
+    checkout from ~/.agentic/agentic-engineering-config.json, not an
+    ephemeral worktree, so this divergence is not expected to bite in
+    practice, but is a real, narrower scope than the incoming library.
+
+    Returns None on any resolution failure (not a git repo, git missing,
+    unreadable output) - callers must degrade gracefully, never crash.
+    """
+    import subprocess
+
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(repo_dir), "rev-parse", "--git-path", "hooks"],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if result.returncode != 0:
+        return None
+    raw = (result.stdout or "").strip()
+    if not raw:
+        return None
+    p = Path(raw)
+    if not p.is_absolute():
+        p = repo_dir / p
+    return Path(os.path.realpath(str(p)))
 
 
 def check_git_precommit(doc: Doctor) -> None:
     expected_src = doc.repo_dir / "hooks" / "pre-commit"
-    git_hook = doc.repo_dir / ".git" / "hooks" / "pre-commit"
+
+    git_hooks_dir = _resolve_git_hooks_dir(doc.repo_dir)
+    if git_hooks_dir is None:
+        # Resolution failed (not a git repo, git missing) - fall back to the
+        # historical hardcoded location rather than abort. check_repo_dir
+        # already reports the "not a git repo" case as its own FAIL earlier
+        # in the run; this fallback just keeps this check from crashing.
+        git_hooks_dir = doc.repo_dir / ".git" / "hooks"
+    git_hook = git_hooks_dir / "pre-commit"
 
     if not expected_src.exists():
         doc.skip("git_precommit", git_hook, f"managed pre-commit not found at {expected_src}")
@@ -829,7 +897,7 @@ def check_git_precommit(doc: Doctor) -> None:
         doc.ok("git_precommit", f"{git_hook} -> {raw}")
         return
 
-    if _is_ours(git_hook, doc.repo_dir):
+    if _is_ours(git_hook, doc.repo_dir, git_hooks_dir=git_hooks_dir):
         old = raw if resolved is not None else f"{raw} (broken)"
         doc.repoint_symlink("git_precommit", git_hook, old, expected_src)
     else:
@@ -865,6 +933,22 @@ def check_hooks_snapshot_staleness(doc: Doctor) -> None:
         doc.warn("hooks_snapshot", f"could not run staleness check: {exc}")
         return
 
+    # hooks-staleness-core.sh's own contract is "always exits 0" (fail-open;
+    # see its header) - it runs under `set -euo pipefail`, so a nonzero
+    # returncode means it broke mid-run (missing python3, a sourcing
+    # failure, a future edit tripping set -e), not "nothing to report".
+    # Silently treating that as OK would be an affirmative green for a
+    # check that never actually ran - warn instead, matching the existing
+    # subprocess-exception handling above.
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout or "no output").strip()
+        doc.warn(
+            "hooks_snapshot",
+            f"staleness check exited {result.returncode} (expected 0; it "
+            f"did not run to completion, not confirmed current): {detail}",
+        )
+        return
+
     message = (result.stdout or "").strip()
     if not message:
         doc.ok("hooks_snapshot", "hooks snapshot is current (no drift detected)")
@@ -896,6 +980,19 @@ def _fix_hooks_snapshot(doc: Doctor, state: str) -> None:
     when the operator explicitly passed --fix (never during a bare
     read-only scan), matching the "deliberate action" shape install.sh
     itself already represents.
+
+    sync_hooks_snapshot only refreshes the SNAPSHOT CONTENT under
+    $HOME/.agentic/hooks-snapshot/ - it never rewrites an adapter's own hook
+    config (~/.claude/settings.json, ~/.gemini/settings.json,
+    ~/.kimi/config.toml, ~/.codex/hooks.json). never_migrated and
+    stale_but_stable are both genuinely and fully resolved by a sync alone
+    (the snapshot dir/content was the only thing wrong). half_applied is
+    different: by definition at least one adapter's config still points its
+    hook command AT THE CHECKOUT, not the snapshot - sync_hooks_snapshot
+    does nothing to fix that, so this function must not report half_applied
+    as resolved. ds-doctor deliberately does not rewrite adapter config
+    itself (out of scope, and each adapter's config format/schema differs);
+    the correct repair is a full re-run of that adapter's own install.sh.
     """
     import subprocess
 
@@ -919,6 +1016,19 @@ def _fix_hooks_snapshot(doc: Doctor, state: str) -> None:
     if result.returncode != 0:
         detail = (result.stderr or result.stdout or "unknown error").strip()
         doc.fail("hooks_snapshot", f"sync_hooks_snapshot failed ({state}): {detail}")
+        doc.mark_unfixable(doc.repo_dir)
+        return
+
+    if state == "half_applied":
+        doc.fail(
+            "hooks_snapshot",
+            "half_applied is NOT resolved by sync_hooks_snapshot alone - "
+            "at least one adapter's hook config still points at the "
+            f"checkout, not the snapshot. Re-run that adapter's own "
+            f"install.sh under {doc.repo_dir} (e.g. "
+            f"'bash {doc.repo_dir}/.claude/install.sh') to rewire its "
+            "config at the snapshot path.",
+        )
         doc.mark_unfixable(doc.repo_dir)
 
 

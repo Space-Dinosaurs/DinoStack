@@ -81,25 +81,45 @@ already open (the common case) leaves the fix dormant indefinitely absent
 some other trigger. Three mechanisms now close that gap, in order of how
 reliably they fire: (1) `bin/ds-doctor`'s `check_hooks_snapshot_staleness`
 check classifies staleness on demand (`never_migrated` / `half_applied` /
-`stale_but_stable`) by shelling out to `lib/hooks-staleness-core.sh`, and
-`--fix` calls `sync_hooks_snapshot` - the identical call every adapter
-`install.sh` already makes unconditionally, so this introduces no new
-mutation hazard under the DS-54 invariant (it only fires on an explicit
-`--fix`, never a passive scan); (2) `bin/ds-base-sync` prints the same
-staleness nudge as a non-blocking advisory note after every invocation,
-independent of which project's repo it just synced - this is the one
-guaranteed post-merge trigger point, since it runs unconditionally at
-`/ds-implement-ticket` Phase 12; it is read-only and never calls
+`stale_but_stable`) by shelling out to `lib/hooks-staleness-core.sh` and
+inspecting its exit code (a NONZERO exit is a WARN, never silently treated
+as "current" - the classifier's own contract is "always exits 0", so a
+nonzero return means it broke mid-run, not "nothing to report"); `--fix`
+calls `sync_hooks_snapshot` - the identical call every adapter `install.sh`
+already makes unconditionally, so this introduces no new mutation hazard
+under the DS-54 invariant (it only fires on an explicit `--fix`, never a
+passive scan). `sync_hooks_snapshot` only refreshes SNAPSHOT CONTENT, never
+an adapter's own hook config, so it fully resolves `never_migrated` and
+`stale_but_stable` but NOT `half_applied` (config still points at the
+checkout) - `--fix` on `half_applied` still runs the sync, then reports the
+finding unfixable with an actionable "re-run that adapter's install.sh"
+message rather than silently claiming it resolved; (2) `bin/ds-base-sync`
+prints the same staleness nudge as a non-blocking advisory note after every
+invocation, independent of which project's repo it just synced - this is
+the one guaranteed post-merge trigger point, since it runs unconditionally
+at `/ds-implement-ticket` Phase 12; it is read-only and never calls
 `sync_hooks_snapshot` itself; (3) `bin/ds-update` compares the live hooks/
 source hash against the snapshot's stored hash even when nothing new was
 pulled by that invocation (`_hooks_snapshot_diverged`, closing the gap where
 an operator manually `git pull`ed a hooks change before running `ds-update`,
 so there was no diff for `ds-update`'s own rebuild-trigger logic to see) and
 forces the adapter-install loop when they diverge - both `ds-doctor --fix`
-invocations that already run unconditionally on `ds-update`'s early-return
-paths independently cover the rest. None of the three can auto-rewire a live
-session's hooks from a passive trigger; only an explicit `--fix` or an
-adapter `install.sh` run ever calls `sync_hooks_snapshot`.
+invocations that already run on `ds-update`'s early-return paths UNLESS the
+operator passed `--no-doctor` independently cover the rest.
+`scripts/update.js` (the interactive updater) has no direct equivalent of
+`_hooks_snapshot_diverged` and relies entirely on its own unconditional
+`runDoctor()` call to close this same gap transitively - a known,
+intentional cross-language asymmetry. All three hashing call sites (the
+sync writer, this classifier, and `ds-update`'s divergence check) call the
+SOLE `hooks_source_paths` function in `scripts/lib/hooks-snapshot.sh` -
+never a hand-copied path list, so the three can never independently drift
+on what counts as "the hook source". Friction cost: any operator with
+uncommitted local `hooks/` edits gets the full adapter-install loop forced
+on every `ds-update` "already up to date" run, since the live hash then
+differs from the last sync by construction - expected, not a bug. None of
+the three can auto-rewire a live session's hooks from a passive trigger;
+only an explicit `--fix` or an adapter `install.sh` run ever calls
+`sync_hooks_snapshot`.
 
 **Adapter asymmetry.** Claude Code, Codex, Gemini, and Kimi are all
 snapshotted (this section). `.cursor/install.sh` and `.opencode/install.sh`

@@ -137,13 +137,11 @@ except Exception:
 " "$meta_file" 2>/dev/null || echo "")"
 
 if [[ -n "$_meta_hash" ]]; then
-  _live_hash="$(compute_hooks_source_hash \
-    "$ae_repo_dir/hooks" \
-    "$ae_repo_dir/bin/ds-identity" \
-    "$ae_repo_dir/.codex/config/hooks.json" \
-    "$ae_repo_dir/.codex/hooks" \
-    "$ae_repo_dir/.gemini/hooks" \
-    "$ae_repo_dir/.kimi/hooks" 2>/dev/null || echo "")"
+  _hsc_source_paths=()
+  while IFS= read -r _hsc_source_path; do
+    _hsc_source_paths+=("$_hsc_source_path")
+  done < <(hooks_source_paths "$ae_repo_dir" 2>/dev/null || true)
+  _live_hash="$(compute_hooks_source_hash "${_hsc_source_paths[@]}" 2>/dev/null || echo "")"
 
   if [[ -n "$_live_hash" ]] && [[ "$_live_hash" != "$_meta_hash" ]]; then
     echo "dinostack: hook scripts changed since the last snapshot sync. Run install.sh (or /ds-update) to refresh the live session's hooks."
