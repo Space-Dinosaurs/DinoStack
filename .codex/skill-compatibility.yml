@@ -19512,16 +19512,6 @@
       "source_token": "~/.claude"
     },
     {
-      "expected_target": ".agentic/learnings.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
-      "kind": "operational",
-      "occurrence_hash": "840ef37dab819e599bb2905450ff86dcd005d52f49de679d78959bd95f064d59",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/learnings.md"
-    },
-    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -19590,6 +19580,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/compression-state.json"
+    },
+    {
+      "expected_target": ".agentic/learnings.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
+      "kind": "operational",
+      "occurrence_hash": "8b174470cd61814f6be2dd0352101cb6acf830b7dc30f5264ee203d828cc63d0",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/learnings.md"
     },
     {
       "expected_target": ".agentic/",
@@ -19880,6 +19880,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "**Final reminder:** After `/ds-wrap` completes, close the session cleanly so the Stop hook can finish writing this session's activity shard and recomposing `context.md`. In the terminal CLI, use `/exit` rather than ctrl+c - ctrl+c can interrupt the hook and lose session state. In the Claude desktop or web app, `/exit` is not available; just close the window or tab normally rather than force-quitting. <!-- gate-reviewed: about context.md, unaffected by the loop-state/batch-state cadence split -->\n"
+    },
+    {
+      "expected_target": ".agentic/memory.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/memory.md",
+      "kind": "operational",
+      "occurrence_hash": "a06eb5caf063bfd014963304d38cc4707d4234ffd6e792d209ebebbabee70c51",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/memory.md"
     },
     {
       "expected_target": "wrap",
@@ -20660,6 +20670,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".claude/install.sh"
+    },
+    {
+      "expected_target": "bin/tests/reach_model.py",
+      "generated_token": "$AE_REPO_DIR/bin/tests/reach_model.py",
+      "kind": "operational",
+      "occurrence_hash": "d2317194e4b41d8d5863844c4b7eb79c95e53917745f98a62e021f01f530c620",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "bin/tests/reach_model.py"
     },
     {
       "expected_target": ".agentic/config.json",

@@ -122,7 +122,19 @@ def test_learnings_md_read_is_gated_behind_the_draft_worker_spawn() -> None:
     same read-gate forward, or drops the staging-drain exception's use of
     "this same template", the read could silently go missing on that path -
     not caught by `reach_model.py`, whose docstring scopes it to the
-    routing decision only, not to within-Part-B step ordering."""
+    routing decision only, not to within-Part-B step ordering.
+
+    [REGRESSION, positional] An earlier version of this test used only
+    unanchored `in text` membership checks. A reviewer mutation-proved the
+    gap: deleting the read paragraph from its Step 1 position and
+    re-appending it verbatim at EOF (after Part G, where the read would
+    happen long after the spawn and be useless) left all four membership
+    assertions green. The positional assertion below fails that exact
+    mutation by requiring the read note to appear AFTER the "**Step 1 —
+    Spawn a draft Worker**" heading (it describes the read that happens
+    "here", at Step 1) but BEFORE the "**Step 2" heading (so it is pinned
+    into Step 1's own block, not merely somewhere earlier in the
+    document, and cannot have drifted past the spawn site to EOF)."""
     text = _read()
     assert (
         "This is the sole point where its full content is read" in text
@@ -148,6 +160,40 @@ def test_learnings_md_read_is_gated_behind_the_draft_worker_spawn() -> None:
         "the zero-substance path's staging-drain exception no longer "
         "spawns a draft Worker at all - the learnings-read gate above "
         "would then be dead code on that path"
+    )
+
+    do_not_read_marker = "**Do NOT read `.agentic/learnings.md` here**"
+    step1_heading = "**Step 1 — Spawn a draft Worker**"
+    step2_heading = "**Step 2"
+    read_note = "This is the sole point where its full content is read"
+    assert do_not_read_marker in text, (
+        "Step 0's 'Do NOT read learnings.md here' bullet is missing - "
+        "cannot anchor the positional window"
+    )
+    assert step1_heading in text, (
+        "the 'Step 1 — Spawn a draft Worker' heading is missing - cannot "
+        "anchor the positional window"
+    )
+    assert step2_heading in text, (
+        "the 'Step 2' heading is missing - cannot anchor the positional "
+        "window"
+    )
+    do_not_read_pos = text.index(do_not_read_marker)
+    step1_pos = text.index(step1_heading)
+    step2_pos = text.index(step2_heading)
+    read_note_pos = text.index(read_note)
+    assert do_not_read_pos < step1_pos, (
+        "Step 0's 'Do NOT read ... here' bullet no longer precedes the "
+        "'Step 1 — Spawn a draft Worker' heading - document structure has "
+        "changed in a way this test's anchors no longer reflect"
+    )
+    assert step1_pos < read_note_pos < step2_pos, (
+        "REGRESSION: the deferred learnings.md read note is not positioned "
+        "strictly between the 'Step 1 — Spawn a draft Worker' heading and "
+        "the 'Step 2' heading - it may have drifted past Step 1's own "
+        "block (e.g. relocated to EOF, after Part G), which would make "
+        "the read happen too late to serve the draft-Worker spawn it "
+        "claims to gate"
     )
 
 
