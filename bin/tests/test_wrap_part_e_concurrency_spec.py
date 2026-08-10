@@ -490,45 +490,68 @@ def test_module_docstring_pins_round4_structural_rule_not_enumeration() -> None:
     )
 
 
-def test_step6_quiesced_skip_report_covers_each_reachable_skip_category() -> None:
-    """PR #629 round-5 Major 2 fix: quiescing widened "quiesced skip" to
-    cover reachable outcomes the sole pre-existing Step 6 report string
-    ("... after 3 re-routes - skipped this session.") does not
-    truthfully describe: unresolved findings with round budget unspent,
-    a format-validation failure with round budget unspent, and a
-    pipeline that never returns. Step 6 must define a distinct, truthful
-    report string for each reachable category rather than reusing the
-    3-re-routes string (which is false for these three) or silently
-    omitting the target from the report."""
+def test_step6_quiesced_skip_report_is_a_derived_reason_not_a_string_menu() -> None:
+    """PR #629 round-6 Major fix (relocation of round-5 Major 2): round-5
+    gave quiescing four named report strings, one per reachable category
+    - but a target that exhausts its FORMAT re-invocation budget (no
+    re-routes spent at all) still matched only the "after 3 re-routes"
+    string, which is false for it. That is the round-5 fix's own defect
+    class recurring one category later: a hand-maintained list of N
+    report strings will keep needing an N+1th to stay total.
+
+    Round 6 replaces the list with a single template,
+    `Compression skipped for [path] - [reason].`, where `[reason]` is
+    derived from the target's own terminal state rather than selected
+    from an enumerated menu. This is a PIN, not a runtime regression test
+    (there is no executable Step 6 to run against a prior binary state) -
+    it asserts the template and every reason value are present in the
+    prose, verified by mutation against d5b1c94f (this fix's own parent
+    commit) below."""
     text = _read()
-    assert (
-        'Compression failed for [path] after 3 re-routes - skipped this '
-        "session." in text
-    ), (
-        "Step 6 no longer keeps the own-budget-exhausted report string - "
-        "this is the one case where '3 re-routes' is actually true"
+    assert "`Compression skipped for [path] - [reason].`" in text, (
+        "Step 6 no longer states the single derived-reason report "
+        "template - it may have reverted to a hand-maintained string "
+        "per category"
     )
     assert (
-        "unresolved findings, round budget unspent when quiescing began"
+        "derived from that target's own terminal state, never chosen "
+        "from a fixed menu of category strings" in text
+    ), (
+        "Step 6 no longer states that [reason] is derived rather than "
+        "picked from a menu - the property that prevents a category from "
+        "matching zero or two strings has been dropped"
+    )
+    assert '"after 3 re-routes"' in text, (
+        "Step 6 has no reason value for the own-re-route-budget-exhausted "
+        "quiesced skip"
+    )
+    assert '"after 3 sign-off-format re-invocations"' in text, (
+        "Step 6 has no distinct reason value for the own-format-"
+        "re-invocation-budget-exhausted quiesced skip - reusing the "
+        "re-routes reason for this category is false for a target that "
+        "spent zero re-routes, which is the exact defect this round fixes"
+    )
+    assert (
+        "unresolved findings, round budget remaining when quiescing began"
         in text
     ), (
-        "Step 6 has no truthful report string for the unresolved-findings "
-        "quiesced skip (Critical/Major findings remained but budget was "
-        "not exhausted - the 3-re-routes string would be false here)"
+        "Step 6 has no truthful reason value for the unresolved-findings "
+        "quiesced skip"
     )
     assert (
-        "sign-off format validation failed, round budget unspent when "
+        "sign-off format validation failed, round budget remaining when "
         "quiescing began" in text
     ), (
-        "Step 6 has no truthful report string for the format-validation-"
-        "failure quiesced skip - the 3-re-routes string would be false "
-        "here too"
+        "Step 6 has no truthful reason value for the format-validation-"
+        "failure quiesced skip"
     )
-    assert (
-        "the Worker or Skeptic call did not return" in text
-    ), (
-        "Step 6 has no truthful report string for the non-response "
-        "quiesced skip"
+    assert "the Worker or Skeptic call did not return" in text, (
+        "Step 6 has no reason value for the non-response quiesced skip"
+    )
+    assert "round budget unspent when quiescing began" not in text, (
+        "the false 'unspent' qualifier has resurfaced - a target that "
+        "consumed 1 or 2 of its 3 re-routes before quiescing began has "
+        "budget REMAINING, not unspent"
     )
 
 
