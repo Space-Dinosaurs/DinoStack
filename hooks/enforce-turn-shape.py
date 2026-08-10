@@ -129,9 +129,11 @@ Purpose: Claude Code Stop hook (DS-122; DS-156) that checks the SHAPE of
                              Conductor-template "Running:" field, or one of
                              six phrases measured from real false
                              positives - "one to go", "remaining after",
-                             "is/are still running", the markdown
-                             sub-heading "**In progress:**", "review(s)
-                             running", "running on" (see
+                             "is/are still running", bold-wrapped
+                             "**In progress:**" in any position (not only
+                             as a sub-heading - see
+                             _CONTINUING_WORK_PHRASE_RE's own docstring),
+                             "review(s) running", "running on" (see
                              _CONTINUING_WORK_PHRASE_RE's own docstring for
                              the DS-157 round 2 corpus measurement behind
                              the last three and the "still open" phrase
@@ -823,11 +825,16 @@ _COMPLETION_RE = re.compile(
 #     still In Progress in another session", "set to In Progress", table
 #     cells, backtick-quoted status values) - not this turn's own remaining
 #     work. Its one genuine motivating case ("**Done and independently
-#     verified:** ... **In progress:** the two remaining Majors...") is a
-#     markdown bold SUB-HEADING, not free prose - narrowing to that exact
-#     shape (`\*\*in\s+progress:?\*\*`) measured 0 of the 7 false positives
-#     (none of them are bold-wrapped as exactly "in progress") while still
-#     catching the motivating case.
+#     verified:** ... **In progress:** the two remaining Majors...") is
+#     bold-wrapped "in progress" - narrowing to that exact shape
+#     (`\*\*in\s+progress:?\*\*`) measured 0 of the 7 false positives (none
+#     of them are bold-wrapped as exactly "in progress") while still
+#     catching the motivating case. NOTE: the narrowed regex has no
+#     positional constraint - it matches bold-wrapped `**In progress**` in
+#     ANY position (line start, mid-sentence, sub-item), not only when used
+#     as a markdown sub-heading. Do not describe this shape as a
+#     "sub-heading" elsewhere; that overstates what the regex actually
+#     matches (Skeptic finding, DS-157 round 3, Minor 1).
 #   - "still open" (DROPPED, round 2) - measured causing 10 full-population
 #     completion-warrant losses, 100% false positives on inspection: every
 #     instance described a backlog/PR/ticket list ("Still open, in priority
