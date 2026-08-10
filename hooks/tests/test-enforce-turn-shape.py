@@ -10,9 +10,17 @@ Each case pipes a JSON payload into the hook via stdin and asserts:
 The hook MUST NEVER emit a blocking decision under any input - there is no
 {"decision": "block", ...} shape this hook can produce.
 
-Test coverage (mirrors the 14-case spec in the DS-122 spawn brief):
-  a. identity check fires on a missing identity line
-  b. identity check passes on a well-formed identity line
+DS-155 round 3: the identity-line check is REMOVED (operator decision -
+see hooks/enforce-turn-shape.py's module docstring "DS-155 round 3
+history note"). Cases a/a2/b/x (round-1/round-2 identity-check and
+ticket-context-exemption coverage) are DELETED with the check they
+tested, not merely renumbered - a deleted check should make this suite
+SMALLER, not just different. `_IDENTITY_LINE_RE` itself survives (see
+that same history note) and is pinned directly by test "q" and by "r"
+below.
+
+Test coverage (mirrors the 14-case spec in the DS-122 spawn brief, minus
+the deleted identity-check cases):
   c. status-only flag fires (>2 body lines, no warrant)
   d. status-only flag does not fire when '## Operator decisions' is present
   e. completion warrant recognizes '[phase: complete]' / explicit terminal
@@ -29,8 +37,23 @@ Test coverage (mirrors the 14-case spec in the DS-122 spawn brief):
      Waiting: line IS flagged
   n. log_fire() is called exactly once when a finding is emitted, and NOT
      called on a clean turn (patches _load_log_fire directly)
-  r. the worked example embedded in the identity-line advisory matches
-     _IDENTITY_LINE_RE itself (DS-132)
+  q. _IDENTITY_LINE_RE's catastrophic-backtracking fix, pinned by calling
+     the regex directly (DS-155 round 3: retargeted from a subprocess call
+     through the whole hook, since main() no longer has a call site that
+     would exercise it)
+  r. DS-155 round 3: well-formed vs. missing/malformed identity line
+     produce the IDENTICAL verdict - pins that no code path still branches
+     on _IDENTITY_LINE_RE.match() for a live finding (supersedes the
+     round-1/round-2 versions of this test, which pinned the now-deleted
+     finding's own worked-example text)
+  w. DS-155 answer-warrant transcript bonus (_transcript_answer_bonus):
+     genuine-question detection, the recency gate
+     (_has_intervening_assistant_turn) and its round-3 fixes for a false
+     positive (w8: the assistant's own earlier text+tool_use step within
+     the SAME turn must not count as a competing "intervening" turn) and
+     a false negative (w9: the mirror image - when the current turn's own
+     entry is not yet on disk, a genuinely stale-by-one question must
+     still be caught)
   s. DS-151 turn-charge model (rewritten from the deleted per-warrant
      exclusion model - see hooks/enforce-turn-shape.py's "Charge model"
      docstring section): flat BASE_BODY_BUDGET=10 at/over boundary per
@@ -72,7 +95,6 @@ import importlib.util
 import io
 import json
 import os
-import re
 import subprocess
 import sys
 import tempfile
@@ -154,65 +176,24 @@ def check(label: str, condition: bool):
     print(f"  [{status}] {label}")
 
 
-def _write_fake_git_branch(cwd: str, branch: str) -> None:
-    """Synthesize .git/HEAD (no real git init needed) so
-    _session_has_active_ticket_context's branch-name signal can be tested
-    deterministically (DS-155 round 2). Used by the config-toggle (i.),
-    loop-guard (L.), and identity-exemption (x.) sections."""
-    git_dir = os.path.join(cwd, ".git")
-    os.makedirs(git_dir, exist_ok=True)
-    with open(os.path.join(git_dir, "HEAD"), "w") as f:
-        f.write(f"ref: refs/heads/{branch}\n")
-
-
-def _write_loop_state(cwd: str, filename: str, status: str) -> None:
-    agentic_dir = os.path.join(cwd, ".agentic")
-    os.makedirs(agentic_dir, exist_ok=True)
-    with open(os.path.join(agentic_dir, filename), "w") as f:
-        json.dump({"status": status}, f)
-
-
-# ---------------------------------------------------------------------------
-# a. identity check fires on a missing identity line
-# ---------------------------------------------------------------------------
-
-rc, out, err = run_hook(make_payload("Done."))
-check("a. missing identity line -> ADVISORY (identity finding)", is_advisory(rc, out, "identity"))
-
-# ---------------------------------------------------------------------------
-# a2. REGRESSION (DS-155 round 2, Major 3 - supersedes the round-1 version
-#     of this test, which required a copyable worked example): the
-#     advisory must name the missing PROPERTIES (ticket, branch, phase) in
-#     prose WITHOUT a copyable literal template. A rejection message that
-#     names a shape with concrete placeholder tokens is exactly the
-#     mechanism that produced the DS-155 origin-incident fabricated
-#     breadcrumb.
-# ---------------------------------------------------------------------------
-
-rc, out, err = run_hook(make_payload("Done."))
-_ctx = parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", "")
-check(
-    "a2. missing identity line -> advisory names ticket/branch/phase, no copyable literal",
-    "ticket" in _ctx and "branch" in _ctx and "phase" in _ctx and "`" not in _ctx,
-)
-
-# ---------------------------------------------------------------------------
-# b. identity check passes on a well-formed one
-# ---------------------------------------------------------------------------
-
-rc, out, err = run_hook(make_payload(IDENTITY_COMPLETE))
-check("b. well-formed identity + completion -> QUIET", is_quiet(rc, out))
-
-# ---------------------------------------------------------------------------
-# c. status-only flag fires
-# ---------------------------------------------------------------------------
-
-status_only_msg = (
+# DS-155 round 3: the identity-line check is REMOVED (operator decision -
+# see hooks/enforce-turn-shape.py's module docstring "DS-155 round 3
+# history note"). FLAGGED_STATUS_ONLY_MSG replaces the round-1/round-2
+# "Done." placeholder everywhere a generically-flagged message is needed
+# (config toggle, loop guard, exit-code checks) - "Done." alone no longer
+# produces ANY finding now that there is no identity check to catch it.
+FLAGGED_STATUS_ONLY_MSG = (
     IDENTITY_OK + "\n"
     "Did a first thing.\n"
     "Did a second thing.\n"
     "Did a third thing.\n"
 )
+
+# ---------------------------------------------------------------------------
+# c. status-only flag fires
+# ---------------------------------------------------------------------------
+
+status_only_msg = FLAGGED_STATUS_ONLY_MSG
 rc, out, err = run_hook(make_payload(status_only_msg))
 check("c. >2 body lines, no warrant -> ADVISORY (status-only)", is_advisory(rc, out, "status-only"))
 
@@ -328,43 +309,39 @@ with tempfile.TemporaryDirectory() as tmp_dir:
     def _fresh_cwd(name: str) -> str:
         d = os.path.join(real_tmp, name)
         os.makedirs(os.path.join(d, ".agentic"), exist_ok=True)
-        # DS-155 round 2: a fake ticket branch makes the identity finding
-        # fire deterministically here, independent of the ticket-context
-        # exemption (tested separately in the x. section).
-        _write_fake_git_branch(d, "fix/config-toggle-test")
         return d
 
     # i1. config.json absent entirely -> guard stays ON.
     i1_cwd = _fresh_cwd("i1")
-    rc, out, err = run_hook(make_payload("Done.", cwd=i1_cwd))
-    check("i1. config.json absent -> guard ON (ADVISORY on flagged message)", is_advisory(rc, out, "identity"))
+    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i1_cwd))
+    check("i1. config.json absent -> guard ON (ADVISORY on flagged message)", is_advisory(rc, out, "status-only"))
 
     # i2. config.json present, key explicitly false -> guard OFF.
     i2_cwd = _fresh_cwd("i2")
     with open(os.path.join(i2_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"turn_shape_guard_enabled": False}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=i2_cwd))
+    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i2_cwd))
     check("i2. turn_shape_guard_enabled=false -> QUIET (guard disabled)", is_quiet(rc, out))
 
     # i3. config.json present, key explicitly true -> guard ON.
     i3_cwd = _fresh_cwd("i3")
     with open(os.path.join(i3_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"turn_shape_guard_enabled": True}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=i3_cwd))
-    check("i3. turn_shape_guard_enabled=true -> ADVISORY (guard on)", is_advisory(rc, out, "identity"))
+    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i3_cwd))
+    check("i3. turn_shape_guard_enabled=true -> ADVISORY (guard on)", is_advisory(rc, out, "status-only"))
 
     # i4. config.json present but key absent -> guard stays ON.
     i4_cwd = _fresh_cwd("i4")
     with open(os.path.join(i4_cwd, ".agentic", "config.json"), "w") as f:
         json.dump({"some_other_key": True}, f)
-    rc, out, err = run_hook(make_payload("Done.", cwd=i4_cwd))
-    check("i4. config.json present, key absent -> guard ON", is_advisory(rc, out, "identity"))
+    rc, out, err = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG, cwd=i4_cwd))
+    check("i4. config.json present, key absent -> guard ON", is_advisory(rc, out, "status-only"))
 
 # ---------------------------------------------------------------------------
 # j. output is ALWAYS exit 0 regardless of findings
 # ---------------------------------------------------------------------------
 
-rc_flagged, _, _ = run_hook(make_payload("Done."))
+rc_flagged, _, _ = run_hook(make_payload(FLAGGED_STATUS_ONLY_MSG))
 rc_clean, _, _ = run_hook(make_payload(IDENTITY_COMPLETE))
 check("j1. exit code is 0 on a flagged turn", rc_flagged == 0)
 check("j2. exit code is 0 on a clean turn", rc_clean == 0)
@@ -454,17 +431,36 @@ check(
 )
 
 # ---------------------------------------------------------------------------
-# q. REGRESSION (Skeptic Minor, round 2): pin the catastrophic-backtracking
-#    fix on _IDENTITY_LINE_RE. A first line with ~3200 middle-dot/period
-#    characters and no '[phase:' tag must classify in well under a second -
-#    a generous 1.0s bound (measured value is now microseconds) that is
-#    loose enough to avoid flaking on a slow CI runner while still catching
-#    a regression to the unbounded '.*' form (measured 13.8s pre-fix).
+# Import the hook module directly (needed by "q" below and by "n"/"r"
+# further down) - moved ahead of "q" (DS-155 round 3): main() no longer
+# has ANY call site for _IDENTITY_LINE_RE (the identity-line check that
+# used to consume it is deleted), so "q" can no longer exercise the
+# regex's own catastrophic-backtracking regression by going through the
+# whole hook subprocess: it must call the regex directly.
 # ---------------------------------------------------------------------------
 
-_pathological_msg = "x" + ("·" * 3200) + "\nno phase tag here at all\n"
+_spec = importlib.util.spec_from_file_location(
+    "enforce_turn_shape", os.path.join(os.path.dirname(__file__), "..", "enforce-turn-shape.py")
+)
+_mod = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_mod)
+
+# ---------------------------------------------------------------------------
+# q. REGRESSION (Skeptic Minor, round 2; retargeted DS-155 round 3): pin
+#    the catastrophic-backtracking fix on _IDENTITY_LINE_RE directly. A
+#    first line with ~3200 middle-dot/period characters and no '[phase:'
+#    tag must classify in well under a second - a generous 1.0s bound
+#    (measured value is now microseconds) that is loose enough to avoid
+#    flaking on a slow CI runner while still catching a regression to the
+#    unbounded '.*' form (measured 13.8s pre-fix). Retargeted from a
+#    subprocess call through the whole hook (round 2's version) to a
+#    direct call on the imported module's regex object, since main() no
+#    longer has any call site that would exercise it end-to-end.
+# ---------------------------------------------------------------------------
+
+_pathological_msg = "x" + ("·" * 3200) + "\nno phase tag here at all"
 _start = time.monotonic()
-rc, out, err = run_hook(make_payload(_pathological_msg))
+_mod._IDENTITY_LINE_RE.match(_pathological_msg)
 _elapsed = time.monotonic() - _start
 check(
     f"q. pathological identity-line input completes in <1.0s (took {_elapsed:.4f}s)",
@@ -475,12 +471,6 @@ check(
 # n. log_fire() called exactly once on a finding, not called on a clean turn
 #    (patches _load_log_fire directly via module import, per spec)
 # ---------------------------------------------------------------------------
-
-_spec = importlib.util.spec_from_file_location(
-    "enforce_turn_shape", os.path.join(os.path.dirname(__file__), "..", "enforce-turn-shape.py")
-)
-_mod = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(_mod)
 
 
 def _run_main_with_stdin(payload: str, calls: list):
@@ -503,7 +493,7 @@ def _run_main_with_stdin(payload: str, calls: list):
 
 
 _calls_flagged: list = []
-_out_flagged = _run_main_with_stdin(make_payload("Done."), _calls_flagged)
+_out_flagged = _run_main_with_stdin(make_payload(FLAGGED_STATUS_ONLY_MSG), _calls_flagged)
 check(
     "n1. log_fire called exactly once with hook_name='enforce-turn-shape', "
     "decision='allow_advisory' on a finding",
@@ -518,23 +508,25 @@ check("n2. log_fire NOT called on a clean turn", len(_calls_clean) == 0)
 
 
 # ---------------------------------------------------------------------------
-# r. REGRESSION (DS-155 round 2, Major 3 - supersedes the round-1 version
-#    of this test, which required a worked example matching
-#    _IDENTITY_LINE_RE): the identity-line finding text must NOT itself
-#    satisfy _IDENTITY_LINE_RE, and must carry no backtick-quoted literal
-#    at all - a structural guard against reintroducing a copyable
-#    template, which is what produced the DS-155 origin-incident
-#    fabricated breadcrumb ("harness · turn-shape guard · [phase:
-#    answer]", copied verbatim from a round-1-shaped rejection message).
+# r. REGRESSION (DS-155 round 3): _IDENTITY_LINE_RE is retained (the
+#    identity-line check itself is deleted - see the module docstring's
+#    "DS-155 round 3 history note") solely because it still defines the
+#    documented breadcrumb convention's shape and remains directly
+#    exercised by test "q" below. Pin that it has genuinely no OTHER live
+#    call site in main() any more: a message whose first line is a
+#    well-formed identity line produces the IDENTICAL result (QUIET) as
+#    the same message with a missing/malformed first line, given the same
+#    downstream content - proving no code path still branches on
+#    _IDENTITY_LINE_RE.match() for a live finding.
 # ---------------------------------------------------------------------------
 
+_r_with_identity = IDENTITY_OK + "\nTask is complete.\n"
+_r_without_identity = "not an identity line at all\nTask is complete.\n"
+_rc_a, _out_a, _ = run_hook(make_payload(_r_with_identity))
+_rc_b, _out_b, _ = run_hook(make_payload(_r_without_identity))
 check(
-    "r. identity finding text does not itself satisfy _IDENTITY_LINE_RE",
-    not bool(_mod._IDENTITY_LINE_RE.search(_mod._IDENTITY_FINDING_TEXT)),
-)
-check(
-    "r. identity finding text carries no backtick-quoted literal",
-    "`" not in _mod._IDENTITY_FINDING_TEXT,
+    "r. well-formed vs. missing identity line produce the SAME verdict (no live enforcement)",
+    is_quiet(_rc_a, _out_a) and is_quiet(_rc_b, _out_b),
 )
 
 # ---------------------------------------------------------------------------
@@ -1314,7 +1306,14 @@ def _read_counter_state(cwd: str) -> dict:
 
 with tempfile.TemporaryDirectory() as lg_tmp_dir:
     lg_real = os.path.realpath(lg_tmp_dir)
-    flagged_msg = "Done."
+    # DS-155 round 3: flagged_msg is FLAGGED_STATUS_ONLY_MSG, not the bare
+    # "Done." these L. fixtures used pre-DS-155 - "Done." was flagged by
+    # the now-fully-DELETED identity-line check (not merely the round-2
+    # exemption around it), so restoring the literal round-1 string would
+    # make every is_advisory() assertion below fail. The round-2-only
+    # scaffolding (_write_fake_git_branch calls) IS fully reverted/removed
+    # here, per instruction - it existed solely to scope that exemption.
+    flagged_msg = FLAGGED_STATUS_ONLY_MSG
 
     # L1. Layer 1: stop_hook_active=true on a flagged message -> QUIET.
     rc, out, err = run_hook(
@@ -1323,16 +1322,12 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     check("L1. stop_hook_active=true on a flagged message -> QUIET (no advisory)", is_quiet(rc, out))
 
     # L2. Layer 2: consecutive flagged turns in the same cwd -> advisory,
-    # advisory, then QUIET once count reaches CAP. A fake ticket branch
-    # (DS-155 round 2) makes the identity finding fire deterministically,
-    # independent of the ticket-context exemption tested separately in
-    # the x. section below.
+    # advisory, then QUIET once count reaches CAP.
     cap_dir = os.path.join(lg_real, "cap_cwd")
     os.makedirs(os.path.join(cap_dir, ".agentic"), exist_ok=True)
-    _write_fake_git_branch(cap_dir, "fix/loop-guard-test")
     _make_counter_state(cap_dir, CONSECUTIVE_BLOCK_CAP - 1, 0)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
-    check("L2a. counter at 1/2 -> ADVISORY (fires, increments to 2)", is_advisory(rc, out, "identity"))
+    check("L2a. counter at 1/2 -> ADVISORY (fires, increments to 2)", is_advisory(rc, out, "status-only"))
     check("L2b. counter incremented to 2", _read_counter_state(cap_dir)["count"] == 2)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=cap_dir))
     check("L2c. counter at CAP=2 -> QUIET (advisory halted)", is_quiet(rc, out))
@@ -1340,7 +1335,6 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     # L3. A new genuine user message resets the counter -> advisory fires again.
     reset_dir = os.path.join(lg_real, "reset_cwd")
     os.makedirs(os.path.join(reset_dir, ".agentic"), exist_ok=True)
-    _write_fake_git_branch(reset_dir, "fix/loop-guard-test")
     _make_counter_state(reset_dir, CONSECUTIVE_BLOCK_CAP, 1)  # at CAP, last_user_msg_count=1
     reset_transcript_path = _write_transcript(
         reset_dir,
@@ -1360,7 +1354,7 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
             }
         )
     )
-    check("L3. new genuine user message (2>1) resets counter -> ADVISORY again", is_advisory(rc, out, "identity"))
+    check("L3. new genuine user message (2>1) resets counter -> ADVISORY again", is_advisory(rc, out, "status-only"))
 
     # L4. A clean turn resets the counter -> next flagged turn advisories
     # again. Seeded at CAP-1 (below the cap) so the clean turn is classifiable
@@ -1369,13 +1363,12 @@ with tempfile.TemporaryDirectory() as lg_tmp_dir:
     # blocked-loop scenario, not the re-arming scenario this case pins.
     clean_reset_dir = os.path.join(lg_real, "clean_reset_cwd")
     os.makedirs(os.path.join(clean_reset_dir, ".agentic"), exist_ok=True)
-    _write_fake_git_branch(clean_reset_dir, "fix/loop-guard-test")
     _make_counter_state(clean_reset_dir, CONSECUTIVE_BLOCK_CAP - 1, 0)  # count=1
     rc, out, err = run_hook(make_payload(IDENTITY_COMPLETE, cwd=clean_reset_dir))
     check("L4a. clean turn -> QUIET (no advisory)", is_quiet(rc, out))
     check("L4b. clean turn resets counter to 0", _read_counter_state(clean_reset_dir)["count"] == 0)
     rc, out, err = run_hook(make_payload(flagged_msg, cwd=clean_reset_dir))
-    check("L4c. after clean-turn reset -> ADVISORY again", is_advisory(rc, out, "identity"))
+    check("L4c. after clean-turn reset -> ADVISORY again", is_advisory(rc, out, "status-only"))
 
     # L5. Counter write failure (unwritable .agentic/) -> QUIET, fail-open.
     unwrite_dir = os.path.join(lg_real, "unwritable_cwd")
@@ -1601,168 +1594,67 @@ with tempfile.TemporaryDirectory() as tmp_dir:
         is_advisory(rc, out, "forced-yield"),
     )
 
-
-# ---------------------------------------------------------------------------
-# x. DS-155 round 2 identity-line ticket-less-session exemption
-#    (_session_has_active_ticket_context). Round 1's transcript-inference
-#    predicate (_session_has_established_identity) was scrapped entirely
-#    after two demonstrated failures - it never bootstrapped a session
-#    whose early turns were all malformed, and a single fabricated
-#    identity line anywhere in the transcript "established" context
-#    forever. The round-2 replacement reads REAL state instead: the
-#    current git branch (read from .git/HEAD, no subprocess) and
-#    `.agentic/` ticket-loop state. Neither signal can be produced by the
-#    model simply writing plausible-looking chat text.
-# ---------------------------------------------------------------------------
-
-
-status_only_no_identity = "Looked at the code.\n" + _nlines(3, prefix="Note")
-
-with tempfile.TemporaryDirectory() as tmp_dir:
-    # x1. Plain directory, no .git, no .agentic/ ticket state -> no
-    # real-state signal at all -> ticket-less conversational session ->
-    # the missing-identity finding is exempted. Message body is short (no
-    # other warrant needed) so a fully clean QUIET result isolates the
-    # identity exemption specifically.
-    no_signal_dir = os.path.join(tmp_dir, "no_signal")
-    os.makedirs(no_signal_dir, exist_ok=True)
-    rc, out, err = run_hook(
-        json.dumps({"last_assistant_message": "Sure, that works.", "cwd": no_signal_dir})
-    )
-    check(
-        "x1. no branch/.agentic signal -> QUIET (ticket-less session exempted)",
-        is_quiet(rc, out),
-    )
-
-    # x2. MUST-STILL-FIRE case, signal 1 (branch): cwd's current branch
-    # matches this repo's own `fix/` naming convention (a ticket is
-    # genuinely in flight), and the CURRENT turn is missing its identity
-    # line AND is status-only. Both findings must still fire - the
-    # exemption must not widen into uselessness.
-    branch_dir = os.path.join(tmp_dir, "branch_signal")
-    os.makedirs(branch_dir, exist_ok=True)
-    _write_fake_git_branch(branch_dir, "fix/DS-155")
-    rc, out, err = run_hook(
-        json.dumps({"last_assistant_message": status_only_no_identity, "cwd": branch_dir})
-    )
-    check(
-        "x2. branch matches fix/ convention + missing identity -> ADVISORY (identity)",
-        is_advisory(rc, out, "identity"),
-    )
-    check(
-        "x2b. same turn ALSO still flags status-only -> not silently swallowed by the exemption path",
-        is_advisory(rc, out, "status-only"),
-    )
-
-    # x2c. Companion: a non-ticket branch name (e.g. "main") does NOT
-    # trigger signal 1 on its own.
-    main_branch_dir = os.path.join(tmp_dir, "main_branch")
-    os.makedirs(main_branch_dir, exist_ok=True)
-    _write_fake_git_branch(main_branch_dir, "main")
-    rc, out, err = run_hook(
-        json.dumps({"last_assistant_message": "Sure, that works.", "cwd": main_branch_dir})
-    )
-    check(
-        "x2c. branch is 'main' (no ticket prefix) -> QUIET (exempted)",
-        is_quiet(rc, out),
-    )
-
-    # x3. MUST-STILL-FIRE case, signal 2 (.agentic/ ticket state): branch
-    # is 'main' (signal 1 absent) but an ACTIVE loop-state file is present
-    # under .agentic/ -> in-flight ticket via signal 2 alone -> ADVISORY.
-    loop_state_dir = os.path.join(tmp_dir, "loop_state_active")
-    os.makedirs(loop_state_dir, exist_ok=True)
-    _write_fake_git_branch(loop_state_dir, "main")
-    _write_loop_state(loop_state_dir, "loop-state-DS-999.json", "active")
-    rc, out, err = run_hook(
-        json.dumps({"last_assistant_message": "Done.", "cwd": loop_state_dir})
-    )
-    check(
-        "x3. active .agentic/ loop-state (branch=main) -> ADVISORY (identity)",
-        is_advisory(rc, out, "identity"),
-    )
-
-    # x4. A COMPLETE (not active/interrupted) loop-state file must NOT
-    # count - a finished ticket's file persists on disk by design and must
-    # not keep exempting every later conversational turn in the same
-    # checkout forever.
-    loop_state_complete_dir = os.path.join(tmp_dir, "loop_state_complete")
-    os.makedirs(loop_state_complete_dir, exist_ok=True)
-    _write_fake_git_branch(loop_state_complete_dir, "main")
-    _write_loop_state(loop_state_complete_dir, "loop-state-DS-999.json", "complete")
-    rc, out, err = run_hook(
-        json.dumps({"last_assistant_message": "Sure, that works.", "cwd": loop_state_complete_dir})
-    )
-    check(
-        "x4. 'complete' loop-state does not count as active -> QUIET (exempted)",
-        is_quiet(rc, out),
-    )
-
-    # x5. No cwd at all -> fails closed toward "context established"
-    # (today's unconditional-check behavior).
-    rc, out, err = run_hook(json.dumps({"last_assistant_message": "Done."}))
-    check(
-        "x5. no cwd -> ADVISORY (identity), fail-closed preserved",
-        is_advisory(rc, out, "identity"),
-    )
-
-    # x6. POISONING-RESISTANCE REGRESSION (DS-155 round 2, Major 2 second
-    # half): a transcript containing the LITERAL DS-155 origin-incident
-    # fabricated breadcrumb string must NOT influence this predicate at
-    # all - it no longer reads the transcript for this decision. No
-    # branch/.agentic signal + a poisoned transcript -> still QUIET
-    # (exempted), proving immunity to exactly the fabricated-breadcrumb
-    # failure mode the round-1 predicate was vulnerable to.
-    poisoned_dir = os.path.join(tmp_dir, "poisoned")
-    os.makedirs(poisoned_dir, exist_ok=True)
-    poisoned_transcript = _write_transcript(
+    # w8. REGRESSION (DS-155 round 3, Major fix): the demonstrated false
+    # positive - a genuine fresh answer turn shaped "text -> tool_use ->
+    # tool_result -> more text" (the model's OWN earlier text+tool_use
+    # step, in the SAME mixed content array, was miscounted as a
+    # competing "intervening" turn under round 2's positional skip) - must
+    # now be QUIET, identical to the same final answer text delivered as a
+    # single entry.
+    text_then_tool_transcript = _write_transcript(
         tmp_dir,
         [
+            {"role": "user", "content": "Why did the cache test fail?"},
             {
                 "role": "assistant",
-                "content": "harness · turn-shape guard · [phase: answer]\nFabricated breadcrumb.",
+                "content": [
+                    {"type": "text", "text": "Let me check the log."},
+                    {"type": "tool_use", "id": "t1", "name": "Bash", "input": {}},
+                ],
+            },
+            {
+                "role": "user",
+                "content": [{"type": "tool_result", "tool_use_id": "t1", "content": "log output"}],
+            },
+            {"role": "assistant", "content": PLAIN_PROSE_ANSWER},
+        ],
+    )
+    rc, out, err = run_hook(
+        json.dumps({"last_assistant_message": "", "transcript_path": text_then_tool_transcript})
+    )
+    check(
+        "w8. text-then-tool-then-text shape (own earlier step) -> QUIET (not a false intervening turn)",
+        is_quiet(rc, out),
+    )
+
+    # w9. REGRESSION (DS-155 round 3, Minor fix - the mirror image of w8):
+    # when the CURRENT turn's own assistant entry is NOT yet on disk at
+    # Stop time (last_assistant_message supplied directly and does NOT
+    # match anything in the transcript), the one genuinely earlier
+    # completed turn in the transcript must NOT be silently skipped as if
+    # it were "this turn's own entry" - the question is stale-by-one and
+    # must be correctly detected.
+    stale_by_one_transcript = _write_transcript(
+        tmp_dir,
+        [
+            {"role": "user", "content": "can you start on DS-155?"},
+            {
+                "role": "assistant",
+                "content": IDENTITY_OK + "\nWaiting: engineer spawned, blocks merge.",
             },
         ],
     )
     rc, out, err = run_hook(
         json.dumps(
             {
-                "last_assistant_message": "Sure, that works.",
-                "cwd": poisoned_dir,
-                "transcript_path": poisoned_transcript,
+                "last_assistant_message": stale_status_only,
+                "transcript_path": stale_by_one_transcript,
             }
         )
     )
     check(
-        "x6. poisoned transcript (fabricated breadcrumb) has no effect -> QUIET (exempted)",
-        is_quiet(rc, out),
-    )
-
-    # x7. NEVER-BOOTSTRAPS REGRESSION (DS-155 round 2, Major 2 first half):
-    # a ticket branch whose transcript's early turns are ALL malformed (6
-    # malformed prior turns, matching the demonstrated repro) must still
-    # correctly flag from turn 1 - no dependency on any PRIOR
-    # correctly-formed turn, since the predicate never reads the
-    # transcript at all.
-    bootstrap_dir = os.path.join(tmp_dir, "bootstrap")
-    os.makedirs(bootstrap_dir, exist_ok=True)
-    _write_fake_git_branch(bootstrap_dir, "fix/DS-155")
-    malformed_turns = [
-        {"role": "user", "content": "let's start"},
-    ] + [{"role": "assistant", "content": f"malformed turn {i}, no identity line here"} for i in range(6)]
-    bootstrap_transcript = _write_transcript(tmp_dir, malformed_turns)
-    rc, out, err = run_hook(
-        json.dumps(
-            {
-                "last_assistant_message": "Done.",
-                "cwd": bootstrap_dir,
-                "transcript_path": bootstrap_transcript,
-            }
-        )
-    )
-    check(
-        "x7. ticket branch, 6 prior malformed turns -> ADVISORY (identity), bootstraps correctly",
-        is_advisory(rc, out, "identity"),
+        "w9. current turn's own entry not yet on disk -> ADVISORY (status-only), correctly stale-by-one",
+        is_advisory(rc, out, "status-only"),
     )
 
 
