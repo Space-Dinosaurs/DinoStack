@@ -865,19 +865,18 @@ case "$DANGLE_LEGACY_HOOKS_DIR" in
 esac
 DANGLE_LEGACY_HOOK_DST="$DANGLE_LEGACY_HOOKS_DIR/pre-commit"
 
-# resolve_primary_checkout canonicalises repo_dir (via _pc_canonicalize_dir)
-# before uninstall_precommit_hook passes it to _pc_is_legacy_sibling_hook's
-# path-prefix check, so the fixture's target path must be built from the
-# SAME canonical form - not the raw $DANGLE_LEGACY_MAIN string, which can
-# differ on a symlinked TMPDIR/HOME (e.g. macOS's
-# /var/folders -> /private/var/folders).
-DANGLE_LEGACY_MAIN_CANON="$(cd "$DANGLE_LEGACY_MAIN" && pwd -P)"
-
-# The dangling target's path lies under the repo's own known worktree root
-# (.claude/worktrees/) even though that directory no longer exists on disk -
-# simulating a Claude-harness worktree that was already deleted without its
-# legacy hook being uninstalled first.
-DANGLE_LEGACY_TARGET_DIR="$DANGLE_LEGACY_MAIN_CANON/.claude/worktrees/agent-deleted-example"
+# DS-152 round 4 (Major, was relocated here in round 3): the dangling
+# target's path is built from the RAW $DANGLE_LEGACY_MAIN string (as
+# `.claude/install.sh`'s pre-fix `REPO_DIR="$(cd ... && pwd)"` - logical
+# pwd, NOT `pwd -P` - would actually have spelled it for any checkout
+# reached through a symlinked component), NOT a pre-canonicalised form. This
+# is the shape the defect lives in: on a symlinked TMPDIR/HOME (e.g. macOS's
+# /var/folders -> /private/var/folders) this raw spelling differs, on disk,
+# from `primary_checkout`'s canonical form even though both name the exact
+# same real directory. A fixture built from the canonical form (round 3's
+# shape) cannot exercise this - see _pc_canonicalize_missing_dir below for
+# the fix that makes comparing these two spellings actually work.
+DANGLE_LEGACY_TARGET_DIR="$DANGLE_LEGACY_MAIN/.claude/worktrees/agent-deleted-example"
 mkdir -p "$DANGLE_LEGACY_HOOKS_DIR"
 ln -s "$DANGLE_LEGACY_TARGET_DIR/hooks/pre-commit" "$DANGLE_LEGACY_HOOK_DST"
 

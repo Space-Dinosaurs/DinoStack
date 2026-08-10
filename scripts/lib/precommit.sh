@@ -74,11 +74,13 @@
 #     ownership check the original per-adapter uninstall blocks used,
 #     extended so a hook installed by pre-DS-152 code from a worktree can
 #     still be removed post-upgrade. Also removed when the legacy target's
-#     own worktree directory has already been deleted, PROVIDED its path
-#     lies under the primary checkout's own ".claude/worktrees/" or
-#     ".agentic/worktrees/" (see _pc_is_legacy_sibling_hook's dangling-target
-#     branch) - the most common pre-fix residue, since a dangling hook is
-#     already broken regardless. Never deletes a foreign hook, a real
+#     own worktree directory has already been deleted, PROVIDED its path -
+#     canonicalised via _pc_canonicalize_missing_dir, so a target spelled
+#     through a symlinked TMPDIR/HOME component still matches - lies under
+#     the primary checkout's own ".claude/worktrees/" or ".agentic/worktrees/"
+#     (see _pc_is_legacy_sibling_hook's dangling-target branch) - the most
+#     common pre-fix residue, since a dangling hook is already broken
+#     regardless. Never deletes a foreign hook, a real
 #     file, or a symlink pointing at an unrelated repo. If hooks-dir
 #     resolution fails for any reason, prints a non-fatal warning and
 #     returns 0 - never aborts the caller. On primary-checkout resolution
@@ -147,21 +149,38 @@ resolve_git_hooks_dir() {
 # ---------------------------------------------------------------------------
 # _pc_canonicalize_dir <dir>
 #   Internal helper (not part of the public API). Echoes the canonical
-#   (symlink-resolved) absolute form of <dir> via `cd <dir> && pwd -P`,
-#   falling back to echoing <dir> unchanged (and still returning 0) when
-#   canonicalisation fails (e.g. <dir> does not exist). Shared by
-#   resolve_primary_checkout and _pc_git_common_dir_abs so every absolute
-#   path either of them produces is canonicalised the SAME way - a
+#   (symlink-resolved) absolute form of <dir> via `cd <dir> && pwd -P`.
+#   Shared by resolve_primary_checkout and _pc_git_common_dir_abs so every
+#   absolute path either of them produces is canonicalised the SAME way - a
 #   symlinked TMPDIR/HOME path component (e.g. macOS's
 #   /tmp -> /private/tmp or /var/folders -> /private/var/folders) would
 #   otherwise leave one call site's output canonical and the other's raw,
 #   causing string-equality comparisons downstream to spuriously fail.
-#   Always returns 0 - callers that need to distinguish "could not
-#   canonicalise" should check whether the echoed value differs from what
-#   they passed in; none of the current callers need to.
+#   <dir>="" is rejected up front (returns 1, echoes nothing) rather than
+#   passed to `cd` - bash's `cd ""` fails (rc=1, "null directory") but zsh's
+#   `cd ""` SUCCEEDS and resolves to the shell's CURRENT working directory,
+#   so without this guard the two shells would echo different, silently
+#   wrong answers for the same empty input. No current caller passes an
+#   empty <dir> (verified: _pc_git_common_dir_abs already returns early on
+#   an empty git-common-dir before ever calling this; resolve_primary_checkout
+#   returns 1 on `repo_dir=""` via its own upstream `git -C ""` failure) -
+#   the guard exists so a FUTURE caller cannot be silently bitten by this
+#   inter-shell divergence.
+#   On any OTHER canonicalisation failure (a non-empty <dir> that does not
+#   exist, a permission error, or a path that is a file, not a directory),
+#   falls back to echoing <dir> unchanged and still returns 0 - this
+#   fallback is UNREACHABLE by every current caller (each already guards
+#   its own non-existence case upstream, per the callers documented at each
+#   call site) and exists purely as documented dead-code behaviour, not as
+#   a contract any caller relies on. Do not add a caller that depends on
+#   distinguishing "canonicalised" from "fell back" via this return value
+#   without first re-auditing this comment.
 # ---------------------------------------------------------------------------
 _pc_canonicalize_dir() {
   local dir="$1"
+  if [[ -z "$dir" ]]; then
+    return 1
+  fi
   local canonical
   if canonical="$(cd "$dir" 2>/dev/null && pwd -P)" && [[ -n "$canonical" ]]; then
     echo "$canonical"
@@ -169,6 +188,38 @@ _pc_canonicalize_dir() {
     echo "$dir"
   fi
   return 0
+}
+
+# ---------------------------------------------------------------------------
+# _pc_canonicalize_missing_dir <path>
+#   Internal helper (not part of the public API). Canonicalises <path> even
+#   when <path> itself does not exist on disk (e.g. a deleted worktree),
+#   which `_pc_canonicalize_dir` cannot do - `cd`/`pwd -P` require the
+#   target directory to exist. Walks upward from <path> to find its longest
+#   EXISTING ancestor, canonicalises that ancestor (via
+#   _pc_canonicalize_dir, resolving any symlinked component such as macOS's
+#   /var/folders -> /private/var/folders), then re-appends the missing
+#   trailing path components verbatim - they cannot contain a symlink to
+#   resolve, because a symlink target must itself exist to be dereferenced.
+#   Echoes the resulting path and always returns 0; the degenerate case
+#   <path>="/" is its own existing ancestor, so the loop always terminates.
+#   <path>="" is treated as "/" up front - `existing` is then guaranteed to
+#   be either "/" or a "/"-stripped, still-non-empty prefix of <path> by the
+#   time _pc_canonicalize_dir is called, so it is never the empty string
+#   that helper now rejects.
+# ---------------------------------------------------------------------------
+_pc_canonicalize_missing_dir() {
+  local path="$1"
+  local existing="${path:-/}"
+  local tail=""
+  while [[ ! -d "$existing" && "$existing" != "/" && -n "$existing" ]]; do
+    tail="/${existing##*/}${tail}"
+    existing="${existing%/*}"
+    [[ -z "$existing" ]] && existing="/"
+  done
+  local canonical_existing
+  canonical_existing="$(_pc_canonicalize_dir "$existing")"
+  echo "${canonical_existing%/}${tail}"
 }
 
 # ---------------------------------------------------------------------------
@@ -215,14 +266,22 @@ _pc_git_common_dir_abs() {
 #     - the directory it hangs off of has already been DELETED (the most
 #       common pre-fix residue - a scratch/ephemeral worktree that was
 #       cleaned up without ever uninstalling its legacy hook first) AND
-#       [primary_checkout] is given AND <target>'s worktree path lies under
-#       "<primary_checkout>/.claude/worktrees/" or
-#       "<primary_checkout>/.agentic/worktrees/" - the repo's own known
-#       worktree roots. Ownership cannot be verified via git-common-dir once
-#       the directory is gone, so this path constraint stands in for it: the
-#       hook is already broken either way (its target cannot be executed),
-#       and constraining to the repo's own worktree roots prevents widening
-#       into a foreign dangling hook that merely happens to be unreachable.
+#       [primary_checkout] is given AND <target>'s worktree path,
+#       CANONICALISED via _pc_canonicalize_missing_dir (its own directory
+#       component is gone, so it cannot be canonicalised the normal way -
+#       see that helper), lies under "<primary_checkout>/.claude/worktrees/"
+#       or "<primary_checkout>/.agentic/worktrees/" - the repo's own known
+#       worktree roots, compared in the SAME canonical form primary_checkout
+#       is already in. Without this canonicalisation step a target spelled
+#       via a symlinked TMPDIR/HOME component (e.g. the raw, non-`pwd -P`
+#       form a pre-DS-152 install could have written) would raw-string
+#       mismatch against primary_checkout's canonical form even though both
+#       name the identical real directory (DS-152 round 4). Ownership cannot
+#       be verified via git-common-dir once the directory is gone, so this
+#       path constraint stands in for it: the hook is already broken either
+#       way (its target cannot be executed), and constraining to the repo's
+#       own worktree roots prevents widening into a foreign dangling hook
+#       that merely happens to be unreachable.
 #   Returns 1 (false) - never aborts - when <target> does not match the
 #   suffix, or (for an existing target directory) its common-dir resolves to
 #   a different repo, or (for an already-deleted target directory) no
@@ -239,7 +298,9 @@ _pc_is_legacy_sibling_hook() {
 
   if [[ ! -d "$target_repo_dir" ]]; then
     if [[ -n "$primary_checkout" ]]; then
-      case "$target_repo_dir" in
+      local canonical_target_repo_dir
+      canonical_target_repo_dir="$(_pc_canonicalize_missing_dir "$target_repo_dir")"
+      case "$canonical_target_repo_dir" in
         "$primary_checkout"/.claude/worktrees/*|"$primary_checkout"/.agentic/worktrees/*)
           return 0
           ;;
