@@ -69,7 +69,8 @@
 #     the hook dangling anyway (see the library's Failure-modes "KNOWN
 #     RESIDUAL" bullet) - not a regression, not fixed by this PR, disclosed
 #     rather than silently left unverified.
-#   - Major 2 (uninstall orphaning a legacy-targeted hook): Test 9.
+#   - Major 2 (uninstall orphaning a legacy-targeted hook): Test 9 (canonical
+#     fixture path only - see Test 12 for the non-canonical variant).
 #   - Minor 1 (install_precommit_hook's `[[ ! -f "$hook_src" ]]` guard was
 #     reachable but had zero coverage): Test 10 - an ordinary repo with no
 #     hooks/pre-commit file at all, the only shape that exercises
@@ -77,6 +78,10 @@
 #   - Minor 3 (legacy_hook_src used the raw, non-canonicalized repo_dir):
 #     Test 11 - install with a trailing-slash spelling, uninstall with the
 #     canonical spelling of the same directory.
+#   - Major 1 (round 3: legacy candidate regressed against a symlinked-
+#     parent, non-canonical repo_dir spelling - the cross-version boundary
+#     where pre-this-PR code always used the raw spelling but the legacy
+#     candidate had become canonical-only): Test 12.
 #   This test re-creates worktree fixtures for all of the above to prevent
 #   regression.
 
@@ -568,10 +573,10 @@ fi
 # source: the main checkout's own hooks/pre-commit).
 git -C "$BARE_REPO" worktree remove -f "$BARE_WT" >/dev/null 2>&1
 
-if [[ ! -e "$BARE_HOOK_DST" ]]; then
+if [[ -L "$BARE_HOOK_DST" ]] && [[ ! -e "$BARE_HOOK_DST" ]]; then
   _pass "Test 8 (Minor 2, known residual documented): bare-repo worktree hook is DANGLING after worktree removal, as disclosed in the manifest's Failure modes section (not a regression, no better source exists)"
 else
-  _fail "Test 8 (Minor 2 regression): expected the KNOWN residual (dangling hook after bare-repo worktree removal) but the hook still resolves at $BARE_HOOK_DST - either the residual was silently fixed (update the manifest disclosure) or the fixture broke"
+  _fail "Test 8 (Minor 2 regression): expected the KNOWN residual (a DANGLING symlink, i.e. -L true and -e false) but got -L=$([[ -L "$BARE_HOOK_DST" ]] && echo true || echo false) -e=$([[ -e "$BARE_HOOK_DST" ]] && echo true || echo false) at $BARE_HOOK_DST - either the residual was silently fixed (update the manifest disclosure), the fixture broke, or the symlink was never created (plain absence, not dangling)"
 fi
 
 # ============================================================
@@ -699,10 +704,10 @@ case "$NO_HOOK_REAL_HOOKS_DIR" in
 esac
 NO_HOOK_DST="$NO_HOOK_REAL_HOOKS_DIR/pre-commit"
 
-if [[ ! -e "$NO_HOOK_DST" ]]; then
+if [[ ! -L "$NO_HOOK_DST" ]] && [[ ! -e "$NO_HOOK_DST" ]]; then
   _pass "Test 10 (Minor 1): no dangling symlink was created at $NO_HOOK_DST despite a missing source"
 else
-  _fail "Test 10 (Minor 1 regression): a symlink/file was created at $NO_HOOK_DST despite the resolved source not existing. Output: $NO_HOOK_OUT"
+  _fail "Test 10 (Minor 1 regression): a symlink/file was created at $NO_HOOK_DST despite the resolved source not existing (-L=$([[ -L "$NO_HOOK_DST" ]] && echo true || echo false) -e=$([[ -e "$NO_HOOK_DST" ]] && echo true || echo false)). Output: $NO_HOOK_OUT"
 fi
 
 # ============================================================
@@ -762,6 +767,61 @@ if [[ ! -e "$CANON_HOOK_DST" ]]; then
   _pass "Test 11 (Minor 3 fixed): hook installed via a trailing-slash repo_dir is correctly removed by uninstall using the canonical spelling"
 else
   _fail "Test 11 (Minor 3 regression): hook installed via a trailing-slash repo_dir was left ORPHANED by uninstall using the canonical spelling - legacy_hook_src is not canonicalized consistently with the installed target. Output: $CANON_UNINSTALL_OUT"
+fi
+
+# ============================================================
+# Test 12: Major 1 - uninstall's legacy candidate must match a hook
+#          installed under a NON-CANONICAL repo_dir spelling (reached
+#          through a symlinked PARENT directory), not just the canonical
+#          spelling. Pre-this-fix, legacy_hook_src was built AFTER repo_dir
+#          had already been overwritten with its canonicalized form, so
+#          the raw spelling was lost entirely by the time the legacy
+#          candidate string was assembled - a legacy hook installed under
+#          the raw spelling (exactly what pre-this-PR, non-canonicalizing
+#          code would have done) then matched neither the resolved target
+#          nor the legacy candidate, and was orphaned.
+# ============================================================
+
+MAJOR1_REAL_PARENT="$TMP_ROOT/major1-real-parent"
+mkdir -p "$MAJOR1_REAL_PARENT"
+MAJOR1_REPO="$MAJOR1_REAL_PARENT/repo"
+_make_fixture_repo "$MAJOR1_REPO"
+
+MAJOR1_SYMLINK_PARENT="$TMP_ROOT/major1-symlinked-parent"
+ln -s "$MAJOR1_REAL_PARENT" "$MAJOR1_SYMLINK_PARENT"
+
+# Non-canonical spelling of the SAME repo, reached through the symlinked
+# parent directory.
+MAJOR1_RAW_REPO_DIR="$MAJOR1_SYMLINK_PARENT/repo"
+
+if [[ "$MAJOR1_RAW_REPO_DIR" != "$MAJOR1_REPO" ]]; then
+  _pass "Test 12 setup: raw (symlinked-parent) and canonical repo_dir spellings genuinely differ as strings"
+else
+  _fail "Test 12 setup: raw and canonical spellings are string-identical - fixture does not exercise the bug"
+fi
+
+MAJOR1_HOOKS_DIR="$MAJOR1_REPO/.git/hooks"
+mkdir -p "$MAJOR1_HOOKS_DIR"
+MAJOR1_HOOK_DST="$MAJOR1_HOOKS_DIR/pre-commit"
+
+# Simulate a hook installed by legacy (pre-this-PR, non-canonicalizing)
+# code: the symlink target is built directly from the RAW spelling passed
+# in, with no canonicalization step at all.
+ln -s "$MAJOR1_RAW_REPO_DIR/hooks/pre-commit" "$MAJOR1_HOOK_DST"
+
+MAJOR1_OUT="$(uninstall_precommit_hook "$MAJOR1_RAW_REPO_DIR" 2>&1)"
+MAJOR1_RC=$?
+
+if [[ $MAJOR1_RC -eq 0 ]]; then
+  _pass "Test 12 (Major 1): uninstall_precommit_hook exits 0 for a legacy hook installed under a non-canonical spelling"
+else
+  _fail "Test 12 (Major 1): uninstall_precommit_hook exited $MAJOR1_RC. Output: $MAJOR1_OUT"
+fi
+
+if [[ ! -e "$MAJOR1_HOOK_DST" ]]; then
+  _pass "Test 12 (Major 1 fixed): legacy hook installed under a non-canonical (symlinked-parent) spelling is removed by uninstall"
+else
+  _fail "Test 12 (Major 1 regression): legacy hook installed under a non-canonical spelling was left ORPHANED by uninstall - the legacy candidate must match both the raw and the canonical repo_dir spellings. Output: $MAJOR1_OUT"
 fi
 
 # ---- Results ----

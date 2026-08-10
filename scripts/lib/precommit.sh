@@ -71,12 +71,17 @@
 #     is a symlink pointing exactly at that resolved target OR at the
 #     legacy unconditional "<repo_dir>/hooks/pre-commit" target that
 #     pre-this-PR code (or this code from an ordinary, non-worktree
-#     repo_dir) would have installed (the same ownership check the
-#     original per-adapter uninstall blocks used, widened by exactly one
-#     additional exact-match candidate - never deletes a foreign hook, a
-#     real file, or a symlink pointing anywhere else). If hooks-dir
-#     resolution fails for any reason, prints a non-fatal warning and
-#     returns 0 - never aborts the caller.
+#     repo_dir) would have installed - checked against BOTH the RAW
+#     repo_dir spelling as passed to this function and its canonicalized
+#     (symlink-resolved) form, since the two can differ when repo_dir is
+#     reached through a symlinked parent, and the legacy target may have
+#     been installed under either spelling depending on which code wrote
+#     it (the same ownership check the original per-adapter uninstall
+#     blocks used, widened by exactly two additional exact-match
+#     candidates - never deletes a foreign hook, a real file, or a symlink
+#     pointing anywhere else). If hooks-dir resolution fails for any
+#     reason, prints a non-fatal warning and returns 0 - never aborts the
+#     caller.
 #
 # Upstream dependencies:
 #   git (rev-parse --git-path / --git-dir / --git-common-dir), the COMMON
@@ -144,9 +149,25 @@
 #   two different fallback/legacy strings for the same real hook, breaking
 #   the exact-match comparisons in install/uninstall. Canonicalizing once,
 #   consistently, closes that gap.
+#
+#   KNOWN EDGE CASE (guarded): an empty <repo_dir> ("") is rejected before
+#   the `cd` - `cd ""` succeeds in both bash and zsh and silently retargets
+#   to the caller's CURRENT directory, which would make this function
+#   fail-open (returning the invoker's cwd, not an error indicator) for a
+#   function whose whole job is deriving where symlinks get written/read.
+#   Not reachable from any of the six current consumers (all set REPO_DIR
+#   unconditionally before calling in), but the raw `cd "$d"` behavior
+#   without this guard would silently swap a caller bug (empty repo_dir)
+#   for a directory-confusion bug instead of surfacing it - echoes the
+#   empty string back unchanged so callers see the same "unresolved"
+#   signal they'd get from any other invalid repo_dir.
 # ---------------------------------------------------------------------------
 _precommit_canonical_repo_dir() {
   local d="$1"
+  if [[ -z "$d" ]]; then
+    echo "$d"
+    return 0
+  fi
   (cd "$d" 2>/dev/null && pwd -P) || echo "$d"
 }
 
@@ -292,27 +313,40 @@ install_precommit_hook() {
 #   See "Public API" above.
 # ---------------------------------------------------------------------------
 uninstall_precommit_hook() {
-  local repo_dir="$1"
-  repo_dir="$(_precommit_canonical_repo_dir "$repo_dir")"
+  local raw_repo_dir="$1"
+  local repo_dir
+  repo_dir="$(_precommit_canonical_repo_dir "$raw_repo_dir")"
   local hook_src
   hook_src="$(resolve_hook_src "$repo_dir")"
 
   # Legacy target: the pre-DS-58-worktree-fix (and pre-this-PR) symlink
   # target, "<repo_dir>/hooks/pre-commit" unconditionally, with no
-  # worktree-awareness. install_precommit_hook heals a link pointing here
-  # via _ae_is_ours, but uninstall previously had no equivalent - a hook
-  # installed by the old code (or by this new code from an ordinary,
-  # non-worktree repo_dir, where hook_src already equals this value) was
-  # left orphaned by an uninstall that only recognised the new resolved
-  # target. Accepting this SECOND exact target widens what uninstall will
-  # remove to exactly: "the current resolved target" OR "the legacy
-  # unconditional <repo_dir>/hooks/pre-commit target" - both still require
-  # an EXACT match (per the existing `[[ "$current_target" == ... ]]`
-  # ownership check), so a foreign hook pointing anywhere else, including a
-  # different methodology checkout's hooks/pre-commit, is still left
-  # untouched. It does NOT match a link pointing at some other project's
-  # own hooks/pre-commit that happens to share a basename but not a path.
-  local legacy_hook_src="$repo_dir/hooks/pre-commit"
+  # worktree-awareness and no canonicalization. install_precommit_hook
+  # heals a link pointing here via _ae_is_ours, but uninstall previously
+  # had no equivalent - a hook installed by the old code (or by this new
+  # code from an ordinary, non-worktree repo_dir, where hook_src already
+  # equals this value) was left orphaned by an uninstall that only
+  # recognised the new resolved target. Two exact-match candidates are
+  # built here, not one: the RAW spelling of repo_dir as originally passed
+  # in (pre-this-PR code, and pre-canonicalization callers, built the
+  # symlink target from this uncanonicalized string) and the CANONICAL
+  # spelling (this PR's install path always symlinks against the
+  # canonicalized form). When repo_dir is reached through a symlinked
+  # parent, those two strings differ, and a hook installed under the raw
+  # spelling would otherwise silently escape both the resolved-target
+  # check and a canonical-only legacy check - re-orphaning it across the
+  # cross-version boundary this widening exists to close. Accepting these
+  # candidates widens what uninstall will remove to exactly: "the current
+  # resolved target" OR "the legacy target built from the raw repo_dir
+  # spelling" OR "the legacy target built from the canonical repo_dir
+  # spelling" - all three still require an EXACT match (per the existing
+  # `[[ "$current_target" == ... ]]` ownership check), so a foreign hook
+  # pointing anywhere else, including a different methodology checkout's
+  # hooks/pre-commit, is still left untouched. It does NOT match a link
+  # pointing at some other project's own hooks/pre-commit that happens to
+  # share a basename but not a path.
+  local legacy_hook_src_raw="$raw_repo_dir/hooks/pre-commit"
+  local legacy_hook_src_canonical="$repo_dir/hooks/pre-commit"
 
   local hooks_dir
   if ! hooks_dir="$(resolve_git_hooks_dir "$repo_dir")"; then
@@ -325,7 +359,7 @@ uninstall_precommit_hook() {
   if [[ -L "$hook_dst" ]]; then
     local current_target
     current_target="$(readlink "$hook_dst")"
-    if [[ "$current_target" == "$hook_src" || "$current_target" == "$legacy_hook_src" ]]; then
+    if [[ "$current_target" == "$hook_src" || "$current_target" == "$legacy_hook_src_raw" || "$current_target" == "$legacy_hook_src_canonical" ]]; then
       rm "$hook_dst"
       echo "  - pre-commit hook removed"
     else
