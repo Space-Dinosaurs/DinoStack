@@ -911,9 +911,32 @@ check(
     "stoppage so it charges) -> QUIET at the flat budget",
     is_quiet(rc, out),
 )
+
+# s8b. Re-derived (Skeptic Minor, round 1 finding): the deleted
+# `_forced_yield_flag` concept made the old s8b assertion
+# ('"forced-yield" not in additionalContext') pass VACUOUSLY, since s8 is
+# QUIET and additionalContext is always "" on a quiet turn - it asserted
+# nothing. The real claim s8b is meant to pin is that the combo turn is
+# routed to `_execution_prose_flag`'s GENERAL branch (fence-aware status
+# region), not the sole-stoppage branch (raw-line, fence-blind), because
+# completion is also present. Prove it by adding a FENCED narrative aside
+# after the Waiting: line: the general branch ignores fenced status-region
+# lines and stays QUIET, whereas the sole-stoppage branch is fence-blind
+# and would BLOCK on the identical aside (see ds156-f above, which pins
+# exactly that BLOCKING behavior on a genuine sole-stoppage turn). This
+# assertion was verified failing against the pre-fix vacuous form (it
+# always passed) and is confirmed non-vacuous here (see round-2 report).
+s8b_msg = (
+    IDENTITY_COMPLETE
+    + "\n" + _status_slot_lines(9, label="State") + "Waiting: nothing further.\n"
+    + "```\nAn aside, fenced, that is still not a Waiting: line.\n```\n"
+)
+rc, out, err = run_hook(make_payload(s8b_msg))
 check(
-    "s8b. combo case is NOT flagged as forced-yield (gated off by completion warrant)",
-    "forced-yield" not in parse_output(out).get("hookSpecificOutput", {}).get("additionalContext", ""),
+    "s8b. combo case with a fenced aside after the Waiting: line -> QUIET "
+    "(routed to the general/fence-aware branch, not sole-stoppage, because "
+    "completion is also present)",
+    is_quiet(rc, out),
 )
 
 s8_over_msg = IDENTITY_COMPLETE + "\n" + _status_slot_lines(10, label="State") + "Waiting: nothing further.\n"
@@ -2144,6 +2167,25 @@ rc, out, err = run_hook(make_payload(ds156_i_msg))
 check(
     "ds156-i. 140-char Waiting: line, sole-stoppage turn -> QUIET (no length "
     "bound on Waiting: lines in the shape check)",
+    is_quiet(rc, out),
+)
+
+# ds156-i2. A 140-char Waiting: line on a GENERAL-branch turn (decision
+# present alongside stoppage) -> also NOT flagged by the shape check. Same
+# WAITING_LINE_MAX_CHARS-is-volume-only rule as ds156-i, pinned separately
+# because the general branch (hooks/enforce-turn-shape.py's status-region
+# `_WAITING_LINE_RE.match(line): continue`) is a DIFFERENT code path from
+# the sole-stoppage branch ds156-i exercises, and had no regression pin of
+# its own (Skeptic Minor, round 1 finding).
+ds156_i2_msg = (
+    IDENTITY_OK
+    + "\nWaiting: " + ("z" * 135) + "\n"
+    + "\n## Operator decisions\n1. Merge unit 3 (Recommended) - CI green. Reply STOP to hold.\n"
+)
+rc, out, err = run_hook(make_payload(ds156_i2_msg))
+check(
+    "ds156-i2. 140-char Waiting: line, general branch (decision present) "
+    "-> QUIET (no length bound on Waiting: lines in the shape check)",
     is_quiet(rc, out),
 )
 
