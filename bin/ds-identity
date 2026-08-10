@@ -1165,7 +1165,16 @@ def _write_jsonl_safely(
             try:
                 parent_fd = _open_directory_nofollow(path.parent, create=True)
                 log_fd = _open_safe_log_at(parent_fd, path.name, create=True)
-                _lock_fd_exclusive(log_fd, timeout=2.0)
+                # A holder that stalls mid-critical-section (slow fsync, CPU
+                # steal on a shared runner) blocks a waiter for the full
+                # stall, not just its own tiny read/render/write. DS-158: a
+                # too-tight budget here previously converted that stall into
+                # a permanently, silently dropped telemetry record - nothing
+                # above this call retries or surfaces the loss. The JS caller
+                # (hooks/stop-context.js writeTelemetrySafely) bounds the
+                # whole write-hook subprocess at 6000ms, so this budget must
+                # stay under that with headroom for the surrounding work.
+                _lock_fd_exclusive(log_fd, timeout=5.0)
                 log_locked = True
                 if not _directory_fd_is_canonical(path.parent, parent_fd):
                     raise FileNotFoundError("session log parent rotated before lock")

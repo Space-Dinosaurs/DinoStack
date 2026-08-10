@@ -872,7 +872,12 @@ function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
     });
     const result = spawnSync(helper, ['write-hook', '--cwd', cwd], {
       encoding: 'utf8',
-      timeout: 3000,
+      // DS-158: bin/ds-identity's session-log append can wait up to 5000ms
+      // on its own flock (see the comment beside that timeout constant).
+      // This ceiling must stay above that budget with headroom, or a
+      // genuinely-contended write gets SIGKILLed here before it ever gets
+      // to report a graceful failure back to recordHealth().
+      timeout: 6000,
       maxBuffer: 64 * 1024,
       stdio: ['pipe', 'pipe', 'ignore'],
       input: request,
