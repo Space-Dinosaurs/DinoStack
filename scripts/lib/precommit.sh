@@ -201,6 +201,79 @@
 # ---------------------------------------------------------------------------
 
 # ---------------------------------------------------------------------------
+# _precommit_lexical_normalize <path>
+#   Internal helper (not part of the public API). Pure STRING (never
+#   filesystem) normalization of an ABSOLUTE path: drops "." segments,
+#   resolves ".." segments against whichever real segment immediately
+#   precedes them, and treats an excess ".." at the root as a no-op
+#   (matching POSIX path resolution - you cannot go above "/"). Must be
+#   pure-string, not `cd`-based, because the input here is frequently a
+#   DANGLING path (or an intermediate ancestor of one) that does not exist
+#   on disk and so cannot be resolved via `cd + pwd -P`.
+#
+#   Exists to close a round-4 Minor:
+#   _precommit_is_orphaned_worktree_target's ancestor walk previously
+#   derived ancestors via naive string-stripping (`${ancestor%/*}`)
+#   directly on the target's raw (possibly ".."-laden) spelling. A target
+#   of "<repo_dir>/.worktrees/../../../../../x/hooks/pre-commit" is NOT
+#   ancestor-derived by stripping one trailing component at a time - each
+#   ".." must be resolved against what precedes it FIRST, or the walk
+#   reaches ancestors that were never really on the path. Verified live:
+#   that exact target physically resolves far outside the repo, but naive
+#   stripping still reached "<repo_dir>/.worktrees" as one of its
+#   "ancestors" - a real, canonicalizable candidate - and answered DELETE;
+#   round 2's fixed single-strip correctly answered KEEP for the same
+#   input, so the round-3 walk widened this class rather than closing it.
+#   Normalizing the string ONCE, before the walk begins, makes every
+#   subsequent single-component strip a genuine ancestor step, restoring
+#   the manifest's "always compares two REAL, cd-canonicalized ancestors"
+#   claim to actually being true (each compared ancestor was still real
+#   and cd-canonicalized before this fix - what was false is that the
+#   STRING fed into that comparison chain was not always a genuine
+#   ancestor path in the first place).
+#
+#   Only meaningful for an ABSOLUTE path - by the time either call site in
+#   this file invokes it, the input has already been anchored to absolute
+#   form (resolve_hook_src's targets are always absolute; this function's
+#   own caller anchors a relative readlink() target against hooks_dir
+#   before ever reaching here). A relative input is echoed back unchanged
+#   rather than guessed at, since "ancestor of what" is undefined without
+#   an anchor.
+# ---------------------------------------------------------------------------
+_precommit_lexical_normalize() {
+  local path="$1"
+  case "$path" in
+    /*) : ;;
+    *) echo "$path"; return 0 ;;
+  esac
+
+  local remaining="$path" stack="" seg
+  while [[ -n "$remaining" ]]; do
+    seg="${remaining%%/*}"
+    if [[ "$seg" == "$remaining" ]]; then
+      remaining=""
+    else
+      remaining="${remaining#*/}"
+    fi
+    case "$seg" in
+      "" | ".") : ;;
+      "..")
+        [[ -n "$stack" ]] && stack="${stack%/*}"
+        ;;
+      *)
+        stack="$stack/$seg"
+        ;;
+    esac
+  done
+
+  if [[ -z "$stack" ]]; then
+    echo "/"
+  else
+    echo "$stack"
+  fi
+}
+
+# ---------------------------------------------------------------------------
 # _precommit_canonical_repo_dir <repo_dir>
 #   Internal helper (not part of the public API). Echoes the physical,
 #   symlink-resolved, trailing-slash-free form of <repo_dir> via
@@ -406,6 +479,15 @@ _precommit_is_orphaned_worktree_target() {
 
   local worktree_dir="${target%/hooks/pre-commit}"
   [[ "$worktree_dir" == "$target" || -z "$worktree_dir" ]] && return 1
+
+  # Resolve any "." / ".." segments in the (possibly dangling, possibly
+  # entirely non-existent) target spelling BEFORE the ancestor walk below
+  # begins - see _precommit_lexical_normalize's own manifest for why
+  # walking the RAW string is not ancestor-derivation when ".." is
+  # present. A no-op for the overwhelmingly common case (no "." or ".."
+  # in the spelling at all).
+  worktree_dir="$(_precommit_lexical_normalize "$worktree_dir")"
+  [[ -z "$worktree_dir" ]] && return 1
 
   # BOUNDED upward search: the worktree's own directory is not always
   # exactly one path component below its container (see this function's

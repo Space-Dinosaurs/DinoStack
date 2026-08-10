@@ -173,6 +173,23 @@
 #     literal subagent-protocol.md example shape) and for
 #     ".agentic/worktrees/" (the AGENTS.md sibling shape). Reddens against
 #     a reverted fixed-single-strip mutation of the container computation.
+#   - ".." escape guard (round 4, Minor 1 - round 3's ancestor walk
+#     derived ancestors by naively string-stripping the target's raw
+#     spelling, which is not ancestor-derivation when ".." segments
+#     appear after a container name: a target of
+#     "<repo>/.worktrees/../../../../../x/hooks/pre-commit" physically
+#     resolves far outside the repo, but the naive walk still reached
+#     "<repo>/.worktrees" - a real, canonicalizable candidate - and
+#     answered DELETE): Test 28, fixed by
+#     _precommit_lexical_normalize'ing the worktree directory once,
+#     before the walk begins.
+#   - Empty-hooks_dir guard coverage (round 4, Minor 2 - a documented
+#     FAILS-CLOSED clause, "hooks_dir is empty and target is relative",
+#     had zero assertion coverage; deleting the guard left the round-3
+#     suite unchanged): Test 29, constructed so the unguarded
+#     concatenation would reconstruct a real candidate path if the guard
+#     were absent - a weaker construction would not distinguish
+#     guard-present from guard-absent.
 #   This test re-creates worktree fixtures for all of the above to prevent
 #   regression.
 
@@ -1701,6 +1718,94 @@ if [[ -L "$REVPFX_HOOK_DST" ]]; then
   _pass "Test 27 (reverse-prefix guard): a dangling target rooted at an unrelated top-level subdirectory of repo_dir (which is itself a string PREFIX of every real candidate) is left untouched"
 else
   _fail "Test 27 (reverse-prefix guard regression): a dangling target under an unrelated repo-root subdirectory was incorrectly removed - the candidate comparison is matching by reverse prefix, not exact identity. Output: $REVPFX_OUT"
+fi
+
+# ============================================================
+# Test 28: ".." escape guard (round 4, Minor 1) - a dangling target whose
+#          SPELLING contains ".." segments after a real candidate name
+#          must be resolved LEXICALLY before the ancestor walk, not
+#          walked as a naive string-strip. The exact probe verified live
+#          by the round-4 Skeptic:
+#          "<repo>/.worktrees/../../../../../x/hooks/pre-commit" - a
+#          target that PHYSICALLY resolves far outside the repo (this
+#          fixture's own $TMP_ROOT, several levels above), but whose raw
+#          string, naively stripped one component at a time, still passes
+#          through "<repo>/.worktrees" - a real, canonicalizable
+#          candidate - and pre-fix answered DELETE. Round 2's fixed
+#          single-strip design answered KEEP for the same input (it never
+#          walked far enough to reach ".worktrees" from this depth), so
+#          round 3's bounded walk widened this class rather than closing
+#          it.
+# ============================================================
+
+DOTDOT_MAIN="$TMP_ROOT/dotdot-main-repo"
+_make_fixture_repo "$DOTDOT_MAIN"
+mkdir -p "$DOTDOT_MAIN/.worktrees"
+
+DOTDOT_REAL_HOOKS_DIR="$(git -C "$DOTDOT_MAIN" rev-parse --git-path hooks)"
+case "$DOTDOT_REAL_HOOKS_DIR" in
+  /*) : ;;
+  *) DOTDOT_REAL_HOOKS_DIR="$DOTDOT_MAIN/$DOTDOT_REAL_HOOKS_DIR" ;;
+esac
+DOTDOT_HOOK_DST="$DOTDOT_REAL_HOOKS_DIR/pre-commit"
+
+# The exact probe from the round-4 finding, anchored at this fixture's own
+# repo - five ".." segments from ".worktrees" walk well above $TMP_ROOT
+# itself, landing at some entirely unrelated "/x/hooks/pre-commit".
+DOTDOT_ESCAPE_TARGET="$DOTDOT_MAIN/.worktrees/../../../../../x/hooks/pre-commit"
+mkdir -p "$DOTDOT_REAL_HOOKS_DIR"
+ln -s "$DOTDOT_ESCAPE_TARGET" "$DOTDOT_HOOK_DST"
+
+DOTDOT_OUT="$(uninstall_precommit_hook "$DOTDOT_MAIN" 2>&1)"
+
+if [[ -L "$DOTDOT_HOOK_DST" ]]; then
+  _pass "Test 28 (round-4 Minor 1 fixed, ..-escape guard): a dangling target whose spelling contains '..' segments reaching far outside the repo is left untouched (KEEP), not deleted by a naive string-ancestor match. Output: $DOTDOT_OUT"
+else
+  _fail "Test 28 (round-4 Minor 1 regression, ..-escape guard): a '..'-escaping dangling target was incorrectly removed - the ancestor walk is matching a string-stripped ancestor that is not a genuine ancestor of the resolved path. Output: $DOTDOT_OUT"
+fi
+
+# ============================================================
+# Test 29: empty-hooks_dir guard coverage (round 4, Minor 2) -
+#          _precommit_is_orphaned_worktree_target's own manifest documents
+#          "<hooks_dir> is empty and <target> is relative" as a
+#          FAILS-CLOSED case, but nothing asserted it: deleting
+#          `[[ -z "$hooks_dir" ]] && return 1` left the round-3 suite at
+#          79/0 unchanged. Unreachable from any of this file's other
+#          fixtures (uninstall_precommit_hook always resolves a real
+#          hooks_dir before calling in), so this test calls the internal
+#          helper directly with an empty hooks_dir - the only way to
+#          exercise this documented invariant at all.
+#
+#          A weaker construction (an arbitrary relative target under an
+#          arbitrary repo_dir) does NOT distinguish "guard present" from
+#          "guard absent": with hooks_dir="", the unguarded concatenation
+#          `target="$hooks_dir/$target"` still produces SOME absolute-
+#          looking string ("/$target"), and an arbitrary such string
+#          almost never happens to walk through a real candidate
+#          directory regardless of the guard - so deleting the guard
+#          would silently pass a naively-constructed test too. This
+#          fixture instead constructs the relative target to be exactly
+#          repo_dir's OWN path with its leading "/" stripped, followed by
+#          a real candidate suffix - so the unguarded concatenation
+#          "" + "/" + target reconstructs repo_dir's real, EXISTING
+#          ".claude/worktrees" candidate exactly, which the guard's
+#          absence would then let match.
+# ============================================================
+
+EMPTYHD_REPO="$TMP_ROOT/emptyhd-repo"
+mkdir -p "$EMPTYHD_REPO/.claude/worktrees"
+
+EMPTYHD_TARGET_RELATIVE="${EMPTYHD_REPO#/}/.claude/worktrees/some-nonexistent-worktree/hooks/pre-commit"
+
+EMPTYHD_RESULT_RC=1
+if _precommit_is_orphaned_worktree_target "$EMPTYHD_TARGET_RELATIVE" "$EMPTYHD_REPO" ""; then
+  EMPTYHD_RESULT_RC=0
+fi
+
+if [[ $EMPTYHD_RESULT_RC -eq 1 ]]; then
+  _pass "Test 29 (round-4 Minor 2 fixed, empty-hooks_dir guard): a relative target with an empty hooks_dir anchor fails closed (returns 1, not ours) even when the unguarded concatenation would reconstruct a real candidate path"
+else
+  _fail "Test 29 (round-4 Minor 2 regression, empty-hooks_dir guard): a relative target with an empty hooks_dir anchor was NOT rejected - the documented FAILS-CLOSED clause for this case has no effect"
 fi
 
 # ---- Results ----
