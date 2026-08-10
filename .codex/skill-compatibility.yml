@@ -20032,16 +20032,6 @@
       "source_token": "**Pre-flight lock acquisition.** /ds-wrap writes to several shared project-local files. See the Consumers list under the Atomic write discipline (NORMATIVE) section in content/references/wrap-context-format.md: the 17 sites - 3 in the merge algorithm, 14 in ds-wrap.md. The lock window also covers `.agentic/compression-state.json`, which is outside that Consumers list because it is machine state rather than a human-facing document. It does NOT write `context.md` - that file is a derived rollup and is deliberately lock-free. Concurrent /ds-wrap runs in the same project would clobber each other. Acquire a project-local lock before proceeding:"
     },
     {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "ac2eaef7647db739b8e55f5eacf0fc156e88f554bffeb1f5216dde4c1e531e43",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -20830,6 +20820,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "true"
+    },
+    {
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
+      "kind": "operational",
+      "occurrence_hash": "d8190baaba0d473068630837c2410cdfe8519ae4e91bb9191f92194bacb557f0",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "wrap",

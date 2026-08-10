@@ -98,6 +98,18 @@ def _read() -> str:
     return WRAP_MD.read_text(encoding="utf-8")
 
 
+def _quiescing_block() -> str:
+    """Isolate the Escalation quiescing procedure (through the non-response
+    note) so a scoped check like "no conductor-judgment escape hatch" is
+    not tripped by unrelated uses of similar wording elsewhere in the file
+    (e.g. Step 0-pre's own, unrelated "the conductor judges" bullet)."""
+    text = _read()
+    start = text.index("**Escalation quiescing (NORMATIVE).**")
+    end = text.index("**Step 5 — Worktree cleanup.**")
+    assert start < end, "could not isolate the Escalation quiescing block"
+    return text[start:end]
+
+
 def test_step4_write_serialization_is_stated_once_and_referenced() -> None:
     """The 'main-agent-only and serialized ... within a target and across
     targets' invariant must be defined in the Concurrency scope paragraph,
@@ -163,7 +175,8 @@ def test_escalation_quiescing_procedure_is_defined() -> None:
     ), "Escalation quiescing no longer states the core non-instant-release rule"
     assert (
         "Only once every target has resolved to either a completed step-4 "
-        "write or a logged skip does `/ds-wrap` release the lock" in text
+        "write or a logged quiesced skip does `/ds-wrap` release the lock"
+        in text
     ), "Escalation quiescing no longer gates lock release on full resolution"
     # Regression guard: the ambiguous pre-fix wording must not resurface.
     assert "does not pause or affect any other target's pipeline" not in text, (
@@ -226,71 +239,145 @@ def test_learnings_md_read_is_gated_behind_the_draft_worker_spawn() -> None:
     )
 
 
-def test_escalation_quiescing_step2_enumeration_is_total() -> None:
-    """Round-3 Major, Gap A: step 2 of Escalation quiescing must enumerate
-    THREE outcomes for an in-flight sibling, not two. A sibling whose
-    current round returned Critical/Major findings, that has neither
-    signed off nor exhausted its own re-route/format budget, and for which
-    step 1 bars the next round, needs an explicit third outcome
-    ("quiesced skip") - otherwise that sibling has no reachable terminal
-    state and step 5's "resolved to either a completed step-4 write or a
-    logged skip" predicate is unsatisfiable for it."""
+def test_escalation_quiescing_step2_default_is_structural_not_enumerated() -> None:
+    """Round-4 fix (this revision): step 2's write/skip split is now a
+    single affirmative condition with a default negation, not an
+    enumeration - the shape that produced three successive relocated gaps
+    (round 1: lock released too early; round 2: a budget-remaining sibling
+    matched no outcome; round 3: a format-validation-failure-with-budget
+    sibling matched no outcome). The prior "this enumeration is total"
+    claim is deleted (it was false by round 3), and the write path is
+    pinned as the sole affirmative condition with everything else
+    defaulting to quiesced skip - so a fourth relocated gap is structurally
+    impossible rather than merely unfound."""
     text = _read()
     assert (
-        "Let every already-in-flight sibling pipeline resolve to exactly "
-        "one of these three outcomes" in text
-    ), "step 2 no longer states a total three-outcome enumeration"
-    assert "**Quiesced skip:**" in text, (
-        "the third (quiesced-skip) outcome is missing from step 2's "
-        "enumeration - a sibling with unresolved findings and a "
-        "step-1-barred next round has no defined terminal state"
-    )
+        "**The write/skip split is a single affirmative condition, not an "
+        "enumeration.**" in text
+    ), "step 2 no longer states the structural (not enumerated) rule"
     assert (
-        "treated identically to an escalated target for the purposes of "
-        "steps 3-5 below" in text
-    ), (
-        "the quiesced-skip outcome no longer states it is treated "
-        "identically to an escalated target for steps 3-5"
-    )
-    # Step 4's do-not-write list must also count quiesced-skip targets,
-    # not just the first escalation and separately-budget-exhausted siblings.
+        "A sibling target proceeds to its own step-4 write if and only if "
+        "it reaches a validated sign-off" in text
+    ), "step 2 no longer pins sign-off as the sole affirmative write condition"
     assert (
-        "any sibling that resolved to a quiesced skip during step 2" in text
+        "Every other resolution for that target is a quiesced skip, with "
+        "no exception" in text
     ), (
+        "step 2 no longer states that every non-affirmative resolution "
+        "defaults to quiesced skip - a fourth uncovered case could again "
+        "match no outcome"
+    )
+    # The falsified totality claim from round 3 must not resurface.
+    assert "this enumeration is total" not in text, (
+        "the round-3 'this enumeration is total' claim has resurfaced - "
+        "it was false (round 3's own Major proved a case it did not "
+        "cover) and is superseded by the structural default-to-skip rule"
+    )
+    # Illustrative cases must be explicitly labeled non-exhaustive.
+    assert (
+        "illustrate common quiesced-skip paths; they are examples, not an "
+        "exhaustive list" in text
+    ), (
+        "the retained example cases no longer disclaim exhaustiveness - a "
+        "future editor could again read them as the total case list"
+    )
+    # Step 4's do-not-write list must still count quiesced-skip targets.
+    assert "For every quiesced-skip target per step 2" in text, (
         "step 4's 'do NOT write anything for it' list no longer counts "
         "quiesced-skip targets - they would fall through with no defined "
         "write/skip disposition"
     )
-
-
-def test_escalation_quiescing_step1_headline_permits_first_skeptic_spawn() -> None:
-    """Round-3 Major, Gap B: step 1's headline ("stop spawning NEW ...
-    rounds") must scope explicitly to re-route/format-re-invocation rounds,
-    matching its own qualifier, and must explicitly state that a sibling's
-    FIRST Skeptic spawn (for a Worker that already returned before the
-    escalation was detected) is permitted - completing an already-in-flight
-    initial pipeline, not starting a new round. Without this, the headline
-    ("Stop spawning NEW Worker/Skeptic rounds") and the qualifier ("do not
-    start a fresh re-route or format re-invocation") disagreed about
-    whether that spawn was allowed."""
-    text = _read()
+    # Step 5's termination predicate must state satisfiability-by-construction
+    # and must NOT reintroduce a conductor-judgment escape hatch.
     assert (
-        "Stop spawning NEW re-route or format-re-invocation rounds for "
-        "every OTHER target" in text
-    ), (
-        "step 1's headline no longer scopes to re-route/format-"
-        "re-invocation rounds - it may have reverted to the broader "
-        "'Stop spawning NEW Worker/Skeptic rounds' wording that "
-        "contradicts its own qualifier"
+        "This predicate is satisfiable by construction, not by "
+        "enumeration" in text
+    ), "step 5 no longer states the by-construction satisfiability rationale"
+    # NOTE: the prose deliberately avoids the literal phrase "conductor
+    # judgment" - that exact bigram is a semantic-variant pattern pinned by
+    # test_learnings_agent_capture_model_spec.py (a wholly unrelated gate,
+    # about learnings-agent capture discretion) and would false-trip it.
+    quiescing_block = _quiescing_block()
+    assert "no manual determination needed to classify it" in quiescing_block, (
+        "step 5 no longer states that its predicate requires no manual "
+        "determination to classify a target"
     )
     assert (
-        "does NOT forbid a sibling target's FIRST Skeptic spawn for a "
-        "Worker that already returned before the escalation was detected"
-        in text
+        "Classification is mechanical: a target that is not an affirmative "
+        "sign-off is a quiesced skip by definition, never a judgment call"
+        in quiescing_block
     ), (
-        "step 1 no longer explicitly permits a sibling's first Skeptic "
-        "spawn for an already-returned Worker - that target's terminal "
-        "state (per step 2's enumeration) would be unreachable"
+        "step 5 no longer states that classification is mechanical, not a "
+        "judgment call"
+    )
+    # Forbid the escape-hatch VERB form ("the conductor judges ..."),
+    # granting a live discretionary call to classify a target.
+    assert "the conductor judges" not in quiescing_block, (
+        "a conductor-judgment escape hatch (an active 'the conductor "
+        "judges ...' clause) has appeared inside the Escalation quiescing "
+        "block - the structural rule must resolve every target without a "
+        "discretionary determination, per the explicit prohibition on "
+        "reintroducing one"
+    )
+
+
+def test_escalation_quiescing_step1_permits_any_already_in_flight_skeptic_spawn() -> None:
+    """Round-4 Minor 1 fix: step 1's carve-out permitted only a sibling's
+    FIRST Skeptic spawn, leaving ambiguous whether the Skeptic spawn that
+    closes out an already-in-flight RE-ROUTE round (Worker spawned
+    pre-escalation, returns its revised draft post-escalation) is
+    permitted or forbidden. The carve-out must now cover both cases
+    explicitly - any Skeptic spawn reviewing a Worker call already in
+    flight before escalation was detected, at any round number - while
+    still barring the decision to start the round AFTER that Skeptic
+    returns."""
+    text = _read()
+    assert (
+        "This is true regardless of which round it is - the FIRST "
+        "Worker->Skeptic pipeline for that target, or a later re-route "
+        "round's Worker->Skeptic pipeline" in text
+    ), (
+        "step 1 no longer explicitly extends its already-in-flight-Skeptic "
+        "carve-out to a re-route round's Skeptic spawn - a Worker spawned "
+        "pre-escalation whose Skeptic spawn would close a re-route round "
+        "is left ambiguous again"
+    )
+    assert (
+        "Only the decision to start the NEXT round after that Skeptic "
+        "returns is barred by this step" in text
+    ), (
+        "step 1 no longer states which decision remains barred once an "
+        "already-in-flight Skeptic spawn (of any round) is permitted to "
+        "run"
+    )
+
+
+def test_escalation_quiescing_non_response_case_resolves_via_default_rule() -> None:
+    """Round-4 Minor 2 fix: a sibling Worker or Skeptic call that never
+    returns previously matched no outcome in step 2's enumeration (step 2
+    said only "let every pipeline resolve", with no bound), and quiescing
+    newly makes that block lock release for every sibling target where a
+    sequential run would not have. The fix does not invent a new timeout
+    mechanism - it states explicitly that the structural default rule
+    already covers this case (non-response is not an affirmative sign-off,
+    so it is a quiesced skip), giving it a bounded terminal state without
+    a fourth special case."""
+    text = _read()
+    assert (
+        "**A sibling Worker or Skeptic call that never returns.**" in text
+    ), "the non-response case is no longer named as a resolved gap"
+    assert (
+        "This file does not define a new timeout mechanism for this case, "
+        "and it does not need one" in text
+    ), "the non-response case no longer disclaims inventing a new mechanism"
+    assert (
+        "it also holds the lock for every sibling target, so a sibling "
+        "that would otherwise have released independently now waits on "
+        "it too" in text
+    ), (
+        "the non-response note no longer states quiescing's actual effect "
+        "on sibling targets - the reason this pre-existing gap newly "
+        "matters here"
     )
 
 
