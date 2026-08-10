@@ -1,1 +1,1 @@
-{"compatibility_inventory_sha256":"857f5efd2ed9d7e8c497591f1c3aa37a8c2a4f10936d9c0b986d740338c771e1","resources":{"core":{"path":"resources","type":"directory"},"workflow":{"path":"resources/commands/ds-implement-ticket.md","type":"file"}},"schema_version":1,"skill":"implement-ticket"}
+{"compatibility_inventory_sha256":"734e3e3c8d960ef0ccd911a54017db669cf954fb62503f6ade58b8b28295e024","resources":{"core":{"path":"resources","type":"directory"},"workflow":{"path":"resources/commands/ds-implement-ticket.md","type":"file"}},"schema_version":1,"skill":"implement-ticket"}
