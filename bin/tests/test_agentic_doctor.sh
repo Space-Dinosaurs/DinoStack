@@ -594,6 +594,46 @@ else
 fi
 
 # ---------------------------------------------------------------------------
+# Test 12: check_hook_scripts_exist recognizes enforce-worktree-read.py as a
+# managed hook basename (MAJOR-2, DS-150 fix-pass). Before this fix,
+# MANAGED_HOOK_BASENAMES omitted it, so a settings.json registration whose
+# script was missing on disk was silently skipped by
+# check_hook_scripts_exist() and doctor certified "all managed hook scripts
+# exist on disk" while the dangling registration (CRITICAL-1's blast
+# radius) went undiagnosed.
+# ---------------------------------------------------------------------------
+setup_fixture
+
+mkdir -p "$FAKE_REPO/hooks"
+# enforce-worktree-read.py is referenced by settings.json but MISSING from
+# disk - must now be reported as a FAIL, not silently skipped.
+cat > "$TEMP_HOME/.claude/settings.json" <<EOF
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {"type": "command", "command": "test -f $FAKE_REPO/hooks/enforce-worktree-read.py && python3 $FAKE_REPO/hooks/enforce-worktree-read.py || exit 0", "timeout": 5}
+        ]
+      }
+    ]
+  }
+}
+EOF
+
+invoke_doctor
+OUT=$(cat "$TEMP_HOME/.out")
+
+if echo "$OUT" | grep -q "^FAIL hook_scripts:.*enforce-worktree-read.py.*does not exist on disk"; then
+  _pass "T12 hook_scripts: missing enforce-worktree-read.py reported as FAIL (MAJOR-2 regression guard)"
+else
+  _fail "T12 hook_scripts: expected FAIL for missing enforce-worktree-read.py (MANAGED_HOOK_BASENAMES omission regressed)\n$OUT"
+fi
+
+rm -rf "$TEMP_HOME"
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 echo

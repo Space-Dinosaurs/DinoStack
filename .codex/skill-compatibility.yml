@@ -132,16 +132,6 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
-      "expected_target": ".agentic/config.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
-      "kind": "operational",
-      "occurrence_hash": "11a7bc34cec43c9cceaecd99428a2129404dbcd0593b8a2a5bacdf147c92f44d",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/config.json"
-    },
-    {
       "expected_target": ".claude/",
       "generated_token": "$AE_REPO_DIR/.claude/",
       "kind": "operational",
@@ -1162,6 +1152,16 @@
       "source_token": "`/ds-update-agentic-engineering`"
     },
     {
+      "expected_target": "content/references/risk-config-and-tiers.md",
+      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
+      "kind": "operational",
+      "occurrence_hash": "93774d83b85af9a8e0cba9f9f0af2ddd5d7b05d814b7adfe8d7e8587c9c6369c",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/risk-config-and-tiers.md"
+    },
+    {
       "expected_target": "~/.codex/projects/[hash]/context.md",
       "generated_token": "**Writer scope: the conductor is the primary writer of `$AE_PROJECT_DIR/.agentic/events.jsonl`.** The current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events or mirror project-local orchestration state. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
       "kind": "operational",
@@ -1642,6 +1642,26 @@
       "source_token": "content/sections/09-events-log.md"
     },
     {
+      "expected_target": ".agentic/config.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
+      "kind": "operational",
+      "occurrence_hash": "c7f026e6e086cbbc3b9cd892a26b991a83a8131525e01c38c4b1c30502103cf4",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/config.json"
+    },
+    {
+      "expected_target": "filesystem read",
+      "generated_token": "Read",
+      "kind": "semantic-reference",
+      "occurrence_hash": "c81986ff7b0f5fe4af7b3d16f9899d5f22847b8d9ed4db54d794a9812653d8c9",
+      "resolution_mode": "compatibility-preamble",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "Read"
+    },
+    {
       "expected_target": "dinostack",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -1822,16 +1842,6 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": "filesystem read",
-      "generated_token": "Read",
-      "kind": "semantic-reference",
-      "occurrence_hash": "da0c50ba22881ad0ead4030563f08b6c6f7fd6a35f50e1f583099d4bb8812ca7",
-      "resolution_mode": "compatibility-preamble",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "Read"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -2000,16 +2010,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/conductor-turn-format.md"
-    },
-    {
-      "expected_target": "content/references/risk-config-and-tiers.md",
-      "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
-      "kind": "operational",
-      "occurrence_hash": "f0b4ef1e81b29ec531d9b01847d8fdbbdfa08524f7609c4288d43a9150ad1ed1",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
       "expected_target": "filesystem read",

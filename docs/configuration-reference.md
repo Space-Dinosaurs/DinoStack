@@ -55,7 +55,7 @@ a warning is printed.
 ## 3. Project: `.agentic/config.json`
 
 Committed to the repo. Seeded with defaults by `/ds-init-project`. Absent file =
-all defaults, no behavior change. The 21 behavioral toggles plus 6 tuning
+all defaults, no behavior change. The 22 behavioral toggles plus 6 tuning
 parameters are listed below. The file also carries a `scaffolding_version` key
 that is installer/migration-managed (used by `/ds-migrate-project` as the
 source-of-truth stamp for "has this project been migrated to vN") - do not edit
@@ -86,6 +86,7 @@ it manually.
 | `pending_merge_sweep` | `true` | bool | Controls the session-start pending-merge sweep that pushes the dev-complete transition (`TRACKER_STATE_DEV_COMPLETE`, which defaults to the resolved `TRACKER_STATE_DONE` value) to the tracker once a ticket's PR merges; set `false` to disable |
 | `tracker_state_diagnostic` | `true` | bool | Controls whether the tracker writeback subagent emits a live diagnostic naming currently-available states when a configured `TRACKER_STATE_*` name cannot be used; set `false` to disable |
 | `turn_shape_guard_enabled` | `true` | bool | Stop hook (`hooks/enforce-turn-shape.py`) checks the conductor's final turn against the fixed-shape/warranted-turn rule. As of DS-156 NOT uniformly advisory: the execution-turn structural check (`_execution_prose_flag`) is BLOCKING and can block the stop; the answer-turn phrasing check (`_answer_relevance_flag`) remains advisory-only and only logs. **DS-156 CONTRACT, NOT YET SHIPPED:** the currently shipped hook remains uniformly advisory until Unit 2 implements `_execution_prose_flag`. Absent key resolves to on; kill-switch: `AE_TURN_SHAPE_GUARD_DISABLE=1` |
+| `worktree_read_guard_exemptions` | `[]` | list of strings | Path prefixes (relative to the primary checkout root) exempted from the worktree-isolation `Read` guard (`hooks/enforce-worktree-read.py`); ships empty. Kill-switch: `AE_WORKTREE_READ_GUARD_DISABLE=1` |
 
 ### Tuning parameters
 
@@ -110,6 +111,7 @@ Unset by default. Set to `1` to disable the named guard for a session.
 | `AE_SINGULARITY_GUARD_DISABLE=1` | guard active | Orchestrator-singularity hook (prevents subagents from spawning subagents) |
 | `AE_TIER_GUARD_DISABLE=1` | guard active | Tier-enforcement hook (prevents sub-Opus on mandated Tier-3 spawns) |
 | `AE_TURN_SHAPE_GUARD_DISABLE=1` | guard active | Turn-shape guard - both the blocking structural check and the advisory phrasing check (only relevant when `turn_shape_guard_enabled: true`) |
+| `AE_WORKTREE_READ_GUARD_DISABLE=1` | guard active | Worktree-isolation Read guard (`hooks/enforce-worktree-read.py`) |
 | `AGENTIC_QUIET=1` | output enabled | Version-check hook user-facing output |
 | `AGENTIC_WRAP_DAEMON=1` | (unset) | **INTERNAL** - set by the deferred-wrap daemon only; users must not set this |
 
