@@ -847,7 +847,7 @@ _COMPLETION_RE = re.compile(
 #     open.") is already caught by the kept "running on" phrase in the same
 #     message - "still open" was redundant there, not load-bearing. No
 #     narrower form was substituted: unlike "in progress", no single
-#     recurring SHAPE (sub-heading, tracker-value, etc.) separates its true
+#     recurring SHAPE (bold-wrapped, tracker-value, etc.) separates its true
 #     from false uses in this corpus; the generic "open" is backlog/PR/
 #     issue vocabulary too common to narrow safely without a larger sample.
 _RUNNING_FIELD_ACTIVE_RE = re.compile(
@@ -1248,10 +1248,13 @@ def _has_body_completion_declaration(text: str) -> bool:
         completion-warrant gains, 7 losses - ALL 7 inspected and ALL 7
         false positives (a tracker STATUS VALUE for an OTHER ticket, e.g.
         "AUT-577 still In Progress in another session", never this turn's
-        own work). NARROWED to the exact bold sub-heading shape the one
+        own work). NARROWED to the exact bold-wrapped shape the one
         genuine motivating case actually has (`\\*\\*in\\s+progress:?\\*\\*`) -
         re-measured at 0 of the 7 false positives while still catching the
-        motivating case.
+        motivating case. The regex itself has no positional constraint (it
+        matches bold-wrapped `**In progress**` anywhere, not only as a
+        markdown sub-heading) - see this file's `_CONTINUING_WORK_PHRASE_RE`
+        docstring for the full caveat.
       - "still open": 0 status-only newly-quiet, 2 newly-firing; 0
         completion-warrant gains, 10 losses - ALL 10 inspected and ALL 10
         false positives (backlog/PR/ticket-list vocabulary describing OTHER
@@ -1262,7 +1265,7 @@ def _has_body_completion_declaration(text: str) -> bool:
         deletion over a narrowed rewrite when nothing is load-bearing on
         the claim (no single recurring shape separates "still open" true
         positives from false positives in this corpus, unlike "in
-        progress"'s bold-heading shape).
+        progress"'s bold-wrapped shape).
     Net status-only-advisory effect of this round's fix, all four phrases
     combined vs the round-3 shipped set: 0 change in newly-quiet (dropping
     "still open"/narrowing "in progress" removes no legitimate suppression,

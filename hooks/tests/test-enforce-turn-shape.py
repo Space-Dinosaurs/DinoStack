@@ -2464,6 +2464,31 @@ check(
     _y9_warrants["completion"] is True,
 )
 
+# y10. REGRESSION (DS-157 round 4, Skeptic Minor 1): the colon-optionality
+# axis of `\*\*in\s+progress:?\*\*` was unpinned - y4 only exercises the
+# colon-present form ("**In progress:**"); no fixture exercised bold
+# "**In progress**" written WITHOUT a trailing colon. Same shape as y4
+# (a genuine first-paragraph completion declaration, vetoed by a later
+# still-continuing paragraph) but with the colon dropped, so this
+# assertion can only pass if the `:?` stays optional. Mutation-verified:
+# tightening `:?` to a mandatory colon must turn this assertion red;
+# restoring `:?` must turn it green again.
+y10_msg = (
+    "Fix round running. Where things stand:\n"
+    "\n"
+    "**Done and independently verified:** the feature works end to end.\n"
+    "Handles the empty/failed cases without breaking.\n"
+    "\n"
+    "**In progress** the two remaining Majors.\n"
+    "Deduplicating the shared fetch across both routes.\n"
+)
+rc, out, err = run_hook(make_payload(y10_msg))
+check(
+    "y10. first-paragraph completion declaration vetoed by a later "
+    "'**In progress**' (no colon) paragraph -> ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
 # ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
