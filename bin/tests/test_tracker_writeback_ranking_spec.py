@@ -893,16 +893,18 @@ def test_toggle_doc_sync_full_eight_site_checklist():
 # regex shape, finds only the sites written in that exact form.
 #
 # Site inventory (all reference the same fact: 9 enforce-*.py hooks post-
-# merge with the sibling turn-shape-hook unit, 8 of them call log_fire,
-# split 6 deny + 2 allow_advisory - `enforce-planning-artifact-spawn.py`
-# and `enforce-turn-shape.py`):
-#   hooks/AGENTS.md:43  - "N of the M enforce-*.py hooks" (table cell)
-#   hooks/AGENTS.md:48  - bare cardinal "the N enforce-*.py hooks'"
-#   hooks/AGENTS.md:81  - "N of the M enforce-*.py hooks" (prose)
+# merge with both the worktree-read-guard unit (DS-150) and the
+# turn-shape-hook unit (DS-156), 8 of them call log_fire, split 7 deny +
+# 2 allow_advisory - `enforce-turn-shape.py` is the one hook in both
+# subsets, since it logs `"deny"` from its blocking execution-turn check
+# and `"allow_advisory"` from its advisory-only answer-turn check):
+#   hooks/AGENTS.md:45  - "N of the M enforce-*.py hooks" (table cell)
+#   hooks/AGENTS.md:51  - bare cardinal "the N enforce-*.py hooks'"
+#   hooks/AGENTS.md:95  - "N of the M enforce-*.py hooks" (prose)
 #   events-log.md:120   - "N of the M `hooks/enforce-*.py` ... hooks"
 #   events-log.md:129   - "one of the N consumer hooks enumerated below"
-#   events-log.md:130   - decomposed enumeration: 5 deny + 2 allow_advisory,
-#                         pinned by the FULL LITERAL - cardinals ("five
+#   events-log.md:130   - decomposed enumeration: 7 deny + 2 allow_advisory,
+#                         pinned by the FULL LITERAL - cardinals ("seven
 #                         hooks", "two hooks") AND named members together.
 #                         This is deliberately count- AND membership-bound:
 #                         a ninth enforcer added later (denying or advisory)
@@ -938,9 +940,10 @@ _ENFORCER_SUBCOUNT_SITES = [
     ),
     (
         REPO_ROOT / "content" / "references" / "events-log.md",
-        '`"deny"` (six hooks - `enforce-askuserquestion-default.py`, '
+        '`"deny"` (seven hooks - `enforce-askuserquestion-default.py`, '
         "`enforce-background-spawn.py`, `enforce-orchestrator-singularity.py`, "
-        "`enforce-shippable-edit.py`, `enforce-tier.py`, `enforce-worktree-read.py`) "
+        "`enforce-shippable-edit.py`, `enforce-tier.py`, `enforce-turn-shape.py`, "
+        "`enforce-worktree-read.py`) "
         'and `"allow_advisory"` '
         "(two hooks - `enforce-planning-artifact-spawn.py`, `enforce-turn-shape.py`)",
     ),
