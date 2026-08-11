@@ -76,10 +76,10 @@ harnesses.
 
 The global file lives outside any git repo, so gitignore does not apply to
 it. If you want a project-local override, write `.agentic/role-models.yml`
-in the project root - that file is gitignored, matching the
-`.agentic/role-models.yml` pattern in `/ds-init-project` Step 9's targeted
-`.gitignore` block, because it may name private model handles; project keys
-win on collision with the global file.
+in the project root - that file is gitignored by `/ds-init-project` Step 9's
+`.agentic/*` umbrella ignore (not individually enumerated - see
+`content/project-scaffolding.yml`), because it may name private model
+handles; project keys win on collision with the global file.
 
 ## Configuration shape
 

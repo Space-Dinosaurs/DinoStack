@@ -662,7 +662,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Then append `original_task_id` to the tracker file. The sweep is a standalone scan - not parallel with other startup tool calls. Tracker file format is one `original_task_id` per line, append-only, matching the `.agentic/.meta-divergence-surfaced` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block. File-absent equals empty set. This catches divergences whose meta-Skeptic completed asynchronously after the originating session ended.
+Then append `original_task_id` to the tracker file. The sweep is a standalone scan - not parallel with other startup tool calls. Tracker file format is one `original_task_id` per line, append-only, matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`). File-absent equals empty set. This catches divergences whose meta-Skeptic completed asynchronously after the originating session ended.
 
 **Pagination (vicious loop defense):** The sweep MUST NOT read the full `.agentic/events.jsonl` on every boot. It reads only events with `ts` strictly greater than the timestamp stored in `.agentic/.meta-divergence-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), the scan is capped to the most recent 100 lines of the events file. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to the tracker file (atomic: tmp + `mv`). This prevents the vicious loop where growing telemetry consumes ever more context on every session start. See `content/references/skeptic-protocol.md` Section 14 "Session-start sweep pagination" for the full procedure.
 
@@ -759,7 +759,7 @@ Read `content/references/conventions-detail.md` §The Intent Layer for the artif
 6. **When step 5 resolved `BASE_BRANCH` non-interactively**, run `ds-base-sync "$REPO" "$BASE_BRANCH"` (PATH-guarded, non-blocking on any exit). Skip silently otherwise. See `content/references/base-branch-sync.md` §Call sites.
 7. Run worktree prune and the branch prune (see `content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start.
 
-**Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `.agentic/worktrees/` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block). The conductor merges each subagent branch back after sign-off and removes the worktree.
+**Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `.agentic/worktrees/<branch-name>` under the project root (already gitignored via `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)). The conductor merges each subagent branch back after sign-off and removes the worktree.
 
 ```bash
 # Create a subagent worktree:
@@ -1645,7 +1645,7 @@ qa-engineer preflight: blocking
 
 ## Cache schema
 
-File: `.agentic/.capability-cache.json` (matching the `.agentic/.capability-cache.json` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block).
+File: `.agentic/.capability-cache.json` (matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)).
 
 ```json
 {
@@ -2551,7 +2551,7 @@ KNOWLEDGE-STRAND: <file1>, <file2> have local changes not yet committed - run /d
 [phase: knowledge-strand]
 ```
 
-Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-strand-surfaced` (append-only, one key per line, matching the `.agentic/.knowledge-strand-surfaced` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block; file-absent = empty set). Keying on the diff hash rather than the bare path means the sweep re-fires for genuinely new stranded content even in a file that already produced a notice, while staying quiet for content it has already surfaced - the same per-event-not-per-path keying discipline the meta-divergence sweep applies via `original_task_id` and the skill-candidate sweep applies via domain. The tracker is still never pruned - once a file is committed (via `/ds-wrap` Part G or otherwise) its diff-against-`origin/<BASE_BRANCH>` changes or disappears, so the old key stops matching and a new key is computed next time content strands again; a stale key left behind is inert, not misleading, and it does not suppress notification of different future content because different content hashes differently. This sweep is cheap (three bounded file checks plus a hash, no network call, no worktree) and therefore carries no separate pagination/throttle mechanism beyond the surfaced-state dedup above - unlike the meta-divergence and skill-candidate sweeps, the tracker here is bounded by strand *events* (one key per distinct stranded-content state, per file) rather than by an ever-growing telemetry stream, and at roughly 70 bytes per entry it stays small enough that adding a cap would cost more to implement and maintain than it would ever save.
+Then append each surfaced file's `<path>:<hash>` key to `.agentic/.knowledge-strand-surfaced` (append-only, one key per line, covered by `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`); file-absent = empty set). Keying on the diff hash rather than the bare path means the sweep re-fires for genuinely new stranded content even in a file that already produced a notice, while staying quiet for content it has already surfaced - the same per-event-not-per-path keying discipline the meta-divergence sweep applies via `original_task_id` and the skill-candidate sweep applies via domain. The tracker is still never pruned - once a file is committed (via `/ds-wrap` Part G or otherwise) its diff-against-`origin/<BASE_BRANCH>` changes or disappears, so the old key stops matching and a new key is computed next time content strands again; a stale key left behind is inert, not misleading, and it does not suppress notification of different future content because different content hashes differently. This sweep is cheap (three bounded file checks plus a hash, no network call, no worktree) and therefore carries no separate pagination/throttle mechanism beyond the surfaced-state dedup above - unlike the meta-divergence and skill-candidate sweeps, the tracker here is bounded by strand *events* (one key per distinct stranded-content state, per file) rather than by an ever-growing telemetry stream, and at roughly 70 bytes per entry it stays small enough that adding a cap would cost more to implement and maintain than it would ever save.
 
 ## Context Economy
 
@@ -5478,7 +5478,7 @@ This layer is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. 
 
 If neither file exists when a Pi/omp spawn happens, the conductor omits the `model` field and Pi uses its session default. There are NO hardcoded model IDs anywhere in the repo or adapters.
 
-The file is **gitignored** - matching the `.agentic/role-models.yml` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block - because it may name user-private model handles. Unlike `.agentic/config.json`, it is NOT carved out. Do NOT add a `!` exception in `.gitignore` for `role-models.yml` by default.
+The file is **gitignored** - matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) - because it may name user-private model handles. Unlike `.agentic/config.json`, it is NOT carved out. Do NOT add a `!` exception in `.gitignore` for `role-models.yml` by default.
 
 ## Schema
 
@@ -6422,7 +6422,7 @@ Original sign-off remains binding. Minor-only divergences are NOT surfaced inlin
 
 2. **Session-start sweep.** On every session boot (first turn of session, after reading `.agentic/context.md`), the conductor sweeps `.agentic/events.jsonl` for ALL `meta_review_complete` events whose `original_task_id` is not in `.agentic/.meta-divergence-surfaced`. Emits the META-DIVERGENCE line for each Critical/Major divergence and appends to the tracker. This catches divergences whose meta-Skeptic completed asynchronously after the originating session ended.
 
-**Tracker file (`.agentic/.meta-divergence-surfaced`)** is one `original_task_id` per line, append-only, written by the conductor only. File-absent is equivalent to empty set. Project-local; matches the `.agentic/.meta-divergence-surfaced` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block.
+**Tracker file (`.agentic/.meta-divergence-surfaced`)** is one `original_task_id` per line, append-only, written by the conductor only. File-absent is equivalent to empty set. Project-local; matches `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`).
 
 ### Session-start sweep pagination
 
@@ -13914,8 +13914,7 @@ Set a developer identity manually. `<handle>` must match `^[a-z0-9._-]{1,64}$`.
   outside-home paths are rejected.
 - `--scope project` writes `<cwd>/.agentic/identity.yml` (the current repo root;
   exits `1` if `cwd` is not inside a git repo). The project file is gitignored -
-  matching the `.agentic/identity.yml` pattern in `/ds-init-project` Step 9's
-  targeted `.gitignore` block - it is per-developer only and never lands in
+  matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) - it is per-developer only and never lands in
   the repo by default.
 - If a confirmed identity already exists at the target scope, `--force` is
   required to overwrite.
@@ -14161,9 +14160,9 @@ deferred and buffered automatically.
 A project-local identity file at `<repo>/.agentic/identity.yml` lets a developer
 use a different handle for sessions in that repo. A profile identity at
 `<active-config-dir>/identity.yml` applies to one harness profile or tenant.
-The project file is gitignored - matching the `.agentic/identity.yml` pattern
-in `/ds-init-project` Step 9's targeted `.gitignore` block; both overrides
-are per-developer.
+The project file is gitignored - via `/ds-init-project` Step 9's `.agentic/*`
+umbrella ignore (not individually enumerated - see
+`content/project-scaffolding.yml`); both overrides are per-developer.
 
 ### Profile config-dir resolution
 
@@ -15187,7 +15186,7 @@ After risk has been classified, if the current ticket is Elevated, snapshot any 
 3. If risk is Elevated and `.agentic/qa.md` exists and `.agentic/qa.md.snapshot-<ticket_id>` does NOT already exist: copy `.agentic/qa.md` to `.agentic/qa.md.snapshot-<ticket_id>` via atomic write (write to `.agentic/qa.md.snapshot-<ticket_id>.tmp`, then rename).
 4. If risk is Elevated and `.agentic/qa.md.snapshot-<ticket_id>` already exists (e.g., on resume of a paused or interrupted ticket): preserve the existing snapshot. Do not overwrite. The original snapshot represents the qa.md state at the start of this ticket's first run.
 
-The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path matches the `.agentic/qa.md.snapshot-*` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block.
+The snapshot is consumed at Phase 11b by `wrap-ticket` to compute the diff between the snapshot and the working-tree `.agentic/qa.md`, surfacing qa.md additions made during this ticket. Phase 12 cleanup removes the snapshot file. The snapshot path matches `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`).
 
 ### On-resume Brief migration (qa_criteria backfill)
 
@@ -15477,7 +15476,7 @@ Runs only when `TRACKER != none`. Skipped silently otherwise. Purpose: fetch the
 }
 ```
 
-`.agentic/tracker-states.json` is a runtime cache, matching the `.agentic/tracker-states.json` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
+`.agentic/tracker-states.json` is a runtime cache, matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (NOT committed - it is machine-local and may be stale on a fresh checkout; that is acceptable since this preflight is soft-fail).
 
 **Validate.** For each of the 6 resolved `TRACKER_STATE_*` values, look for an exact (case-insensitive) name match in `states[].name`. For each miss, compute the closest match by case-insensitive Levenshtein distance and emit one operator-visible warning:
 
@@ -16136,7 +16135,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, matching the `.agentic/.meta-divergence-surfaced` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 14 for the full specification.
+Tracker append is a single line per `original_task_id`; the file is created if absent (`.agentic/.meta-divergence-surfaced`, matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)). Minor-only divergences are NOT surfaced inline. See `content/references/skeptic-protocol.md` Section 14 for the full specification.
 
 **Step 3. Termination check:**
 - If no Critical or Major findings: auto-close all `findings_log` entries with `status: open` or `status: addressed` (set to `closed`). Set `termination_reason: clean`. Overwrite `.agentic/loop-state-$LOOP_KEY.json`. Set `SKEPTIC_ROUNDS` to this loop's final `loop_state.iteration` (in-context variable; see below). **Then run "Learning extraction" below, followed by "Calibration emit + meta-Skeptic sampling".** Exit loop cleanly. Proceed to Phase 6b.
@@ -16993,7 +16992,7 @@ if [ "$REWORK_DETECTION" != "false" ] && [ -n "$TICKET_ID" ]; then
 fi
 ```
 
-`.agentic/ticket-ledger.jsonl` is append-only and matches the `.agentic/ticket-ledger.jsonl` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block (machine-local). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
+`.agentic/ticket-ledger.jsonl` is append-only and matches `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) (machine-local). It is never truncated or rewritten by this command, and Phase 12 cleanup does not remove it - the history is the point.
 
 **QA Evidence section (append to PR body after `gh pr create` - Case B only).**
 
@@ -18866,119 +18865,22 @@ Add any framework-specific entries if the stack is already known (e.g. `.next/` 
 
 If `.gitignore` already exists, apply the safety check from Step 2 (append `.claude/settings.local.json` if missing) and leave the rest untouched.
 
-Regardless of whether `.gitignore` is new or existing: check whether the targeted `.agentic/` runtime-artifact block below is present. If not, append it. If `.gitignore` does not exist, the entry above creates it - ensure this block is included in the new file's contents.
+**`.agentic/` gitignore rules: single-sourced from the canonical scaffolding manifest, not hand-copied.** Resolve `ds-migrate` the same way `ds-status` is resolved elsewhere in this file (from PATH first, then the adapter `bin/` install dir) and run:
 
 ```
-# Agentic engineering runtime artifacts (must not be committed).
-# The .agentic/ directory holds BOTH runtime artifacts (runtime-only, gitignored)
-# AND tool-agnostic config files (qa.md, deploy.md, tracking.md)
-# that ARE checked in. The entries below ignore only the runtime artifacts.
-.agentic/loop-state.json
-.agentic/loop-state-*.json
-.agentic/hud/
-.agentic/tasks.jsonl
-.agentic/events.jsonl
-.agentic/context.md
-.agentic/context.d/
-.agentic/evidence/
-.agentic/_wrap.md
-.agentic/_foreign.md
-.agentic/memory/
-.agentic/memory.md
-.agentic/wrap/
-.agentic/preferences.json
-.agentic/compression-state.json
-.agentic/tracker.yml
-.agentic/tracker-states.json
-# tracker-states.json is an intentionally-ignored runtime cache (24h TTL,
-# machine-local; stale on fresh checkout is acceptable - Phase 2c refetches).
-.agentic/worktrees/
-.agentic/identity.yml
-.agentic/role-models.yml
-.agentic/ticket-ledger.jsonl
-.agentic/pending-merge-state.jsonl
-.agentic/knowledge-commit-state.json
-.agentic/batch-state.json
-.agentic/deferred-work.jsonl
-.agentic/branch-prune-ledger.txt
-.agentic/skeptic-scratch/
-.agentic/teamrun/
-.agentic/.meta-divergence-surfaced
-.agentic/.meta-divergence-last-sweep
-.agentic/.skill-candidates-surfaced
-.agentic/.skill-candidates-last-sweep
-.agentic/.pending-merge-last-sweep
-.agentic/.knowledge-strand-surfaced
-.agentic/.capability-cache.json
-.agentic/.enforcement-fires.jsonl
-.agentic/.abdication-guard-fire-count
-.agentic/.spawn-block-counter-*
-# General pattern for lock/sentinel siblings of any tracked or untracked
-# .agentic/ file (e.g. deferred-work.jsonl.lock). Safe: no filename in the
-# "Tracked" list below ends in .lock, so this cannot swallow a knowledge
-# file, and it does not need updating every time a new lock file appears.
-.agentic/*.lock
-.agentic/.skill-candidate-tally.json
-.agentic/.skill-candidates-in-session
-.agentic/.skill-candidate-cursor
-.agentic/.capture-gap-last-sweep
-.agentic/.capture-gap-surfaced
-.agentic/.turn-shape-guard-fire-count
-.agentic/.telemetry-health.json
-.agentic/.last-architect-spawn
-.agentic/.stop-deferred-activity.jsonl.draining.*
-.agentic/brief-session.json
-.agentic/memory-pending.md
-.agentic/agents-md-pending.md
-.agentic/qa.md.snapshot-*
-.agentic/.activated
-# The lines above close several previously-missing ephemeral/runtime paths -
-# see the prose after this block for the full rationale and exclusions.
-# Tracked (explicitly NOT ignored): .agentic/qa.md, .agentic/deploy.md,
-# .agentic/tracking.md, .agentic/qa-regressions.md, .agentic/learnings.md,
-# .agentic/config.json, .agentic/team.yml, .agentic/skill-candidates.md,
-# .agentic/deferred-work.jsonl - these are tool-agnostic agent config and
-# fix-pattern knowledge, or a durable cross-teammate backlog, that belong
-# in source control.
-# .agentic/session-log/ IS tracked (committed via Phase 8 telemetry commits).
-# Under this denylist these files are tracked by default (nothing above
-# ignores them, except .agentic/deferred-work.jsonl - see its own comment
-# below) - the negations below are not load-bearing for the other files
-# here. They exist for the case where a project later adds a broad
-# .agentic/* umbrella ignore (e.g. via ds-migrate): git .gitignore matching
-# is last-match-wins, so a negation only overrides an umbrella pattern that
-# appears ABOVE it in the file. ds-migrate inserts new umbrella patterns
-# above any existing negation for this reason - see bin/ds-migrate
-# _append_gitignore.
-# .agentic/deferred-work.jsonl IS tracked: bin/ds-defer's own docstring
-# documents that consumer projects commonly commit .agentic/ (this repo is
-# the documented exception), and its shape - a durable backlog of
-# mid-session discoveries a teammate would want visible - matches the
-# already-tracked .agentic/skill-candidates.md, not an ephemeral runtime
-# artifact. Unlike the other negations in this block, this one IS
-# load-bearing here: it overrides the .agentic/deferred-work.jsonl ignore
-# line above (added Round 1 in error) rather than only future-proofing
-# against a later umbrella. Its .lock sibling stays ignored via the general
-# .agentic/*.lock pattern above - a lock file is never durable content.
-!.agentic/session-log/
-!.agentic/learnings.md
-!.agentic/qa.md
-!.agentic/deploy.md
-!.agentic/tracking.md
-!.agentic/qa-regressions.md
-!.agentic/config.json
-!.agentic/team.yml
-!.agentic/skill-candidates.md
-!.agentic/deferred-work.jsonl
+ds-migrate apply --project-root <project-root>
 ```
 
-The targeted list covers runtime artifacts and operator-local configuration only: `loop-state-*.json` and `loop-state.json` (loop resume state written by `/ds-implement-ticket` Phase 6, refreshed for liveness by the Stop hook, and terminally marked interrupted by the SessionEnd hook). **BOTH patterns are required and both must stay.** Loop state is keyed per ticket - `.agentic/loop-state-DS-1.json` - and this list is deliberately targeted rather than an umbrella (`.agentic/*`), so a keyed file does NOT match the bare `loop-state.json` entry. Without the glob, every consumer repo scaffolded here would begin committing its `findings_log`, `last_engineer_summary`, and `session_id`. The bare `loop-state.json` line is kept alongside it because legacy unkeyed files still occur (pre-keying checkouts, and the adoption path's input); adding a pattern is the safe direction, removing one is not. This regression cannot be caught inside DinoStack itself, whose own `.gitignore` uses a `/.agentic/*` umbrella that masks it - verify against a scratch repo seeded with this block verbatim. Also: `hud/` (per-worker HUD files for P1 fan-out observability), `tasks.jsonl` (multi-unit task coordination), `events.jsonl` (per-project structured event log appended by the conductor and telemetry hooks), `context.md` (session context written by /ds-wrap and the Stop hook), `memory/` and `memory.md` (auto-memory directory and file), `evidence/` (worker evidence scratch for the evidence-on-disk spill/sketch/rehydrate protocol - raw tool output that may contain absolute paths or secrets; never committed), `wrap/` (/ds-wrap runtime artifacts directory: concurrency lock, pending markers, last-wrap sentinel, heartbeats, daemon log, spillover log), `preferences.json` (per-developer session preferences), `compression-state.json` (compression bookkeeping), `tracker-states.json` (tracker workflow state cache written by `/ds-implement-ticket` Phase 2c; machine-local, 24h TTL, refetched on stale or fresh checkout), and `tracker.yml` (per-operator local tracker config; never committed - it may carry an operator's own account ID). The tool-agnostic config files (`qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `config.json`) are NOT ignored - they are checked in so every tool (Claude Code, Codex, Cursor, Gemini) reads the same project config, and each carries a matching `!.agentic/<file>` negation in the block above. `.agentic/learnings.md` IS tracked, also with a matching negation, so per-ticket fix-pattern learnings are shared across operators. `.agentic/session-log/` IS tracked - the `!.agentic/session-log/` carve-out negates the same way, so per-developer telemetry is committed via `/ds-implement-ticket` Phase 8 telemetry commits and visible across the team after pull. `.agentic/team.yml` (cross-harness team topology) and `.agentic/skill-candidates.md` (skill-candidate backlog) are also tracked, each with a matching negation in the block above, for the same reason. `.agentic/deferred-work.jsonl` is likewise tracked with a matching negation - see the in-block comment above the negation for the reasoning (it overrides this block's own `.agentic/deferred-work.jsonl` ignore line, so this one negation IS load-bearing here, unlike the others in this paragraph). None of the other negations do any work against this block itself, since none of the fifty-three lines above them ignore those files - they are future-proofing against a project later adding a broad `.agentic/*` umbrella (see the in-block comment for why ordering matters there).
+This is the SAME command the migrate-adoption path (`bin/ds-migrate`, driven by `content/project-scaffolding.yml`) runs against an existing project, and the same command Activation preflight Step 6 runs automatically at session start. `/ds-init-project` deliberately reuses it here instead of maintaining a second, hand-copied `.gitignore` block, so the two adoption routes read from one manifest and cannot diverge by construction. See `content/project-scaffolding.yml` for the manifest's version history and per-pattern rationale, and `bin/tests/test_agentic_migrate.py` for the outcome-parity regression gate.
 
-The block also ignores per-developer and per-project runtime artifacts that were previously undocumented in this list: `worktrees/` (subagent worktrees, see "Subagent worktrees" in `content/rules/conventions.md`), `identity.yml` (project-scoped identity override, see `content/commands/ds-identity.md`), `role-models.yml` (project-local Pi/omp role-model overrides that may name private model handles, see `content/references/role-models.md`), `ticket-ledger.jsonl` and `pending-merge-state.jsonl` (ticket-rework and pending-merge sweep state written by `/ds-implement-ticket`), `knowledge-commit-state.json` (Phase 11e knowledge-commit tracking), `batch-state.json` (multi-unit batch/loop-resume state), `branch-prune-ledger.txt` (`bin/ds-branch-prune` ledger), `skeptic-scratch/` (ephemeral pre-fix-verification scratch worktrees created and removed by the Skeptic), `teamrun/` (cross-harness team run directories, see `content/references/cross-harness-teams.md`), and the dot-prefixed session-start-sweep and hook-telemetry trackers `.meta-divergence-surfaced`, `.meta-divergence-last-sweep`, `.skill-candidates-surfaced`, `.skill-candidates-last-sweep`, `.pending-merge-last-sweep`, `.knowledge-strand-surfaced`, `.capability-cache.json`, `.enforcement-fires.jsonl`, `.abdication-guard-fire-count`, and `.spawn-block-counter-*`. Several of these were already documented elsewhere in this methodology (e.g. `content/references/capability-preflight.md`, `content/references/skeptic-protocol.md`, `content/references/role-models.md`, `content/commands/ds-identity.md`) as "gitignored under the `.agentic/` umbrella" before this block actually covered them - this closes that gap.
+`ds-migrate apply` is:
+- **Default-deny.** It writes a single `.agentic/*` umbrella ignore, then an explicit `!.agentic/<file>` negation for each tracked knowledge file - currently `config.json`, `qa.md`, `deploy.md`, `tracking.md`, `qa-regressions.md`, `learnings.md`, `team.yml`, `skill-candidates.md`, `session-log/` (with a second `session-log/**` negation so files inside the directory are individually re-included too - a directory negation alone does not recurse), `phase0-classifiers.yml`, `deferred-work.jsonl`, and `presets.yml`. Anything under `.agentic/` NOT in that list - including any future runtime artifact nobody has enumerated yet - is ignored by default. This is the safe direction: a newly-added machine-local runtime file needs no `.gitignore` change at all to stay unignored-by-mistake, and the only way to leak one into source control is an explicit negation someone had to add on purpose.
+- **Idempotent and additive.** Safe to run even if `.gitignore` already has some of these lines; it never removes or reorders an existing pattern, except to repair an out-of-order umbrella (an umbrella pattern that landed below an existing negation, which would silently defeat that negation - see `_repair_gitignore_order` in `bin/ds-migrate`).
+- Also seeds `.agentic/config.json`, `.agentic/learnings.md`, and `.agentic/skill-candidates.md` if they do not already exist (from the manifest's `files:` list) - harmless if earlier steps in this command already created them, since `ds-migrate apply` never overwrites an existing file.
 
-Round 2 closed a second, incomplete sweep of the same class: `*.lock` (a general pattern for lock/sentinel siblings of any `.agentic/` file, e.g. `deferred-work.jsonl.lock` from `bin/ds-defer`, rather than enumerating each lock file by name - see the in-block comment for why this is safe against the tracked list), `.skill-candidate-tally.json`, `.skill-candidates-in-session`, and `.skill-candidate-cursor` (`hooks/post-tool-use-capture-nudge.js`, `hooks/stop-context.js`), `.capture-gap-last-sweep` and `.capture-gap-surfaced` (`hooks/post-tool-use-capture-nudge.js`, `hooks/stop-context.js`), `.turn-shape-guard-fire-count` (`hooks/enforce-turn-shape.py`), `.telemetry-health.json` (`bin/ds-status`), `.last-architect-spawn` (`hooks/pre-tool-use-spawn-emit.js`), `.stop-deferred-activity.jsonl.draining.*` (a legacy per-session spillover file cleaned up by `hooks/session-start-wrap.sh`), `brief-session.json` (per-session Brief-elicitation state, see `content/references/planning-artifacts.md`), and `memory-pending.md` / `agents-md-pending.md` (`/ds-wrap` Part B/C open-PR deferral routing - the same wrap-internal-scratch shape as the already-ignored `memory.md`). Also `qa.md.snapshot-<ticket_id>` (via the glob `qa.md.snapshot-*`, Phase 0b's per-ticket `.agentic/qa.md` snapshot copy) - this one was previously described in `content/commands/ds-implement-ticket.md` as already covered ("no `.gitignore` change needed") when it was not; that sentence is corrected in the same PR that adds this pattern.
+If `ds-migrate` cannot be resolved (e.g. dinostack is not yet installed on this machine), fall back to writing the manifest's `gitignore:` pattern list from `content/project-scaffolding.yml` (in the `dinostack` skill install) directly into `.gitignore`, in the same order the manifest lists them, with the `.agentic/*` umbrella line first and every `!.agentic/<file>` negation after it.
 
-Deliberately excluded from the ignore block (i.e. tracked): `.agentic/phase0-classifiers.yml` (executable-code-equivalent, deliberately committed - see the Trigger-based Phase 0 section of `content/commands/ds-implement-ticket.md`); and any path rooted at `~/.agentic/` (global, outside this project-local `.gitignore`'s scope entirely, e.g. `~/.agentic/role-models.yml`, `~/.agentic/.scaffolding-apply.lock`, `~/.agentic/.identity-nudged`, `~/.agentic/hooks-snapshot/`).
+**Deliberately excluded from the negation set** (i.e. ignored by default under the umbrella, and this is a reviewed decision, not an oversight): `.agentic/tier-map.yml` and `.agentic/role-models.yml` (both map roles to concrete model names/handles that may be private to the operator - see `content/references/role-models.md`); `.agentic/findings.md` (curated Skeptic-finding patterns, documented machine-local in `content/references/conventions-detail.md`); `.agentic/learnings-agent.session` (per-session background-capture tracking state, see `content/references/conductor-operating-rules.md`); `.agentic/codex-skill-root-ownership.json` (a DinoStack-repo-internal build-tool safety registry - not project scaffolding at all, see `scripts/codex-skills.py`); and any `.tmp`/`.bak`/`.lock` sibling of an otherwise-ignored runtime file (e.g. `.agentic/loop-state-<key>.json.tmp`, `.agentic/tasks.jsonl.<ts>.bak`, `.agentic/deferred-work.jsonl.lock`) - a backup or lock file of ephemeral state is itself ephemeral, and the umbrella covers it with no enumeration needed. `.agentic/presets.yml`, by contrast, IS tracked (has a negation): unlike `tier-map.yml`/`role-models.yml`, its schema (`agent`, `tier`, `brief_prefix` - see `content/references/spawn-presets.md`) carries no model handles or other private data, and a project-local `presets.yml` is exactly the kind of shared, team-visible project override this manifest already tracks `config.json` for. This does not change Step 6d above, which still seeds only `~/.agentic/presets.yml` (user-global) and never a project-local one.
 
 `.agentic/.activated` (per-project first-notice sentinel, TTY-gated create-only write, delete to re-arm - documented in `content/commands/ds-status.md` and `content/references/activation-detail.md`) IS now ignored (`.agentic/.activated` line above). A prior version of this prose said its tracked-vs-local intent "is not documented anywhere" - that was false, it is fully documented at both sites just cited; the correct statement is that its intent was documented but this file was never explicitly classified as ignored-or-tracked until now. It is per-clone runtime state, not durable project knowledge: if it were committed, a fresh clone would already have the sentinel present and every teammate's first session would silently skip the first-activation notice the sentinel exists to show them. That is the opposite of the sentinel's purpose, so it is ignored, matching how the ds-migrate adoption path already treats it (see the drift test below).
 
@@ -21819,7 +21721,7 @@ Manual `/ds-wrap` is synchronous: there is no in-session auto-enrichment protoco
 **Sentinel short-circuit (evaluate before item 1).** On a steady-state project this pre-flight repeats the same ~15 filesystem probes on every `/ds-wrap` invocation for no reason. Cache the result:
 
 - **Watched-paths signature.** The signature covers exactly the paths this pre-flight inspects: the CLAUDE.md/AGENTS.md set (root + every track directory), the `.claude/context.md` / `.claude/memory.md` / `.claude/memory/` session-state paths and their `.agentic/` counterparts, the legacy config paths `.claude/{qa,deploy,findings,tracking,learnings}.md` and their `.agentic/` counterparts, the stub targets (`.agentic/tracking.md`, `.agentic/deploy.md`, `.agentic/learnings.md`), the docs dirs (`docs/overview/`, `docs/technical/`, `docs/planning/`, `docs/research/`), `.claude/settings.json`, `.claude/settings.local.json`, and `.gitignore`. For each watched path, record `path:exists:mtime` (mtime as epoch seconds, or the literal string `absent` when the path does not exist); sort the resulting lines lexicographically by path, join with newlines, and take the sha256 of the result — this is the **signature**.
-- **Sentinel path:** `<cwd>/.agentic/wrap/.scaffold-verified` (atomic tmp + rename; `mkdir -p <cwd>/.agentic/wrap` immediately before the write — the lock-acquisition step's own `mkdir -p` has not run yet at this point in the flow, so a first-ever clean pass needs its own directory guarantee). This is machine-local runtime state, not committed — it matches the `.agentic/wrap/` directory pattern in `/ds-init-project` Step 9's targeted `.gitignore` block.
+- **Sentinel path:** `<cwd>/.agentic/wrap/.scaffold-verified` (atomic tmp + rename; `mkdir -p <cwd>/.agentic/wrap` immediately before the write - the lock-acquisition step's own `mkdir -p` has not run yet at this point in the flow, so a first-ever clean pass needs its own directory guarantee). This is machine-local runtime state, not committed - it is covered by `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`).
 - **At the start of this pre-flight:** if the sentinel exists and its stored signature is byte-equal to the freshly-recomputed signature above, SKIP items 1-3 and 5-6 below (the filesystem/migration probes) and proceed straight to Step 0a. Otherwise (sentinel absent, unreadable, or signature mismatch) run items 1-3 and 5-6 in full as described below.
 - **Scope exclusion: item 4's release-signal-gated `.agentic/deploy.md` stub check is never covered by the sentinel.** That check is gated on release signals detected from session content, not on any filesystem path in the watched-paths signature above — a first-release session that touches only non-watched paths could byte-match the signature and, if this check were also skipped, never get the stub created. So run item 4's release-signal check (and only that check) on EVERY `/ds-wrap` invocation regardless of whether the sentinel short-circuit fires for items 1-3/5-6. This is cheap — it is judged from session context already being surveyed, not a filesystem probe — so it does not reintroduce the cost this sentinel exists to avoid.
 - **At the end of this pre-flight** (only reached when items 1-3/5-6 actually ran in full, i.e. the sentinel did not short-circuit them): write the sentinel with the freshly-recomputed signature ONLY when the pass reached a fully clean steady state — no CLAUDE.md → AGENTS.md migration performed (item 1), no `.claude/` → `.agentic/` migration performed (item 2), no legacy config migration performed (item 3), no stub created by item 4's non-release-signal checks, no silent auto-fix applied (item 5), AND no "drift that cannot be auto-fixed" recorded (item 6). If the pass did ANY work or recorded ANY unfixable drift, do NOT write the sentinel — the next `/ds-wrap` run must re-run the full pre-flight and re-log the drift so it keeps surfacing under "Watch Out For" until resolved. This conservative rule guarantees the short-circuit only ever fires on a genuinely clean, unchanged scaffold and never suppresses a real drift bullet.
@@ -21899,7 +21801,7 @@ If /ds-wrap aborts before the lock is acquired (e.g. at the active-Workers check
 
 ## Deferred-enrichment data model
 
-This section is the single source of truth for the on-disk artifacts that drive the synchronous `/ds-wrap` Step 0a staging and the deferred-wrap daemon. Every other unit (the Stop hook `hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the deferred-wrap daemon) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename); every artifact in this section lives under `.agentic/wrap/`, matching the `.agentic/wrap/` directory pattern in `/ds-init-project` Step 9's targeted `.gitignore` block.
+This section is the single source of truth for the on-disk artifacts that drive the synchronous `/ds-wrap` Step 0a staging and the deferred-wrap daemon. Every other unit (the Stop hook `hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the deferred-wrap daemon) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename); every artifact in this section lives under `.agentic/wrap/`, covered by `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`).
 
 **1. `.agentic/wrap/pending-<session_id>.json` (the per-session enrichment marker).** One marker per session, keyed by `session_id` in the filename so concurrent sessions never collide. Staged when a session has substantive un-wrapped work, so the daemon (or the next session in that project) completes enrichment idempotently. Schema:
 

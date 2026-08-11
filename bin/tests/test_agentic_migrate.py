@@ -623,75 +623,75 @@ class TestGitignoreUmbrellaAppendsWhenNoExistingNegation(unittest.TestCase):
         self.assertGreaterEqual(umbrella_idx, 2)
 
 
-class TestInitProjectStep9NegationBlock(unittest.TestCase):
-    """content/commands/ds-init-project.md Step 9's .agentic/ gitignore block must
-    emit a `!.agentic/<file>` negation for every tracked config file it claims to
-    carve out, and must not duplicate `!.agentic/learnings.md`."""
+class TestInitProjectStep9SingleSourced(unittest.TestCase):
+    """Round 3 rework (Major B): `/ds-init-project` Step 9 no longer hand-copies
+    a second `.gitignore` denylist. It literally delegates the `.agentic/`
+    portion of a fresh project's `.gitignore` to `ds-migrate apply` against
+    THIS repo's canonical manifest (`content/project-scaffolding.yml`), so
+    the init route and the migrate route read from one source and cannot
+    diverge by construction - a divergence class like `phase0-classifiers.yml`
+    (tracked on init, ignored on migrate) or `.activated` is now structurally
+    impossible for any path the manifest already knows about. This class
+    replaces the prior round's outcome-COMPARISON gate (which compared two
+    independently-maintained lists and was blind to any path outside both)
+    with (a) a prose-invariant check that Step 9 actually delegates rather
+    than silently reintroducing a duplicate block, and (b) a single-route
+    outcome gate against the SAME expanded path set the round-3 Skeptic named
+    as previously undecided (Major A) - `TRACKED_KNOWLEDGE_PATHS` and
+    `IGNORED_KNOWLEDGE_PATHS` below are each reviewed, rationale-backed
+    per-path decisions, not a re-derivation of the manifest's own negation
+    list (that would be circular)."""
 
     STEP9_PATH = REPO_ROOT / "content" / "commands" / "ds-init-project.md"
 
-    def _step9_block(self) -> str:
+    def _step9_section(self) -> str:
         text = self.STEP9_PATH.read_text(encoding="utf-8")
-        start = text.index("# Agentic engineering runtime artifacts")
-        end = text.index("```", start)
+        start = text.index("### 9. Create `.gitignore`")
+        end = text.index("\n### 10.", start)
         return text[start:end]
 
-    def test_all_expected_negations_present_exactly_once(self):
-        block = self._step9_block()
-        expected = [
-            "!.agentic/session-log/",
-            "!.agentic/learnings.md",
-            "!.agentic/qa.md",
-            "!.agentic/deploy.md",
-            "!.agentic/tracking.md",
-            "!.agentic/qa-regressions.md",
-            "!.agentic/config.json",
-            "!.agentic/team.yml",
-            "!.agentic/skill-candidates.md",
-        ]
-        for negation in expected:
-            occurrences = block.count(negation)
-            self.assertEqual(
-                occurrences, 1,
-                f"{negation} must appear exactly once in the Step 9 block, found {occurrences}",
+    def test_step9_delegates_to_ds_migrate_apply(self):
+        """Step 9 must invoke the real binary against the real manifest, not
+        hand-copy a second gitignore block. This is the structural fix that
+        makes route divergence impossible for any manifest-covered path."""
+        section = self._step9_section()
+        self.assertIn("ds-migrate apply", section)
+        self.assertIn("content/project-scaffolding.yml", section)
+
+    def test_step9_no_longer_hand_lists_agentic_ignore_patterns(self):
+        """Round-1/round-2 regression guard: Step 9 must not regain a literal,
+        hand-copied `.agentic/<file>` ignore-pattern list - that is exactly
+        the second hand-maintained copy this rework eliminates. A handful of
+        prose mentions of specific paths (in the "deliberately excluded"
+        rationale paragraph) is fine; a fenced code block enumerating many
+        bare `.agentic/<path>` ignore lines is not."""
+        section = self._step9_section()
+        # The old block had 40+ literal ignore-pattern lines inside a single
+        # fenced code block. Assert no fenced block in the Step 9 section
+        # contains more than a handful of ".agentic/" line-starts - a loose
+        # but effective guard against the block's reintroduction.
+        for fence_match in re.finditer(r"```\n(.*?)```", section, re.DOTALL):
+            body = fence_match.group(1)
+            agentic_lines = [
+                ln for ln in body.splitlines()
+                if ln.strip().startswith(".agentic/") or ln.strip().startswith("!.agentic/")
+            ]
+            self.assertLess(
+                len(agentic_lines), 5,
+                f"Step 9 contains a fenced block with {len(agentic_lines)} literal "
+                ".agentic/ ignore-pattern lines - this looks like the hand-copied "
+                "denylist block being reintroduced instead of delegating to "
+                "`ds-migrate apply`.",
             )
 
-    def test_preferences_json_is_not_negated(self):
-        """preferences.json is deliberately ignored (per-developer runtime state)
-        and must never be carved out of the umbrella."""
-        block = self._step9_block()
-        self.assertNotIn("!.agentic/preferences.json", block)
-        self.assertIn(".agentic/preferences.json", block)
-
-    # NOTE (Round 2 rework, Major 3): a prior version of this class had a
-    # test_negation_set_matches_manifest_negation_set that compared the two
-    # paths' `!.agentic/<file>` negation SETS for equality. That comparison
-    # is structurally BLIND to a file that is tracked-by-default under Step
-    # 9's denylist (no negation needed, since no ignore pattern touches it)
-    # but ignored-by-default under the migrate-path umbrella (needs a
-    # negation that is missing) - both negation sets simply omit the file
-    # and the comparison passes vacuously. That exact blind spot let
-    # `.agentic/phase0-classifiers.yml` diverge (tracked on init, ignored on
-    # migrate) silently past a green test suite. Once the fix added
-    # `!.agentic/phase0-classifiers.yml` to the manifest (needed there,
-    # since the migrate path ignores everything by default) without adding a
-    # matching Step 9 negation (not needed there, since Step 9 never ignores
-    # it), the negation-SET comparison itself started reporting a false
-    # mismatch - it cannot represent "same outcome via different mechanism".
-    # It was deleted rather than patched further, per this methodology's own
-    # rule to prefer deletion over a narrowed rewrite when a claim's shape is
-    # unsound. test_negation_set_matches_tracked_outcome below is the real,
-    # outcome-based gate that replaces it - it compares what actually gets
-    # committed, not which mechanism produced that outcome.
-
-    # Canonical set of .agentic/ paths this methodology intends to keep
-    # TRACKED (committed) on every adoption path. This is the source of
-    # truth for test_negation_set_matches_tracked_outcome below - it is
-    # deliberately NOT derived from either path's negation list, because a
-    # negation-set derivation is exactly what let phase0-classifiers.yml's
-    # divergence pass silently (see that test's docstring). Anyone adding a
-    # new tracked knowledge file must add it here in the same PR, or this
-    # gate cannot see it.
+    # Reviewed per-path decisions for the 8 paths the round-2 Skeptic found
+    # committed-by-default on the (then denylist-shaped) init route with no
+    # documented rationale either way (Major A). Under the default-deny
+    # umbrella every one of these is IGNORED unless explicitly negated in
+    # content/project-scaffolding.yml - so "ignored" here requires no
+    # negation, and "tracked" requires one. See content/project-scaffolding.yml
+    # v7 and content/commands/ds-init-project.md Step 9's "Deliberately
+    # excluded" paragraph for the full rationale text.
     TRACKED_KNOWLEDGE_PATHS = (
         ".agentic/qa.md",
         ".agentic/deploy.md",
@@ -704,16 +704,36 @@ class TestInitProjectStep9NegationBlock(unittest.TestCase):
         ".agentic/session-log/example-dev.jsonl",
         ".agentic/phase0-classifiers.yml",
         ".agentic/deferred-work.jsonl",
+        # Major A: schema (agent/tier/brief_prefix) carries no model handles
+        # or other private data - shared team config, tracked like config.json.
+        ".agentic/presets.yml",
     )
 
-    # Ephemeral controls: paths that must be IGNORED on both paths. Proves
-    # the harness is non-vacuous (an outcome comparison that always reports
-    # "equal" because nothing is ever ignored would hide any real
-    # divergence just as effectively as the blind spot above).
-    IGNORED_CONTROL_PATHS = (
+    # Major A: reviewed and confirmed IGNORED (no negation) - each carries a
+    # documented reason distinct from "nobody thought of it yet":
+    #   - learnings-agent.session: per-session background-capture tracking
+    #     state (content/references/conductor-operating-rules.md).
+    #   - findings.md: curated Skeptic-finding patterns, already documented
+    #     machine-local (content/references/conventions-detail.md).
+    #   - tier-map.yml: maps roles to concrete MODEL NAMES for Codex/Gemini -
+    #     same private-model-handle rationale as role-models.yml.
+    #   - codex-skill-root-ownership.json: a DinoStack-repo-internal build
+    #     safety registry (scripts/codex-skills.py), not project scaffolding.
+    #   - tasks.jsonl.<ts>.bak / loop-state-<key>.json.tmp /
+    #     knowledge-commit-state.json.tmp: backup/tmp siblings of already-
+    #     ignored runtime state - ephemeral by the same logic as the file
+    #     they shadow.
+    IGNORED_KNOWLEDGE_PATHS = (
         ".agentic/context.md",
         ".agentic/.capability-cache.json",
         ".agentic/.activated",
+        ".agentic/learnings-agent.session",
+        ".agentic/findings.md",
+        ".agentic/tier-map.yml",
+        ".agentic/codex-skill-root-ownership.json",
+        ".agentic/tasks.jsonl.20260101-000000.bak",
+        ".agentic/loop-state-DS-1.json.tmp",
+        ".agentic/knowledge-commit-state.json.tmp",
     )
 
     def _tracked_outcome(self, project: Path) -> dict:
@@ -723,7 +743,8 @@ class TestInitProjectStep9NegationBlock(unittest.TestCase):
         round-1 commit message's inverted claim) - status after a real `git
         add -A` is the only outcome that actually matches what gets
         committed."""
-        for rel in self.TRACKED_KNOWLEDGE_PATHS + self.IGNORED_CONTROL_PATHS:
+        all_paths = self.TRACKED_KNOWLEDGE_PATHS + self.IGNORED_KNOWLEDGE_PATHS
+        for rel in all_paths:
             target = project / rel
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_text("placeholder\n", encoding="utf-8")
@@ -737,61 +758,31 @@ class TestInitProjectStep9NegationBlock(unittest.TestCase):
             # Porcelain format: "XY <path>"; a newly-added tracked file is "A ".
             staged.add(line[3:])
         outcome = {}
-        for rel in self.TRACKED_KNOWLEDGE_PATHS + self.IGNORED_CONTROL_PATHS:
+        for rel in all_paths:
             outcome[rel] = "tracked" if rel in staged else "ignored"
         return outcome
 
-    def test_negation_set_matches_tracked_outcome(self):
-        """Major 3 regression: compare the EFFECTIVE tracked-vs-ignored
-        outcome of every canonical knowledge file across BOTH adoption
-        routes, using real git (add -A + status --porcelain, not
-        check-ignore exit codes - see the Verification section rationale in
-        the round-2 rework brief for this ticket), not a negation-set
-        comparison. The negation-set comparison above cannot see a file that
-        is tracked-by-default on one path and ignored-by-default on the
-        other, because neither path then has a negation for it at all. This
-        is the gate that must go red on the phase0-classifiers.yml /
-        .activated divergence; see the mutation-test note below for how it
-        was proven non-vacuous."""
-        with tempfile.TemporaryDirectory() as tmp_init, tempfile.TemporaryDirectory() as tmp_migrate:
-            init_project = Path(tmp_init)
-            migrate_project = Path(tmp_migrate)
-
-            # --- Init path (/ds-init-project Step 9): write the Step 9
-            # block verbatim as the ONLY .gitignore content.
-            (init_project / ".gitignore").write_text(self._step9_block() + "\n", encoding="utf-8")
-            subprocess.run(["git", "init", "-q"], cwd=str(init_project), check=True)
-            init_outcome = self._tracked_outcome(init_project)
-
-            # --- Migrate path (ds-migrate apply): seed an empty project and
-            # run the real binary against the real manifest, exactly as
-            # TestManifestCarveOutsRealGit does.
-            (migrate_project / ".agentic").mkdir()
-            (migrate_project / ".agentic" / "config.json").write_text(json.dumps({}) + "\n")
-            (migrate_project / ".gitignore").write_text("")
-            subprocess.run(["git", "init", "-q"], cwd=str(migrate_project), check=True)
-            result = run(["apply", "--manifest", MANIFEST, "--project-root", str(migrate_project)])
+    def test_manifest_outcome_matches_reviewed_classification(self):
+        """Apply the real manifest via the real binary (exactly what Step 9
+        now runs) against a fresh project and confirm every reviewed path
+        lands where Major A decided it should. Since Step 9 now delegates to
+        this same call, this single-route check covers both adoption paths -
+        see test_step9_delegates_to_ds_migrate_apply for the structural half
+        of that claim."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            (project / ".agentic").mkdir()
+            (project / ".agentic" / "config.json").write_text(json.dumps({}) + "\n")
+            (project / ".gitignore").write_text("")
+            subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+            result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
             self.assertEqual(result.returncode, 0, msg=result.stderr)
-            migrate_outcome = self._tracked_outcome(migrate_project)
+            outcome = self._tracked_outcome(project)
 
-        self.assertEqual(
-            init_outcome, migrate_outcome,
-            "Init path (/ds-init-project Step 9) and migrate path "
-            "(ds-migrate apply against content/project-scaffolding.yml) "
-            "produce a DIFFERENT tracked-vs-ignored outcome for at least "
-            "one .agentic/ path - a project scaffolded fresh and a project "
-            "migrated in place would silently commit a different set of "
-            "files. Diff the two outcome dicts to find the divergent path.",
-        )
-        # Non-vacuousness: every tracked-knowledge path really did come back
-        # tracked, and every ignored-control path really did come back
-        # ignored, on at least one side - proves the harness can actually
-        # distinguish the two outcomes, not just that they happen to agree.
         for rel in self.TRACKED_KNOWLEDGE_PATHS:
-            self.assertEqual(init_outcome[rel], "tracked", f"{rel} must be tracked on the init path")
-        for rel in self.IGNORED_CONTROL_PATHS:
-            self.assertEqual(init_outcome[rel], "ignored", f"{rel} must be ignored on the init path")
-
+            self.assertEqual(outcome[rel], "tracked", f"{rel} must be tracked")
+        for rel in self.IGNORED_KNOWLEDGE_PATHS:
+            self.assertEqual(outcome[rel], "ignored", f"{rel} must be ignored")
 
 class TestGitignoreInsertByteBehavior(unittest.TestCase):
     """Major 1 regression: the insert-above-negation branch of

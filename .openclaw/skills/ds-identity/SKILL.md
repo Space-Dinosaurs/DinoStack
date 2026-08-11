@@ -41,8 +41,7 @@ Set a developer identity manually. `<handle>` must match `^[a-z0-9._-]{1,64}$`.
   outside-home paths are rejected.
 - `--scope project` writes `<cwd>/.agentic/identity.yml` (the current repo root;
   exits `1` if `cwd` is not inside a git repo). The project file is gitignored -
-  matching the `.agentic/identity.yml` pattern in `/ds-init-project` Step 9's
-  targeted `.gitignore` block - it is per-developer only and never lands in
+  matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) - it is per-developer only and never lands in
   the repo by default.
 - If a confirmed identity already exists at the target scope, `--force` is
   required to overwrite.
@@ -288,9 +287,9 @@ deferred and buffered automatically.
 A project-local identity file at `<repo>/.agentic/identity.yml` lets a developer
 use a different handle for sessions in that repo. A profile identity at
 `<active-config-dir>/identity.yml` applies to one harness profile or tenant.
-The project file is gitignored - matching the `.agentic/identity.yml` pattern
-in `/ds-init-project` Step 9's targeted `.gitignore` block; both overrides
-are per-developer.
+The project file is gitignored - via `/ds-init-project` Step 9's `.agentic/*`
+umbrella ignore (not individually enumerated - see
+`content/project-scaffolding.yml`); both overrides are per-developer.
 
 ### Profile config-dir resolution
 

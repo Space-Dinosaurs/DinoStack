@@ -36,7 +36,7 @@ This layer is consulted ONLY on the Pi (`.pi`) and oh-my-pi (`.omp`) harnesses. 
 
 If neither file exists when a Pi/omp spawn happens, the conductor omits the `model` field and Pi uses its session default. There are NO hardcoded model IDs anywhere in the repo or adapters.
 
-The file is **gitignored** - matching the `.agentic/role-models.yml` pattern in `/ds-init-project` Step 9's targeted `.gitignore` block - because it may name user-private model handles. Unlike `.agentic/config.json`, it is NOT carved out. Do NOT add a `!` exception in `.gitignore` for `role-models.yml` by default.
+The file is **gitignored** - matching `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`) - because it may name user-private model handles. Unlike `.agentic/config.json`, it is NOT carved out. Do NOT add a `!` exception in `.gitignore` for `role-models.yml` by default.
 
 ## Schema
 

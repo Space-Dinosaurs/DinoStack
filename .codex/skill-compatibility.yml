@@ -3592,6 +3592,16 @@
       "source_token": "0"
     },
     {
+      "expected_target": "content/commands/ds-init-project.md",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
+      "kind": "operational",
+      "occurrence_hash": "0f3d648d20e1a5d90d62e5872556ebccca9065fdc71f8030390bc59cd80af196",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "`/ds-init-project`"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "PRIOR_COMPLETED_JSON",
       "kind": "display-only",
@@ -3640,16 +3650,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/capture-classification.md"
-    },
-    {
-      "expected_target": ".gitignore",
-      "generated_token": "$AE_PROJECT_DIR/.gitignore",
-      "kind": "operational",
-      "occurrence_hash": "10ad50a8ae2e41983b7f66871fc9e5c4a156b928fa07d8334428496ab38ade34",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".gitignore"
     },
     {
       "expected_target": "echo",
@@ -3812,6 +3812,16 @@
       "source_token": "export"
     },
     {
+      "expected_target": ".agentic/*",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/*",
+      "kind": "operational",
+      "occurrence_hash": "1389d8ac7b13ebefd07cbffc4e69d6ece584a4378b314c82715fe31407fcfc65",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/*"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/tmp",
       "kind": "display-only",
@@ -3900,16 +3910,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": ".agentic/qa.md.snapshot-*",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/qa.md.snapshot-*",
-      "kind": "operational",
-      "occurrence_hash": "153e4ae878cf6612c293785bbd17bccd9fec7260f74a3ef393697c1d9ebabedd",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/qa.md.snapshot-*"
     },
     {
       "expected_target": "echo",
@@ -4082,14 +4082,14 @@
       "source_token": "Agent"
     },
     {
-      "expected_target": ".agentic/qa.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/qa.md",
+      "expected_target": "content/commands/ds-init-project.md",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
       "kind": "operational",
-      "occurrence_hash": "1851fdf76a383193badcd5fb45338a4750b1d4b4ee149ff1bb63b124bf560723",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
+      "occurrence_hash": "183f3b3312413e4ad0fcc767f592de8cdf97f6b9f49ba51e1d6a6793d73d8076",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
       "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/qa.md"
+      "source_token": "`/ds-init-project`"
     },
     {
       "expected_target": "then",
@@ -6242,6 +6242,16 @@
       "source_token": ".agentic/tasks.jsonl"
     },
     {
+      "expected_target": ".agentic/*",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/*",
+      "kind": "operational",
+      "occurrence_hash": "3d5ff8a93cf4ee45a9ce859e029b5c399eccd2a0e406fe8ea4f9a54c0899fc78",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/*"
+    },
+    {
       "expected_target": ".agentic/loop-state-",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-",
       "kind": "operational",
@@ -7252,16 +7262,6 @@
       "source_token": "touch"
     },
     {
-      "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
-      "kind": "operational",
-      "occurrence_hash": "4ee04612b857308dca3b0741ff97632bf9f5630754559c0e51cbe045643ad358",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-init-project`"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -7530,6 +7530,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state.json"
+    },
+    {
+      "expected_target": ".agentic/*",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/*",
+      "kind": "operational",
+      "occurrence_hash": "5563bc8926bc057ff5ebbbc7c52cca48bab777332a13e48b9c2049f96136542f",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/*"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -7812,16 +7822,6 @@
       "source_token": "cfg"
     },
     {
-      "expected_target": ".gitignore",
-      "generated_token": "$AE_PROJECT_DIR/.gitignore",
-      "kind": "operational",
-      "occurrence_hash": "5b6b6ae4b7b21a833a0f3b73679bd711520a382c621b6def3d0b0627a2994bdf",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".gitignore"
-    },
-    {
       "expected_target": "git",
       "generated_token": "git",
       "kind": "operational",
@@ -7830,6 +7830,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "git"
+    },
+    {
+      "expected_target": ".agentic/*",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/*",
+      "kind": "operational",
+      "occurrence_hash": "5bd5c2a162a00622fb2225d638e07df2a1e8deb3ab9f643d4b3f49c3b50cd350",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/*"
     },
     {
       "expected_target": ".agentic/loop-state-session-*.json",
@@ -8652,6 +8662,16 @@
       "source_token": "git"
     },
     {
+      "expected_target": ".agentic/ticket-ledger.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/ticket-ledger.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "67c643e931afd8c18cb5c412f6e4fe0e69eefe2d176a5f883d5497f01f13bc58",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/ticket-ledger.jsonl"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -9262,16 +9282,6 @@
       "source_token": "true"
     },
     {
-      "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
-      "kind": "operational",
-      "occurrence_hash": "703d494aced099687649efc006cdf22866ead82ef9a7c15156e221956d4badab",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-init-project`"
-    },
-    {
       "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
@@ -9662,16 +9672,6 @@
       "source_token": "-C"
     },
     {
-      "expected_target": ".agentic/.meta-divergence-surfaced",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced",
-      "kind": "operational",
-      "occurrence_hash": "7840500fb66786a3c2ac23aa5b70c75f749dfd988373ea4742edf22fcf75926b",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/.meta-divergence-surfaced"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "DESC",
       "kind": "display-only",
@@ -10032,6 +10032,16 @@
       "source_token": "then"
     },
     {
+      "expected_target": ".agentic/.meta-divergence-surfaced",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced",
+      "kind": "operational",
+      "occurrence_hash": "7f7ae29175cc50a2eb4512e0e3ab5f5bc091fa490f63911ea9647a9e1b8767b0",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/.meta-divergence-surfaced"
+    },
+    {
       "expected_target": "else",
       "generated_token": "else",
       "kind": "operational",
@@ -10050,6 +10060,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "else"
+    },
+    {
+      "expected_target": "content/commands/ds-init-project.md",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
+      "kind": "operational",
+      "occurrence_hash": "7f941d0b8bf7545832c29b2c0bdaed629752024ff10d81b192abf27240c373cd",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "`/ds-init-project`"
     },
     {
       "expected_target": "then",
@@ -10072,16 +10092,6 @@
       "source_token": "PR_NUMBER"
     },
     {
-      "expected_target": ".gitignore",
-      "generated_token": "$AE_PROJECT_DIR/.gitignore",
-      "kind": "operational",
-      "occurrence_hash": "8065e4ea959d870912cac98c944197e506cd62229e3941fbaee2ebbbdac40367",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".gitignore"
-    },
-    {
       "expected_target": ".agentic/qa-regressions.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/qa-regressions.md",
       "kind": "operational",
@@ -10092,16 +10102,6 @@
       "source_token": ".agentic/qa-regressions.md"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "8084ae31d90734ee3367a6cd0e474e55c580c48b36b27085c55d47f923a86366",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -10110,16 +10110,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "if"
-    },
-    {
-      "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
-      "kind": "operational",
-      "occurrence_hash": "810f60dc1cbe08447e187563dc4648b25c444c9db320ea43185c33c4057e92e8",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-init-project`"
     },
     {
       "expected_target": "echo",
@@ -11112,16 +11102,6 @@
       "source_token": "KC_SKIP_THIS"
     },
     {
-      "expected_target": ".agentic/.meta-divergence-surfaced",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced",
-      "kind": "operational",
-      "occurrence_hash": "93ca723465617a4c817a21708e6f1663ef60a7bc71b106144a9bf302cb710bb7",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/.meta-divergence-surfaced"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/empty",
       "kind": "display-only",
@@ -11300,6 +11280,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "The conductor's explicit `model: opus` is the only enforcement."
+    },
+    {
+      "expected_target": "content/commands/ds-init-project.md",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
+      "kind": "operational",
+      "occurrence_hash": "97834c4d61a0e368137fc59d1985230c554f2edc9f07872df60b7797c5871c33",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "`/ds-init-project`"
     },
     {
       "expected_target": "then",
@@ -12092,16 +12082,6 @@
       "source_token": "DESC"
     },
     {
-      "expected_target": ".agentic/tracker-states.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker-states.json",
-      "kind": "operational",
-      "occurrence_hash": "a49381df9cdd9c07d50ab7f907a8b14e7daf322d6b70dc5fda2867931abbc5cd",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/tracker-states.json"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -12482,6 +12462,16 @@
       "source_token": "status"
     },
     {
+      "expected_target": ".agentic/qa.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/qa.md",
+      "kind": "operational",
+      "occurrence_hash": "a868eadfe470c32c1b1a72f3c7279700c7fe7d61a309b4711b0376becceb7bc6",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/qa.md"
+    },
+    {
       "expected_target": ".agentic/qa.md.snapshot-<ticket_id>",
       "generated_token": "$AE_PROJECT_DIR/.agentic/qa.md.snapshot-<ticket_id>",
       "kind": "operational",
@@ -12650,6 +12640,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/batch-state.json"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "abb32360ce556f888f5b9a35bb75fc8cbd410aae2bbb99214ebdd0be860437d5",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/loop-state-",
@@ -12840,16 +12840,6 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "Bash"
-    },
-    {
-      "expected_target": ".agentic/ticket-ledger.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/ticket-ledger.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "af09e7d53a9a4b1ea6db5c87a0c8bc2d2842bd62b02d4a13789d4ab254a9659b",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/ticket-ledger.jsonl"
     },
     {
       "expected_target": "echo",
@@ -13060,16 +13050,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "then"
-    },
-    {
-      "expected_target": ".agentic/tracker-states.json",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker-states.json",
-      "kind": "operational",
-      "occurrence_hash": "b3d9ee9413227c3472a8cf3e7acdb1ceda960153ef49272ac375b52ce8cd7ff9",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/tracker-states.json"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -14412,16 +14392,6 @@
       "source_token": "KC_STATUS"
     },
     {
-      "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
-      "kind": "operational",
-      "occurrence_hash": "c895db2cec6a33fbaeb0f99516485a98f2201195f97b821b4ce5b590da8f935b",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "`/ds-init-project`"
-    },
-    {
       "expected_target": ".agentic/batch-state.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/batch-state.json",
       "kind": "operational",
@@ -14780,16 +14750,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/config.json"
-    },
-    {
-      "expected_target": ".agentic/ticket-ledger.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/ticket-ledger.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "cf2df966925a8e3b148ec872407378a4ac869dc5ef66a6212bbd0411bf1c28e3",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/ticket-ledger.jsonl"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -15982,16 +15942,6 @@
       "source_token": "length"
     },
     {
-      "expected_target": ".gitignore",
-      "generated_token": "$AE_PROJECT_DIR/.gitignore",
-      "kind": "operational",
-      "occurrence_hash": "e307951515ee651103c7c69e03c2e35489ce19ce63ab846a3f65f717496e1029",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".gitignore"
-    },
-    {
       "expected_target": "content/references/conductor-operating-rules.md",
       "generated_token": "$AE_REPO_DIR/content/references/conductor-operating-rules.md",
       "kind": "operational",
@@ -16980,6 +16930,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "METHODOLOGY.md"
+    },
+    {
+      "expected_target": ".agentic/tracker-states.json",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/tracker-states.json",
+      "kind": "operational",
+      "occurrence_hash": "f27f20cc4f1b40460f1b4d1e996e6b74e94bf71eeff8ca2290c0ef88efbb1253",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/tracker-states.json"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -18292,6 +18252,16 @@
       "source_token": "PROBE_PATHS"
     },
     {
+      "expected_target": "content/commands/ds-init-project.md",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
+      "kind": "operational",
+      "occurrence_hash": "242f3787bea40f559c4dd203ce1ba800f5296e8860cd23e5109fa5d35632a01c",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-init-project`"
+    },
+    {
       "expected_target": ".agentic/learnings.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/learnings.md",
       "kind": "operational",
@@ -18300,6 +18270,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/learnings.md"
+    },
+    {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "This section is the source of truth for the Claude-only deferred-wrap marker schemas. The Claude Stop hook `$AE_REPO_DIR/hooks/stop-context.js`, the OpenCode plugin, and the deferred-wrap daemon consume those schemas. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md` and does not stage these project-local markers; migration is deferred to `context-writer-migration`.",
+      "kind": "operational",
+      "occurrence_hash": "244cab3d147f9a183d9115ea9908506274db80ca0f2a81d664f3c4bba5850210",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "This section is the single source of truth for the on-disk artifacts that drive the synchronous `/ds-wrap` Step 0a staging and the deferred-wrap daemon. Every other unit (the Stop hook `hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the deferred-wrap daemon) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename); every artifact in this section lives under `.agentic/wrap/`, covered by `/ds-init-project` Step 9's `.agentic/*` umbrella ignore (not individually enumerated - see `content/project-scaffolding.yml`)."
     },
     {
       "expected_target": ".agentic/memory.md",
@@ -18410,6 +18390,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "bin/tests/reach_model.py"
+    },
+    {
+      "expected_target": "content/commands/ds-init-project.md",
+      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
+      "kind": "operational",
+      "occurrence_hash": "29c985d20a611e3a516edf249f7c5aa9942f3d02bee7720a03a71a4377db67ce",
+      "resolution_mode": "manual-command-resource",
+      "scope": "dinostack-repository",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "`/ds-init-project`"
     },
     {
       "expected_target": "bin/ds-codex-session-id",
@@ -18842,16 +18832,6 @@
       "source_token": "Bash"
     },
     {
-      "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
-      "kind": "operational",
-      "occurrence_hash": "42b393dc192ec63f70c6779d15f41bae6f38d38ac0b31c9adda164d064d08a66",
-      "resolution_mode": "manual-command-resource",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "`/ds-init-project`"
-    },
-    {
       "expected_target": "~/.codex/projects/[hash]/context.md",
       "generated_token": "**2. `$AE_PROJECT_DIR/.agentic/wrap/last-wrap` (the wrap-recency sentinel).** This project-local sentinel is written only after a successful `$wrap` Part A write. Claude and OpenCode marker consumers use it for staging suppression. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md` and does not consume this sentinel; migration is deferred to `context-writer-migration`.",
       "kind": "operational",
@@ -19272,14 +19252,14 @@
       "source_token": "`/ds-init-project`"
     },
     {
-      "expected_target": "content/commands/ds-init-project.md",
-      "generated_token": "manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project`",
+      "expected_target": "wrap",
+      "generated_token": "$wrap",
       "kind": "operational",
-      "occurrence_hash": "5a744b04f44bc686f9ede563e2d926f3afe9821d28bfa0332bf0b9e5ed89a908",
-      "resolution_mode": "manual-command-resource",
+      "occurrence_hash": "5a47d053617bad878fb6f9f612f9fc6567e523bbceb30f7dc92c385498c560d9",
+      "resolution_mode": "native-skill",
       "scope": "dinostack-repository",
       "source": "content/commands/ds-wrap.md",
-      "source_token": "`/ds-init-project`"
+      "source_token": "/ds-wrap"
     },
     {
       "expected_target": "wrap",
@@ -19300,16 +19280,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/"
-    },
-    {
-      "expected_target": ".agentic/wrap",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap",
-      "kind": "operational",
-      "occurrence_hash": "5b6ac01aac194ad51c7bb095f65fcb80078482cb3a62b6bd91c847a4a0d33bf1",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "<cwd>/.agentic/wrap"
     },
     {
       "expected_target": "wrap",
@@ -19372,16 +19342,6 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": ".agentic/wrap/.scaffold-verified",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/.scaffold-verified",
-      "kind": "operational",
-      "occurrence_hash": "602a25effc01fa48c3dfdbbc1150326c280333a1301ddb9f231c27a4fdc93c67",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "<cwd>/.agentic/wrap/.scaffold-verified"
-    },
-    {
       "expected_target": ".agentic/<name>.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/<name>.md",
       "kind": "operational",
@@ -19390,16 +19350,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/<name>.md"
-    },
-    {
-      "expected_target": "wrap",
-      "generated_token": "$wrap",
-      "kind": "operational",
-      "occurrence_hash": "61170155a5d75e53e430737d7df0c25ece83a78d39c267f64b39736739890cdb",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "/ds-wrap"
     },
     {
       "expected_target": ".claude/<name>.md",
@@ -19580,16 +19530,6 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "$CLAUDE_CODE_SESSION_ID"
-    },
-    {
-      "expected_target": ".agentic/wrap/",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/",
-      "kind": "operational",
-      "occurrence_hash": "6889a94a9e61d1261f6f13ce463c92f86f975b0721d7f920044f4b5156444361",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".agentic/wrap/"
     },
     {
       "expected_target": "bin/tests/drain_model.py",
@@ -20120,6 +20060,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/loop-state.json"
+    },
+    {
+      "expected_target": ".agentic/wrap/.scaffold-verified",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap/.scaffold-verified",
+      "kind": "operational",
+      "occurrence_hash": "8bf2a8d90283e252e54fced580d0341eca53233053b9944c6fdd68a65b6c48f0",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "<cwd>/.agentic/wrap/.scaffold-verified"
     },
     {
       "expected_target": "wrap",
@@ -21152,6 +21102,16 @@
       "source_token": "bin/tests/reach_model.py"
     },
     {
+      "expected_target": ".agentic/*",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/*",
+      "kind": "operational",
+      "occurrence_hash": "d272c4208445b90a5dc49a3b54c3633a695309c07088e44a10bafc26d5414b70",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": ".agentic/*"
+    },
+    {
       "expected_target": ".agentic/config.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/config.json",
       "kind": "operational",
@@ -21270,16 +21230,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-wrap.md",
       "source_token": "true"
-    },
-    {
-      "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "This section is the source of truth for the Claude-only deferred-wrap marker schemas. The Claude Stop hook `$AE_REPO_DIR/hooks/stop-context.js`, the OpenCode plugin, and the deferred-wrap daemon consume those schemas. The current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md` and does not stage these project-local markers; migration is deferred to `context-writer-migration`.",
-      "kind": "operational",
-      "occurrence_hash": "d890c262c1bef6257292cc977117adc0997fb78cdd144543f74c1dca8abf5f5a",
-      "resolution_mode": "codex-stop-hook-runtime",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "This section is the single source of truth for the on-disk artifacts that drive the synchronous `/ds-wrap` Step 0a staging and the deferred-wrap daemon. Every other unit (the Stop hook `hooks/stop-context.js`, the OpenCode plugin `.opencode/plugins/session-context.ts`, and the deferred-wrap daemon) references the schemas here by exact field name; none restate field semantics divergently. Field names below are NORMATIVE. All writes are atomic (tmp + rename); every artifact in this section lives under `.agentic/wrap/`, matching the `.agentic/wrap/` directory pattern in `/ds-init-project` Step 9's targeted `.gitignore` block."
     },
     {
       "expected_target": "wrap",
@@ -21522,16 +21472,6 @@
       "source_token": ".agentic/deploy.md"
     },
     {
-      "expected_target": ".gitignore",
-      "generated_token": "$AE_PROJECT_DIR/.gitignore",
-      "kind": "operational",
-      "occurrence_hash": "ec24e986edd8de39a4ec75ad4211207d93c657a3a0c0c667db41cb1a7c80535b",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": ".gitignore"
-    },
-    {
       "expected_target": "wrap",
       "generated_token": "$wrap",
       "kind": "operational",
@@ -21760,6 +21700,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": "<cwd>/.claude/context.md"
+    },
+    {
+      "expected_target": ".agentic/wrap",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/wrap",
+      "kind": "operational",
+      "occurrence_hash": "fb7688128005ce8303e1b62aff39c15db176dc6735712258be90b41f4a15a772",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "<cwd>/.agentic/wrap"
     },
     {
       "expected_target": "wrap",
