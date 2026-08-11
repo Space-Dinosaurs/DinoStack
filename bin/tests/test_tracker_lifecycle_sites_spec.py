@@ -269,23 +269,6 @@ def test_site_w1_precedes_phase_3_3b_5_headings(implement_ticket_text):
     )
 
 
-def test_phase_5_has_no_w1_site_and_carries_the_anti_regression_note(implement_ticket_text):
-    phase5_idx = implement_ticket_text.index("## Phase 5: Implement")
-    phase6_idx = implement_ticket_text.index("## Phase 6:")
-    phase5_text = implement_ticket_text[phase5_idx:phase6_idx]
-    assert "site: W1" not in phase5_text, (
-        "Phase 5 must not carry a 'site: W1' fire site - In Progress is "
-        "written at Phase 1 only"
-    )
-    assert (
-        "Phase 5 deliberately has no W1 site. Do not re-add one."
-        in phase5_text
-    ), (
-        "Phase 5 must retain the anti-regression note against re-adding a "
-        "W1 fire site"
-    )
-
-
 def _assert_no_w1_site_in_phase5(text: str) -> None:
     """The real production assertion: Phase 5 must not carry a 'site: W1'
     fire site. Extracted into a standalone function (rather than inlined in
@@ -357,7 +340,7 @@ def _assert_w1_outcome_mechanism(w1_block: str, reset_block: str) -> None:
         ('W1_REASON="tracker_none"', 'if [ "$TRACKER" = "none" ]'),
         (
             'W1_REASON="ticket_id_format"',
-            "elif ! printf '%s' \"$TICKET_ID\" | grep -qE",
+            "elif ! printf '%s' \"${TICKET_ID:-}\" | grep -qE",
         ),
         (
             'W1_REASON="prefix_mismatch"',
@@ -974,4 +957,34 @@ def test_config_cmd_out_of_scope_names_agentic_tracker():
     assert out_of_scope_idx < identity_idx < tracker_idx, (
         "ds-tracker must be named in the ds-config.md Out-of-scope "
         "clause, after the identity clause it extends"
+    )
+
+
+def test_no_duplicate_top_level_test_function_names():
+    # DS-163 round-3 rework: no F811 lint runs on bin/tests/, so a second
+    # `def test_foo` in this module silently shadows the first (Python
+    # keeps only the last binding; pytest collects only the survivor). A
+    # duplicate copy of test_phase_5_has_no_w1_site_and_carries_the_anti_
+    # regression_note shipped this way in round 2. Guard against a repeat
+    # by parsing this file's own AST and asserting every top-level
+    # function name is unique.
+    import ast
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(Path(__file__)))
+    names = [
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    seen = set()
+    dupes = set()
+    for name in names:
+        if name in seen:
+            dupes.add(name)
+        seen.add(name)
+    assert not dupes, (
+        f"duplicate top-level function definition(s) in this test module: "
+        f"{sorted(dupes)} - Python silently shadows the earlier definition "
+        f"and pytest only collects the survivor"
     )

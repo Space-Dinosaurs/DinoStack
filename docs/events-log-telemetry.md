@@ -147,8 +147,10 @@ This feeds the skill-candidate detection system. See
 ### tracker_writeback
 
 Emitted by the conductor at the W1 (Phase 1, In Progress) tracker-writeback
-call site in `content/commands/ds-implement-ticket.md`, one event per ticket
-entry regardless of outcome.
+call site in `content/commands/ds-implement-ticket.md`, one event per W1 gate
+evaluation the conductor actually reaches. It does NOT detect, and nothing
+currently emits a signal for, the case where the conductor never reaches the
+W1 prose at all.
 
 Key `data` fields: `site` (currently always `"W1"`), `outcome`
 (`"skipped"` | `"dispatched"` | `"dispatch_failed"`), `reason` (populated

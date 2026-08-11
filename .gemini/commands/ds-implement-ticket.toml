@@ -1104,9 +1104,9 @@ The sub-section above has, by this point, already successfully fetched the ticke
 W1_REASON=""
 if [ "$TRACKER" = "none" ]; then
   W1_REASON="tracker_none"
-elif ! printf '%s' "$TICKET_ID" | grep -qE '^[A-Z][A-Z0-9_]+-[0-9]+$'; then
+elif ! printf '%s' "${TICKET_ID:-}" | grep -qE '^[A-Z][A-Z0-9_]+-[0-9]+$'; then
   W1_REASON="ticket_id_format"
-elif [ -n "${TICKET_PREFIX:-}" ] && ! printf '%s' "$TICKET_ID" | grep -q "^${TICKET_PREFIX}-"; then
+elif [ -n "${TICKET_PREFIX:-}" ] && ! printf '%s' "${TICKET_ID:-}" | grep -q "^${TICKET_PREFIX}-"; then
   W1_REASON="prefix_mismatch"
 elif [ "${W1_FETCH_FAILED:-false}" = "true" ]; then
   W1_REASON="fetch_failed"
@@ -1116,9 +1116,9 @@ fi
 If `W1_REASON` is non-empty, the gate does not hold: emit the breadcrumb immediately with `outcome:"skipped"` and do NOT dispatch.
 
 ```bash
-export AGENTIC_LOOP_KEY="$LOOP_KEY"
+export AGENTIC_LOOP_KEY="${LOOP_KEY:-}"
 if [ -n "$W1_REASON" ]; then
-  ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"skipped\\",\\"reason\\":\\"$W1_REASON\\",\\"target_state\\":\\"$TRACKER_STATE_IN_PROGRESS\\"}" 2>/dev/null || true
+  ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"skipped\\",\\"reason\\":\\"$W1_REASON\\",\\"target_state\\":\\"${TRACKER_STATE_IN_PROGRESS:-}\\"}" 2>/dev/null || true
 fi
 ```
 
@@ -1130,24 +1130,21 @@ NOTE: [phase: tracker-writeback-w1] TRACKER is none for this project - <ID> was 
 
 No advisory line fires for the other three reasons: `ticket_id_format` (open-goal synthetic ids are never tracker keys - by design, see "Why the real-key guard exists" below) and `prefix_mismatch` are by-design skips, and `fetch_failed` is already surfaced by the sub-section's own fetch-failure logging.
 
-If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding. Emit the breadcrumb immediately after the `Agent` tool call attempt (`reason` stays `null` in both cases below - `reason` is populated only for `outcome:"skipped"`). **`W1_DISPATCH_OUTCOME` must be assigned explicitly on both branches** - it is never left to fall through to the `set -u`-safe default in the emit line:
+If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding. Emit the breadcrumb immediately after the `Agent` tool call attempt (`reason` stays `null` in both cases below - `reason` is populated only for `outcome:"skipped"`).
+
+**`W1_DISPATCH_OUTCOME` must be assigned explicitly on both branches** - it is never left to fall through to the `set -u`-safe default in the emit line below. This assignment is conductor-level judgment on the `Agent` tool call's own outcome, not a bash test, so it is decided in prose rather than inside the fence: set `W1_DISPATCH_OUTCOME="dispatch_failed"` if the `Agent` tool call for the Tracker Writeback Helper raised an error before the subagent could be spawned, otherwise set `W1_DISPATCH_OUTCOME="dispatched"`. Then run:
 
 ```bash
-if <the Agent tool call for the Tracker Writeback Helper raised an error before the subagent could be spawned>; then
-  W1_DISPATCH_OUTCOME="dispatch_failed"
-else
-  W1_DISPATCH_OUTCOME="dispatched"
-fi
 # `${W1_DISPATCH_OUTCOME:-dispatch_failed}` is a set -u-safe expansion: under
 # `set -u`, an unset/unassigned `$W1_DISPATCH_OUTCOME` would abort the whole
 # Phase 1 step on this line rather than falling through to `|| true` (that
 # fallback only catches ds-emit's own exit status, not an unbound-variable
 # shell error raised while building the argument string). The `:-` default
-# is defense-in-depth only - the if/else above is the real assignment, and
-# both branches are the sole two definition sites for this variable outside
-# the per-ticket reset.
-export AGENTIC_LOOP_KEY="$LOOP_KEY"
-ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\\",\\"reason\\":null,\\"target_state\\":\\"$TRACKER_STATE_IN_PROGRESS\\"}" 2>/dev/null || true
+# is defense-in-depth only - the prose assignment above is the real
+# assignment, and its two branches are the sole two definition sites for
+# this variable outside the per-ticket reset.
+export AGENTIC_LOOP_KEY="${LOOP_KEY:-}"
+ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\\",\\"reason\\":null,\\"target_state\\":\\"${TRACKER_STATE_IN_PROGRESS:-}\\"}" 2>/dev/null || true
 ```
 
 ```
