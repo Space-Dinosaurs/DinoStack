@@ -1711,6 +1711,32 @@ def test_shape2_dependency_auditor_is_now_compliant():
     assert violations == [], violations
 
 
+def test_critical_findings_cap_never_suppresses_a_critical():
+    """Round 3 (Skeptic Major 1) - a Critical finding must never be
+    suppressed by a bounded findings-list cap. security-auditor.md's
+    '### Critical findings' section and dependency-auditor.md's
+    critical_findings pointer field both carry a hard item cap (10 and
+    5 respectively); each must also carry an unconditional "report all
+    of them anyway" clause, with grouping offered only as a compression
+    means, that takes precedence over the cap. Without this clause, an
+    auditor with more Criticals than the cap has no compliant path
+    except dropping the overflow."""
+    for filename in ("security-auditor.md", "dependency-auditor.md"):
+        text = (AGENTS_DIR / filename).read_text()
+        assert "must never be suppressed" in text, (
+            f"{filename} is missing the anti-suppression clause for its "
+            "capped Critical findings list"
+        )
+        assert "report all of them anyway" in text, (
+            f"{filename}'s anti-suppression clause must instruct reporting "
+            "all Criticals, not just acknowledge the cap"
+        )
+        assert "takes precedence over it" in text, (
+            f"{filename}'s anti-suppression clause must explicitly take "
+            "precedence over the cap, not merely coexist with it"
+        )
+
+
 def test_shape2_perf_analyst_is_now_compliant():
     """Unit 4 (return-contract migration) retired perf-analyst.md's
     free-prose '## Report structure' (Summary/Methodology/Measurements/
@@ -1770,6 +1796,43 @@ def test_dont_omit_instruction_count_matches_prose():
     expected = {"architect.md", "skeptic.md", "debugger.md", "adr-generator.md"}
     assert hits == expected, (
         f"missing: {sorted(expected - hits)}; unexpected: {sorted(hits - expected)}"
+    )
+
+
+CONTRACT_REF_PATH = REPO_ROOT / "content" / "references" / "subagent-return-contract.md"
+
+DONT_OMIT_PROSE_COUNT_PATTERN = re.compile(
+    r"(\d+)\s+carry some\s*\nform of a \"don't omit\" instruction",
+)
+
+
+def test_dont_omit_instruction_count_matches_prose_number():
+    """Round 3 (Skeptic Minor 2) - the prior count pin
+    (test_dont_omit_instruction_count_matches_prose, above) only pins the
+    live tree against a hardcoded `expected` set; it does not verify that
+    `expected`'s cardinality matches the number subagent-return-contract.md
+    itself states in prose ("of the 18 files ..., 4 carry some form of a
+    ...instruction"). Editing that paragraph's "4" alone - without touching
+    this test file - left the prior test green. This test parses the
+    numeral out of the prose file and asserts it against the same
+    mechanically-measured hit set, so a prose-only edit reddens here."""
+    prose_text = CONTRACT_REF_PATH.read_text()
+    match = DONT_OMIT_PROSE_COUNT_PATTERN.search(prose_text)
+    assert match, (
+        "could not find the '<N> carry some form of a \"don't omit\" "
+        f"instruction' sentence in {CONTRACT_REF_PATH}"
+    )
+    prose_count = int(match.group(1))
+
+    hits = {
+        path.name
+        for path in AGENTS_DIR.glob("*.md")
+        if DONT_OMIT_PATTERN.search(path.read_text())
+    }
+    assert prose_count == len(hits), (
+        f"subagent-return-contract.md claims {prose_count} files carry a "
+        f"'don't omit' instruction, but the live tree has {len(hits)}: "
+        f"{sorted(hits)}"
     )
 
 

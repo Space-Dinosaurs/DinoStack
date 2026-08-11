@@ -798,7 +798,7 @@ hr {
 <li>Spawned into their own <strong>isolated worktree</strong> - their own files, their own context</li>
 <li>Given a <strong>structured brief</strong> - goal, constraints, acceptance criteria, non-goals</li>
 <li>Do their narrow job and return a <strong>structured result</strong> - not raw transcript</li>
-<li>Most agents are read-only analysis/planning. <code>engineer</code>, <code>adr-generator</code>, <code>release-orchestrator</code>, <code>learning-extractor</code>, <code>learnings-agent</code>, <code>wrap-ticket</code>, and <code>product-discovery</code> write files.</li>
+<li>Most agents are read-only analysis/planning. <code>engineer</code>, <code>adr-generator</code>, <code>release-orchestrator</code>, <code>learning-extractor</code>, <code>learnings-agent</code>, <code>wrap-ticket</code>, <code>product-discovery</code>, and (Bash-heredoc only, scoped to their own <code>.agentic/audit-reports/</code> report file) <code>adr-drift-detector</code>, <code>dependency-auditor</code>, and <code>perf-analyst</code> write files - 10 of 18.</li>
 </ul>
 <div class="callout">
 The main thread never sees their raw work - only their conclusion. That's the whole point: heavy work without heavy context.

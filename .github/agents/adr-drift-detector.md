@@ -199,6 +199,10 @@ Field tagging and shape follow the attention test in `content/references/subagen
 mkdir -p .agentic/audit-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 REPORT_PATH=".agentic/audit-reports/adr-drift-detector-${RUN_ID}.md"
+# The quotes around the delimiter word are load-bearing, not decorative: bash performs
+# no expansion on a heredoc delimiter regardless of quoting, so "EOF_${RUN_ID}" is a
+# fixed literal either way - the quotes exist to disable $-expansion INSIDE the report
+# body (findings text can legitimately contain "$" or backticks). Do not unquote this.
 cat > "$REPORT_PATH" <<"EOF_${RUN_ID}"
 # ADR Drift Report
 *Generated: [YYYY-MM-DD] | Project: [project name]*

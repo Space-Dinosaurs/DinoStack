@@ -193,6 +193,10 @@ Field tagging and shape follow the attention test in `content/references/subagen
 mkdir -p .agentic/audit-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 REPORT_PATH=".agentic/audit-reports/dependency-auditor-${RUN_ID}.md"
+# The quotes around the delimiter word are load-bearing, not decorative: bash performs
+# no expansion on a heredoc delimiter regardless of quoting, so "EOF_${RUN_ID}" is a
+# fixed literal either way - the quotes exist to disable $-expansion INSIDE the report
+# body (findings text can legitimately contain "$" or backticks). Do not unquote this.
 cat > "$REPORT_PATH" <<"EOF_${RUN_ID}"
 ## Dependency Audit Report
 
@@ -245,7 +249,7 @@ Return this pointer object as the agent's final output:
   "critical_count": <count>,
   "major_count": <count>,
   "minor_count": <count>,
-  "critical_findings": ["capped at 5 items, each capped at 80 chars: 'CVE-XXXX-XXXXX pkg-name@version'"],
+  "critical_findings": ["capped at 5 items, each capped at 80 chars: 'CVE-XXXX-XXXXX pkg-name@version'. A Critical finding must never be suppressed by this cap: if more than 5 real Critical findings exist, report all of them anyway - group findings that share the same CVE/advisory or the same affected package into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it."],
   "scan_completeness": "full | partial | blocked",
   "maintenance_signal": "healthy | stale | abandoned",
   "verdict": "clean | findings_present",
@@ -254,7 +258,7 @@ Return this pointer object as the agent's final output:
 }
 ```
 
-`report_path` is the exact `$REPORT_PATH` written above. `critical_findings` is a MECHANICAL field, not advisory: it carries the CVE identity + affected package for each Critical finding, capped at 5 items (one per line, `<CVE-or-advisory-ID> <package-name>@<version>`, 80 chars each - truncate the tail if longer). It is present only when `critical_count > 0`, omitted entirely otherwise (never an empty array). This is the field a consumer like `/ds-wrap` reads to capture "known CVEs" into memory entries without opening the report file - the work-stoppage identity of a Critical finding must be mechanically present in the return, not relocated to a file a downstream reader may never open. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what `scan_completeness`/`maintenance_signal`/the report file already convey; `notes` is explicitly scoped to scan gaps and human-judgment items (Phase 3/4 ambiguities), never to findings - `critical_findings` is always the home for CVE identity.
+`report_path` is the exact `$REPORT_PATH` written above. `critical_findings` is a MECHANICAL field, not advisory: it carries the CVE identity + affected package for each Critical finding, capped at 5 items (one per line, `<CVE-or-advisory-ID> <package-name>@<version>`, 80 chars each - truncate the tail if longer). A Critical finding must never be suppressed by this cap: if more than 5 real Critical findings exist, report all of them anyway - group findings that share the same CVE/advisory or the same affected package into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it. It is present only when `critical_count > 0`, omitted entirely otherwise (never an empty array). This is the field a consumer like `/ds-wrap` reads to capture "known CVEs" into memory entries without opening the report file - the work-stoppage identity of a Critical finding must be mechanically present in the return, not relocated to a file a downstream reader may never open. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what `scan_completeness`/`maintenance_signal`/the report file already convey; `notes` is explicitly scoped to scan gaps and human-judgment items (Phase 3/4 ambiguities), never to findings - `critical_findings` is always the home for CVE identity.
 
 ## Boundaries
 

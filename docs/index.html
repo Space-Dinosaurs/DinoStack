@@ -1693,7 +1693,7 @@
   <div class="note">
     <strong>Key constraint:</strong> Only the main session agent (conductor) spawns agents. No agent spawns other agents.<br>
     <strong>Isolation:</strong> Agents run in background by default. Can use <code>isolation: "worktree"</code> for git-isolated work.<br>
-    <strong>Most agents are read-only - 7 of 18 write files: adr-generator, engineer, learning-extractor, learnings-agent, product-discovery, release-orchestrator, and wrap-ticket.</strong> Gold left border = writes files.
+    <strong>Most agents are read-only - 10 of 18 write files: adr-generator, engineer, learning-extractor, learnings-agent, product-discovery, release-orchestrator, wrap-ticket, and (Bash-heredoc only, no Write/Edit grant, scoped to their own <code>.agentic/audit-reports/</code> report file) adr-drift-detector, dependency-auditor, and perf-analyst.</strong> Gold left border = writes files.
   </div>
 </div>
 
