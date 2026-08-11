@@ -1964,11 +1964,13 @@ class TestUmbrellaPrefixSpellingAgreement(unittest.TestCase):
         # minimum (round 11 finding: that comment overstated what the
         # assertion actually enforced) - it is the measured, deterministic
         # count of non-moot prefixes for the live PREFIXES list against
-        # real git (6 of 9; "", "//", and one other prefix make the
-        # umbrella-only ignore nothing and are skipped as moot). A future
-        # PREFIXES edit or an environment where git's matching genuinely
-        # changes must update this exact count, not silently widen the
-        # floor back to `> 0`.
+        # real git (6 of 9; measured moot set is `//`, `**//`, and
+        # `/**//` - the umbrella alone genuinely ignores nothing for any of
+        # those three. `""` is NOT moot - the bare, unprefixed umbrella
+        # genuinely ignores the file and is asserted on like the other 5
+        # non-moot prefixes). A future PREFIXES edit or an environment
+        # where git's matching genuinely changes must update this exact
+        # count, not silently widen the floor back to `> 0`.
         self.assertEqual(
             candidate_count, 6,
             "expected exactly 6 of 9 generated prefixes to be non-moot "
@@ -2372,6 +2374,81 @@ class TestBehavioralNegationDetection(unittest.TestCase):
         self.assertEqual(out["gitignore_verification"], "behavioral")
 
 
+class TestDirectoryNegationProbeGuessingResidualLimit(unittest.TestCase):
+    """Round 12 pin: the measured, ACCEPTED residual in directory-form
+    negation detection (`!.agentic/session-log/` and its `/**` twin - the
+    only 2 of the manifest's 13 negation patterns shaped this way). The
+    probe set must synthesize candidate paths when no real file exists yet
+    under the directory (see `_directory_negation_probes`), and a defeater
+    keyed to an unguessed filename returns "ok" undetected in that case.
+    This is by design NOT something this round closes - see the operator
+    decision recorded in content/commands/ds-init-project.md and the
+    docstring of `_compute_negations_defeated` in bin/ds-migrate. This test
+    exists so the limit is discovered by a red assertion if a future round
+    accidentally narrows or widens its scope, rather than being
+    rediscovered from scratch."""
+
+    def _seeded_project(self, tmp):
+        project = Path(tmp) / "project"
+        agentic = project / ".agentic"
+        agentic.mkdir(parents=True)
+        version = _manifest_version()
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": version}) + "\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        return project
+
+    def test_unguessed_defeater_with_no_real_file_reads_ok_undetected(self):
+        """The residual itself: three defeater spellings, none of which
+        collide with any of the four synthesized probe names
+        (`.ds-migrate-probe`, `.ds-migrate-probe.jsonl`,
+        `.ds-migrate-probe/.ds-migrate-probe.jsonl`, or a real file - none
+        exist here), each left undetected with `status: ok` and
+        `gitignore_verification: behavioral` despite genuinely defeating a
+        knowledge file at the name it targets."""
+        defeaters = [
+            ".agentic/session-log/nested/",
+            ".agentic/session-log/dev.*",
+            ".agentic/session-log/[a-z]*.jsonl",
+        ]
+        for defeater in defeaters:
+            with self.subTest(defeater=defeater):
+                tmp = tempfile.mkdtemp()
+                project = self._seeded_project(tmp)
+                (project / ".gitignore").write_text(
+                    "!.agentic/session-log/\n!.agentic/session-log/**\n" + defeater + "\n"
+                )
+                result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+                self.assertEqual(result.returncode, 0, msg=result.stdout)
+                out = json.loads(result.stdout)
+                self.assertEqual(
+                    out["status"], "ok",
+                    f"residual limit changed shape for {defeater!r} - "
+                    "re-verify the docstrings and prose that document it",
+                )
+                self.assertEqual(out["gitignore_verification"], "behavioral")
+
+    def test_same_defeater_caught_once_a_real_file_exists(self):
+        """The self-healing half: once a real file lands at a name the
+        defeater actually matches, probe shape 1 (real files on disk)
+        discovers it and the same defeater is now caught."""
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        (project / ".gitignore").write_text(
+            "!.agentic/session-log/\n!.agentic/session-log/**\n"
+            ".agentic/session-log/dev.*\n"
+        )
+        log_dir = project / ".agentic" / "session-log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "dev.jsonl").write_text('{"event":"x"}\n')
+
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(out["gitignore_negations_defeated"])
+        self.assertIn(".agentic/session-log/dev.jsonl", out["gitignore_negations_defeated_paths"])
+
+
 class TestApplyFailsLoudlyWhenRepairCannotResolveDetectedDrift(unittest.TestCase):
     """Round 10 requirement: when behavioral detection reports a negation
     is defeated and the syntactic repair machinery cannot identify (and
@@ -2420,6 +2497,69 @@ class TestApplyFailsLoudlyWhenRepairCannotResolveDetectedDrift(unittest.TestCase
         ).stdout
         self.assertNotIn(".agentic/qa.md", status)
         self.assertIn(".gitignore", status)
+
+
+class TestApplyFailureAppendsShardEntry(unittest.TestCase):
+    """Round 12 requirement: activation preflight Step 6 discards
+    apply's stderr under its silent-fail discipline
+    (content/references/activation-detail.md), so the
+    scaffolding-notices shard is the only durable record that route
+    ever sees. A prior successful apply's "Applied v0 -> vN migration"
+    line must not be the only shard content left standing after a LATER
+    apply detects a defeated negation and exits 3 - that failure must
+    be its own shard entry, not silently absent from the channel the
+    success case uses."""
+
+    def test_rc3_negation_defeat_appends_failed_shard_entry_not_just_prior_success(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "project"
+        agentic = project / ".agentic"
+        agentic.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+
+        # apply #1: fresh v0 project, nothing exotic yet - succeeds, stamps
+        # the version, and writes a success line to the shard.
+        result1 = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result1.returncode, 0, msg=result1.stdout + result1.stderr)
+        shard_path = agentic / "context.d" / "scaffolding-notices.md"
+        after_first = shard_path.read_text(encoding="utf-8")
+        self.assertIn("Applied v0 ->", after_first)
+
+        # Now introduce a real file under the session-log/ directory
+        # negation, defeated by an exotic exact-path ignore line repair
+        # cannot identify - the same unfixable-defeater shape as
+        # TestApplyFailsLoudlyWhenRepairCannotResolveDetectedDrift above,
+        # but targeting the directory-form negation specifically.
+        log_dir = agentic / "session-log"
+        log_dir.mkdir(parents=True)
+        (log_dir / "dev.jsonl").write_text('{"event":"x"}\n')
+        gitignore_path = project / ".gitignore"
+        with open(gitignore_path, "a", encoding="utf-8") as f:
+            f.write(".agentic/session-log/dev.jsonl\n")
+
+        # apply #2: version is already current, so this call does NOT
+        # re-stamp - but it must still detect the defeated negation via
+        # the real file on disk and exit 3.
+        result2 = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result2.returncode, 3, msg=result2.stdout + result2.stderr)
+        self.assertIn(".agentic/session-log/dev.jsonl", result2.stderr)
+
+        after_second = shard_path.read_text(encoding="utf-8")
+        # The prior success line must still be present (this is an
+        # append-only shard, not a replace) -
+        self.assertIn("Applied v0 ->", after_second)
+        # -but it must no longer be the ONLY thing in the shard: the rc=3
+        # failure from apply #2 must have its own entry naming the
+        # affected path, so a reader who only ever sees this shard (the
+        # activation-preflight route) is not misled into believing
+        # everything is still fine.
+        self.assertIn("FAILED", after_second)
+        self.assertIn(".agentic/session-log/dev.jsonl", after_second)
+        self.assertGreater(
+            after_second.count("\n"), after_first.count("\n"),
+            "apply #2's rc=3 failure must add a NEW line to the shard, "
+            "not leave it unchanged from apply #1's success entry",
+        )
 
 
 if __name__ == "__main__":

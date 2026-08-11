@@ -961,18 +961,27 @@ def _git_check_ignore_batch(project_root: Path, paths: list[str]) -> set[str] | 
     pathnames git considers ignored, one per record, and a path with a
     working negation produces no output record at all.
 
-    `-v` is deliberately never added here. `-v` reports the last matching
-    pattern and exits 0 on ANY match, including a negation match -
-    documented in git-check-ignore(1) under `--verbose`: "Matching an
-    exclude pattern usually means the path is excluded, but if the pattern
+    `-v` is deliberately never added here. `git-check-ignore(1)` documents
+    two separate things that combine into a behavior neither states on its
+    own: `--verbose` says "for each path that matches an exclude pattern,
+    print the exclude pattern together with the path... if the pattern
     begins with "!" then it is a negated pattern and matching it means the
-    path is NOT excluded." So `-v`'s exit code alone is not an
-    ignored/not-ignored signal for a negated path - reproduced directly
-    (round 10, git 2.55.0): `git check-ignore -v <path>` exits 0 for a path
-    a correctly-ordered `!.agentic/<file>` negation covers, and the
-    negation line (`.gitignore:N:!.agentic/<file>`) appears in its own
-    output, exactly as documented. This is what the raw-git-behavior test
-    below pins.
+    path is NOT excluded" (i.e. a negation match is still a MATCH, and gets
+    printed under `-v`); separately, EXIT STATUS says plainly "0: One or
+    more of the provided paths is ignored" - phrasing that, read alone,
+    suggests exit 0 means "ignored." Observed (round 10, re-verified this
+    round, git 2.55.0): `git check-ignore -v <path>` exits 0 for a path a
+    correctly-ordered `!.agentic/<file>` negation covers - i.e. exit 0 on a
+    NEGATION match, not just an ignore match - and the negation line
+    (`.gitignore:N:!.agentic/<file>`) appears in `-v`'s own output exactly
+    as `--verbose` describes its print format. The exit-0-on-negation-match
+    behavior itself is not spelled out verbatim anywhere in the man
+    page - it is the observed, reproducible consequence of `--verbose`'s
+    documented match-reporting semantics combined with EXIT STATUS's
+    generic "a match occurred" phrasing, and it is the opposite of what a
+    literal reading of EXIT STATUS alone would suggest. So `-v`'s exit code
+    alone is not an ignored/not-ignored signal for a negated path. This is
+    what the raw-git-behavior test below pins.
 
     Separately, and also documented (DESCRIPTION): "By default, tracked
     files are not shown at all since they are not subject to exclude
@@ -1019,11 +1028,30 @@ def _compute_negations_defeated(manifest: dict, project_root: Path) -> dict:
     }
 
     "behavioral" means git itself was asked and its answer is authoritative
-    for the manifest's full negated-path set, regardless of which spelling,
+    for the manifest's EXACT-path negations, regardless of which spelling,
     prefix, suffix, comment placement, or exotic gitignore construct
     produced the result - the class of bug that has recurred for five rounds
-    (see the section docstring above) cannot recur here because nothing
-    about this path infers pattern syntax.
+    (see the section docstring above) cannot recur for those paths because
+    nothing about this path infers pattern syntax.
+
+    Directory-form negations (currently `!.agentic/session-log/` and its
+    `!.agentic/session-log/**` twin - the only two of the manifest's 13
+    negation patterns shaped this way) are a narrower case: a directory's
+    own ignore status does not imply its contents', so _manifest_negated_paths
+    synthesizes candidate FILE probes under the directory (see
+    `_directory_negation_probes`) instead of probing the directory path
+    itself. When a real file already exists on disk under that directory,
+    it is discovered and probed directly - verified caught at depth 1, 2 and
+    3 for every spelling tried, and that case gets the same full behavioral
+    guarantee as an exact-path negation. When NO matching file exists yet,
+    only the synthesized candidate names are probed, and a defeater keyed to
+    a filename none of them happen to match returns "ok" undetected -
+    measured: `.agentic/session-log/nested/` and `.agentic/session-log/dev.*`
+    both return "ok" with no file present. This residual is narrow (only
+    these 2 of 13 patterns) and self-healing (`session-log/` is append-only,
+    so the very next `check` run, once a real file exists, discovers it) -
+    but it means "behavioral" is not an unconditional guarantee for these 2
+    patterns the way it is for the other 11.
 
     "unavailable" means git is missing from PATH, `project_root` is not
     inside a git working tree, or the check-ignore invocation itself could
@@ -1040,7 +1068,8 @@ def _compute_negations_defeated(manifest: dict, project_root: Path) -> dict:
     -style fixtures, or a manifest-only dry run) that never claimed to
     verify real git state in the first place. Every code path that DOES
     operate inside a real git repository - which is every project this tool
-    targets in production - gets the full behavioral guarantee."""
+    targets in production - gets the behavioral guarantee described above,
+    with the directory-form probe-guessing limit noted above."""
     if not _is_git_available():
         return {
             "verification": "unavailable",
@@ -1413,6 +1442,26 @@ def cmd_apply(args: argparse.Namespace) -> int:
                 "each affected path, with no other ignore pattern below "
                 "that negation that re-ignores it.",
                 file=sys.stderr,
+            )
+            # The stderr message above is invisible to the activation-preflight
+            # route: Step 6 discards ds-migrate's stderr under its
+            # silent-fail discipline (content/references/activation-detail.md),
+            # and that route's only durable record of what happened is this
+            # shard. Without an entry here, a prior successful "Applied v0 ->
+            # vN migration" line (from an earlier apply that stamped the
+            # version before this negation ever became defeated) is the ONLY
+            # thing a reader of the shard ever sees - a defeated-negation
+            # postcondition failure would then look identical to success on
+            # every route that does not inspect the process exit code
+            # directly. Append a FAILED entry naming the affected paths so
+            # this failure is visible in the same channel the success case
+            # uses, every time, regardless of whether a prior apply in this
+            # project's history ever stamped successfully.
+            _append_context_line(
+                project_root,
+                "[scaffolding-sync] FAILED: manifest-negated path(s) still "
+                f"reported ignored by git after repair: {affected}. Fix "
+                ".gitignore by hand, then re-run `ds-migrate apply`.",
             )
 
         if all_satisfied:
