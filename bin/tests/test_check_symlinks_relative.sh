@@ -3,7 +3,7 @@
 #          of scripts/check-symlinks-relative.sh - the CI/pre-commit gate
 #          that fails when any of the four
 #          .claude/skills/agentic-engineering/{agents,commands,references,rules}
-#          symlinks is absolutized. A gate that has only ever been observed
+#          symlinks are absolutized. A gate that has only ever been observed
 #          passing has not been verified - this test exercises both
 #          directions in both modes: it must FAIL against a constructed
 #          commit/index with an absolutized symlink, and PASS against one
