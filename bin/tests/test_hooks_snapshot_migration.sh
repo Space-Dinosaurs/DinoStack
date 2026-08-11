@@ -5,15 +5,25 @@
 #          unrelated third-party hook entry, runs the real install.sh with a
 #          fake $HOME, and asserts: every dinostack hook entry now
 #          points at the hooks snapshot (not the checkout), the third-party
-#          entry survives byte-for-byte, and a second run is a no-op. Section
-#          5 adds a THIRD .claude/install.sh run and a second assertion
-#          class covering RISK_CMD/OLD_RISK_CMDS specifically: (a) every
+#          entry survives byte-for-byte, and a second run is a no-op.
+#          Section 5 adds a second assertion class scoped to
+#          RISK_CMD/OLD_RISK_CMDS specifically: (a) every
 #          historically-shipped-but-superseded RISK_CMD literal is present
 #          in OLD_RISK_CMDS in both .claude/install.sh and .claude/uninstall.sh
-#          (byte-exact pinned fixtures, not re-derived at test time), and
-#          (b) a settings.json seeded with 3 pre-existing current/stale
+#          (byte-exact pinned fixtures, not re-derived at test time); (b) a
+#          settings.json seeded with several pre-existing current/stale
 #          risk-classification entries collapses to exactly 1 on a single
-#          install.sh run, with an unrelated third-party hook surviving.
+#          install.sh run, with an unrelated third-party hook surviving; and
+#          (c) a true no-op (single entry, already current) does not reset
+#          an operator's customized hook timeout.
+#
+#          NOTE: this file's run/invocation counts have gone stale THREE
+#          TIMES across three edits (each addition changed the actual count
+#          without updating every place a count was asserted). Do not
+#          reintroduce a hardcoded count anywhere in this header or below -
+#          derive it live with `grep -c '^\s*if _run_install' "$0"` (or
+#          equivalent) if a count is ever genuinely needed, never restate it
+#          as prose.
 #
 # Public API: ./bin/tests/test_hooks_snapshot_migration.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -30,14 +40,13 @@
 #                checkout (like bin/tests/test_kimi_install_symlink.sh) -
 #                only $HOME is sandboxed, and these real-tree effects are
 #                NOT limited to the .claude uninstall.sh call: EVERY
-#                install.sh run in this file (.claude x3 - first run,
-#                idempotent second run, and section 5's multi-stale-entry
-#                collapse run; .gemini, .codex, .kimi - each invoked twice,
-#                first run and idempotent second run) calls
-#                install_precommit_hook (writes <repo>/.git/hooks/pre-commit)
-#                and runs .claude/build.sh + .cursor/build.sh (regenerates
-#                adapter build artifacts in the live tree) - same three
-#                effects documented in
+#                `_run_install` invocation in this file (grep `_run_install`
+#                for the current call sites and their adapters - do not
+#                trust a hardcoded count or list here, see the NOTE above)
+#                calls install_precommit_hook (writes
+#                <repo>/.git/hooks/pre-commit) and runs .claude/build.sh +
+#                .cursor/build.sh (regenerates adapter build artifacts in
+#                the live tree) - same three effects documented in
 #                bin/tests/test_local_bin_ds_prefix_install.sh; empirically
 #                idempotent, but none of these runs are read-only. On top
 #                of that, the .claude section's uninstall.sh run (below)
@@ -51,10 +60,10 @@
 #                bin/tests/test_uninstall_ds_prefix.sh); the guard does not
 #                cover the earlier install.sh pre-commit-hook writes above.
 #
-# Performance: ~25-50 s wall time (4 adapters x 2 install.sh runs each, plus
-#              a 3rd .claude/install.sh run in section 5 for the
-#              multi-stale-entry collapse assertion - 9 install.sh runs
-#              total; each run includes a real build.sh pass).
+# Performance: wall time scales with the `_run_install` call count (grep it
+#              for the live figure - see the NOTE above); each invocation
+#              includes a real build.sh pass, so expect tens of seconds
+#              rather than a fixed number.
 
 set -uo pipefail
 

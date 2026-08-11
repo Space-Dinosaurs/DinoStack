@@ -740,9 +740,14 @@ else:
             f"{len(risk_match_indices)} current/stale entries to 1 current entry"
         )
     elif was_current:
-        # True no-op: do NOT touch type/command/timeout here. Rewriting an
+        # True no-op: do NOT touch command/timeout here. Rewriting an
         # operator's customized timeout (e.g. 30) back to the default 5 while
         # printing "already present" would silently discard a local override.
+        # "type" is a narrow exception - setdefault only repairs a MISSING
+        # key (never overwrites a present-but-wrong value), consistent with
+        # upsert_hook's identify-by-command-then-repair contract above
+        # without disturbing timeout.
+        first_entry.setdefault("type", "command")
         print("  = UserPromptSubmit risk-classification hook already present")
     else:
         first_entry["type"] = "command"
