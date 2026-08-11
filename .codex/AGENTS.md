@@ -499,7 +499,7 @@ For multi-unit plans the conductor maintains `$AE_PROJECT_DIR/.agentic/tasks.jso
 
 `$AE_PROJECT_DIR/.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, $wrap completion, finding fix). The file is gitignored.
 
-**Writer scope: the conductor is the primary writer of `$AE_PROJECT_DIR/.agentic/events.jsonl`.** The current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events or mirror project-local orchestration state. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.
+**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has four writers on Claude Code (the conductor, the Stop hook, and two spawn-telemetry hooks), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.
 
 **Schema** (one JSON object per line):
 - `ts`: ISO8601 UTC timestamp (required)

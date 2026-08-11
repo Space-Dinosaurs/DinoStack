@@ -35,19 +35,25 @@ def _make_hook_spawn_start(
     agent: str,
     session_uuid: str | None,
     ts: str,
+    spawn_id: str | None = None,
 ) -> str:
     """Hook-emitted spawn_start event (no tokens, no wall_seconds)."""
+    data = {
+        "source": "hook",
+        "session_uuid": session_uuid,
+        "tokens_note": "unavailable (harness)",
+        "tool_use_id": None,
+        "parent_agent_id": None,
+    }
+    if spawn_id is not None:
+        data["spawn_id"] = spawn_id
     return json.dumps({
         "ts": ts,
         "phase": "hook",
         "event": "spawn_start",
         "agent": agent,
         "task_id": None,
-        "data": {
-            "source": "hook",
-            "session_uuid": session_uuid,
-            "tokens_note": "unavailable (harness)",
-        },
+        "data": data,
     })
 
 
@@ -77,6 +83,32 @@ def _make_spawn_complete(
                 "cache_creation": 0,
                 "cache_read": 0,
             },
+        },
+    })
+
+
+def _make_hook_spawn_complete(
+    agent: str,
+    session_uuid: str | None,
+    ts: str,
+    paired_spawn_id: str | None = None,
+    wall_seconds: float = 3.0,
+) -> str:
+    """Hook-emitted spawn_complete event (DS-160; from subagent-stop-spawn-emit.js)."""
+    return json.dumps({
+        "ts": ts,
+        "phase": "hook",
+        "event": "spawn_complete",
+        "agent": agent,
+        "task_id": None,
+        "data": {
+            "source": "hook",
+            "session_uuid": session_uuid,
+            "tool_use_id": None,
+            "agent_id": None,
+            "paired_spawn_id": paired_spawn_id,
+            "wall_seconds": wall_seconds,
+            "tokens_note": "unavailable (harness)",
         },
     })
 
@@ -626,6 +658,141 @@ def test_hook_spawn_wall_and_tokens_render_na():
     print("PASS test_hook_spawn_wall_and_tokens_render_na")
 
 
+def test_ticketed_session_hook_complete_not_double_counted():
+    """(DS-160 Critical) Conductor spawn_complete PLUS a hook-emitted
+    spawn_complete for the SAME spawn -> counted once, not twice."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        events_path.write_text(
+            _make_spawn_complete("engineer", "T-1", "ticket-uuid-2",
+                                  "2026-06-01T10:00:00Z", input_tokens=200,
+                                  wall_seconds=300.0) + "\n"
+            + _make_hook_spawn_start("engineer", "ticket-uuid-2",
+                                      "2026-06-01T09:59:00Z", spawn_id="spawn-t-1") + "\n"
+            + _make_hook_spawn_complete("engineer", "ticket-uuid-2",
+                                         "2026-06-01T10:00:05Z",
+                                         paired_spawn_id="spawn-t-1",
+                                         wall_seconds=301.0) + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        lines = out.splitlines()
+        eng_line = next((l for l in lines if l.startswith("engineer")), None)
+        assert eng_line is not None, "engineer row missing"
+        fields = eng_line.split()
+        assert fields[1] == "1", (
+            f"Expected spawns=1 (hook spawn_complete excluded), got: {eng_line!r}"
+        )
+        # wall_seconds column must reflect ONLY the conductor-emitted 300, not 601.
+        assert "300" in eng_line, f"Expected wall=300 (not 601): {eng_line!r}"
+        assert "601" not in eng_line, f"Must not double-count wall_seconds: {eng_line!r}"
+    print("PASS test_ticketed_session_hook_complete_not_double_counted")
+
+
+def test_adhoc_lost_subagent_stop_still_counts():
+    """(DS-160 Critical) Ad-hoc session with one completed spawn and one spawn
+    whose SubagentStop never fired -> both spawns counted, not dropped."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        events_path.write_text(
+            _make_hook_spawn_start("engineer", "adhoc-uuid-2",
+                                    "2026-06-01T10:00:00Z", spawn_id="spawn-a") + "\n"
+            + _make_hook_spawn_complete("engineer", "adhoc-uuid-2",
+                                         "2026-06-01T10:00:42Z",
+                                         paired_spawn_id="spawn-a",
+                                         wall_seconds=42.0) + "\n"
+            # spawn-b's SubagentStop never fires - only a spawn_start, no complete.
+            + _make_hook_spawn_start("skeptic", "adhoc-uuid-2",
+                                      "2026-06-01T10:01:00Z", spawn_id="spawn-b") + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        lines = out.splitlines()
+        eng_line = next((l for l in lines if l.startswith("engineer")), None)
+        skeptic_line = next((l for l in lines if l.startswith("skeptic")), None)
+        assert eng_line is not None, "engineer row missing"
+        assert skeptic_line is not None, (
+            f"skeptic row missing - lost-SubagentStop spawn was dropped: {out!r}"
+        )
+        assert eng_line.split()[1] == "1", f"Expected engineer spawns=1: {eng_line!r}"
+        assert skeptic_line.split()[1] == "1", f"Expected skeptic spawns=1: {skeptic_line!r}"
+    print("PASS test_adhoc_lost_subagent_stop_still_counts")
+
+
+def test_adhoc_no_session_id_unpaired_complete_not_double_counted():
+    """(DS-160 round-2 Major 1) An unpaired hook spawn_complete (paired_spawn_id
+    None, session_uuid None - mirrors subagent-stop-spawn-emit.js emitting
+    `session_uuid: sessionId or None` when the SubagentStop payload itself
+    carried no session_id) co-present with a real spawn_start for the SAME
+    visible spawn -> counted once, not twice."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        unpaired_complete = json.dumps({
+            "ts": "2026-06-01T10:00:05Z",
+            "phase": "hook",
+            "event": "spawn_complete",
+            "agent": "(unknown)",
+            "task_id": None,
+            "data": {
+                "source": "hook", "session_uuid": None, "tool_use_id": None,
+                "agent_id": None, "paired_spawn_id": None, "wall_seconds": None,
+                "tokens_note": "unavailable (harness)",
+            },
+        })
+        events_path.write_text(
+            _make_hook_spawn_start("engineer", "adhoc-uuid-3",
+                                    "2026-06-01T10:00:00Z", spawn_id="spawn-only-real") + "\n"
+            + unpaired_complete + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        lines = out.splitlines()
+        eng_line = next((l for l in lines if l.startswith("engineer")), None)
+        unknown_line = next((l for l in lines if l.startswith("(unknown)")), None)
+        assert eng_line is not None, "engineer row missing"
+        assert unknown_line is None, (
+            f"no (unknown) agent row from the unpaired complete: {out!r}"
+        )
+        assert eng_line.split()[1] == "1", (
+            f"Expected engineer spawns=1 (not double-counted), got: {eng_line!r}"
+        )
+    print("PASS test_adhoc_no_session_id_unpaired_complete_not_double_counted")
+
+
+def test_paired_complete_resolves_to_nothing_not_double_counted():
+    """(DS-160 round-2 Major 1) A spawn_complete whose paired_spawn_id does
+    not match any spawn_start in this session's view (e.g. the hook's own
+    2MB tail window missed it) -> dropped as completion metadata, does NOT
+    create a phantom spawn."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        events_path.write_text(
+            _make_hook_spawn_start("engineer", "adhoc-uuid-4",
+                                    "2026-06-01T10:00:00Z", spawn_id="spawn-real") + "\n"
+            + _make_hook_spawn_complete("skeptic", "adhoc-uuid-4",
+                                         "2026-06-01T10:00:10Z",
+                                         paired_spawn_id="spawn-vanished",
+                                         wall_seconds=99.0) + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        lines = out.splitlines()
+        eng_line = next((l for l in lines if l.startswith("engineer")), None)
+        skeptic_line = next((l for l in lines if l.startswith("skeptic")), None)
+        assert eng_line is not None, "engineer row missing"
+        assert skeptic_line is None, (
+            f"no skeptic row from the phantom-paired complete: {out!r}"
+        )
+        assert eng_line.split()[1] == "1", (
+            f"Expected engineer spawns=1 (phantom pairing dropped), got: {eng_line!r}"
+        )
+    print("PASS test_paired_complete_resolves_to_nothing_not_double_counted")
+
+
 if __name__ == "__main__":
     # session
     test_session_no_events_empty_table()
@@ -659,4 +826,9 @@ if __name__ == "__main__":
     test_hook_spawn_counted_in_ad_hoc_session()
     test_double_count_guard_ticketed_session()
     test_hook_spawn_wall_and_tokens_render_na()
+    # DS-160 Critical fix regression tests
+    test_ticketed_session_hook_complete_not_double_counted()
+    test_adhoc_lost_subagent_stop_still_counts()
+    test_adhoc_no_session_id_unpaired_complete_not_double_counted()
+    test_paired_complete_resolves_to_nothing_not_double_counted()
     print("All agentic-cost session/task/project/operator tests passed.")

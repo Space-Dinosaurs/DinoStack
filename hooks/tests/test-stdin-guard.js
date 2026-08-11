@@ -924,6 +924,7 @@ function testImporterScannerExactRegressions() {
     'hooks/pre-tool-use-spawn-emit.js',
     'hooks/session-end-wrap.js',
     'hooks/stop-context.js',
+    'hooks/subagent-stop-spawn-emit.js',
   ].sort();
   const consumers = discoverProductionImporters(repoRoot);
   assert(

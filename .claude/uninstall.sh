@@ -255,6 +255,40 @@ if new_stop_list != stop_list:
         del hooks["Stop"]
         print("  - Removed empty Stop key")
 
+# ---- Remove subagent-stop-spawn-emit.js hook from SubagentStop (DS-160) ----
+# NOTE (Skeptic finding, Minor): this is the only PreToolUse/PostToolUse/
+# SessionStart/SubagentStop-family hook this script removes; the equivalent
+# removal logic for the other install.sh-wired hooks in those families
+# (pre-tool-use-spawn-emit.js, post-tool-use-capture-nudge.js, the
+# SessionStart chain, etc.) does not exist here - a pre-existing gap,
+# deferred rather than fixed in this change. SubagentStop is added here
+# because it is the hook this change introduces; leaving a brand-new hook
+# type with zero uninstall path would make the gap worse, not just leave it
+# unchanged.
+subagent_stop_list = hooks.get("SubagentStop", [])
+new_subagent_stop_list = []
+for block in subagent_stop_list:
+    new_hooks = [
+        e for e in block.get("hooks", [])
+        if "hooks/subagent-stop-spawn-emit.js" not in e.get("command", "")
+    ]
+    removed_count = len(block.get("hooks", [])) - len(new_hooks)
+    if removed_count:
+        changed = True
+        print(f"  - Removed subagent-stop-spawn-emit.js hook from SubagentStop matcher '{block.get('matcher', '')}'")
+    if new_hooks:
+        block["hooks"] = new_hooks
+        new_subagent_stop_list.append(block)
+    elif removed_count:
+        print(f"    (matcher block now empty - removed)")
+
+if new_subagent_stop_list != subagent_stop_list:
+    if new_subagent_stop_list:
+        hooks["SubagentStop"] = new_subagent_stop_list
+    elif "SubagentStop" in hooks:
+        del hooks["SubagentStop"]
+        print("  - Removed empty SubagentStop key")
+
 if hooks != settings.get("hooks", {}):
     if hooks:
         settings["hooks"] = hooks

@@ -827,7 +827,7 @@ Minor missed: [list of finding titles, or "none"]
 Agreement: [yes | no]
 ```
 
-**Meta-Skeptic does NOT write to `.agentic/`.** Its sole output is the return text. The conductor parses the return text and emits the structured `meta_review_complete` event itself, preserving the single-writer convention for `.agentic/events.jsonl`.
+**Meta-Skeptic does NOT write to `.agentic/`.** Its sole output is the return text. The conductor parses the return text and emits the structured `meta_review_complete` event itself.
 
 ### Meta-divergence surfacing
 
