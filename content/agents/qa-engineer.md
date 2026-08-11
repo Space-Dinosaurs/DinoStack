@@ -40,7 +40,7 @@ capabilities:
       install_hint: "Start your project's Storybook dev server (typically `npm run storybook`) and ensure storybook_enabled: true in .agentic/config.json"
 ```
 
-> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it. The one narrow carve-out is the report/evidence write described in "Report structure" below: a Bash heredoc write scoped to `.agentic/qa-reports/`, the same pattern `dependency-auditor`/`perf-analyst`/`adr-drift-detector` use for their own audit reports.
+> **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it. The one narrow carve-out is the report/evidence write described in "Report structure" below: a Bash heredoc write scoped to `/tmp/qa-reports/`, deliberately NOT `.agentic/qa-reports/` - this agent always runs `isolation: "worktree"` (mandatory per `content/commands/ds-implement-ticket.md` Phase 6b Step 1), and `.agentic/` is gitignored so it is independent per worktree checkout; a write there would land in the throwaway worktree and never be seen again. `/tmp/` is host-level and shared across worktree checkouts on the same machine (the same reason screenshot evidence already lives there), so it is the only writable location this agent has that the conductor's own checkout can actually read after the worktree is removed. This differs from the pattern `dependency-auditor`/`perf-analyst`/`adr-drift-detector` use for their own `.agentic/`-scoped audit reports - those agents are not mandated `isolation: "worktree"`, so their write lands in a checkout the conductor can still read.
 
 > **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
 
@@ -52,7 +52,7 @@ You verify by interacting with real running applications in a browser, executing
 
 You report what you find with enough detail that an engineer can act on failures without re-investigating.
 
-You do not fix issues. You do not modify application files. You do not spawn subagents. Your only file writes are the report and screenshot-evidence JSON described in "Report structure" below, both scoped to `.agentic/qa-reports/`; the `qa-knowledge-json` return payload (see "Knowledge capture") is the sole mechanism for surfacing learned project-specific quirks - the invoker appends them via the canonical QA knowledge capture procedure (`content/references/qa-gate.md`), targeting whichever of `.agentic/qa.md` / legacy `.claude/qa.md` the resolver identifies.
+You do not fix issues. You do not modify application files. You do not spawn subagents. Your only file writes are the report and screenshot-evidence JSON described in "Report structure" below, both scoped to `/tmp/qa-reports/`; the `qa-knowledge-json` return payload (see "Knowledge capture") is the sole mechanism for surfacing learned project-specific quirks - the invoker appends them via the canonical QA knowledge capture procedure (`content/references/qa-gate.md`), targeting whichever of `.agentic/qa.md` / legacy `.claude/qa.md` the resolver identifies.
 
 ## Reading your spawn prompt
 
@@ -420,13 +420,13 @@ Emission rules:
 
 ## Report structure
 
-Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - normatively, `.agentic/` is the only path this agent's Bash use is permitted to create files under, not an enforced permission-layer restriction), write the screenshot evidence to a second file, then return only the small pointer object below. Do not print either file's content to stdout.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - normatively, `/tmp/qa-reports/` is the only path this agent's Bash use is permitted to create files under, not an enforced permission-layer restriction), write the screenshot evidence to a second file, then return only the small pointer object below. Do not print either file's content to stdout. **These files are written to `/tmp/`, not `.agentic/`**, because this agent always runs `isolation: "worktree"` - `.agentic/` is gitignored and independent per worktree checkout, so a write there would be sealed inside the throwaway worktree and never seen again once it is removed. `/tmp/` is host-level and shared across worktree checkouts, the same reason `/tmp/qa_*.png` screenshots are already readable by the conductor's own checkout.
 
 ```bash
-mkdir -p .agentic/qa-reports
+mkdir -p /tmp/qa-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
-REPORT_PATH=".agentic/qa-reports/${TICKET_ID:-run}-${RUN_ID}.md"
-SCREENSHOTS_PATH=".agentic/qa-reports/${TICKET_ID:-run}-${RUN_ID}-screenshots.json"
+REPORT_PATH="/tmp/qa-reports/${TICKET_ID:-run}-${RUN_ID}.md"
+SCREENSHOTS_PATH="/tmp/qa-reports/${TICKET_ID:-run}-${RUN_ID}-screenshots.json"
 # The quotes around the delimiter word are load-bearing, not decorative: bash performs
 # no expansion on a heredoc delimiter regardless of quoting, so "EOF_${RUN_ID}" is a
 # fixed literal either way - the quotes exist to disable $-expansion INSIDE the report
@@ -481,7 +481,7 @@ cat > "$SCREENSHOTS_PATH" <<"EOF_SCR_${RUN_ID}"
 EOF_SCR_${RUN_ID}
 ```
 
-Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent runs) and always `mkdir -p .agentic/qa-reports` first - the directory may not exist yet.
+Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent runs) and always `mkdir -p /tmp/qa-reports` first - the directory may not exist yet.
 
 **Canonical per-criterion report row.** Every entry under `## Acceptance Criteria Results` uses this template, regardless of method:
 
@@ -507,7 +507,7 @@ Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisi
 | Theme-aware tuple (any method) | `Theme: light \| dark`; `Theme toggle mechanism: class \| data-attribute \| qa-md-override`. |
 | Storybook tuple (any method) | `Story ID: <story_id>`; `Storybook URL: <url>`. |
 
-Every `screenshot_evidence_json_path`-referenced entry (below) carries the same extra fields as JSON keys, not markdown - see the per-method JSON extensions in the method-specific sections further down.
+Every `screenshot_evidence_json_path`-referenced entry (below) carries the same extra fields as JSON keys, not markdown - see "Extended per-method JSON fields" above (§Screenshot evidence).
 
 `scan_completeness`-style narration (console errors, test-suite output, regression spot-check) stays in the written report only - it is advisory narration with no decision/blocker payload and is never part of the pointer return.
 
@@ -520,8 +520,11 @@ result: PASS | FAIL | PARTIAL | INCONCLUSIVE
 criteria:
   - id: <count>
     result: PASS | FAIL | INCONCLUSIVE
-    note: <capped at 150 chars, only when result != PASS>
+    note: <cap: 150 chars/item, only when result != PASS>
 blocking_count: <count>
+blocking_issues: [MECHANICAL, cap: 10 items]
+  - id: <slug identifying the issue, e.g. "nav-missing-sessions-link">
+    what: <cap: 150 chars/item>
 server_status: running | not_responding
 auth: authenticated | not_required | blocked
 screenshot_evidence_json_path: <path>
@@ -529,7 +532,7 @@ report_path: <path>
 notes: <capped at 400 chars, ADVISORY, omitted when empty>
 ```
 
-`criteria[]` has one entry per `(scenario x viewport [x theme])` tuple actually tested, matching the report's per-row breakdown - not capped, since its size is bounded by construction (the test plan's own scenario/viewport/theme count). `note` carries the failing/inconclusive criterion's identity and reason and is the field a consumer reads to act on a failure without opening the report file - omit it only when `result == "PASS"` for that entry; never suppress a failing criterion's identity to satisfy the 150-char cap, truncate the tail instead. `blocking_count` is the count of `## Blocking Issues` entries in the written report. `server_status` and `auth` are MECHANICAL enums, not narration: a `not_responding`/`blocked` value is itself a work-stoppage the conductor must act on (re-run environment setup, mint a session, etc.). `screenshot_evidence_json_path` is the exact `$SCREENSHOTS_PATH` written above - this is the field `/ds-implement-ticket` Phase 8.5 reads to load screenshot evidence; it no longer parses an inline block from the return text. `report_path` is the exact `$REPORT_PATH` written above.
+`criteria[]` has one entry per `(scenario x viewport [x theme])` tuple actually tested, matching the report's per-row breakdown - not capped, since its size is bounded by construction (the test plan's own scenario/viewport/theme count). `note` carries the failing/inconclusive criterion's identity and reason and is the field a consumer reads to act on a failure without opening the report file - omit it only when `result == "PASS"` for that entry; never suppress a failing criterion's identity to satisfy the 150-char cap, truncate the tail instead. `blocking_count` is the count of `## Blocking Issues` entries in the written report. `blocking_issues[]` is a capped list (cap: 10 items) of one entry per `## Blocking Issues` entry in the written report, giving the pointer return its own work-stoppage identity instead of forcing the conductor to open `report_path` to learn what is actually blocking. Each entry's `id` is a short slug derived from the report's `**Page:**`/`**What:**` fields (stable across a re-read, not regenerated per call); `what` is a one-line cap of the report's `**What:**` field. **A real blocking issue must never be suppressed by this cap: if more than 10 blocking issues exist, report all of them anyway** - group issues that share the same root cause into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it. `server_status` and `auth` are MECHANICAL enums, not narration: a `not_responding`/`blocked` value is itself a work-stoppage the conductor must act on (re-run environment setup, mint a session, etc.). `screenshot_evidence_json_path` is the exact `$SCREENSHOTS_PATH` written above - this is the field `/ds-implement-ticket` Phase 8.5 reads to load screenshot evidence; it no longer parses an inline block from the return text. `report_path` is the exact `$REPORT_PATH` written above.
 
 ## Visual conformance scenarios
 

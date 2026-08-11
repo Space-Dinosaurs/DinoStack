@@ -305,9 +305,13 @@ summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
   object - zero violations in the current snapshot for all three.
   `qa-engineer.md` (Unit 3) is now fully migrated and compliant: it
   writes its full human-readable report and a screenshot-evidence JSON
-  file to `.agentic/qa-reports/` via a Bash heredoc and returns only a
-  small, fully enum/cap-tagged pointer JSON object (`result`, `criteria[]`,
-  `blocking_count`, `server_status`, `auth`, `screenshot_evidence_json_path`,
+  file to `/tmp/qa-reports/` (not `.agentic/qa-reports/` - this agent
+  always runs `isolation: "worktree"`, and a `.agentic/`-scoped write
+  would be sealed inside the throwaway worktree and never seen again;
+  `/tmp/` is host-level and shared across worktree checkouts) via a Bash
+  heredoc and returns only a small, fully enum/cap-tagged pointer JSON
+  object (`result`, `criteria[]`, `blocking_count`, `blocking_issues[]`,
+  `server_status`, `auth`, `screenshot_evidence_json_path`,
   `report_path`, `notes`) - zero violations in the current snapshot.
 - **Shape 3** (fixed literal-line template): `skeptic.md` is now fully
   compliant - Unit 1 added one narrow, additive cap declaration on

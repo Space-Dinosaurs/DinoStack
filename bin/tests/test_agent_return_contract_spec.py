@@ -1961,8 +1961,10 @@ def test_fully_compliant_files_are_exactly_the_snapshot_empty_set():
     migration) grew it by one more: qa-engineer.md moved from Shape 1 to
     Shape 2, retiring its 6-near-duplicate free-prose report shape for
     the pointer-JSON Shape 2 return (report + screenshot-evidence JSON
-    written to .agentic/qa-reports/ via Bash heredoc - no Write/Edit
-    grant; SHAPE_ASSIGNMENTS updated to 2 in the same change). A future
+    written to /tmp/qa-reports/ via Bash heredoc, deliberately not
+    .agentic/qa-reports/ since this agent always runs isolation:
+    "worktree" - no Write/Edit grant; SHAPE_ASSIGNMENTS updated to 2 in
+    the same change). A future
     migration legitimately grows this set further; this test exists so
     that growth is asserted explicitly rather than assumed."""
     compliant_now = {name for name, v in EXPECTED_VIOLATIONS.items() if v == []}
