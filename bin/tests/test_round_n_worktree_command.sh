@@ -17,9 +17,22 @@
 #              a naive empty-string check misreads that as "safe", and (b)
 #              the Trivial path's prose falsely claimed `git checkout -B`
 #              shares `git worktree add`'s already-checked-out protection;
-#              measured false - `checkout -B` exits 0 and silently drags
-#              another worktree's HEAD (and any unpushed commit on it) along
-#              with the branch ref reset.
+#              measured false on git 2.39.5 - `checkout -B` exits 0 and
+#              silently drags another worktree's HEAD (and any unpushed
+#              commit on it) along with the branch ref reset.
+#            - Round 4 (CI git-version divergence): the round-3 fix above
+#              itself pinned a SINGLE git version's behavior. Measured on
+#              git 2.55.0 (matching CI's observed exit code on git 2.54.0):
+#              `checkout -B` NOW REFUSES the same collision (exit 128) -
+#              the bypass was fixed upstream between the two measured
+#              versions. `checkout -B`'s already-checked-out behavior is
+#              THEREFORE GIT-VERSION-DEPENDENT: older git (observed 2.39.5)
+#              silently drags the other worktree's HEAD; newer git (observed
+#              2.55.0 / CI's 2.54.0) refuses. The mandatory porcelain
+#              precheck is required under BOTH arms - the sole protection on
+#              old git, and the thing converting a hard fatal into the
+#              guarded reuse path on new git. Scenario 7 asserts this
+#              dichotomy directly rather than pinning either single version.
 #          Every scenario below runs against a disposable scratch git repo
 #          under a temp directory (never touches the real DinoStack
 #          checkout, worktree, or branch state), and where a prior round's
@@ -393,11 +406,21 @@ run_checkout_b_collision() {
   "$git_bin" -C "$dir/wtA" commit -q --allow-empty -m c1
   "$git_bin" -C "$dir/wtA" push -q origin feat/test
   "$git_bin" -C "$dir/wtA" commit -q --allow-empty -m "unpushed-in-wtA"
-  local head_before head_after rc
+  local head_before head_after rc stderr_log
+  stderr_log="$dir/checkout-stderr.log"
   head_before="$("$git_bin" -C "$dir/wtA" rev-parse HEAD)"
+  # If the fixture push above silently failed (or the branch otherwise never
+  # landed on origin), head_before would still resolve to a local SHA, but
+  # `origin/feat/test` would be unresolvable - the real bug the reviewer's
+  # mutation surfaced. Assert the fixture's precondition directly, the same
+  # way scenario 1 asserts head_sha is non-empty before trusting it.
+  if [ -z "$head_before" ]; then
+    note_fail "scenario 7[$label]: fixture setup did not produce a resolvable HEAD in wtA - cannot proceed"
+    return
+  fi
 
   "$git_bin" -C "$dir/repo" fetch origin >/dev/null 2>&1
-  "$git_bin" -C "$dir/repo" checkout -B feat/test origin/feat/test >/dev/null 2>&1
+  "$git_bin" -C "$dir/repo" checkout -B feat/test origin/feat/test >/dev/null 2>"$stderr_log"
   rc=$?
   head_after="$("$git_bin" -C "$dir/wtA" rev-parse HEAD)"
   echo "scenario7[$label] git=$("$git_bin" --version) rc=$rc head_before=$head_before head_after=$head_after"
@@ -412,13 +435,21 @@ run_checkout_b_collision() {
       echo "scenario7[$label]: OLD-GIT ARM confirmed - checkout -B bypassed the collision and dragged the other worktree's HEAD (this is exactly why the mandatory precheck exists)"
     fi
   else
-    # New-git arm: checkout -B refused, so the other worktree's HEAD must be
-    # untouched - if it moved anyway, something refused AND still mutated
-    # state, which would be worse than either measured behavior.
-    if [ "$head_after" != "$head_before" ]; then
+    # New-git arm: checkout -B refused. A nonzero exit alone is NOT
+    # sufficient evidence of the collision refusal - `origin/feat/test`
+    # being unresolvable (a broken fixture: e.g. the push above never
+    # landed) ALSO produces a nonzero exit, and would otherwise be
+    # misread as "NEW-GIT ARM confirmed" (measured: this exact false
+    # pass reproduces on git 2.39.5 when the fixture push is removed).
+    # Require the stderr to actually name the collision (same
+    # version-tolerant wording match as scenario 2), and require the
+    # other worktree's HEAD to be untouched.
+    if ! grep -Eqi "already (checked out|used by worktree)" "$stderr_log"; then
+      note_fail "scenario 7[$label]: checkout -B exited non-zero (rc=$rc) but stderr does not name the already-checked-out/used-by-worktree collision - this is a fixture-attribution error (e.g. an unresolvable origin/feat/test), not a confirmed collision refusal. stderr: $(cat "$stderr_log")"
+    elif [ "$head_after" != "$head_before" ]; then
       note_fail "scenario 7[$label]: checkout -B refused (rc=$rc, new-git arm) but the other worktree's HEAD moved anyway - unexpected third behavior"
     else
-      echo "scenario7[$label]: NEW-GIT ARM confirmed - checkout -B refused (rc=$rc) and the other worktree's HEAD was left untouched"
+      echo "scenario7[$label]: NEW-GIT ARM confirmed - checkout -B refused (rc=$rc, stderr names the collision) and the other worktree's HEAD was left untouched"
     fi
   fi
 }
@@ -435,22 +466,27 @@ checkout_rc_report="see scenario7[default] above"
 # ships.
 default_git="$(command -v git)"
 default_git_version="$("$default_git" --version)"
+alt_git_found=""
 for candidate in /usr/bin/git /opt/homebrew/bin/git /usr/local/bin/git; do
   if [ -x "$candidate" ] && [ "$candidate" != "$default_git" ]; then
     candidate_version="$("$candidate" --version)"
     if [ "$candidate_version" != "$default_git_version" ]; then
       echo "== Scenario 7 (alt git): $candidate ($candidate_version) differs from default ($default_git_version) - exercising it too for dual-arm coverage =="
       run_checkout_b_collision "$candidate" "alt:$candidate" "$SCRATCH/s7-alt"
+      alt_git_found="$candidate"
       break
     fi
   fi
 done
+if [ -z "$alt_git_found" ]; then
+  echo "== Scenario 7 (alt git): no second git binary with a differing version found on this machine - only the default ($default_git_version) was exercised this run; this is expected in CI (single git install) and does not affect scenario 7's pass/fail, only which single arm was observed here =="
+fi
 
 echo "== Results =="
 echo "prose-wiring=$r0 scenario1_exit=$r1 scenario2_exit=$r2 scenario3_guard=[$guard_path] scenario4=$fixed_action scenario5=$fixed_action5 scenario6=$fixed_action6 scenario7=$checkout_rc_report"
 
 if [ "$FAIL" = "0" ]; then
-  echo "PASS: all scenarios hold - prose-wiring clean; -B form correct; already-checked-out fatal reproduces for worktree add; awk reuse guard resolves the path; dirty/unpushed/absent-ref cases all reproduce data loss under their respective pre-fix baselines and are protected under current logic; checkout -B's TRUE (non-refusing, HEAD-dragging) semantics are pinned"
+  echo "PASS: all scenarios hold - prose-wiring clean; -B form correct; already-checked-out fatal reproduces for worktree add (version-tolerant message match); awk reuse guard resolves the path; dirty/unpushed/absent-ref cases all reproduce data loss under their respective pre-fix baselines and are protected under current logic; checkout -B's git-version-DEPENDENT dichotomy is pinned (old-git bypass-and-drag vs new-git refusal), each arm confirmed with a stderr-verified collision refusal or a confirmed HEAD-drag - not a single unconditional claim"
   exit 0
 fi
 
