@@ -161,7 +161,7 @@ This pattern is applicable to any multi-agent system capable of invoking subagen
 
 7. **Primary agent updates the resolved issues preflight list** with each addressed finding and its resolution.
 
-8. **Primary agent spawns a NEW fresh Skeptic** — never a continuation of the prior Skeptic — with the revised output, the same adversarial brief, and the updated preflight list.
+8. **Primary agent spawns a NEW fresh Skeptic** — never a continuation of the prior Skeptic — with the revised output, the same adversarial brief, and the updated preflight list. **When the prior round's unresolved findings were all prose-only and the fix diff carries no code/test/behavior change (§Prose-scoped re-check),** the primary agent names the narrowed mode explicitly in the spawn prompt and supplies the fix commit range `sha1..sha2` (the pre-fix and post-fix SHAs) in addition to the standard inputs - Global-context field 6 (the branch diff) does not by itself convey this range. Otherwise, spawn the standard full-pass Skeptic.
 
 9. **Repeat steps 4–8** until the Skeptic grants sign-off:
    > "No unresolved Critical or Major findings. Sign-off granted."
@@ -430,6 +430,16 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 **Loop contract override:** When operating inside the `/ds-implement-ticket` persistence loop (Phase 6), the loop contract overrides this rule. One re-raise after a claimed fix (convergence failure as defined in the loop contract) is sufficient to trigger escalation. The loop already consumes iteration budget on each fix pass; requiring a second re-raise would waste an additional pass on a finding the Engineer has already failed to address. Outside the loop context (ad-hoc Skeptic re-routes not inside a named loop), the 2-re-route rule applies unchanged.
 
+### Prose-scoped re-check
+
+When a round's only unresolved findings are prose-only (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a **prose-scoped re-check**: the reviewer verifies only (a) the changed prose lines against live tree facts, and (b) that the fix introduced no new false claim anywhere in the enclosing unit - the full module manifest for a manifest fix, the full containing section or document header for a doc-sync fix - read that unit end to end, not only the changed lines and their immediate context - not a full fresh adversarial pass. The reviewer establishes this trigger itself by diffing the fix commit(s) since the last reviewed SHA - engineer self-classification is not evidence. Any hunk that is parsed, executed, or byte-pinned by a test or hook (embedded command, grep pattern, frontmatter, hook-read docstring, golden-pinned block) counts as a behavior change and disqualifies the lever. The reviewer may always elect a full pass. This is a verification-cost lever only; the Major classification for stale manifest/doc-sync findings (`content/agents/skeptic.md` Step 8, `content/references/doc-sync-obligation.md`) is unchanged, and any code/test/behavior finding found during the narrower pass still escalates normally. It does not apply while any code/test/behavior finding remains unresolved.
+
+**Invocation.** The conductor names the narrowed spawn explicitly at Step 8 of the Core Loop below (`## 2. The Core Loop`) and states what it must carry - notably the fix commit range (`sha1..sha2`), since Global-context field 6 (the branch diff) does not supply this. The Skeptic's sign-off in this mode carries a mandatory `Scope:` line (see `content/agents/skeptic.md` §Sign-off format) declaring the range and which finding IDs were prose-only; the `Active search:` attestation is scoped accordingly and must not claim a full adversarial pass it did not run.
+
+**Precedence with the cognitive-surrender audit note (§Cognitive surrender check below):** in a scoped round, the audit note's "independently re-read end-to-end" requirement applies to the scoped unit (the changed prose lines plus the enclosing manifest/section/header), not the whole diff. If the rubber-stamp trigger (two-iteration clean agreement) fires while a scoped round is active, the full-pass obligation wins - the Skeptic runs a full adversarial pass, not a second scoped one.
+
+**Recurrence rule.** On the second occurrence of a count/enumeration-staleness finding against the same file, the recommended fix is deleting or de-numeralizing the claim rather than re-correcting the number - a narrower restatement of a stale claim re-asserts the same drift-prone shape, while deletion ends the class. This is the default expectation for both the engineer and the Skeptic, not a hard mandate.
+
 ### Worker decomposition rule
 
 If a Worker discovers mid-task that its work requires decomposition into independent sub-tasks, it should note this and return its partial output with an explicit decomposition request. The primary agent then handles parallel decomposition — spawning multiple Workers and synthesizing results — before routing the assembled output back through Skeptic review.
@@ -670,12 +680,13 @@ The primary agent treats a Skeptic response as a valid sign-off only when it con
 
 A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
 
-Two further elements are **conditional** - required only when their triggering condition holds, and simply absent (not a defect) otherwise:
+Further conditional elements are required only when their triggering condition holds, and simply absent (not a defect) otherwise:
 
 - (e) Spec-deviation downgrade justification: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation.
 - (f) PR-review SHA range: for PR reviews specifically, the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
+- (i) Prose-scoped re-check `Scope:` line: when the conductor spawned a prose-scoped re-check (§Prose-scoped re-check), the sign-off must include the `Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)` line (see content/agents/skeptic.md §Sign-off format). A scoped sign-off that omits this line is format-noncompliant and triggers the same format re-invocation - its absence is exactly what would make a scoped review indistinguishable from a full pass.
 
-Reviews that are neither PR reviews nor spec-deviation-downgrade reviews - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e) and (f) do not apply, and their absence is not format-noncompliant for those reviews.
+Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e), (f), and (i) do not apply, and their absence is not format-noncompliant for those reviews.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
