@@ -240,6 +240,97 @@ def test_w1_subsection_has_guard_and_cites_phase_0_regex_site(w1_block):
     )
 
 
+def test_site_w1_precedes_phase_3_3b_5_headings(implement_ticket_text):
+    # DS-163 observability follow-up: W1 must fire before the architect
+    # (Phase 3), orchestration-planner (Phase 3b), and engineer (Phase 5)
+    # spawn sites - the ordering fix this pins is already shipped (PR #517);
+    # this test is a regression guard against it silently moving back.
+    w1_idx = implement_ticket_text.index("site: W1")
+    phase3_idx = implement_ticket_text.index("## Phase 3: Architecture plan")
+    phase3b_idx = implement_ticket_text.index("## Phase 3b: Orchestration plan")
+    phase5_idx = implement_ticket_text.index("## Phase 5: Implement")
+    assert w1_idx < phase3_idx < phase3b_idx < phase5_idx, (
+        f"expected offset ordering W1({w1_idx}) < Phase 3({phase3_idx}) < "
+        f"Phase 3b({phase3b_idx}) < Phase 5({phase5_idx})"
+    )
+
+
+def test_phase_5_has_no_w1_site_and_carries_the_anti_regression_note(implement_ticket_text):
+    phase5_idx = implement_ticket_text.index("## Phase 5: Implement")
+    phase6_idx = implement_ticket_text.index("## Phase 6:")
+    phase5_text = implement_ticket_text[phase5_idx:phase6_idx]
+    assert "site: W1" not in phase5_text, (
+        "Phase 5 must not carry a 'site: W1' fire site - In Progress is "
+        "written at Phase 1 only"
+    )
+    assert (
+        "Phase 5 deliberately has no W1 site. Do not re-add one."
+        in phase5_text
+    ), (
+        "Phase 5 must retain the anti-regression note against re-adding a "
+        "W1 fire site"
+    )
+
+
+def test_phase_5_no_w1_site_non_vacuous_guard():
+    # Non-vacuous proof: a Phase-5 block that DID re-add a W1 fire site
+    # must fail the assertion above.
+    poisoned = (
+        "## Phase 5: Implement\n\n"
+        "[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]\n\n"
+        "## Phase 6: Something\n"
+    )
+    assert "site: W1" in poisoned[: poisoned.index("## Phase 6:")], (
+        "sanity check: the poisoned fixture must contain a Phase-5 W1 site"
+    )
+
+
+def test_w1_outcome_breadcrumb_covers_all_three_outcomes(w1_block):
+    # DS-163: every W1 evaluation must emit exactly one ds-emit
+    # `tracker_writeback` breadcrumb, distinctly covering all three
+    # outcomes - skipped, dispatched, and dispatch_failed.
+    assert "ds-emit tracker_writeback" in w1_block, (
+        "W1 subsection must invoke `ds-emit tracker_writeback`"
+    )
+    for outcome in ("skipped", "dispatched", "dispatch_failed"):
+        assert outcome in w1_block, (
+            f"W1 subsection must define the '{outcome}' outcome for the "
+            "tracker_writeback breadcrumb"
+        )
+    for reason in ("tracker_none", "ticket_id_format", "prefix_mismatch", "fetch_failed"):
+        assert reason in w1_block, (
+            f"W1 subsection must define the '{reason}' skip reason code"
+        )
+
+
+def test_w1_tracker_none_advisory_present_and_scoped(w1_block):
+    # The tracker_none skip must be operator-visible via a one-line advisory,
+    # and that advisory must be scoped to tracker_none only (not fired for
+    # the other three skip reasons).
+    assert "TRACKER is none for this project" in w1_block, (
+        "W1 subsection must carry the tracker_none advisory line"
+    )
+    assert (
+        "No advisory line fires for the other three reasons" in w1_block
+    ), (
+        "W1 subsection must explicitly scope the advisory to tracker_none "
+        "only, not the other three skip reasons"
+    )
+
+
+def test_w1_outcome_breadcrumb_soft_fail(w1_block):
+    # A missing or failing ds-emit must never block Phase 1 - every emit
+    # call site must be soft-failed.
+    emit_lines = [
+        line for line in w1_block.splitlines() if "ds-emit tracker_writeback" in line
+    ]
+    assert emit_lines, "expected at least one ds-emit tracker_writeback call site"
+    for line in emit_lines:
+        assert "2>/dev/null || true" in line, (
+            f"ds-emit tracker_writeback call site must be soft-failed: {line!r}"
+        )
+
+
 def test_w1_subsection_cited_phase_0_sites_actually_exist(implement_ticket_text):
     # Non-vacuous check: confirm the two Phase 0 sites the W1 subsection
     # claims to cite actually carry the same regex literal. If a future

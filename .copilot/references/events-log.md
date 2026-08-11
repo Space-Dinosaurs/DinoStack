@@ -3,18 +3,21 @@ Purpose: Full reference for the events log V1 telemetry event-type schemas and
          operational notes extracted from METHODOLOGY.md §Events log. Contains
          field-level data shapes for all active event types (spawn_start,
          spawn_complete, meta_review_complete, session_total,
-         tool_failure_workaround) plus the deprecated conductor_direct block kept
-         for historical reference, append discipline, atomicity, retention, and
-         consumer notes. Also documents the per-developer session log
-         (.agentic/session-log/) written by the Stop hook, and the enforcement
-         fire log (.agentic/.enforcement-fires.jsonl) written by
+         tool_failure_workaround, tracker_writeback) plus the deprecated
+         conductor_direct block kept for historical reference, append
+         discipline, atomicity, retention, and consumer notes. Also documents
+         the per-developer session log (.agentic/session-log/) written by the
+         Stop hook, and the enforcement fire log
+         (.agentic/.enforcement-fires.jsonl) written by
          hooks/lib/enforcement_log.py.
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/09-events-log.md (pointer after Schema block),
             content/sections/12-protocol-details.md (Events log Protocol Details entry),
             content/references/conductor-operating-rules.md §learnings-agent
-            (tool_failure_workaround emit site).
+            (tool_failure_workaround emit site),
+            content/commands/ds-implement-ticket.md (W1 tracker-writeback
+            outcome breadcrumb emit site).
 
 Upstream deps: content/sections/09-events-log.md (parent section; read that
                section first for writer scope and base schema);
@@ -58,6 +61,7 @@ Performance: Standard.
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
 - `session_total`: emitted by the Stop hook on EVERY turn (this is a pre-existing property, not introduced by the Stop hook's `--cadence=turn` loop-state/batch-state split described in `hooks/lib/state-mark.js` and the SessionEnd hook `hooks/session-end-wrap.js` - `writeSessionTotal` has always run on every Stop invocation; "once per session" was a prior inaccuracy in this doc, corrected here). `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
 - `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
+- `tracker_writeback`: emitted by the conductor at the W1 (Phase 1, In Progress) tracker-writeback call site in `content/commands/ds-implement-ticket.md`, one event per ticket entry regardless of outcome - it is the sole mechanism that makes a silent W1 skip observable after the fact. `agent: null`. `data` carries `site` (currently always `"W1"` - reserved for extension to W2-W7 if their own observability gap is ever addressed the same way), `outcome` (`"skipped"` | `"dispatched"` | `"dispatch_failed"`), `reason` (populated only when `outcome == "skipped"`; one of `tracker_none`, `ticket_id_format`, `prefix_mismatch`, `fetch_failed` - `null` for `dispatched`/`dispatch_failed`), and `target_state` (the resolved `$TRACKER_STATE_IN_PROGRESS` value). Does not carry `session_uuid` - like `knowledge_commit`, this is a boundary event rather than a spawn-bracketing one. Soft-fail (`2>/dev/null || true`); a missing or failing `ds-emit` never blocks Phase 1.
 
 **`session_uuid` field (conductor-emitted events).** The four active conductor-emitted event types above (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`. This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` on every turn (the Stop hook fires once per turn, not once per session). **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
 

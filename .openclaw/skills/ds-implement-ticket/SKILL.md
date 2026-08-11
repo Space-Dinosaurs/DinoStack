@@ -956,15 +956,20 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 
 ### Per-ticket variable reset (binding, runs FIRST on every entry)
 
-**Before the tracker sub-section dispatch below, clear every in-context variable that feeds the Phase 9 ticket-rework ledger write or the rework notice:**
+**Before the tracker sub-section dispatch below, clear every in-context variable that feeds the Phase 9 ticket-rework ledger write, the rework notice, or the W1 outcome breadcrumb below:**
 
 ```bash
 # Phase 1: per-ticket variable reset (runs first on EVERY entry, before sub-section dispatch).
-# These three have exactly one definition site each, on one path. A ticket that does not take
-# that path inherits the previous batch ticket's value - see the table below.
+# These four have exactly one definition site each, on one path. A ticket that does not take
+# that path inherits the previous batch ticket's value - see the table below for the first
+# three; W1_FETCH_FAILED is set only by the Linear/Jira fetch steps on an MCP/API error and
+# consumed only by the W1 outcome breadcrumb ("Tracker writeback (W1)" below), so an unreset
+# `true` from a prior ticket's failed fetch would misreport THIS ticket's clean fetch as
+# fetch_failed.
 RISK_CLASS=""
 SKEPTIC_ROUNDS=""
 QA_STATUS=""
+W1_FETCH_FAILED=false
 ```
 
 **Why this is binding rather than housekeeping.** The conductor carries ONE variable scope across an entire batch; Phase 1 iterates per entry but nothing else in this command resets anything. Every one of these three variables has exactly one definition site on one path, so a ticket that does not take that path silently inherits the previous ticket's value. The failure is always an affirmative false statement, never an error:
@@ -991,7 +996,7 @@ Clearing rather than leaving unset is deliberate: it makes the Phase 9 disk fall
 
 #### If TRACKER is `linear`
 
-1. Call `mcp__linear__get_issue` with the ticket ID and `includeRelations: true`.
+1. Call `mcp__linear__get_issue` with the ticket ID and `includeRelations: true`. On an MCP/API error, set `W1_FETCH_FAILED=true` (consumed by the W1 outcome breadcrumb below).
 2. Read the full description — specifically the **Implementation**, **Files**, and **QA** sections.
 3. Note any blocking tickets (`blockedBy`) — confirm they are done before proceeding.
 4. Note the ticket type (feature vs bug) — this drives branch naming.
@@ -999,7 +1004,7 @@ Clearing rather than leaving unset is deliberate: it makes the Phase 9 disk fall
 
 #### If TRACKER is `jira`
 
-1. Call `mcp__mcp-atlassian__jira_get_issue` with `issue_key: "[TICKET_PREFIX]-NNN"` and `fields: "*all"` to get the full issue including description and current status.
+1. Call `mcp__mcp-atlassian__jira_get_issue` with `issue_key: "[TICKET_PREFIX]-NNN"` and `fields: "*all"` to get the full issue including description and current status. On an MCP/API error, set `W1_FETCH_FAILED=true` (consumed by the W1 outcome breadcrumb below).
 2. Read the full description — note any **Acceptance Criteria**, **Implementation Notes**, and **QA** content in the description or sub-tasks.
 3. Note any blocking issues — confirm they are resolved before proceeding.
 4. Note the issue type (Story, Bug, Task) — this drives branch naming.
@@ -1084,9 +1089,45 @@ The notice's third line asserts an escalation. That escalation is applied at the
 
 **Gate.** Fire only when ALL of the following hold: `TRACKER != none` AND `[TICKET_ID]` matches the bare-ticket-ID accept regex used at Phase 0's fast-path and classification tables (`^[A-Z][A-Z0-9_]+-\d+$`, the same pattern cited at both `TICKET_PREFIX` sites above - a future edit to one is visibly an edit to both) AND (`TICKET_PREFIX` is unset OR `[TICKET_ID]` starts with `<TICKET_PREFIX>-`).
 
-The sub-section above has, by this point, already successfully fetched the ticket. **A failed ticket fetch means no In Progress write** - this step never fires ahead of a confirmed fetch.
+The sub-section above has, by this point, already successfully fetched the ticket. **A failed ticket fetch means no In Progress write** - this step never fires ahead of a confirmed fetch. That fetch failure is tracked in `W1_FETCH_FAILED` (see "Per-ticket variable reset" above and the Linear/Jira fetch steps, which set it to `true` on an MCP/API error).
 
-If the gate holds, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding.
+**Outcome breadcrumb (binding).** Every W1 evaluation for this entry - skipped, dispatched, or dispatch-failed - emits exactly one `tracker_writeback` event via `bin/ds-emit`, soft-fail (`2>/dev/null || true`; a missing or failing `ds-emit` never blocks Phase 1 or this step). Resolve the gate's failing condition, if any, in this order and take the first match as `reason` - the four reason codes are mutually exclusive by construction, since each `elif` only runs when the prior conditions did not match:
+
+```bash
+# Phase 1 W1: resolve outcome + reason before dispatch.
+W1_REASON=""
+if [ "$TRACKER" = "none" ]; then
+  W1_REASON="tracker_none"
+elif ! printf '%s' "$TICKET_ID" | grep -qE '^[A-Z][A-Z0-9_]+-[0-9]+$'; then
+  W1_REASON="ticket_id_format"
+elif [ -n "${TICKET_PREFIX:-}" ] && ! printf '%s' "$TICKET_ID" | grep -q "^${TICKET_PREFIX}-"; then
+  W1_REASON="prefix_mismatch"
+elif [ "${W1_FETCH_FAILED:-false}" = "true" ]; then
+  W1_REASON="fetch_failed"
+fi
+```
+
+If `W1_REASON` is non-empty, the gate does not hold: emit the breadcrumb immediately with `outcome:"skipped"` and do NOT dispatch.
+
+```bash
+if [ -n "$W1_REASON" ]; then
+  ds-emit tracker_writeback - "${TICKET_ID:--}" "{\"site\":\"W1\",\"outcome\":\"skipped\",\"reason\":\"$W1_REASON\",\"target_state\":\"$TRACKER_STATE_IN_PROGRESS\"}" 2>/dev/null || true
+fi
+```
+
+**`tracker_none` advisory (binding).** When `W1_REASON` is `tracker_none` specifically, additionally print exactly one line at the conductor's first user-facing turn for this ticket, before any spawn. This is informational only - never an `## Operator decisions` item, never a stop-and-ask:
+
+```
+NOTE: [phase: tracker-writeback-w1] TRACKER is none for this project - <ID> was not moved to In Progress. Configure a tracker in AGENTS.md to enable ticket-state writeback.
+```
+
+No advisory line fires for the other three reasons: `ticket_id_format` (open-goal synthetic ids are never tracker keys - by design, see "Why the real-key guard exists" below) and `prefix_mismatch` are by-design skips, and `fetch_failed` is already surfaced by the sub-section's own fetch-failure logging.
+
+If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding. Emit the breadcrumb immediately after the `Agent` tool call attempt - `outcome:"dispatched"` when the tool call was accepted, or `outcome:"dispatch_failed"` when the tool call itself raised an error before the subagent could be spawned (`reason` stays `null` in both cases - `reason` is populated only for `outcome:"skipped"`):
+
+```bash
+ds-emit tracker_writeback - "${TICKET_ID:--}" "{\"site\":\"W1\",\"outcome\":\"$W1_DISPATCH_OUTCOME\",\"reason\":null,\"target_state\":\"$TRACKER_STATE_IN_PROGRESS\"}" 2>/dev/null || true
+```
 
 ```
 [phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]
