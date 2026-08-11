@@ -1052,6 +1052,16 @@
       "source_token": ".agentic/qa-regressions.md"
     },
     {
+      "expected_target": ".agentic/events.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/events.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "883ccef477f30fb298497d8ae6a8d4ff65b4ed7bf874bb72b0716afe71e68b72",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/events.jsonl"
+    },
+    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -1150,16 +1160,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
-      "expected_target": "~/.codex/projects/[hash]/context.md",
-      "generated_token": "**Writer scope: the conductor is the primary writer of `$AE_PROJECT_DIR/.agentic/events.jsonl`.** The current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events or mirror project-local orchestration state. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
-      "kind": "operational",
-      "occurrence_hash": "94b48efdbd7df88c4a04770debe9b4f3808924ae5edd18e2f3b8c95a5665a206",
-      "resolution_mode": "codex-stop-hook-runtime",
-      "scope": "codex-harness",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a `session_total` event on every TURN (not just at session exit); this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by conductor, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark))."
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -1392,6 +1392,16 @@
       "source_token": "content/references/cross-harness-teams.md"
     },
     {
+      "expected_target": ".agentic/",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/",
+      "kind": "operational",
+      "occurrence_hash": "abe2a24e75c85bd957e37de7ae39d76b2d7d46804a0ec69aaf2b515b1c8af021",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -1452,6 +1462,16 @@
       "source_token": "Task"
     },
     {
+      "expected_target": "hooks/stop-context.js",
+      "generated_token": "$AE_REPO_DIR/hooks/stop-context.js",
+      "kind": "operational",
+      "occurrence_hash": "b12abb0bd80c6da0287c6ea5aac12b47ec99ab150465bbc2774dfe1302e71ab0",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/stop-context.js"
+    },
+    {
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
@@ -1510,6 +1530,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "isolation: \"worktree\""
+    },
+    {
+      "expected_target": "hooks/subagent-stop-spawn-emit.js",
+      "generated_token": "$AE_REPO_DIR/hooks/subagent-stop-spawn-emit.js",
+      "kind": "operational",
+      "occurrence_hash": "b8ac648b11daa85948d5458d01eb03de60dc6acc57c7e4cdce4dddb54afbc143",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/subagent-stop-spawn-emit.js"
     },
     {
       "expected_target": "content/references/cross-session-loop-resume.md",
@@ -2030,6 +2060,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/conductor-turn-format.md"
+    },
+    {
+      "expected_target": "hooks/pre-tool-use-spawn-emit.js",
+      "generated_token": "$AE_REPO_DIR/hooks/pre-tool-use-spawn-emit.js",
+      "kind": "operational",
+      "occurrence_hash": "efe55ad2705925c73351b82ce43ca104287571f8060163c49f3fd3974303412a",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/pre-tool-use-spawn-emit.js"
     },
     {
       "expected_target": "filesystem read",

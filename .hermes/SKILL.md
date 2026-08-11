@@ -462,7 +462,7 @@ For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` via single-l
 
 `.agentic/events.jsonl` is an optional per-project structured event log. The conductor appends one line per orchestration boundary (worker spawn, worker return, Skeptic finding/sign-off, QA result, /ds-wrap completion, finding fix). The file is gitignored.
 
-**Writer scope: the conductor is the primary writer of `.agentic/events.jsonl`.** The Stop hook (`hooks/stop-context.js`) appends a `session_total` event on every TURN (not just at session exit); this is sanctioned because the conductor turn has ended by the time the hook fires, so there is no contention. Subagents do not write to it. Other `.agentic/` files retain their own writers (qa.md by conductor, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
+**Writer scope: `.agentic/events.jsonl` has four writers** - the conductor (inline appends at each orchestration boundary), the Stop hook (`hooks/stop-context.js`, a `session_total` event on every TURN), and two DS-160 telemetry hooks that fire mid-turn: `hooks/pre-tool-use-spawn-emit.js` (`spawn_start` on every subagent spawn) and `hooks/subagent-stop-spawn-emit.js` (`spawn_complete` on every subagent completion). Safety comes from append-only writes (no read-modify-write), not turn timing. Subagent agents never write to it themselves; only these hooks do, on their behalf. Other `.agentic/` files retain their own writers (qa.md by conductor, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark)).
 
 **Schema** (one JSON object per line):
 - `ts`: ISO8601 UTC timestamp (required)
@@ -3670,7 +3670,7 @@ Performance: Standard.
 
 ## Append discipline
 
-Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, and `hooks/subagent-stop-spawn-emit.js` (DS-160) all append independently - but each append is a single `O_APPEND` write, and `O_APPEND` semantics guarantee the kernel positions and writes each one atomically at end-of-file, so concurrent appends cannot interleave mid-line regardless of writer count. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
+Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, and `hooks/subagent-stop-spawn-emit.js` (DS-160) all append independently. On a local filesystem, a single `O_APPEND` write is positioned and written atomically at end-of-file, so appends do not interleave mid-line. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
 
 ## Atomicity
 
@@ -6383,7 +6383,7 @@ Minor missed: [list of finding titles, or "none"]
 Agreement: [yes | no]
 ```
 
-**Meta-Skeptic does NOT write to `.agentic/`.** Its sole output is the return text. The conductor parses the return text and emits the structured `meta_review_complete` event itself, preserving the single-writer convention for `.agentic/events.jsonl`.
+**Meta-Skeptic does NOT write to `.agentic/`.** Its sole output is the return text. The conductor parses the return text and emits the structured `meta_review_complete` event itself.
 
 ### Meta-divergence surfacing
 
