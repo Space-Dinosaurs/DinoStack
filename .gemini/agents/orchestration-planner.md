@@ -149,7 +149,7 @@ Use this exact structure. Do not rename or reorder sections.
 ### Risk classification [MECHANICAL, enum]
 [Trivial / Low / Elevated / Elevated + Cleanup] - [specific signal(s)]
 
-### Agent roster [MECHANICAL, cap: 150 chars]
+### Agent roster [MECHANICAL, cap: 150 chars/cell]
 | Agent | Role in this task |
 |---|---|
 | [agent] | [specific role - not generic, capped 150 chars/cell] |
@@ -167,10 +167,10 @@ Use this exact structure. Do not rename or reorder sections.
 ### Skeptic checkpoints [MECHANICAL, cap: 500 chars]
 [For each Skeptic in the plan: what it reviews, which adversarial brief template applies, and what constitutes a pass]
 
-### Open questions [MECHANICAL, cap: 200 chars]
+### Open questions [MECHANICAL, cap: 200 chars/item]
 [Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. Capped 200 chars/item. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
 
-### Deferred defaults [MECHANICAL, cap: 200 chars]
+### Deferred defaults [MECHANICAL, cap: 200 chars/item]
 [Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." Capped 200 chars/item. These do not block downstream worker spawns. For each item: state the choice and the derived default.]
 
 ### Notes [ADVISORY]

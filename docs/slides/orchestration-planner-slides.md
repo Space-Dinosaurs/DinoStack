@@ -240,9 +240,9 @@ Default step: after an architect or investigator returns a plan and the Skeptic 
 
 **Review + coordination**
 - **Skeptic checkpoints** - what each reviews, what constitutes a pass
-- **Parallelization opportunities** - which phases run concurrently and why
-- **Conductor actions** - decisions, memory updates, context synthesis between phases
 - **Open questions** - ambiguities needing human input before execution
+- **Deferred defaults** - reversible parked choices already resolved with a default
+- **Notes** - parallelization opportunities and conductor actions, present only when non-empty
 
 </div>
 </div>

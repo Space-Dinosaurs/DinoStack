@@ -7124,13 +7124,17 @@ repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
 always present versus optional - is exactly that kind of rule. It does not
 yet exist as a widespread per-agent restatement: verified against the
-live tree (2026-08-11), of the 18 files under `content/agents/*.md`, 5
-carry some form of a "don't omit" instruction - `debugger.md:110` and
-`investigator.md:126` carry a section-scoped "never omit any section"
-instruction, `adr-drift-detector.md:259` carries the equivalent "do not
-omit the section", `architect.md:238` carries the equivalent "Do not omit
-the block" for its `qa_criteria` section, and `skeptic.md:167` carries a
-narrower, LINE-scoped instance ("Never omit the 'Active search:' line").
+live tree, of the 18 files under `content/agents/*.md`, 3 carry some
+form of a "don't omit" instruction - `adr-drift-detector.md` carries a
+section-scoped "do not omit the section" instruction, `architect.md`
+carries the equivalent "Do not omit the block" for its `qa_criteria`
+section, and `skeptic.md` carries a narrower, LINE-scoped instance
+("Never omit the 'Active search:' line"). `debugger.md` and
+`investigator.md` previously carried the section-scoped form too, but
+Unit 1 of this migration deleted both as the direct source of their
+always-present empty sections. Filenames only, deliberately - a
+line-number citation drifts on the next unrelated edit to any of these
+files, and this passage has already gone stale once from exactly that.
 This file single-sources that concern going forward, before it spreads
 further as an ad hoc per-agent restatement.
 
@@ -7348,9 +7352,10 @@ summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
   migrated and compliant: every `###` field is tagged
   `[MECHANICAL, cap: <N> ...]`/`[MECHANICAL, enum]`, the boilerplate
   "never omit any section" rule was deleted from each file's own Rules
-  section (where one existed), and the named fold-list fields (per the
-  caps table in the DS-161-era planning session) are folded into a single
-  `### Notes [ADVISORY]` block, present only when non-empty.
+  section (where one existed), and each file's status/narration fields
+  (no decision or blocker payload under the attention test above) are
+  folded into a single `### Notes [ADVISORY]` block, present only when
+  non-empty.
   `investigator.md` also gained a `coverage: complete | partial | blocked`
   enum field; `security-auditor.md` gained a
   `dependency_scan: clean | cves_found | not_run` enum field.
@@ -8970,10 +8975,10 @@ Use this exact structure. Do not rename or reorder sections.
 [Open with one plain-language sentence restating the feature's core goal - what problem this solves and for whom - then the core design decision, and a one-line confirmation that the design serves that goal. On a revision, also confirm in one line that the core goal is unchanged from the prior plan. This restatement is cheap insurance against drifting away from what was actually asked for.]
 
 ### Codebase context [MECHANICAL, cap: 600 chars]
-[What the Architect found that shapes the design: existing patterns, relevant files, conventions to follow. Collapse to a one-line null form (e.g. "No additional context beyond the spawn prompt") when there is nothing beyond what was already given.]
+[What the Architect found that shapes the design: existing patterns, relevant files, conventions to follow. Collapse to a one-line null form (e.g. "No additional context beyond the spawn prompt") when there is nothing beyond what was already given. Kept MECHANICAL despite having no grep-matchable downstream consumer: omitting it forces the engineer (or the conductor re-reading the plan) to re-derive file paths and existing patterns the Architect already found - a directly measurable autonomy loss (repeated investigation work), which is the stated bar in `content/references/subagent-return-contract.md` for a no-consumer KEEP.]
 
 ### Data model [MECHANICAL, cap: 600 chars]
-[Schema changes, new fields, relationships - or the one-line null form "No changes" if none needed]
+[Schema changes, new fields, relationships - or the one-line null form "No changes" if none needed. Kept MECHANICAL despite having no grep-matchable downstream consumer: whenever this is not "No changes," a schema or field change is itself a decision the engineer must implement correctly - a genuine decision surface, not narration, and the one-line null form keeps the common (no-change) case from paying any attention tax.]
 
 ### API / interface design [MECHANICAL, cap: 1500 chars]
 [Concrete interfaces (types, schemas, function signatures, API shapes, event payloads). **These are binding contracts for downstream Workers.** Workers must implement these signatures exactly as specified; any deviation is a Skeptic finding. If a signature cannot be fully specified at design time, state explicitly which parts are fixed and which are Worker discretion.]
@@ -8981,7 +8986,7 @@ Use this exact structure. Do not rename or reorder sections.
 ### Implementation steps [MECHANICAL, cap: 15 steps]
 1. [Concrete step for the Worker]
 2. [...]
-(ordered by dependency - each step should be atomic enough for a Worker to execute; capped at 15 steps - split an oversized plan into units instead of a longer list)
+(ordered by dependency - each step should be atomic enough for a Worker to execute; capped at 15 steps - split an oversized plan into units instead of a longer list. Kept MECHANICAL despite having no grep-matchable downstream consumer: this is the direct decision input for the engineer spawn - omitting it forces the engineer to re-derive the implementation order the Architect already worked out, a measurable autonomy loss.)
 
 **Per-consumer impact table (mandatory when the plan touches a shared utility, shared component, or shared type with 5+ importers, OR any file whose path lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or an analogous shared-module location).** When this trigger fires, the plan MUST include a per-consumer impact table listing every importer the change reaches. The table is a hard requirement: a Skeptic on the architect plan rejects (Critical finding) any plan that defers per-consumer reasoning to engineer judgement when the trigger fires.
 
@@ -9119,10 +9124,10 @@ qa_criteria:
 **Known limitations and things to watch out for:**
 [What was decided against and why; known limitations; things to watch out for]
 
-### Open questions [MECHANICAL, cap: 200 chars]
+### Open questions [MECHANICAL, cap: 200 chars/item]
 [Genuine ambiguities that need human input before implementation - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived from codebase patterns, prior decisions, or established conventions; (b) the choice is irreversible; (c) the choice is a load-bearing fork whose resolution changes the implementation materially. Design-taste choices among reasonable approaches are NOT open questions: commit to one in Approach and record the alternative in Trade-offs. Questions answerable by reading the codebase are NOT open questions: do the reading. Capped 200 chars/item. A non-empty Open Questions section is a protocol-level blocker: the conductor must resolve every item before spawning any downstream worker.]
 
-### Deferred defaults [MECHANICAL, cap: 200 chars]
+### Deferred defaults [MECHANICAL, cap: 200 chars/item]
 [Reversible, individually-defaultable parked choices - or "None" if all choices were resolved. An item belongs here when ALL of the following hold: (a) a default is derivable; (b) the choice is reversible; (c) it is not a load-bearing fork. For each item, record the derived default and note "revisit at implementation if context changes." Capped 200 chars/item. These items do NOT block downstream worker spawns. The Skeptic verifies that nothing in this section should actually be in Open Questions.]
 
 ### Verification footer [MECHANICAL, cap: 40 items]
@@ -9270,7 +9275,7 @@ Use this exact structure:
 - Do not speculate without evidence. If you have not found the root cause, say "Confidence: Low" and describe what you found and what is still unclear.
 - If the error is ambiguous or codebase context is insufficient, set Confidence to Medium (not High), state why under Confidence, and list exactly what additional information would let you close the diagnosis.
 - Bash is available for running tests, grepping, and inspecting files - use it when it produces useful diagnostic signal. Prefer targeted commands over broad ones.
-- Start your response with `## Diagnosis:` and end it after `### Confidence`. No preamble, no postscript, and no markdown code-fence wrapping.
+- Start your response with `## Diagnosis:` and end it after the last section that applies (`### Notes` when non-empty, otherwise `### Learnings candidates`). No preamble, no postscript, and no markdown code-fence wrapping.
 - In the Root cause section, always name the file and, when the line is visible in the source, give the exact line number (`path/file.ext:123`). If the line is uncertain, include the file and the backticked symbol. Never omit the location.
 - When the bug involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating a diagnosis. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Do not keep testing hypotheses after 3 eliminations without fresh evidence. Continuing to guess without new information does not converge on a root cause - it produces a list of things that aren't wrong. Stop, set Confidence to Low, and begin the Fix brief with the exact sentence: "Insufficient evidence to write a fix brief." Describe what was found and eliminated, and identify what specific information would close the diagnosis.
@@ -9936,7 +9941,7 @@ Use this exact structure:
 ### Coverage [MECHANICAL, enum]
 complete | partial | blocked
 
-### Per-consumer impact [MECHANICAL, cap: 150 chars]
+### Per-consumer impact [MECHANICAL, cap: 150 chars/cell]
 [Populated ONLY for shared-utility / blast-radius investigations (the same trigger that makes the architect's per-consumer impact table mandatory). Otherwise write: "Not applicable - not a shared-utility blast-radius question."
 
 Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it; cell length capped identically to that table (150 chars/cell). Every row MUST be backed by a Read of the cited file (the graph hit or grep match is the lead; the Read is the proof). When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
@@ -9950,6 +9955,14 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 ### Notes [ADVISORY]
 [Present only when non-empty. Fold key findings, component map, risks and gotchas, gaps and unknowns, and recommended next steps here when useful context remains beyond what Answer/Coverage already convey. A genuine blocker belongs in Coverage, not buried here.]
 ```
+
+## Coverage levels
+
+- **complete** - the investigation question was fully answerable from what you explored; nothing relevant was left unexamined.
+- **partial** - you covered the core of the question but explicitly skipped some files, subsystems, or paths (stated under Notes) because the area was too large to fully explore, or a graph/tool dependency was stale or unavailable and you fell back to a narrower method. The answer is usable but incomplete - the conductor may need a follow-up investigation to close the gap.
+- **blocked** - a specific, concrete obstacle prevented answering the question at all (e.g. the relevant code is generated or vendored and unreadable, a required tool is unavailable with no fallback, or the question depends on runtime behavior that cannot be determined by static reading). State the blocker under Notes; this is a work-stoppage the conductor must act on, not a hedge.
+
+Do not use `partial` as a hedge against a genuinely complete investigation, and do not use `blocked` for something you simply chose not to explore - `partial` is the correct level when the skip was a scoping choice, `blocked` is reserved for a real obstacle that prevented answering.
 
 ## Confidence levels
 
@@ -10578,7 +10591,7 @@ Use this exact structure. Do not rename or reorder sections.
 ### Risk classification [MECHANICAL, enum]
 [Trivial / Low / Elevated / Elevated + Cleanup] - [specific signal(s)]
 
-### Agent roster [MECHANICAL, cap: 150 chars]
+### Agent roster [MECHANICAL, cap: 150 chars/cell]
 | Agent | Role in this task |
 |---|---|
 | [agent] | [specific role - not generic, capped 150 chars/cell] |
@@ -10596,10 +10609,10 @@ Use this exact structure. Do not rename or reorder sections.
 ### Skeptic checkpoints [MECHANICAL, cap: 500 chars]
 [For each Skeptic in the plan: what it reviews, which adversarial brief template applies, and what constitutes a pass]
 
-### Open questions [MECHANICAL, cap: 200 chars]
+### Open questions [MECHANICAL, cap: 200 chars/item]
 [Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. Capped 200 chars/item. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
 
-### Deferred defaults [MECHANICAL, cap: 200 chars]
+### Deferred defaults [MECHANICAL, cap: 200 chars/item]
 [Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." Capped 200 chars/item. These do not block downstream worker spawns. For each item: state the choice and the derived default.]
 
 ### Notes [ADVISORY]
@@ -12349,19 +12362,19 @@ Use this exact structure. Do not paraphrase the section headers.
 
 ### Critical findings [MECHANICAL, cap: 10 items]
 [Each finding: VULNERABILITY NAME (OWASP category or CWE reference) - description - file:line - impact - remediation]
-[Or: "None"]
+[Or: "None". A Critical finding must never be suppressed by this cap: if more than 10 real Critical findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it.]
 
 ### High findings [MECHANICAL, cap: 10 items]
-[Same format]
+[Same format. If more than 10 real findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any; the cap describes the common case, not a truncation instruction.]
 [Or: "None"]
 
 ### Medium findings [MECHANICAL, cap: 10 items]
-[Same format]
+[Same format. If more than 10 real findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any; the cap describes the common case, not a truncation instruction.]
 [Or: "None"]
 
 ### Dependency scan [MECHANICAL, enum]
 dependency_scan: clean | cves_found | not_run
-[List known vulnerable dependency versions only when `cves_found`; write "clean" or "not_run" otherwise]
+[List known vulnerable dependency versions only when `cves_found`. `clean` means dependency manifests (package.json, requirements.txt, go.mod, Gemfile, or equivalent) were actually located and checked and no known-vulnerable versions were found - a positive, checked result. `not_run` means no dependency manifest was found in scope, or the spawn's stated domain did not include a dependency check at all - an absence of the check, not a check that passed. Never report `clean` when the scan was not actually performed; a false "clean" is a verifiability miss.]
 
 ### Notes [ADVISORY]
 [Present only when non-empty. Fold low-risk informational observations, positive controls noted (security controls present and sufficient), and OWASP Top 10 coverage narrative (which categories were checked and what was found) here.]

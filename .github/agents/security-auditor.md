@@ -73,19 +73,19 @@ Use this exact structure. Do not paraphrase the section headers.
 
 ### Critical findings [MECHANICAL, cap: 10 items]
 [Each finding: VULNERABILITY NAME (OWASP category or CWE reference) - description - file:line - impact - remediation]
-[Or: "None"]
+[Or: "None". A Critical finding must never be suppressed by this cap: if more than 10 real Critical findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it.]
 
 ### High findings [MECHANICAL, cap: 10 items]
-[Same format]
+[Same format. If more than 10 real findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any; the cap describes the common case, not a truncation instruction.]
 [Or: "None"]
 
 ### Medium findings [MECHANICAL, cap: 10 items]
-[Same format]
+[Same format. If more than 10 real findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any; the cap describes the common case, not a truncation instruction.]
 [Or: "None"]
 
 ### Dependency scan [MECHANICAL, enum]
 dependency_scan: clean | cves_found | not_run
-[List known vulnerable dependency versions only when `cves_found`; write "clean" or "not_run" otherwise]
+[List known vulnerable dependency versions only when `cves_found`. `clean` means dependency manifests (package.json, requirements.txt, go.mod, Gemfile, or equivalent) were actually located and checked and no known-vulnerable versions were found - a positive, checked result. `not_run` means no dependency manifest was found in scope, or the spawn's stated domain did not include a dependency check at all - an absence of the check, not a check that passed. Never report `clean` when the scan was not actually performed; a false "clean" is a verifiability miss.]
 
 ### Notes [ADVISORY]
 [Present only when non-empty. Fold low-risk informational observations, positive controls noted (security controls present and sufficient), and OWASP Top 10 coverage narrative (which categories were checked and what was found) here.]

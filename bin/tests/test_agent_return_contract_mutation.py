@@ -534,7 +534,7 @@ def test_shape4_seed_is_baseline_compliant():
     assert contract.check_contract(_SHAPE4_SEED, "shape4_seed.md", shape=4) == []
 
 
-def test_skeptic_seed_is_the_real_narrow_not_yet_migrated_baseline():
+def test_skeptic_seed_is_the_real_migrated_baseline():
     """skeptic.md's baseline is expected to be the EMPTY list post-Unit-1
     (2026-08-11) - the file is now fully Shape-3 compliant. If this
     drifts (e.g. skeptic.md gains a new baseline violation elsewhere),

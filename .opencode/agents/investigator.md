@@ -88,7 +88,7 @@ Use this exact structure:
 ### Coverage [MECHANICAL, enum]
 complete | partial | blocked
 
-### Per-consumer impact [MECHANICAL, cap: 150 chars]
+### Per-consumer impact [MECHANICAL, cap: 150 chars/cell]
 [Populated ONLY for shared-utility / blast-radius investigations (the same trigger that makes the architect's per-consumer impact table mandatory). Otherwise write: "Not applicable - not a shared-utility blast-radius question."
 
 Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it; cell length capped identically to that table (150 chars/cell). Every row MUST be backed by a Read of the cited file (the graph hit or grep match is the lead; the Read is the proof). When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
@@ -102,6 +102,14 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 ### Notes [ADVISORY]
 [Present only when non-empty. Fold key findings, component map, risks and gotchas, gaps and unknowns, and recommended next steps here when useful context remains beyond what Answer/Coverage already convey. A genuine blocker belongs in Coverage, not buried here.]
 ```
+
+## Coverage levels
+
+- **complete** - the investigation question was fully answerable from what you explored; nothing relevant was left unexamined.
+- **partial** - you covered the core of the question but explicitly skipped some files, subsystems, or paths (stated under Notes) because the area was too large to fully explore, or a graph/tool dependency was stale or unavailable and you fell back to a narrower method. The answer is usable but incomplete - the conductor may need a follow-up investigation to close the gap.
+- **blocked** - a specific, concrete obstacle prevented answering the question at all (e.g. the relevant code is generated or vendored and unreadable, a required tool is unavailable with no fallback, or the question depends on runtime behavior that cannot be determined by static reading). State the blocker under Notes; this is a work-stoppage the conductor must act on, not a hedge.
+
+Do not use `partial` as a hedge against a genuinely complete investigation, and do not use `blocked` for something you simply chose not to explore - `partial` is the correct level when the skip was a scoping choice, `blocked` is reserved for a real obstacle that prevented answering.
 
 ## Confidence levels
 
