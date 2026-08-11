@@ -67,31 +67,27 @@ If 3 hypotheses have been formed and eliminated without finding the root cause, 
 
 ## Output format
 
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form; the `Notes` block is present only when non-empty.
+
 Use this exact structure:
 
 ```
 ## Diagnosis: [one-line description of the bug]
 
-### Root cause
+### Root cause [MECHANICAL, cap: 500 chars]
 [Specific explanation: what is wrong, where it is (file:line if possible), and why it produces the observed failure]
 
-### Evidence
-- [Observation 1 that supports this diagnosis]
-- [Observation 2]
-- [...]
-
-### Hypotheses considered
-- [Hypothesis A]: [why eliminated or confirmed]
-- [Hypothesis B]: [why eliminated]
-
-### Fix brief
+### Fix brief [MECHANICAL, cap: 800 chars]
 [Concrete instructions for the Worker to fix this. Specific enough that a Worker can implement without further investigation. Include: what to change, where, and any gotchas to watch for. If Confidence is Low: state "Insufficient evidence to write a fix brief." Describe what was investigated and eliminated, and what information would allow a fix brief to be written.]
 
-### Confidence
+### Confidence [MECHANICAL, enum]
 [High / Medium / Low] - [brief reason: e.g., "confirmed by reading the exact failing line" vs "likely based on pattern, but couldn't reproduce"]
 
-### Learnings candidates
+### Learnings candidates [MECHANICAL, cap: 5 items]
 [Optional. Incidental discoveries only - NOT the root cause (Trigger 1 covers that independently). The entry shape, the `kind` enum and the cap are defined once in the learnings capture reference cited under Rules; do not restate them here. Write "None" if nothing worth recording.]
+
+### Notes [ADVISORY]
+[Present only when non-empty. Fold supporting evidence and hypotheses considered/eliminated here when useful context remains beyond what Root cause and Fix brief already state.]
 ```
 
 ## Confidence levels
@@ -106,7 +102,6 @@ Use this exact structure:
 - Do not speculate without evidence. If you have not found the root cause, say "Confidence: Low" and describe what you found and what is still unclear.
 - If the error is ambiguous or codebase context is insufficient, set Confidence to Medium (not High), state why under Confidence, and list exactly what additional information would let you close the diagnosis.
 - Bash is available for running tests, grepping, and inspecting files - use it when it produces useful diagnostic signal. Prefer targeted commands over broad ones.
-- Never omit any section of the output format. If a section has nothing to report (e.g., only one hypothesis was viable), note that explicitly rather than dropping the section.
 - Start your response with `## Diagnosis:` and end it after `### Confidence`. No preamble, no postscript, and no markdown code-fence wrapping.
 - In the Root cause section, always name the file and, when the line is visible in the source, give the exact line number (`path/file.ext:123`). If the line is uncertain, include the file and the backticked symbol. Never omit the location.
 - When the bug involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating a diagnosis. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.

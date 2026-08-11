@@ -162,10 +162,12 @@ def _shape2_unit3_array_of_object_schema_shape_mutation():
 
 # --- Shape 3 (skeptic special case): retag/mask one of the six
 # conductor-validated line prefixes, against the REAL skeptic.md corpus
-# file. skeptic.md is NOT_YET_MIGRATED and already carries one baseline
-# violation (the Calibration-section cap gap) - so "caught" is defined as
-# the SPECIFIC expected violation appearing in the set difference against
-# the baseline, never mere non-emptiness. A naive `violations != []` check
+# file. skeptic.md was migrated to fully compliant by Unit 1 of the DS
+# return-contract migration (2026-08-11) - its baseline is now the empty
+# list - but the set-difference-against-baseline machinery below is kept
+# unchanged rather than special-cased, so "caught" stays defined as the
+# SPECIFIC expected violation appearing in the set difference against the
+# baseline, never mere non-emptiness. A naive `violations != []` check
 # was measured to report every one of these mutations as "caught"
 # regardless of whether the six-prefix guard actually fired - see the
 # module docstring. ---
@@ -533,14 +535,12 @@ def test_shape4_seed_is_baseline_compliant():
 
 
 def test_skeptic_seed_is_the_real_narrow_not_yet_migrated_baseline():
-    """skeptic.md's baseline is expected to carry EXACTLY the one known
-    Calibration-cap violation - if this drifts (e.g. skeptic.md gains a
-    new baseline violation elsewhere), the skeptic mutations' set-difference
-    logic silently loses precision, so pin it here."""
-    assert _SKEPTIC_BASELINE == [
-        "skeptic.md: Calibration section declares no explicit numeric cap "
-        "on finding-description length"
-    ], _SKEPTIC_BASELINE
+    """skeptic.md's baseline is expected to be the EMPTY list post-Unit-1
+    (2026-08-11) - the file is now fully Shape-3 compliant. If this
+    drifts (e.g. skeptic.md gains a new baseline violation elsewhere),
+    the skeptic mutations' set-difference logic silently loses precision,
+    so pin it here."""
+    assert _SKEPTIC_BASELINE == [], _SKEPTIC_BASELINE
 
 
 # --- One pytest test per mutation, plus the aggregate ---
