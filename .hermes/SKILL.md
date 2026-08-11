@@ -7101,10 +7101,11 @@ Public API: the attention test text below (quoted from docs/overview/vision.md
 Upstream dependencies: docs/overview/vision.md (Goal 1 - quoted verbatim,
             never paraphrased independently, so the two copies cannot drift).
 Downstream consumers: content/agents/*.md return-contract section preambles
-            (Unit 1, not yet migrated - see
-            bin/tests/test_agent_return_contract_spec.py NOT_YET_MIGRATED
-            and NO_STRUCTURED_RETURN_SECTION); bin/tests/test_agent_return_contract_spec.py
-            (the spec gate enforcing the tagging convention).
+            (see bin/tests/test_agent_return_contract_spec.py
+            SHAPE_ASSIGNMENTS, NOT_YET_MIGRATED, and EXEMPT_FILE_ARTIFACT
+            for the current per-file shape and migration status);
+            bin/tests/test_agent_return_contract_spec.py (the spec gate
+            enforcing the per-shape compliance obligations).
 Failure modes: prose-only file, no runtime failure mode. Staleness risk: if
             docs/overview/vision.md Goal 1's wording changes, the quoted
             block below must be updated in the same change or the citation
@@ -7130,11 +7131,11 @@ forward, before it spreads further as an ad hoc per-agent restatement.
 
 Every one of `content/agents/*.md`'s return-contract sections should carry
 a **one-line pointer** to this file, never a restated copy of the test
-itself. Not every agent file uses the heading "## Output format" verbatim -
-see `bin/tests/test_agent_return_contract_spec.py`'s `HEADING_SYNONYMS`
-for the recognized alternate headings (`Sign-off format`, `Report
-structure`, `Output templates`), and its `NO_STRUCTURED_RETURN_SECTION`
-for the files with no such section at all.
+itself. Not every agent file uses the heading "## Output format" verbatim,
+and not every return takes the same physical shape - see "Compliance
+shapes" below, and `bin/tests/test_agent_return_contract_spec.py`'s
+`HEADING_SYNONYMS` for the recognized alternate headings (`Sign-off
+format`, `Report structure`, `Output templates`).
 
 ## The governing source: North Star Goal 1
 
@@ -7179,53 +7180,96 @@ attention test:
 > loss") - "a human might find it useful" is not sufficient justification
 > on its own.
 
-## Tagging convention
+## Compliance shapes
 
-Every per-agent return-contract section must tag each field. A field is a
-`###` sub-header; tag it inline on the header line:
+Not every agent's return can take the same physical shape - four shapes are
+recognized, each with its own affirmative compliance obligation. Recognizing
+more than one shape is legitimate only because each shape below carries an
+equal or stronger attention-test guarantee than tagged prose fields; no
+shape is a blanket exemption, and a file must satisfy its own shape's
+obligation to be compliant.
+
+**Shape 1 - Tagged prose fields.** A `## Output format` (or heading-synonym)
+section with `###`-level sub-header fields, each tagged inline:
 
 - `### <Field name> [MECHANICAL, cap: <N> chars]` (or `items` / `steps` /
-  `entries` / `words`) for a MECHANICAL prose or list field. The numeric
-  cap must be declared in the field's own header text - not left implicit,
-  and not left to be inferred from unrelated prose elsewhere in the field's
-  body.
-- `### <Field name> [MECHANICAL, enum]` for a MECHANICAL field whose value
-  is a closed enum (no character cap needed - the enum's own value set is
-  the bound).
-- `### Notes [ADVISORY]` - the single fold-target for every field that
-  fails the attention test. Present only when non-empty.
+  `entries` / `words`) - cap declared in the field's own header text.
+- `### <Field name> [MECHANICAL, enum]` - closed-enum value, no cap needed.
+- `### Notes [ADVISORY]` - the single fold-target for fields that fail the
+  attention test. Present only when non-empty.
 
-**Real corpus shape: the `###` fields usually live inside a fenced code
-block.** Most agent files (e.g. `debugger.md`, `architect.md`,
-`security-auditor.md`) specify their return template as a fenced
-` ``` ` block the agent must reproduce verbatim, and that fenced block
-itself commonly opens with a `##`-level example line (e.g. debugger.md's
-`` ## Diagnosis: [one-line description of the bug] ``) before the `###`
-fields begin. Tag the `###` field headers *inside* the fence exactly as
-above - the fence is not a boundary that exempts fields from tagging, and
-`bin/tests/test_agent_return_contract_spec.py`'s extractor is
-fence-aware specifically so that the section boundary is found correctly
-even when the section's own `##`-level example content sits inside the
-fence.
+Fields commonly live inside a fenced template block; tag them there exactly
+as above - the fence is not a boundary that exempts fields from tagging.
 
-No untagged field is permitted. `bin/tests/test_agent_return_contract_spec.py`
-is the spec gate that checks for this tagging, mechanically - it verifies
-tag presence and cap declaration, not classification correctness. Whether a
-given field was tagged MECHANICAL or ADVISORY *correctly* is a human
-judgment call the gate cannot make; that judgment is what the KEEP-as-
-MECHANICAL rule above governs.
+**Shape 2 - Structured schema-object return.** The return is a single
+literal fenced ` ```yaml ` or ` ```json ` block (optionally with a
+JSON-Schema fragment) - no narrative `###` fields. Obligation: (a) every
+classification/status-bearing field declares a closed enum (inline
+`enum: [...]` or an `X | Y | Z` value list on the field's own line); (b)
+every field capable of open-ended or repeated content declares an explicit
+bound - a numeric cap (`cap`, `capped`, `max`, `maxLength`) or a
+`<one-line ...>` / `<single-line ...>` placeholder, which itself counts as
+a bound.
+
+**Shape 3 - Fixed literal-line template.** A short (`<= 8` lines), fixed
+`Label: <value>` sequence - not JSON/YAML, not `###`-tagged. Obligation:
+every value is a closed enum, a bare count, or explicitly bounded to one
+line by its own placeholder text. `skeptic.md` is this shape under an
+additional constraint: its six lines are validated verbatim by the
+conductor (`content/references/skeptic-protocol.md` Section 11;
+`content/commands/ds-skeptic.md:68`; `content/commands/ds-wrap.md:439,443`)
+- a migration for this file may add a cap declaration in the surrounding
+prose only, and must never alter, retag, or restructure any of those six
+validated line prefixes.
+
+**Shape 4 - Fixed markdown-sectioned flat report.** A literal fenced
+report template of multiple `##`-level sections, fixed in count (not a
+repeated per-item structure), not machine-parsed as JSON. Obligation: the
+report's top status line declares a closed enum; every other section with
+open-ended free text declares an explicit bound in its own placeholder
+bracket text.
+
+**Exemption - file-artifact output.** A file is exempt from all four
+shapes only when its deliverable is a file it writes to disk, not a
+payload the conductor parses or gates on, AND no downstream command file
+parses a conductor-facing return from it. Requires the affirmative reason
+stated per-file below - never "has no section under any name."
+
+No untagged Shape-1 field, no unbounded Shape-2/3/4 field, and no
+undeclared enum is permitted. `bin/tests/test_agent_return_contract_spec.py`
+is the spec gate that checks for these obligations per shape, mechanically
+- it verifies structural presence, not classification correctness (whether
+a field was assigned the right shape or the right MECHANICAL/ADVISORY
+verdict is a human judgment the gate cannot make).
 
 ## Migration status
 
 This file and its spec gate ship independently of any agent-file edits.
-`content/agents/*.md` files do not yet use this tagging convention - see
-`NOT_YET_MIGRATED` in `bin/tests/test_agent_return_contract_spec.py` for
-the current list of files with a recognized return-contract heading
-pending migration, and `NO_STRUCTURED_RETURN_SECTION` for the files with
-no such heading at all (`adr-drift-detector.md`, `adr-generator.md`,
-`learning-extractor.md`, `learnings-agent.md`, `wrap-ticket.md` as of
-2026-08-11 - not expected to gain a heading-based section under the
-current design).
+Per-shape status as of 2026-08-11 (see
+`bin/tests/test_agent_return_contract_spec.py`'s `SHAPE_ASSIGNMENTS`,
+`NOT_YET_MIGRATED`, and `EXEMPT_FILE_ARTIFACT` for the authoritative,
+current per-file classification):
+
+- **Shape 1** (tag every `###` field): `architect.md`, `debugger.md`,
+  `dependency-auditor.md`, `investigator.md`, `orchestration-planner.md`,
+  `perf-analyst.md`, `product-discovery.md`, `qa-engineer.md`,
+  `security-auditor.md` - not yet migrated.
+- **Shape 2** (schema-object): `engineer.md` is already compliant, no
+  change needed. `learning-extractor.md`, `learnings-agent.md`,
+  `wrap-ticket.md`, `adr-drift-detector.md` have a real structured return
+  (under a `### N. Return` workflow sub-step or a non-synonym `##` phase
+  heading) but are not yet migrated to this shape's enum/cap obligation.
+- **Shape 3** (fixed literal-line template): `goal-condition-evaluator.md`
+  is already compliant, no change needed. `skeptic.md` needs one narrow,
+  additive cap declaration on finding-description length, in the
+  Calibration section - its six conductor-validated structural lines are
+  never altered.
+- **Shape 4** (markdown-sectioned flat report): `release-orchestrator.md`
+  needs one narrow addition - an explicit cap on its "Failures and
+  blockers" free-text section.
+- **Exempt** (file-artifact output, not a return payload): `adr-generator.md`
+  - its deliverable is the generated ADR document itself, not a
+  conductor-parsed return.
 
 ---
 
