@@ -39,7 +39,6 @@
 #
 # Downstream consumers: content/commands/ds-implement-ticket.md (Phase 1, 6,
 #                       6b, 11e);
-#                       content/rules/agent-methodology.md trivial-path edits;
 #                       any future command that reaches an instrumented
 #                       boundary.
 #
