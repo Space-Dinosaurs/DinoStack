@@ -319,7 +319,7 @@ Sibling to the keyed loop-state files for multi-ticket runs. Same atomic write d
 **Phase breadcrumbs** accompany every phase transition - the conductor emits `[phase: label]` inline at each boundary. Phase breadcrumbs are emitted separately at each phase boundary and appear in the session context.
 
 <div class="callout">
-No loop-state file may be committed to git - keyed or legacy. Its presence in the repo would mislead the next developer about what phase the loop is in, and it carries <code>findings_log</code>, <code>last_engineer_summary</code>, and <code>session_id</code>. A targeted (non-umbrella) <code>.gitignore</code> needs BOTH the <code>.agentic/loop-state-*.json</code> glob and the bare <code>.agentic/loop-state.json</code> entry - a keyed file does not match the bare one. Gitignore is the contract; these are ephemeral state, not project history.
+No loop-state file may be committed to git - keyed or legacy. Its presence in the repo would mislead the next developer about what phase the loop is in, and it carries <code>findings_log</code>, <code>last_engineer_summary</code>, and <code>session_id</code>. <code>/ds-init-project</code>'s default-deny <code>.agentic/*</code> gitignore umbrella (see <code>content/project-scaffolding.yml</code>) ignores both the keyed and legacy forms with no glob enumeration needed. Gitignore is the contract; these are ephemeral state, not project history.
 </div>
 
 ---

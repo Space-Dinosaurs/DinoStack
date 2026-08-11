@@ -56,15 +56,15 @@ jobs:
         timeout-minutes: 2
         run: |
           python3 -m pytest bin/tests/test_qa_knowledge_capture_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 52) { print "expected >= 52 collected tests (17 functions x 3 shells + 1 static), got " $1; exit 1 } }'
-      - name: floor collected test_knowledge_harness_smoke.py count at 30
-        # 17 test functions - 13 parametrized x {bash, zsh} (26) plus 4 static,
-        # shell-independent assertions (4) = 30 collected IDs. Adding or
+      - name: floor collected test_knowledge_harness_smoke.py count at 31
+        # 18 test functions - 13 parametrized x {bash, zsh} (26) plus 5 static,
+        # shell-independent assertions (5) = 31 collected IDs. Adding or
         # removing a test function in
         # bin/tests/test_knowledge_harness_smoke.py obliges updating the floor
         # below in the same PR.
         timeout-minutes: 2
         run: |
-          python3 -m pytest bin/tests/test_knowledge_harness_smoke.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 30) { print "expected >= 30 collected tests (13 functions x 2 shells + 4 static), got " $1; exit 1 } }'
+          python3 -m pytest bin/tests/test_knowledge_harness_smoke.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 31) { print "expected >= 31 collected tests (13 functions x 2 shells + 5 static), got " $1; exit 1 } }'
       - name: floor collected test_phase11e_knowledge_commit_shell.py count at 47
         # 25 test functions - 22 parametrized x {bash, zsh} (44) plus 3 static,
         # shell-independent assertions (3) = 47 collected IDs. Adding or

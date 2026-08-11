@@ -266,7 +266,13 @@ def main(argv: list[str]) -> int:
 
     if not args.non_interactive:
         print(f"\nWrote {target}")
-        print("Edit freely; the file is gitignored under the .agentic/ umbrella.")
+        print(
+            "Edit freely; the default location (~/.agentic/role-models.yml) is "
+            "outside any git repo, and a project-local .agentic/role-models.yml "
+            "(via --path) is ignored by default under the .agentic/* umbrella "
+            "/ds-init-project Step 9 writes (content/project-scaffolding.yml "
+            "carries no !.agentic/role-models.yml negation)."
+        )
     return 0
 
 
