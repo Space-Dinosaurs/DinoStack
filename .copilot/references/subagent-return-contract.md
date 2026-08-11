@@ -34,13 +34,17 @@ repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
 always present versus optional - is exactly that kind of rule. It does not
 yet exist as a widespread per-agent restatement: verified against the
-live tree (2026-08-11), of the 18 files under `content/agents/*.md`, 5
-carry some form of a "don't omit" instruction - `debugger.md:110` and
-`investigator.md:126` carry a section-scoped "never omit any section"
-instruction, `adr-drift-detector.md:259` carries the equivalent "do not
-omit the section", `architect.md:238` carries the equivalent "Do not omit
-the block" for its `qa_criteria` section, and `skeptic.md:167` carries a
-narrower, LINE-scoped instance ("Never omit the 'Active search:' line").
+live tree, of the 18 files under `content/agents/*.md`, 3 carry some
+form of a "don't omit" instruction - `adr-drift-detector.md` carries a
+section-scoped "do not omit the section" instruction, `architect.md`
+carries the equivalent "Do not omit the block" for its `qa_criteria`
+section, and `skeptic.md` carries a narrower, LINE-scoped instance
+("Never omit the 'Active search:' line"). `debugger.md` and
+`investigator.md` previously carried the section-scoped form too, but
+Unit 1 of this migration deleted both as the direct source of their
+always-present empty sections. Filenames only, deliberately - a
+line-number citation drifts on the next unrelated edit to any of these
+files, and this passage has already gone stale once from exactly that.
 This file single-sources that concern going forward, before it spreads
 further as an ad hoc per-agent restatement.
 
@@ -249,12 +253,22 @@ every `SHAPE_ASSIGNMENTS` file, asserted verbatim by
 `test_expected_violations_snapshot_matches_reality`. See
 `bin/tests/generate_agent_return_contract_snapshot.py` for the deliberate,
 reviewed update procedure (never a silent one-command refresh). Per-shape
-summary as of 2026-08-11 (round 6):
+summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
 
-- **Shape 1** (tag every `###` field): `architect.md`, `debugger.md`,
-  `dependency-auditor.md`, `investigator.md`, `orchestration-planner.md`,
-  `perf-analyst.md`, `product-discovery.md`, `qa-engineer.md`,
-  `security-auditor.md` - not yet migrated.
+- **Shape 1** (tag every `###` field): `dependency-auditor.md`,
+  `perf-analyst.md`, `product-discovery.md`, `qa-engineer.md` - not yet
+  migrated. `architect.md`, `debugger.md`, `investigator.md`,
+  `orchestration-planner.md`, and `security-auditor.md` are now fully
+  migrated and compliant: every `###` field is tagged
+  `[MECHANICAL, cap: <N> ...]`/`[MECHANICAL, enum]`, the boilerplate
+  "never omit any section" rule was deleted from each file's own Rules
+  section (where one existed), and each file's status/narration fields
+  (no decision or blocker payload under the attention test above) are
+  folded into a single `### Notes [ADVISORY]` block, present only when
+  non-empty.
+  `investigator.md` also gained a `coverage: complete | partial | blocked`
+  enum field; `security-auditor.md` gained a
+  `dependency_scan: clean | cves_found | not_run` enum field.
 - **Shape 2** (schema-object): `engineer.md`, `learning-extractor.md`,
   `learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md` have a
   real structured return (under a `### N. Return` workflow sub-step or a
@@ -268,10 +282,12 @@ summary as of 2026-08-11 (round 6):
   gap. Round 5's `files_modified.path` (`<repo-relative path>`) fix
   stands unchanged - it is a genuine bounded-by-nature value literal and
   is still not flagged.
-- **Shape 3** (fixed literal-line template): `skeptic.md` needs one
-  narrow, additive cap declaration on finding-description length, in the
-  Calibration section - its six conductor-validated structural lines are
-  never altered. `goal-condition-evaluator.md` was previously claimed
+- **Shape 3** (fixed literal-line template): `skeptic.md` is now fully
+  compliant - Unit 1 added one narrow, additive cap declaration on
+  finding-description length (300 chars) to the Calibration section,
+  without altering, retagging, or restructuring any of its six
+  conductor-validated Sign-off format lines. `goal-condition-evaluator.md`
+  was previously claimed
   COMPLIANT NOW; round 5's `check_shape3` fix (now inspects every fenced
   block in the section, not just the first) found it genuinely
   non-compliant - its second template's Evidence value
@@ -279,9 +295,8 @@ summary as of 2026-08-11 (round 6):
   `BLOCKED` line, initially also flagged as "not a `Label: value` line",
   is a round-5 over-strictness artifact corrected in round 6: a bare
   closed-enum-shaped status token standing alone is a legitimate Shape-3
-  line (see "Shape 3" above) and is no longer flagged. There is still no
-  "compliant now" file in the corpus - the Evidence-value gap remains
-  genuine.
+  line (see "Shape 3" above) and is no longer flagged. Its Evidence-value
+  gap remains genuine and unmigrated - Unit 1 scoped `skeptic.md` only.
 - **Shape 4** (markdown-sectioned flat report): `release-orchestrator.md`
   carries THREE genuine violations, not two as earlier claimed - an
   explicit cap on its "Failures and blockers" free-text section, a bound

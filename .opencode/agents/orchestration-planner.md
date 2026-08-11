@@ -137,24 +137,25 @@ If any of these are missing and material to the plan, call them out in Open ques
 
 ## Output format
 
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form; the `Notes` block is present only when non-empty.
+
 Use this exact structure. Do not rename or reorder sections.
 
 ```
 ## Orchestration Plan: [goal name]
 
-### Task summary
+### Task summary [MECHANICAL, cap: 300 chars]
 [1-2 sentences: what is being accomplished and why this team composition was chosen]
 
-### Risk classification
+### Risk classification [MECHANICAL, enum]
 [Trivial / Low / Elevated / Elevated + Cleanup] - [specific signal(s)]
 
-### Agent roster
+### Agent roster [MECHANICAL, cap: 150 chars/cell]
 | Agent | Role in this task |
 |---|---|
-| [agent] | [specific role - not generic] |
+| [agent] | [specific role - not generic, capped 150 chars/cell] |
 
-### Execution plan
-
+### Execution plan [MECHANICAL, cap: 8 items]
 **Phase 1 - [phase name]** ([parallel/sequential])
 - Spawn: `[agent]` (background)
 - Give it: [what context, file paths, prior output, or instructions to include in the spawn prompt]
@@ -162,22 +163,19 @@ Use this exact structure. Do not rename or reorder sections.
 - Proceed when: [condition: e.g., "plan complete and no open questions", "no Critical findings", "output returned"]
 
 **Phase 2 - [phase name]**
-[same pattern - continue for each phase]
+[same pattern - continue for each phase, capped at 8 phases total - see the "Keep plans lean" rule below]
 
-### Skeptic checkpoints
+### Skeptic checkpoints [MECHANICAL, cap: 500 chars]
 [For each Skeptic in the plan: what it reviews, which adversarial brief template applies, and what constitutes a pass]
 
-### Parallelization opportunities
-[Which phases can run concurrently and why it is safe - or "None" if the plan is fully sequential]
+### Open questions [MECHANICAL, cap: 200 chars/item]
+[Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. Capped 200 chars/item. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
 
-### Conductor actions
-[Things the conductor itself must do between phases: decisions to make, memory updates to run, context to synthesize, approvals to give]
+### Deferred defaults [MECHANICAL, cap: 200 chars/item]
+[Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." Capped 200 chars/item. These do not block downstream worker spawns. For each item: state the choice and the derived default.]
 
-### Open questions
-[Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
-
-### Deferred defaults
-[Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." These do not block downstream worker spawns. For each item: state the choice and the derived default.]
+### Notes [ADVISORY]
+[Present only when non-empty. Fold parallelization opportunities (which phases can run concurrently and why it is safe) and conductor actions (decisions to make, memory updates to run, context to synthesize, approvals to give) here.]
 ```
 
 ## Task category defaults

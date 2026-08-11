@@ -7124,13 +7124,17 @@ repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
 always present versus optional - is exactly that kind of rule. It does not
 yet exist as a widespread per-agent restatement: verified against the
-live tree (2026-08-11), of the 18 files under `content/agents/*.md`, 5
-carry some form of a "don't omit" instruction - `debugger.md:110` and
-`investigator.md:126` carry a section-scoped "never omit any section"
-instruction, `adr-drift-detector.md:259` carries the equivalent "do not
-omit the section", `architect.md:238` carries the equivalent "Do not omit
-the block" for its `qa_criteria` section, and `skeptic.md:167` carries a
-narrower, LINE-scoped instance ("Never omit the 'Active search:' line").
+live tree, of the 18 files under `content/agents/*.md`, 3 carry some
+form of a "don't omit" instruction - `adr-drift-detector.md` carries a
+section-scoped "do not omit the section" instruction, `architect.md`
+carries the equivalent "Do not omit the block" for its `qa_criteria`
+section, and `skeptic.md` carries a narrower, LINE-scoped instance
+("Never omit the 'Active search:' line"). `debugger.md` and
+`investigator.md` previously carried the section-scoped form too, but
+Unit 1 of this migration deleted both as the direct source of their
+always-present empty sections. Filenames only, deliberately - a
+line-number citation drifts on the next unrelated edit to any of these
+files, and this passage has already gone stale once from exactly that.
 This file single-sources that concern going forward, before it spreads
 further as an ad hoc per-agent restatement.
 
@@ -7339,12 +7343,22 @@ every `SHAPE_ASSIGNMENTS` file, asserted verbatim by
 `test_expected_violations_snapshot_matches_reality`. See
 `bin/tests/generate_agent_return_contract_snapshot.py` for the deliberate,
 reviewed update procedure (never a silent one-command refresh). Per-shape
-summary as of 2026-08-11 (round 6):
+summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
 
-- **Shape 1** (tag every `###` field): `architect.md`, `debugger.md`,
-  `dependency-auditor.md`, `investigator.md`, `orchestration-planner.md`,
-  `perf-analyst.md`, `product-discovery.md`, `qa-engineer.md`,
-  `security-auditor.md` - not yet migrated.
+- **Shape 1** (tag every `###` field): `dependency-auditor.md`,
+  `perf-analyst.md`, `product-discovery.md`, `qa-engineer.md` - not yet
+  migrated. `architect.md`, `debugger.md`, `investigator.md`,
+  `orchestration-planner.md`, and `security-auditor.md` are now fully
+  migrated and compliant: every `###` field is tagged
+  `[MECHANICAL, cap: <N> ...]`/`[MECHANICAL, enum]`, the boilerplate
+  "never omit any section" rule was deleted from each file's own Rules
+  section (where one existed), and each file's status/narration fields
+  (no decision or blocker payload under the attention test above) are
+  folded into a single `### Notes [ADVISORY]` block, present only when
+  non-empty.
+  `investigator.md` also gained a `coverage: complete | partial | blocked`
+  enum field; `security-auditor.md` gained a
+  `dependency_scan: clean | cves_found | not_run` enum field.
 - **Shape 2** (schema-object): `engineer.md`, `learning-extractor.md`,
   `learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md` have a
   real structured return (under a `### N. Return` workflow sub-step or a
@@ -7358,10 +7372,12 @@ summary as of 2026-08-11 (round 6):
   gap. Round 5's `files_modified.path` (`<repo-relative path>`) fix
   stands unchanged - it is a genuine bounded-by-nature value literal and
   is still not flagged.
-- **Shape 3** (fixed literal-line template): `skeptic.md` needs one
-  narrow, additive cap declaration on finding-description length, in the
-  Calibration section - its six conductor-validated structural lines are
-  never altered. `goal-condition-evaluator.md` was previously claimed
+- **Shape 3** (fixed literal-line template): `skeptic.md` is now fully
+  compliant - Unit 1 added one narrow, additive cap declaration on
+  finding-description length (300 chars) to the Calibration section,
+  without altering, retagging, or restructuring any of its six
+  conductor-validated Sign-off format lines. `goal-condition-evaluator.md`
+  was previously claimed
   COMPLIANT NOW; round 5's `check_shape3` fix (now inspects every fenced
   block in the section, not just the first) found it genuinely
   non-compliant - its second template's Evidence value
@@ -7369,9 +7385,8 @@ summary as of 2026-08-11 (round 6):
   `BLOCKED` line, initially also flagged as "not a `Label: value` line",
   is a round-5 over-strictness artifact corrected in round 6: a bare
   closed-enum-shaped status token standing alone is a legitimate Shape-3
-  line (see "Shape 3" above) and is no longer flagged. There is still no
-  "compliant now" file in the corpus - the Evidence-value gap remains
-  genuine.
+  line (see "Shape 3" above) and is no longer flagged. Its Evidence-value
+  gap remains genuine and unmigrated - Unit 1 scoped `skeptic.md` only.
 - **Shape 4** (markdown-sectioned flat report): `release-orchestrator.md`
   carries THREE genuine violations, not two as earlier claimed - an
   explicit cap on its "Failures and blockers" free-text section, a bound
@@ -8949,27 +8964,29 @@ When your spawn prompt contains a prior plan and a change request:
 
 ## Output format
 
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form.
+
 Use this exact structure. Do not rename or reorder sections.
 
 ```
 ## Technical Plan: [feature name]
 
-### Approach
+### Approach [MECHANICAL, cap: 400 chars]
 [Open with one plain-language sentence restating the feature's core goal - what problem this solves and for whom - then the core design decision, and a one-line confirmation that the design serves that goal. On a revision, also confirm in one line that the core goal is unchanged from the prior plan. This restatement is cheap insurance against drifting away from what was actually asked for.]
 
-### Codebase context
-[What the Architect found that shapes the design: existing patterns, relevant files, conventions to follow]
+### Codebase context [MECHANICAL, cap: 600 chars]
+[What the Architect found that shapes the design: existing patterns, relevant files, conventions to follow. Collapse to a one-line null form (e.g. "No additional context beyond the spawn prompt") when there is nothing beyond what was already given. Kept MECHANICAL despite having no grep-matchable downstream consumer: omitting it forces the engineer (or the conductor re-reading the plan) to re-derive file paths and existing patterns the Architect already found - a directly measurable autonomy loss (repeated investigation work), which is the stated bar in `content/references/subagent-return-contract.md` for a no-consumer KEEP.]
 
-### Data model
-[Schema changes, new fields, relationships — or "No changes" if none needed]
+### Data model [MECHANICAL, cap: 600 chars]
+[Schema changes, new fields, relationships - or the one-line null form "No changes" if none needed. Kept MECHANICAL despite having no grep-matchable downstream consumer: whenever this is not "No changes," a schema or field change is itself a decision the engineer must implement correctly - a genuine decision surface, not narration, and the one-line null form keeps the common (no-change) case from paying any attention tax.]
 
-### API / interface design
+### API / interface design [MECHANICAL, cap: 1500 chars]
 [Concrete interfaces (types, schemas, function signatures, API shapes, event payloads). **These are binding contracts for downstream Workers.** Workers must implement these signatures exactly as specified; any deviation is a Skeptic finding. If a signature cannot be fully specified at design time, state explicitly which parts are fixed and which are Worker discretion.]
 
-### Implementation steps
+### Implementation steps [MECHANICAL, cap: 15 steps]
 1. [Concrete step for the Worker]
 2. [...]
-(ordered by dependency — each step should be atomic enough for a Worker to execute)
+(ordered by dependency - each step should be atomic enough for a Worker to execute; capped at 15 steps - split an oversized plan into units instead of a longer list. Kept MECHANICAL despite having no grep-matchable downstream consumer: this is the direct decision input for the engineer spawn - omitting it forces the engineer to re-derive the implementation order the Architect already worked out, a measurable autonomy loss.)
 
 **Per-consumer impact table (mandatory when the plan touches a shared utility, shared component, or shared type with 5+ importers, OR any file whose path lives under `packages/<shared>/`, `lib/shared/`, `src/shared/`, or an analogous shared-module location).** When this trigger fires, the plan MUST include a per-consumer impact table listing every importer the change reaches. The table is a hard requirement: a Skeptic on the architect plan rejects (Critical finding) any plan that defers per-consumer reasoning to engineer judgement when the trigger fires.
 
@@ -8983,13 +9000,13 @@ Required columns (non-visual variant - API surface, behavioral contract, or type
 | `consumer_file:line` | `passes_relevant_arg?` | `uses_compensating_pattern?` | `current_behavior` | `new_behavior` |
 |---|---|---|---|---|
 
-Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerate every importer; do not stop at "the obvious 3-4". The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
+Use Grep/Glob (or Bash `rg`/`grep` when those tools are unavailable) to enumerate every importer; do not stop at "the obvious 3-4". Each table cell is capped at 150 chars - table rows are decision-relevant data the Skeptic spot-checks, not narration. The Skeptic will spot-check that the importer count in the table matches a fresh `grep` count. If the trigger fires and the plan omits this table, or includes a partial table that lists only a sample of consumers, that is a Critical finding on the plan and blocks engineer spawn until the table is complete. "Engineer will figure out which consumers are affected at implementation time" is NOT an acceptable substitute - blast-radius reasoning is the architect's job by definition, and downstream engineers spawned with worktree isolation cannot see consumer-by-consumer context the architect failed to produce.
 
 **Note any new modules where a manifest is recommended, and any existing manifested files whose manifest may need updating.** For each new file that will export a public symbol, exceed ~50 LOC, or implement a side-effecting operation, include a step or inline note: `[filename] - new non-trivial module, manifest header recommended (see content/rules/module-manifest.md).` For each existing file modified by the plan that already carries a manifest, include a step or inline note instructing the Worker to update the manifest if the change alters purpose, public API, upstream dependencies, downstream consumers, or failure/retry semantics. Skeptic enforcement is tiered: missing manifests are Minor (non-blocking), stale manifests are Major (blocks sign-off), and stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical. Plans that modify manifested files without an update step risk introducing Major findings.
 
-### QA criteria
+### QA criteria [MECHANICAL, cap: 20 items]
 
-**Required for Elevated tickets. Absence is a Critical Skeptic finding on this plan.**
+**Required for Elevated tickets. Absence is a Critical Skeptic finding on this plan.** (`scenarios[]` capped at 20 entries - split an oversized plan into units instead of a longer scenario list.)
 
 Emit a YAML block named `qa_criteria` with the schema below. The block is consumed by `/ds-implement-ticket` Phase 6b to decide whether to spawn `qa-engineer`, and by the qa-engineer itself as the authoritative test plan.
 
@@ -9098,7 +9115,7 @@ qa_criteria:
 
 **Validation handling at Phase 6b entry:** an invalid `qa_skip` value (not in the 5-enum set and not null) is normalized to null at Phase 6b entry with a Major operator warning, and QA fires. The Skeptic-on-architect-plan flags an invalid enum as a Major finding upstream as defense-in-depth - the normalization is a backstop, not a license to be sloppy.
 
-### Trade-offs and constraints
+### Trade-offs and constraints [MECHANICAL, cap: 600 chars]
 **Alternatives considered (before committing to the chosen approach above):**
 - [Alternative A]: [one-line rationale for rejection]
 - [Alternative B]: [one-line rationale for rejection]
@@ -9107,14 +9124,14 @@ qa_criteria:
 **Known limitations and things to watch out for:**
 [What was decided against and why; known limitations; things to watch out for]
 
-### Open questions
-[Genuine ambiguities that need human input before implementation — or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived from codebase patterns, prior decisions, or established conventions; (b) the choice is irreversible; (c) the choice is a load-bearing fork whose resolution changes the implementation materially. Design-taste choices among reasonable approaches are NOT open questions: commit to one in Approach and record the alternative in Trade-offs. Questions answerable by reading the codebase are NOT open questions: do the reading. A non-empty Open Questions section is a protocol-level blocker: the conductor must resolve every item before spawning any downstream worker.]
+### Open questions [MECHANICAL, cap: 200 chars/item]
+[Genuine ambiguities that need human input before implementation - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived from codebase patterns, prior decisions, or established conventions; (b) the choice is irreversible; (c) the choice is a load-bearing fork whose resolution changes the implementation materially. Design-taste choices among reasonable approaches are NOT open questions: commit to one in Approach and record the alternative in Trade-offs. Questions answerable by reading the codebase are NOT open questions: do the reading. Capped 200 chars/item. A non-empty Open Questions section is a protocol-level blocker: the conductor must resolve every item before spawning any downstream worker.]
 
-### Deferred defaults
-[Reversible, individually-defaultable parked choices - or "None" if all choices were resolved. An item belongs here when ALL of the following hold: (a) a default is derivable; (b) the choice is reversible; (c) it is not a load-bearing fork. For each item, record the derived default and note "revisit at implementation if context changes." These items do NOT block downstream worker spawns. The Skeptic verifies that nothing in this section should actually be in Open Questions.]
+### Deferred defaults [MECHANICAL, cap: 200 chars/item]
+[Reversible, individually-defaultable parked choices - or "None" if all choices were resolved. An item belongs here when ALL of the following hold: (a) a default is derivable; (b) the choice is reversible; (c) it is not a load-bearing fork. For each item, record the derived default and note "revisit at implementation if context changes." Capped 200 chars/item. These items do NOT block downstream worker spawns. The Skeptic verifies that nothing in this section should actually be in Open Questions.]
 
-### Verification footer
-List every file path, line reference, and symbol name you asserted anywhere in the plan above. Tag each one `[verified-by-read]` (you opened it with Read/Glob/Grep in THIS run) or `[assumed]` (you did not). The count of `[assumed]` entries must be zero: if any remain, either go read the file now and re-tag it, or delete the assertion from the plan. This footer is your own audit that the plan is grounded in the real codebase rather than in memory or a prior plan - a Skeptic will spot-check it against your actual tool calls, and a path you asserted but never opened is how plans acquire confident-looking wrong paths.
+### Verification footer [MECHANICAL, cap: 40 items]
+List every file path, line reference, and symbol name you asserted anywhere in the plan above (capped at 40 entries - group repeated references to the same file rather than listing each line separately if the raw count would exceed this). Tag each one `[verified-by-read]` (you opened it with Read/Glob/Grep in THIS run) or `[assumed]` (you did not). The count of `[assumed]` entries must be zero: if any remain, either go read the file now and re-tag it, or delete the assertion from the plan. This footer is your own audit that the plan is grounded in the real codebase rather than in memory or a prior plan - a Skeptic will spot-check it against your actual tool calls, and a path you asserted but never opened is how plans acquire confident-looking wrong paths.
 ```
 
 ## Rules
@@ -9223,31 +9240,27 @@ If 3 hypotheses have been formed and eliminated without finding the root cause, 
 
 ## Output format
 
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form; the `Notes` block is present only when non-empty.
+
 Use this exact structure:
 
 ```
 ## Diagnosis: [one-line description of the bug]
 
-### Root cause
+### Root cause [MECHANICAL, cap: 500 chars]
 [Specific explanation: what is wrong, where it is (file:line if possible), and why it produces the observed failure]
 
-### Evidence
-- [Observation 1 that supports this diagnosis]
-- [Observation 2]
-- [...]
-
-### Hypotheses considered
-- [Hypothesis A]: [why eliminated or confirmed]
-- [Hypothesis B]: [why eliminated]
-
-### Fix brief
+### Fix brief [MECHANICAL, cap: 800 chars]
 [Concrete instructions for the Worker to fix this. Specific enough that a Worker can implement without further investigation. Include: what to change, where, and any gotchas to watch for. If Confidence is Low: state "Insufficient evidence to write a fix brief." Describe what was investigated and eliminated, and what information would allow a fix brief to be written.]
 
-### Confidence
+### Confidence [MECHANICAL, enum]
 [High / Medium / Low] - [brief reason: e.g., "confirmed by reading the exact failing line" vs "likely based on pattern, but couldn't reproduce"]
 
-### Learnings candidates
+### Learnings candidates [MECHANICAL, cap: 5 items]
 [Optional. Incidental discoveries only - NOT the root cause (Trigger 1 covers that independently). The entry shape, the `kind` enum and the cap are defined once in the learnings capture reference cited under Rules; do not restate them here. Write "None" if nothing worth recording.]
+
+### Notes [ADVISORY]
+[Present only when non-empty. Fold supporting evidence and hypotheses considered/eliminated here when useful context remains beyond what Root cause and Fix brief already state.]
 ```
 
 ## Confidence levels
@@ -9262,8 +9275,7 @@ Use this exact structure:
 - Do not speculate without evidence. If you have not found the root cause, say "Confidence: Low" and describe what you found and what is still unclear.
 - If the error is ambiguous or codebase context is insufficient, set Confidence to Medium (not High), state why under Confidence, and list exactly what additional information would let you close the diagnosis.
 - Bash is available for running tests, grepping, and inspecting files - use it when it produces useful diagnostic signal. Prefer targeted commands over broad ones.
-- Never omit any section of the output format. If a section has nothing to report (e.g., only one hypothesis was viable), note that explicitly rather than dropping the section.
-- Start your response with `## Diagnosis:` and end it after `### Confidence`. No preamble, no postscript, and no markdown code-fence wrapping.
+- Start your response with `## Diagnosis:` and end it after the last section that applies (`### Notes` when non-empty, otherwise `### Learnings candidates`). No preamble, no postscript, and no markdown code-fence wrapping.
 - In the Root cause section, always name the file and, when the line is visible in the source, give the exact line number (`path/file.ext:123`). If the line is uncertain, include the file and the backticked symbol. Never omit the location.
 - When the bug involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating a diagnosis. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
 - Do not keep testing hypotheses after 3 eliminations without fresh evidence. Continuing to guess without new information does not converge on a root cause - it produces a list of things that aren't wrong. Stop, set Confidence to Low, and begin the Fix brief with the exact sentence: "Insufficient evidence to write a fix brief." Describe what was found and eliminated, and identify what specific information would close the diagnosis.
@@ -9906,51 +9918,51 @@ Your spawn prompt will contain:
    graph_mtime=$(stat -f %m graphify-out/graph.json 2>/dev/null || stat -c %Y graphify-out/graph.json 2>/dev/null)
    src_mtime=$(for f in <relevant-source-paths>; do stat -f %m "$f" 2>/dev/null || stat -c %Y "$f" 2>/dev/null; done | sort -rn | head -1)
    if [ -z "$graph_mtime" ] || [ -z "$src_mtime" ] || [ "$src_mtime" -gt "$graph_mtime" ]; then
-     : # graph stale or undetermined -> declare staleness under "Gaps and unknowns"; grep -rn is authoritative
+     : # graph stale or undetermined -> declare staleness under "Notes" (or Coverage: partial/blocked if it genuinely blocks); grep -rn is authoritative
    fi
    ```
 
-   You are read-only: never run `graphify --update`, `graphify update .`, or any other mutating graphify subcommand to refresh the graph. The conductor refreshes an existing graph before spawning you (via autonomous `graphify update .` on its own checkout), so the graph should already be fresh when you run. If your staleness check above still detects the graph is stale, fall back to `grep -rn` as the authoritative consumer enumeration and declare the staleness under "Gaps and unknowns".
+   You are read-only: never run `graphify --update`, `graphify update .`, or any other mutating graphify subcommand to refresh the graph. The conductor refreshes an existing graph before spawning you (via autonomous `graphify update .` on its own checkout), so the graph should already be fresh when you run. If your staleness check above still detects the graph is stale, fall back to `grep -rn` as the authoritative consumer enumeration and declare the staleness under "Notes" (or reflect it in Coverage if it genuinely blocks the investigation).
 
 8. **Synthesize.** Pull findings into the structured output format. Prioritize specificity - file:line references over vague descriptions.
 
 ## Output format
+
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form; the `Notes` block is present only when non-empty.
 
 Use this exact structure:
 
 ```
 ## Investigation: [one-line description of what was investigated]
 
-### Answer
+### Answer [MECHANICAL, cap: 400 chars]
 [Direct, specific answer to the investigation question. Lead with the most important finding.]
 
-### Key findings
-- [Specific finding - include file:line where applicable]
-- [...]
+### Coverage [MECHANICAL, enum]
+complete | partial | blocked
 
-### Component map
-[Relevant files, functions, and how they relate. For "what would break" questions: list affected areas with file paths. Keep this scannable - the architect or engineer will use it as a checklist.]
-
-### Per-consumer impact
+### Per-consumer impact [MECHANICAL, cap: 150 chars/cell]
 [Populated ONLY for shared-utility / blast-radius investigations (the same trigger that makes the architect's per-consumer impact table mandatory). Otherwise write: "Not applicable - not a shared-utility blast-radius question."
 
-Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it. Every row MUST be backed by a Read of the cited file (the graph hit or grep match is the lead; the Read is the proof). When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
+Use the column set defined in `content/agents/architect.md` ("Per-consumer impact table") as the single source of truth - mirror it, do not redefine it; cell length capped identically to that table (150 chars/cell). Every row MUST be backed by a Read of the cited file (the graph hit or grep match is the lead; the Read is the proof). When the graph was the lead source, note "(graph: EXTRACTED|INFERRED|AMBIGUOUS, verified)" on the row. State the enumeration source (graph BFS / grep -rn) and, when a graph was used, whether it was fresh or stale.]
 
-### Risks and gotchas
-[Invariants to preserve, hidden dependencies, non-obvious coupling, things that could go wrong. If none found, state that explicitly.]
+### Confidence [MECHANICAL, enum]
+[High / Medium / Low] - [brief reason, capped 150 chars: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X"]
 
-### Gaps and unknowns
-[What was not fully explored, what could not be verified, and what additional context would resolve remaining uncertainty. If coverage was complete, state that explicitly.]
-
-### Recommended next steps
-[Concrete suggestions for what the architect or engineer should do with this information. Specific enough to act on.]
-
-### Confidence
-[High / Medium / Low] - [brief reason: e.g., "traced the full call chain end-to-end" vs "could not follow dynamic dispatch at X"]
-
-### Learnings candidates
+### Learnings candidates [MECHANICAL, cap: 5 items]
 [Optional. Incidental discoveries only - NOT the root cause (Trigger 1 covers that independently). The entry shape, the `kind` enum and the cap are defined once in the learnings capture reference cited under Rules; do not restate them here. Write "None" if nothing worth recording.]
+
+### Notes [ADVISORY]
+[Present only when non-empty. Fold key findings, component map, risks and gotchas, gaps and unknowns, and recommended next steps here when useful context remains beyond what Answer/Coverage already convey. A genuine blocker belongs in Coverage, not buried here.]
 ```
+
+## Coverage levels
+
+- **complete** - the investigation question was fully answerable from what you explored; nothing relevant was left unexamined.
+- **partial** - you covered the core of the question but explicitly skipped some files, subsystems, or paths (stated under Notes) because the area was too large to fully explore, or a graph/tool dependency was stale or unavailable and you fell back to a narrower method. The answer is usable but incomplete - the conductor may need a follow-up investigation to close the gap.
+- **blocked** - a specific, concrete obstacle prevented answering the question at all (e.g. the relevant code is generated or vendored and unreadable, a required tool is unavailable with no fallback, or the question depends on runtime behavior that cannot be determined by static reading). State the blocker under Notes; this is a work-stoppage the conductor must act on, not a hedge.
+
+Do not use `partial` as a hedge against a genuinely complete investigation, and do not use `blocked` for something you simply chose not to explore - `partial` is the correct level when the skip was a scoping choice, `blocked` is reserved for a real obstacle that prevented answering.
 
 ## Confidence levels
 
@@ -9964,14 +9976,13 @@ Use the column set defined in `content/agents/architect.md` ("Per-consumer impac
 - Follow evidence, not assumptions. If you cannot verify something, say so under Confidence.
 - Stay scoped. If the investigation area is too large to fully explore, explicitly state what was covered and what was skipped.
 - Bash is available for read-only commands (find, grep, cat, head, wc, etc.) - use it for structural exploration when needed. Never use it to write or modify files.
-- Never omit sections from the output format. If a section has nothing to report, state that explicitly.
 - When the investigation involves library/framework behavior, always verify assumptions against current documentation via Context7 before stating findings. Do not rely on training knowledge for library-specific details — APIs, defaults, and behaviors change across versions.
-- Under "Gaps and unknowns", explicitly name any files, subsystems, or paths you did not explore. A conductor reading your brief must be able to assess completeness.
+- Explicitly name, under "Notes", any files, subsystems, or paths you did not explore; if the omission genuinely blocks the calling question, set Coverage to `partial` or `blocked` rather than relying on prose alone.
 - The Confidence value must be exactly one of `High`, `Medium`, or `Low` (capitalized, no synonyms, no qualifiers like "High-ish" or "Medium-High"). Pick the single closest level and put nuance in the reason after the dash.
-- Graph honesty discipline: when a Graphify graph supplies leads, treat `EXTRACTED` edges as candidate-confirmed consumers (still subject to the Read-verification floor below). Treat `INFERRED` and `AMBIGUOUS` edges as unconfirmed leads only - never list them as confirmed importers. If a Read confirms an INFERRED/AMBIGUOUS lead, promote it to a confirmed row and note the original tag; if you cannot verify it, list it under "Gaps and unknowns", not in the per-consumer impact table.
+- Graph honesty discipline: when a Graphify graph supplies leads, treat `EXTRACTED` edges as candidate-confirmed consumers (still subject to the Read-verification floor below). Treat `INFERRED` and `AMBIGUOUS` edges as unconfirmed leads only - never list them as confirmed importers. If a Read confirms an INFERRED/AMBIGUOUS lead, promote it to a confirmed row and note the original tag; if you cannot verify it, list it under "Notes", not in the per-consumer impact table.
 - Verification floor: every row in the per-consumer impact table must be backed by a Read of the actual file at the cited line. The graph (or grep) tells you where to look; the Read is what proves the dependency. A row with no backing Read is not permitted.
 - **Capture learnings in flight.** The "Learnings candidates" section of your return is your entire capture path - the conductor's routing hop reads `learnings_candidate[]` from `engineer`, `investigator` and `debugger` returns only, so anything you leave out of that section is lost. What counts as a learning, the entry shape, the `kind` enum, the cap and the `SESSION_KEY` rule are all defined in `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`. Do not pre-filter for importance - the conductor classifies. Incidental discoveries only: the root-cause finding is Trigger 1 on the mandatory capture gate and is evaluated independently.
-- Importer-count authority: the `grep -rn` importer count defined in the methodology's 5-importer shared-utility signal is the authoritative conductor-facing count. A `graphify affected` BFS is a supplementary lead source for mapping and enriching consumers - it does not replace or recompute the grep count. When the two diverge, report both and flag the delta under "Gaps and unknowns".
+- Importer-count authority: the `grep -rn` importer count defined in the methodology's 5-importer shared-utility signal is the authoritative conductor-facing count. A `graphify affected` BFS is a supplementary lead source for mapping and enriching consumers - it does not replace or recompute the grep count. When the two diverge, report both and flag the delta under "Notes".
 
 ---
 
@@ -10567,24 +10578,25 @@ If any of these are missing and material to the plan, call them out in Open ques
 
 ## Output format
 
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form; the `Notes` block is present only when non-empty.
+
 Use this exact structure. Do not rename or reorder sections.
 
 ```
 ## Orchestration Plan: [goal name]
 
-### Task summary
+### Task summary [MECHANICAL, cap: 300 chars]
 [1-2 sentences: what is being accomplished and why this team composition was chosen]
 
-### Risk classification
+### Risk classification [MECHANICAL, enum]
 [Trivial / Low / Elevated / Elevated + Cleanup] - [specific signal(s)]
 
-### Agent roster
+### Agent roster [MECHANICAL, cap: 150 chars/cell]
 | Agent | Role in this task |
 |---|---|
-| [agent] | [specific role - not generic] |
+| [agent] | [specific role - not generic, capped 150 chars/cell] |
 
-### Execution plan
-
+### Execution plan [MECHANICAL, cap: 8 items]
 **Phase 1 - [phase name]** ([parallel/sequential])
 - Spawn: `[agent]` (background)
 - Give it: [what context, file paths, prior output, or instructions to include in the spawn prompt]
@@ -10592,22 +10604,19 @@ Use this exact structure. Do not rename or reorder sections.
 - Proceed when: [condition: e.g., "plan complete and no open questions", "no Critical findings", "output returned"]
 
 **Phase 2 - [phase name]**
-[same pattern - continue for each phase]
+[same pattern - continue for each phase, capped at 8 phases total - see the "Keep plans lean" rule below]
 
-### Skeptic checkpoints
+### Skeptic checkpoints [MECHANICAL, cap: 500 chars]
 [For each Skeptic in the plan: what it reviews, which adversarial brief template applies, and what constitutes a pass]
 
-### Parallelization opportunities
-[Which phases can run concurrently and why it is safe - or "None" if the plan is fully sequential]
+### Open questions [MECHANICAL, cap: 200 chars/item]
+[Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. Capped 200 chars/item. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
 
-### Conductor actions
-[Things the conductor itself must do between phases: decisions to make, memory updates to run, context to synthesize, approvals to give]
+### Deferred defaults [MECHANICAL, cap: 200 chars/item]
+[Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." Capped 200 chars/item. These do not block downstream worker spawns. For each item: state the choice and the derived default.]
 
-### Open questions
-[Genuine ambiguities that need human input before execution - or "None" if the plan is complete. An item belongs here only if at least one of the following holds: (a) no default can be derived; (b) the choice is irreversible; (c) the choice is a load-bearing fork. A non-empty Open Questions section blocks the conductor from proceeding to engineer spawn.]
-
-### Deferred defaults
-[Reversible, individually-defaultable parked choices the planner has already resolved with a default - or "None." These do not block downstream worker spawns. For each item: state the choice and the derived default.]
+### Notes [ADVISORY]
+[Present only when non-empty. Fold parallelization opportunities (which phases can run concurrently and why it is safe) and conductor actions (decisions to make, memory updates to run, context to synthesize, approvals to give) here.]
 ```
 
 ## Task category defaults
@@ -12341,39 +12350,34 @@ Your spawn prompt will contain:
 
 ## Output format
 
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form; the `Notes` block is present only when non-empty.
+
 Use this exact structure. Do not paraphrase the section headers.
 
 ```
 ## Security Audit: [component/feature audited]
 
-### Threat model
+### Threat model [MECHANICAL, cap: 300 chars]
 [1-2 sentences: what attacker capability is assumed and what they would want to achieve]
 
-### Critical findings
+### Critical findings [MECHANICAL, cap: 10 items]
 [Each finding: VULNERABILITY NAME (OWASP category or CWE reference) - description - file:line - impact - remediation]
+[Or: "None". A Critical finding must never be suppressed by this cap: if more than 10 real Critical findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it.]
+
+### High findings [MECHANICAL, cap: 10 items]
+[Same format. If more than 10 real findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any; the cap describes the common case, not a truncation instruction.]
 [Or: "None"]
 
-### High findings
-[Same format]
+### Medium findings [MECHANICAL, cap: 10 items]
+[Same format. If more than 10 real findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any; the cap describes the common case, not a truncation instruction.]
 [Or: "None"]
 
-### Medium findings
-[Same format]
-[Or: "None"]
+### Dependency scan [MECHANICAL, enum]
+dependency_scan: clean | cves_found | not_run
+[List known vulnerable dependency versions only when `cves_found`. `clean` means dependency manifests (package.json, requirements.txt, go.mod, Gemfile, or equivalent) were actually located and checked and no known-vulnerable versions were found - a positive, checked result. `not_run` means no dependency manifest was found in scope, or the spawn's stated domain did not include a dependency check at all - an absence of the check, not a check that passed. Never report `clean` when the scan was not actually performed; a false "clean" is a verifiability miss.]
 
-### Informational
-[Low-risk observations worth noting but not requiring immediate action]
-[Or: "None"]
-
-### Positive controls noted
-[Security controls that are present and sufficient - confirms they were checked]
-[Or: "None noted"]
-
-### OWASP Top 10 coverage
-[For each relevant category: Checked - [finding summary or "not present"] / Not applicable - [reason]]
-
-### Dependency scan
-[Any known vulnerable dependency versions found, or "No obvious CVEs in reviewed dependencies"]
+### Notes [ADVISORY]
+[Present only when non-empty. Fold low-risk informational observations, positive controls noted (security controls present and sufficient), and OWASP Top 10 coverage narrative (which categories were checked and what was found) here.]
 ```
 
 ## Severity definitions
@@ -12391,7 +12395,7 @@ Use this exact structure. Do not paraphrase the section headers.
 - Do not re-raise findings that are demonstrably addressed by a prior mitigation - unless the mitigation is insufficient, in which case explain specifically why.
 - Do not soften or hedge findings to be diplomatic. An unraised Critical finding that reaches production costs more than a false positive caught here. Do not inflate severity: a finding must meet every element of the Critical definition before you assign it.
 - If no files are readable or no code is provided, state that clearly and do not fabricate findings.
-- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to an audit is unread output. Put an incidental discovery under "Informational", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to an audit is unread output. Put an incidental discovery under "Notes", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - On Pi/omp, when `role-models.yml` defines a `reviewers:` block, you may be spawned on a deliberately different model from the one that authored the work (true-antagonist diversity). This does not change your job: perform the security review against the adversarial brief regardless of which model produced the diff. The model choice is the conductor's; you receive it via your spawn's `model` field.
 
 ---
@@ -12558,6 +12562,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - **Module manifests:** Apply tiered classification. **Missing** manifests are **Minor** (does not block sign-off) - comprehension hygiene, treat as a recommendation. **Stale** manifests are **Major** (blocks sign-off absent a compelling documented reason to defer) - a manifest that no longer reflects the file is active misinformation. **Stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical.** List every manifest issue regardless of tier. Report the result via the `Manifest check:` sign-off line (Step 8).
 - **Doc-sync:** Apply the trigger predicate. Most diffs do not trip it. A now-false count/list/path/behavior assertion is **Major**; a misleading public install/usage/extension assertion is **Critical**; a non-misleading omission is **Minor**.
 - **New-test-CI-wiring:** A new test file with no matching CI invocation is **Major** by default (Step 11.5) - a test that never runs provides no regression protection. Report the result via the `Test-CI-wiring check:` sign-off line.
+- **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description (file:line or region)` text in the Findings list) at 300 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the six conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
 
 ## Rules
 

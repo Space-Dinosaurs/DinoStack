@@ -83,7 +83,7 @@ jobs:
         # (test_shape1_seed_is_baseline_compliant,
         # test_shape2_seed_is_baseline_compliant,
         # test_shape4_seed_is_baseline_compliant, and
-        # test_skeptic_seed_is_the_real_narrow_not_yet_migrated_baseline -
+        # test_skeptic_seed_is_the_real_migrated_baseline -
         # the skeptic-baseline check IS one of these 4, not a separate 5th)
         # = 26 collected IDs. Removing an operator from MUTATIONS without
         # shrinking this floor is exactly the failure mode this gate exists

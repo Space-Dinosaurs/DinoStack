@@ -160,6 +160,7 @@ An over-blocking Skeptic produces unnecessary rework and erodes trust in the pro
 - **Module manifests:** Apply tiered classification. **Missing** manifests are **Minor** (does not block sign-off) - comprehension hygiene, treat as a recommendation. **Stale** manifests are **Major** (blocks sign-off absent a compelling documented reason to defer) - a manifest that no longer reflects the file is active misinformation. **Stale manifests whose inaccuracy could mislead a caller on a correctness or security path are Critical.** List every manifest issue regardless of tier. Report the result via the `Manifest check:` sign-off line (Step 8).
 - **Doc-sync:** Apply the trigger predicate. Most diffs do not trip it. A now-false count/list/path/behavior assertion is **Major**; a misleading public install/usage/extension assertion is **Critical**; a non-misleading omission is **Minor**.
 - **New-test-CI-wiring:** A new test file with no matching CI invocation is **Major** by default (Step 11.5) - a test that never runs provides no regression protection. Report the result via the `Test-CI-wiring check:` sign-off line.
+- **Finding-description length:** cap each per-finding description (the `[CLASSIFICATION] - description (file:line or region)` text in the Findings list) at 300 chars. This is additive scope guidance only - it does not alter, retag, or restructure any of the six conductor-validated Sign-off format lines in the section above (`content/references/subagent-return-contract.md` Shape 3).
 
 ## Rules
 

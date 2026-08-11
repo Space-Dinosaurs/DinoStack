@@ -65,39 +65,34 @@ Your spawn prompt will contain:
 
 ## Output format
 
+Field tagging (`[MECHANICAL, ...]` / `[ADVISORY]`) follows the attention test in `content/references/subagent-return-contract.md` - MECHANICAL fields are always present using their declared null form; the `Notes` block is present only when non-empty.
+
 Use this exact structure. Do not paraphrase the section headers.
 
 ```
 ## Security Audit: [component/feature audited]
 
-### Threat model
+### Threat model [MECHANICAL, cap: 300 chars]
 [1-2 sentences: what attacker capability is assumed and what they would want to achieve]
 
-### Critical findings
+### Critical findings [MECHANICAL, cap: 10 items]
 [Each finding: VULNERABILITY NAME (OWASP category or CWE reference) - description - file:line - impact - remediation]
+[Or: "None". A Critical finding must never be suppressed by this cap: if more than 10 real Critical findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any. The cap describes the common case, not a truncation instruction, and this rule takes precedence over it.]
+
+### High findings [MECHANICAL, cap: 10 items]
+[Same format. If more than 10 real findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any; the cap describes the common case, not a truncation instruction.]
 [Or: "None"]
 
-### High findings
-[Same format]
+### Medium findings [MECHANICAL, cap: 10 items]
+[Same format. If more than 10 real findings exist, report all of them anyway - group findings that share the same vulnerability class and root cause into one entry rather than dropping any; the cap describes the common case, not a truncation instruction.]
 [Or: "None"]
 
-### Medium findings
-[Same format]
-[Or: "None"]
+### Dependency scan [MECHANICAL, enum]
+dependency_scan: clean | cves_found | not_run
+[List known vulnerable dependency versions only when `cves_found`. `clean` means dependency manifests (package.json, requirements.txt, go.mod, Gemfile, or equivalent) were actually located and checked and no known-vulnerable versions were found - a positive, checked result. `not_run` means no dependency manifest was found in scope, or the spawn's stated domain did not include a dependency check at all - an absence of the check, not a check that passed. Never report `clean` when the scan was not actually performed; a false "clean" is a verifiability miss.]
 
-### Informational
-[Low-risk observations worth noting but not requiring immediate action]
-[Or: "None"]
-
-### Positive controls noted
-[Security controls that are present and sufficient - confirms they were checked]
-[Or: "None noted"]
-
-### OWASP Top 10 coverage
-[For each relevant category: Checked - [finding summary or "not present"] / Not applicable - [reason]]
-
-### Dependency scan
-[Any known vulnerable dependency versions found, or "No obvious CVEs in reviewed dependencies"]
+### Notes [ADVISORY]
+[Present only when non-empty. Fold low-risk informational observations, positive controls noted (security controls present and sufficient), and OWASP Top 10 coverage narrative (which categories were checked and what was found) here.]
 ```
 
 ## Severity definitions
@@ -115,5 +110,5 @@ Use this exact structure. Do not paraphrase the section headers.
 - Do not re-raise findings that are demonstrably addressed by a prior mitigation - unless the mitigation is insufficient, in which case explain specifically why.
 - Do not soften or hedge findings to be diplomatic. An unraised Critical finding that reaches production costs more than a false positive caught here. Do not inflate severity: a finding must meet every element of the Critical definition before you assign it.
 - If no files are readable or no code is provided, state that clearly and do not fabricate findings.
-- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to an audit is unread output. Put an incidental discovery under "Informational", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to an audit is unread output. Put an incidental discovery under "Notes", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - On Pi/omp, when `role-models.yml` defines a `reviewers:` block, you may be spawned on a deliberately different model from the one that authored the work (true-antagonist diversity). This does not change your job: perform the security review against the adversarial brief regardless of which model produced the diff. The model choice is the conductor's; you receive it via your spawn's `model` field.

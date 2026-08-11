@@ -1651,17 +1651,14 @@ def test_shape3_goal_condition_evaluator_is_genuinely_not_yet_migrated():
     ], violations
 
 
-def test_shape3_skeptic_is_not_yet_migrated():
-    """skeptic.md's six conductor-validated lines are present verbatim, but
-    the Calibration section declares no cap on finding-description length
-    today - genuinely non-compliant, as NOT_YET_MIGRATED expects."""
+def test_shape3_skeptic_is_now_compliant():
+    """Unit 1 (DS return-contract migration) added the additive
+    finding-description cap sentence to skeptic.md's Calibration section
+    without touching any of its six conductor-validated Sign-off format
+    lines - skeptic.md is now fully Shape-3 compliant."""
     path = AGENTS_DIR / "skeptic.md"
     violations = check_contract(path.read_text(), "skeptic.md")
-    assert violations != [], (
-        "skeptic.md is listed in NOT_YET_MIGRATED but its Shape-3 checker "
-        "found it fully compliant"
-    )
-    assert any("cap" in v.lower() for v in violations)
+    assert violations == [], violations
 
 
 # --- Shape 4 fixture tests ---
@@ -1788,14 +1785,25 @@ def test_exempt_file_artifact_set_is_adr_generator_only():
 def test_fully_compliant_files_are_exactly_the_snapshot_empty_set():
     """Cross-check against the snapshot from the other direction: the set
     of files with an empty violations list in the snapshot is the
-    project's actual 'compliant now' set. As of round 5 this is the
+    project's actual 'compliant now' set. As of round 5 this was the
     EMPTY set - goal-condition-evaluator.md, the only remaining
     candidate, was reclassified to genuinely non-compliant by the
     check_shape3 all-blocks fix (see
     test_shape3_goal_condition_evaluator_is_genuinely_not_yet_migrated).
-    A future migration legitimately grows this set; this test exists so
-    that growth is asserted explicitly rather than assumed."""
+    Unit 1 of the DS return-contract migration (2026-08-11) grew this set
+    by six: architect.md, debugger.md, investigator.md,
+    orchestration-planner.md, security-auditor.md, skeptic.md - each
+    migrated to its shape's tagging/enum/cap obligation with the boilerplate
+    "never omit any section" rule deleted from its own Rules section (where
+    present) and folded ADVISORY content moved into a single `Notes` block.
+    A future migration legitimately grows this set further; this test
+    exists so that growth is asserted explicitly rather than assumed."""
     compliant_now = {name for name, v in EXPECTED_VIOLATIONS.items() if v == []}
-    assert compliant_now == set(), (
-        f"unexpected 'compliant now' set: {sorted(compliant_now)}"
-    )
+    assert compliant_now == {
+        "architect.md",
+        "debugger.md",
+        "investigator.md",
+        "orchestration-planner.md",
+        "security-auditor.md",
+        "skeptic.md",
+    }, f"unexpected 'compliant now' set: {sorted(compliant_now)}"
