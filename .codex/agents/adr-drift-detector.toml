@@ -190,13 +190,13 @@ Based on gathered evidence, assign one classification:
 
 ## Phase 6: Produce the Drift Report
 
-Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - normatively, `.agentic/` is the only path this agent's Bash use is permitted to create files under, not an enforced permission-layer restriction), then return only the small pointer JSON below. Do not print the full report to stdout.
 
 ```bash
 mkdir -p .agentic/audit-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 REPORT_PATH=".agentic/audit-reports/adr-drift-detector-${RUN_ID}.md"
-cat > "$REPORT_PATH" <<'EOF'
+cat > "$REPORT_PATH" <<"EOF_${RUN_ID}"
 # ADR Drift Report
 *Generated: [YYYY-MM-DD] | Project: [project name]*
 *ADRs audited: N | Followed: N | Violated: N | Partial: N | Unverifiable: N*
@@ -252,7 +252,7 @@ cat > "$REPORT_PATH" <<'EOF'
 - **ADR-[N]: [Title]** - Status: Deprecated
 
 [or write "None" if there are none]
-EOF
+EOF_${RUN_ID}
 ```
 
 Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent audits) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
@@ -285,5 +285,5 @@ Return this pointer object as the agent's final output:
 - If a dependency file (package.json, etc.) does not exist, note this for any ADR that required a dependency check, and factor it into the classification.
 - Today's date for the report header: use Bash `date +%Y-%m-%d` to get the current date.
 - No `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to the drift report is unread output. Put an incidental discovery in `notes`, where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
-- For each Superseded ADR: check whether the file named in `superseded_by` (if present) actually exists in the ADR directory. If it does not, flag it in the Skipped entry: "⚠️ Superseding file [filename] not found in ADR directory".
+- For each Superseded ADR: check whether the file named in `superseded_by` (if present) actually exists in the ADR directory. If it does not, flag it in the Skipped entry: "Superseding file [filename] not found in ADR directory".
 """

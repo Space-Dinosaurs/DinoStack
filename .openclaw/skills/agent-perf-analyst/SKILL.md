@@ -113,13 +113,13 @@ Do not guess at a root cause when you cannot measure.
 
 ## Report structure
 
-Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - normatively, `.agentic/` is the only path this agent's Bash use is permitted to create files under, not an enforced permission-layer restriction), then return only the small pointer JSON below. Do not print the full report to stdout.
 
 ```bash
 mkdir -p .agentic/audit-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 REPORT_PATH=".agentic/audit-reports/perf-analyst-${RUN_ID}.md"
-cat > "$REPORT_PATH" <<'EOF'
+cat > "$REPORT_PATH" <<"EOF_${RUN_ID}"
 ## Perf Analysis: [one-line description of what was profiled]
 
 ### Summary
@@ -160,7 +160,7 @@ cat > "$REPORT_PATH" <<'EOF'
 - [Measurement or profiling output line that supports this finding]
 - [Second measurement or log excerpt]
 - [...]
-EOF
+EOF_${RUN_ID}
 ```
 
 Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent analyses) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
@@ -172,7 +172,7 @@ Return this pointer object as the agent's final output:
 ```json
 {
   "verdict": "pass | fail | no_budget_defined",
-  "hotspot": "capped at 200 chars",
+  "hotspot": "capped at 200 chars: location + measured cost, e.g. 'foo.py:42 (N+1 query) - 340ms avg, 62% of request time'",
   "root_cause": "capped at 500 chars",
   "fix_brief": "capped at 800 chars",
   "confidence": "High | Medium | Low",
@@ -181,7 +181,7 @@ Return this pointer object as the agent's final output:
 }
 ```
 
-`report_path` is the exact `$REPORT_PATH` written above. `root_cause` and `fix_brief` are the direct decision inputs for the next engineer spawn - same caps as debugger's Root cause/Fix brief fields, and the same escalation rule: if `confidence` is `Low` or root cause is an unverified hypothesis, `fix_brief` states "Do not implement until root cause is confirmed with a second measurement." instead of concrete steps. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what the other fields and the report file already convey.
+`hotspot` is a MECHANICAL field, not advisory: it MUST embed the measured cost (the "X% of total time / Y MB of peak memory" figure from the Hotspot section), not just the location - this is the field a consumer like `/ds-wrap` reads to capture "confirmed hotspots with measurements" into memory entries without opening the report file. A hotspot value naming only a file:line with no number attached is incomplete. `report_path` is the exact `$REPORT_PATH` written above. `root_cause` and `fix_brief` are the direct decision inputs for the next engineer spawn - same caps as debugger's Root cause/Fix brief fields, and the same escalation rule: if `confidence` is `Low` or root cause is an unverified hypothesis, `fix_brief` states "Do not implement until root cause is confirmed with a second measurement." instead of concrete steps. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what the other fields and the report file already convey.
 
 ## Confidence levels
 

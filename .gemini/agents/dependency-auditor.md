@@ -157,6 +157,13 @@ For each direct dependency flagged in Phase 2 or 3, and for any dep in upgrade-d
 - README or repository stating the project is unmaintained
 - Zero releases in the last 2 years with active issue reports
 
+**Per-package classification.** Classify each dependency assessed in this phase (the same set as the phase's opening sentence: direct deps flagged in Phase 2/3, plus any dep in upgrade-diff scope) into exactly one of:
+- **`abandoned`**: any abandonment signal above is present (deprecated flag, explicit unmaintained statement, or zero releases in 2+ years with active issue reports).
+- **`stale`**: no abandonment signal, but no release in 24+ months (the "Last release date" check above), or the registry/release-date check could not be completed for this package.
+- **`healthy`**: a release within the last 24 months and no abandonment signal.
+
+**Aggregation to the single `maintenance_signal` return field.** Take the WORST classification across every package assessed this phase - `abandoned` if any assessed package is `abandoned`, else `stale` if any assessed package is `stale`, else `healthy`. This mirrors `scan_completeness`'s worst-case-wins shape and the same false-confidence rationale: a single `healthy` package must never mask an `abandoned` one. If Phase 4 assessed zero packages (nothing was flagged in Phase 2/3 and scope is not upgrade-diff), report `maintenance_signal: healthy` (vacuously - nothing was found to be a maintenance risk).
+
 **Typosquat risk (for new dependencies only - upgrade-diff mode or single-dep mode):**
 
 Do not compare against "top-1000 packages" from model memory - that is hallucination risk. Use only what the registry CLI tools can return:
@@ -184,13 +191,13 @@ Flag every new direct dependency for typosquat check (Phase 4).
 
 ## Report structure
 
-Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - normatively, `.agentic/` is the only path this agent's Bash use is permitted to create files under, not an enforced permission-layer restriction), then return only the small pointer JSON below. Do not print the full report to stdout.
 
 ```bash
 mkdir -p .agentic/audit-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 REPORT_PATH=".agentic/audit-reports/dependency-auditor-${RUN_ID}.md"
-cat > "$REPORT_PATH" <<'EOF'
+cat > "$REPORT_PATH" <<"EOF_${RUN_ID}"
 ## Dependency Audit Report
 
 *Date: [YYYY-MM-DD] | Project: [project name or root path]*
@@ -224,14 +231,16 @@ cat > "$REPORT_PATH" <<'EOF'
 [If no upgrades needed: "No upgrades required."]
 
 ### Open questions
-[Items requiring human judgment: ambiguous license constraints, typosquat candidates needing manual verification, scan gaps where a tool was unavailable.]
+[The full, unbounded list of items requiring human judgment: ambiguous license constraints, typosquat candidates needing manual verification, scan gaps where a tool was unavailable. This section is the file-only record - do not treat it as duplicating the pointer's `notes` field; see the precedence rule below the heredoc.]
 [Or: "None"]
-EOF
+EOF_${RUN_ID}
 ```
 
 Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent audits) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
 
-`scan_completeness` replaces the old free-text "Scan gaps" section as the coverage signal: set `full` when every detected ecosystem's vulnerability tool ran cleanly, `partial` when at least one detected ecosystem's tool errored or was missing but at least one ecosystem was still checked, `blocked` when no vulnerability tool could be run for any detected ecosystem at all. A `clean` verdict from a `partial` or `blocked` scan is a false-confidence risk - never report `verdict: clean` without also reporting the true `scan_completeness`. Fold which ecosystem/tool was unavailable, and any items needing human judgment (ambiguous license constraints, typosquat candidates needing manual verification), into `notes`.
+`scan_completeness` replaces the old free-text "Scan gaps" section as the coverage signal: set `full` when every detected ecosystem's vulnerability tool ran cleanly, `partial` when at least one detected ecosystem's tool errored or was missing but at least one ecosystem was still checked, `blocked` when no vulnerability tool could be run for any detected ecosystem at all. A `clean` verdict from a `partial` or `blocked` scan is a false-confidence risk - never report `verdict: clean` without also reporting the true `scan_completeness`.
+
+**Precedence: `### Open questions` (file) vs `notes` (pointer).** These are not two homes for the same content. `### Open questions` in the written report is the full, unbounded record of every item needing human judgment - always include every item there in full, regardless of `notes`'s cap. `notes` is a SEPARATE, capped (300 chars) advisory field at the pointer level: use it only to flag that open questions exist and give the single most important one, when that is worth surfacing without opening the report file (e.g. "3 open questions incl. 1 typosquat candidate needing manual verification - see report"). `notes` is omitted entirely when there is nothing worth surfacing at the pointer level, even if `### Open questions` in the file is non-empty.
 
 Return this pointer object as the agent's final output:
 
@@ -240,6 +249,7 @@ Return this pointer object as the agent's final output:
   "critical_count": <count>,
   "major_count": <count>,
   "minor_count": <count>,
+  "critical_findings": ["capped at 5 items, each capped at 80 chars: 'CVE-XXXX-XXXXX pkg-name@version'"],
   "scan_completeness": "full | partial | blocked",
   "maintenance_signal": "healthy | stale | abandoned",
   "verdict": "clean | findings_present",
@@ -248,7 +258,7 @@ Return this pointer object as the agent's final output:
 }
 ```
 
-`report_path` is the exact `$REPORT_PATH` written above. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what `scan_completeness`/`maintenance_signal`/the report file already convey.
+`report_path` is the exact `$REPORT_PATH` written above. `critical_findings` is a MECHANICAL field, not advisory: it carries the CVE identity + affected package for each Critical finding, capped at 5 items (one per line, `<CVE-or-advisory-ID> <package-name>@<version>`, 80 chars each - truncate the tail if longer). It is present only when `critical_count > 0`, omitted entirely otherwise (never an empty array). This is the field a consumer like `/ds-wrap` reads to capture "known CVEs" into memory entries without opening the report file - the work-stoppage identity of a Critical finding must be mechanically present in the return, not relocated to a file a downstream reader may never open. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what `scan_completeness`/`maintenance_signal`/the report file already convey; `notes` is explicitly scoped to scan gaps and human-judgment items (Phase 3/4 ambiguities), never to findings - `critical_findings` is always the home for CVE identity.
 
 ## Boundaries
 

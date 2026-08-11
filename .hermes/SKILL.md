@@ -906,13 +906,13 @@ Performance: Standard (single file write + optional binary shell-out).
 | `investigator` | Codebase investigation. Traces data flow, maps blast radius, explores unfamiliar areas before design or implementation. | No |
 | `debugger` | Root cause analysis. Given a failure, diagnoses what's wrong and produces a fix brief. | No |
 | `security-auditor` | OWASP-structured security review. Covers injection, auth, secrets, privilege escalation. | No |
-| `perf-analyst` | Performance profiling. Measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer. Does not implement fixes. | No |
+| `perf-analyst` | Performance profiling. Measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer. Does not implement fixes. | Yes (writes only its own `.agentic/audit-reports/perf-analyst-<run-id>.md` report; no Write/Edit grant) |
 | `product-discovery` | Facilitated discovery before architecture. Reframes the request to the underlying problem, identifies personas (including the counterparty), runs an attributed market scan, optionally pressure-tests with a PRFAQ, and stages a proposed vision.md + requirements.md. | Yes (stages proposals to docs/overview/_proposed/ only; never writes canonical docs/overview/) |
-| `dependency-auditor` | Supply-chain review. Runs vulnerability scanners across all detected ecosystems, audits lockfiles, flags license risks and maintenance signals. Produces a findings report for the engineer to execute. | No |
+| `dependency-auditor` | Supply-chain review. Runs vulnerability scanners across all detected ecosystems, audits lockfiles, flags license risks and maintenance signals. Produces a findings report for the engineer to execute. | Yes (writes only its own `.agentic/audit-reports/dependency-auditor-<run-id>.md` report; no Write/Edit grant) |
 | `release-orchestrator` | End-to-end release sequencing. Owns pre-flight gates, version bump, changelog, tag, deploy, and post-deploy verification. Writes version bumps and changelog entries; does not write feature code. | Yes |
 | `architect` | Pre-implementation design. Reads the codebase, produces a structured technical plan. | No |
 | `adr-generator` | Architectural Decision Record authoring. Gathers decision context, determines the next ADR number, and writes a structured ADR to `docs/adr/`. | Yes (writes ADR files to docs/adr/) |
-| `adr-drift-detector` | ADR compliance audit. Locates ADRs, extracts their decisions, searches the codebase for evidence of compliance or violation, and produces a structured drift report. | No |
+| `adr-drift-detector` | ADR compliance audit. Locates ADRs, extracts their decisions, searches the codebase for evidence of compliance or violation, and produces a structured drift report. | Yes (writes only its own `.agentic/audit-reports/adr-drift-detector-<run-id>.md` report; no Write/Edit grant) |
 | `orchestration-planner` | Team composition and sequencing. Given a goal, produces a structured execution plan: which agents to spawn, in what order, with what handoffs, and where Skeptic review is needed. | No |
 | `engineer` | Implements the change. Reads conventions, writes code, runs quality gates, reports clearly. | Yes |
 | `qa-engineer` | Post-Skeptic browser verification. Spawns after Skeptic sign-off when the diff matches QA trigger patterns in `.agentic/qa.md` (resolved via resolver: `.agentic/qa.md` preferred, legacy `.claude/qa.md` fallback). Verifies changes in a real browser, returns structured pass/fail report. Returns learned quirks as a `qa-knowledge-json` payload; the conductor appends them to the resolved qa.md's Knowledge section. | No (performs no file writes) |
@@ -6647,7 +6647,7 @@ The delegation decision is driven by risk, not by counting tool calls. Assess ri
 
 **When in doubt, use a general-purpose Worker.** The cost of over-provisioning agent capability is negligible. The cost of under-provisioning is silent protocol degradation.
 
-**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`, `goal-condition-evaluator`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; `qa-engineer` writes evidence artifacts for its QA scenarios via Bash, but does not use the `Write` tool - its durable methodology output is a `qa-knowledge-json` payload returned in its report text, which the conductor appends to `.agentic/qa.md`.)
+**Two-lock read-only contract.** Read-only agents (`architect`, `investigator`, `skeptic`, `qa-engineer`, `debugger`, `security-auditor`, `orchestration-planner`, `perf-analyst`, `dependency-auditor`, `adr-drift-detector`, `goal-condition-evaluator`) are kept read-only by two independent mechanisms: (1) `Edit`/`Write`/`Agent` are omitted from their `tools:` grant, and (2) those same tools are listed in each spec's `disallowedTools:` frontmatter. Lock (2) is enforced by Claude Code's classifier-before-spawn (subagent spawns are evaluated against permission rules before launch), so even if a future edit mistakenly adds `Edit` to one of these specs, the spawn is still blocked. `Agent` is denied on every read-only agent as config-drift insurance: no subagent spawns subagents, and the `disallowedTools` entry makes that mechanical rather than convention. (The per-spec boilerplate "Note on `tools`" wording about using `Edit`/`Write` "as needed" does not apply to these locked agents; several of them write files via Bash without ever holding the `Write` tool - `qa-engineer` writes evidence artifacts for its QA scenarios (its durable methodology output is a `qa-knowledge-json` payload returned in its report text, which the conductor appends to `.agentic/qa.md`); `adr-drift-detector`, `dependency-auditor`, and `perf-analyst` each write their own full report to a single file under `.agentic/audit-reports/` via a Bash heredoc, scoped to that one path, and return only a small pointer object referencing it.)
 
 ### Rule 5 — The Skeptic Protocol is orchestrated by the main agent
 
@@ -7128,21 +7128,34 @@ repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
 always present versus optional - is exactly that kind of rule. It does not
 yet exist as a widespread per-agent restatement: verified against the
-live tree, of the 18 files under `content/agents/*.md`, 2 carry some
+live tree, of the 18 files under `content/agents/*.md`, 4 carry some
 form of a "don't omit" instruction - `architect.md` carries a
-section-scoped "Do not omit the block" for its `qa_criteria` section, and
+section-scoped "Do not omit the block" for its `qa_criteria` section,
 `skeptic.md` carries a narrower, LINE-scoped instance ("Never omit the
-'Active search:' line"). `debugger.md` and `investigator.md` previously
-carried the section-scoped form too, but Unit 1 of this migration deleted
-both as the direct source of their always-present empty sections;
-`adr-drift-detector.md` and `perf-analyst.md` previously carried it too
-("do not omit the section" and "Do not skip sections" respectively), but
-Unit 4 of this migration deleted both when retiring their free-prose
-report shape for the pointer-JSON Shape 2 return. Filenames only,
-deliberately - a line-number citation drifts on the next unrelated edit
-to any of these files, and this passage has already gone stale once from
-exactly that. This file single-sources that concern going forward, before
-it spreads further as an ad hoc per-agent restatement.
+'Active search:' line"), `adr-generator.md` carries a section-scoped
+instance ("Do not skip sections or use placeholders"), and `debugger.md`
+carries a distinct FIELD-scoped instance ("Never omit the location" in
+its Root cause section) - separate from, and never removed by, the
+section-scoped "always output every section" boilerplate that Unit 1 of
+this migration deleted from `debugger.md` and `investigator.md` as the
+direct source of their always-present empty sections. That deletion is
+why earlier revisions of this paragraph undercounted `debugger.md`:
+the field-scoped line at line 107 was never the deleted instruction and
+survived Unit 1 untouched. `adr-drift-detector.md` and `perf-analyst.md`
+previously carried the section-scoped form too ("do not omit the
+section" and "Do not skip sections" respectively), but Unit 4 of this
+migration deleted both when retiring their free-prose report shape for
+the pointer-JSON Shape 2 return. Filenames only, deliberately - a
+line-number citation drifts on the next unrelated edit to any of these
+files, and this passage has already gone stale once from exactly that.
+This file single-sources that concern going forward, before it spreads
+further as an ad hoc per-agent restatement. This count has now been
+wrong or arguably-wrong in three consecutive PRs; it is mechanically
+pinned by `test_dont_omit_instruction_count_matches_prose` in
+`bin/tests/test_agent_return_contract_spec.py`, which greps every
+`content/agents/*.md` file for the pattern and asserts the exact file
+set - update both this paragraph and that test's `expected` set together
+on any future change to either.
 
 Every one of `content/agents/*.md`'s return-contract sections should carry
 a **one-line pointer** to this file, never a restated copy of the test
@@ -7351,11 +7364,10 @@ every `SHAPE_ASSIGNMENTS` file, asserted verbatim by
 reviewed update procedure (never a silent one-command refresh). Per-shape
 summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
 
-- **Shape 1** (tag every `###` field): `dependency-auditor.md`,
-  `perf-analyst.md`, `product-discovery.md`, `qa-engineer.md` - not yet
-  migrated. `architect.md`, `debugger.md`, `investigator.md`,
-  `orchestration-planner.md`, and `security-auditor.md` are now fully
-  migrated and compliant: every `###` field is tagged
+- **Shape 1** (tag every `###` field): `product-discovery.md`,
+  `qa-engineer.md` - not yet migrated. `architect.md`, `debugger.md`,
+  `investigator.md`, `orchestration-planner.md`, and `security-auditor.md`
+  are now fully migrated and compliant: every `###` field is tagged
   `[MECHANICAL, cap: <N> ...]`/`[MECHANICAL, enum]`, the boilerplate
   "never omit any section" rule was deleted from each file's own Rules
   section (where one existed), and each file's status/narration fields
@@ -7365,19 +7377,25 @@ summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
   `investigator.md` also gained a `coverage: complete | partial | blocked`
   enum field; `security-auditor.md` gained a
   `dependency_scan: clean | cves_found | not_run` enum field.
+  `dependency-auditor.md` and `perf-analyst.md` migrated OUT of Shape 1
+  entirely (Unit 4) - see Shape 2 below.
 - **Shape 2** (schema-object): `engineer.md`, `learning-extractor.md`,
-  `learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md` have a
-  real structured return (under a `### N. Return` workflow sub-step or a
-  non-synonym `##` phase heading) but are not yet migrated to this
-  shape's enum/cap obligation. `engineer.md` now carries FOUR genuine
-  violations, not one - round 6's Major-1 fix (a bare type declaration is
-  not itself a bound) correctly re-flags `task_id` (`<string or null>`)
-  and `branch_name` (`<string, or null>`), and round 6's Major-2 fix
-  (schema/doc-pointer form deleted outright) correctly re-flags
-  `learnings_candidate`, alongside the pre-existing `pr_description_body`
-  gap. Round 5's `files_modified.path` (`<repo-relative path>`) fix
-  stands unchanged - it is a genuine bounded-by-nature value literal and
-  is still not flagged.
+  `learnings-agent.md`, `wrap-ticket.md` have a real structured return
+  (under a `### N. Return` workflow sub-step or a non-synonym `##` phase
+  heading) but are not yet migrated to this shape's enum/cap obligation.
+  `engineer.md` now carries FOUR genuine violations, not one - round 6's
+  Major-1 fix (a bare type declaration is not itself a bound) correctly
+  re-flags `task_id` (`<string or null>`) and `branch_name` (`<string, or
+  null>`), and round 6's Major-2 fix (schema/doc-pointer form deleted
+  outright) correctly re-flags `learnings_candidate`, alongside the
+  pre-existing `pr_description_body` gap. Round 5's `files_modified.path`
+  (`<repo-relative path>`) fix stands unchanged - it is a genuine
+  bounded-by-nature value literal and is still not flagged.
+  `adr-drift-detector.md`, `dependency-auditor.md`, and `perf-analyst.md`
+  (Unit 4) are now fully migrated and compliant: each writes its full
+  human-readable report to a `.agentic/audit-reports/` file via a Bash
+  heredoc and returns only a small, fully enum/cap-tagged pointer JSON
+  object - zero violations in the current snapshot for all three.
 - **Shape 3** (fixed literal-line template): `skeptic.md` is now fully
   compliant - Unit 1 added one narrow, additive cap declaration on
   finding-description length (300 chars) to the Calibration section,
@@ -7394,14 +7412,13 @@ summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
   line (see "Shape 3" above) and is no longer flagged. Its Evidence-value
   gap remains genuine and unmigrated - Unit 1 scoped `skeptic.md` only.
 - **Shape 4** (markdown-sectioned flat report): `release-orchestrator.md`
-  carries THREE genuine violations, not two as earlier claimed - an
-  explicit cap on its "Failures and blockers" free-text section, a bound
-  on its "QA report" placeholder (`<summary or "see spawned qa-engineer
-  output">`), and (round 6 Minor fix) a bound on its `<message>`
-  placeholder in the commit-listing lines under "What shipped" (appears
-  twice) - a commit message is not bounded by nature the way a SHA/URL/
-  timestamp/tag is, so `message`/`commit message` were removed from the
-  bounded-by-nature-value-literal vocabulary.
+  is now fully compliant, zero violations (Unit 4 narrowed fix) - its
+  previously-flagged `<message>` placeholder in the commit-listing lines
+  under "What shipped" (appears twice) now carries an explicit cap,
+  closing out the last of the three genuine violations from the prior
+  round (an explicit cap on its "Failures and blockers" free-text
+  section, a bound on its "QA report" placeholder, and this `<message>`
+  bound).
 - **Exempt** (file-artifact output, not a return payload): `adr-generator.md`
   - its deliverable is the generated ADR document itself, not a
   conductor-parsed return.
@@ -8595,13 +8612,13 @@ Based on gathered evidence, assign one classification:
 
 ## Phase 6: Produce the Drift Report
 
-Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - normatively, `.agentic/` is the only path this agent's Bash use is permitted to create files under, not an enforced permission-layer restriction), then return only the small pointer JSON below. Do not print the full report to stdout.
 
 ```bash
 mkdir -p .agentic/audit-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 REPORT_PATH=".agentic/audit-reports/adr-drift-detector-${RUN_ID}.md"
-cat > "$REPORT_PATH" <<'EOF'
+cat > "$REPORT_PATH" <<"EOF_${RUN_ID}"
 # ADR Drift Report
 *Generated: [YYYY-MM-DD] | Project: [project name]*
 *ADRs audited: N | Followed: N | Violated: N | Partial: N | Unverifiable: N*
@@ -8657,7 +8674,7 @@ cat > "$REPORT_PATH" <<'EOF'
 - **ADR-[N]: [Title]** - Status: Deprecated
 
 [or write "None" if there are none]
-EOF
+EOF_${RUN_ID}
 ```
 
 Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent audits) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
@@ -8690,7 +8707,7 @@ Return this pointer object as the agent's final output:
 - If a dependency file (package.json, etc.) does not exist, note this for any ADR that required a dependency check, and factor it into the classification.
 - Today's date for the report header: use Bash `date +%Y-%m-%d` to get the current date.
 - No `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to the drift report is unread output. Put an incidental discovery in `notes`, where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
-- For each Superseded ADR: check whether the file named in `superseded_by` (if present) actually exists in the ADR directory. If it does not, flag it in the Skipped entry: "⚠️ Superseding file [filename] not found in ADR directory".
+- For each Superseded ADR: check whether the file named in `superseded_by` (if present) actually exists in the ADR directory. If it does not, flag it in the Skipped entry: "Superseding file [filename] not found in ADR directory".
 
 ---
 
@@ -9472,6 +9489,13 @@ For each direct dependency flagged in Phase 2 or 3, and for any dep in upgrade-d
 - README or repository stating the project is unmaintained
 - Zero releases in the last 2 years with active issue reports
 
+**Per-package classification.** Classify each dependency assessed in this phase (the same set as the phase's opening sentence: direct deps flagged in Phase 2/3, plus any dep in upgrade-diff scope) into exactly one of:
+- **`abandoned`**: any abandonment signal above is present (deprecated flag, explicit unmaintained statement, or zero releases in 2+ years with active issue reports).
+- **`stale`**: no abandonment signal, but no release in 24+ months (the "Last release date" check above), or the registry/release-date check could not be completed for this package.
+- **`healthy`**: a release within the last 24 months and no abandonment signal.
+
+**Aggregation to the single `maintenance_signal` return field.** Take the WORST classification across every package assessed this phase - `abandoned` if any assessed package is `abandoned`, else `stale` if any assessed package is `stale`, else `healthy`. This mirrors `scan_completeness`'s worst-case-wins shape and the same false-confidence rationale: a single `healthy` package must never mask an `abandoned` one. If Phase 4 assessed zero packages (nothing was flagged in Phase 2/3 and scope is not upgrade-diff), report `maintenance_signal: healthy` (vacuously - nothing was found to be a maintenance risk).
+
 **Typosquat risk (for new dependencies only - upgrade-diff mode or single-dep mode):**
 
 Do not compare against "top-1000 packages" from model memory - that is hallucination risk. Use only what the registry CLI tools can return:
@@ -9499,13 +9523,13 @@ Flag every new direct dependency for typosquat check (Phase 4).
 
 ## Report structure
 
-Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - normatively, `.agentic/` is the only path this agent's Bash use is permitted to create files under, not an enforced permission-layer restriction), then return only the small pointer JSON below. Do not print the full report to stdout.
 
 ```bash
 mkdir -p .agentic/audit-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 REPORT_PATH=".agentic/audit-reports/dependency-auditor-${RUN_ID}.md"
-cat > "$REPORT_PATH" <<'EOF'
+cat > "$REPORT_PATH" <<"EOF_${RUN_ID}"
 ## Dependency Audit Report
 
 *Date: [YYYY-MM-DD] | Project: [project name or root path]*
@@ -9539,14 +9563,16 @@ cat > "$REPORT_PATH" <<'EOF'
 [If no upgrades needed: "No upgrades required."]
 
 ### Open questions
-[Items requiring human judgment: ambiguous license constraints, typosquat candidates needing manual verification, scan gaps where a tool was unavailable.]
+[The full, unbounded list of items requiring human judgment: ambiguous license constraints, typosquat candidates needing manual verification, scan gaps where a tool was unavailable. This section is the file-only record - do not treat it as duplicating the pointer's `notes` field; see the precedence rule below the heredoc.]
 [Or: "None"]
-EOF
+EOF_${RUN_ID}
 ```
 
 Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent audits) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
 
-`scan_completeness` replaces the old free-text "Scan gaps" section as the coverage signal: set `full` when every detected ecosystem's vulnerability tool ran cleanly, `partial` when at least one detected ecosystem's tool errored or was missing but at least one ecosystem was still checked, `blocked` when no vulnerability tool could be run for any detected ecosystem at all. A `clean` verdict from a `partial` or `blocked` scan is a false-confidence risk - never report `verdict: clean` without also reporting the true `scan_completeness`. Fold which ecosystem/tool was unavailable, and any items needing human judgment (ambiguous license constraints, typosquat candidates needing manual verification), into `notes`.
+`scan_completeness` replaces the old free-text "Scan gaps" section as the coverage signal: set `full` when every detected ecosystem's vulnerability tool ran cleanly, `partial` when at least one detected ecosystem's tool errored or was missing but at least one ecosystem was still checked, `blocked` when no vulnerability tool could be run for any detected ecosystem at all. A `clean` verdict from a `partial` or `blocked` scan is a false-confidence risk - never report `verdict: clean` without also reporting the true `scan_completeness`.
+
+**Precedence: `### Open questions` (file) vs `notes` (pointer).** These are not two homes for the same content. `### Open questions` in the written report is the full, unbounded record of every item needing human judgment - always include every item there in full, regardless of `notes`'s cap. `notes` is a SEPARATE, capped (300 chars) advisory field at the pointer level: use it only to flag that open questions exist and give the single most important one, when that is worth surfacing without opening the report file (e.g. "3 open questions incl. 1 typosquat candidate needing manual verification - see report"). `notes` is omitted entirely when there is nothing worth surfacing at the pointer level, even if `### Open questions` in the file is non-empty.
 
 Return this pointer object as the agent's final output:
 
@@ -9555,6 +9581,7 @@ Return this pointer object as the agent's final output:
   "critical_count": <count>,
   "major_count": <count>,
   "minor_count": <count>,
+  "critical_findings": ["capped at 5 items, each capped at 80 chars: 'CVE-XXXX-XXXXX pkg-name@version'"],
   "scan_completeness": "full | partial | blocked",
   "maintenance_signal": "healthy | stale | abandoned",
   "verdict": "clean | findings_present",
@@ -9563,7 +9590,7 @@ Return this pointer object as the agent's final output:
 }
 ```
 
-`report_path` is the exact `$REPORT_PATH` written above. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what `scan_completeness`/`maintenance_signal`/the report file already convey.
+`report_path` is the exact `$REPORT_PATH` written above. `critical_findings` is a MECHANICAL field, not advisory: it carries the CVE identity + affected package for each Critical finding, capped at 5 items (one per line, `<CVE-or-advisory-ID> <package-name>@<version>`, 80 chars each - truncate the tail if longer). It is present only when `critical_count > 0`, omitted entirely otherwise (never an empty array). This is the field a consumer like `/ds-wrap` reads to capture "known CVEs" into memory entries without opening the report file - the work-stoppage identity of a Critical finding must be mechanically present in the return, not relocated to a file a downstream reader may never open. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what `scan_completeness`/`maintenance_signal`/the report file already convey; `notes` is explicitly scoped to scan gaps and human-judgment items (Phase 3/4 ambiguities), never to findings - `critical_findings` is always the home for CVE identity.
 
 ## Boundaries
 
@@ -10825,13 +10852,13 @@ Do not guess at a root cause when you cannot measure.
 
 ## Report structure
 
-Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - normatively, `.agentic/` is the only path this agent's Bash use is permitted to create files under, not an enforced permission-layer restriction), then return only the small pointer JSON below. Do not print the full report to stdout.
 
 ```bash
 mkdir -p .agentic/audit-reports
 RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
 REPORT_PATH=".agentic/audit-reports/perf-analyst-${RUN_ID}.md"
-cat > "$REPORT_PATH" <<'EOF'
+cat > "$REPORT_PATH" <<"EOF_${RUN_ID}"
 ## Perf Analysis: [one-line description of what was profiled]
 
 ### Summary
@@ -10872,7 +10899,7 @@ cat > "$REPORT_PATH" <<'EOF'
 - [Measurement or profiling output line that supports this finding]
 - [Second measurement or log excerpt]
 - [...]
-EOF
+EOF_${RUN_ID}
 ```
 
 Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent analyses) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
@@ -10884,7 +10911,7 @@ Return this pointer object as the agent's final output:
 ```json
 {
   "verdict": "pass | fail | no_budget_defined",
-  "hotspot": "capped at 200 chars",
+  "hotspot": "capped at 200 chars: location + measured cost, e.g. 'foo.py:42 (N+1 query) - 340ms avg, 62% of request time'",
   "root_cause": "capped at 500 chars",
   "fix_brief": "capped at 800 chars",
   "confidence": "High | Medium | Low",
@@ -10893,7 +10920,7 @@ Return this pointer object as the agent's final output:
 }
 ```
 
-`report_path` is the exact `$REPORT_PATH` written above. `root_cause` and `fix_brief` are the direct decision inputs for the next engineer spawn - same caps as debugger's Root cause/Fix brief fields, and the same escalation rule: if `confidence` is `Low` or root cause is an unverified hypothesis, `fix_brief` states "Do not implement until root cause is confirmed with a second measurement." instead of concrete steps. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what the other fields and the report file already convey.
+`hotspot` is a MECHANICAL field, not advisory: it MUST embed the measured cost (the "X% of total time / Y MB of peak memory" figure from the Hotspot section), not just the location - this is the field a consumer like `/ds-wrap` reads to capture "confirmed hotspots with measurements" into memory entries without opening the report file. A hotspot value naming only a file:line with no number attached is incomplete. `report_path` is the exact `$REPORT_PATH` written above. `root_cause` and `fix_brief` are the direct decision inputs for the next engineer spawn - same caps as debugger's Root cause/Fix brief fields, and the same escalation rule: if `confidence` is `Low` or root cause is an unverified hypothesis, `fix_brief` states "Do not implement until root cause is confirmed with a second measurement." instead of concrete steps. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what the other fields and the report file already convey.
 
 ## Confidence levels
 
@@ -22409,7 +22436,7 @@ Using the batch results:
 - **Do NOT read `.agentic/learnings.md` here** - only its existence was probed above (see the batch script). Only the standard path, and the zero-substance path's staging-drain exception (Step 0.5), ever spawn a draft Worker that needs this content; the light path and the ordinary zero-substance path never do. Reading it unconditionally in Step 0 would pay a large read (the file is a growing, unbounded knowledge log) on every route including the two that discard it unused. The full content is read later, immediately before spawning a draft Worker, per the note at Step 1 below - conditioned on the route already determined by Step 0.5, not on a re-evaluation of Step 0.5's criteria. (Tripwire for a future editor: "the light path never spawns a draft Worker" holds only because the light-path trigger below disqualifies non-empty `.agentic/memory.md` staging from ever reaching route `R_LIGHT`, not because of the route partition alone - `bin/tests/reach_model.py`'s `executes_part_b_step0` returns `True` for `R_LIGHT` with non-empty staging (`s=1`), a state that trigger disqualifier makes unreachable today. If that disqualifier is ever loosened, re-verify this read gate against the model before trusting this bullet.)
 - **Check for missing AGENTS.md files:** For each directory that had files touched this session, use the batch's existence probe above rather than a separate check. Skip generated/artifact directories (`node_modules`, `.next`, `dist`, `out`, `build`, `.expo`, `.turbo`, `coverage`, `.cache`, `__pycache__`, `.git`). For each non-generated directory the probe found missing an AGENTS.md, note it as a **new AGENTS.md candidate** and include it explicitly in the raw data passed to the draft Worker. The Worker will propose content for these new files; the conductor will create them automatically without asking the user.
 - **Reuse `git status --porcelain` and `git stash list` from Step 0-pre** (do not re-run) to capture uncommitted changes and stashes. If there are uncommitted tracked files (M, A, D - not ??), list them explicitly. This is critical for preventing work loss across sessions - if the user asked to commit and files were missed, this is the safety net.
-- **Note specialist agent outputs** — if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings: stable facts (confirmed hotspots with measurements, release version and tag, known CVEs) belong in memory.md entries; session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
+- **Note specialist agent outputs** - if `perf-analyst`, `release-orchestrator`, or `dependency-auditor` ran this session, capture their key findings from the pointer return already in context (no new mechanism, do not open the report file): stable facts belong in memory.md entries - `perf-analyst`'s `hotspot` field (confirmed hotspot with its measured cost), `release-orchestrator`'s release version and tag, and `dependency-auditor`'s `critical_findings` array (known CVEs + affected package, present when `critical_count > 0`); session-scoped issues (a partial deploy, a perf regression under investigation, an unresolved dependency conflict) belong in Watch Out For.
 - **Note Trivial commits** — if any commits this session were classified Trivial, include them in "files touched" and "next steps" as normal. Trivial commits produce no Skeptic artifact and no adversarial brief - do not flag their absence as a gap. Only note the commit SHA and what changed.
 - **Note task-state summary** - if `.agentic/tasks.jsonl` exists, apply the **task-state fold** (`content/references/task-state-file.md`) and filter the **folded records** whose `session_id` is the current session - not a raw-line filter, which double-counts a task that was taken over: a dispossessed task's own records still carry this session's `session_id` even though the fold has moved ownership elsewhere. Include in the session wrap summary: final task status counts (N done, N blocked, N failed, N abandoned) over that filtered folded set. Do NOT copy task entries into MEMORY.md - they are already durable in the file.
 - **Note loop-state summary** — loop state is keyed per ticket, so enumerate every `.agentic/loop-state-*.json` **plus** the legacy `.agentic/loop-state.json`, and consider only those whose `session_id == $CLAUDE_CODE_SESSION_ID`. **The `session_id` filter is required, not optional:** it needed no gate in a one-file world, but a keyed checkout routinely holds another session's healthy in-flight loop, and reporting that as this session's incomplete loop is a false alarm on every wrap. For each surviving candidate: if `status=active`, note in the wrap summary that an incomplete loop was active when `/ds-wrap` ran (the conductor should investigate before ending the session); if `status=interrupted`, note a pending resume is available (the next `/ds-implement-ticket` invocation on that ticket will offer to resume). Name the candidate by its `loop_key` (falling back to `ticket_id`, then to the filename) so the note identifies which ticket. The wrap command does NOT delete or modify any loop-state file, keyed or legacy - that is the user's choice (resume vs fresh-start). Do NOT copy loop state details into MEMORY.md or `_wrap.md` beyond the one-line status note.

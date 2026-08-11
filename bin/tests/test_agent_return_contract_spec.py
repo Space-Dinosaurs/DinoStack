@@ -1745,6 +1745,34 @@ def test_shape2_adr_drift_detector_is_now_compliant():
     assert violations == [], violations
 
 
+# --- "Don't omit" instruction count pin (round-2 rework of Unit 4) ---
+
+DONT_OMIT_PATTERN = re.compile(
+    r"never omit|do not omit|don't omit|do not skip sections?", re.IGNORECASE
+)
+
+
+def test_dont_omit_instruction_count_matches_prose():
+    """subagent-return-contract.md's 'Why this file exists' section states
+    an exact count and file set of content/agents/*.md files still
+    carrying some form of a "don't omit" instruction. That count has been
+    wrong or arguably-wrong across three consecutive PRs (undercounting
+    debugger.md's distinct field-scoped 'Never omit the location' line and
+    missing adr-generator.md's 'Do not skip sections' entirely). This
+    grep-based pin catches drift mechanically instead of relying on manual
+    re-verification: update both this test's `expected` set and the prose
+    paragraph together whenever either changes."""
+    hits = {
+        path.name
+        for path in AGENTS_DIR.glob("*.md")
+        if DONT_OMIT_PATTERN.search(path.read_text())
+    }
+    expected = {"architect.md", "skeptic.md", "debugger.md", "adr-generator.md"}
+    assert hits == expected, (
+        f"missing: {sorted(expected - hits)}; unexpected: {sorted(hits - expected)}"
+    )
+
+
 # --- Real content/agents/*.md enforcement (round-5 snapshot model) ---
 
 
