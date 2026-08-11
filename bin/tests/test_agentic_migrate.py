@@ -663,6 +663,53 @@ class TestInitProjectStep9NegationBlock(unittest.TestCase):
         self.assertNotIn("!.agentic/preferences.json", block)
         self.assertIn(".agentic/preferences.json", block)
 
+    def test_negation_set_matches_manifest_negation_set(self):
+        """The Step 9 block's `!.agentic/<file>` negations (the "tracked, not
+        ignored" set for NEW projects) and content/project-scaffolding.yml's
+        `!.agentic/<file>` negations (the same set for the ds-migrate adoption
+        path on EXISTING projects) must name the same files. The two paths use
+        different gitignore strategies - Step 9 is a targeted denylist with no
+        umbrella, ds-migrate seeds a full `.agentic/*` umbrella and negates -
+        so their *ignore* lists need not match line-for-line, but a file this
+        methodology intends to keep tracked must be tracked on both paths, or
+        a project scaffolded fresh and a project migrated in place would
+        silently disagree on what gets committed."""
+        # Manifest-only detail: the umbrella model needs a SEPARATE
+        # `!<dir>/**` negation to re-include a negated directory's contents
+        # (git does not recurse into a re-included directory's files under
+        # `!<dir>/` alone when the parent was excluded via `<dir>/*`); the
+        # Step 9 targeted-denylist model has no umbrella to recurse past, so
+        # it never needs the `/**` form. Strip that suffix before comparing
+        # so this legitimate strategy difference isn't flagged as drift.
+        def _normalize(pattern: str) -> str:
+            if pattern.endswith("/**"):
+                pattern = pattern[: -len("/**")]
+            return pattern.rstrip("/")
+
+        block = self._step9_block()
+        step9_negations = {
+            _normalize(line.strip()[1:])  # drop leading "!"
+            for line in block.splitlines()
+            if line.strip().startswith("!.agentic/")
+        }
+        self.assertTrue(step9_negations, "Step 9 block must declare at least one negation")
+
+        manifest_text = Path(MANIFEST).read_text(encoding="utf-8")
+        manifest_negations = {
+            _normalize(m[1:])  # drop leading "!"
+            for m in re.findall(r'- pattern:\s*"(!\.agentic/[^"]+)"', manifest_text)
+        }
+        self.assertTrue(manifest_negations, "manifest must declare at least one negation")
+
+        self.assertEqual(
+            step9_negations, manifest_negations,
+            "Step 9's tracked-file negation set and project-scaffolding.yml's "
+            "negation set have drifted apart - a project scaffolded via "
+            "/ds-init-project and one migrated via ds-migrate would now "
+            "commit a different set of .agentic/ files. Update whichever "
+            "list is missing an entry.",
+        )
+
 
 class TestGitignoreInsertByteBehavior(unittest.TestCase):
     """Major 1 regression: the insert-above-negation branch of

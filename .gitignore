@@ -26,8 +26,6 @@ node_modules/
 # apply to this repo. Root-anchored (leading slash) so it matches only the repo's
 # own .agentic/ and never nested template .agentic/ dirs shipped to consumers.
 /.agentic/*
-# team.yml is committed project intent (cross-harness team topology)
-!/.agentic/team.yml
 
 # oh-my-claude runtime/session state - machine-local, never committed
 # (was accidentally committed in #256; leaked a contributor's local paths).
