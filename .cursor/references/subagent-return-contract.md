@@ -270,10 +270,10 @@ every `SHAPE_ASSIGNMENTS` file, asserted verbatim by
 reviewed update procedure (never a silent one-command refresh). Per-shape
 summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
 
-- **Shape 1** (tag every `###` field): `product-discovery.md`,
-  `qa-engineer.md` - not yet migrated. `architect.md`, `debugger.md`,
-  `investigator.md`, `orchestration-planner.md`, and `security-auditor.md`
-  are now fully migrated and compliant: every `###` field is tagged
+- **Shape 1** (tag every `###` field): `product-discovery.md` - not yet
+  migrated. `architect.md`, `debugger.md`, `investigator.md`,
+  `orchestration-planner.md`, and `security-auditor.md` are now fully
+  migrated and compliant: every `###` field is tagged
   `[MECHANICAL, cap: <N> ...]`/`[MECHANICAL, enum]`, the boilerplate
   "never omit any section" rule was deleted from each file's own Rules
   section (where one existed), and each file's status/narration fields
@@ -284,7 +284,8 @@ summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
   enum field; `security-auditor.md` gained a
   `dependency_scan: clean | cves_found | not_run` enum field.
   `dependency-auditor.md` and `perf-analyst.md` migrated OUT of Shape 1
-  entirely (Unit 4) - see Shape 2 below.
+  entirely (Unit 4); `qa-engineer.md` migrated OUT of Shape 1 entirely
+  (Unit 3) - see Shape 2 below.
 - **Shape 2** (schema-object): `engineer.md`, `learning-extractor.md`,
   `learnings-agent.md`, `wrap-ticket.md` have a real structured return
   (under a `### N. Return` workflow sub-step or a non-synonym `##` phase
@@ -302,6 +303,12 @@ summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
   human-readable report to a `.agentic/audit-reports/` file via a Bash
   heredoc and returns only a small, fully enum/cap-tagged pointer JSON
   object - zero violations in the current snapshot for all three.
+  `qa-engineer.md` (Unit 3) is now fully migrated and compliant: it
+  writes its full human-readable report and a screenshot-evidence JSON
+  file to `.agentic/qa-reports/` via a Bash heredoc and returns only a
+  small, fully enum/cap-tagged pointer JSON object (`result`, `criteria[]`,
+  `blocking_count`, `server_status`, `auth`, `screenshot_evidence_json_path`,
+  `report_path`, `notes`) - zero violations in the current snapshot.
 - **Shape 3** (fixed literal-line template): `skeptic.md` is now fully
   compliant - Unit 1 added one narrow, additive cap declaration on
   finding-description length (300 chars) to the Calibration section,

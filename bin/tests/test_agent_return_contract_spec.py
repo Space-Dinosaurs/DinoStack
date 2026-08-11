@@ -370,7 +370,6 @@ SHAPE_ASSIGNMENTS = {
     "investigator.md": 1,
     "orchestration-planner.md": 1,
     "product-discovery.md": 1,
-    "qa-engineer.md": 1,
     "security-auditor.md": 1,
     # Shape 2 - structured schema-object return.
     "engineer.md": 2,
@@ -380,6 +379,7 @@ SHAPE_ASSIGNMENTS = {
     "adr-drift-detector.md": 2,
     "dependency-auditor.md": 2,
     "perf-analyst.md": 2,
+    "qa-engineer.md": 2,
     # Shape 3 - fixed literal-line template.
     "goal-condition-evaluator.md": 3,
     "skeptic.md": 3,
@@ -1957,7 +1957,12 @@ def test_fully_compliant_files_are_exactly_the_snapshot_empty_set():
     report shape for the pointer-JSON Shape 2 return (report written to
     .agentic/audit-reports/ via Bash heredoc - none of the three has a
     Write/Edit grant); release-orchestrator.md added an explicit cap to
-    its three previously-unbounded Shape-4 placeholders. A future
+    its three previously-unbounded Shape-4 placeholders. Unit 3 (same
+    migration) grew it by one more: qa-engineer.md moved from Shape 1 to
+    Shape 2, retiring its 6-near-duplicate free-prose report shape for
+    the pointer-JSON Shape 2 return (report + screenshot-evidence JSON
+    written to .agentic/qa-reports/ via Bash heredoc - no Write/Edit
+    grant; SHAPE_ASSIGNMENTS updated to 2 in the same change). A future
     migration legitimately grows this set further; this test exists so
     that growth is asserted explicitly rather than assumed."""
     compliant_now = {name for name, v in EXPECTED_VIOLATIONS.items() if v == []}
@@ -1972,4 +1977,5 @@ def test_fully_compliant_files_are_exactly_the_snapshot_empty_set():
         "perf-analyst.md",
         "adr-drift-detector.md",
         "release-orchestrator.md",
+        "qa-engineer.md",
     }, f"unexpected 'compliant now' set: {sorted(compliant_now)}"
