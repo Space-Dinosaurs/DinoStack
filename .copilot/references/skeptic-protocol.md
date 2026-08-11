@@ -686,7 +686,7 @@ Further conditional elements are required only when their triggering condition h
 - (f) PR-review SHA range: for PR reviews specifically, the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
 - (i) Prose-scoped re-check `Scope:` line: when the conductor spawned a prose-scoped re-check (§Prose-scoped re-check), the sign-off must include the `Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)` line (see content/agents/skeptic.md §Sign-off format). A scoped sign-off that omits this line is format-noncompliant and triggers the same format re-invocation - its absence is exactly what would make a scoped review indistinguishable from a full pass.
 
-Reviews that are neither PR reviews nor spec-deviation-downgrade reviews - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e) and (f) do not apply, and their absence is not format-noncompliant for those reviews.
+Reviews for which none of the conditional triggers hold - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e), (f), and (i) do not apply, and their absence is not format-noncompliant for those reviews.
 
 **Format re-invocation limit:** Format re-invocations are limited to 3 attempts. If the Skeptic's response remains format-noncompliant after 3 re-invocations, the primary agent escalates to the human with the last Skeptic response verbatim.
 
