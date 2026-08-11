@@ -17,9 +17,9 @@
 #          (c) a true no-op (single entry, already current) does not reset
 #          an operator's customized hook timeout.
 #
-#          NOTE: this file's run/invocation counts have gone stale THREE
-#          TIMES across three edits (each addition changed the actual count
-#          without updating every place a count was asserted). Do not
+#          NOTE: this file's run/invocation counts have gone stale
+#          repeatedly (each addition changed the actual count without
+#          updating every place a count was asserted). Do not
 #          reintroduce a hardcoded count anywhere in this header or below -
 #          derive it live with `grep -c '^\s*if _run_install' "$0"` (or
 #          equivalent) if a count is ever genuinely needed, never restate it
@@ -39,14 +39,14 @@
 #                install.sh/uninstall.sh still builds/runs against the REAL
 #                checkout (like bin/tests/test_kimi_install_symlink.sh) -
 #                only $HOME is sandboxed, and these real-tree effects are
-#                NOT limited to the .claude uninstall.sh call: EVERY
-#                `_run_install` invocation in this file (grep `_run_install`
-#                for the current call sites and their adapters - do not
-#                trust a hardcoded count or list here, see the NOTE above)
-#                calls install_precommit_hook (writes
-#                <repo>/.git/hooks/pre-commit) and runs .claude/build.sh +
-#                .cursor/build.sh (regenerates adapter build artifacts in
-#                the live tree) - same three effects documented in
+#                NOT limited to the .claude uninstall.sh call: every
+#                `.claude/install.sh` invocation in this file calls
+#                `install_precommit_hook` (writes <repo>/.git/hooks/pre-commit)
+#                and runs `.claude/build.sh` + `.cursor/build.sh`; the
+#                `.gemini`/`.codex`/`.kimi` invocations run only their own
+#                adapter's `build.sh`. Grep `_run_install` for the current
+#                call sites. These same effects (regenerating adapter build
+#                artifacts in the live tree) are also documented in
 #                bin/tests/test_local_bin_ds_prefix_install.sh; empirically
 #                idempotent, but none of these runs are read-only. On top
 #                of that, the .claude section's uninstall.sh run (below)
@@ -668,6 +668,58 @@ if [[ "$CUSTOM_TIMEOUT_AFTER" == "30" ]]; then
   _pass "claude (custom timeout): already-current no-op does not reset an operator's customized timeout"
 else
   _fail "claude (custom timeout): expected timeout=30 preserved, got '$CUSTOM_TIMEOUT_AFTER'"
+fi
+
+# (d) the was_current no-op branch DOES repair a missing "type" key (via
+#     setdefault) while still leaving a present timeout untouched - Skeptic
+#     round 5 Minor 2. Seed an entry with the CURRENT RISK_CMD and a
+#     customized timeout but NO "type" key at all.
+HOME_CLAUDE_MISSING_TYPE="$TMP_ROOT/home-claude-missing-type"
+mkdir -p "$HOME_CLAUDE_MISSING_TYPE/.claude"
+
+python3 -c "
+import json, re, sys
+
+def extract_risk_cmd(path):
+    src = open(path).read()
+    m = re.search(r'^RISK_CMD = \(\n(.*?)\n\)\n', src, re.M | re.S)
+    QSTR = r'\"(?:[^\"\\\\]|\\\\.)*\"'
+    return ''.join(s[1:-1] for s in re.findall(QSTR, m.group(1)))
+
+risk_cmd = extract_risk_cmd(sys.argv[1])
+settings = {
+    'hooks': {
+        'UserPromptSubmit': [
+            {'matcher': '*', 'hooks': [
+                {'command': risk_cmd, 'timeout': 45}
+            ]}
+        ]
+    }
+}
+with open(sys.argv[2], 'w') as f:
+    json.dump(settings, f, indent=2)
+" "$REPO_DIR/.claude/install.sh" "$HOME_CLAUDE_MISSING_TYPE/.claude/settings.json"
+
+if _run_install "$REPO_DIR/.claude/install.sh" "$HOME_CLAUDE_MISSING_TYPE"; then
+  _pass "claude (missing type): install.sh run succeeds on an already-current entry with no type key"
+else
+  _fail "claude (missing type): install.sh exited non-zero"
+fi
+
+MISSING_TYPE_RESULT="$(python3 -c "
+import json
+with open('$HOME_CLAUDE_MISSING_TYPE/.claude/settings.json') as f:
+    d = json.load(f)
+for block in d.get('hooks', {}).get('UserPromptSubmit', []):
+    for h in block.get('hooks', []):
+        if h.get('command', '').startswith(\"echo 'BEFORE ANY ACTION: classify risk first.\"):
+            print(f\"{h.get('type')}|{h.get('timeout')}\")
+")"
+
+if [[ "$MISSING_TYPE_RESULT" == "command|45" ]]; then
+  _pass "claude (missing type): setdefault repairs the missing type to 'command' while timeout=45 stays untouched"
+else
+  _fail "claude (missing type): expected 'command|45', got '$MISSING_TYPE_RESULT'"
 fi
 
 # =============================================================
