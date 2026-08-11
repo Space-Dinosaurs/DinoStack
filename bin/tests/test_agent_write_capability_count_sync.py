@@ -173,6 +173,12 @@ def test_orchestration_planner_subset_table_agrees_with_full_table():
         f"parsed only {len(planner_table)} rows - table-format regression?"
     )
 
+    assert set(planner_table) - set(full_table) == {"general-purpose"}, (
+        "orchestration-planner.md's subset table has row names with no "
+        "matching content/agents/*.md file beyond the known `general-purpose` "
+        f"exemption: {sorted((set(planner_table) - set(full_table)) - {'general-purpose'})}"
+    )
+
     for name, writes in planner_table.items():
         if name not in full_table:
             # e.g. `general-purpose` - a real spawn target but not a file
