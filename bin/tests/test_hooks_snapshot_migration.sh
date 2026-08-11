@@ -7,15 +7,9 @@
 #          points at the hooks snapshot (not the checkout), the third-party
 #          entry survives byte-for-byte, and a second run is a no-op.
 #          Section 5 adds a second assertion class scoped to
-#          RISK_CMD/OLD_RISK_CMDS specifically: (a) every
-#          historically-shipped-but-superseded RISK_CMD literal is present
-#          in OLD_RISK_CMDS in both .claude/install.sh and .claude/uninstall.sh
-#          (byte-exact pinned fixtures, not re-derived at test time); (b) a
-#          settings.json seeded with several pre-existing current/stale
-#          risk-classification entries collapses to exactly 1 on a single
-#          install.sh run, with an unrelated third-party hook surviving; and
-#          (c) a true no-op (single entry, already current) does not reset
-#          an operator's customized hook timeout.
+#          RISK_CMD/OLD_RISK_CMDS specifically - see that section's own
+#          lettered sub-header comments in the body below for the live,
+#          current set of what it asserts; do not restate that list here.
 #
 #          NOTE: this file's run/invocation counts have gone stale
 #          repeatedly (each addition changed the actual count without
