@@ -980,7 +980,9 @@ def _shape2_is_bounded(name, full_line, rest, body, schema_text):
         # Recurse: every 'key: value' leaf line nested inside this
         # container - at any depth, including an array-of-object item
         # member or a member nested two levels deep - carries its own
-        # enum/cap/one-line/pointer obligation (round-4 M3 fix).
+        # enum/cap/one-line/bounded-literal/nullable-type obligation
+        # (round-4 M3 fix; round-6 Major-2 deleted the pointer form this
+        # comment used to name here).
         nested = _shape2_collect_leaf_entries(body)
         if not nested:
             # No leaf key:value lines found inside - nothing to recurse
@@ -1000,7 +1002,7 @@ def _shape2_is_bounded(name, full_line, rest, body, schema_text):
     # one-line bound") - that auto-pass is deleted. A scalar field's
     # text is now run through the SAME closed-whitelist check
     # (_shape2_text_is_bounded) as every other shape; a scalar value
-    # that is not itself an enum/cap/one-line/pointer/bounded-literal/
+    # that is not itself an enum/cap/one-line/bounded-literal/
     # nullable-type form is unbounded, exactly like a nested leaf.
     return _shape2_text_is_bounded(full_line, rest, body)
 
@@ -1289,7 +1291,7 @@ SHAPE4_STATUS_LINE_RE = re.compile(r"^##\s+Status:\s*(.+)$", re.MULTILINE)
 SHAPE4_SUBSECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
 
 # Per-shape form usage (round-6 Major-3): check_shape4's placeholder loop
-# below consults exactly THREE of the six Shape-2 forms - closed enum
+# below consults exactly FOUR of the six Shape-2 forms - closed enum
 # (form 1, via _is_enum_list), true-adjacent numeric cap (form 2) and
 # fixed-length spec (form 3, both via _shape2_has_cap_with_digit), and
 # bounded-by-nature value literal (form 5, via

@@ -74,16 +74,18 @@ jobs:
         timeout-minutes: 2
         run: |
           python3 -m pytest bin/tests/test_phase11e_knowledge_commit_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 47) { print "expected >= 47 collected tests (22 functions x 2 shells + 3 static), got " $1; exit 1 } }'
-      - name: floor collected test_agent_return_contract_mutation.py count at 25
-        # 20 mutation entries in MUTATIONS (one test_mutation_<id> each - 17
-        # pre-round-6 plus 3 round-6 regression mutations, one per Major
-        # finding) plus test_no_survivors (1) plus 4 seed-baseline sanity
-        # tests (test_shape1_seed_is_baseline_compliant,
+      - name: floor collected test_agent_return_contract_mutation.py count at 26
+        # 21 mutation entries in MUTATIONS (one test_mutation_<id> each - 17
+        # pre-round-6, 3 round-6 regression mutations (one per Major
+        # finding), plus 1 round-7 regression mutation pinning the
+        # SHAPE3_BARE_STATUS_TOKEN_RE permissive-widening direction) plus
+        # test_no_survivors (1) plus 4 seed-baseline sanity tests
+        # (test_shape1_seed_is_baseline_compliant,
         # test_shape2_seed_is_baseline_compliant,
         # test_shape4_seed_is_baseline_compliant, and
         # test_skeptic_seed_is_the_real_narrow_not_yet_migrated_baseline -
         # the skeptic-baseline check IS one of these 4, not a separate 5th)
-        # = 25 collected IDs. Removing an operator from MUTATIONS without
+        # = 26 collected IDs. Removing an operator from MUTATIONS without
         # shrinking this floor is exactly the failure mode this gate exists
         # to catch (round-5 finding: removing one operator left the suite
         # green with `len(MUTATIONS) == 12` and nothing red). Adding or
@@ -92,7 +94,7 @@ jobs:
         # obliges updating the floor below in the same PR.
         timeout-minutes: 2
         run: |
-          python3 -m pytest bin/tests/test_agent_return_contract_mutation.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 25) { print "expected >= 25 collected tests (20 mutations + 1 aggregate + 4 seed-baseline, incl. skeptic baseline), got " $1; exit 1 } }'
+          python3 -m pytest bin/tests/test_agent_return_contract_mutation.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 26) { print "expected >= 26 collected tests (21 mutations + 1 aggregate + 4 seed-baseline, incl. skeptic baseline), got " $1; exit 1 } }'
   # Python hook tests live here (shared python toolchain with bin-tests); JS/sh
   # hook tests live in hooks-tests.yml.
   hooks-python-tests:

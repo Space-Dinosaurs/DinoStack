@@ -22,13 +22,18 @@ Purpose: Mutation-testing harness for
          adds four regression mutations (shape2_scalar_leaf_unbounded_
          no_auto_pass, shape2_cap_keyword_requires_adjacent_digit,
          shape2_enum_pipe_inside_narrative_placeholder_not_recognized,
-         shape2_pointer_requires_md_or_schema_reference) encoding the
-         four falsifying probes a reviewing Skeptic used to demonstrate
-         the round-4 permissive branches, PLUS a CI floor on
+         shape2_undeclared_narrative_placeholder_not_recognized - renamed
+         in round 7 from shape2_pointer_requires_md_or_schema_reference
+         after round 6 deleted the pointer form the old name described)
+         encoding the four falsifying probes a reviewing Skeptic used to
+         demonstrate the round-4 permissive branches, PLUS a CI floor on
          len(MUTATIONS) (.github/workflows/bin-tests.yml) - round 4's own
          fix removed one operator from this file with the suite still
          reporting `42 passed` and nothing red, because nothing pinned
-         the catalog's size.
+         the catalog's size. Round 7 adds
+         shape3_bare_status_token_regex_permissive_widening, pinning the
+         PERMISSIVE direction of SHAPE3_BARE_STATUS_TOKEN_RE (round 6 had
+         only pinned its strict direction via the snapshot).
 
 Public API: MUTATIONS (list of (id, run) pairs, each `run()` returning
             (baseline_violations, mutant_violations, caught: bool));
@@ -198,6 +203,45 @@ def _skeptic_multi_replace_mutation(replacements, expect_substr):
         new_findings = [v for v in mutant if v not in _SKEPTIC_BASELINE]
         caught = any(expect_substr in v for v in new_findings)
         return _SKEPTIC_BASELINE, mutant, caught
+    return run
+
+
+# --- Shape 3: bare status token (SHAPE3_BARE_STATUS_TOKEN_RE) permissive-
+# direction mutation, synthetic seed - round-7 Major fix. This is the
+# unpinned branch a reviewing Skeptic demonstrated: widening
+# SHAPE3_BARE_STATUS_TOKEN_RE from r"^[A-Z][A-Z0-9_]*$" to r"^.+$" makes
+# every non-'Label: value' line unconditionally compliant, including
+# arbitrary unbounded narrative, and every prior test in this suite stayed
+# green under that widening because none of them probed a multi-word or
+# mixed-case bare line. This seed's baseline compliance depends on the
+# genuine narrow regex accepting the bare closed-enum-shaped 'BLOCKED'
+# token; the mutation replaces it with a multi-word, mixed-case narrative
+# line carrying no colon, which the narrow regex correctly rejects (a
+# space and lowercase letters are both outside `[A-Z0-9_]*`) but the
+# widened `^.+$` would wrongly accept. ---
+
+_SHAPE3_BARE_TOKEN_SEED = """## Output format
+
+Return exactly this structure and nothing else:
+
+```
+GOAL_MET: true|false
+BLOCKED
+```
+"""
+
+
+def _shape3_bare_token_mutation(old, new, expect_substr):
+    def run():
+        baseline = contract.check_contract(
+            _SHAPE3_BARE_TOKEN_SEED, "shape3_bare_token_seed.md", shape=3
+        )
+        mutant_text = _replace_once(_SHAPE3_BARE_TOKEN_SEED, old, new)
+        mutant = contract.check_contract(
+            mutant_text, "shape3_bare_token_seed.md", shape=3
+        )
+        caught = any(expect_substr in v for v in mutant)
+        return baseline, mutant, caught
     return run
 
 
@@ -372,7 +416,15 @@ MUTATIONS = [
         ),
     ),
     (
-        "shape2_pointer_requires_md_or_schema_reference",
+        "shape2_undeclared_narrative_placeholder_not_recognized",
+        # Round-5 name was 'shape2_pointer_requires_md_or_schema_reference',
+        # a requirement round 6 deleted outright (the pointer form no
+        # longer exists at all - see
+        # shape2_pointer_form_deleted_md_reference_no_longer_bounds
+        # below). This operator still catches a genuinely unbounded
+        # narrative placeholder with no declared cap, enum, or one-line
+        # marker, so it is not vacuous - only its old name described a
+        # requirement that is now false.
         _shape2_mutation(
             "deep_note: <one-line deep note, max 50 chars>",
             "deep_note: <free-form prose, the term is defined in the glossary>",
@@ -427,6 +479,26 @@ MUTATIONS = [
             "what was\ndone - max 500 chars>",
             "<one-line summary of what failed>",
             "declares no closed enum, bounded-by-nature value type, or numeric cap",
+        ),
+    ),
+    (
+        "shape3_bare_status_token_regex_permissive_widening",
+        # Round-7 Major fix: SHAPE3_BARE_STATUS_TOKEN_RE
+        # (r"^[A-Z][A-Z0-9_]*$") had no operator pinning its PERMISSIVE
+        # direction - a Skeptic demonstrated that widening it to r"^.+$"
+        # (unconditionally compliant for any non-'Label: value' line,
+        # including arbitrary unbounded narrative) left every prior test
+        # in this suite green. This mutation replaces the seed's
+        # compliant bare 'BLOCKED' token with a multi-word, mixed-case
+        # narrative line - correctly rejected by the narrow regex (a
+        # space and lowercase letters both fall outside
+        # `[A-Z0-9_]*`) but wrongly accepted by the widened `^.+$` form.
+        # If SHAPE3_BARE_STATUS_TOKEN_RE is ever widened to accept
+        # arbitrary text, this mutation starts failing.
+        _shape3_bare_token_mutation(
+            "BLOCKED",
+            "Task Blocked Due To Config Error",
+            "is not a 'Label: value' line",
         ),
     ),
 ]

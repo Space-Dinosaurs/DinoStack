@@ -202,7 +202,7 @@ report template of multiple `##`-level sections, fixed in count (not a
 repeated per-item structure), not machine-parsed as JSON. Obligation: the
 report's top status line declares a closed enum; every other section with
 open-ended free text declares an explicit bound in its own placeholder
-bracket text. This shape consults exactly THREE of the six Shape-2 forms
+bracket text. This shape consults exactly FOUR of the six Shape-2 forms
 above - closed enum (form 1), true-adjacent numeric cap and fixed-length
 spec (forms 2/3), and bounded-by-nature value literal (form 5) - a
 placeholder naming a bounded-by-nature value type, like a SHA, URL,
