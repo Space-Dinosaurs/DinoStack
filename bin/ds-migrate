@@ -300,10 +300,12 @@ def _find_misordered_umbrella(lines: list[str]) -> int | None:
     violation that silently defeats the negation - see _append_gitignore's
     docstring), or None if there is no negation line or no such violation.
 
-    A candidate line immediately preceded by a user comment (a line whose
-    stripped text starts with `#`) is excluded from consideration - see
-    _repair_gitignore_order's docstring "Exception" paragraph for why moving
-    or dropping such a line is worse than leaving it misordered."""
+    Detection is unconditional: a candidate line immediately preceded by a
+    user comment is still reported here. `check`/`diff` gate on this
+    function's return value, so excluding comment-attached candidates would
+    make `check` report `ok` while the negations it exists to protect are
+    actively defeated - see _repair_gitignore_order's docstring for how the
+    REPAIRER (not detection) handles a comment-attached line."""
     first_negation_idx = next(
         (i for i, line in enumerate(lines) if line.strip().startswith("!.agentic/")),
         None,
@@ -315,7 +317,6 @@ def _find_misordered_umbrella(lines: list[str]) -> int | None:
             i
             for i in range(first_negation_idx + 1, len(lines))
             if _is_agentic_umbrella_pattern(lines[i].strip())
-            and not (i > 0 and lines[i - 1].strip().startswith("#"))
         ),
         None,
     )
@@ -346,21 +347,24 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
     `.agentic/` line sitting below a negation, just rewritten by
     `_repair_bare_agentic_lines` to `.agentic/*`, when a correctly-placed
     `.agentic/*` already sits at the top of the file - the misordered
-    duplicate is dropped instead of being reinserted as a second copy.
-    Without this, the two repairs running back to back would otherwise leave
-    two adjacent `.agentic/*` lines: harmless (both match the same content;
-    matching is idempotent past the first line), but cosmetic noise.
+    duplicate is dropped instead of being reinserted as a second copy. This
+    dedup path only applies to a line with NO preceding comment (see next
+    paragraph for the comment-attached case), so the "duplicate already
+    exists" mitigation is only ever invoked where dropping it cannot orphan
+    anything a user wrote.
 
-    Exception: a misordered umbrella line immediately preceded by a
-    user-authored comment line (`#...`) is left untouched entirely - not
-    moved, and not deduped/dropped. Moving OR dropping it would leave the
-    comment behind describing a line that no longer exists there (an
-    orphaned comment); silently deleting a user's own comment to fix
-    cosmetic noise is a worse surprise than leaving one line's negation
-    ordering unrepaired, especially since a correctly-ordered umbrella
-    covering the same pattern typically already exists elsewhere in the
-    file. `_find_misordered_umbrella` excludes any such comment-attached
-    line from consideration so this repair is a true no-op on it.
+    Comment-attached lines: a misordered umbrella line immediately preceded
+    by a user-authored comment line (`#...`) is moved together with that
+    comment as a single unit - both lines relocate to just above the
+    negation, in original order - rather than being deduped/dropped or left
+    in place. This always repairs the negation (detection above is
+    unconditional and `check`/`diff` must never report `ok` while a negation
+    is defeated), and it never orphans the comment (moving keeps it directly
+    above whatever it was describing). The tradeoff: a comment-attached
+    duplicate umbrella is NOT deduped away like an uncommented one - it is
+    always moved as-is, which can leave two adjacent `.agentic/*` lines
+    (harmless; both match the same content, matching is idempotent past the
+    first line) rather than silently dropping the user's annotated line.
 
     Idempotent - a call on an already-ordered file (or one with no negation
     lines) is a no-op and returns False.
@@ -383,6 +387,22 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
             negation_idx = next(
                 i for i, line in enumerate(str_lines) if line.strip().startswith("!.agentic/")
             )
+            has_comment = (
+                misordered_idx > 0
+                and str_lines[misordered_idx - 1].strip().startswith("#")
+            )
+            if has_comment:
+                # Move the comment together with its pattern line, as a
+                # single unit, so the comment is never left describing a
+                # line that no longer sits next to it. Never deduped/dropped
+                # - see the "Comment-attached lines" docstring paragraph.
+                comment_line = byte_lines.pop(misordered_idx - 1)
+                line = byte_lines.pop(misordered_idx - 1)
+                if not line.endswith(b"\n"):
+                    line = line + _line_terminator(byte_lines[negation_idx])
+                byte_lines[negation_idx:negation_idx] = [comment_line, line]
+                changed = True
+                continue
             line = byte_lines.pop(misordered_idx)
             line_text = line.decode("utf-8", errors="replace").strip()
             if any(

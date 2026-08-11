@@ -1299,41 +1299,104 @@ markers: []
         )
 
 
-class TestOrderRepairCommentAttachedDuplicateNotOrphaned(unittest.TestCase):
-    """Round-6 Minor 3 regression: a misordered `.agentic/*` duplicate that is
-    immediately preceded by a user-authored comment must be left untouched
-    entirely by _repair_gitignore_order - not moved, and not dropped as a
-    dedup - so the comment is never left describing a line that no longer
-    exists at that position. Asserts against the pure function directly."""
+class TestOrderRepairCommentAttachedLineMovedWithComment(unittest.TestCase):
+    """Round-7 CRITICAL regression: round 6 excluded a comment-attached
+    misordered candidate from `_find_misordered_umbrella` itself, which is
+    also the DETECTION function `_compute_diff` calls to set
+    `gitignore_misordered` - so `check`/`diff` reported `ok` (no drift) while
+    the negations below a comment-attached umbrella line stayed defeated.
+    Detection must be unconditional (regardless of any preceding comment);
+    only the REPAIRER may special-case a comment-attached line, and it must
+    never do so by silently reporting no drift. The repairer's chosen
+    handling: move the comment together with its pattern line, as a single
+    unit, to just above the negation - the comment is never orphaned (it
+    stays directly above what it describes) and the negation is always
+    repaired (never left defeated to avoid disturbing a comment)."""
 
-    def test_comment_attached_duplicate_is_untouched(self):
+    def test_detection_is_unconditional_on_comment_attached_duplicate(self):
+        mod = _load_agentic_migrate_module()
+        lines = [
+            ".agentic/*",
+            "!.agentic/config.json",
+            "# intentional re-ignore",
+            ".agentic/*",
+        ]
+        self.assertEqual(
+            mod._find_misordered_umbrella(lines), 3,
+            "a comment-attached candidate must still be detected as misordered",
+        )
+
+    def test_detection_is_unconditional_on_comment_attached_move_case(self):
+        """The pure-move case (a distinct pattern, no dedup involved at
+        all) must also be detected - this is not limited to duplicates."""
+        mod = _load_agentic_migrate_module()
+        lines = [
+            ".agentic/*",
+            "!.agentic/config.json",
+            "# runtime scratch, do not commit",
+            ".agentic/**",
+        ]
+        self.assertEqual(mod._find_misordered_umbrella(lines), 3)
+
+    def test_comment_attached_duplicate_is_moved_with_its_comment(self):
         mod = _load_agentic_migrate_module()
         tmp = tempfile.mkdtemp()
         gitignore_path = Path(tmp) / ".gitignore"
-        original = (
+        gitignore_path.write_text(
             ".agentic/*\n"
             "!.agentic/config.json\n"
             "# intentional re-ignore\n"
             ".agentic/*\n"
         )
-        gitignore_path.write_text(original)
 
         changed = mod._repair_gitignore_order(gitignore_path)
 
-        self.assertFalse(
-            changed, "a comment-attached duplicate must not be reported as repaired"
+        self.assertTrue(
+            changed, "a comment-attached duplicate must be repaired, not left in place"
         )
         self.assertEqual(
             gitignore_path.read_text(),
-            original,
-            "a comment-attached duplicate must be byte-identical to the input - "
-            "not moved, and not dropped, so the comment stays attached to its line",
+            (
+                ".agentic/*\n"
+                "# intentional re-ignore\n"
+                ".agentic/*\n"
+                "!.agentic/config.json\n"
+            ),
+            "the comment and its pattern line move together, in original order, "
+            "above the negation - never dropped, never left below it",
+        )
+
+    def test_comment_attached_move_case_no_duplicate(self):
+        """The pure-move shape (comment-preceded `.agentic/**`, no duplicate
+        anywhere else in the file) was silently broken by round 6 with no
+        coverage at all - this closes that gap."""
+        mod = _load_agentic_migrate_module()
+        tmp = tempfile.mkdtemp()
+        gitignore_path = Path(tmp) / ".gitignore"
+        gitignore_path.write_text(
+            ".agentic/*\n"
+            "!.agentic/config.json\n"
+            "# runtime scratch, do not commit\n"
+            ".agentic/**\n"
+        )
+
+        changed = mod._repair_gitignore_order(gitignore_path)
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            gitignore_path.read_text(),
+            (
+                ".agentic/*\n"
+                "# runtime scratch, do not commit\n"
+                ".agentic/**\n"
+                "!.agentic/config.json\n"
+            ),
         )
 
     def test_non_comment_duplicate_still_deduplicated(self):
         """Regression guard for the opposite direction: a misordered duplicate
         with NO preceding comment must still be dropped as before - the
-        comment-attached exception must not silently disable dedup entirely."""
+        comment-attached handling must not silently disable dedup entirely."""
         mod = _load_agentic_migrate_module()
         tmp = tempfile.mkdtemp()
         gitignore_path = Path(tmp) / ".gitignore"
@@ -1351,6 +1414,89 @@ class TestOrderRepairCommentAttachedDuplicateNotOrphaned(unittest.TestCase):
             ".agentic/*\n!.agentic/config.json\n",
             "a non-comment-attached duplicate must still be deduplicated away",
         )
+
+
+class TestCheckDetectsCommentAttachedMisorderedUmbrella(unittest.TestCase):
+    """Integration-level companion to the CRITICAL regression above: proves
+    the fix through the actual `check`/`apply` CLI surface (not just the
+    pure `_find_misordered_umbrella`/`_repair_gitignore_order` functions),
+    covering both the comment-attached duplicate and the comment-attached
+    pure-move shapes."""
+
+    def _custom_manifest(self, tmp):
+        manifest_text = """
+scaffolding_version: 1
+gitignore:
+  - pattern: ".agentic/*"
+    purpose: "umbrella ignore"
+  - pattern: "!.agentic/qa.md"
+    purpose: "committed"
+files: []
+markers: []
+"""
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+        return manifest_path
+
+    def _project_with_tail(self, tmp, tail):
+        project = Path(tmp) / "project"
+        project.mkdir()
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": 1}) + "\n")
+        (agentic / "qa.md").write_text("x\n")
+        gitignore_path = project / ".gitignore"
+        gitignore_path.write_text(".agentic/*\n!.agentic/qa.md\n" + tail)
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        return project, gitignore_path
+
+    def test_check_reports_drift_on_comment_attached_duplicate(self):
+        tmp = tempfile.mkdtemp()
+        project, _ = self._project_with_tail(
+            tmp, "# intentional re-ignore\n.agentic/*\n"
+        )
+        manifest_path = self._custom_manifest(tmp)
+
+        result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(out["gitignore_misordered"])
+
+    def test_check_reports_drift_on_comment_attached_move_case(self):
+        tmp = tempfile.mkdtemp()
+        project, _ = self._project_with_tail(
+            tmp, "# runtime scratch, do not commit\n.agentic/**\n"
+        )
+        manifest_path = self._custom_manifest(tmp)
+
+        result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(out["gitignore_misordered"])
+
+    def test_apply_repairs_comment_attached_duplicate_and_negation_works(self):
+        tmp = tempfile.mkdtemp()
+        project, gitignore_path = self._project_with_tail(
+            tmp, "# intentional re-ignore\n.agentic/*\n"
+        )
+        manifest_path = self._custom_manifest(tmp)
+
+        result = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+        check_result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(check_result.returncode, 0, msg=check_result.stdout)
+
+        # Real git proof, not just a string check.
+        check = subprocess.run(["git", "check-ignore", "-q", ".agentic/qa.md"], cwd=str(project))
+        self.assertNotEqual(check.returncode, 0, "qa.md must not be git-ignored after repair")
+
+        first_content = gitignore_path.read_bytes()
+        r2 = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(r2.returncode, 0, msg=r2.stderr)
+        self.assertEqual(gitignore_path.read_bytes(), first_content, "second apply must be a true no-op")
 
 
 if __name__ == "__main__":

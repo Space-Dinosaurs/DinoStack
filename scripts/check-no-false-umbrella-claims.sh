@@ -90,12 +90,14 @@ PATTERNS=(
 
 SCAN_PATHS=(content bin docs README.md AGENTS.md CONTRIBUTING.md hooks scripts)
 
-# A typo'd or later-removed scan path makes `grep -r` scan nothing for it,
-# silently - the gate would stay green having asserted less than it claims.
-# Hard-fail up front instead of letting that pass unnoticed.
+# A typo'd, later-removed, or unreadable (e.g. chmod 000) scan path makes
+# `grep -r` scan nothing for it, silently - the gate would stay green having
+# asserted less than it claims. Hard-fail up front instead of letting that
+# pass unnoticed. `-r` (not `-e`) is required: an existing-but-unreadable
+# path passes `-e` and still scans as empty.
 for scan_path in "${SCAN_PATHS[@]}"; do
-  if [ ! -e "$scan_path" ]; then
-    echo "ERROR: SCAN_PATHS entry '$scan_path' does not exist - fix the path" >&2
+  if [ ! -r "$scan_path" ]; then
+    echo "ERROR: SCAN_PATHS entry '$scan_path' does not exist or is not readable - fix the path or permissions" >&2
     exit 1
   fi
 done
