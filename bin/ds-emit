@@ -37,7 +37,8 @@
 #                either $AGENTIC_DIR/loop-state-<LOOP_KEY>.json or the legacy
 #                .agentic/loop-state.json.
 #
-# Downstream consumers: content/commands/ds-implement-ticket.md (Phase 6, 6b);
+# Downstream consumers: content/commands/ds-implement-ticket.md (Phase 1, 6,
+#                       6b, 11e);
 #                       content/rules/agent-methodology.md trivial-path edits;
 #                       any future command that reaches an instrumented
 #                       boundary.

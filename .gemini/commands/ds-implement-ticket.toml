@@ -961,16 +961,21 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 
 ```bash
 # Phase 1: per-ticket variable reset (runs first on EVERY entry, before sub-section dispatch).
-# These four have exactly one definition site each, on one path. A ticket that does not take
+# These five have exactly one definition site each, on one path. A ticket that does not take
 # that path inherits the previous batch ticket's value - see the table below for the first
 # three; W1_FETCH_FAILED is set only by the Linear/Jira fetch steps on an MCP/API error and
 # consumed only by the W1 outcome breadcrumb ("Tracker writeback (W1)" below), so an unreset
 # `true` from a prior ticket's failed fetch would misreport THIS ticket's clean fetch as
-# fetch_failed.
+# fetch_failed. W1_DISPATCH_OUTCOME is set only on the W1 dispatch-attempted path below and
+# consumed only by the same breadcrumb; an unreset value from a prior ticket's dispatch would
+# misreport THIS ticket's outcome if the assignment below were ever skipped - the reset here
+# is a second, independent line of defense alongside the explicit assignment on both branches
+# and the `set -u`-safe expansion at the emit call site.
 RISK_CLASS=""
 SKEPTIC_ROUNDS=""
 QA_STATUS=""
 W1_FETCH_FAILED=false
+W1_DISPATCH_OUTCOME=""
 ```
 
 **Why this is binding rather than housekeeping.** The conductor carries ONE variable scope across an entire batch; Phase 1 iterates per entry but nothing else in this command resets anything. Every one of these three variables has exactly one definition site on one path, so a ticket that does not take that path silently inherits the previous ticket's value. The failure is always an affirmative false statement, never an error:
@@ -1111,6 +1116,7 @@ fi
 If `W1_REASON` is non-empty, the gate does not hold: emit the breadcrumb immediately with `outcome:"skipped"` and do NOT dispatch.
 
 ```bash
+export AGENTIC_LOOP_KEY="$LOOP_KEY"
 if [ -n "$W1_REASON" ]; then
   ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"skipped\\",\\"reason\\":\\"$W1_REASON\\",\\"target_state\\":\\"$TRACKER_STATE_IN_PROGRESS\\"}" 2>/dev/null || true
 fi
@@ -1124,10 +1130,24 @@ NOTE: [phase: tracker-writeback-w1] TRACKER is none for this project - <ID> was 
 
 No advisory line fires for the other three reasons: `ticket_id_format` (open-goal synthetic ids are never tracker keys - by design, see "Why the real-key guard exists" below) and `prefix_mismatch` are by-design skips, and `fetch_failed` is already surfaced by the sub-section's own fetch-failure logging.
 
-If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding. Emit the breadcrumb immediately after the `Agent` tool call attempt - `outcome:"dispatched"` when the tool call was accepted, or `outcome:"dispatch_failed"` when the tool call itself raised an error before the subagent could be spawned (`reason` stays `null` in both cases - `reason` is populated only for `outcome:"skipped"`):
+If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding. Emit the breadcrumb immediately after the `Agent` tool call attempt (`reason` stays `null` in both cases below - `reason` is populated only for `outcome:"skipped"`). **`W1_DISPATCH_OUTCOME` must be assigned explicitly on both branches** - it is never left to fall through to the `set -u`-safe default in the emit line:
 
 ```bash
-ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"$W1_DISPATCH_OUTCOME\\",\\"reason\\":null,\\"target_state\\":\\"$TRACKER_STATE_IN_PROGRESS\\"}" 2>/dev/null || true
+if <the Agent tool call for the Tracker Writeback Helper raised an error before the subagent could be spawned>; then
+  W1_DISPATCH_OUTCOME="dispatch_failed"
+else
+  W1_DISPATCH_OUTCOME="dispatched"
+fi
+# `${W1_DISPATCH_OUTCOME:-dispatch_failed}` is a set -u-safe expansion: under
+# `set -u`, an unset/unassigned `$W1_DISPATCH_OUTCOME` would abort the whole
+# Phase 1 step on this line rather than falling through to `|| true` (that
+# fallback only catches ds-emit's own exit status, not an unbound-variable
+# shell error raised while building the argument string). The `:-` default
+# is defense-in-depth only - the if/else above is the real assignment, and
+# both branches are the sole two definition sites for this variable outside
+# the per-ticket reset.
+export AGENTIC_LOOP_KEY="$LOOP_KEY"
+ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\\",\\"reason\\":null,\\"target_state\\":\\"$TRACKER_STATE_IN_PROGRESS\\"}" 2>/dev/null || true
 ```
 
 ```

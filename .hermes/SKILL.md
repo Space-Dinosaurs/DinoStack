@@ -472,7 +472,7 @@ For multi-unit plans the conductor maintains `.agentic/tasks.jsonl` via single-l
 - `task_id`: correlation id when scoped to tasks.jsonl, nullable
 - `data`: free-form object for event-specific fields
 
-For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
+For the full V1 telemetry event-type schemas (field-level `data` shapes for `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback`), per-developer session log, pending-buffer, `session_uuid`, append discipline, atomicity, retention, and consumer notes, see `content/references/events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved there for historical reference.)
 
 Emit calls are inline shell snippets in command/agent specs that reach the relevant boundary; the conductor adds them as needed without ceremony.
 
@@ -524,7 +524,7 @@ Claude Code locks each isolation worktree while its agent is running, so git ref
 | **Doc-sync obligation** | a change alters a count, list, path, convention, or behavior an intent-layer doc asserts | `~/DinoStack/.claude/skills/dinostack/references/doc-sync-obligation.md` - trigger predicate, exemptions, the Worker obligation to update affected docs in the same change, tiered Skeptic verification rule |
 | **Capability preflight** | before every Agent spawn | `content/sections/06-capability-preflight.md` - when preflight runs, advisory vs blocking mode, absent-block no-op rule. Full YAML schema, `required_when` predicate grammar, `auto_install` safety constraints, 7-step preflight procedure, output message format, cache schema: `content/references/capability-preflight.md` |
 | **QA gate** | Skeptic sign-off is granted on a UI-visible change | `content/sections/05-qa-gate.md` - QA-fires invariant, skip enums, diff-read rule, re-route limits. Full step-by-step gate flows, per-ticket in-flow rules, conductor env preflight, INCONCLUSIVE classification, parallel-by-worktree fan-out, dev-server boot pattern: `content/references/qa-gate.md` |
-| **Events log schema** | full V1 telemetry event-type field shapes and operational notes | `content/references/events-log.md` - `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround` event schemas with full `data` field definitions, append discipline, atomicity, retention, consumer notes. Writer scope and base schema: `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.) |
+| **Events log schema** | full V1 telemetry event-type field shapes and operational notes | `content/references/events-log.md` - `spawn_start`, `spawn_complete`, `meta_review_complete`, `session_total`, `tool_failure_workaround`, `tracker_writeback` event schemas with full `data` field definitions, append discipline, atomicity, retention, consumer notes. Writer scope and base schema: `content/sections/09-events-log.md`. (`conductor_direct` is deprecated and no longer emitted; its schema is preserved in `content/references/events-log.md` for historical reference.) |
 | **Worktree lifecycle commands** | cleanup command blocks for isolation and feature worktrees, session-start prune script | `content/references/worktree-lifecycle.md` - full bash command blocks. Isolation mandate, two-class summary, session-start prune rule: `content/sections/11-worktree-lifecycle.md` |
 | **Cross-session loop resume** | `/ds-implement-ticket` loop state must be resumed | `content/references/cross-session-loop-resume.md` §Cross-session loop resume - disk-write discipline, resumable phases, Brief/Plan path recording, batch-state coexistence |
 | **Task-state file** | managing multi-unit plan orchestration state | `content/references/task-state-file.md` §Task-state file - schema, file-absent/present behavior, orphan detection, task-state fold, `author_model` field semantics |
@@ -3685,7 +3685,7 @@ Performance: Standard.
 - `meta_review_complete`: emitted by the conductor when a sampled meta-Skeptic returns its textual divergence report. `agent == "skeptic-meta"`. `data` carries `original_task_id` (the task_id of the original Skeptic spawn under review), `divergence` (`{critical_missed, major_missed, minor_missed}` - each a list of finding titles), `agreement` (boolean), and `session_uuid` (see below). The conductor parses meta-Skeptic's return text and constructs this payload itself; meta-Skeptic does not touch `.agentic/`. See `content/references/skeptic-protocol.md` Section 14.
 - `session_total`: emitted by the Stop hook on EVERY turn (this is a pre-existing property, not introduced by the Stop hook's `--cadence=turn` loop-state/batch-state split described in `hooks/lib/state-mark.js` and the SessionEnd hook `hooks/session-end-wrap.js` - `writeSessionTotal` has always run on every Stop invocation; "once per session" was a prior inaccuracy in this doc, corrected here). `data` carries `wall_seconds`, summed `tokens`, `spawn_count`, and a `by_agent` rollup. The Stop hook also writes a mirrored rollup to `.agentic/session-log/<developer_id>.jsonl` (per-developer surface committed via Phase 8 telemetry commits; see "Per-developer session log" section below). `session_total` does NOT carry `data.session_uuid` - the Stop hook writes the equivalent at the top-level `session_uuid` field of the session-log line instead.
 - `tool_failure_workaround`: emitted by the conductor when it resolves a tool or command failure via retry or workaround. `agent: null`. `data` carries `session_uuid` (see below), `tool` (tool or command name - no args, no secrets), `domain_tag` (a short domain label matching the learnings-agent domain vocabulary), and `note` (one sentence describing the workaround; no file contents, no output, no secrets). The emit site is defined in `content/references/conductor-operating-rules.md` §learnings-agent.
-- `tracker_writeback`: emitted by the conductor at the W1 (Phase 1, In Progress) tracker-writeback call site in `content/commands/ds-implement-ticket.md`, one event per ticket entry regardless of outcome - it is the sole mechanism that makes a silent W1 skip observable after the fact. `agent: null`. `data` carries `site` (currently always `"W1"` - reserved for extension to W2-W7 if their own observability gap is ever addressed the same way), `outcome` (`"skipped"` | `"dispatched"` | `"dispatch_failed"`), `reason` (populated only when `outcome == "skipped"`; one of `tracker_none`, `ticket_id_format`, `prefix_mismatch`, `fetch_failed` - `null` for `dispatched`/`dispatch_failed`), and `target_state` (the resolved `$TRACKER_STATE_IN_PROGRESS` value). Does not carry `session_uuid` - like `knowledge_commit`, this is a boundary event rather than a spawn-bracketing one. Soft-fail (`2>/dev/null || true`); a missing or failing `ds-emit` never blocks Phase 1.
+- `tracker_writeback`: emitted by the conductor at the W1 (Phase 1, In Progress) tracker-writeback call site in `content/commands/ds-implement-ticket.md`. `agent: null`. `data` carries `site` (currently always `"W1"` - reserved for extension to W2-W7 if their own observability gap is ever addressed the same way), `outcome` (`"skipped"` | `"dispatched"` | `"dispatch_failed"`), `reason` (populated only when `outcome == "skipped"`; one of `tracker_none`, `ticket_id_format`, `prefix_mismatch`, `fetch_failed` - `null` for `dispatched`/`dispatch_failed`), and `target_state` (the resolved `$TRACKER_STATE_IN_PROGRESS` value). Does not carry `session_uuid` - this is a boundary event rather than a spawn-bracketing one. Soft-fail (`2>/dev/null || true`); a missing or failing `ds-emit` never blocks Phase 1. **Coverage is narrower than it may read at a glance**: this fires on every W1 gate evaluation the conductor actually reaches - it detects the case where the conductor reaches the gate and the gate declines (the `"skipped"` outcome and its reason code). It does NOT detect, and nothing currently emits a signal for, the case where the conductor never reaches the W1 prose at all - which is the failure mode an operator most often actually reports.
 
 **`session_uuid` field (conductor-emitted events).** The four active conductor-emitted event types above (`spawn_start`, `spawn_complete`, `meta_review_complete`, `tool_failure_workaround`) each carry `data.session_uuid`. This is the Claude Code harness session uuid - the value in the `$CLAUDE_CODE_SESSION_ID` environment variable, which equals the value the Stop hook reads as `payload.session_id` on every turn (the Stop hook fires once per turn, not once per session). **`$CLAUDE_CODE_SESSION_ID` MUST equal the Stop hook's `payload.session_id`**; the U6 unit owns the runtime regression test asserting this equivalence (see `docs/planning/learnings-capture-system.md` §Addition 1). Stamping the same value on conductor-emitted events allows the Stop hook and any session-scoped reader to filter precisely to one session. Absent on legacy lines written before this schema addition; general readers treat absence as include for back-compat. The Stop-hook capture-gap backstop (`detectCaptureGap` in `hooks/stop-context.js`) treats absence as EXCLUDE - it only matches events that carry the current session's uuid, which avoids false nags from prior-session events. This deliberate inversion is documented; do not change it to absent=include in the backstop filter.
 
@@ -15545,16 +15545,21 @@ When `normalized_input.additional_operator_context` is non-null, append it verba
 
 ```bash
 # Phase 1: per-ticket variable reset (runs first on EVERY entry, before sub-section dispatch).
-# These four have exactly one definition site each, on one path. A ticket that does not take
+# These five have exactly one definition site each, on one path. A ticket that does not take
 # that path inherits the previous batch ticket's value - see the table below for the first
 # three; W1_FETCH_FAILED is set only by the Linear/Jira fetch steps on an MCP/API error and
 # consumed only by the W1 outcome breadcrumb ("Tracker writeback (W1)" below), so an unreset
 # `true` from a prior ticket's failed fetch would misreport THIS ticket's clean fetch as
-# fetch_failed.
+# fetch_failed. W1_DISPATCH_OUTCOME is set only on the W1 dispatch-attempted path below and
+# consumed only by the same breadcrumb; an unreset value from a prior ticket's dispatch would
+# misreport THIS ticket's outcome if the assignment below were ever skipped - the reset here
+# is a second, independent line of defense alongside the explicit assignment on both branches
+# and the `set -u`-safe expansion at the emit call site.
 RISK_CLASS=""
 SKEPTIC_ROUNDS=""
 QA_STATUS=""
 W1_FETCH_FAILED=false
+W1_DISPATCH_OUTCOME=""
 ```
 
 **Why this is binding rather than housekeeping.** The conductor carries ONE variable scope across an entire batch; Phase 1 iterates per entry but nothing else in this command resets anything. Every one of these three variables has exactly one definition site on one path, so a ticket that does not take that path silently inherits the previous ticket's value. The failure is always an affirmative false statement, never an error:
@@ -15695,6 +15700,7 @@ fi
 If `W1_REASON` is non-empty, the gate does not hold: emit the breadcrumb immediately with `outcome:"skipped"` and do NOT dispatch.
 
 ```bash
+export AGENTIC_LOOP_KEY="$LOOP_KEY"
 if [ -n "$W1_REASON" ]; then
   ds-emit tracker_writeback - "${TICKET_ID:--}" "{\"site\":\"W1\",\"outcome\":\"skipped\",\"reason\":\"$W1_REASON\",\"target_state\":\"$TRACKER_STATE_IN_PROGRESS\"}" 2>/dev/null || true
 fi
@@ -15708,10 +15714,24 @@ NOTE: [phase: tracker-writeback-w1] TRACKER is none for this project - <ID> was 
 
 No advisory line fires for the other three reasons: `ticket_id_format` (open-goal synthetic ids are never tracker keys - by design, see "Why the real-key guard exists" below) and `prefix_mismatch` are by-design skips, and `fetch_failed` is already surfaced by the sub-section's own fetch-failure logging.
 
-If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding. Emit the breadcrumb immediately after the `Agent` tool call attempt - `outcome:"dispatched"` when the tool call was accepted, or `outcome:"dispatch_failed"` when the tool call itself raised an error before the subagent could be spawned (`reason` stays `null` in both cases - `reason` is populated only for `outcome:"skipped"`):
+If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_IN_PROGRESS`, `forward_only_guard: true`. Fire-and-forget; do NOT wait for return before proceeding. Emit the breadcrumb immediately after the `Agent` tool call attempt (`reason` stays `null` in both cases below - `reason` is populated only for `outcome:"skipped"`). **`W1_DISPATCH_OUTCOME` must be assigned explicitly on both branches** - it is never left to fall through to the `set -u`-safe default in the emit line:
 
 ```bash
-ds-emit tracker_writeback - "${TICKET_ID:--}" "{\"site\":\"W1\",\"outcome\":\"$W1_DISPATCH_OUTCOME\",\"reason\":null,\"target_state\":\"$TRACKER_STATE_IN_PROGRESS\"}" 2>/dev/null || true
+if <the Agent tool call for the Tracker Writeback Helper raised an error before the subagent could be spawned>; then
+  W1_DISPATCH_OUTCOME="dispatch_failed"
+else
+  W1_DISPATCH_OUTCOME="dispatched"
+fi
+# `${W1_DISPATCH_OUTCOME:-dispatch_failed}` is a set -u-safe expansion: under
+# `set -u`, an unset/unassigned `$W1_DISPATCH_OUTCOME` would abort the whole
+# Phase 1 step on this line rather than falling through to `|| true` (that
+# fallback only catches ds-emit's own exit status, not an unbound-variable
+# shell error raised while building the argument string). The `:-` default
+# is defense-in-depth only - the if/else above is the real assignment, and
+# both branches are the sole two definition sites for this variable outside
+# the per-ticket reset.
+export AGENTIC_LOOP_KEY="$LOOP_KEY"
+ds-emit tracker_writeback - "${TICKET_ID:--}" "{\"site\":\"W1\",\"outcome\":\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\",\"reason\":null,\"target_state\":\"$TRACKER_STATE_IN_PROGRESS\"}" 2>/dev/null || true
 ```
 
 ```
