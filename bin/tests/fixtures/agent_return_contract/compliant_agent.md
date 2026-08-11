@@ -10,7 +10,7 @@ tools: Read, Glob, Grep, Bash
 Every field below is tagged per `content/references/subagent-return-contract.md`.
 
 ### Root cause [MECHANICAL, cap: 500 chars]
-[Specific explanation, capped at 500 chars.]
+[Specific explanation. The cap is declared once, in this header - not restated here, so a mutation that deletes the header cap is not masked by a redundant body-text restatement.]
 
 ### Confidence [MECHANICAL, enum]
 [High / Medium / Low]

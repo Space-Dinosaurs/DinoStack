@@ -7100,9 +7100,10 @@ Public API: the attention test text below (quoted from docs/overview/vision.md
             rather than restating the test.
 Upstream dependencies: docs/overview/vision.md (Goal 1 - quoted verbatim,
             never paraphrased independently, so the two copies cannot drift).
-Downstream consumers: content/agents/*.md Output format preambles (Unit 1,
-            not yet migrated - see bin/tests/test_agent_return_contract_spec.py
-            NOT_YET_MIGRATED); bin/tests/test_agent_return_contract_spec.py
+Downstream consumers: content/agents/*.md return-contract section preambles
+            (Unit 1, not yet migrated - see
+            bin/tests/test_agent_return_contract_spec.py NOT_YET_MIGRATED
+            and NO_STRUCTURED_RETURN_SECTION); bin/tests/test_agent_return_contract_spec.py
             (the spec gate enforcing the tagging convention).
 Failure modes: prose-only file, no runtime failure mode. Staleness risk: if
             docs/overview/vision.md Goal 1's wording changes, the quoted
@@ -7120,12 +7121,20 @@ DinoStack has a documented, repeated failure mode of duplicating a binding
 rule across many files until the copies quietly drift apart (see this
 repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
-always present versus optional - is exactly that kind of rule, and it
-previously existed only as an unbounded, per-agent "never omit any section"
-instruction repeated across 17 agent files. This file single-sources it.
+always present versus optional - is exactly that kind of rule. It does not
+yet exist as a widespread per-agent restatement: verified against the
+live tree (2026-08-11), of the 18 files under `content/agents/*.md`, only
+3 (`debugger.md`, `investigator.md`, `skeptic.md`) carry any "never omit
+any section" instruction. This file single-sources that concern going
+forward, before it spreads further as an ad hoc per-agent restatement.
 
-Every one of `content/agents/*.md`'s Output format sections should carry a
-**one-line pointer** to this file, never a restated copy of the test itself.
+Every one of `content/agents/*.md`'s return-contract sections should carry
+a **one-line pointer** to this file, never a restated copy of the test
+itself. Not every agent file uses the heading "## Output format" verbatim -
+see `bin/tests/test_agent_return_contract_spec.py`'s `HEADING_SYNONYMS`
+for the recognized alternate headings (`Sign-off format`, `Report
+structure`, `Output templates`), and its `NO_STRUCTURED_RETURN_SECTION`
+for the files with no such section at all.
 
 ## The governing source: North Star Goal 1
 
@@ -7172,19 +7181,32 @@ attention test:
 
 ## Tagging convention
 
-Every per-agent Output format section must tag each field. In an agent
-file's Output format section, a field is a `###` sub-header; tag it inline
-on the header line:
+Every per-agent return-contract section must tag each field. A field is a
+`###` sub-header; tag it inline on the header line:
 
 - `### <Field name> [MECHANICAL, cap: <N> chars]` (or `items` / `steps` /
   `entries` / `words`) for a MECHANICAL prose or list field. The numeric
-  cap must be declared in the field's own bullet/header text - not left
-  implicit.
+  cap must be declared in the field's own header text - not left implicit,
+  and not left to be inferred from unrelated prose elsewhere in the field's
+  body.
 - `### <Field name> [MECHANICAL, enum]` for a MECHANICAL field whose value
   is a closed enum (no character cap needed - the enum's own value set is
   the bound).
 - `### Notes [ADVISORY]` - the single fold-target for every field that
   fails the attention test. Present only when non-empty.
+
+**Real corpus shape: the `###` fields usually live inside a fenced code
+block.** Most agent files (e.g. `debugger.md`, `architect.md`,
+`security-auditor.md`) specify their return template as a fenced
+` ``` ` block the agent must reproduce verbatim, and that fenced block
+itself commonly opens with a `##`-level example line (e.g. debugger.md's
+`` ## Diagnosis: [one-line description of the bug] ``) before the `###`
+fields begin. Tag the `###` field headers *inside* the fence exactly as
+above - the fence is not a boundary that exempts fields from tagging, and
+`bin/tests/test_agent_return_contract_spec.py`'s extractor is
+fence-aware specifically so that the section boundary is found correctly
+even when the section's own `##`-level example content sits inside the
+fence.
 
 No untagged field is permitted. `bin/tests/test_agent_return_contract_spec.py`
 is the spec gate that checks for this tagging, mechanically - it verifies
@@ -7198,7 +7220,12 @@ MECHANICAL rule above governs.
 This file and its spec gate ship independently of any agent-file edits.
 `content/agents/*.md` files do not yet use this tagging convention - see
 `NOT_YET_MIGRATED` in `bin/tests/test_agent_return_contract_spec.py` for
-the current list of files pending migration.
+the current list of files with a recognized return-contract heading
+pending migration, and `NO_STRUCTURED_RETURN_SECTION` for the files with
+no such heading at all (`adr-drift-detector.md`, `adr-generator.md`,
+`learning-extractor.md`, `learnings-agent.md`, `wrap-ticket.md` as of
+2026-08-11 - not expected to gain a heading-based section under the
+current design).
 
 ---
 
