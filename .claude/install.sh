@@ -726,11 +726,13 @@ else:
     first_idx = risk_match_indices[0]
     first_entry = ups_star["hooks"][first_idx]
     was_current = first_entry.get("command") == RISK_CMD
-    first_entry["type"] = "command"
-    first_entry["command"] = RISK_CMD
-    first_entry["timeout"] = 5
     extra_indices = risk_match_indices[1:]
     if extra_indices:
+        # Collapsing 2+ entries to 1 always rewrites the survivor - there is
+        # no single "already present" entry to leave untouched.
+        first_entry["type"] = "command"
+        first_entry["command"] = RISK_CMD
+        first_entry["timeout"] = 5
         for idx in sorted(extra_indices, reverse=True):
             del ups_star["hooks"][idx]
         print(
@@ -738,8 +740,14 @@ else:
             f"{len(risk_match_indices)} current/stale entries to 1 current entry"
         )
     elif was_current:
+        # True no-op: do NOT touch type/command/timeout here. Rewriting an
+        # operator's customized timeout (e.g. 30) back to the default 5 while
+        # printing "already present" would silently discard a local override.
         print("  = UserPromptSubmit risk-classification hook already present")
     else:
+        first_entry["type"] = "command"
+        first_entry["command"] = RISK_CMD
+        first_entry["timeout"] = 5
         print("  ~ UserPromptSubmit risk-classification hook updated stale reminder")
 
 SKILL_AUTO_CMD = f"AE_ADAPTER=claude bash {hooks_root}/hooks/skill-auto-load-check.sh"

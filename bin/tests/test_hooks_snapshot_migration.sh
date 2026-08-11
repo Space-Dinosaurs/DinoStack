@@ -5,7 +5,15 @@
 #          unrelated third-party hook entry, runs the real install.sh with a
 #          fake $HOME, and asserts: every dinostack hook entry now
 #          points at the hooks snapshot (not the checkout), the third-party
-#          entry survives byte-for-byte, and a second run is a no-op.
+#          entry survives byte-for-byte, and a second run is a no-op. Section
+#          5 adds a THIRD .claude/install.sh run and a second assertion
+#          class covering RISK_CMD/OLD_RISK_CMDS specifically: (a) every
+#          historically-shipped-but-superseded RISK_CMD literal is present
+#          in OLD_RISK_CMDS in both .claude/install.sh and .claude/uninstall.sh
+#          (byte-exact pinned fixtures, not re-derived at test time), and
+#          (b) a settings.json seeded with 3 pre-existing current/stale
+#          risk-classification entries collapses to exactly 1 on a single
+#          install.sh run, with an unrelated third-party hook surviving.
 #
 # Public API: ./bin/tests/test_hooks_snapshot_migration.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -22,12 +30,14 @@
 #                checkout (like bin/tests/test_kimi_install_symlink.sh) -
 #                only $HOME is sandboxed, and these real-tree effects are
 #                NOT limited to the .claude uninstall.sh call: EVERY
-#                install.sh run in this file (.claude, .gemini, .codex,
-#                .kimi - each invoked twice, first run and idempotent
-#                second run) calls install_precommit_hook (writes
-#                <repo>/.git/hooks/pre-commit) and runs .claude/build.sh +
-#                .cursor/build.sh (regenerates adapter build artifacts in
-#                the live tree) - same three effects documented in
+#                install.sh run in this file (.claude x3 - first run,
+#                idempotent second run, and section 5's multi-stale-entry
+#                collapse run; .gemini, .codex, .kimi - each invoked twice,
+#                first run and idempotent second run) calls
+#                install_precommit_hook (writes <repo>/.git/hooks/pre-commit)
+#                and runs .claude/build.sh + .cursor/build.sh (regenerates
+#                adapter build artifacts in the live tree) - same three
+#                effects documented in
 #                bin/tests/test_local_bin_ds_prefix_install.sh; empirically
 #                idempotent, but none of these runs are read-only. On top
 #                of that, the .claude section's uninstall.sh run (below)
@@ -41,8 +51,10 @@
 #                bin/tests/test_uninstall_ds_prefix.sh); the guard does not
 #                cover the earlier install.sh pre-commit-hook writes above.
 #
-# Performance: ~20-40 s wall time (4 adapters x 2 install.sh runs each,
-#              each run includes a real build.sh pass).
+# Performance: ~25-50 s wall time (4 adapters x 2 install.sh runs each, plus
+#              a 3rd .claude/install.sh run in section 5 for the
+#              multi-stale-entry collapse assertion - 9 install.sh runs
+#              total; each run includes a real build.sh pass).
 
 set -uo pipefail
 
@@ -594,6 +606,59 @@ if [[ "$MULTI_THIRD_PARTY" == "python3 /opt/security/prompt-scan-multi.py" ]]; t
   _pass "claude (multi-stale): unrelated third-party UserPromptSubmit hook survives the collapse"
 else
   _fail "claude (multi-stale): unrelated third-party hook was altered or removed by the collapse"
+fi
+
+# (c) a true no-op (single entry, already current) must NOT rewrite an
+#     operator's customized timeout - Skeptic round 2 Minor 1.
+HOME_CLAUDE_CUSTOM_TIMEOUT="$TMP_ROOT/home-claude-custom-timeout"
+mkdir -p "$HOME_CLAUDE_CUSTOM_TIMEOUT/.claude"
+
+# Seed a settings.json holding the CURRENT RISK_CMD (extracted live from
+# install.sh, not a fixture constant - it must match exactly or this seeds
+# a "stale" entry instead of a no-op one) at a customized timeout of 30.
+python3 -c "
+import json, re, sys
+
+def extract_risk_cmd(path):
+    src = open(path).read()
+    m = re.search(r'^RISK_CMD = \(\n(.*?)\n\)\n', src, re.M | re.S)
+    QSTR = r'\"(?:[^\"\\\\]|\\\\.)*\"'
+    return ''.join(s[1:-1] for s in re.findall(QSTR, m.group(1)))
+
+risk_cmd = extract_risk_cmd(sys.argv[1])
+settings = {
+    'hooks': {
+        'UserPromptSubmit': [
+            {'matcher': '*', 'hooks': [
+                {'type': 'command', 'command': risk_cmd, 'timeout': 30}
+            ]}
+        ]
+    }
+}
+with open(sys.argv[2], 'w') as f:
+    json.dump(settings, f, indent=2)
+" "$REPO_DIR/.claude/install.sh" "$HOME_CLAUDE_CUSTOM_TIMEOUT/.claude/settings.json"
+
+if _run_install "$REPO_DIR/.claude/install.sh" "$HOME_CLAUDE_CUSTOM_TIMEOUT"; then
+  _pass "claude (custom timeout): install.sh run succeeds on an already-current entry with timeout=30"
+else
+  _fail "claude (custom timeout): install.sh exited non-zero"
+fi
+
+CUSTOM_TIMEOUT_AFTER="$(python3 -c "
+import json
+with open('$HOME_CLAUDE_CUSTOM_TIMEOUT/.claude/settings.json') as f:
+    d = json.load(f)
+for block in d.get('hooks', {}).get('UserPromptSubmit', []):
+    for h in block.get('hooks', []):
+        if h.get('command', '').startswith(\"echo 'BEFORE ANY ACTION: classify risk first.\"):
+            print(h.get('timeout'))
+")"
+
+if [[ "$CUSTOM_TIMEOUT_AFTER" == "30" ]]; then
+  _pass "claude (custom timeout): already-current no-op does not reset an operator's customized timeout"
+else
+  _fail "claude (custom timeout): expected timeout=30 preserved, got '$CUSTOM_TIMEOUT_AFTER'"
 fi
 
 # =============================================================
