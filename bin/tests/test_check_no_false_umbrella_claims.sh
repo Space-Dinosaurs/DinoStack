@@ -191,6 +191,64 @@ fi
 # by the trap regardless; explicit for readability).
 cp "$GATE_SCRIPT" "$SCRATCH/scripts/check-no-false-umbrella-claims.sh"
 
+# --- Mutation 6 (round 8 MAJOR 2): an EXISTING-but-UNREADABLE scan path
+#     (e.g. `chmod 000`) must hard-fail the gate the same way a nonexistent
+#     path does. Mutation 5 only proves the gate reacts to a nonexistent
+#     path - it passes identically whether the guard uses `-e` (exists) or
+#     `-r` (readable), because a nonexistent path fails both tests. `-e`
+#     would silently scan an unreadable path as empty and stay green; only
+#     `-r` catches it. This mutation is the one that actually distinguishes
+#     the two, and is run in two directions: (a) against the real,
+#     currently-shipped `-r` gate, expecting a hard-fail naming the
+#     unreadable path, and (b) against a throwaway copy with `-r` reverted
+#     to `-e`, expecting the opposite - a silent pass - which proves this
+#     mutation is capable of going red and would have caught a revert of
+#     the round-8 hardening.
+#
+#     GitHub Actions runs `bin-sh-tests` as the non-root `runner` user, so
+#     `chmod 000` is non-vacuous there. A root user (e.g. a local sandboxed
+#     dev shell) can read a chmod'd-000 file regardless of its mode bits, so
+#     this mutation SKIPS with a notice under root rather than false-passing
+#     silently.
+if [[ "$(id -u)" -eq 0 ]]; then
+  echo "SKIP: Mutation 6 (chmod 000 unreadable scan path) - running as root, chmod 000 is not enforced for root and would false-pass; re-run as a non-root user to exercise this mutation"
+else
+  touch "$SCRATCH/AGENTS.md" "$SCRATCH/CONTRIBUTING.md"
+  mkdir -p "$SCRATCH/hooks"
+  chmod 000 "$SCRATCH/AGENTS.md"
+
+  # (a) real, currently-shipped -r gate: must hard-fail, naming AGENTS.md.
+  out="$(cd "$SCRATCH" && bash "scripts/check-no-false-umbrella-claims.sh" 2>&1)"
+  rc=$?
+  if [[ $rc -ne 0 ]] && printf '%s' "$out" | grep -q 'AGENTS.md'; then
+    _pass "gate hard-fails with a named-path error when a SCAN_PATHS entry exists but is unreadable (chmod 000)"
+  else
+    _fail "gate exited $rc (expected non-zero, with the unreadable path named) when a SCAN_PATHS entry is chmod 000 - an unreadable path would silently scan as empty"
+  fi
+
+  # (b) throwaway copy with -r reverted to -e: must NOT catch it (proves the
+  #     assertion above is not vacuous - it would have failed against the
+  #     pre-round-8 `-e` gate).
+  sed 's/\[ ! -r "\$scan_path" \]/[ ! -e "$scan_path" ]/' \
+    "$GATE_SCRIPT" > "$SCRATCH/scripts/check-no-false-umbrella-claims.sh"
+  if ! grep -q '\[ ! -e "\$scan_path" \]' "$SCRATCH/scripts/check-no-false-umbrella-claims.sh"; then
+    _fail "sed reversion of -r to -e did not apply - test fixture itself is broken, not the gate"
+  else
+    out="$(cd "$SCRATCH" && bash "scripts/check-no-false-umbrella-claims.sh" 2>&1)"
+    rc=$?
+    if [[ $rc -eq 0 ]]; then
+      _pass "confirmed pre-fix: a gate using -e instead of -r silently passes (exit 0) against a chmod 000 scan path - proves Mutation 6(a) is a genuine regression guard"
+    else
+      _fail "expected the pre-fix -e gate to silently pass (exit 0) against chmod 000 as a sanity check that this mutation can go red, but it exited $rc"
+    fi
+  fi
+
+  chmod 644 "$SCRATCH/AGENTS.md" 2>/dev/null || true
+  rm -f "$SCRATCH/AGENTS.md" "$SCRATCH/CONTRIBUTING.md"
+  # Restore the un-mutated gate copy again.
+  cp "$GATE_SCRIPT" "$SCRATCH/scripts/check-no-false-umbrella-claims.sh"
+fi
+
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 

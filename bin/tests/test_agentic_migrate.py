@@ -1499,5 +1499,155 @@ markers: []
         self.assertEqual(gitignore_path.read_bytes(), first_content, "second apply must be a true no-op")
 
 
+class TestRootAnchoredNegationRecognized(unittest.TestCase):
+    """Round 8 MAJOR 1 regression: a root-anchored `!/.agentic/<file>`
+    negation line must be recognized by every negation-lookup site
+    (_find_misordered_umbrella, _repair_gitignore_order, _append_gitignore),
+    symmetric with _is_agentic_umbrella_pattern's own acceptance of the
+    `/`-prefixed umbrella form. Before the fix, `line.strip().startswith(
+    "!.agentic/")` missed this spelling entirely: _find_misordered_umbrella
+    found no negation line at all, so `check` reported `ok` while a
+    root-anchored-negation project's umbrella sat misordered below the
+    negations, silently defeating every one of them - permanently, since
+    _compute_diff's `gitignore_misordered` flag never went True to trigger
+    `apply`."""
+
+    def _misordered_root_anchored_project(self, tmp):
+        project = Path(tmp) / "project"
+        project.mkdir()
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": 1}) + "\n")
+        (agentic / "qa.md").write_text("# qa\n")
+        gitignore_path = project / ".gitignore"
+        # Root-anchored negation, with the umbrella misordered BELOW it -
+        # the exact shape the pre-fix bare-form-only lookup missed.
+        gitignore_path.write_text("!/.agentic/qa.md\n.agentic/*\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        return project, gitignore_path
+
+    def _custom_manifest(self, tmp):
+        # Root-anchored patterns, matching the fixture's own spelling exactly
+        # (_pattern_present is an exact-line match) - this isolates the
+        # ordering-repair mutation being tested. A manifest using the bare
+        # spelling would make `apply` treat "!.agentic/qa.md" as a separate
+        # missing pattern and append it at EOF (below the umbrella but
+        # working on its own), which would mask a broken negation-lookup
+        # mutation behind that unrelated append path.
+        manifest_text = """
+scaffolding_version: 1
+gitignore:
+  - pattern: "/.agentic/*"
+    purpose: "umbrella ignore"
+  - pattern: "!/.agentic/qa.md"
+    purpose: "committed"
+files: []
+markers: []
+"""
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+        return manifest_path
+
+    def test_find_misordered_umbrella_recognizes_root_anchored_negation(self):
+        mod = _load_agentic_migrate_module()
+        lines = ["!/.agentic/qa.md", ".agentic/*"]
+        self.assertEqual(
+            mod._find_misordered_umbrella(lines), 1,
+            "root-anchored !/.agentic/ negation must be found so the "
+            "umbrella below it is detected as misordered",
+        )
+
+    def test_is_agentic_negation_line_matrix(self):
+        mod = _load_agentic_migrate_module()
+        positive = [
+            "!.agentic/x", "!/.agentic/x", "!**/.agentic/x",
+            "  !.agentic/x  ", "\t!/.agentic/x\t", "!.agentic/x\n",
+        ]
+        for line in positive:
+            self.assertTrue(
+                mod._is_agentic_negation_line(line),
+                f"expected {line!r} to be recognized as an .agentic/ negation line",
+            )
+        negative = [
+            "!other/path", "!.agentic-other/x", ".agentic/*",
+            "!agentic/x", "# !.agentic/x",
+        ]
+        for line in negative:
+            self.assertFalse(
+                mod._is_agentic_negation_line(line),
+                f"expected {line!r} to NOT be recognized as an .agentic/ negation line",
+            )
+
+    def test_check_reports_drift_on_root_anchored_misordered_file(self):
+        tmp = tempfile.mkdtemp()
+        project, _ = self._misordered_root_anchored_project(tmp)
+        manifest_path = self._custom_manifest(tmp)
+
+        result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(
+            out["gitignore_misordered"],
+            "check must report misordering for a root-anchored negation, "
+            "not silently report ok - this is the exact MAJOR 1 defect",
+        )
+
+    def test_apply_repairs_root_anchored_ordering_and_negation_works(self):
+        tmp = tempfile.mkdtemp()
+        project, gitignore_path = self._misordered_root_anchored_project(tmp)
+        manifest_path = self._custom_manifest(tmp)
+
+        r1 = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(r1.returncode, 0, msg=r1.stderr)
+
+        # check must now report ok (ordering fixed).
+        check_result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(check_result.returncode, 0, msg=check_result.stdout)
+
+        # Real git proof (never git check-ignore's exit code alone as the
+        # sole oracle - stage via a fresh index, per this branch's
+        # established verification convention).
+        add = subprocess.run(["git", "add", "-A"], cwd=str(project))
+        self.assertEqual(add.returncode, 0)
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=str(project),
+            capture_output=True, text=True, check=True,
+        )
+        self.assertIn(
+            ".agentic/qa.md", status.stdout,
+            "qa.md must be stageable (not git-ignored) after root-anchored "
+            f"ordering repair; git status --porcelain was:\n{status.stdout}",
+        )
+
+        # Idempotent: a second apply makes no further byte-level changes.
+        first_content = gitignore_path.read_bytes()
+        r2 = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(r2.returncode, 0, msg=r2.stderr)
+        self.assertEqual(gitignore_path.read_bytes(), first_content, "second apply must be a true no-op")
+
+    def test_double_star_prefixed_negation_recognized(self):
+        mod = _load_agentic_migrate_module()
+        lines = ["!**/.agentic/qa.md", ".agentic/*"]
+        self.assertEqual(
+            mod._find_misordered_umbrella(lines), 1,
+            "**/-prefixed !**/.agentic/ negation must also be recognized",
+        )
+
+    def test_non_negation_bang_line_not_misread_as_negation(self):
+        mod = _load_agentic_migrate_module()
+        # A line that starts with `!` but is unrelated to .agentic/ must
+        # never be mistaken for the negation anchor - it should not cause
+        # _find_misordered_umbrella to falsely treat an umbrella below it
+        # as ordering-violating relative to a negation that doesn't exist
+        # for .agentic/ at all in this fixture.
+        lines = ["!other/path", ".agentic/*"]
+        self.assertIsNone(
+            mod._find_misordered_umbrella(lines),
+            "an unrelated !-prefixed line must not be treated as an "
+            ".agentic/ negation anchor",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

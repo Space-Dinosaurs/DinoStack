@@ -2,7 +2,10 @@
 # Purpose: Apply additive project scaffolding migrations from a manifest.
 #          Reads content/project-scaffolding.yml (or adapter-replicated copy),
 #          compares against the current project state, and applies missing
-#          gitignore patterns and seed files without overwriting existing content.
+#          gitignore patterns and seed files without overwriting existing
+#          content, except to repair an out-of-order .agentic/ umbrella
+#          pattern (may rewrite bare-form lines, drop duplicates, and
+#          relocate a comment line attached to a misordered pattern).
 # Public API: check / apply / diff subcommands
 #   ds-migrate check  [--manifest PATH]
 #   ds-migrate apply  [--manifest PATH] [--project-root PATH] [--dry-run]
@@ -223,6 +226,24 @@ def _is_agentic_umbrella_pattern(pattern: str) -> bool:
     return bool(_AGENTIC_UMBRELLA_RE.match(pattern.strip()))
 
 
+# Recognizes a `!.agentic/<file>` negation line in any of the spellings git
+# itself accepts: bare (`!.agentic/`), root-anchored (`!/.agentic/`), and
+# `**/`-prefixed (`!**/.agentic/`) - symmetric with _AGENTIC_UMBRELLA_RE's own
+# optional `(\*\*/)?/?` prefix. A leading `!` with no `.agentic/` immediately
+# after it (e.g. `!other/path`) does not match.
+_AGENTIC_NEGATION_RE = re.compile(r"^!(\*\*/)?/?\.agentic/")
+
+
+def _is_agentic_negation_line(line: str) -> bool:
+    """True if `line` (any leading/trailing whitespace) is a `!.agentic/...`
+    negation in the bare, root-anchored (`!/.agentic/...`), or `**/`-prefixed
+    (`!**/.agentic/...`) spelling. All three are accepted by git identically;
+    a negation-lookup site that only recognizes the bare spelling silently
+    stops detecting misordering/insertion-point sites for a root-anchored
+    negation - see _find_misordered_umbrella's docstring."""
+    return bool(_AGENTIC_NEGATION_RE.match(line.strip()))
+
+
 def _normalize_bare_agentic_pattern(pattern: str) -> str | None:
     """If `pattern` is a bare .agentic/ directory-ignore form, rewrite it to
     the `*`-suffixed equivalent that CAN be negated (e.g. `.agentic` ->
@@ -307,7 +328,7 @@ def _find_misordered_umbrella(lines: list[str]) -> int | None:
     actively defeated - see _repair_gitignore_order's docstring for how the
     REPAIRER (not detection) handles a comment-attached line."""
     first_negation_idx = next(
-        (i for i, line in enumerate(lines) if line.strip().startswith("!.agentic/")),
+        (i for i, line in enumerate(lines) if _is_agentic_negation_line(line)),
         None,
     )
     if first_negation_idx is None:
@@ -359,8 +380,12 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
     negation, in original order - rather than being deduped/dropped or left
     in place. This always repairs the negation (detection above is
     unconditional and `check`/`diff` must never report `ok` while a negation
-    is defeated), and it never orphans the comment (moving keeps it directly
-    above whatever it was describing). The tradeoff: a comment-attached
+    is defeated), and it never orphans the single immediately-preceding
+    comment line (moving keeps it directly above whatever it was describing).
+    This guarantee is scoped to exactly that one line: a second, non-adjacent
+    comment above it (e.g. `# c1\n# c2\n.agentic/**`, or a blank-separated
+    `# c\n\n.agentic/**`) is left behind - only the comment line immediately
+    above the pattern moves with it. The tradeoff: a comment-attached
     duplicate umbrella is NOT deduped away like an uncommented one - it is
     always moved as-is, which can leave two adjacent `.agentic/*` lines
     (harmless; both match the same content, matching is idempotent past the
@@ -385,7 +410,7 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
             if misordered_idx is None:
                 break
             negation_idx = next(
-                i for i, line in enumerate(str_lines) if line.strip().startswith("!.agentic/")
+                i for i, line in enumerate(str_lines) if _is_agentic_negation_line(line)
             )
             has_comment = (
                 misordered_idx > 0
@@ -496,7 +521,7 @@ def _append_gitignore(gitignore_path: Path, pattern: str) -> None:
                 (
                     i
                     for i, line in enumerate(byte_lines)
-                    if line.decode("utf-8", errors="replace").strip().startswith("!.agentic/")
+                    if _is_agentic_negation_line(line.decode("utf-8", errors="replace"))
                 ),
                 None,
             )
