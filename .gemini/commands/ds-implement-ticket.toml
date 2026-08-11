@@ -1144,7 +1144,9 @@ If `W1_REASON` is empty, the gate holds: invoke the Tracker Writeback Helper wit
 # assignment, and its two branches are the sole two definition sites for
 # this variable outside the per-ticket reset.
 export AGENTIC_LOOP_KEY="${LOOP_KEY:-}"
-ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\\",\\"reason\\":null,\\"target_state\\":\\"${TRACKER_STATE_IN_PROGRESS:-}\\"}" 2>/dev/null || true
+if [ -z "$W1_REASON" ]; then
+  ds-emit tracker_writeback - "${TICKET_ID:--}" "{\\"site\\":\\"W1\\",\\"outcome\\":\\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\\",\\"reason\\":null,\\"target_state\\":\\"${TRACKER_STATE_IN_PROGRESS:-}\\"}" 2>/dev/null || true
+fi
 ```
 
 ```
