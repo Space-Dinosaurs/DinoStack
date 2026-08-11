@@ -86,7 +86,7 @@ ds-migrate apply --project-root <cwd>  # after resetting stamp, re-apply to re-v
 | 0 | Success / no-op |
 | 1 | Drift detected (check subcommand only) |
 | 2 | Manifest parse error (any subcommand); manifest NOT FOUND on `check`/`diff` only |
-| 3 | Partial apply - some rules errored |
+| 3 | Partial apply - some rules errored, OR (round 10+) `apply` ran every rule successfully but a behavioral `git check-ignore` recheck afterward still reports a manifest-negated path as ignored - a spelling neither the ordering-repair nor bare-form-repair matcher recognizes. The affected paths are named on stderr for manual `.gitignore` repair. |
 
 **`apply`'s manifest-not-found case is the one exception to this table:** it returns 0 (not 2), by deliberate silent-fail discipline documented in the `bin/ds-migrate` module docstring (`Failure modes: silent-fail discipline; never throws to caller`) - a caller that needs to distinguish "applied successfully" from "manifest was unresolvable" cannot do so from `apply`'s exit code alone and must instead check the actual postcondition (e.g. does `.gitignore` now contain the expected umbrella and negation lines - see `content/commands/ds-init-project.md` Step 9 for the concrete pattern). `check` and `diff` do not share this exception; both return 2 for an unresolvable manifest, same as a parse error.
 

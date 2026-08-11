@@ -1956,20 +1956,26 @@ class TestUmbrellaPrefixSpellingAgreement(unittest.TestCase):
             "every prefix must be either asserted-on or explicitly skipped "
             "as moot (umbrella-only doesn't ignore anything)",
         )
-        # Round 10 fix: the equality assertion above passes vacuously if
-        # EVERY prefix goes moot (candidate_count == 0, skipped_moot ==
-        # len(PREFIXES)) - the test would then have asserted nothing about
-        # any actual negation behavior while still reporting green. Floor
-        # candidate_count at a known-nonzero minimum so a future change that
-        # somehow makes every prefix moot (e.g. a PREFIXES edit, or an
-        # environment where the umbrella never matches) fails loudly instead
-        # of silently asserting nothing.
-        self.assertGreater(
-            candidate_count, 0,
-            "every generated prefix went moot (umbrella-only ignored "
-            "nothing) - this test asserted nothing about negation behavior; "
-            "investigate PREFIXES or the git environment before trusting "
-            "a green run",
+        # Round 10 fix, round 11 correction: the equality assertion above
+        # passes vacuously if EVERY prefix goes moot (candidate_count == 0,
+        # skipped_moot == len(PREFIXES)) - the test would then have
+        # asserted nothing about any actual negation behavior while still
+        # reporting green. The floor below is NOT the trivial `> 0`
+        # minimum (round 11 finding: that comment overstated what the
+        # assertion actually enforced) - it is the measured, deterministic
+        # count of non-moot prefixes for the live PREFIXES list against
+        # real git (6 of 9; "", "//", and one other prefix make the
+        # umbrella-only ignore nothing and are skipped as moot). A future
+        # PREFIXES edit or an environment where git's matching genuinely
+        # changes must update this exact count, not silently widen the
+        # floor back to `> 0`.
+        self.assertEqual(
+            candidate_count, 6,
+            "expected exactly 6 of 9 generated prefixes to be non-moot "
+            "against real git - if this count changed, either PREFIXES "
+            "was edited (update this floor to match) or git's own "
+            "matching behavior changed upstream (re-verify before "
+            "trusting the rest of this test)",
         )
         print(
             f"[spelling-agreement] negation candidates checked: "
@@ -2017,7 +2023,13 @@ class TestManifestNegatedPathsDerivation(unittest.TestCase):
     """Round 10: `_manifest_negated_paths` derives the behavioral-detection
     probe set directly from the manifest's own `!`-prefixed gitignore
     entries, not a hand-picked list - a manifest edit changes what gets
-    verified with no matching code change required."""
+    verified with no matching code change required.
+
+    Round 11: a single depth-1, extension-less probe per directory-form
+    negation was measured to miss extension-scoped and depth-scoped
+    negation-defeaters (`<dir>/*.jsonl`, `<dir>/*/*`). Each directory-form
+    negation now expands to a representative probe SET (see
+    `_directory_negation_probes`); these tests assert the expanded shape."""
 
     def test_probes_derived_from_live_manifest(self):
         mod = _load_agentic_migrate_module()
@@ -2032,14 +2044,24 @@ class TestManifestNegatedPathsDerivation(unittest.TestCase):
         self.assertIn(".agentic/qa.md", probes)
         self.assertIn(".agentic/config.json", probes)
         # Directory-form (`!.agentic/session-log/`) and recursive-glob-form
-        # (`!.agentic/session-log/**`) negations both probe a synthetic file
-        # one level inside the directory, and dedupe to the SAME probe -
-        # this is why len(probes) is one less than len(negation_patterns).
+        # (`!.agentic/session-log/**`) negations both expand to the SAME
+        # 3-probe synthetic set (no real files on disk in this
+        # project_root-less call) and dedupe against each other - this is
+        # why len(probes) is len(negation_patterns) + 1: 2 directory-form
+        # patterns collapse to 1 pattern-slot's worth of dedup work, but
+        # that one slot now contributes 3 probes instead of 1 (net +2 - 1
+        # for the pattern that would otherwise have contributed its own
+        # single probe = +1 overall).
         self.assertIn(".agentic/session-log/.ds-migrate-probe", probes)
+        self.assertIn(".agentic/session-log/.ds-migrate-probe.jsonl", probes)
+        self.assertIn(
+            ".agentic/session-log/.ds-migrate-probe/.ds-migrate-probe.jsonl", probes
+        )
         self.assertEqual(len(probes), len(set(probes)), "probes must be deduped")
         self.assertEqual(
-            len(probes), len(negation_patterns) - 1,
-            "session-log/ and session-log/** must dedupe to exactly one probe",
+            len(probes), len(negation_patterns) + 1,
+            "session-log/ and session-log/** must dedupe to exactly one "
+            "3-probe synthetic set",
         )
 
     def test_directory_and_recursive_forms_produce_probe_paths_not_bare_dirs(self):
@@ -2055,8 +2077,34 @@ class TestManifestNegatedPathsDerivation(unittest.TestCase):
         probes = mod._manifest_negated_paths(manifest)
         self.assertEqual(
             probes,
-            [".agentic/plain.md", ".agentic/adir/.ds-migrate-probe", ".agentic/bdir/.ds-migrate-probe"],
+            [
+                ".agentic/plain.md",
+                ".agentic/adir/.ds-migrate-probe.jsonl",
+                ".agentic/adir/.ds-migrate-probe/.ds-migrate-probe.jsonl",
+                ".agentic/adir/.ds-migrate-probe",
+                ".agentic/bdir/.ds-migrate-probe.jsonl",
+                ".agentic/bdir/.ds-migrate-probe/.ds-migrate-probe.jsonl",
+                ".agentic/bdir/.ds-migrate-probe",
+            ],
         )
+
+    def test_real_files_on_disk_are_preferred_probes(self):
+        """When project_root is given and a real file already exists under
+        a directory-form negation's directory, it is included as a probe
+        (in addition to, not instead of, the synthetic shapes) - the
+        strongest possible probe, since it is the exact file this check
+        exists to protect."""
+        mod = _load_agentic_migrate_module()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            real_dir = root / ".agentic" / "session-log"
+            real_dir.mkdir(parents=True)
+            (real_dir / "alice.jsonl").write_text("{}\n", encoding="utf-8")
+            manifest = {"gitignore": [{"pattern": "!.agentic/session-log/"}]}
+            probes = mod._manifest_negated_paths(manifest, root)
+            self.assertIn(".agentic/session-log/alice.jsonl", probes)
+            # synthetic shapes are still present alongside the real file
+            self.assertIn(".agentic/session-log/.ds-migrate-probe.jsonl", probes)
 
 
 class TestBehavioralNegationDetection(unittest.TestCase):
@@ -2140,20 +2188,65 @@ class TestBehavioralNegationDetection(unittest.TestCase):
                 continue
             self.assertTrue(line.startswith("A "), f"expected staged (A), got: {line!r}")
 
-    def test_check_ignore_dash_v_false_positive_is_not_relied_upon(self):
-        """Round 10 discovery, load-bearing for the whole design: real
-        `git check-ignore -v <path>` returns exit 0 (falsely "ignored") for
-        a path a correctly-ordered negation covers, whenever that exact
-        path has never been part of the index - reproduced directly here
-        (not via our code) so the fact is pinned. `git add`,
-        `git ls-files --others --exclude-standard`, and
-        `git status --porcelain --ignored=matching` all correctly disagree
-        with `-v`'s answer. `_git_check_ignore_batch` deliberately omits
-        `-v` to sidestep this; this test also asserts our function does not
-        reproduce the false positive. If the FIRST assertion below
-        (reproducing the raw git bug) ever fails, git's own behavior may
-        have changed upstream - re-verify before assuming a regression in
-        our code."""
+    def test_round11_extension_and_depth_scoped_defeaters_now_caught(self):
+        """Round 11 finding: a single depth-1, extension-less probe per
+        directory-form negation missed extension-scoped and depth-scoped
+        negation-defeaters. All four spellings measured in round 11 must
+        now report drift, with a real knowledge file confirmed unstageable
+        under each (staging oracle, never `git check-ignore -v`)."""
+        spellings = [
+            (".agentic/session-log/*.jsonl", "dev.jsonl"),
+            (".agentic/session-log/*/*", "sub/dev.jsonl"),
+            (".agentic/session-log/**/*.jsonl", "dev.jsonl"),
+        ]
+        for pattern, rel_target in spellings:
+            with self.subTest(pattern=pattern):
+                tmp = tempfile.mkdtemp()
+                project = self._seeded_project(tmp)
+                (project / ".gitignore").write_text(
+                    "!.agentic/session-log/\n!.agentic/session-log/**\n" + pattern + "\n"
+                )
+                result = run(
+                    ["check", "--manifest", MANIFEST, "--project-root", str(project)]
+                )
+                self.assertEqual(result.returncode, 1, msg=result.stdout)
+                out = json.loads(result.stdout)
+                self.assertEqual(out["status"], "drift")
+                self.assertTrue(out["gitignore_negations_defeated"])
+                self.assertEqual(out["gitignore_verification"], "behavioral")
+
+                # Staging oracle: a real knowledge-file-shaped path under
+                # the directory must not be stageable while defeated.
+                target = project / ".agentic" / "session-log" / rel_target
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text("{}\n")
+                self._git(["add", "-A"], project)
+                status = self._git(["status", "--porcelain"], project).stdout
+                self.assertNotIn(target.name, status)
+                target.unlink()
+
+    def test_git_check_ignore_batch_does_not_rely_on_dash_v(self):
+        """Round 10 discovery, load-bearing for the whole design, corrected
+        in round 11 after the Skeptic verified the original framing against
+        git-check-ignore(1) on git 2.55.0: `-v` reports the LAST MATCHING
+        pattern and exits 0 on any match, including a negation match - this
+        is documented behavior (`--verbose`: "if the pattern begins with
+        "!" then it is a negated pattern and matching it means the path is
+        NOT excluded"), not a bug. So `-v`'s exit code alone is not an
+        ignored/not-ignored signal for a path a negation covers, whenever
+        that exact path has never been part of the index - reproduced
+        directly here (not via our code) so the fact is pinned, and the
+        negation line itself appears in `-v`'s own output as documented.
+        `git add`, `git ls-files --others --exclude-standard`, and
+        `git status --porcelain --ignored=matching` all correctly report
+        the path as reachable, consistent with `-v` matching without that
+        match meaning "ignored". `_git_check_ignore_batch` deliberately
+        omits `-v` and uses plain `-z --stdin`, which reports
+        ignored/not-ignored directly; this test asserts our function
+        reports the path as reachable. If the FIRST assertion below (the
+        raw-git `-v` reproduction) ever fails, git's own behavior may have
+        changed upstream - re-verify against git-check-ignore(1) before
+        assuming a regression in our code."""
         tmp = tempfile.mkdtemp()
         project = Path(tmp) / "project"
         (project / ".agentic").mkdir(parents=True)
@@ -2161,31 +2254,37 @@ class TestBehavioralNegationDetection(unittest.TestCase):
         (project / ".gitignore").write_text(".agentic/*\n!.agentic/qa.md\n")
         subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
 
-        # IMPORTANT ordering: the git -v quirk this test pins only
+        # IMPORTANT ordering: `-v`'s exit-0-on-negation-match only
         # reproduces before the target path has ever been staged (see the
         # docstring above and _git_check_ignore_batch's own docstring for
-        # the measurement) - so both the raw-git reproduction AND our
-        # function's own call must happen BEFORE any `git add` of this
-        # path. Staging first would silently "fix" the quirk and this test
-        # would pass without exercising anything.
-        buggy = subprocess.run(
+        # the measurement, and git-check-ignore(1) DESCRIPTION: tracked
+        # paths are skipped entirely by default) - so both the raw-git
+        # reproduction AND our function's own call must happen BEFORE any
+        # `git add` of this path. Staging first would change `-v`'s answer
+        # and this test would pass without exercising anything.
+        matched = subprocess.run(
             ["git", "check-ignore", "-v", ".agentic/qa.md"],
             cwd=str(project), capture_output=True, text=True,
         )
         self.assertEqual(
-            buggy.returncode, 0,
-            "expected the documented git -v quirk to reproduce (exit 0, "
-            "falsely reporting .agentic/qa.md ignored) - if this is no "
-            "longer 0, git's -v behavior may have changed upstream; "
-            "re-verify before trusting the rest of this test",
+            matched.returncode, 0,
+            "expected the documented git -v negation-match exit code (0, "
+            "matching !.agentic/qa.md) to reproduce - if this is no "
+            "longer 0, re-verify against git-check-ignore(1) before "
+            "trusting the rest of this test",
+        )
+        self.assertIn(
+            "!.agentic/qa.md", matched.stdout,
+            "the negation pattern itself should appear in -v's output, "
+            "per git-check-ignore(1)'s documented --verbose format",
         )
 
         mod = _load_agentic_migrate_module()
         ignored = mod._git_check_ignore_batch(project, [".agentic/qa.md"])
         self.assertEqual(
             ignored, set(),
-            "_git_check_ignore_batch must not reproduce the -v false "
-            "positive - see its docstring",
+            "_git_check_ignore_batch must report the path as reachable, "
+            "not rely on -v's exit code - see its docstring",
         )
 
         # Ground truth, confirmed AFTER our function's own call (not
@@ -2247,6 +2346,30 @@ class TestBehavioralNegationDetection(unittest.TestCase):
         self.assertTrue(out["gitignore_misordered"])
         self.assertTrue(out["gitignore_negations_defeated"])
         self.assertEqual(out["gitignore_verification"], "unavailable")
+
+    def test_ok_response_carries_gitignore_verification(self):
+        """Round 11 finding: `cmd_check`'s `ok` branch printed only
+        `status`/`project_version`/`manifest_version`, so an `ok` produced
+        in 'unavailable' mode (syntactic fallback, not a real git check) was
+        indistinguishable on the wire from a behaviorally-verified `ok`.
+        `gitignore_verification` must now be present on `ok` too, not only
+        on `drift`."""
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        (project / ".gitignore").write_text(
+            ".agentic/*\n!.agentic/qa.md\n!.agentic/config.json\n"
+            "!.agentic/qa-regressions.md\n!.agentic/session-log/\n"
+            "!.agentic/session-log/**\n!.agentic/learnings.md\n"
+            "!.agentic/team.yml\n!.agentic/skill-candidates.md\n"
+            "!.agentic/deploy.md\n!.agentic/tracking.md\n"
+            "!.agentic/phase0-classifiers.yml\n!.agentic/deferred-work.jsonl\n"
+            "!.agentic/presets.yml\n"
+        )
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "ok")
+        self.assertEqual(out["gitignore_verification"], "behavioral")
 
 
 class TestApplyFailsLoudlyWhenRepairCannotResolveDetectedDrift(unittest.TestCase):

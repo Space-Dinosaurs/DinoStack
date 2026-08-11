@@ -20,7 +20,11 @@
 #   1 = drift detected (check subcommand only)
 #   2 = manifest not found / parse error
 #   3 = partial apply (some rules errored; also raised when a manifest entry's
-#       path resolves outside project_root - path-traversal guard)
+#       path resolves outside project_root - path-traversal guard); also
+#       raised (round 10+) when every rule applied successfully but a
+#       post-apply behavioral `git check-ignore` recheck still reports a
+#       manifest-negated path ignored - a spelling neither repair matcher
+#       recognizes, named on stderr for manual .gitignore repair
 # Note: _acquire_lock/_release_lock use a one-shot fcntl.LOCK_NB pattern with
 #       stale-lock detection and raw os.open fd - structurally distinct from the
 #       sleep-retry acquire_exclusive_lock context manager in _lib; not extracted.
@@ -822,8 +826,60 @@ def _resolve_manifest_path(args: argparse.Namespace) -> Path | None:
 _GIT_VERIFY_TIMEOUT_SECONDS = 10
 
 
-def _manifest_negated_paths(manifest: dict) -> list[str]:
-    """Return the concrete probe path for every `!<path>` negation the
+def _directory_negation_probes(dir_path: str, project_root: Path | None) -> list[str]:
+    """Return a representative probe SET for a directory-form negation
+    (`!<dir>/` or `!<dir>/**`), instead of the single bare-name probe round
+    10 used. A single depth-1, extension-less probe (`<dir>/.ds-migrate-probe`)
+    only exercises umbrella-vs-negation ORDERING - it says nothing about a
+    negation that is scoped by extension or depth (e.g. `<dir>/*.jsonl`,
+    `<dir>/*/*`), which git honors identically but a single flat probe never
+    triggers. Measured round 11: `.agentic/session-log/*.jsonl`,
+    `.agentic/session-log/*/*`, `.agentic/session-log/**/*.jsonl`, and
+    `.agentic/session-log/nested/` all left the single-probe check reporting
+    `ok` while a real knowledge file directly under the directory (or one
+    level deeper) was ignored.
+
+    Four probe shapes, in this order:
+      1. Every REAL file currently on disk under `dir_path` (relative to
+         `project_root`), if any - the strongest possible probe, since it is
+         the actual file this check exists to protect, not a synthetic
+         stand-in.
+      2. A depth-1, extension-carrying synthetic probe
+         (`<dir>/.ds-migrate-probe.jsonl`) - matches the one shape dinostack
+         actually writes under a directory-form negation today:
+         `.agentic/session-log/<developer_id>.jsonl`.
+      3. A depth-2 synthetic probe (`<dir>/.ds-migrate-probe/.ds-migrate-probe.jsonl`)
+         - catches a negation scoped to exactly one nesting level (e.g.
+         `<dir>/*/*`) that a depth-1 probe cannot reach.
+      4. The original depth-1, extension-less synthetic probe
+         (`<dir>/.ds-migrate-probe`) - kept for continuity; it is still the
+         correct probe for a plain ordering/bare-defeater regression and
+         costs nothing extra to keep checking.
+
+    `project_root` may be None (e.g. a manifest-only unit test with no real
+    project on disk) - real-file discovery (shape 1) is then skipped and
+    only the synthetic shapes are returned. None of these paths need to
+    exist on disk for git ignore matching to work; shape 1 exists only to
+    prefer a REAL file when one happens to be present."""
+    dir_clean = dir_path.rstrip("/")
+    probes: list[str] = []
+    if project_root is not None:
+        real_dir = project_root / dir_clean
+        if real_dir.is_dir():
+            for real_file in sorted(p for p in real_dir.rglob("*") if p.is_file()):
+                probes.append(
+                    str(real_file.relative_to(project_root).as_posix())
+                )
+    probes.append(f"{dir_clean}/.ds-migrate-probe.jsonl")
+    probes.append(f"{dir_clean}/.ds-migrate-probe/.ds-migrate-probe.jsonl")
+    probes.append(f"{dir_clean}/.ds-migrate-probe")
+    return probes
+
+
+def _manifest_negated_paths(
+    manifest: dict, project_root: Path | None = None
+) -> list[str]:
+    """Return the concrete probe path(s) for every `!<path>` negation the
     manifest declares, derived directly from the manifest's own gitignore
     list - not a hand-picked list, so a manifest edit (adding or removing a
     negation) changes what gets verified with no matching code change
@@ -835,13 +891,16 @@ def _manifest_negated_paths(manifest: dict) -> list[str]:
     at the glob or the bare directory itself in a way that proves nested
     files are reachable - a directory's own ignore status does not imply its
     contents', and check-ignore does not accept a glob as an input path. Both
-    forms are converted to a synthetic FILE path one level inside the
-    directory instead: this is exactly the shape a real knowledge file (or
-    any file dinostack writes under that directory) takes, and it is what
-    _repair_gitignore_order's docstring and TestManifestCarveOutsRealGit
-    already treat as the correct verification target for a directory-form
-    negation. The probe file need not exist on disk - git ignore matching is
-    purely pattern-based and does not require the target path to exist."""
+    forms are converted to a representative SET of synthetic FILE paths one
+    or two levels inside the directory instead (see
+    `_directory_negation_probes`) - a single flat probe is not
+    representative of every shape a real knowledge file can take
+    (extension, nesting depth), which round 11 measured as a live blind
+    spot. `project_root`, when given, additionally seeds probes from any
+    real file already on disk under the negated directory - the strongest
+    possible probe. None of the probe paths need to exist on disk for git
+    ignore matching to work; `project_root` only improves probe fidelity
+    when a real file happens to be present."""
     seen: set[str] = set()
     probes: list[str] = []
     for entry in manifest.get("gitignore", []):
@@ -850,14 +909,17 @@ def _manifest_negated_paths(manifest: dict) -> list[str]:
             continue
         path = pattern[1:]
         if path.endswith("/**"):
-            probe = path[: -len("/**")].rstrip("/") + "/.ds-migrate-probe"
+            candidates = _directory_negation_probes(
+                path[: -len("/**")], project_root
+            )
         elif path.endswith("/"):
-            probe = path.rstrip("/") + "/.ds-migrate-probe"
+            candidates = _directory_negation_probes(path, project_root)
         else:
-            probe = path
-        if probe not in seen:
-            seen.add(probe)
-            probes.append(probe)
+            candidates = [path]
+        for probe in candidates:
+            if probe not in seen:
+                seen.add(probe)
+                probes.append(probe)
     return probes
 
 
@@ -899,26 +961,33 @@ def _git_check_ignore_batch(project_root: Path, paths: list[str]) -> set[str] | 
     pathnames git considers ignored, one per record, and a path with a
     working negation produces no output record at all.
 
-    `-v` is deliberately never added here. Measured directly (round 10,
-    against real git 2.55.0): `git check-ignore -v <path>` returns exit 0
-    (falsely "ignored") for a path that a correctly-ordered
-    `!.agentic/<file>` negation covers, whenever that exact path has never
-    been part of the index (the common case for most manifest-negated
-    files, which are not seeded and may not exist on disk yet at check
-    time) - reproduced with both positional-args and `--stdin` invocation,
-    with and without `--no-index`, independent of directory name or
-    umbrella spelling, and confirmed to disagree with EVERY other oracle
-    (`git add`, `git ls-files --others --exclude-standard`,
-    `git status --porcelain --ignored=matching`, and the same
-    `check-ignore` invocation with `-v` simply omitted - all of which
-    correctly report the path as reachable). Once the exact target path is
-    staged even once, subsequent `-v` calls become correct - consistent
-    with `-v`'s verbose per-match reporting following a different, buggier
-    internal path than the plain ignored/not-ignored determination `-z`
-    alone uses. Omitting `-v` sacrifices the matched-pattern/line-number
-    detail (not needed here - only the pathname is used) and sidesteps the
-    bug entirely; every regression test in this file that exercises a
-    genuinely-defeated negation confirms omitting `-v` still detects it."""
+    `-v` is deliberately never added here. `-v` reports the last matching
+    pattern and exits 0 on ANY match, including a negation match -
+    documented in git-check-ignore(1) under `--verbose`: "Matching an
+    exclude pattern usually means the path is excluded, but if the pattern
+    begins with "!" then it is a negated pattern and matching it means the
+    path is NOT excluded." So `-v`'s exit code alone is not an
+    ignored/not-ignored signal for a negated path - reproduced directly
+    (round 10, git 2.55.0): `git check-ignore -v <path>` exits 0 for a path
+    a correctly-ordered `!.agentic/<file>` negation covers, and the
+    negation line (`.gitignore:N:!.agentic/<file>`) appears in its own
+    output, exactly as documented. This is what the raw-git-behavior test
+    below pins.
+
+    Separately, and also documented (DESCRIPTION): "By default, tracked
+    files are not shown at all since they are not subject to exclude
+    rules" - so once the exact target path is staged, `check-ignore` skips
+    it entirely regardless of `-v`, which is why a staged path returns
+    exit 1 either way. `--no-index` governs only that tracked-file skip,
+    not `-v`'s match-reporting semantics, so `--no-index -v` still exits 0
+    on a negation match for a never-staged path.
+
+    Plain `-z --stdin` (no `-v`) reports ignored/not-ignored directly, is
+    unaffected by either of the above, and is what this function relies
+    on. Omitting `-v` sacrifices the matched-pattern/line-number detail
+    (not needed here - only the pathname is used); every regression test
+    in this file that exercises a genuinely-defeated negation confirms
+    omitting `-v` still detects it."""
     if not paths:
         return set()
     try:
@@ -986,7 +1055,7 @@ def _compute_negations_defeated(manifest: dict, project_root: Path) -> dict:
             "defeated_paths": [],
             "reason": f"{project_root} is not inside a git working tree",
         }
-    probes = _manifest_negated_paths(manifest)
+    probes = _manifest_negated_paths(manifest, project_root)
     ignored = _git_check_ignore_batch(project_root, probes)
     if ignored is None:
         return {
@@ -1127,7 +1196,12 @@ def cmd_check(args: argparse.Namespace) -> int:
     gitignore_negations_defeated = diff["gitignore_negations_defeated"]
 
     if project_version >= manifest_version and not gitignore_negations_defeated:
-        print(json.dumps({"status": "ok", "project_version": project_version, "manifest_version": manifest_version}))
+        print(json.dumps({
+            "status": "ok",
+            "project_version": project_version,
+            "manifest_version": manifest_version,
+            "gitignore_verification": diff["gitignore_verification"],
+        }))
         return 0
     else:
         print(json.dumps({
