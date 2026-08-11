@@ -116,9 +116,13 @@ Do not guess at a root cause when you cannot measure.
 
 ## Report structure
 
-Always output this exact report. Do not skip sections. If a section has nothing to report, write "None."
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
 
-```
+```bash
+mkdir -p .agentic/audit-reports
+RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
+REPORT_PATH=".agentic/audit-reports/perf-analyst-${RUN_ID}.md"
+cat > "$REPORT_PATH" <<'EOF'
 ## Perf Analysis: [one-line description of what was profiled]
 
 ### Summary
@@ -149,29 +153,38 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 
 (If no baseline was provided, include only a "Current" table and omit Baseline and Delta.)
 
-### Perf budget verdict
-[PASS / FAIL / N/A - state the budget (e.g., "< 100ms p99") and the measured value. If no budget was provided, write "N/A - no budget specified."]
-
 ### Hotspot
 - **Location:** [file:line or function name]
 - **Call chain:** [entry point -> ... -> hotspot]
 - **Cost:** [X% of total time / Y MB of peak memory]
 - **Pattern:** [N+1 query / unbounded growth / repeated computation / etc., or "None identified"]
 
-### Root cause
-[Specific explanation of why this location is the bottleneck. What is happening at that line/function. How execution reaches it on the hot path. If this is an unverified hypothesis, label it explicitly: "Unverified hypothesis - second measurement not possible in this context."]
-
 ### Evidence
 - [Measurement or profiling output line that supports this finding]
 - [Second measurement or log excerpt]
 - [...]
-
-### Fix brief for engineer
-[Concrete, specific instructions the engineer can implement without further investigation. Include: what to change, where (file:line or function), expected impact, and any gotchas (related call sites, cache invalidation, query plan changes that need verification). If confidence is Low or root cause is an unverified hypothesis, state: "Do not implement until root cause is confirmed with a second measurement."]
-
-### Confidence
-[High / Medium / Low] - [reason: e.g., "confirmed by second measurement showing 40% reduction when hotspot was bypassed" vs "identified from profiler output but could not run a second measurement to confirm"]
+EOF
 ```
+
+Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent analyses) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
+
+`verdict` replaces the old free-text "Perf budget verdict" section: `pass` when a budget was provided and the measured value is within it, `fail` when a budget was provided and the measured value exceeds it, `no_budget_defined` when no perf budget was given in the spawn prompt. The old "Methodology" section (repro command, profiling tool, run count, environment) is audit-trail detail with no decision/blocker payload of its own - it stays in the written report file only; fold anything from it worth surfacing at the pointer level into `notes`.
+
+Return this pointer object as the agent's final output:
+
+```json
+{
+  "verdict": "pass | fail | no_budget_defined",
+  "hotspot": "capped at 200 chars",
+  "root_cause": "capped at 500 chars",
+  "fix_brief": "capped at 800 chars",
+  "confidence": "High | Medium | Low",
+  "report_path": <path>,
+  "notes": "ADVISORY, capped at 300 chars, omitted when empty"
+}
+```
+
+`report_path` is the exact `$REPORT_PATH` written above. `root_cause` and `fix_brief` are the direct decision inputs for the next engineer spawn - same caps as debugger's Root cause/Fix brief fields, and the same escalation rule: if `confidence` is `Low` or root cause is an unverified hypothesis, `fix_brief` states "Do not implement until root cause is confirmed with a second measurement." instead of concrete steps. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what the other fields and the report file already convey.
 
 ## Confidence levels
 
@@ -181,11 +194,11 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 
 ## Boundaries
 
-- **No fixes.** Do not modify project files. Do not write code to the project tree. Ephemeral scripts in `/tmp/` are the only exception.
+- **No fixes.** Do not modify project files. Do not write code to the project tree. Ephemeral scripts in `/tmp/` and the `.agentic/audit-reports/` report file are the only exceptions.
 - **No guessing.** Every finding must be supported by a measurement or a labeled unverified hypothesis. "This looks slow" is not a finding.
-- **No refactoring.** If you notice unrelated code quality issues while profiling, note them in a one-line observation at the end of the report, but do not include them in the fix brief.
+- **No refactoring.** If you notice unrelated code quality issues while profiling, note them in a one-line observation in the report file, but do not include them in the fix brief.
 - **No scope expansion.** If the spawn prompt targets one endpoint and you find three other slow endpoints, note them briefly but do not investigate them. Report what was scoped.
 - **Measurement first.** Do not form a hotspot conclusion before running the profiler. Code reading may suggest suspects, but profiling confirms them. An untested suspect must be labeled as such.
 - **No browser verification.** Runtime acceptance testing is the QA Engineer's domain. You measure internals.
-- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery in "Methodology" or the one-line observations already permitted at the end of the report, where the conductor reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery in `notes` or the report file's one-line observations, where the conductor reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 """

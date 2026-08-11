@@ -1,16 +1,8 @@
 {
-  "adr-drift-detector.md": [
-    "adr-drift-detector.md: no fenced ```yaml or ```json return block found in the Shape-2 return section"
-  ],
+  "adr-drift-detector.md": [],
   "architect.md": [],
   "debugger.md": [],
-  "dependency-auditor.md": [
-    "dependency-auditor.md: field 'Summary' has no [MECHANICAL] or [ADVISORY] tag",
-    "dependency-auditor.md: field 'Findings' has no [MECHANICAL] or [ADVISORY] tag",
-    "dependency-auditor.md: field 'Upgrade plan' has no [MECHANICAL] or [ADVISORY] tag",
-    "dependency-auditor.md: field 'Open questions' has no [MECHANICAL] or [ADVISORY] tag",
-    "dependency-auditor.md: field 'Scan gaps' has no [MECHANICAL] or [ADVISORY] tag"
-  ],
+  "dependency-auditor.md": [],
   "engineer.md": [
     "engineer.md: field 'task_id' is capable of open-ended or repeated content but declares no cap or one-line marker",
     "engineer.md: field 'branch_name' is capable of open-ended or repeated content but declares no cap or one-line marker",
@@ -34,17 +26,7 @@
     "learnings-agent.md: classification field 'skipped_reason' declares no closed enum (expected an inline 'X | Y | Z' value list or an adjacent JSON-Schema 'enum:')"
   ],
   "orchestration-planner.md": [],
-  "perf-analyst.md": [
-    "perf-analyst.md: field 'Summary' has no [MECHANICAL] or [ADVISORY] tag",
-    "perf-analyst.md: field 'Methodology' has no [MECHANICAL] or [ADVISORY] tag",
-    "perf-analyst.md: field 'Measurements' has no [MECHANICAL] or [ADVISORY] tag",
-    "perf-analyst.md: field 'Perf budget verdict' has no [MECHANICAL] or [ADVISORY] tag",
-    "perf-analyst.md: field 'Hotspot' has no [MECHANICAL] or [ADVISORY] tag",
-    "perf-analyst.md: field 'Root cause' has no [MECHANICAL] or [ADVISORY] tag",
-    "perf-analyst.md: field 'Evidence' has no [MECHANICAL] or [ADVISORY] tag",
-    "perf-analyst.md: field 'Fix brief for engineer' has no [MECHANICAL] or [ADVISORY] tag",
-    "perf-analyst.md: field 'Confidence' has no [MECHANICAL] or [ADVISORY] tag"
-  ],
+  "perf-analyst.md": [],
   "product-discovery.md": [
     "product-discovery.md: field 'vision.md (one screen, narrative)' has no [MECHANICAL] or [ADVISORY] tag",
     "product-discovery.md: field 'requirements.md (scoped, checkable)' has no [MECHANICAL] or [ADVISORY] tag"
@@ -53,12 +35,7 @@
     "qa-engineer.md: field '1. [Criterion description]' has no [MECHANICAL] or [ADVISORY] tag",
     "qa-engineer.md: field '2. [Next criterion]' has no [MECHANICAL] or [ADVISORY] tag"
   ],
-  "release-orchestrator.md": [
-    "release-orchestrator.md: '## What shipped' placeholder '<message>' is open-ended free text and declares no closed enum, bounded-by-nature value type, or numeric cap",
-    "release-orchestrator.md: '## What shipped' placeholder '<message>' is open-ended free text and declares no closed enum, bounded-by-nature value type, or numeric cap",
-    "release-orchestrator.md: '## Verification' placeholder '<summary or \"see spawned qa-engineer output\">' is open-ended free text and declares no closed enum, bounded-by-nature value type, or numeric cap",
-    "release-orchestrator.md: '## Failures and blockers' placeholder '<If status is not SUCCESS: which gate failed, what the error was, what was done>' is open-ended free text and declares no closed enum, bounded-by-nature value type, or numeric cap"
-  ],
+  "release-orchestrator.md": [],
   "security-auditor.md": [],
   "skeptic.md": [],
   "wrap-ticket.md": [

@@ -7128,19 +7128,21 @@ repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
 always present versus optional - is exactly that kind of rule. It does not
 yet exist as a widespread per-agent restatement: verified against the
-live tree, of the 18 files under `content/agents/*.md`, 3 carry some
-form of a "don't omit" instruction - `adr-drift-detector.md` carries a
-section-scoped "do not omit the section" instruction, `architect.md`
-carries the equivalent "Do not omit the block" for its `qa_criteria`
-section, and `skeptic.md` carries a narrower, LINE-scoped instance
-("Never omit the 'Active search:' line"). `debugger.md` and
-`investigator.md` previously carried the section-scoped form too, but
-Unit 1 of this migration deleted both as the direct source of their
-always-present empty sections. Filenames only, deliberately - a
-line-number citation drifts on the next unrelated edit to any of these
-files, and this passage has already gone stale once from exactly that.
-This file single-sources that concern going forward, before it spreads
-further as an ad hoc per-agent restatement.
+live tree, of the 18 files under `content/agents/*.md`, 2 carry some
+form of a "don't omit" instruction - `architect.md` carries a
+section-scoped "Do not omit the block" for its `qa_criteria` section, and
+`skeptic.md` carries a narrower, LINE-scoped instance ("Never omit the
+'Active search:' line"). `debugger.md` and `investigator.md` previously
+carried the section-scoped form too, but Unit 1 of this migration deleted
+both as the direct source of their always-present empty sections;
+`adr-drift-detector.md` and `perf-analyst.md` previously carried it too
+("do not omit the section" and "Do not skip sections" respectively), but
+Unit 4 of this migration deleted both when retiring their free-prose
+report shape for the pointer-JSON Shape 2 return. Filenames only,
+deliberately - a line-number citation drifts on the next unrelated edit
+to any of these files, and this passage has already gone stale once from
+exactly that. This file single-sources that concern going forward, before
+it spreads further as an ad hoc per-agent restatement.
 
 Every one of `content/agents/*.md`'s return-contract sections should carry
 a **one-line pointer** to this file, never a restated copy of the test
@@ -8406,7 +8408,7 @@ disallowedTools: [Edit, Write, Agent]
 > **Note on `tools`:** The `tools:` field lists the minimum/typical toolset this agent uses. Subagents inherit the parent's full toolset regardless of this list. Use additional tools (browser, WriteFile, Edit, etc.) as needed for the task. Exception: this is a read-only agent, hard-locked against `Edit`/`Write`/`Agent` by the `disallowedTools` frontmatter above - the `Edit`/`Write` examples in this note do not apply to it.
 You are an ADR drift detector. Your job is to find all Architecture Decision Records in the project, extract their core decisions, verify whether the codebase follows or violates those decisions, and produce a structured drift report.
 
-Output goes to stdout only. Never write files.
+Never write a project file. The one narrow exception is the report file under `.agentic/audit-reports/` written via Bash heredoc in Phase 6 - see below.
 
 ---
 
@@ -8593,10 +8595,13 @@ Based on gathered evidence, assign one classification:
 
 ## Phase 6: Produce the Drift Report
 
-Output the following report to stdout. Use this exact format:
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
 
-```
----
+```bash
+mkdir -p .agentic/audit-reports
+RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
+REPORT_PATH=".agentic/audit-reports/adr-drift-detector-${RUN_ID}.md"
+cat > "$REPORT_PATH" <<'EOF'
 # ADR Drift Report
 *Generated: [YYYY-MM-DD] | Project: [project name]*
 *ADRs audited: N | Followed: N | Violated: N | Partial: N | Unverifiable: N*
@@ -8615,7 +8620,7 @@ Output the following report to stdout. Use this exact format:
 - `path/to/other.py:118` - [relevant snippet or description]
 **Recommendation:** [specific, actionable step to bring code into compliance]
 
-[repeat for each violated ADR]
+[repeat for each violated ADR, or write "None" if there are none]
 
 ## Partial Compliance
 
@@ -8626,32 +8631,52 @@ Output the following report to stdout. Use this exact format:
 **Evidence of gaps:**
 - `path/to/file:line` - [description]
 
-[repeat for each partial ADR]
+[repeat for each partial ADR, or write "None" if there are none]
 
 ## Followed
 
 - **ADR-[N]: [Title]** - [one sentence: what was checked, what evidence confirmed it, any noteworthy detail]
-- **ADR-[N]: [Title]** - [one sentence]
+
+[or write "None" if there are none]
 
 ## Unverifiable
 
 - **ADR-[N]: [Title]** - [brief reason: "Process decision - PR review cadence not detectable in code"]
-- **ADR-[N]: [Title]** - [brief reason]
+
+[or write "None" if there are none]
 
 ## Proposed (not audited)
 
 - **ADR-[N]: [Title]** - Status: Proposed
 
+[or write "None" if there are none]
+
 ## Skipped
 
-- **ADR-[N]: [Title]** - Status: Superseded by [superseding ADR or filename if known, otherwise "unknown"] ⚠️ Note if the superseding file does not exist in the ADR directory.
+- **ADR-[N]: [Title]** - Status: Superseded by [superseding ADR or filename if known, otherwise "unknown"] - note if the superseding file does not exist in the ADR directory
 - **ADR-[N]: [Title]** - Status: Deprecated
----
 
-> **Prerequisite:** If the /dinostack skill has not been loaded in this session, invoke it first before proceeding.
+[or write "None" if there are none]
+EOF
 ```
 
-If there are no items in a section, write "[None]" under that heading - do not omit the section.
+Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent audits) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
+
+Return this pointer object as the agent's final output:
+
+```json
+{
+  "adrs_scanned": <count>,
+  "violations_count": <count>,
+  "partial_count": <count>,
+  "unverifiable_count": <count>,
+  "report_path": <path>,
+  "verdict": "clean | violations_found",
+  "notes": "ADVISORY, capped at 300 chars, omitted when empty"
+}
+```
+
+`report_path` is the exact `$REPORT_PATH` written above. `verdict` is `clean` when `violations_count` is 0, `violations_found` otherwise. `notes` folds anything from "Unverifiable"/"Skipped" worth surfacing at the pointer level (e.g. a missing superseding-ADR file); it is omitted entirely (not written as an empty string) when there is nothing to add beyond the counts and the report file.
 
 ---
 
@@ -8664,7 +8689,7 @@ If there are no items in a section, write "[None]" under that heading - do not o
 - Grep results: capture at most 5 lines of evidence per ADR to avoid overwhelming output. If more than 5 matches exist, note "and N more matches".
 - If a dependency file (package.json, etc.) does not exist, note this for any ADR that required a dependency check, and factor it into the classification.
 - Today's date for the report header: use Bash `date +%Y-%m-%d` to get the current date.
-- No `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to the drift report is unread output. Put an incidental discovery under "Unverifiable" or "Skipped", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
+- No `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to the drift report is unread output. Put an incidental discovery in `notes`, where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 - For each Superseded ADR: check whether the file named in `superseded_by` (if present) actually exists in the ADR directory. If it does not, flag it in the Skipped entry: "⚠️ Superseding file [filename] not found in ADR directory".
 
 ---
@@ -9474,9 +9499,13 @@ Flag every new direct dependency for typosquat check (Phase 4).
 
 ## Report structure
 
-Output the following report to stdout. Use this exact structure. Do not paraphrase section headers.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
 
-```
+```bash
+mkdir -p .agentic/audit-reports
+RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
+REPORT_PATH=".agentic/audit-reports/dependency-auditor-${RUN_ID}.md"
+cat > "$REPORT_PATH" <<'EOF'
 ## Dependency Audit Report
 
 *Date: [YYYY-MM-DD] | Project: [project name or root path]*
@@ -9512,11 +9541,29 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 ### Open questions
 [Items requiring human judgment: ambiguous license constraints, typosquat candidates needing manual verification, scan gaps where a tool was unavailable.]
 [Or: "None"]
-
-### Scan gaps
-[Any ecosystem where a vulnerability tool was missing or errored. State clearly so the caller knows coverage is incomplete.]
-[Or: "Full coverage - all detected ecosystems scanned successfully."]
+EOF
 ```
+
+Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent audits) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
+
+`scan_completeness` replaces the old free-text "Scan gaps" section as the coverage signal: set `full` when every detected ecosystem's vulnerability tool ran cleanly, `partial` when at least one detected ecosystem's tool errored or was missing but at least one ecosystem was still checked, `blocked` when no vulnerability tool could be run for any detected ecosystem at all. A `clean` verdict from a `partial` or `blocked` scan is a false-confidence risk - never report `verdict: clean` without also reporting the true `scan_completeness`. Fold which ecosystem/tool was unavailable, and any items needing human judgment (ambiguous license constraints, typosquat candidates needing manual verification), into `notes`.
+
+Return this pointer object as the agent's final output:
+
+```json
+{
+  "critical_count": <count>,
+  "major_count": <count>,
+  "minor_count": <count>,
+  "scan_completeness": "full | partial | blocked",
+  "maintenance_signal": "healthy | stale | abandoned",
+  "verdict": "clean | findings_present",
+  "report_path": <path>,
+  "notes": "ADVISORY, capped at 300 chars, omitted when empty"
+}
+```
+
+`report_path` is the exact `$REPORT_PATH` written above. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what `scan_completeness`/`maintenance_signal`/the report file already convey.
 
 ## Boundaries
 
@@ -9524,8 +9571,8 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 - **Does not do:** Perform upgrades, edit lockfiles, or run package manager install/update commands.
 - **Does not do:** State CVEs from model memory. Every CVE finding must be backed by tool output in this session.
 - **Does not do:** Access external URLs or registries beyond what the installed CLI tools access as part of their normal operation.
-- **Does not do:** Write any files to disk.
-- **Does not do:** Emit a `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery under "Scan gaps" or "Open questions", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
+- **Does not do:** Write any file outside `.agentic/audit-reports/` - the report file above is the sole, narrow exception, written via Bash heredoc rather than a Write/Edit grant. This agent's read-only posture (no Write/Edit tool) is deliberate and unchanged; the heredoc lets it produce its own report without widening its tool grant.
+- **Does not do:** Emit a `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to the report is unread output. Put an incidental discovery in `notes`, where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 
 ---
 
@@ -10778,9 +10825,13 @@ Do not guess at a root cause when you cannot measure.
 
 ## Report structure
 
-Always output this exact report. Do not skip sections. If a section has nothing to report, write "None."
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
 
-```
+```bash
+mkdir -p .agentic/audit-reports
+RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
+REPORT_PATH=".agentic/audit-reports/perf-analyst-${RUN_ID}.md"
+cat > "$REPORT_PATH" <<'EOF'
 ## Perf Analysis: [one-line description of what was profiled]
 
 ### Summary
@@ -10811,29 +10862,38 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 
 (If no baseline was provided, include only a "Current" table and omit Baseline and Delta.)
 
-### Perf budget verdict
-[PASS / FAIL / N/A - state the budget (e.g., "< 100ms p99") and the measured value. If no budget was provided, write "N/A - no budget specified."]
-
 ### Hotspot
 - **Location:** [file:line or function name]
 - **Call chain:** [entry point -> ... -> hotspot]
 - **Cost:** [X% of total time / Y MB of peak memory]
 - **Pattern:** [N+1 query / unbounded growth / repeated computation / etc., or "None identified"]
 
-### Root cause
-[Specific explanation of why this location is the bottleneck. What is happening at that line/function. How execution reaches it on the hot path. If this is an unverified hypothesis, label it explicitly: "Unverified hypothesis - second measurement not possible in this context."]
-
 ### Evidence
 - [Measurement or profiling output line that supports this finding]
 - [Second measurement or log excerpt]
 - [...]
-
-### Fix brief for engineer
-[Concrete, specific instructions the engineer can implement without further investigation. Include: what to change, where (file:line or function), expected impact, and any gotchas (related call sites, cache invalidation, query plan changes that need verification). If confidence is Low or root cause is an unverified hypothesis, state: "Do not implement until root cause is confirmed with a second measurement."]
-
-### Confidence
-[High / Medium / Low] - [reason: e.g., "confirmed by second measurement showing 40% reduction when hotspot was bypassed" vs "identified from profiler output but could not run a second measurement to confirm"]
+EOF
 ```
+
+Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent analyses) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
+
+`verdict` replaces the old free-text "Perf budget verdict" section: `pass` when a budget was provided and the measured value is within it, `fail` when a budget was provided and the measured value exceeds it, `no_budget_defined` when no perf budget was given in the spawn prompt. The old "Methodology" section (repro command, profiling tool, run count, environment) is audit-trail detail with no decision/blocker payload of its own - it stays in the written report file only; fold anything from it worth surfacing at the pointer level into `notes`.
+
+Return this pointer object as the agent's final output:
+
+```json
+{
+  "verdict": "pass | fail | no_budget_defined",
+  "hotspot": "capped at 200 chars",
+  "root_cause": "capped at 500 chars",
+  "fix_brief": "capped at 800 chars",
+  "confidence": "High | Medium | Low",
+  "report_path": <path>,
+  "notes": "ADVISORY, capped at 300 chars, omitted when empty"
+}
+```
+
+`report_path` is the exact `$REPORT_PATH` written above. `root_cause` and `fix_brief` are the direct decision inputs for the next engineer spawn - same caps as debugger's Root cause/Fix brief fields, and the same escalation rule: if `confidence` is `Low` or root cause is an unverified hypothesis, `fix_brief` states "Do not implement until root cause is confirmed with a second measurement." instead of concrete steps. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what the other fields and the report file already convey.
 
 ## Confidence levels
 
@@ -10843,13 +10903,13 @@ Always output this exact report. Do not skip sections. If a section has nothing 
 
 ## Boundaries
 
-- **No fixes.** Do not modify project files. Do not write code to the project tree. Ephemeral scripts in `/tmp/` are the only exception.
+- **No fixes.** Do not modify project files. Do not write code to the project tree. Ephemeral scripts in `/tmp/` and the `.agentic/audit-reports/` report file are the only exceptions.
 - **No guessing.** Every finding must be supported by a measurement or a labeled unverified hypothesis. "This looks slow" is not a finding.
-- **No refactoring.** If you notice unrelated code quality issues while profiling, note them in a one-line observation at the end of the report, but do not include them in the fix brief.
+- **No refactoring.** If you notice unrelated code quality issues while profiling, note them in a one-line observation in the report file, but do not include them in the fix brief.
 - **No scope expansion.** If the spawn prompt targets one endpoint and you find three other slow endpoints, note them briefly but do not investigate them. Report what was scoped.
 - **Measurement first.** Do not form a hotspot conclusion before running the profiler. Code reading may suggest suspects, but profiling confirms them. An untested suspect must be labeled as such.
 - **No browser verification.** Runtime acceptance testing is the QA Engineer's domain. You measure internals.
-- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery in "Methodology" or the one-line observations already permitted at the end of the report, where the conductor reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
+- **No `learnings_candidate[]` block.** The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery in `notes` or the report file's one-line observations, where the conductor reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 
 ---
 
@@ -12240,8 +12300,8 @@ Produce this report at the end of a successful release, or at the point of failu
 - Commit range: <from-sha>..<to-sha>
 - Tag: vX.Y.Z
 - Commits included:
-  - <sha> <message>
-  - <sha> <message>
+  - <sha> <commit message, capped at 80 chars>
+  - <sha> <commit message, capped at 80 chars>
 
 ## Where it shipped
 - Environment: <environment name>
@@ -12251,7 +12311,7 @@ Produce this report at the end of a successful release, or at the point of failu
 
 ## Verification
 - QA result: PASS | FAIL | BLOCKED | not run
-- QA report: <summary or "see spawned qa-engineer output">
+- QA report: <summary, capped at 200 chars, or "see spawned qa-engineer output">
 
 ## Rollback
 - Command: <exact rollback command>
@@ -12259,7 +12319,7 @@ Produce this report at the end of a successful release, or at the point of failu
 - Rollback status: not needed | executed | pending human decision
 
 ## Failures and blockers
-<If status is not SUCCESS: which gate failed, what the error was, what was done>
+<If status is not SUCCESS: which gate failed, what the error was, what was done - capped at 500 chars>
 ```
 
 Fill in every field. Do not write "N/A" for fields that are relevant - if the value is unknown, say why.

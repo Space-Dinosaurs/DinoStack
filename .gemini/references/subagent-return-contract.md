@@ -34,19 +34,21 @@ repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
 always present versus optional - is exactly that kind of rule. It does not
 yet exist as a widespread per-agent restatement: verified against the
-live tree, of the 18 files under `content/agents/*.md`, 3 carry some
-form of a "don't omit" instruction - `adr-drift-detector.md` carries a
-section-scoped "do not omit the section" instruction, `architect.md`
-carries the equivalent "Do not omit the block" for its `qa_criteria`
-section, and `skeptic.md` carries a narrower, LINE-scoped instance
-("Never omit the 'Active search:' line"). `debugger.md` and
-`investigator.md` previously carried the section-scoped form too, but
-Unit 1 of this migration deleted both as the direct source of their
-always-present empty sections. Filenames only, deliberately - a
-line-number citation drifts on the next unrelated edit to any of these
-files, and this passage has already gone stale once from exactly that.
-This file single-sources that concern going forward, before it spreads
-further as an ad hoc per-agent restatement.
+live tree, of the 18 files under `content/agents/*.md`, 2 carry some
+form of a "don't omit" instruction - `architect.md` carries a
+section-scoped "Do not omit the block" for its `qa_criteria` section, and
+`skeptic.md` carries a narrower, LINE-scoped instance ("Never omit the
+'Active search:' line"). `debugger.md` and `investigator.md` previously
+carried the section-scoped form too, but Unit 1 of this migration deleted
+both as the direct source of their always-present empty sections;
+`adr-drift-detector.md` and `perf-analyst.md` previously carried it too
+("do not omit the section" and "Do not skip sections" respectively), but
+Unit 4 of this migration deleted both when retiring their free-prose
+report shape for the pointer-JSON Shape 2 return. Filenames only,
+deliberately - a line-number citation drifts on the next unrelated edit
+to any of these files, and this passage has already gone stale once from
+exactly that. This file single-sources that concern going forward, before
+it spreads further as an ad hoc per-agent restatement.
 
 Every one of `content/agents/*.md`'s return-contract sections should carry
 a **one-line pointer** to this file, never a restated copy of the test

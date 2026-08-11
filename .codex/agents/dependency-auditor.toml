@@ -183,9 +183,13 @@ Flag every new direct dependency for typosquat check (Phase 4).
 
 ## Report structure
 
-Output the following report to stdout. Use this exact structure. Do not paraphrase section headers.
+Field tagging and shape follow the attention test in `content/references/subagent-return-contract.md` - Shape 2 (structured schema-object return). Write the full human-readable report to a file via a Bash heredoc (this agent has no Write/Edit tool - `.agentic/` is the only path Bash is permitted to create under), then return only the small pointer JSON below. Do not print the full report to stdout.
 
-```
+```bash
+mkdir -p .agentic/audit-reports
+RUN_ID="$(date +%Y%m%dT%H%M%S)-$$"
+REPORT_PATH=".agentic/audit-reports/dependency-auditor-${RUN_ID}.md"
+cat > "$REPORT_PATH" <<'EOF'
 ## Dependency Audit Report
 
 *Date: [YYYY-MM-DD] | Project: [project name or root path]*
@@ -221,11 +225,29 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 ### Open questions
 [Items requiring human judgment: ambiguous license constraints, typosquat candidates needing manual verification, scan gaps where a tool was unavailable.]
 [Or: "None"]
-
-### Scan gaps
-[Any ecosystem where a vulnerability tool was missing or errored. State clearly so the caller knows coverage is incomplete.]
-[Or: "Full coverage - all detected ecosystems scanned successfully."]
+EOF
 ```
+
+Use a fresh `RUN_ID` per run (the timestamp+PID combination above avoids collisions between concurrent audits) and always `mkdir -p .agentic/audit-reports` first - the directory may not exist yet.
+
+`scan_completeness` replaces the old free-text "Scan gaps" section as the coverage signal: set `full` when every detected ecosystem's vulnerability tool ran cleanly, `partial` when at least one detected ecosystem's tool errored or was missing but at least one ecosystem was still checked, `blocked` when no vulnerability tool could be run for any detected ecosystem at all. A `clean` verdict from a `partial` or `blocked` scan is a false-confidence risk - never report `verdict: clean` without also reporting the true `scan_completeness`. Fold which ecosystem/tool was unavailable, and any items needing human judgment (ambiguous license constraints, typosquat candidates needing manual verification), into `notes`.
+
+Return this pointer object as the agent's final output:
+
+```json
+{
+  "critical_count": <count>,
+  "major_count": <count>,
+  "minor_count": <count>,
+  "scan_completeness": "full | partial | blocked",
+  "maintenance_signal": "healthy | stale | abandoned",
+  "verdict": "clean | findings_present",
+  "report_path": <path>,
+  "notes": "ADVISORY, capped at 300 chars, omitted when empty"
+}
+```
+
+`report_path` is the exact `$REPORT_PATH` written above. `notes` is omitted entirely (not written as an empty string) when there is nothing beyond what `scan_completeness`/`maintenance_signal`/the report file already convey.
 
 ## Boundaries
 
@@ -233,6 +255,6 @@ Output the following report to stdout. Use this exact structure. Do not paraphra
 - **Does not do:** Perform upgrades, edit lockfiles, or run package manager install/update commands.
 - **Does not do:** State CVEs from model memory. Every CVE finding must be backed by tool output in this session.
 - **Does not do:** Access external URLs or registries beyond what the installed CLI tools access as part of their normal operation.
-- **Does not do:** Write any files to disk.
-- **Does not do:** Emit a `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to a report is unread output. Put an incidental discovery under "Scan gaps" or "Open questions", where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
+- **Does not do:** Write any file outside `.agentic/audit-reports/` - the report file above is the sole, narrow exception, written via Bash heredoc rather than a Write/Edit grant. This agent's read-only posture (no Write/Edit tool) is deliberate and unchanged; the heredoc lets it produce its own report without widening its tool grant.
+- **Does not do:** Emit a `learnings_candidate[]` block. The conductor's routing hop reads that field only from `engineer`, `investigator` and `debugger` returns, so a block appended to the report is unread output. Put an incidental discovery in `notes`, where the conductor already reads it. See `~/DinoStack/.claude/skills/dinostack/references/learnings-capture-instruction.md`.
 """
