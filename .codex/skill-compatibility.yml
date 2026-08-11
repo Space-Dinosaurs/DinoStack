@@ -72,6 +72,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "0d8dd6a159ff102e56192ae01275705fa90d619fee6fbef6fcced1787a916cb0",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -410,6 +420,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Task"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "35b24ed4e36254ffffbb4f770dcb6914d85838b0edb74168f4de35bf52354e29",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -1622,16 +1642,6 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "c57789ec99199875cc45f23b6f9353ac3ddcd7bf17f404c79270f066257b465a",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": "content/sections/09-events-log.md",
       "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
       "kind": "operational",
@@ -1870,6 +1880,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "dd9c4537304f5733220c1976509372bc40ec98dfe02e2fc9f7cd0a39ff121a05",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -3022,16 +3042,6 @@
       "source_token": "echo"
     },
     {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. Before calling `spawn_agent`, execute the Codex spawn contract above on the Elevated path (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble).\n3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.\n5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).\n6. If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n7. If it still fails: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.",
-      "kind": "operational",
-      "occurrence_hash": "03bce89c664e6d95224aa5d3f2d56b0b7eddf9b5043cc77edc4f131fe067dfc0",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: \"worktree\"` on the Elevated path (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble).\n3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.\n5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).\n6. If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n7. If it still fails: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass."
-    },
-    {
       "expected_target": "git",
       "generated_token": "git",
       "kind": "operational",
@@ -3050,6 +3060,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "04ecdd052899a63f5602147c2ed05f80acb1f24c9fdbac6fa5df2a693bf48a42",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "else",
@@ -3200,16 +3220,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "QA_EVIDENCE_URLS"
-    },
-    {
-      "expected_target": "content/references/qa-regression-obligation.md",
-      "generated_token": "$AE_REPO_DIR/content/references/qa-regression-obligation.md",
-      "kind": "operational",
-      "occurrence_hash": "0711aefee66bcfef064431a3193472721a5390b55813265b3ab4f7653fb7691d",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/qa-regression-obligation.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -4412,6 +4422,16 @@
       "source_token": "true"
     },
     {
+      "expected_target": "git",
+      "generated_token": "git",
+      "kind": "operational",
+      "occurrence_hash": "1e3ba2b7bb9a281198628519e115b2cf70c6db54d721a7d9349af40993ff2375",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "git"
+    },
+    {
       "expected_target": "one bounded direct question after default derivation",
       "generated_token": "one bounded direct question after default derivation",
       "kind": "operational",
@@ -5452,16 +5472,6 @@
       "source_token": ".agentic/loop-state-"
     },
     {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble).\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.",
-      "kind": "operational",
-      "occurrence_hash": "2f187386e3b3dd98e05e4a0f6f666bb3af1eba3c45a069b4c8a3edd926b9a34e",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: \"worktree\"` (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble).\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass."
-    },
-    {
       "expected_target": "content/commands/ds-ticket-triage.md",
       "generated_token": "manual workflow 'ds-ticket-triage' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-ticket-triage`",
       "kind": "operational",
@@ -5760,6 +5770,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/browse"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "34dbb59f8dad98a1d00a6697a494898a8fdc3cf849c22c702645e961a78a83bc",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -8162,6 +8182,16 @@
       "source_token": ".agentic/qa-regressions.md"
     },
     {
+      "expected_target": "awk",
+      "generated_token": "awk",
+      "kind": "operational",
+      "occurrence_hash": "60fe012edc1c8d373b850fe5cb345935acaa08ef57c9e9ee486e9f85ec743700",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "awk"
+    },
+    {
       "expected_target": "shell",
       "generated_token": "Bash",
       "kind": "semantic-reference",
@@ -9133,6 +9163,16 @@
     },
     {
       "expected_target": "hashed-source-occurrence",
+      "generated_token": "-C",
+      "kind": "display-only",
+      "occurrence_hash": "6eff85cc6d5d65a63c1426ce15e5ca3d3eb36b05bed4cb627c9c1ed74c22d37f",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "-C"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
       "occurrence_hash": "6f0cdc5b79ae7315dc7e3d55229c96dee5936a270a91b7dfa3cca881a6c97fca",
@@ -9300,6 +9340,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "bin/ds-resolve-worktree"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "UNPUSHED_RC",
+      "kind": "display-only",
+      "occurrence_hash": "72241e574c82703bb84c5869e050dcef67c5fad2507925c27fbc898fd0075a80",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "UNPUSHED_RC"
     },
     {
       "expected_target": "filesystem read",
@@ -9612,6 +9662,16 @@
       "source_token": "DESC"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "7861417707d4d43529f118208c3c9cac97eb253e5cc503b7ccda66a402984ed9",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -9650,6 +9710,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "mkdir"
+    },
+    {
+      "expected_target": "content/references/qa-regression-obligation.md",
+      "generated_token": "$AE_REPO_DIR/content/references/qa-regression-obligation.md",
+      "kind": "operational",
+      "occurrence_hash": "798c28b170cfce50c9f0f82c4aae8101ab6df5457cd8cff0f2f18d11dda0e8c9",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/qa-regression-obligation.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -9982,6 +10052,16 @@
       "source_token": "PR_NUMBER"
     },
     {
+      "expected_target": ".agentic/qa-regressions.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/qa-regressions.md",
+      "kind": "operational",
+      "occurrence_hash": "806930cba2989b479ac9fce4c3a28b43cdcc1a5bef588bbffedbc15a167649cc",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/qa-regressions.md"
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -10050,16 +10130,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "case"
-    },
-    {
-      "expected_target": ".agentic/qa-regressions.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/qa-regressions.md",
-      "kind": "operational",
-      "occurrence_hash": "82a93a2c6a6496167aa1f46c0fc982556dbc0af243897fe0d7d2279f685c63bd",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/qa-regressions.md"
     },
     {
       "expected_target": "then",
@@ -11632,16 +11702,6 @@
       "source_token": "jq"
     },
     {
-      "expected_target": "Agent",
-      "generated_token": "Agent",
-      "kind": "semantic-reference",
-      "occurrence_hash": "9ed866f5820db4c587ac4c400cd9eb904d613a4c746e8bedf8d4be435cdf0cd7",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Agent"
-    },
-    {
       "expected_target": "then",
       "generated_token": "then",
       "kind": "operational",
@@ -13012,6 +13072,16 @@
       "source_token": "/ds-wrap"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "b44c3b402e264d372b8466d67ae4d68906d7e8710c19b5500cf680b09abd9905",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "length",
       "kind": "display-only",
@@ -13682,6 +13752,16 @@
       "source_token": "KC_STATUS"
     },
     {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "-C",
+      "kind": "display-only",
+      "occurrence_hash": "bf0cd1cba3003fc2efd284dcaf98f36d1cf52f9e075984b877b55a50347f3561",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "-C"
+    },
+    {
       "expected_target": "if",
       "generated_token": "if",
       "kind": "operational",
@@ -13712,6 +13792,16 @@
       "source_token": "Write"
     },
     {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the \"Trivial-path exclusion\" note above.)\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.",
+      "kind": "operational",
+      "occurrence_hash": "c00e79ea0e5f6ba501172bc159a943eee565a9e246a8d59f75a082212bf2afee",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: \"worktree\"` (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the \"Trivial-path exclusion\" note above.)\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass."
+    },
+    {
       "expected_target": ".agentic/qa.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/qa.md",
       "kind": "operational",
@@ -13740,6 +13830,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "-C",
+      "kind": "display-only",
+      "occurrence_hash": "c08304b8f31548144a08124e4c19cfa1604c8baaa64aef5ef6971e4b8855466d",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "-C"
     },
     {
       "expected_target": "awk",
@@ -14622,6 +14722,16 @@
       "source_token": ".agentic/config.json"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "cf3d6b744c99bde6dfe8604994b3fcd225f91b5bbd9340f0b6ae65b31bad49bd",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "do",
       "generated_token": "do",
       "kind": "operational",
@@ -14680,6 +14790,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/loop-state-*.json"
+    },
+    {
+      "expected_target": "Agent",
+      "generated_token": "Agent",
+      "kind": "semantic-reference",
+      "occurrence_hash": "d1a268c9260c1c83cd6409a8b15fed91d14565c66f09595d98d429b8091cc510",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Agent"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -14910,6 +15030,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "findings"
+    },
+    {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. Before calling `spawn_agent`, execute the Codex spawn contract above on the Elevated path (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). **On the Elevated path**, this is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. **On the Trivial path**, there is no `worktree_setup` field (see Phase 4/5 \"Trivial single-engineer path\"); use that section's own round-N prose-conveyed form instead.\n3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.\n5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).\n6. If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n7. If it still fails: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.",
+      "kind": "operational",
+      "occurrence_hash": "d6bf378c4b0583abe6a450d25d9b220e84420e919f70e261b793bd4971d4af68",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: \"worktree\"` on the Elevated path (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). **On the Elevated path**, this is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. **On the Trivial path**, there is no `worktree_setup` field (see Phase 4/5 \"Trivial single-engineer path\"); use that section's own round-N prose-conveyed form instead.\n3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.\n5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).\n6. If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n7. If it still fails: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass."
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -15580,6 +15710,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "echo"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "e097207f8c23b89703722956c3c7f09c58014efac9968d071ef630571f4420d4",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": ".agentic/loop-state-*.json",
@@ -17730,6 +17870,16 @@
       "scope": "codex-harness",
       "source": "content/commands/ds-wrap.md",
       "source_token": "Write"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "0c57f4c27747c4c7c2c64b753421c4683eb01fd2e9568896dc29e41f752700ed",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": "apply_patch",
@@ -19902,16 +20052,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "8fb9c19a47184b190b92631a71c64126eb9dbf9cf3e2a7dbe05f109275fbbbf4",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": ".agentic/compression-state.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/compression-state.json",
       "kind": "operational",
@@ -20662,16 +20802,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "c1aedb9be58f8aedecdc85091b5591eb7effe6152e4914ac4d4a7e187ec34330",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -21290,6 +21420,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/config.json>"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "eb96f1cfb46dfc7401d783bcb978735786ddfe439d7a03a3fad2e62802d65386",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/deploy.md",

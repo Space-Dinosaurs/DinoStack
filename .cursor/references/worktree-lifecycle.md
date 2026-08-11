@@ -4,8 +4,13 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          isolation worktree cleanup commands, feature worktree cleanup commands,
          the session-start prune script, the Standing authorizations section
          (the enumerated set of routine-hygiene operations pre-authorized for
-         every session, satisfying a harness confirm-first carve-out), and the
-         local-branch prune block.
+         every session, satisfying a harness confirm-first carve-out), the
+         local-branch prune block, and the Round-N rework mechanic (the
+         conductor-side SHA-push recovery procedure and failure-mode table for
+         landing a same-approach fix commit on an already-open PR's branch;
+         the literal `create_commands` branching forms live in
+         content/commands/ds-implement-ticket.md's canonical definition site,
+         not here - see the Round-N rework mechanic section itself).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -13,7 +18,9 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/12-protocol-details.md (Worktree lifecycle Protocol
             Details entry),
             content/sections/02-delegation.md §Standing authorizations,
-            content/references/conductor-operating-rules.md:20.
+            content/references/conductor-operating-rules.md:20,
+            content/rules/conventions.md §Git Workflow (rework-vs-superseding
+            bullet points here for the round-N mechanic).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -23,7 +30,10 @@ Downstream consumers: conductor preflight (session-start prune script and
                       branch prune block); conductor cleanup flows (isolation
                       and feature worktree removal commands);
                       /ds-cleanup-worktrees command; /ds-implement-ticket lifecycle
-                      cleanup.
+                      cleanup; every /ds-implement-ticket fix-pass spawn site that
+                      re-seeds an engineer worktree against an already-open PR's
+                      branch (Phase 6/6b Skeptic and QA fix passes, Phase 7
+                      quality-gate fix passes) via the Round-N rework mechanic.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -83,6 +93,45 @@ git worktree prune             # clean up any stale metadata
 ```
 
 This `git branch -D` is likewise exempt from the general disposition model (as the isolation-worktree pattern above is): it runs only as a fallback AFTER `gh pr merge --delete-branch` has already succeeded on this exact branch, so the merge itself - not a bare "a PR merged" signal - is the proof of subsumption.
+
+Same-PR rework rounds (see §Round-N rework mechanic below) mean one persistent branch per ticket instead of `-rN` siblings that each needed their own worktree, so `-rN` proliferation should drop. This is unaffected by the squash-merge-defeats-prune hazard: the branch-gone-from-origin / four-layer subsumption predicate (§Branch prune below) remains the correct predicate for cleanup either way, and prune logic itself is untouched by this change.
+
+## Round-N rework mechanic
+
+When a Skeptic finding, CI failure, or QA failure needs a fix pass against an already-open PR's branch (round N>=2 of the SAME approach - see `content/rules/conventions.md` §Git Workflow for the rework-vs-superseding boundary test), the fix commit lands on the existing branch's remote tip instead of a fresh branch off `$BASE_BRANCH`. Phase 10a's post-PR CI fix loop already does this ("commit and push to the same branch") - this section generalizes that same mechanic to the pre-PR Phase 6/6b/7 fix-pass spawn sites.
+
+**Branching logic (`worktree_setup.create_commands` population rule).** The literal `create_commands` forms (initial spawn / `PLAN_PRESEEDED` / round-N rework), the already-checked-out guard, and the precheck-gated reuse remedy are NOT restated here - `content/commands/ds-implement-ticket.md`'s Phase 5 `worktree_setup` field definition (§Elevated-path engineer-contract extensions) is the sole canonical definition site for all of it. See that site for the full form and guard.
+
+Verified empirically (git 2.39.5, scratch repo with a bare-clone origin, a lagging local `feat/test` ref, and a fresh `worktree add`): the `-B` form exits 0 and the resulting worktree's `HEAD` matches `origin/$BRANCH_NAME`'s tip exactly, even when the local `feat/test` ref pointed at an older commit before the run. The already-checked-out fatal (exit 128, `fatal: '<branch>' is already checked out at '<path>'`) reproduces when a second `worktree add` targets a branch already checked out elsewhere under the same `$REPO`, and `git worktree list --porcelain`'s `branch refs/heads/<name>` line reliably identifies the existing worktree path for the reuse guard.
+
+**Recovery procedure (conductor-side, for when the branching logic above wasn't applied or the DS-123 worktree-fallback quirk fired).**
+
+```bash
+# 1. Confirm the engineer produced a commit.
+ENGINEER_SHA=$(git -C "$ENGINEER_WORKTREE" rev-parse HEAD)
+
+# 2. Confirm this SHA is NOT already an ancestor of the branch remote tip.
+git -C "$REPO" fetch origin
+if git -C "$REPO" merge-base --is-ancestor "$ENGINEER_SHA" "origin/$BRANCH_NAME"; then
+  echo "SHA already on branch - nothing to push."
+  exit 0
+fi
+
+# 3. Push the engineer's commit SHA directly onto the existing branch remote tip.
+#    By explicit SHA, never local branch name (local ref can lag remote tip).
+git -C "$REPO" push origin "$ENGINEER_SHA:refs/heads/$BRANCH_NAME"
+```
+
+Failure-mode table:
+
+| Failure | Cause | Recovery |
+|---|---|---|
+| push rejected, non-fast-forward | origin/$BRANCH_NAME moved since worktree seeded | fetch; then (a) cherry-pick $ENGINEER_SHA onto fresh checkout of origin/$BRANCH_NAME and push NEW SHA by-SHA, or (b) re-spawn fix-pass engineer with current branch tip per the branching logic above. NEVER force-push (blanket-denied for conductor and subagents; chat authorization cannot clear it). |
+| Engineer worktree silently started from main (branching logic not applied / DS-123) | mis-populated create_commands or harness fallback quirk | Do NOT push the SHA directly - main-based, could silently revert intervening branch commits. Fetch, checkout origin/$BRANCH_NAME in scratch location, cherry-pick $ENGINEER_SHA; if the cherry-pick conflicts, re-delegate to a correctly-seeded engineer rather than resolving it conductor-side (no conductor-exempt path exists for shippable-tree conflict resolution - conventions.md's shippable/exempt classifier and `enforce-shippable-edit.py` both deny it); push resulting SHA by-SHA. |
+| DCO fails on pushed commit | commit without -s, or cherry-pick trailer mismatch | Amend BEFORE push: `git commit --amend -s --no-edit`, push new SHA. Never amend a commit already on the shared remote tip - re-derive and re-push. |
+| Strict checks: base moved since last green run | orthogonal, governed by near-merge rebase policy | Unchanged: `gh pr update-branch --rebase` before merge. NOT eliminated by this mechanic. |
+
+Deliberately unchanged by this mechanic: Skeptic review rigor (a fresh Skeptic invocation still reviews the same open PR's branch on round N - see `content/references/skeptic-protocol.md`), the CI check set, strict required-checks + near-merge rebase policy, the force-push prohibition, and DCO. Superseding (a wholesale approach replacement) still closes + rebases per `content/rules/conventions.md` §Git Workflow - this mechanic applies to rework only. DS-123 (the harness worktree-fallback quirk) remains open and unresolved by this mechanic; the recovery procedure above is mitigation, not a fix.
 
 ## Session-start prune script
 
