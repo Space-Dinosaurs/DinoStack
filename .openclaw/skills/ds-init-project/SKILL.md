@@ -1116,7 +1116,7 @@ TODO: what does a successful outcome look like for users?
 - TODO: explicit exclusions to prevent scope creep
 ```
 
-These files are operator-owned and committed. Architect and Investigator read them when present.
+These files are operator-owned and committed. Architect and Investigator read them when present, and Engineer reads them before implementing (silent no-op when absent).
 
 To draft this intent layer instead of writing it by hand, spawn the `product-discovery` agent. It facilitates discovery - frames the problem, names the users (including the counterparty), runs an attributed market scan, and synthesizes a proposed `vision.md` and `requirements.md`. It stages those drafts to `docs/overview/_proposed/` and never writes the canonical `docs/overview/` files; you review, edit, and promote them when they match your intent.
 
@@ -1279,5 +1279,5 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/ds-implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/ds-init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
-13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context.
+13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context; Engineer reads them before implementing.
 14. *(If global mode from Step 0a was `opt-out`)* This project will use dinostack by default. To disable the methodology here without affecting other projects, uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment). *(If global mode was `opt-in` and the user activated)* This project has an active `agentic-engineering: opt-in` line in the `## Activation` section of `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, uncomment and set the `agentic-engineering-profile:` line in the same `## Activation` section (`relaxed`, `default`, or `strict`), then run `/ds-status` to confirm. Project workflow toggles (auto-merge, model profile, debugger-on-failure, and the rest) live in `.agentic/config.json` - edit that file or re-run `/ds-init-project` to change them. Run `/ds-help` for the full command list.
