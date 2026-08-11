@@ -680,10 +680,11 @@ The primary agent treats a Skeptic response as a valid sign-off only when it con
 
 A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
 
-Two further elements are **conditional** - required only when their triggering condition holds, and simply absent (not a defect) otherwise:
+Further conditional elements are required only when their triggering condition holds, and simply absent (not a defect) otherwise:
 
 - (e) Spec-deviation downgrade justification: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation.
 - (f) PR-review SHA range: for PR reviews specifically, the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
+- (i) Prose-scoped re-check `Scope:` line: when the conductor spawned a prose-scoped re-check (§Prose-scoped re-check), the sign-off must include the `Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)` line (see content/agents/skeptic.md §Sign-off format). A scoped sign-off that omits this line is format-noncompliant and triggers the same format re-invocation - its absence is exactly what would make a scoped review indistinguishable from a full pass.
 
 Reviews that are neither PR reviews nor spec-deviation-downgrade reviews - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e) and (f) do not apply, and their absence is not format-noncompliant for those reviews.
 

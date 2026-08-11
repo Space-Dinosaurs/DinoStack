@@ -136,7 +136,7 @@ No unresolved Critical or Major findings. Sign-off granted.
 Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)
 ```
 
-In this mode, the `Active search:` line must not claim a full adversarial pass it did not run - state instead: `Active search: I have re-read the changed prose lines and the enclosing unit (manifest/section/header) end to end for [<sha1>..<sha2>]; I have not re-run the full adversarial brief.` If a code, test, or behavior finding surfaces during the narrowed read, escalate to a full pass immediately (see the rules governing the lever) rather than completing sign-off in scoped mode.
+In this mode, the `Active search:` line must not claim a full adversarial pass it did not run - state instead: `Active search: I have re-read the changed prose lines and the enclosing unit (manifest/section/header) end to end for <sha1>..<sha2>; I have not re-run the full adversarial brief.` If a code, test, or behavior finding surfaces during the narrowed read, escalate to a full pass immediately (see the rules governing the lever) rather than completing sign-off in scoped mode.
 
 If Critical or Major findings remain unresolved, replace the last line with:
 

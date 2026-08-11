@@ -6246,10 +6246,11 @@ The primary agent treats a Skeptic response as a valid sign-off only when it con
 
 A response missing any of the six mandatory elements - including one containing only the phrase "Sign-off granted" without the rest - is format-noncompliant and triggers a format re-invocation (spawn a new Skeptic with explicit format instructions). This re-invocation is not counted as a new adversarial round.
 
-Two further elements are **conditional** - required only when their triggering condition holds, and simply absent (not a defect) otherwise:
+Further conditional elements are required only when their triggering condition holds, and simply absent (not a defect) otherwise:
 
 - (e) Spec-deviation downgrade justification: if any Minor finding in the Findings list is marked as a spec-deviation downgrade, the sign-off must also contain the three-criterion enumeration block specified above for each such finding. A sign-off that omits this block when required is format-noncompliant and triggers the same format re-invocation.
 - (f) PR-review SHA range: for PR reviews specifically, the "Reviewed:" line must include the `<base-sha>..<head-sha>` range (see §Review-environment freshness precondition). A PR-review sign-off that uses `Reviewed: [files only]` without the SHA range is format-noncompliant.
+- (i) Prose-scoped re-check `Scope:` line: when the conductor spawned a prose-scoped re-check (§Prose-scoped re-check), the sign-off must include the `Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)` line (see content/agents/skeptic.md §Sign-off format). A scoped sign-off that omits this line is format-noncompliant and triggers the same format re-invocation - its absence is exactly what would make a scoped review indistinguishable from a full pass.
 
 Reviews that are neither PR reviews nor spec-deviation-downgrade reviews - e.g. `/ds-wrap`'s internal Skeptic reviews - validate against the six mandatory elements only; (e) and (f) do not apply, and their absence is not format-noncompliant for those reviews.
 
@@ -12160,7 +12161,7 @@ No unresolved Critical or Major findings. Sign-off granted.
 Scope: prose-scoped re-check (<sha1>..<sha2>; findings <ids> prose-only)
 ```
 
-In this mode, the `Active search:` line must not claim a full adversarial pass it did not run - state instead: `Active search: I have re-read the changed prose lines and the enclosing unit (manifest/section/header) end to end for [<sha1>..<sha2>]; I have not re-run the full adversarial brief.` If a code, test, or behavior finding surfaces during the narrowed read, escalate to a full pass immediately (see the rules governing the lever) rather than completing sign-off in scoped mode.
+In this mode, the `Active search:` line must not claim a full adversarial pass it did not run - state instead: `Active search: I have re-read the changed prose lines and the enclosing unit (manifest/section/header) end to end for <sha1>..<sha2>; I have not re-run the full adversarial brief.` If a code, test, or behavior finding surfaces during the narrowed read, escalate to a full pass immediately (see the rules governing the lever) rather than completing sign-off in scoped mode.
 
 If Critical or Major findings remain unresolved, replace the last line with:
 
@@ -19656,7 +19657,7 @@ The Skeptic is always a fresh spawn - never resumed, never continued from a prio
 
 ## Step 3 - Read findings
 
-A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines - Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:; the conditional spec-deviation and PR-SHA-range elements apply only when their triggering condition holds - see Section 11 for when).
+A valid sign-off contains all mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines - Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements apply only when their triggering condition holds - see Section 11 for when).
 
 If any element is missing: spawn a new Skeptic with explicit format instructions ("Your previous response did not conform to the required sign-off format. Please restate your findings and sign-off using the required format."). This format re-invocation is not counted as a new adversarial round. Limit: 3 format re-invocations. If still noncompliant after 3, escalate to the human.
 
@@ -22089,7 +22090,7 @@ Require this statement before sign-off: "Active search: I have applied the adver
 
 **Step 3 — Validate sign-off format.**
 
-A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines: Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:; the conditional spec-deviation and PR-SHA-range elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
+A valid sign-off requires the mandatory elements defined in `content/references/skeptic-protocol.md` Section 11 (the six always-required lines: Reviewed:, Findings:, Active search:, the sign-off phrase, Manifest check:, Test-CI-wiring check:; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply to this internal review). If any element is missing, spawn a new Skeptic with format instructions (not a new re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
 If Critical or Major findings remain: spawn a new draft Worker with the original draft and findings, get a revised draft, then spawn a fresh Skeptic (Step 2). Repeat until sign-off. If the same finding is contested across 2+ re-routes without resolution, escalate to the user.
 
@@ -22317,7 +22318,7 @@ Otherwise skip that target silently.
    >
    > Sign-off format: "Reviewed: ... Findings: ... Active search: ... Manifest check: ... Test-CI-wiring check: ... No unresolved Critical or Major findings. Sign-off granted."
 
-3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the six always-required lines; the conditional spec-deviation and PR-SHA-range elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
+3. Validate sign-off format the same way Step 3 does (the mandatory elements per `content/references/skeptic-protocol.md` Section 11 - the six always-required lines; the conditional spec-deviation, PR-SHA-range, and prose-scoped-re-check `Scope:` elements do not apply here). If any element is missing, spawn a new Skeptic with format instructions (not a re-route round). Limit: 3 format re-invocations, then escalate to the user.
 
    If Critical or Major findings remain: spawn a new compression Worker with the original file content, the prior draft, and the findings; get a revised draft; spawn a fresh Skeptic. Repeat until sign-off. Limit: 3 re-routes, then skip compression for that target this session and log the failure in Step 6.
 
