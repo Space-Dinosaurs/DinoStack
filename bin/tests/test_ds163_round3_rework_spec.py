@@ -138,16 +138,23 @@ def test_allowlist_entries_still_exist():
     # (DS-163 round-4 rework): the original name promised a check of BOTH
     # halves - that each allowlist entry still matches a fence, AND that
     # the matched fence still fails `bash -n` - but the body below only
-    # ever asserted the first half. Rather than add the missing half (which
-    # would duplicate _bash_n_ok() calls already exercised by
-    # test_no_new_condition_position_placeholder_in_bash_fences() above),
-    # the name is narrowed to match what this test actually does: confirm
+    # ever asserted the first half. Rather than add the missing half, the
+    # name is narrowed to match what this test actually does: confirm
     # every allowlist regex still matches SOME fence in the file. If a
     # pre-existing placeholder gets fixed (turned into valid bash or
     # removed), its allowlist regex should stop matching anything - this
     # guards against the allowlist silently widening to cover a NEW,
     # unrelated failure after the original placeholder it was written for
-    # is gone.
+    # is gone. Adding the missing half was judged not worth it: the sibling
+    # test_no_new_condition_position_placeholder_in_bash_fences() above
+    # short-circuits with `continue` as soon as `_bash_n_ok(fence)` is
+    # True, before it ever consults `_is_allowlisted()` - so an allowlisted
+    # fence that has stopped failing `bash -n` (a "dead" entry) is already
+    # skipped by that first check regardless of the allowlist, and a dead
+    # entry can therefore only ever exempt a fence that already fails
+    # `bash -n` in the first place. The missing half of this test's name
+    # would add no protection the control flow above doesn't already give
+    # for free.
     text = IMPLEMENT_TICKET_PATH.read_text(encoding="utf-8")
     fences = BASH_FENCE_RE.findall(text)
     matched_regexes = set()
