@@ -110,6 +110,7 @@ _SHAPE2_SEED = """## Output format
 ```yaml
 status: DONE | FAILED | BLOCKED
 summary: <one-line summary, cap: 200 chars>
+task_ref: <id or null>
 metadata:
   owner: <one-line name>
   detail: <one-line note, max 100 chars>
@@ -376,6 +377,56 @@ MUTATIONS = [
             "deep_note: <one-line deep note, max 50 chars>",
             "deep_note: <free-form prose, the term is defined in the glossary>",
             "'nested'",
+        ),
+    ),
+    # --- Round-6 regression mutations, one per Major finding ---
+    (
+        "shape2_nullable_type_string_word_removed",
+        # Round-6 Major-1 falsifying probe: 'string'/'str'/'object'/
+        # 'array' no longer satisfy the nullable-type form - a type
+        # declaration alone is not a bound. Pre-fix, 'task_id: <string
+        # or null>' and 'branch_name: <string, or null>' both passed
+        # unconditionally despite carrying no length/shape limit at
+        # all (see the real engineer.md regression this mirrors).
+        _shape2_mutation(
+            "task_ref: <id or null>",
+            "task_ref: <string or null>",
+            "'task_ref'",
+        ),
+    ),
+    (
+        "shape2_pointer_form_deleted_md_reference_no_longer_bounds",
+        # Round-6 Major-2 falsifying probe: even with a CONCRETE '.md'
+        # reference present (the exact condition the round-5 "fix"
+        # required and treated as sufficient), the pointer form is now
+        # DELETED outright, not merely narrowed - this text passed
+        # under round 5 (SHAPE2_POINTER_RE matched 'defined in
+        # our-conventions.md' within its window) and must now be
+        # rejected because the form no longer exists to match anything.
+        _shape2_mutation(
+            "deep_note: <one-line deep note, max 50 chars>",
+            "deep_note: <free narrative, see the format defined in "
+            "our-conventions.md for tone guidance>",
+            "'nested'",
+        ),
+    ),
+    (
+        "shape4_one_line_marker_not_recognized",
+        # Round-6 Major-3 falsifying probe: check_shape4 does NOT
+        # consult the one-line-marker form (form 4) - a placeholder
+        # rewritten in that shape is still flagged, proving
+        # check_shape4 was never genuinely "the same closed whitelist"
+        # as check_shape2 (the false claim this round corrects in the
+        # doc and code manifest). This mutation locks the documented
+        # per-shape divergence in place: if a future change silently
+        # widens check_shape4 to accept this form, this mutation starts
+        # failing (an intentional widening must update this mutation
+        # explicitly, in the same review as the doc change).
+        _shape4_mutation(
+            "<If status is not SUCCESS: which gate failed, what the error was, "
+            "what was\ndone - max 500 chars>",
+            "<one-line summary of what failed>",
+            "declares no closed enum, bounded-by-nature value type, or numeric cap",
         ),
     ),
 ]

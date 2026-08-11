@@ -34,10 +34,15 @@ repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
 always present versus optional - is exactly that kind of rule. It does not
 yet exist as a widespread per-agent restatement: verified against the
-live tree (2026-08-11), of the 18 files under `content/agents/*.md`, only
-3 (`debugger.md`, `investigator.md`, `skeptic.md`) carry any "never omit
-any section" instruction. This file single-sources that concern going
-forward, before it spreads further as an ad hoc per-agent restatement.
+live tree (2026-08-11), of the 18 files under `content/agents/*.md`, 5
+carry some form of a "don't omit" instruction - `debugger.md:110` and
+`investigator.md:126` carry a section-scoped "never omit any section"
+instruction, `adr-drift-detector.md:259` carries the equivalent "do not
+omit the section", `architect.md:238` carries the equivalent "Do not omit
+the block" for its `qa_criteria` section, and `skeptic.md:167` carries a
+narrower, LINE-scoped instance ("Never omit the 'Active search:' line").
+This file single-sources that concern going forward, before it spreads
+further as an ad hoc per-agent restatement.
 
 Every one of `content/agents/*.md`'s return-contract sections should carry
 a **one-line pointer** to this file, never a restated copy of the test
@@ -46,17 +51,6 @@ and not every return takes the same physical shape - see "Compliance
 shapes" below, and `bin/tests/test_agent_return_contract_spec.py`'s
 `HEADING_SYNONYMS` for the recognized alternate headings (`Sign-off
 format`, `Report structure`, `Output templates`).
-
-Correction (2026-08-11, round 5): the claim above ("of the 18 files, only
-3 carry any 'never omit any section' instruction") undercounted. Verified
-directly: `debugger.md:110` and `investigator.md:126` carry a
-section-scoped "never omit any section" instruction; `adr-drift-detector.md:259`
-carries the equivalent "do not omit the section"; `architect.md:238`
-carries the equivalent "Do not omit the block" for its `qa_criteria`
-section. `skeptic.md:167` carries a narrower, LINE-scoped instance
-("Never omit the 'Active search:' line"), not a section-scoped one. The
-accurate count is 5 files carrying some form of a "don't omit"
-instruction (4 section/block-scoped, 1 line-scoped), not 3.
 
 ## The governing source: North Star Goal 1
 
@@ -128,11 +122,13 @@ JSON-Schema fragment) - no narrative `###` fields. Obligation: (a) every
 classification/status-bearing field declares a closed enum; (b) every
 field capable of open-ended or repeated content declares an explicit
 bound. Both obligations are checked against a CLOSED whitelist of
-recognized bound forms (round 5 - previously several of these were
-keyword/phrase-anywhere searches with no adjacency or specificity
-requirement, despite claiming otherwise; see
+recognized bound forms - this is the CANONICAL, full list; Shapes 3 and 4
+below each consult only a NAMED SUBSET of it (see those shapes for exactly
+which forms apply - round 6 fix: a prior revision of this file falsely
+claimed all three shapes shared "the same closed whitelist", which the
+code never actually implemented). See
 `bin/tests/test_agent_return_contract_spec.py` for the code, which this
-list must stay identical to):
+list must stay identical to:
 
 1. **Closed enum list** - either the field's value stands ALONE as a bare
    `X | Y | Z` token list (never inside a `<...>` narrative placeholder
@@ -147,32 +143,55 @@ list must stay identical to):
    distinct from form 2.
 4. **One-line marker** - a `<one-line ...>` / `<single-line ...>`
    placeholder.
-5. **Schema/doc pointer** - `defined in`/`defined once` followed, within
-   a short window, by a concrete `.md` path or the word `schema` - never
-   the bare phrase alone.
-6. **Bounded-by-nature value literal** - a `<...>` placeholder whose
+5. **Bounded-by-nature value literal** - a `<...>` placeholder whose
    ENTIRE body names one of a closed vocabulary of well-known,
    syntactically-constrained value types: `sha`/`from-sha`/`to-sha`/
    `commit sha`, `url`, `timestamp`, `tag`, `path`/`repo-relative path`/
    `file path`, `environment name`/`remote name`, `exact command run`/
-   `exact rollback command`, `message`/`commit message`, `count`,
-   `version`.
-7. **Nullable-type placeholder** - `<TYPE or null>` (optionally `<TYPE,
+   `exact rollback command`, `count`, `version`.
+6. **Nullable-type placeholder** - `<TYPE or null>` (optionally `<TYPE,
    or null>`), where TYPE is 1-2 words drawn from a closed vocabulary of
-   type names (`string`, `number`, `boolean`, `date`, `sha`, `url`,
-   `path`, `tag`, `id`, `name`, `object`, `array`, ...).
+   BOUNDED type names: `number`, `int`, `integer`, `boolean`, `bool`,
+   `date`, `timestamp`, `sha`, `url`, `path`, `tag`, `id`, `name`.
 
-Anything matching none of the seven forms above is unbounded and flagged.
+Anything matching none of the six forms above is unbounded and flagged.
 Extending this list is a deliberate edit: add the new form to the code
 AND to this list in the same change - never widen an existing form's
 matching to silence a specific false positive.
 
+Round 6 removed two things from this list, deliberately, not by
+narrowing an existing form's match: a former "schema/doc pointer" form
+(`defined in`/`defined once` followed, within a short window, by a
+concrete `.md` path or the word `schema`) was DELETED outright - it
+remained a bypassable proximity heuristic even after a round-5
+tightening, and a full-body-fullmatch rewrite (the pattern used for form
+6 below) had no clean shape to anchor on for pointer phrasing, which is
+always embedded in a longer sentence, not a standalone value. And form 6
+(nullable-type placeholder) no longer accepts `string`, `str`, `object`,
+or `array` as a TYPE word - a bare type declaration is not itself a
+bound (`<string or null>` carries no length limit at all).
+
 **Shape 3 - Fixed literal-line template.** A short (`<= 8` lines), fixed
-`Label: <value>` sequence - not JSON/YAML, not `###`-tagged. Obligation:
-every value is a closed enum, a bare count, or explicitly bounded to one
-line by its own placeholder text. `skeptic.md` is this shape under an
-additional constraint: its six lines are validated verbatim by the
-conductor (`content/references/skeptic-protocol.md` Section 11;
+sequence of `Label: <value>` lines, OR a bare closed-enum-shaped status
+token (an all-caps identifier, no colon, e.g. `BLOCKED`) standing alone
+as its own line - not JSON/YAML, not `###`-tagged. Obligation: every
+`Label:` line's value is a closed enum, a bare count, or explicitly
+bounded to one line by its own placeholder text; a bare status-token line
+is bounded by construction (the token itself is the fixed value, drawn
+from a small implied vocabulary). This shape does NOT use the Shape-2
+whitelist above - it consults its own smaller, named form set: closed
+enum (Shape-2 form 1, plus a bare `true`/`false` literal), a **bare
+count** (a Shape-3-only form: a bare `<N>`/`N` integer placeholder, with
+no keyword-led cap requirement), the **one-line marker** (Shape-2 form
+4), and a **fully-realized literal** (a Shape-3-only form: a value
+containing no `<...>` placeholder at all has no open narrative slot to
+overflow, and is bounded by construction). It does NOT use Shape-2's
+true-adjacent numeric cap, fixed-length spec, or bounded-by-nature value
+literal forms - none of these apply to a single physical `Label: value`
+line the way they do to a multi-line schema leaf or report placeholder.
+`skeptic.md` is this shape under an additional constraint: its six lines
+are validated verbatim by the conductor
+(`content/references/skeptic-protocol.md` Section 11;
 `content/commands/ds-skeptic.md:68`; `content/commands/ds-wrap.md:439,443`)
 - a migration for this file may add a cap declaration in the surrounding
 prose only, and must never alter, retag, or restructure any of those six
@@ -183,14 +202,22 @@ report template of multiple `##`-level sections, fixed in count (not a
 repeated per-item structure), not machine-parsed as JSON. Obligation: the
 report's top status line declares a closed enum; every other section with
 open-ended free text declares an explicit bound in its own placeholder
-bracket text - checked against the SAME closed whitelist as Shape 2 above
-(a placeholder naming a bounded-by-nature value type, like a SHA, URL,
+bracket text. This shape consults exactly THREE of the six Shape-2 forms
+above - closed enum (form 1), true-adjacent numeric cap and fixed-length
+spec (forms 2/3), and bounded-by-nature value literal (form 5) - a
+placeholder naming a bounded-by-nature value type, like a SHA, URL,
 timestamp, tag, or exact command, needs no separate cap; only genuinely
-open-ended narrative does). Round 4 regressed this to an unconditional
-numeric-cap requirement on every placeholder after deleting a gameable
-narrative-hint-word heuristic - round 5 restores the doc's actual scope
-("every OTHER section WITH open-ended free text") via the whitelist
-instead of a keyword heuristic.
+open-ended narrative does. It does NOT consult the one-line marker (form
+4) or nullable-type placeholder (form 6): a report-template placeholder
+bracket has never been written in either of those two shapes in the real
+corpus, so there is nothing for those forms to match here, and this is a
+documented absence rather than a silent gap (round 6 - a prior revision
+of this file falsely claimed Shape 4 used "the SAME closed whitelist as
+Shape 2", which the code never actually implemented). Round 4 regressed
+this to an unconditional numeric-cap requirement on every placeholder
+after deleting a gameable narrative-hint-word heuristic - round 5
+restored the doc's actual scope ("every OTHER section WITH open-ended
+free text") via this narrower whitelist instead of a keyword heuristic.
 
 **Exemption - file-artifact output.** A file is exempt from all four
 shapes only when its deliverable is a file it writes to disk, not a
@@ -222,7 +249,7 @@ every `SHAPE_ASSIGNMENTS` file, asserted verbatim by
 `test_expected_violations_snapshot_matches_reality`. See
 `bin/tests/generate_agent_return_contract_snapshot.py` for the deliberate,
 reviewed update procedure (never a silent one-command refresh). Per-shape
-summary as of 2026-08-11:
+summary as of 2026-08-11 (round 6):
 
 - **Shape 1** (tag every `###` field): `architect.md`, `debugger.md`,
   `dependency-auditor.md`, `investigator.md`, `orchestration-planner.md`,
@@ -232,13 +259,15 @@ summary as of 2026-08-11:
   `learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md` have a
   real structured return (under a `### N. Return` workflow sub-step or a
   non-synonym `##` phase heading) but are not yet migrated to this
-  shape's enum/cap obligation. `engineer.md` carries exactly ONE genuine
-  violation now (`pr_description_body` declares no cap, one-line marker,
-  or schema pointer) - round 5 also fixed two over-strictness defects
-  that had nothing to do with a real gap: `files_modified.path`
-  (`<repo-relative path>`) is a bounded-by-nature value literal, and
-  `task_id` (`<string or null>`) is a recognized nullable-type
-  placeholder; neither should ever have been flagged.
+  shape's enum/cap obligation. `engineer.md` now carries FOUR genuine
+  violations, not one - round 6's Major-1 fix (a bare type declaration is
+  not itself a bound) correctly re-flags `task_id` (`<string or null>`)
+  and `branch_name` (`<string, or null>`), and round 6's Major-2 fix
+  (schema/doc-pointer form deleted outright) correctly re-flags
+  `learnings_candidate`, alongside the pre-existing `pr_description_body`
+  gap. Round 5's `files_modified.path` (`<repo-relative path>`) fix
+  stands unchanged - it is a genuine bounded-by-nature value literal and
+  is still not flagged.
 - **Shape 3** (fixed literal-line template): `skeptic.md` needs one
   narrow, additive cap declaration on finding-description length, in the
   Calibration section - its six conductor-validated structural lines are
@@ -246,21 +275,22 @@ summary as of 2026-08-11:
   COMPLIANT NOW; round 5's `check_shape3` fix (now inspects every fenced
   block in the section, not just the first) found it genuinely
   non-compliant - its second template's Evidence value
-  (`"evaluator-error: <reason>"`) declares no bound, and its third
-  template's `BLOCKED` line is not a `Label: value` line. It was never
-  actually fully compliant, only under-checked; there is no longer a
-  "compliant now" file in the corpus.
+  (`"evaluator-error: <reason>"`) declares no bound. Its third template's
+  `BLOCKED` line, initially also flagged as "not a `Label: value` line",
+  is a round-5 over-strictness artifact corrected in round 6: a bare
+  closed-enum-shaped status token standing alone is a legitimate Shape-3
+  line (see "Shape 3" above) and is no longer flagged. There is still no
+  "compliant now" file in the corpus - the Evidence-value gap remains
+  genuine.
 - **Shape 4** (markdown-sectioned flat report): `release-orchestrator.md`
-  carries TWO genuine violations, not one as earlier claimed - an
-  explicit cap on its "Failures and blockers" free-text section, AND a
-  bound on its "QA report" placeholder (`<summary or "see spawned
-  qa-engineer output">`), which is likewise open-ended narrative and was
-  never actually covered by the "one narrow addition" claim; round 4's
-  unconditional-cap regression masked the real scope of this file's
-  gap by over-flagging every other placeholder alongside it (13 false
-  positives - SHAs, a URL, a timestamp, a tag, exact commands, names,
-  and a commit message - none of which need a cap under the round-5
-  bounded-by-nature whitelist).
+  carries THREE genuine violations, not two as earlier claimed - an
+  explicit cap on its "Failures and blockers" free-text section, a bound
+  on its "QA report" placeholder (`<summary or "see spawned qa-engineer
+  output">`), and (round 6 Minor fix) a bound on its `<message>`
+  placeholder in the commit-listing lines under "What shipped" (appears
+  twice) - a commit message is not bounded by nature the way a SHA/URL/
+  timestamp/tag is, so `message`/`commit message` were removed from the
+  bounded-by-nature-value-literal vocabulary.
 - **Exempt** (file-artifact output, not a return payload): `adr-generator.md`
   - its deliverable is the generated ADR document itself, not a
   conductor-parsed return.

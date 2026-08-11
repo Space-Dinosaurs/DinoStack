@@ -12,7 +12,7 @@ tools: Read, Glob, Grep, Bash
 ```yaml
 status: DONE | FAILED | BLOCKED
 skipped_reason: null   # enum: null | "zero-substance" | "no-consumer"
-task_id: <string or null>
+task_id: <id or null>
 notes: |
   <one-line summary>
 items_written: []  # capped at 20 entries; each item <one-line description>

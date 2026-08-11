@@ -193,6 +193,97 @@ Failure modes: pure static analysis, no I/O beyond reading .md files under
                 caught, closing the gap where the suite went green with
                 one operator deleted and `len(MUTATIONS) == 12` unchecked
                 anywhere.
+            CORRECTION (round-6): item (1) above claimed every
+                leaf-boundedness check goes through "the SAME closed set
+                of seven explicitly named forms." This was FALSE for two
+                separate reasons, both now fixed (round-6 Major-3):
+                `check_shape4` never consulted forms 4 (one-line marker)
+                or 5-then/7-now (nullable-type) at all - only forms
+                1/2/3/6(then) - so a form-4/7 placeholder in a Shape-4
+                report was flagged even though the doc's "same whitelist"
+                claim said it would pass; and `_shape3_value_bounded`
+                consulted a THIRD, undocumented list that accepted none
+                of forms 2/3/5(then)/6(then)/7(then) and added an EIGHTH,
+                unnamed form of its own (any value containing no '<' is a
+                "fully realized literal" - bounded by construction, no
+                open narrative slot). Round-6 does not unify the three
+                checkers' form sets (a genuinely bigger, riskier change
+                for a narrow-tightening round) - it instead makes the
+                per-shape divergence an explicit, named, and doc-matched
+                fact: see the "Per-shape form usage" comment blocks above
+                `check_shape2`, `check_shape3`/`check_shape3_skeptic`, and
+                `check_shape4` below, and the identical per-shape lists in
+                content/references/subagent-return-contract.md's
+                "Compliance shapes" section - the two are meant to be
+                diffed side by side, not merely both present.
+            Round-6 fixes (three Majors + five Minors, each reproduced by
+            a one-line Skeptic probe BEFORE being fixed - see the three
+            new regression mutations added to MUTATIONS in
+            test_agent_return_contract_mutation.py):
+            (M1) `_SHAPE_TYPE_WORDS` (form 6, was form 7) no longer
+                includes 'string'/'str'/'object'/'array' - a bare type
+                declaration is not itself a bound (probe:
+                'task_id: <string or null>' and 'branch_name: <string,
+                or null>' both previously passed unconditionally via this
+                form despite carrying no length/shape limit at all; now
+                correctly flagged - see
+                test_shape2_engineer_is_not_yet_migrated).
+            (M2) The prior "form 5" (SHAPE2_POINTER_RE, an explicit
+                schema/doc pointer) is DELETED OUTRIGHT, not narrowed - a
+                fullmatch rewrite (the fix pattern used for form 6/"form
+                6 was form 7") was considered and rejected: real corpus
+                pointer phrasing is a full sentence embedded in
+                narrative, with no clean fullmatch shape to anchor a
+                whole-body match on without reintroducing the same
+                proximity-window bypass (probe: 'x: <free narrative, see
+                the format defined in our-conventions.md for tone
+                guidance>' and 'x: <unbounded prose; tone is defined in
+                the schema we use internally>' both previously passed;
+                now correctly rejected - the form no longer exists to
+                match either text). engineer.md's `learnings_candidate`
+                was the sole load-bearing field for this form and is now
+                correctly flagged.
+            (M3) See the CORRECTION block immediately above - the
+                "same closed whitelist everywhere" claim is fixed by
+                accurate per-shape documentation (code manifest AND
+                content/references/subagent-return-contract.md), not by
+                forcing every shape through an identical form set.
+            (Minor) `SHAPE_BOUNDED_VALUE_LITERALS` (form 5, was form 6)
+                no longer includes 'message'/'commit message' - a commit
+                message is not bounded by nature, unlike a SHA/URL/
+                timestamp/tag (probe: release-orchestrator.md's
+                '<sha> <message>' commit-listing lines now correctly flag
+                the `<message>` half; the `<sha>` half stays bounded).
+            (Minor) `check_shape3` now recognizes a bare closed-enum-
+                shaped status token (all-caps identifier, no colon) as a
+                valid, bounded Shape-3 line, via
+                SHAPE3_BARE_STATUS_TOKEN_RE - not a "not a 'Label: value'
+                line" violation. goal-condition-evaluator.md's escape-hatch
+                `BLOCKED` line (content/agents/goal-condition-evaluator.md)
+                is a standalone status literal by the template's own
+                design, and flagging it was gate over-strictness, not a
+                real gap; content/references/subagent-return-contract.md's
+                Shape-3 definition is corrected in the same change to
+                state this explicitly.
+            (Minor) The falsified "of the 18 files, only 3 ... carry any
+                'never omit any section' instruction" sentence in
+                content/references/subagent-return-contract.md is DELETED
+                (not narrowed-and-left-alongside-its-own-correction) -
+                the accurate count (5) is folded directly into the
+                sentence it replaces, and the separate "Correction
+                (2026-08-11, round 5)" paragraph correcting a sentence
+                that no longer exists is removed with it.
+            (Minor) content/references/subagent-return-contract.md's
+                form-6-then/form-7-now vocabulary list is enumerated in
+                full (no trailing '...') and now matches
+                `_SHAPE_TYPE_WORDS` exactly post-M1 - both lists are the
+                13 surviving words, same order.
+            (Minor) Degenerate caps ('cap: 0 chars', 'max 1 item') are
+                left passing, deliberately - a 0-char or 1-item cap is a
+                syntactically valid, if unusual, declared bound; treating
+                it as a violation would require guessing the author's
+                intent rather than checking a structural property. Not
+                observed anywhere in the real corpus as of round 6.
 
 Performance: negligible - reads <30 small text files.
 """
@@ -587,23 +678,30 @@ SHAPE_FIXED_LENGTH_RE = re.compile(r"\b\d+-char(?:acter)?s?\b", re.IGNORECASE)
 # unchanged from prior rounds.
 SHAPE2_ONE_LINE_RE = re.compile(r"<\s*(one|single)[- ]line\b", re.IGNORECASE)
 
-# Form 5 - an explicit schema/doc pointer: 'defined in'/'defined once'
-# followed, within a short window, by a concrete reference (a '.md'
-# path or the word 'schema'). Round-5 fix: the prior SHAPE2_POINTER_RE
-# accepted the bare phrase 'defined in'/'defined once' ANYWHERE, so
-# 'x: <free-form prose, the term is defined in the glossary>' satisfied
-# it - "the glossary" is not a concrete schema/doc reference. Real
-# corpus usage (engineer.md's learnings_candidate: "...cap are defined
-# in # references/learnings-capture-instruction.md") still matches,
-# since the '.md' reference follows within the window.
-SHAPE2_POINTER_RE = re.compile(
-    r"\bdefined\s+(?:in|once)\b(?:.{0,100}?)(?:\.md\b|\bschema\b)",
-    re.IGNORECASE | re.DOTALL,
-)
-
-# Form 6 - bounded-by-nature value-type placeholders: a '<...>'
-# placeholder whose ENTIRE body (nothing more) names one of these
-# well-known, syntactically-constrained value types is bounded by
+# Round-6 Major-2 fix: the prior "form 5" (SHAPE2_POINTER_RE, an
+# explicit schema/doc pointer: 'defined in'/'defined once' followed,
+# within a short window, by a '.md' path or the word 'schema') is
+# DELETED OUTRIGHT, not narrowed. It was a bypassable proximity
+# heuristic even after the round-5 tightening: 'x: <free narrative, see
+# the format defined in our-conventions.md for tone guidance>' and
+# 'x: <unbounded prose; tone is defined in the schema we use
+# internally>' both satisfied it, because the check never required the
+# pointer phrasing to constitute the WHOLE placeholder body (unlike
+# form 6/now-5 below, which is a strict fullmatch on the entire '<...>'
+# content). A fullmatch-based rewrite was considered and rejected: real
+# corpus pointer phrasing is a full sentence embedded in narrative
+# prose (e.g. "entry shape, enum and cap are defined in
+# references/learnings-capture-instruction.md"), not a value that
+# stands alone as a placeholder body the way form 6 values do - there
+# is no clean fullmatch shape to anchor on without reintroducing a
+# proximity window. One fewer heuristic is worth more than the single
+# snapshot entry (engineer.md's `learnings_candidate`) this was
+# load-bearing for; that field is now correctly flagged unbounded and
+# must take an explicit cap or one-line marker like any other field.
+#
+# Form 5 (was "form 6") - bounded-by-nature value-type placeholders: a
+# '<...>' placeholder whose ENTIRE body (nothing more) names one of
+# these well-known, syntactically-constrained value types is bounded by
 # construction - it cannot carry open-ended narrative regardless of
 # length, so no numeric cap is required. This is a closed enumeration
 # of value TYPES (fullmatch, not substring), never a keyword-anywhere
@@ -611,6 +709,14 @@ SHAPE2_POINTER_RE = re.compile(
 # because the placeholder body as a whole is not one of these literal
 # phrases. Extending this list is a deliberate, visible edit here plus
 # a matching update to subagent-return-contract.md.
+#
+# Round-6 Minor fix: 'message' and 'commit message' are REMOVED. A
+# commit message is not bounded by nature - it can be arbitrarily long
+# narrative prose, unlike a SHA/URL/timestamp/tag, which each have an
+# inherent syntactic ceiling. Real corpus impact:
+# release-orchestrator.md's '<sha> <message>' commit-listing lines now
+# correctly flag the `<message>` half as unbounded (the `<sha>` half
+# stays bounded via 'sha' below).
 SHAPE_BOUNDED_VALUE_LITERALS = frozenset({
     "sha", "from-sha", "to-sha", "commit sha",
     "url",
@@ -619,7 +725,6 @@ SHAPE_BOUNDED_VALUE_LITERALS = frozenset({
     "path", "repo-relative path", "file path",
     "environment name", "remote name",
     "exact command run", "exact rollback command",
-    "message", "commit message",
     "count",
     "version",
 })
@@ -641,19 +746,33 @@ def _is_bounded_value_literal(text):
     return t.lower() in SHAPE_BOUNDED_VALUE_LITERALS
 
 
-# Form 7 - a nullable-type declaration `<TYPE or null>` (optionally
+# Form 6 (was "form 7") - a nullable-type declaration `<TYPE or null>` (optionally
 # `<TYPE, or null>`), where TYPE is 1-2 words drawn from a closed
-# vocabulary of type names. This is a type annotation, not open-ended
-# narrative - e.g. engineer.md's 'task_id: <string or null>' and
-# 'branch_name: <string, or null>'. TYPE is restricted to known type
-# words specifically so this form cannot be gamed by appending " or
-# null" to an otherwise-narrative placeholder
-# ("<full narrative or null>" does NOT match - "full"/"narrative" are
-# not type words).
+# vocabulary of BOUNDED type names. This is a type annotation, not
+# open-ended narrative - e.g. engineer.md's 'commit_sha: <full 40-char
+# SHA, or null if no commit was made>' pattern generalized to a bare
+# type word. TYPE is restricted to known type words specifically so
+# this form cannot be gamed by appending " or null" to an otherwise-
+# narrative placeholder ("<full narrative or null>" does NOT match -
+# "full"/"narrative" are not type words).
+#
+# Round-6 Major-1 fix: 'string', 'str', 'object', and 'array' are
+# REMOVED from this vocabulary. A type declaration is not itself a
+# bound - 'string' and 'str' impose no length limit at all, and
+# 'object'/'array' impose no shape/size limit either, so
+# '<string or null>' and '<object or null>' are open-ended narrative
+# wearing a type label, not a bounded form. This was a real gap, not
+# hypothetical: engineer.md's 'task_id: <string or null>' and
+# 'branch_name: <string, or null>' both matched this form pre-fix
+# despite carrying no bound whatsoever - see
+# test_shape2_engineer_is_not_yet_migrated's updated assertions. The
+# surviving words below are all themselves syntactically bounded
+# (a number/boolean/date/timestamp has an inherent format ceiling; the
+# remaining string-shaped words - sha/url/path/tag/id/name - are
+# narrow, well-known identifier shapes, not open narrative).
 _SHAPE_TYPE_WORDS = frozenset({
-    "string", "str", "number", "int", "integer", "boolean", "bool",
+    "number", "int", "integer", "boolean", "bool",
     "date", "timestamp", "sha", "url", "path", "tag", "id", "name",
-    "object", "array",
 })
 _SHAPE_NULLABLE_TYPE_RE = re.compile(
     r"^<\s*([\w\s]{1,30}?),?\s+or\s+null\s*>$", re.IGNORECASE
@@ -800,16 +919,16 @@ def _shape2_text_is_bounded(full_line, rest, body):
 
     Round-5: every check below is one of the explicitly named, closed
     forms defined above `_shape2_has_cap_with_digit` - there is no
-    remaining shape-level auto-pass anywhere in this function; a leaf
-    that matches none of the seven recognized forms is unbounded."""
+    remaining shape-level auto-pass anywhere in this function. Round-6:
+    the schema/doc-pointer form is deleted outright (Major-2 fix - see
+    the comment above SHAPE_BOUNDED_VALUE_LITERALS); a leaf that matches
+    none of the six SURVIVING recognized forms is unbounded."""
     if _is_enum_list(rest):
         return True
     combined = full_line + " " + " ".join(body)
     if _shape2_has_cap_with_digit(combined):
         return True
     if SHAPE2_ONE_LINE_RE.search(combined):
-        return True
-    if SHAPE2_POINTER_RE.search(combined):
         return True
     if _is_bounded_value_literal(rest):
         return True
@@ -886,6 +1005,16 @@ def _shape2_is_bounded(name, full_line, rest, body, schema_text):
     return _shape2_text_is_bounded(full_line, rest, body)
 
 
+# Per-shape form usage (round-6 Major-3): check_shape2 is the ONLY
+# checker that consults the FULL closed whitelist (all six surviving
+# forms, via _shape2_is_bounded/_shape2_text_is_bounded) - it is the
+# canonical/authoritative list. check_shape3 and check_shape4 each
+# consult a DIFFERENT, narrower subset (see the comment blocks above
+# their own leaf-boundedness logic below) - this is a deliberate,
+# now-documented divergence, not an accidental gap. The identical
+# per-shape lists live in content/references/subagent-return-
+# contract.md's "Compliance shapes" section; the two must be kept
+# literally diffable against each other.
 def check_shape2(text, filename="<fixture>"):
     try:
         section = extract_output_format_section(text)
@@ -942,8 +1071,7 @@ def check_shape2(text, filename="<fixture>"):
         if not _shape2_is_bounded(name, full_line, rest, body, schema_text):
             violations.append(
                 f"{filename}: field '{name}' is capable of open-ended or "
-                "repeated content but declares no cap, one-line marker, or "
-                "schema pointer"
+                "repeated content but declares no cap or one-line marker"
             )
     return violations
 
@@ -959,8 +1087,43 @@ SKEPTIC_REQUIRED_LINE_PREFIXES = (
     "Test-CI-wiring check:",
 )
 SHAPE3_LINE_RE = re.compile(r"^(\S[^:]*):\s*(.*)$")
+# Round-6 Minor fix: a bare closed-enum-shaped status token standing
+# ALONE on its own line, with no colon at all (e.g.
+# goal-condition-evaluator.md's escape-hatch 'BLOCKED' line), is a
+# legitimate Shape-3 line - the value IS the token itself, a fixed
+# literal from a small, implied vocabulary, no different in kind from
+# 'GOAL_MET: true|false' collapsed into a single word. Flagging it as
+# "not a 'Label: value' line" was gate over-strictness: the Shape-3
+# doc definition never required every line to carry a colon, only that
+# every VALUE be bounded. Deliberately narrow (fullmatch, all-caps
+# identifier only) so this cannot be gamed by an arbitrary lowercase or
+# mixed-case narrative line slipping through uncaptured.
+SHAPE3_BARE_STATUS_TOKEN_RE = re.compile(r"^[A-Z][A-Z0-9_]*$")
 
-
+# Per-shape form usage (round-6 Major-3): _shape3_value_bounded does
+# NOT consult the Shape-2 whitelist at all - it is a SEPARATE, smaller,
+# named form set specific to Shape-3's single-physical-line values:
+#   - closed enum: a bare 'true'/'false' literal, the literal string
+#     'true|false', or _is_enum_list() (the same enum-list check Shape
+#     2 uses, form 1 above).
+#   - bare count: a bare '<N>' or 'N' integer placeholder - a
+#     Shape-3-only form with no Shape-2 equivalent (Shape 2 has no
+#     "bare count" form; it requires a keyword-led numeric cap
+#     instead).
+#   - one-line marker (form 4 above) - reused as-is.
+#   - fully-realized literal (Shape-3-only, NEWLY NAMED round-6): a
+#     value containing no '<...>' placeholder at all has no open
+#     narrative slot to overflow, so it is bounded by construction
+#     (e.g. a hardcoded escape-hatch message). This was previously an
+#     unnamed, undocumented eighth check; it is now a named form,
+#     specific to this shape - it does not generalize to Shape 2, whose
+#     '<...>'-free scalar values (e.g. a bare integer with no bracket)
+#     are still routed through the full whitelist above, not this
+#     shortcut.
+# Shape 3 does NOT use: true-adjacent numeric cap (form 2), fixed-length
+# spec (form 3), bounded-by-nature value literal (form 5) - none of
+# these apply to a single physical 'Label: value' line the way they do
+# to a multi-line YAML/JSON schema leaf or a report placeholder.
 def _shape3_value_bounded(value):
     v = value.strip()
     if not v:
@@ -990,7 +1153,11 @@ def check_shape3(text, filename="<fixture>"):
     checked, not just blocks[0] - goal-condition-evaluator.md has three
     fenced return templates and the second ('Evidence: "evaluator-error:
     <reason>"') carries an unbounded placeholder that was never
-    inspected under the pre-fix blocks[0]-only check."""
+    inspected under the pre-fix blocks[0]-only check.
+
+    Round-6 Minor fix: a bare closed-enum-shaped status token line (no
+    colon) is now recognized as compliant via
+    SHAPE3_BARE_STATUS_TOKEN_RE - see the comment above that pattern."""
     try:
         section = extract_output_format_section(text)
     except UnbalancedFenceError as e:
@@ -1020,6 +1187,8 @@ def check_shape3(text, filename="<fixture>"):
         for ln in lines:
             m = SHAPE3_LINE_RE.match(ln)
             if not m:
+                if SHAPE3_BARE_STATUS_TOKEN_RE.match(ln.strip()):
+                    continue
                 violations.append(
                     f"{filename}: Shape-3 line '{ln}' (block {block_idx}) "
                     "is not a 'Label: value' line"
@@ -1118,6 +1287,17 @@ def check_shape3_skeptic(text, filename="skeptic.md"):
 
 SHAPE4_STATUS_LINE_RE = re.compile(r"^##\s+Status:\s*(.+)$", re.MULTILINE)
 SHAPE4_SUBSECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
+
+# Per-shape form usage (round-6 Major-3): check_shape4's placeholder loop
+# below consults exactly THREE of the six Shape-2 forms - closed enum
+# (form 1, via _is_enum_list), true-adjacent numeric cap (form 2) and
+# fixed-length spec (form 3, both via _shape2_has_cap_with_digit), and
+# bounded-by-nature value literal (form 5, via
+# _is_bounded_value_literal). It does NOT consult one-line marker
+# (form 4) or nullable-type placeholder (form 6) - a report-template
+# placeholder bracket (e.g. '<exact command run>') is never written in
+# either of those two shapes in the real corpus, so there was nothing to
+# match; this is a documented absence, not a silent gap.
 
 
 def check_shape4(text, filename="<fixture>"):
@@ -1374,11 +1554,21 @@ def test_shape2_engineer_is_not_yet_migrated():
     container instead of treating it as an unconditionally-bounded
     structural field.
 
-    Round-5: files_modified.path (`<repo-relative path>`) and task_id
-    (`<string or null>`) must NOT be flagged - both are now recognized
-    bounded-by-nature/nullable-type forms (round-5 over-strictness fix);
-    prior to that fix, files_modified was flagged SOLELY because of the
-    'path' leaf."""
+    Round-5: files_modified.path (`<repo-relative path>`) must NOT be
+    flagged - it is a recognized bounded-by-nature form (round-5
+    over-strictness fix); prior to that fix, files_modified was flagged
+    SOLELY because of the 'path' leaf.
+
+    Round-6 Major-1/Major-2 fixes REVERSE two round-5 over-strictness
+    corrections that were themselves wrong: `task_id: <string or null>`
+    and `branch_name: <string, or null>` matched the round-5 nullable-type
+    form purely because 'string' was in the type vocabulary - a type
+    declaration is not a bound, so both are genuinely unbounded and are
+    now correctly flagged again (round-6 Major-1). `learnings_candidate`
+    was passing via the now-deleted schema/doc-pointer form (round-6
+    Major-2) and is now also correctly flagged - see the comment above
+    SHAPE_BOUNDED_VALUE_LITERALS for why that form was deleted rather than
+    narrowed."""
     path = AGENTS_DIR / "engineer.md"
     violations = check_contract(path.read_text(), "engineer.md")
     assert violations, (
@@ -1394,14 +1584,27 @@ def test_shape2_engineer_is_not_yet_migrated():
         f"files_modified.path is '<repo-relative path>', a bounded-by-nature "
         f"value literal - it must not be flagged: {violations}"
     )
-    assert not any("task_id" in v for v in violations), (
-        f"task_id is '<string or null>', a recognized nullable-type "
-        f"placeholder - it must not be flagged: {violations}"
+    assert any("task_id" in v for v in violations), (
+        "task_id is '<string or null>' - a bare type declaration with no "
+        f"bound - it must be flagged (round-6 Major-1): {violations}"
+    )
+    assert any("branch_name" in v for v in violations), (
+        "branch_name is '<string, or null>' - a bare type declaration with "
+        f"no bound - it must be flagged (round-6 Major-1): {violations}"
+    )
+    assert any("learnings_candidate" in v for v in violations), (
+        "learnings_candidate previously passed only via the now-deleted "
+        f"schema/doc-pointer form - it must be flagged (round-6 Major-2): {violations}"
     )
     assert violations == [
+        "engineer.md: field 'task_id' is capable of open-ended or "
+        "repeated content but declares no cap or one-line marker",
+        "engineer.md: field 'branch_name' is capable of open-ended or "
+        "repeated content but declares no cap or one-line marker",
         "engineer.md: field 'pr_description_body' is capable of open-ended "
-        "or repeated content but declares no cap, one-line marker, or "
-        "schema pointer"
+        "or repeated content but declares no cap or one-line marker",
+        "engineer.md: field 'learnings_candidate' is capable of open-ended "
+        "or repeated content but declares no cap or one-line marker",
     ], violations
 
 
@@ -1429,10 +1632,13 @@ def test_shape3_goal_condition_evaluator_is_genuinely_not_yet_migrated():
     unbounded placeholder that was never inspected before this fix.
     goal-condition-evaluator.md is therefore RECLASSIFIED here from
     'compliant now' to genuinely non-compliant - it was never actually
-    fully compliant, only under-checked. The third block's bare
-    'BLOCKED' line (no colon) is also flagged as not a 'Label: value'
-    line, a pre-existing structural mismatch this file's escape-hatch
-    format carries."""
+    fully compliant, only under-checked.
+
+    Round-6 Minor fix: the third block's bare 'BLOCKED' line (no colon)
+    is NO LONGER flagged - it is a legitimate bare closed-enum-shaped
+    status token (SHAPE3_BARE_STATUS_TOKEN_RE), and flagging it was gate
+    over-strictness, not a real gap. Only the genuine Evidence-value
+    violation remains."""
     path = AGENTS_DIR / "goal-condition-evaluator.md"
     violations = check_contract(path.read_text(), "goal-condition-evaluator.md")
     assert violations == [
@@ -1440,8 +1646,6 @@ def test_shape3_goal_condition_evaluator_is_genuinely_not_yet_migrated():
         'value \'"evaluator-error: <reason>"\' is neither a closed enum, '
         "a bare count, nor bounded to one line by its own placeholder "
         "text",
-        "goal-condition-evaluator.md: Shape-3 line 'BLOCKED' (block 3) "
-        "is not a 'Label: value' line",
     ], violations
 
 
