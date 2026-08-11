@@ -551,7 +551,9 @@ def test_step9_enumeration_names_tracker_yml(init_project_text):
 
 # Word forms for the plausible ignore-pattern-line-count range. Extend this
 # map (never re-pin a literal count word) if the block legitimately grows
-# past 20 lines.
+# past 60 lines (the map already reached 40+ once, in Round 2 of the
+# shipped-gitignore-umbrella-gaps rework - this stale-at-20 comment was
+# itself a Minor finding by that point).
 _NUMBER_WORDS = {
     10: "ten", 11: "eleven", 12: "twelve", 13: "thirteen", 14: "fourteen",
     15: "fifteen", 16: "sixteen", 17: "seventeen", 18: "eighteen",
@@ -561,7 +563,12 @@ _NUMBER_WORDS = {
     29: "twenty-nine", 30: "thirty", 31: "thirty-one", 32: "thirty-two",
     33: "thirty-three", 34: "thirty-four", 35: "thirty-five",
     36: "thirty-six", 37: "thirty-seven", 38: "thirty-eight",
-    39: "thirty-nine", 40: "forty",
+    39: "thirty-nine", 40: "forty", 41: "forty-one", 42: "forty-two",
+    43: "forty-three", 44: "forty-four", 45: "forty-five", 46: "forty-six",
+    47: "forty-seven", 48: "forty-eight", 49: "forty-nine", 50: "fifty",
+    51: "fifty-one", 52: "fifty-two", 53: "fifty-three", 54: "fifty-four",
+    55: "fifty-five", 56: "fifty-six", 57: "fifty-seven", 58: "fifty-eight",
+    59: "fifty-nine", 60: "sixty",
 }
 
 

@@ -693,7 +693,7 @@ META-DIVERGENCE: meta-Skeptic identified [Critical|Major] '<finding-title>' that
 [phase: meta-divergence-critical]
 ```
 
-Then append `original_task_id` to the tracker file. The sweep is a standalone scan - not parallel with other startup tool calls. Tracker file format is one `original_task_id` per line, append-only, gitignored under the `$AE_PROJECT_DIR/.agentic/` umbrella. File-absent equals empty set. This catches divergences whose meta-Skeptic completed asynchronously after the originating session ended.
+Then append `original_task_id` to the tracker file. The sweep is a standalone scan - not parallel with other startup tool calls. Tracker file format is one `original_task_id` per line, append-only, matching the `$AE_PROJECT_DIR/.agentic/.meta-divergence-surfaced` pattern in manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's targeted `$AE_PROJECT_DIR/.gitignore` block. File-absent equals empty set. This catches divergences whose meta-Skeptic completed asynchronously after the originating session ended.
 
 **Pagination (vicious loop defense):** The sweep MUST NOT read the full `$AE_PROJECT_DIR/.agentic/events.jsonl` on every boot. It reads only events with `ts` strictly greater than the timestamp stored in `$AE_PROJECT_DIR/.agentic/.meta-divergence-last-sweep` (ISO8601 UTC, single line, file-absent = first run). On first run (no tracker file), the scan is capped to the most recent 100 lines of the events file. After the sweep completes, the conductor writes the current ISO8601 UTC timestamp to the tracker file (atomic: tmp + `mv`). This prevents the vicious loop where growing telemetry consumes ever more context on every session start. See `$AE_REPO_DIR/content/references/skeptic-protocol.md` Section 14 "Session-start sweep pagination" for the full procedure.
 
@@ -793,7 +793,7 @@ Read `$AE_REPO_DIR/content/references/conventions-detail.md` §The Intent Layer 
 6. **When step 5 resolved `BASE_BRANCH` non-interactively**, run `ds-base-sync "$REPO" "$BASE_BRANCH"` (PATH-guarded, non-blocking on any exit). Skip silently otherwise. See `$AE_REPO_DIR/content/references/base-branch-sync.md` §Call sites.
 7. Run worktree prune and the branch prune (see `$AE_REPO_DIR/content/references/worktree-lifecycle.md` §Session-start prune script and §Branch prune) - both run ONCE at session start.
 
-**Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `$AE_PROJECT_DIR/.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `$AE_PROJECT_DIR/.agentic/` umbrella). The conductor merges each subagent branch back after sign-off and removes the worktree.
+**Subagent worktrees:** Each parallel subagent gets its own worktree, branched from the conductor's current branch. Worktrees are created at `$AE_PROJECT_DIR/.agentic/worktrees/<branch-name>` under the project root (already gitignored via the `$AE_PROJECT_DIR/.agentic/worktrees/` pattern in manual workflow 'ds-init-project' via `$AE_REPO_DIR/bin/ds-codex-dispatch command ds-init-project` Step 9's targeted `$AE_PROJECT_DIR/.gitignore` block). The conductor merges each subagent branch back after sign-off and removes the worktree.
 
 ```bash
 # Create a subagent worktree:

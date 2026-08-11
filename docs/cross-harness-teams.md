@@ -99,8 +99,10 @@ The file can live globally (`~/.agentic/team.yml`) or per-project
 (`.agentic/team.yml`, committed). Project keys win on collision; the merge
 is shallow per top-level key.
 
-The `.gitignore` umbrella excludes `.agentic/*` by default; the project file
-requires an explicit carve-out line `!.agentic/team.yml` so it commits.
+`/ds-init-project` Step 9's targeted `.gitignore` block never ignores
+`.agentic/team.yml` in the first place, but carries a `!.agentic/team.yml`
+carve-out anyway, future-proofing against a project later adding a broad
+`.agentic/*` umbrella (e.g. via `ds-migrate`).
 
 Minimum useful file:
 

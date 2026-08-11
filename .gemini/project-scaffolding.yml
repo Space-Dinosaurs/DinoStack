@@ -14,6 +14,18 @@
 #              never carried a matching negation, so a repo that adopted the
 #              .agentic/* umbrella via ds-migrate (rather than /ds-init-project)
 #              silently ignored all three.
+#          v6: adds !.agentic/phase0-classifiers.yml and
+#              !.agentic/deferred-work.jsonl negations, closing a divergence
+#              between the two adoption paths caught by
+#              bin/tests/test_agentic_migrate.py's
+#              test_negation_set_matches_tracked_outcome: both files are
+#              tracked by /ds-init-project Step 9 (phase0-classifiers.yml is
+#              executable-code-equivalent and deliberately committed;
+#              deferred-work.jsonl is a durable cross-teammate backlog, same
+#              shape as skill-candidates.md) but this manifest's umbrella
+#              ignored both with no negation, so a repo adopted via ds-migrate
+#              silently ignored files a repo scaffolded via /ds-init-project
+#              commits by default.
 # Public API: read by bin/ds-migrate; version field (scaffolding_version) compared
 #             against <project>/.agentic/config.json scaffolding_version stamp.
 # Upstream: none (this is the canonical source)
@@ -22,7 +34,7 @@
 # Failure modes: if malformed or missing, ds-migrate exits 2 and skips migration;
 #                preflight swallows the error silently and proceeds with methodology active.
 
-scaffolding_version: 5
+scaffolding_version: 6
 gitignore:
   - pattern: ".agentic/*"
     purpose: "umbrella ignore"
@@ -46,6 +58,10 @@ gitignore:
     purpose: "committed: tool-agnostic deploy runbook shared across operators"
   - pattern: "!.agentic/tracking.md"
     purpose: "committed: tool-agnostic tracker config shared across operators"
+  - pattern: "!.agentic/phase0-classifiers.yml"
+    purpose: "committed: executable-code-equivalent Phase 0 classifiers, same as /ds-init-project Step 9"
+  - pattern: "!.agentic/deferred-work.jsonl"
+    purpose: "committed: durable cross-teammate deferred-work backlog, same as /ds-init-project Step 9"
 files:
   - path: ".agentic/config.json"
     seed: "templates/.agentic/config.json"

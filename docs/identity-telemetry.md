@@ -62,7 +62,7 @@ ds-identity init <handle> --scope project   # writes <repo>/.agentic/identity.ym
 ds-identity confirm --scope project          # confirm a provisional project identity
 ```
 
-The project file is covered by the existing `.agentic/*` gitignore umbrella - it is per-developer and never committed. The global identity is unchanged.
+The project file is gitignored via a targeted `.gitignore` pattern (`.agentic/identity.yml`, added by `/ds-init-project` Step 9) - it is per-developer and never committed. The global identity is unchanged.
 
 ## Precedence
 

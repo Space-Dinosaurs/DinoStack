@@ -663,52 +663,134 @@ class TestInitProjectStep9NegationBlock(unittest.TestCase):
         self.assertNotIn("!.agentic/preferences.json", block)
         self.assertIn(".agentic/preferences.json", block)
 
-    def test_negation_set_matches_manifest_negation_set(self):
-        """The Step 9 block's `!.agentic/<file>` negations (the "tracked, not
-        ignored" set for NEW projects) and content/project-scaffolding.yml's
-        `!.agentic/<file>` negations (the same set for the ds-migrate adoption
-        path on EXISTING projects) must name the same files. The two paths use
-        different gitignore strategies - Step 9 is a targeted denylist with no
-        umbrella, ds-migrate seeds a full `.agentic/*` umbrella and negates -
-        so their *ignore* lists need not match line-for-line, but a file this
-        methodology intends to keep tracked must be tracked on both paths, or
-        a project scaffolded fresh and a project migrated in place would
-        silently disagree on what gets committed."""
-        # Manifest-only detail: the umbrella model needs a SEPARATE
-        # `!<dir>/**` negation to re-include a negated directory's contents
-        # (git does not recurse into a re-included directory's files under
-        # `!<dir>/` alone when the parent was excluded via `<dir>/*`); the
-        # Step 9 targeted-denylist model has no umbrella to recurse past, so
-        # it never needs the `/**` form. Strip that suffix before comparing
-        # so this legitimate strategy difference isn't flagged as drift.
-        def _normalize(pattern: str) -> str:
-            if pattern.endswith("/**"):
-                pattern = pattern[: -len("/**")]
-            return pattern.rstrip("/")
+    # NOTE (Round 2 rework, Major 3): a prior version of this class had a
+    # test_negation_set_matches_manifest_negation_set that compared the two
+    # paths' `!.agentic/<file>` negation SETS for equality. That comparison
+    # is structurally BLIND to a file that is tracked-by-default under Step
+    # 9's denylist (no negation needed, since no ignore pattern touches it)
+    # but ignored-by-default under the migrate-path umbrella (needs a
+    # negation that is missing) - both negation sets simply omit the file
+    # and the comparison passes vacuously. That exact blind spot let
+    # `.agentic/phase0-classifiers.yml` diverge (tracked on init, ignored on
+    # migrate) silently past a green test suite. Once the fix added
+    # `!.agentic/phase0-classifiers.yml` to the manifest (needed there,
+    # since the migrate path ignores everything by default) without adding a
+    # matching Step 9 negation (not needed there, since Step 9 never ignores
+    # it), the negation-SET comparison itself started reporting a false
+    # mismatch - it cannot represent "same outcome via different mechanism".
+    # It was deleted rather than patched further, per this methodology's own
+    # rule to prefer deletion over a narrowed rewrite when a claim's shape is
+    # unsound. test_negation_set_matches_tracked_outcome below is the real,
+    # outcome-based gate that replaces it - it compares what actually gets
+    # committed, not which mechanism produced that outcome.
 
-        block = self._step9_block()
-        step9_negations = {
-            _normalize(line.strip()[1:])  # drop leading "!"
-            for line in block.splitlines()
-            if line.strip().startswith("!.agentic/")
-        }
-        self.assertTrue(step9_negations, "Step 9 block must declare at least one negation")
+    # Canonical set of .agentic/ paths this methodology intends to keep
+    # TRACKED (committed) on every adoption path. This is the source of
+    # truth for test_negation_set_matches_tracked_outcome below - it is
+    # deliberately NOT derived from either path's negation list, because a
+    # negation-set derivation is exactly what let phase0-classifiers.yml's
+    # divergence pass silently (see that test's docstring). Anyone adding a
+    # new tracked knowledge file must add it here in the same PR, or this
+    # gate cannot see it.
+    TRACKED_KNOWLEDGE_PATHS = (
+        ".agentic/qa.md",
+        ".agentic/deploy.md",
+        ".agentic/tracking.md",
+        ".agentic/qa-regressions.md",
+        ".agentic/learnings.md",
+        ".agentic/config.json",
+        ".agentic/team.yml",
+        ".agentic/skill-candidates.md",
+        ".agentic/session-log/example-dev.jsonl",
+        ".agentic/phase0-classifiers.yml",
+        ".agentic/deferred-work.jsonl",
+    )
 
-        manifest_text = Path(MANIFEST).read_text(encoding="utf-8")
-        manifest_negations = {
-            _normalize(m[1:])  # drop leading "!"
-            for m in re.findall(r'- pattern:\s*"(!\.agentic/[^"]+)"', manifest_text)
-        }
-        self.assertTrue(manifest_negations, "manifest must declare at least one negation")
+    # Ephemeral controls: paths that must be IGNORED on both paths. Proves
+    # the harness is non-vacuous (an outcome comparison that always reports
+    # "equal" because nothing is ever ignored would hide any real
+    # divergence just as effectively as the blind spot above).
+    IGNORED_CONTROL_PATHS = (
+        ".agentic/context.md",
+        ".agentic/.capability-cache.json",
+        ".agentic/.activated",
+    )
+
+    def _tracked_outcome(self, project: Path) -> dict:
+        """git add -A + git status --porcelain, per the Verification section's
+        explicit instruction: git check-ignore exit codes are unreliable for
+        a negation-only match under an umbrella model (measured, not the
+        round-1 commit message's inverted claim) - status after a real `git
+        add -A` is the only outcome that actually matches what gets
+        committed."""
+        for rel in self.TRACKED_KNOWLEDGE_PATHS + self.IGNORED_CONTROL_PATHS:
+            target = project / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text("placeholder\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=str(project), check=True)
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(project), check=True, capture_output=True, text=True,
+        ).stdout
+        staged = set()
+        for line in status.splitlines():
+            # Porcelain format: "XY <path>"; a newly-added tracked file is "A ".
+            staged.add(line[3:])
+        outcome = {}
+        for rel in self.TRACKED_KNOWLEDGE_PATHS + self.IGNORED_CONTROL_PATHS:
+            outcome[rel] = "tracked" if rel in staged else "ignored"
+        return outcome
+
+    def test_negation_set_matches_tracked_outcome(self):
+        """Major 3 regression: compare the EFFECTIVE tracked-vs-ignored
+        outcome of every canonical knowledge file across BOTH adoption
+        routes, using real git (add -A + status --porcelain, not
+        check-ignore exit codes - see the Verification section rationale in
+        the round-2 rework brief for this ticket), not a negation-set
+        comparison. The negation-set comparison above cannot see a file that
+        is tracked-by-default on one path and ignored-by-default on the
+        other, because neither path then has a negation for it at all. This
+        is the gate that must go red on the phase0-classifiers.yml /
+        .activated divergence; see the mutation-test note below for how it
+        was proven non-vacuous."""
+        with tempfile.TemporaryDirectory() as tmp_init, tempfile.TemporaryDirectory() as tmp_migrate:
+            init_project = Path(tmp_init)
+            migrate_project = Path(tmp_migrate)
+
+            # --- Init path (/ds-init-project Step 9): write the Step 9
+            # block verbatim as the ONLY .gitignore content.
+            (init_project / ".gitignore").write_text(self._step9_block() + "\n", encoding="utf-8")
+            subprocess.run(["git", "init", "-q"], cwd=str(init_project), check=True)
+            init_outcome = self._tracked_outcome(init_project)
+
+            # --- Migrate path (ds-migrate apply): seed an empty project and
+            # run the real binary against the real manifest, exactly as
+            # TestManifestCarveOutsRealGit does.
+            (migrate_project / ".agentic").mkdir()
+            (migrate_project / ".agentic" / "config.json").write_text(json.dumps({}) + "\n")
+            (migrate_project / ".gitignore").write_text("")
+            subprocess.run(["git", "init", "-q"], cwd=str(migrate_project), check=True)
+            result = run(["apply", "--manifest", MANIFEST, "--project-root", str(migrate_project)])
+            self.assertEqual(result.returncode, 0, msg=result.stderr)
+            migrate_outcome = self._tracked_outcome(migrate_project)
 
         self.assertEqual(
-            step9_negations, manifest_negations,
-            "Step 9's tracked-file negation set and project-scaffolding.yml's "
-            "negation set have drifted apart - a project scaffolded via "
-            "/ds-init-project and one migrated via ds-migrate would now "
-            "commit a different set of .agentic/ files. Update whichever "
-            "list is missing an entry.",
+            init_outcome, migrate_outcome,
+            "Init path (/ds-init-project Step 9) and migrate path "
+            "(ds-migrate apply against content/project-scaffolding.yml) "
+            "produce a DIFFERENT tracked-vs-ignored outcome for at least "
+            "one .agentic/ path - a project scaffolded fresh and a project "
+            "migrated in place would silently commit a different set of "
+            "files. Diff the two outcome dicts to find the divergent path.",
         )
+        # Non-vacuousness: every tracked-knowledge path really did come back
+        # tracked, and every ignored-control path really did come back
+        # ignored, on at least one side - proves the harness can actually
+        # distinguish the two outcomes, not just that they happen to agree.
+        for rel in self.TRACKED_KNOWLEDGE_PATHS:
+            self.assertEqual(init_outcome[rel], "tracked", f"{rel} must be tracked on the init path")
+        for rel in self.IGNORED_CONTROL_PATHS:
+            self.assertEqual(init_outcome[rel], "ignored", f"{rel} must be ignored on the init path")
 
 
 class TestGitignoreInsertByteBehavior(unittest.TestCase):

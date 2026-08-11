@@ -74,10 +74,12 @@ harnesses.
    then edit it to taste. The file path is `~/.agentic/role-models.yml`
    (NOT `.agentic/config.json`; that is a different committed file).
 
-The file is gitignored under the `.agentic/` umbrella because it may name
-private model handles. If you want a project-local override, write
-`.agentic/role-models.yml` in the project root; project keys win on
-collision with the global file.
+The global file lives outside any git repo, so gitignore does not apply to
+it. If you want a project-local override, write `.agentic/role-models.yml`
+in the project root - that file is gitignored, matching the
+`.agentic/role-models.yml` pattern in `/ds-init-project` Step 9's targeted
+`.gitignore` block, because it may name private model handles; project keys
+win on collision with the global file.
 
 ## Configuration shape
 
