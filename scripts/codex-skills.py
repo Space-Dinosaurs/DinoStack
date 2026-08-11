@@ -10,8 +10,8 @@ Public API: ``build --repo ROOT [--output DIR]``, ``check --repo ROOT``,
 Upstream deps: canonical content/SKILL.md, content/sections, three canonical
                command bodies, content/rules/conventions.md and
                content/rules/code-standards.md (hard-read by
-               reachability_corpus() - 4 of the 19 PARAGRAPH_RULES anchors
-               target conventions.md exclusively), .codex/skill-frontmatter,
+               reachability_corpus() - 4 PARAGRAPH_RULES anchors target
+               content/rules/conventions.md exclusively), .codex/skill-frontmatter,
                and the reviewed .codex/skill-compatibility.yml inventory.
                Standard library only.
 
@@ -523,8 +523,9 @@ def reachability_corpus(repo: Path) -> str:
     fail this assertion spuriously until this function is extended (fails
     safe, not silent). The two real generation-facing scans each cover a
     different, narrower slice: current_inventory()'s documents() excludes
-    content/rules/conventions.md and content/rules/code-standards.md
-    (several rules' sole target), while render_runtime_guidance()'s
+    content/rules/conventions.md (several rules' sole target;
+    content/rules/code-standards.md is also excluded but is the sole target
+    of zero current rules) while render_runtime_guidance()'s
     $AGENTS_RAW (built by .codex/build.sh from the assembled methodology plus
     both rules files) excludes the WORKFLOWS.values() command files (several
     OTHER rules' sole target, e.g. content/commands/ds-wrap.md). Neither
