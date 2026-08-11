@@ -960,13 +960,15 @@ def _has_continuing_work_signal(text: str) -> bool:
 # under this version - the former via `_has_continuing_work_signal`, the
 # latter because the `status: DONE` sentinel is deleted outright.
 #
-# Known residual gap, PARTIALLY closed by DS-157 (see
-# _has_body_completion_declaration below - that fix suppresses the
-# ADVISORY status-only nag for exactly this shape, but deliberately does
-# NOT extend this WARRANT-granting regex's own domain past the identity
-# line; see that function's docstring for why): a completion declared
-# under a markdown sub-heading (e.g. "## Done") several lines into the
-# body, rather than on the identity line, is still not recognised as a
+# Known residual gap, PARTIALLY closed by DS-157 and DS-159 (see
+# _has_body_completion_declaration below - those fixes suppress the
+# ADVISORY status-only nag for a completion declared in the body's first
+# paragraph (DS-157) or as the identity line's own trailing sentence
+# (DS-159), but deliberately do NOT extend this WARRANT-granting regex's
+# own domain past the identity line's first sentence; see that function's
+# docstring for why): a completion declared under a markdown sub-heading
+# (e.g. "## Done") several lines into the body, rather than in the first
+# body paragraph or on the identity line, is still not recognised as a
 # `completion` WARRANT - see
 # `hooks/tests/fixtures/turn-shape-completion-corpus.json` case A9.
 _LEADING_COMPLETION_RE = re.compile(
@@ -999,6 +1001,59 @@ _TALLY_HEADER_RE = re.compile(
     r"(?:is\s+|are\s+)?(?:done|complete|completed)\b",
     re.IGNORECASE,
 )
+
+# DS-159. A BARE trailing completion word as the identity line's OWN final
+# sentence - e.g. "All three shipped. Done." - deliberately narrow:
+# `_LEADING_COMPLETION_RE`'s `\A` anchor never scans past the identity
+# line's first sentence (see `_has_body_completion_declaration`'s
+# docstring for the DS-157 sibling gap this closes for the BODY case), so
+# a genuine completion declared as a SECOND sentence on the identity line
+# itself - rather than in the body's first paragraph - was equally
+# invisible. Consumed only by `_identity_line_trailing_completion` below,
+# itself only an ADVISORY-suppression input to
+# `_has_body_completion_declaration` - see that function's docstring for
+# why this never widens the BLOCKING `completion` WARRANT.
+#
+# Scoped to a single bare word (+ optional bold markers) precisely
+# because a general "match _LEADING_COMPLETION_RE against every later
+# sentence" was measured unsafe: against a ~12.8k-turn corpus
+# (`~/.claude/projects`, main-agent-only, isSidechain absent/false) it
+# produced 30 newly-granted matches, at least 2 confirmed false positives
+# ("Status while it completes:" - `_LEADING_COMPLETION_RE`'s optional
+# trailing-word group silently absorbed the "s" in "completes" via its
+# missing `\b`; "Both mechanical fixes are done. Now finalizing state
+# files..." - a genuine DS-156-round-1-class sub-item match on a MIDDLE
+# sentence of a still-in-progress turn). Restricting to only the FINAL
+# sentence removed the middle-sentence class but not "Will report when
+# done." (a future-tense promise, not a completion) or "Writing the file
+# complete." (extra words before "complete" reopening the same
+# `_LEADING_COMPLETION_RE` looseness). This closed-vocabulary bare-word
+# regex was re-measured against the same corpus at 3 newly-granted
+# matches, all 3 confirmed genuine ("Fix confirmed against live traffic.
+# Done.", "All three shipped. Done.", "All three PRs merged and verified
+# on `main`. Done."), 0 false positives, 0 losses.
+_BARE_TRAILING_COMPLETION_RE = re.compile(
+    r"\A\*{0,2}(?:done|complete|completed|finished)\*{0,2}[.!]\Z",
+    re.IGNORECASE,
+)
+
+# Splits a line into sentences on a terminal `.`/`!`/`:` followed by
+# whitespace - used only to isolate the identity line's OWN final
+# sentence for `_identity_line_trailing_completion` below. Deliberately
+# not fence-aware or otherwise general-purpose: the identity line is
+# always a single raw line by `_segment`'s construction.
+_SENTENCE_BOUNDARY_RE = re.compile(r"(?<=[.!:])\s+")
+
+
+def _identity_line_trailing_completion(identity_line: str) -> bool:
+    """True iff the identity line has more than one sentence AND its FINAL
+    sentence is a bare completion word (see `_BARE_TRAILING_COMPLETION_RE`).
+    See that constant's docstring for the corpus measurement behind the
+    narrow bare-word shape."""
+    sentences = _SENTENCE_BOUNDARY_RE.split(identity_line)
+    if len(sentences) < 2:
+        return False
+    return bool(_BARE_TRAILING_COMPLETION_RE.match(sentences[-1].strip()))
 
 # Best-effort "answer" warrant: a quoted fragment (>=8 chars inside the
 # quote marks) anywhere in the message. Deliberately loose - this is the
@@ -1302,12 +1357,26 @@ def _has_body_completion_declaration(text: str) -> bool:
     output, without granting the warrant, is the safe fix: it silences the
     nag on a genuine completion report without moving that report onto a
     structural shape check it was never written to satisfy.
+
+    DS-159 addendum: this function ALSO now returns True when the
+    completion declaration is the identity line's OWN final sentence
+    (`_identity_line_trailing_completion`) rather than the body's first
+    paragraph - see the reported symptom "All three shipped. Done.\\n\\n|
+    ticket | what landed |\\n..." (a markdown table, not prose, as the
+    first body paragraph). Same "why not widen the warrant" analysis
+    applies and was re-verified: synthetically granting `completion` for
+    this exact example still returns `_execution_prose_flag`'s blocking
+    finding (the table row is an unrecognized status-region line), so this
+    stays an advisory-only addition, same as the rest of this function.
     """
     identity_line, body = _segment(text)
     unfenced_lines = [ln for ln, is_fenced in body if not is_fenced]
     domain_text = identity_line + "\n" + "\n".join(unfenced_lines)
     if _has_continuing_work_signal(domain_text):
         return False
+
+    if _identity_line_trailing_completion(identity_line):
+        return True
 
     paragraphs = []
     current = []
