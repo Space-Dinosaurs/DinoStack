@@ -192,7 +192,7 @@ cat > "$HOME_CLAUDE_UNINSTALL/.claude/settings.json" <<'EOF'
     "UserPromptSubmit": [
       {"matcher": "*", "hooks": [
         {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If dinostack is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. When in doubt, classify Elevated.'", "timeout": 5},
-        {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If dinostack is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. When in doubt, classify Elevated.'", "timeout": 5},
+        {"type": "command", "command": "echo 'BEFORE ANY ACTION: classify risk first. If agentic-engineering is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. When in doubt, classify Elevated.'", "timeout": 5},
         {"type": "command", "command": "python3 /opt/security/prompt-scan.py", "timeout": 10}
       ]}
     ]
@@ -447,6 +447,153 @@ if [[ "$CONFIG_KIMI_1" == "$CONFIG_KIMI_2" ]]; then
   _pass "kimi: config.toml unchanged across a re-run (idempotent)"
 else
   _fail "kimi: config.toml changed on re-run (not idempotent)"
+fi
+
+# =============================================================
+# 5. OLD_RISK_CMDS historical coverage + install collapse-to-one
+#    (Skeptic round 1 on fix/delegation-suppression-gaps: 1 Critical +
+#    1 Major - OLD_RISK_CMDS omitted the pre-rename "agentic-engineering"
+#    variant that actually shipped, and install.sh only migrated the
+#    FIRST stale entry when more than one was present.)
+# =============================================================
+echo ""
+echo "=== 5. OLD_RISK_CMDS historical coverage + install collapse-to-one ==="
+
+# Byte-exact fixture data - pinned here, NOT derived via a git-log call at
+# test time (a git-log-at-test-time approach would re-derive the same
+# possibly-wrong answer the Critical finding was about). Recovered once via
+# `git show <sha>:.claude/install.sh` against the commit that introduced
+# each superseded RISK_CMD value (f4f60ebab5, 4d4b9e2199, 0b242bca,
+# 1e777841) and pinned verbatim below.
+FIXTURE_OLDEST="echo 'BEFORE ANY ACTION: classify risk first. Elevated = spawn Worker + Skeptic in background. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing subagent results, diagnostic-only logging. When in doubt, classify Elevated.'"
+FIXTURE_SECOND="echo 'BEFORE ANY ACTION: classify risk first. Elevated = spawn Worker + Skeptic in background. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. When in doubt, classify Elevated.'"
+FIXTURE_PRE_RENAME="echo 'BEFORE ANY ACTION: classify risk first. If agentic-engineering is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. When in doubt, classify Elevated.'"
+FIXTURE_POST_RENAME="echo 'BEFORE ANY ACTION: classify risk first. If dinostack is active in this project, the main session is the conductor. The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. Direct action ONLY for: reads, answering from memory, screenshots, synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. When in doubt, classify Elevated.'"
+
+# (a) every previously-shipped RISK_CMD literal is present in OLD_RISK_CMDS,
+#     for both .claude/install.sh and .claude/uninstall.sh.
+_assert_old_risk_cmds_coverage() {
+  local file="$1"
+  local label="$2"
+  local extracted
+  extracted="$(python3 -c "
+import re, json, sys
+
+def _strip_py_comments(text):
+    out = []
+    for line in text.split('\n'):
+        idx = line.find('#')
+        out.append(line if idx == -1 else line[:idx])
+    return '\n'.join(out)
+
+QSTR = r'\"(?:[^\"\\\\]|\\\\.)*\"'
+
+def extract(path):
+    src = open(path).read()
+    m = re.search(r'^RISK_CMD = \(\n(.*?)\n\)\n', src, re.M | re.S)
+    risk_cmd = ''.join(s[1:-1] for s in re.findall(QSTR, m.group(1)))
+    m2 = re.search(r'^OLD_RISK_CMDS = \{\n(.*?)\n\}\n', src, re.M | re.S)
+    old_block = _strip_py_comments(m2.group(1))
+    tuple_re = re.compile(r'\(\s*((?:' + QSTR + r'\s*)+)\)', re.S)
+    old_cmds = []
+    for tm in tuple_re.finditer(old_block):
+        strs = re.findall(QSTR, tm.group(1))
+        old_cmds.append(''.join(s[1:-1] for s in strs))
+    return risk_cmd, old_cmds
+
+risk_cmd, old_cmds = extract(sys.argv[1])
+print(json.dumps({'risk_cmd': risk_cmd, 'old_cmds': old_cmds}))
+" "$file")"
+
+  local ok=1
+  for fixture in "$FIXTURE_OLDEST" "$FIXTURE_SECOND" "$FIXTURE_PRE_RENAME" "$FIXTURE_POST_RENAME"; do
+    if ! python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+sys.exit(0 if sys.argv[2] in d['old_cmds'] else 1)
+" "$extracted" "$fixture" 2>/dev/null; then
+      ok=0
+      _fail "$label: OLD_RISK_CMDS is missing a byte-exact historical value: '${fixture:0:70}...'"
+    fi
+  done
+  if [[ "$ok" == "1" ]]; then
+    _pass "$label: OLD_RISK_CMDS covers all 4 historically-shipped-but-superseded RISK_CMD values"
+  fi
+
+  # The current RISK_CMD must never itself sit inside OLD_RISK_CMDS (that
+  # would make the "already present" branch unreachable).
+  if python3 -c "
+import json, sys
+d = json.loads(sys.argv[1])
+sys.exit(1 if d['risk_cmd'] in d['old_cmds'] else 0)
+" "$extracted" 2>/dev/null; then
+    _pass "$label: current RISK_CMD is not duplicated inside OLD_RISK_CMDS"
+  else
+    _fail "$label: current RISK_CMD is ALSO present in OLD_RISK_CMDS (self-referential)"
+  fi
+}
+
+_assert_old_risk_cmds_coverage "$REPO_DIR/.claude/install.sh" "claude install.sh"
+_assert_old_risk_cmds_coverage "$REPO_DIR/.claude/uninstall.sh" "claude uninstall.sh"
+
+# (b) install.sh collapses N pre-existing current/stale risk-classification
+#     entries down to exactly 1, in a single run - not just the first match.
+HOME_CLAUDE_MULTI="$TMP_ROOT/home-claude-multi-stale"
+mkdir -p "$HOME_CLAUDE_MULTI/.claude"
+
+cat > "$HOME_CLAUDE_MULTI/.claude/settings.json" <<EOF
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {"matcher": "*", "hooks": [
+        {"type": "command", "command": $(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$FIXTURE_OLDEST"), "timeout": 5},
+        {"type": "command", "command": "python3 /opt/security/prompt-scan-multi.py", "timeout": 10},
+        {"type": "command", "command": $(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$FIXTURE_PRE_RENAME"), "timeout": 5},
+        {"type": "command", "command": $(python3 -c "import json,sys; print(json.dumps(sys.argv[1]))" "$FIXTURE_POST_RENAME"), "timeout": 5}
+      ]}
+    ]
+  }
+}
+EOF
+
+if _run_install "$REPO_DIR/.claude/install.sh" "$HOME_CLAUDE_MULTI"; then
+  _pass "claude (multi-stale): install.sh run succeeds with 3 pre-existing risk-classification entries"
+else
+  _fail "claude (multi-stale): install.sh exited non-zero"
+fi
+
+MULTI_RISK_COUNT="$(python3 -c "
+import json
+with open('$HOME_CLAUDE_MULTI/.claude/settings.json') as f:
+    d = json.load(f)
+count = 0
+for block in d.get('hooks', {}).get('UserPromptSubmit', []):
+    for h in block.get('hooks', []):
+        if h.get('command', '').startswith(\"echo 'BEFORE ANY ACTION: classify risk first.\"):
+            count += 1
+print(count)
+")"
+
+if [[ "$MULTI_RISK_COUNT" == "1" ]]; then
+  _pass "claude (multi-stale): 3 pre-existing risk-classification entries collapse to exactly 1"
+else
+  _fail "claude (multi-stale): expected exactly 1 risk-classification entry after install, found $MULTI_RISK_COUNT"
+fi
+
+MULTI_THIRD_PARTY="$(python3 -c "
+import json
+with open('$HOME_CLAUDE_MULTI/.claude/settings.json') as f:
+    d = json.load(f)
+for block in d.get('hooks', {}).get('UserPromptSubmit', []):
+    for h in block.get('hooks', []):
+        if h.get('command') == 'python3 /opt/security/prompt-scan-multi.py':
+            print(h['command'])
+")"
+
+if [[ "$MULTI_THIRD_PARTY" == "python3 /opt/security/prompt-scan-multi.py" ]]; then
+  _pass "claude (multi-stale): unrelated third-party UserPromptSubmit hook survives the collapse"
+else
+  _fail "claude (multi-stale): unrelated third-party hook was altered or removed by the collapse"
 fi
 
 # =============================================================

@@ -135,7 +135,7 @@ fi
 
 echo "Updating ~/.claude/settings.json..."
 
-python3 - <<PYEOF
+python3 - <<'PYEOF'
 import json, os
 
 settings_path = os.path.expanduser("~/.claude/settings.json")
@@ -176,13 +176,21 @@ OLD_RISK_CMDS = {
         "When in doubt, classify Elevated.'"
     ),
     (
+        # Real pre-rename (agentic-engineering) variant, shipped 2026-08-09 -> 2026-08-10
+        # (commit 0b242bca through 1e777841). Recovered byte-exact from git history -
+        # this is NOT the "Low-risk reads..." phantom that previously occupied this
+        # slot (that string was never actually emitted as RISK_CMD; it was added to
+        # OLD_RISK_CMDS defensively at 0b242bca and never had a real predecessor).
         "echo 'BEFORE ANY ACTION: classify risk first. "
-        "If dinostack is active in this project, the main session is the conductor. "
+        "If agentic-engineering is active in this project, the main session is the conductor. "
         "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
-        "Low-risk reads, diagnostics, synthesis, and other allowed Low tasks remain direct-action OK. "
+        "Direct action ONLY for: reads, answering from memory, screenshots, "
+        "synthesizing already-returned subagent results (NOT new artifacts), diagnostic-only logging. "
         "When in doubt, classify Elevated.'"
     ),
     (
+        # Post-rename (dinostack), pre-AgentTool-clause variant, shipped
+        # 1e777841 -> b675175e.
         "echo 'BEFORE ANY ACTION: classify risk first. "
         "If dinostack is active in this project, the main session is the conductor. "
         "The conductor delegates shippable edits to a named engineer Worker; Elevated work also requires a fresh Skeptic review. "
