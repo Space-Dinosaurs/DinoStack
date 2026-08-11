@@ -664,7 +664,17 @@ def main(argv: Optional[List[str]] = None) -> int:
     delete_results = [r for r in results if r["outcome"] == "DELETE"]
     skip_counts = Counter(r["outcome"] for r in results if r["outcome"] != "DELETE")
 
-    mode = "degraded (gh unavailable)" if degraded else "live"
+    # `degraded` (gh unavailable) and `args.dry_run` are independent axes - a
+    # run can be both at once, and collapsing them into a single either/or
+    # chain would mask whichever fact loses the tiebreak. Both must remain
+    # visible when both hold, and a --dry-run invocation must never report
+    # the bare "live" an operator would read as "deletions already ran".
+    mode_parts = []
+    if degraded:
+        mode_parts.append("degraded (gh unavailable)")
+    if args.dry_run:
+        mode_parts.append("dry-run")
+    mode = ", ".join(mode_parts) if mode_parts else "live"
     print(
         f"ds-branch-prune: base={args.base} mode={mode} branches={len(results)} "
         f"deletions={len(delete_results)} skips={len(results) - len(delete_results)}"
