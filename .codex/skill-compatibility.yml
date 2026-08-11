@@ -72,6 +72,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "0d8dd6a159ff102e56192ae01275705fa90d619fee6fbef6fcced1787a916cb0",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -410,6 +420,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Task"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "35b24ed4e36254ffffbb4f770dcb6914d85838b0edb74168f4de35bf52354e29",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "content/references/worktree-lifecycle.md",
@@ -1622,16 +1642,6 @@
       "source_token": "content/references/risk-config-and-tiers.md"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "c57789ec99199875cc45f23b6f9353ac3ddcd7bf17f404c79270f066257b465a",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": "content/sections/09-events-log.md",
       "generated_token": "$AE_REPO_DIR/content/sections/09-events-log.md",
       "kind": "operational",
@@ -1870,6 +1880,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "content/rules/conventions.md",
+      "generated_token": "$AE_REPO_DIR/content/rules/conventions.md",
+      "kind": "operational",
+      "occurrence_hash": "dd9c4537304f5733220c1976509372bc40ec98dfe02e2fc9f7cd0a39ff121a05",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/rules/conventions.md"
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -3042,16 +3062,6 @@
       "source_token": ".agentic/loop-state-"
     },
     {
-      "expected_target": "content/references/qa-regression-obligation.md",
-      "generated_token": "$AE_REPO_DIR/content/references/qa-regression-obligation.md",
-      "kind": "operational",
-      "occurrence_hash": "051cb070bcf24580099d3e8cb8ffd6c657c52ff246a04844e99e1024e0deff32",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/qa-regression-obligation.md"
-    },
-    {
       "expected_target": "else",
       "generated_token": "else",
       "kind": "operational",
@@ -3510,16 +3520,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/rules/conventions.md"
-    },
-    {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. Before calling `spawn_agent`, execute the Codex spawn contract above on the Elevated path (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). Populate `worktree_setup.create_commands` to check out the EXISTING `$BRANCH_NAME` from `origin/$BRANCH_NAME` (not a fresh branch off `$BASE_BRANCH`) - this is round N>=2 of the same branch. Determine branch existence via the same `git ls-remote --exit-code --heads origin \"$BRANCH_NAME\"` check Phase 4's stale-remote-branch preflight already uses.\n3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.\n5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).\n6. If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n7. If it still fails: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.",
-      "kind": "operational",
-      "occurrence_hash": "0da01bd4004c44782552f196c9fb8262d976dd61a7b9f446c80e4fd9c6444fba",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: \"worktree\"` on the Elevated path (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). Populate `worktree_setup.create_commands` to check out the EXISTING `$BRANCH_NAME` from `origin/$BRANCH_NAME` (not a fresh branch off `$BASE_BRANCH`) - this is round N>=2 of the same branch. Determine branch existence via the same `git ls-remote --exit-code --heads origin \"$BRANCH_NAME\"` check Phase 4's stale-remote-branch preflight already uses.\n3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.\n5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).\n6. If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n7. If it still fails: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass."
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -5752,6 +5752,16 @@
       "source_token": "/browse"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "34dbb59f8dad98a1d00a6697a494898a8fdc3cf849c22c702645e961a78a83bc",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "/dev",
       "kind": "display-only",
@@ -7752,6 +7762,16 @@
       "source_token": "except"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "5ae989176360ed682cbffe7205ebfeba14159e21c7b03aefed0a51087e35810f",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "cfg",
       "kind": "display-only",
@@ -9652,6 +9672,16 @@
       "source_token": "mkdir"
     },
     {
+      "expected_target": "content/references/qa-regression-obligation.md",
+      "generated_token": "$AE_REPO_DIR/content/references/qa-regression-obligation.md",
+      "kind": "operational",
+      "occurrence_hash": "798c28b170cfce50c9f0f82c4aae8101ab6df5457cd8cff0f2f18d11dda0e8c9",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/qa-regression-obligation.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "RESULT",
       "kind": "display-only",
@@ -9902,6 +9932,16 @@
       "source_token": "pr"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "7e65d2da444acc869bda7dcb8636a83889379aef2d42912a5e2dd3af27898694",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": ".agentic/tasks.jsonl",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tasks.jsonl",
       "kind": "operational",
@@ -9980,6 +10020,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "PR_NUMBER"
+    },
+    {
+      "expected_target": ".agentic/qa-regressions.md",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/qa-regressions.md",
+      "kind": "operational",
+      "occurrence_hash": "806930cba2989b479ac9fce4c3a28b43cdcc1a5bef588bbffedbc15a167649cc",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": ".agentic/qa-regressions.md"
     },
     {
       "expected_target": "if",
@@ -10560,16 +10610,6 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/.meta-divergence-surfaced"
-    },
-    {
-      "expected_target": "Agent",
-      "generated_token": "Agent",
-      "kind": "semantic-reference",
-      "occurrence_hash": "8cb02e6912c01852fffffaad4c3c154ce1129387d23032ac330d0be6b86f7bc9",
-      "resolution_mode": "canonical-prose",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "Agent"
     },
     {
       "expected_target": "content/references/qa-gate.md",
@@ -13702,6 +13742,16 @@
       "source_token": "Write"
     },
     {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the \"Trivial-path exclusion\" note above.)\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.",
+      "kind": "operational",
+      "occurrence_hash": "c00e79ea0e5f6ba501172bc159a943eee565a9e246a8d59f75a082212bf2afee",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: \"worktree\"` (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the \"Trivial-path exclusion\" note above.)\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass."
+    },
+    {
       "expected_target": ".agentic/qa.md",
       "generated_token": "$AE_PROJECT_DIR/.agentic/qa.md",
       "kind": "operational",
@@ -14672,6 +14722,16 @@
       "source_token": ".agentic/loop-state-*.json"
     },
     {
+      "expected_target": "Agent",
+      "generated_token": "Agent",
+      "kind": "semantic-reference",
+      "occurrence_hash": "d1a268c9260c1c83cd6409a8b15fed91d14565c66f09595d98d429b8091cc510",
+      "resolution_mode": "canonical-prose",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "Agent"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "pr",
       "kind": "display-only",
@@ -14900,6 +14960,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "findings"
+    },
+    {
+      "expected_target": "git worktree add + spawn_agent",
+      "generated_token": "2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. Before calling `spawn_agent`, execute the Codex spawn contract above on the Elevated path (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). **On the Elevated path**, this is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. **On the Trivial path**, there is no `worktree_setup` field (see Phase 4/5 \"Trivial single-engineer path\"); use that section's own round-N prose-conveyed form instead.\n3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.\n5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).\n6. If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n7. If it still fails: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass.",
+      "kind": "operational",
+      "occurrence_hash": "d6bf378c4b0583abe6a450d25d9b220e84420e919f70e261b793bd4971d4af68",
+      "resolution_mode": "codex-spawn-contract",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: \"worktree\"` on the Elevated path (mandatory per METHODOLOGY.md \u00a7Delegation > Worker preamble). **On the Elevated path**, this is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the \"branch already exists on origin\" form in Phase 5's `worktree_setup` field definition (\u00a7Elevated-path engineer-contract extensions) - the sole canonical definition site. **On the Trivial path**, there is no `worktree_setup` field (see Phase 4/5 \"Trivial single-engineer path\"); use that section's own round-N prose-conveyed form instead.\n3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.\n5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).\n6. If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n7. If it still fails: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. Escalate to the human. Include the quality gate output from both the first run and the post-fix re-run. Do not spawn another Engineer pass."
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -15380,16 +15450,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "content/references/ticket-rework.md"
-    },
-    {
-      "expected_target": ".agentic/qa-regressions.md",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/qa-regressions.md",
-      "kind": "operational",
-      "occurrence_hash": "ddc5aec52e01bafb041f982425867b24221055ba78f950c2dc2ddafc33f7b7cd",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": ".agentic/qa-regressions.md"
     },
     {
       "expected_target": "hashed-source-occurrence",
@@ -16960,16 +17020,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "knowledge_commit_on_pr"
-    },
-    {
-      "expected_target": "git worktree add + spawn_agent",
-      "generated_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. Before calling `spawn_agent`, execute the Codex spawn contract above (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). Populate `worktree_setup.create_commands` to check out the EXISTING `$BRANCH_NAME` from `origin/$BRANCH_NAME` (not a fresh branch off `$BASE_BRANCH`) - this is round N>=2 of the same branch. Determine branch existence via the same `git ls-remote --exit-code --heads origin \"$BRANCH_NAME\"` check Phase 4's stale-remote-branch preflight already uses.\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `$AE_PROJECT_DIR/.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass.",
-      "kind": "operational",
-      "occurrence_hash": "f644326815e2733782ad6b7f5d8fd3943868bc90b3ff1601939b35213638c134",
-      "resolution_mode": "codex-spawn-contract",
-      "scope": "codex-harness",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: \"worktree\"` (mandatory on Elevated path per METHODOLOGY.md \u00a7Delegation > Worker preamble). Populate `worktree_setup.create_commands` to check out the EXISTING `$BRANCH_NAME` from `origin/$BRANCH_NAME` (not a fresh branch off `$BASE_BRANCH`) - this is round N>=2 of the same branch. Determine branch existence via the same `git ls-remote --exit-code --heads origin \"$BRANCH_NAME\"` check Phase 4's stale-remote-branch preflight already uses.\n6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).\n7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.\n8. Verify the fix engineer's `quality_gate_results`.\n   - If it passes: set `status=complete` in `.agentic/loop-state-$LOOP_KEY.json`. Proceed to Phase 8.\n   - If it still fails AND cycle count < 3: check convergence short-circuit (below), then start the next debug-fix cycle with the new failure output.\n   - If it still fails AND cycle count == 3: set `status=stalled`. Before escalating, apply the \"Batch-mode escalation routing (mark-blocked-and-continue)\" subsection in Phase 6. **Tracker writeback (W6a):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W6a | target: $TRACKER_STATE_BLOCKED | escalation: quality-gate-cap]` Escalate to the human. Include quality gate output from every cycle run. Do not spawn another pass."
     },
     {
       "expected_target": "cat",
