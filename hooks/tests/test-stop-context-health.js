@@ -69,7 +69,7 @@ try {
   try { fs.unlinkSync(tmpShimPath); } catch (_) { /* ignore */ }
 }
 
-const { recordHealth, flushHealth, healthOutcomes } = helpers;
+const { recordHealth, recordHealthUnknown, flushHealth, healthOutcomes, readWriteHookCheckpoint } = helpers;
 
 // ---------------------------------------------------------------------------
 // Harness
@@ -361,6 +361,112 @@ console.log('\nM2: forced-failure (stub fs.writeFileSync to force failure branch
   assert(stubHit === true, '(b) failure branch was reached (stub was hit)');
   const healthPath = path.join(tmpDir, '.agentic', '.telemetry-health.json');
   assert(!fs.existsSync(healthPath), '(c) health file NOT written when write fails');
+
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// N1: recordHealthUnknown-does-not-touch-failures (DS-158 round 3 Major 2)
+// ---------------------------------------------------------------------------
+console.log('\nN1: recordHealthUnknown-does-not-touch-failures');
+{
+  clearOutcomes();
+  recordHealthUnknown('writeSessionLogGlobal', 'killed before reporting');
+  const o = healthOutcomes['writeSessionLogGlobal'];
+  assert(o !== undefined, 'writeSessionLogGlobal entry created');
+  assert(o.failures === 0, `failures untouched by an unknown outcome (got: ${o && o.failures})`);
+  assert(o.last_success === null, `last_success untouched (got: ${o && o.last_success})`);
+  assert(o.last_error === null, `last_error untouched (got: ${o && o.last_error})`);
+  assert(o.last_unknown === 'killed before reporting',
+    `last_unknown set (got: ${o && o.last_unknown})`);
+  assert(typeof o.last_unknown_ts === 'string' && o.last_unknown_ts.length > 0,
+    `last_unknown_ts is a non-empty string (got: ${o && o.last_unknown_ts})`);
+}
+
+// ---------------------------------------------------------------------------
+// N2: recordHealthUnknown-never-throws
+// ---------------------------------------------------------------------------
+console.log('\nN2: recordHealthUnknown-never-throws');
+{
+  clearOutcomes();
+  let threw = false;
+  try {
+    recordHealthUnknown(null, undefined);
+    recordHealthUnknown(undefined, 'msg');
+  } catch (_) {
+    threw = true;
+  }
+  assert(!threw, 'recordHealthUnknown does not throw on pathological inputs');
+}
+
+// ---------------------------------------------------------------------------
+// N3: flushHealth-merges-last-unknown-without-incrementing-failures
+// ---------------------------------------------------------------------------
+console.log('\nN3: flushHealth-merges-last-unknown-without-incrementing-failures');
+{
+  clearOutcomes();
+  const tmpDir = makeTmpProject();
+  const healthPath = path.join(tmpDir, '.agentic', '.telemetry-health.json');
+
+  // Prior state: this target has been reliably succeeding.
+  const prior = {
+    updated_at: '2026-01-01T00:00:00Z',
+    targets: {
+      writeSessionLog: {
+        failures: 0,
+        last_success: '2026-01-01T00:00:00Z',
+        last_error: null,
+        last_error_ts: null,
+      },
+    },
+  };
+  fs.writeFileSync(healthPath, JSON.stringify(prior, null, 2), 'utf8');
+
+  recordHealthUnknown('writeSessionLog', 'helper killed mid-attempt');
+  flushHealth(tmpDir);
+
+  const parsed = JSON.parse(fs.readFileSync(healthPath, 'utf8'));
+  assert(parsed.targets.writeSessionLog.failures === 0,
+    `failures stays 0 - an indeterminate outcome is never a confirmed failure (got: ${parsed.targets.writeSessionLog.failures})`);
+  assert(parsed.targets.writeSessionLog.last_success === '2026-01-01T00:00:00Z',
+    `prior last_success preserved (got: ${parsed.targets.writeSessionLog.last_success})`);
+  assert(parsed.targets.writeSessionLog.last_unknown === 'helper killed mid-attempt',
+    `last_unknown merged onto the existing target (got: ${parsed.targets.writeSessionLog.last_unknown})`);
+  assert(typeof parsed.targets.writeSessionLog.last_unknown_ts === 'string',
+    'last_unknown_ts merged onto the existing target');
+
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// N4: readWriteHookCheckpoint-round-trips-partial-progress
+// ---------------------------------------------------------------------------
+console.log('\nN4: readWriteHookCheckpoint-round-trips-partial-progress');
+{
+  const tmpDir = makeTmpProject();
+  const statusFile = path.join(tmpDir, 'status.json');
+
+  // Absent file -> {} (never attempted; process killed before any checkpoint).
+  assert(JSON.stringify(readWriteHookCheckpoint(statusFile)) === '{}',
+    'absent checkpoint file reads as {} (no confirmed outcomes)');
+
+  // Partial checkpoint: only `project` has been reported so far.
+  fs.writeFileSync(statusFile, JSON.stringify({ project: true }), 'utf8');
+  const partial = readWriteHookCheckpoint(statusFile);
+  assert(partial.project === true, `partial checkpoint reports project:true (got: ${partial.project})`);
+  assert(!('global' in partial), 'partial checkpoint has no global key - never attempted or interrupted mid-attempt');
+
+  // Corrupted checkpoint -> {} (fail-open, never throws).
+  fs.writeFileSync(statusFile, '{ not valid json', 'utf8');
+  let threw = false;
+  let corrupted;
+  try {
+    corrupted = readWriteHookCheckpoint(statusFile);
+  } catch (_) {
+    threw = true;
+  }
+  assert(!threw, 'readWriteHookCheckpoint does not throw on corrupted checkpoint content');
+  assert(JSON.stringify(corrupted) === '{}', 'corrupted checkpoint reads as {}');
 
   cleanup(tmpDir);
 }

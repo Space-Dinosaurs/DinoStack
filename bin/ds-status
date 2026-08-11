@@ -458,11 +458,16 @@ def _telemetry_health_block() -> list[str]:
     """Return telemetry-health status lines from .agentic/.telemetry-health.json.
 
     Absent or unreadable file -> return [] (section omitted silently).
-    Tri-state per target via ISO8601 lexicographic string compare:
-      - failures == 0                                         -> OK
+    Four-state per target via ISO8601 lexicographic string compare:
+      - a present last_unknown_ts that is the most recent of
+        {last_success, last_error_ts, last_unknown_ts}          -> UNKNOWN
+        (DS-158 round 3 Major 2: the write-hook helper was killed before
+        it could report this target's outcome - it may or may not have
+        landed. Rendered honestly as unknown, never asserted as failed.)
+      - failures == 0 (and not UNKNOWN)                         -> OK
       - failures > 0 AND last_success present AND
-        last_success > last_error_ts                          -> RECOVERED
-      - otherwise (failures > 0, currently failing)          -> FAILING
+        last_success > last_error_ts (and not UNKNOWN)           -> RECOVERED
+      - otherwise (failures > 0, currently failing)             -> FAILING
     """
     if not HEALTH_FILE_PATH.is_file():
         return []
@@ -488,8 +493,22 @@ def _telemetry_health_block() -> list[str]:
         last_success = info.get("last_success") or ""
         last_error = info.get("last_error") or ""
         last_error_ts = info.get("last_error_ts") or ""
+        last_unknown = info.get("last_unknown") or ""
+        last_unknown_ts = info.get("last_unknown_ts") or ""
 
-        if failures == 0:
+        is_unknown_most_recent = bool(last_unknown_ts) and (
+            last_unknown_ts >= last_success and last_unknown_ts >= last_error_ts
+        )
+
+        if is_unknown_most_recent:
+            status = "UNKNOWN"
+            detail = "write outcome indeterminate (helper killed before reporting)"
+            if last_unknown:
+                detail = last_unknown
+            lines.append(
+                f"  {target}: {status}  ({detail}; last_unknown: {last_unknown_ts})"
+            )
+        elif failures == 0:
             status = "OK"
             lines.append(f"  {target}: {status}  (last_success: {last_success or 'none'})")
         elif failures > 0 and last_success and last_success > last_error_ts:
@@ -519,8 +538,12 @@ def _telemetry_health_line(health_path: Path | None = None) -> str:
 
     Reads .agentic/.telemetry-health.json (or the provided path override).
     Returns 'telemetry-health: OK' when the file is absent or all failure
-    counters are zero. When failures exist, returns a summary of the form:
+    counters are zero and no target has an indeterminate outcome. When
+    failures exist, returns a summary of the form:
       'telemetry-health: N write failures across M targets; last error <target>: <msg> at <ts>'
+    When only indeterminate outcomes exist (DS-158 round 3 Major 2 - a
+    write-hook helper was killed before it could report), returns:
+      'telemetry-health: N target(s) with an indeterminate write outcome; most recent <target> at <ts>'
     Fail-open: any read or parse error returns 'telemetry-health: OK (unreadable)'.
 
     Args:
@@ -540,6 +563,7 @@ def _telemetry_health_line(health_path: Path | None = None) -> str:
 
         total_failures = 0
         failing_targets: list[tuple[str, int, str, str]] = []  # (target, count, msg, ts)
+        unknown_targets: list[tuple[str, str]] = []  # (target, last_unknown_ts)
         for target, info in targets.items():
             if not isinstance(info, dict):
                 continue
@@ -550,9 +574,22 @@ def _telemetry_health_line(health_path: Path | None = None) -> str:
                 safe_msg = _ANSI.sub("", last_msg)[:200]
                 ts = str(info.get("last_error_ts", ""))
                 failing_targets.append((target, count, safe_msg, ts))
+            unknown_ts = str(info.get("last_unknown_ts") or "")
+            if unknown_ts:
+                success_ts = str(info.get("last_success") or "")
+                error_ts = str(info.get("last_error_ts") or "")
+                if unknown_ts >= success_ts and unknown_ts >= error_ts:
+                    unknown_targets.append((target, unknown_ts))
 
-        if total_failures == 0:
+        if total_failures == 0 and not unknown_targets:
             return "telemetry-health: OK"
+        if total_failures == 0 and unknown_targets:
+            unknown_targets.sort(key=lambda x: x[1], reverse=True)
+            last_target, last_ts = unknown_targets[0]
+            return (
+                f"telemetry-health: {len(unknown_targets)} target(s) with an "
+                f"indeterminate write outcome; most recent {last_target} at {last_ts}"
+            )
 
         # Report most-recently-failed target for the one-line summary.
         failing_targets.sort(key=lambda x: x[3], reverse=True)

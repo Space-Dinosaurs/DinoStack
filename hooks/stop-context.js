@@ -379,6 +379,38 @@ function recordHealth(target, success, errMsg) {
 }
 
 /**
+ * Record an INDETERMINATE outcome for a named write-path target - the
+ * write may or may not have landed, and this call deliberately does not
+ * touch `failures`, `last_success`, or `last_error` (DS-158 round 3
+ * Major 2). A write whose outcome cannot be confirmed must never be
+ * reported as a confirmed failure: the operator-facing telemetry-health
+ * surface (bin/ds-status) would then assert something untrue about data
+ * that may actually be on disk. Used when the write-hook subprocess is
+ * killed by its own timeout ceiling before it can checkpoint that
+ * specific target's result.
+ *
+ * @param {string} target - Stable label for the write path.
+ * @param {string|null} note - Human-readable reason it is unknown.
+ */
+function recordHealthUnknown(target, note) {
+  try {
+    if (!healthOutcomes[target]) {
+      healthOutcomes[target] = {
+        failures: 0,
+        last_success: null,
+        last_error: null,
+        last_error_ts: null,
+      };
+    }
+    healthOutcomes[target].last_unknown =
+      note || 'write outcome indeterminate (helper killed before reporting)';
+    healthOutcomes[target].last_unknown_ts = new Date().toISOString();
+  } catch (_) {
+    // Never throw from the health layer.
+  }
+}
+
+/**
  * Flush accumulated health outcomes to [cwd]/.agentic/.telemetry-health.json.
  * Single atomic read-merge-write: reads existing file (parse-fail or absent ->
  * start fresh), merges accumulated outcomes (cumulative failures, latest
@@ -434,6 +466,12 @@ function flushHealth(cwd) {
       if (outcome.last_error_ts) {
         stored.last_error = outcome.last_error;
         stored.last_error_ts = outcome.last_error_ts;
+      }
+      // DS-158 round 3 Major 2: an indeterminate outcome is tracked
+      // separately from confirmed failure - it never increments `failures`.
+      if (outcome.last_unknown_ts) {
+        stored.last_unknown = outcome.last_unknown;
+        stored.last_unknown_ts = outcome.last_unknown_ts;
       }
     }
     existing.updated_at = new Date().toISOString();
@@ -840,14 +878,73 @@ function generateUuid() {
   ].join('-');
 }
 
+// DS-158 round 3 Major 1: the JS-side spawnSync ceiling below must be
+// provably derived from bin/ds-identity's SESSION_LOG_LOCK_BUDGET_SECONDS,
+// not merely commented as such. SESSION_LOG_LOCK_BUDGET_MS mirrors that
+// Python constant (5.0s) and is now, as of round 3, the SHARED lock-retry
+// budget for the helper's WHOLE invocation - cmd_write_hook computes one
+// deadline and passes it to both the project and global appends, so a
+// permanently-contended lock on either target costs this budget once, not
+// twice (round 2's bug). HELPER_STARTUP_HEADROOM_MS covers process
+// startup/imports, the `git symbolic-ref` probe above, and the
+// read/render/write work outside the lock itself.
+// bin/tests/test_agentic_identity.py::test_hook_ceiling_matches_python_budget
+// parses this file and bin/ds-identity and fails the moment either value
+// changes without the other - this is enforced by that test, not by this
+// comment.
+const SESSION_LOG_LOCK_BUDGET_MS = 5000;
+const HELPER_STARTUP_HEADROOM_MS = 1000;
+const WRITE_HOOK_SPAWN_CEILING_MS = SESSION_LOG_LOCK_BUDGET_MS + HELPER_STARTUP_HEADROOM_MS;
+
+/**
+ * Best-effort read of the write-hook helper's partial-progress checkpoint
+ * (DS-158 round 3 Major 2). Returns `{}` on any absence/parse failure -
+ * the checkpoint is a diagnostic aid, never a correctness dependency.
+ *
+ * @param {string} statusFile - Path passed to the helper via --status-file.
+ * @returns {object}
+ */
+function readWriteHookCheckpoint(statusFile) {
+  try {
+    const raw = fs.readFileSync(statusFile, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
 /**
  * Persist one telemetry record through the descriptor-safe Python helper.
  * Identity resolution is compared again in the helper before any write, so an
  * identity swap between resolution and persistence fails closed. The helper
  * independently reports project/global/pending outcomes for health telemetry.
+ *
+ * DS-158 round 2: this call is deliberately single-shot, not wrapped in its
+ * own retry. The Python helper already retries its flock acquisition with
+ * backoff across its own bounded wall-clock budget (see the spawnSync
+ * `timeout` comment below); a caller-side retry here would re-spawn the
+ * whole subprocess and could double the worst-case Stop-hook latency for no
+ * added chance of success, since a second attempt would race the same
+ * contention the first one just spent its full budget failing to clear.
+ * On a project/global write failure, status is surfaced through
+ * recordHealth() -> flushHealth() (unconditional, not debug-gated) rather
+ * than retried here.
+ *
+ * DS-158 round 3 Major 2: on a spawnSync error/timeout (no parseable
+ * stdout), this now consults the helper's --status-file checkpoint before
+ * concluding total failure. A target present in the checkpoint gets its
+ * confirmed outcome recorded normally; a target absent from it (never
+ * attempted, or killed mid-attempt) is recorded as indeterminate via
+ * recordHealthUnknown, never as a confirmed failure.
  */
 function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
   const confirmed = Boolean(identity && !identity.provisional);
+  const effectiveSessionId = sessionId || generateUuid();
+  const statusFile = path.join(
+    os.tmpdir(),
+    `ds-identity-write-hook-${process.pid}-${effectiveSessionId}.json`,
+  );
   try {
     const totals = computeSessionTotals(cwd, sessionId, cachedRaw);
     const data = totals || {
@@ -866,18 +963,38 @@ function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
     const helper = path.resolve(__dirname, '..', 'bin', 'ds-identity');
     const request = JSON.stringify({
       identity,
-      session_uuid: sessionId || generateUuid(),
+      session_uuid: effectiveSessionId,
       branch,
       data,
     });
-    const result = spawnSync(helper, ['write-hook', '--cwd', cwd], {
-      encoding: 'utf8',
-      timeout: 3000,
-      maxBuffer: 64 * 1024,
-      stdio: ['pipe', 'pipe', 'ignore'],
-      input: request,
-      env: process.env,
-    });
+    const result = spawnSync(
+      helper,
+      ['write-hook', '--cwd', cwd, '--status-file', statusFile],
+      {
+        encoding: 'utf8',
+        // DS-158 round 2/3: bin/ds-identity's session-log append(s) retry
+        // their flock with backoff across a SESSION_LOG_LOCK_BUDGET_SECONDS
+        // (5.0s) wall-clock budget, capped at
+        // SESSION_LOG_LOCK_PER_ATTEMPT_CAP_SECONDS (1.0s) per attempt.
+        // As of round 3, that budget is SHARED across the whole helper
+        // invocation (both the project and global append below draw from
+        // one deadline computed once in cmd_write_hook), so this ceiling
+        // is WRITE_HOOK_SPAWN_CEILING_MS = SESSION_LOG_LOCK_BUDGET_MS +
+        // HELPER_STARTUP_HEADROOM_MS, not a multiple of the budget - see
+        // those constants' definitions above this function for the
+        // cross-file consistency test. A genuinely contended write must
+        // exhaust its own retry budget and report a graceful failure back
+        // to recordHealth(), not get SIGKILLed here first; if it IS
+        // SIGKILLed (e.g. real budget/headroom drift), the --status-file
+        // checkpoint below still lets us report per-target outcomes
+        // honestly instead of asserting uniform failure.
+        timeout: WRITE_HOOK_SPAWN_CEILING_MS,
+        maxBuffer: 64 * 1024,
+        stdio: ['pipe', 'pipe', 'ignore'],
+        input: request,
+        env: process.env,
+      },
+    );
     if (result.error || result.status !== 0 || typeof result.stdout !== 'string') {
       throw result.error || new Error('safe telemetry helper failed');
     }
@@ -892,12 +1009,31 @@ function writeTelemetrySafely(cwd, identity, sessionId, cachedRaw) {
       recordHealth('writePendingBuffer', status.pending === true, status.pending === true ? null : 'safe helper refused pending record');
     }
   } catch (_) {
+    // DS-158 round 3 Major 2: no parseable stdout - consult the helper's
+    // partial-progress checkpoint before asserting uniform failure. A
+    // target present in the checkpoint has a confirmed outcome; a target
+    // absent from it (never attempted, or interrupted mid-attempt) is
+    // reported as indeterminate, not as a confirmed failure.
+    const checkpoint = readWriteHookCheckpoint(statusFile);
+    const errMsg = _ && _.message;
     if (confirmed) {
-      recordHealth('writeSessionLog', false, _ && _.message);
-      recordHealth('writeSessionLogGlobal', false, _ && _.message);
+      if (typeof checkpoint.project === 'boolean') {
+        recordHealth('writeSessionLog', checkpoint.project, checkpoint.project ? null : 'safe helper refused project log');
+      } else {
+        recordHealthUnknown('writeSessionLog', errMsg);
+      }
+      if (typeof checkpoint.global === 'boolean') {
+        recordHealth('writeSessionLogGlobal', checkpoint.global, checkpoint.global ? null : 'safe helper refused global log');
+      } else {
+        recordHealthUnknown('writeSessionLogGlobal', errMsg);
+      }
+    } else if (typeof checkpoint.pending === 'boolean') {
+      recordHealth('writePendingBuffer', checkpoint.pending, checkpoint.pending ? null : 'safe helper refused pending record');
     } else {
-      recordHealth('writePendingBuffer', false, _ && _.message);
+      recordHealthUnknown('writePendingBuffer', errMsg);
     }
+  } finally {
+    try { fs.unlinkSync(statusFile); } catch (_e) { /* absent or never created */ }
   }
 }
 
@@ -1407,5 +1543,12 @@ run().catch(() => { try { process.exit(0); } catch (_) {} });
 // executing run(). stop-context.js has no production module.exports; this shim
 // is only reached when the test replaces `run();` before requiring.
 if (typeof module !== 'undefined') {
-  module.exports = { recordHealth, flushHealth, healthOutcomes, appendCaptureGapNoticeToContextMd };
+  module.exports = {
+    recordHealth,
+    recordHealthUnknown,
+    flushHealth,
+    healthOutcomes,
+    appendCaptureGapNoticeToContextMd,
+    readWriteHookCheckpoint,
+  };
 }
