@@ -164,11 +164,16 @@ current per-file classification):
   `dependency-auditor.md`, `investigator.md`, `orchestration-planner.md`,
   `perf-analyst.md`, `product-discovery.md`, `qa-engineer.md`,
   `security-auditor.md` - not yet migrated.
-- **Shape 2** (schema-object): `engineer.md` is already compliant, no
-  change needed. `learning-extractor.md`, `learnings-agent.md`,
-  `wrap-ticket.md`, `adr-drift-detector.md` have a real structured return
-  (under a `### N. Return` workflow sub-step or a non-synonym `##` phase
-  heading) but are not yet migrated to this shape's enum/cap obligation.
+- **Shape 2** (schema-object): `engineer.md`, `learning-extractor.md`,
+  `learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md` have a
+  real structured return (under a `### N. Return` workflow sub-step or a
+  non-synonym `##` phase heading) but are not yet migrated to this
+  shape's enum/cap obligation. `engineer.md`'s `pr_description_body`
+  field declares no cap, one-line marker, or schema pointer; a prior
+  round's `SHAPE2_PASSTHROUGH_EXEMPT_FIELDS` gate exemption for this
+  field was removed as a spec deviation (no downstream consumer forwards
+  it verbatim - the field is read and re-wrapped by the conductor, not
+  passed through unread) - see `bin/tests/test_agent_return_contract_spec.py`.
 - **Shape 3** (fixed literal-line template): `goal-condition-evaluator.md`
   is already compliant, no change needed. `skeptic.md` needs one narrow,
   additive cap declaration on finding-description length, in the

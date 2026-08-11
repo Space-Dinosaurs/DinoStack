@@ -54,6 +54,59 @@ Failure modes: pure static analysis, no I/O beyond reading .md files under
             10 items") or in a parenthetical pointing elsewhere (e.g.
             "(see cap: 300 chars in Rules)") no longer false-positives as a
             declared cap - see fixtures/cap_false_positive_agent.md.
+            Round-4 fixes (four Majors + Minors, all reproduced by a
+            mutation harness in test_agent_return_contract_mutation.py
+            BEFORE being fixed - see that file for the pre-fix survivor
+            list):
+            (M1) SHAPE2_PASSTHROUGH_EXEMPT_FIELDS deleted outright - it
+                manufactured engineer.md's compliant-now status via an
+                exemption with a falsified rationale (no downstream
+                consumer forwards pr_description_body verbatim).
+                engineer.md is back in NOT_YET_MIGRATED.
+            (M2) check_shape3_skeptic's six-prefix presence check is now
+                scoped to the '## Sign-off format' section text only, not
+                the whole file - the old whole-file search let a prose
+                mention of a validated line's label elsewhere (e.g. the
+                Reading-your-spawn-prompt guard at line 50 that literally
+                quotes "Findings:") mask a retagged/altered template line.
+                The template-smuggling guard (previously a dead `pass`
+                loop) now actually raises a violation when the cap
+                sentence is found inside the Sign-off format template
+                itself instead of the Calibration section.
+            (M3) _shape2_is_bounded now recurses into 'object' and
+                'array_of_object' top-level fields instead of returning
+                True unconditionally - every nested 'key: value' leaf line
+                (object member, array-of-object item member, or a member
+                nested two levels deep) now carries its own enum/cap/
+                one-line/pointer obligation. SHAPE2_CAP_KEYWORDS_RE now
+                requires an adjacent digit (mirrors Shape 1's CAP_RE
+                discipline - a bare 'max'/'cap' keyword no longer
+                satisfies the obligation) and recognizes 'truncated (to)'
+                as a cap keyword (engineer.md's raw_output field). A leaf
+                whose value is itself a '|'-delimited list (e.g.
+                'lint: pass | fail | not_run') is recognized as bounded
+                regardless of field name, not only for CLASSIFICATION_FIELD
+                _NAME_RE matches. SHAPE2_POINTER_RE no longer accepts a
+                bare '.md' substring as a declared bound (too loose - any
+                incidental file-path mention satisfied it); only the
+                explicit 'defined in'/'defined once' pointer phrasing
+                counts.
+            (M4) check_shape4's cap requirement is now unconditional for
+                every placeholder in every subsequent '##' sub-section -
+                the SHAPE4_NARRATIVE_HINT_RE heuristic (which/what/why/...)
+                is deleted. A cap keyword with no adjacent digit no longer
+                satisfies the requirement (same digit discipline as M3).
+            (Minor) FENCE_RE now recognizes '~~~' fences and fences
+                indented under a list item (both live in the real corpus:
+                qa-engineer.md's '~~~qa-knowledge-json' block,
+                investigator.md's indented ' ```bash ' blocks under
+                numbered steps) in addition to column-0 backtick fences.
+            (Minor) test_shape2_engineer_is_contract_compliant renamed and
+                repurposed: engineer.md is no longer contract-compliant
+                (M1), and the prior docstring's raw_output-cap claim is now
+                independently VERIFIED (via M3's recursion) rather than
+                merely asserted alongside a since-corrected compliant-now
+                verdict.
 
 Performance: negligible - reads <30 small text files.
 """
@@ -94,7 +147,13 @@ SECTION_START_RE = re.compile(
 RETURN_SUBSTEP_RE = re.compile(r"^###\s+\d+\.\s+Return\s*$", re.MULTILINE)
 SECTION_END_RE = re.compile(r"^##\s+\S", re.MULTILINE)
 SUBSTEP_END_RE = re.compile(r"^##\s+\S|^###\s+\S", re.MULTILINE)
-FENCE_RE = re.compile(r"^```.*$", re.MULTILINE)
+# Round-4 Minor fix: recognize '~~~' fences (live at
+# qa-engineer.md:317,321,438,453,458,475,478,492) and fences indented under
+# a list item (live at investigator.md:56,58,64,70,
+# orchestration-planner.md:80), not only column-0 backtick fences - an
+# unrecognized fence type is invisible to _fenced_spans, which can silently
+# mis-pair every fence marker after it.
+FENCE_RE = re.compile(r"^[ \t]*(?:```|~~~).*$", re.MULTILINE)
 HEADER_RE = re.compile(r"^###\s+(.+)$", re.MULTILINE)
 TAG_RE = re.compile(r"\[(MECHANICAL|ADVISORY)([^\]]*)\]")
 CAP_RE = re.compile(
@@ -151,9 +210,15 @@ EXEMPT_FILE_ARTIFACT = {
 
 # Files with a shape assignment above but not yet migrated to that shape's
 # affirmative obligation - genuinely non-compliant today (see
-# test_not_yet_migrated_entries_are_actually_unmigrated). engineer.md and
-# goal-condition-evaluator.md are deliberately NOT listed here - they are
-# already compliant under their shape's checker.
+# test_not_yet_migrated_entries_are_actually_unmigrated).
+# goal-condition-evaluator.md is deliberately NOT listed here - it is
+# already compliant under its shape's checker. engineer.md is DELIBERATELY
+# BACK in this set as of round 4 (M1 fix): the
+# SHAPE2_PASSTHROUGH_EXEMPT_FIELDS exemption that previously manufactured
+# its compliant-now status was deleted (falsified rationale - no downstream
+# consumer forwards pr_description_body verbatim; grep confirms the only
+# hits are engineer.md's own definition). Unit 0 does not edit agent files,
+# so engineer.md's cap is not added this round.
 NOT_YET_MIGRATED = {
     # Shape 1
     "architect.md",
@@ -166,6 +231,7 @@ NOT_YET_MIGRATED = {
     "qa-engineer.md",
     "security-auditor.md",
     # Shape 2 (target)
+    "engineer.md",
     "learning-extractor.md",
     "learnings-agent.md",
     "wrap-ticket.md",
@@ -359,25 +425,33 @@ CLASSIFICATION_FIELD_NAME_RE = re.compile(
     re.IGNORECASE,
 )
 ENUM_VALUE_LIST_RE = re.compile(r"\S+\s*\|\s*\S+")
+# Round-4 M3/M4 fix: requires an adjacent digit (mirrors Shape 1's
+# digit-requiring CAP_RE) so a bare 'max'/'cap' keyword with no numeric
+# bound cannot satisfy the obligation - see _shape2_has_cap_with_digit.
+# 'truncated (to)' is recognized alongside cap/max/maxLength - the real
+# corpus phrases numeric caps this way (engineer.md's raw_output field:
+# "truncated to 4000 chars").
 SHAPE2_CAP_KEYWORDS_RE = re.compile(
-    r"\b(cap(?:ped)?|max(?:imum)?|maxLength)\b", re.IGNORECASE
+    r"\b(cap(?:ped)?|max(?:imum)?|maxLength|truncated(?:\s+to)?)\b",
+    re.IGNORECASE,
 )
 SHAPE2_ONE_LINE_RE = re.compile(r"<\s*(one|single)[- ]line\b", re.IGNORECASE)
+# Round-4 M3 fix: the bare '\.md\b' alternative accepted ANY line
+# mentioning a '.md' path as a declared bound (round-4 Major finding) - a
+# file's cap declaration must use the explicit 'defined in'/'defined once'
+# pointer phrasing, never an incidental filename mention.
 SHAPE2_POINTER_RE = re.compile(
-    r"\bdefined in\b|\bdefined once\b|\.md\b", re.IGNORECASE
+    r"\bdefined in\b|\bdefined once\b", re.IGNORECASE
 )
-# Fields whose value is forwarded verbatim to a downstream tool call (e.g.
-# `gh pr create`) rather than being read/decided-on field-by-field by the
-# conductor - not "open-ended content" in the growth-risk sense obligation
-# (b) targets. Documented, narrow exception (mirrors the existing
-# precedent that classification correctness is a human judgment the gate
-# cannot make): engineer.md's `pr_description_body` is explicitly
-# annotated "conductor may wrap with title/footer", confirming pass-through
-# use rather than conductor-attention-scanned narrative.
-SHAPE2_PASSTHROUGH_EXEMPT_FIELDS = {"pr_description_body"}
 
 TOP_LEVEL_YAML_KEY_RE = re.compile(r"^(\w+):(.*)$")
 TOP_LEVEL_JSON_KEY_RE = re.compile(r'^  "(\w+)":(.*?),?$')
+# Round-4 M3 fix: matches a 'key: value' line at ANY indentation depth
+# (object member, array-of-object item member via a leading '- ', or a
+# member nested two levels deep) - used to recurse into 'object' and
+# 'array_of_object' top-level fields, which previously returned True
+# unconditionally without inspecting their contents at all.
+SHAPE2_NESTED_KEY_RE = re.compile(r'^(\s*)-?\s*"?(\w+)"?\s*:\s*(.*)$')
 
 
 def _extract_fenced_blocks(section_text):
@@ -470,26 +544,107 @@ def _shape2_field_shape(rest, body):
     return "scalar"
 
 
-def _shape2_is_bounded(name, full_line, rest, body, schema_text):
-    shape = _shape2_field_shape(rest, body)
-    if shape in ("array_of_object", "object"):
-        # Structural container - sub-fields carry their own bounds; out of
-        # scope for this top-level-only checker.
-        return True
-    if shape == "scalar":
-        # A single physical schema line is itself a one-line bound, the
-        # same logic '<one-line ...>' states explicitly.
+def _shape2_has_cap_with_digit(text):
+    """True only when a cap-shaped keyword AND a digit both appear in
+    `text` (round-4 M3/M4 fix - SHAPE2_CAP_KEYWORDS_RE alone requires no
+    digit, unlike Shape 1's CAP_RE, so a bare 'max'/'cap' with no numeric
+    bound previously satisfied the obligation)."""
+    return bool(SHAPE2_CAP_KEYWORDS_RE.search(text)) and bool(re.search(r"\d", text))
+
+
+def _shape2_text_is_bounded(full_line, rest, body):
+    """Shared leaf-boundedness check, used both for a top-level scalar/
+    array-of-plain/block-scalar field's own text and for every nested leaf
+    a container field recurses into (round-4 M3 fix).
+
+    The enum-list check is deliberately scoped to `rest` alone (the
+    key's own value text), never the full_line+body combined text: a
+    block-scalar opener ('key: |' or 'key: >') followed by unrelated body
+    prose on the next physical line can spuriously look like an 'X | Y'
+    pipe-delimited list once joined into one combined string (e.g.
+    'pr_description_body: |   <markdown body suitable for the PR; ...>'
+    matches '\\S+\\s*\\|\\s*\\S+' purely by adjacency, with no real enum
+    intent) - this was caught by the mutation harness's own baseline
+    sanity check against engineer.md, not hypothesized in advance.
+    A '|'-delimited value list in `rest` is itself a closed, bounded set -
+    recognized here regardless of field name, not only via
+    CLASSIFICATION_FIELD_NAME_RE (needed for nested non-classification-
+    named enum-shaped fields like 'lint: pass | fail | not_run')."""
+    if ENUM_VALUE_LIST_RE.search(rest):
         return True
     combined = full_line + " " + " ".join(body)
-    if SHAPE2_CAP_KEYWORDS_RE.search(combined):
+    if _shape2_has_cap_with_digit(combined):
         return True
     if SHAPE2_ONE_LINE_RE.search(combined):
         return True
     if SHAPE2_POINTER_RE.search(combined):
         return True
-    if name in SHAPE2_PASSTHROUGH_EXEMPT_FIELDS:
-        return True
     return False
+
+
+def _shape2_collect_leaf_entries(body_lines):
+    """Return [(name, full_line, rest, sub_body), ...] for every 'key:
+    value' line found at ANY indentation depth within body_lines whose
+    value portion is non-empty on the same physical line - this walks
+    object members AND array-of-object item members uniformly without
+    building a full YAML tree (round-4 M3 fix: the checker previously
+    returned True unconditionally for 'object'/'array_of_object' shapes,
+    never inspecting their contents)."""
+    entries = []
+    n = len(body_lines)
+    i = 0
+    while i < n:
+        line = body_lines[i]
+        m = SHAPE2_NESTED_KEY_RE.match(line)
+        if m and m.group(3).strip():
+            indent = len(line) - len(line.lstrip())
+            sub = []
+            j = i + 1
+            while j < n:
+                nxt = body_lines[j]
+                if not nxt.strip():
+                    sub.append(nxt)
+                    j += 1
+                    continue
+                nxt_indent = len(nxt) - len(nxt.lstrip())
+                if nxt_indent > indent and not SHAPE2_NESTED_KEY_RE.match(nxt):
+                    sub.append(nxt)
+                    j += 1
+                    continue
+                break
+            entries.append((m.group(2), line, m.group(3), sub))
+            i = j
+        else:
+            i += 1
+    return entries
+
+
+def _shape2_is_bounded(name, full_line, rest, body, schema_text):
+    shape = _shape2_field_shape(rest, body)
+    if shape in ("array_of_object", "object"):
+        # Recurse: every 'key: value' leaf line nested inside this
+        # container - at any depth, including an array-of-object item
+        # member or a member nested two levels deep - carries its own
+        # enum/cap/one-line/pointer obligation (round-4 M3 fix).
+        nested = _shape2_collect_leaf_entries(body)
+        if not nested:
+            # No leaf key:value lines found inside - nothing to recurse
+            # into; treat conservatively as unbounded rather than
+            # silently passing an unparseable or empty container.
+            return False
+        for n_name, n_line, n_rest, n_body in nested:
+            if CLASSIFICATION_FIELD_NAME_RE.search(n_name):
+                if not _shape2_has_enum(n_name, n_rest, n_body, schema_text):
+                    return False
+                continue
+            if not _shape2_text_is_bounded(n_line, n_rest, n_body):
+                return False
+        return True
+    if shape == "scalar":
+        # A single physical schema line is itself a one-line bound, the
+        # same logic '<one-line ...>' states explicitly.
+        return True
+    return _shape2_text_is_bounded(full_line, rest, body)
 
 
 def check_shape2(text, filename="<fixture>"):
@@ -626,17 +781,43 @@ def check_shape3(text, filename="<fixture>"):
 def check_shape3_skeptic(text, filename="skeptic.md"):
     """skeptic.md's narrow special case: the six conductor-validated lines
     from skeptic-protocol.md Section 11 must be present verbatim (and never
-    retagged), and a cap-keyword sentence referencing 'finding' with a
-    numeric bound must appear in the Calibration section (never inside the
-    Sign-off format template itself - a match inside the template would
-    violate the 'never touch the validated lines' constraint, not satisfy
-    it)."""
+    retagged) WITHIN THE '## Sign-off format' SECTION ITSELF, and a
+    cap-keyword sentence referencing 'finding' with a numeric bound must
+    appear in the Calibration section (never inside the Sign-off format
+    template itself - a match inside the template would violate the
+    'never touch the validated lines' constraint, not satisfy it).
+
+    Round-4 M2 fix: the six-prefix presence check used to search the
+    WHOLE FILE, not the Sign-off format section - a prose mention of a
+    validated line's label elsewhere in the file (e.g. the
+    Reading-your-spawn-prompt guard that literally quotes "Findings:")
+    masked a retagged or altered template line, since the retagged text no
+    longer contains the exact prefix but the unrelated prose mention still
+    does. Scoping the search to the Sign-off format section closes this.
+    The template-smuggling guard below was previously a dead `pass` loop
+    that computed `blocks` and never actually flagged anything; it now
+    raises a real violation when the cap sentence is found inside the
+    Sign-off format template instead of the surrounding Calibration prose.
+    """
     violations = []
+
+    signoff_m = re.search(r"^##\s+Sign-off format\s*$", text, re.MULTILINE)
+    if not signoff_m:
+        violations.append(f"{filename}: no '## Sign-off format' section found")
+        signoff_section_text = ""
+    else:
+        signoff_rest = text[signoff_m.end():]
+        signoff_end = SECTION_END_RE.search(signoff_rest)
+        signoff_section_text = (
+            signoff_rest[:signoff_end.start()] if signoff_end else signoff_rest
+        )
+
     for prefix in SKEPTIC_REQUIRED_LINE_PREFIXES:
-        if prefix not in text:
+        if prefix not in signoff_section_text:
             violations.append(
                 f"{filename}: required Sign-off format line prefix "
-                f"'{prefix}' not found verbatim"
+                f"'{prefix}' not found verbatim in the '## Sign-off format' "
+                "section"
             )
 
     calib_m = re.search(r"^##\s+Calibration\s*$", text, re.MULTILINE)
@@ -660,24 +841,18 @@ def check_shape3_skeptic(text, filename="skeptic.md"):
     # template instead of the surrounding Calibration prose - that would
     # violate the "never alter/retag/restructure" constraint even though it
     # might satisfy a naive text search.
-    signoff_m = re.search(r"^##\s+Sign-off format\s*$", text, re.MULTILINE)
-    if signoff_m:
-        signoff_rest = text[signoff_m.end():]
-        signoff_end = SECTION_END_RE.search(signoff_rest)
-        signoff_text = (
-            signoff_rest[:signoff_end.start()] if signoff_end else signoff_rest
-        )
+    if signoff_section_text:
         try:
-            blocks = _extract_fenced_blocks(signoff_text)
+            blocks = _extract_fenced_blocks(signoff_section_text)
         except UnbalancedFenceError:
             blocks = []
         for _lang, content in blocks:
-            for prefix in SKEPTIC_REQUIRED_LINE_PREFIXES:
-                if prefix in content:
-                    # Confirm the six lines still appear verbatim, unaltered,
-                    # inside the fenced template (not merely somewhere in
-                    # the file - see the top loop above for presence).
-                    pass
+            if cap_sentence_re.search(content):
+                violations.append(
+                    f"{filename}: the finding-description cap sentence must "
+                    "appear in the Calibration section prose, not inside "
+                    "the Sign-off format fenced template itself"
+                )
     return violations
 
 
@@ -685,9 +860,6 @@ def check_shape3_skeptic(text, filename="skeptic.md"):
 
 SHAPE4_STATUS_LINE_RE = re.compile(r"^##\s+Status:\s*(.+)$", re.MULTILINE)
 SHAPE4_SUBSECTION_RE = re.compile(r"^##\s+(.+)$", re.MULTILINE)
-SHAPE4_NARRATIVE_HINT_RE = re.compile(
-    r"\b(which|what|why|how|describe|explain|summary|reason)\b", re.IGNORECASE
-)
 
 
 def check_shape4(text, filename="<fixture>"):
@@ -738,12 +910,21 @@ def check_shape4(text, filename="<fixture>"):
         body = content[body_start:body_end]
         for placeholder_m in re.finditer(r"<([^<>]+)>", body):
             placeholder = placeholder_m.group(1)
-            if SHAPE4_NARRATIVE_HINT_RE.search(placeholder) and not (
-                SHAPE2_CAP_KEYWORDS_RE.search(placeholder)
-            ):
+            # Round-4 M4 fix: the cap requirement is now unconditional for
+            # EVERY placeholder in every subsequent '##' sub-section (per
+            # amendment §5), not gated behind a narrative-hint-word
+            # heuristic - the deleted SHAPE4_NARRATIVE_HINT_RE heuristic
+            # let release-orchestrator.md's placeholder escape detection
+            # whenever its wording happened not to contain
+            # which/what/why/how/describe/explain/summary/reason.
+            # _shape2_has_cap_with_digit also requires an adjacent digit,
+            # so a bare 'cap'/'max' keyword with no numeric bound no
+            # longer satisfies the requirement.
+            if not _shape2_has_cap_with_digit(placeholder):
                 violations.append(
                     f"{filename}: '## {title}' placeholder '<{placeholder}>' "
-                    "reads as open-ended narrative but declares no cap"
+                    "declares no numeric cap (expected a cap/max keyword "
+                    "with an adjacent digit)"
                 )
     return violations
 
@@ -916,15 +1097,30 @@ def test_shape2_missing_enum_and_cap_is_flagged():
     assert any("declares no cap" in v for v in violations)
 
 
-def test_shape2_engineer_is_contract_compliant():
-    """engineer.md is claimed COMPLIANT NOW by the amendment - verified
-    independently (not taking the amendment's word): status is a closed
-    enum, files_modified/learnings_candidate are structural/pointer-bounded,
-    raw_output declares an explicit 4000-char cap, and
-    pr_description_body is a documented pass-through exemption."""
+def test_shape2_engineer_is_not_yet_migrated():
+    """engineer.md is NOT compliant now (round-4 M1 fix): the
+    SHAPE2_PASSTHROUGH_EXEMPT_FIELDS exemption that previously manufactured
+    its compliant-now status is deleted, so pr_description_body's missing
+    cap is a real, genuine violation - independently confirmed by name
+    below, not merely 'the file has some violations'.
+
+    This also independently VERIFIES (rather than merely asserting, as the
+    pre-round-4 docstring did) that raw_output's 'truncated to 4000 chars'
+    bound is correctly recognized despite being nested inside the
+    quality_gate_results object - the M3 recursion fix walks into that
+    container instead of treating it as an unconditionally-bounded
+    structural field."""
     path = AGENTS_DIR / "engineer.md"
     violations = check_contract(path.read_text(), "engineer.md")
-    assert violations == [], violations
+    assert violations, (
+        "engineer.md is listed in NOT_YET_MIGRATED but its Shape-2 checker "
+        "found it fully compliant"
+    )
+    assert any("pr_description_body" in v for v in violations), violations
+    assert not any("raw_output" in v for v in violations), (
+        "raw_output declares an explicit 'truncated to 4000 chars' bound "
+        f"nested inside quality_gate_results - it must not be flagged: {violations}"
+    )
 
 
 # --- Shape 3 fixture tests ---
@@ -1070,10 +1266,15 @@ def test_exempt_file_artifact_set_is_adr_generator_only():
 def test_shape_assignments_and_allowlists_cover_all_real_files():
     """Every real content/agents/*.md file is exactly one of: compliant now
     (no allowlist entry, no exemption), listed in NOT_YET_MIGRATED, or
-    listed in EXEMPT_FILE_ARTIFACT. This is the 18-file tally check."""
+    listed in EXEMPT_FILE_ARTIFACT. This is the 18-file tally check.
+
+    Round-4 M1 fix: engineer.md moved OUT of the 'compliant now' set (its
+    SHAPE2_PASSTHROUGH_EXEMPT_FIELDS exemption was deleted as a spec
+    deviation) and back into NOT_YET_MIGRATED - see
+    test_shape2_engineer_is_not_yet_migrated."""
     discovered = {p.name for p in _real_agent_files()}
     compliant_now = discovered - NOT_YET_MIGRATED - EXEMPT_FILE_ARTIFACT
-    assert compliant_now == {"engineer.md", "goal-condition-evaluator.md"}, (
+    assert compliant_now == {"goal-condition-evaluator.md"}, (
         f"unexpected 'compliant now' set: {sorted(compliant_now)}"
     )
 
