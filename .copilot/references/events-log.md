@@ -63,7 +63,7 @@ Performance: Standard.
 
 ## Append discipline
 
-Plain shell `>>` append. No fsync, no tmp+rename, no lock file. Single-writer-by-protocol means contention is structurally impossible. If a partial line ever appears (impossible under single-writer but for robustness), readers tolerate it - JSONL parsers skip malformed lines.
+Plain shell `>>` append (or the Node equivalent, `fs.appendFileSync`). No fsync, no tmp+rename, no lock file. There are multiple writers - the conductor, `hooks/pre-tool-use-spawn-emit.js`, and `hooks/subagent-stop-spawn-emit.js` (DS-160) all append independently - but each append is a single `O_APPEND` write, and `O_APPEND` semantics guarantee the kernel positions and writes each one atomically at end-of-file, so concurrent appends cannot interleave mid-line regardless of writer count. If a partial line ever appears anyway, readers tolerate it - JSONL parsers skip malformed lines.
 
 ## Atomicity
 

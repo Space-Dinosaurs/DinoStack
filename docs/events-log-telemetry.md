@@ -76,7 +76,8 @@ DS-160) appends a hook-emitted `spawn_complete` whenever a subagent finishes -
 both fire while the conductor's turn is still in progress, not only at
 session exit.
 
-Subagents do not write to `events.jsonl`.
+Subagent agents never emit events themselves; hooks firing on their spawns
+and completions do.
 
 ## Event types
 
@@ -161,8 +162,8 @@ all developers whose telemetry has landed on the branch via pull after merge.
 
 **Append discipline.** No fsync, no lock file. Multiple writers append
 (conductor, the Stop hook, and the two spawn-telemetry hooks noted above) via
-`appendFileSync`/`>>`, each a single atomic small write, so lines never
-interleave mid-write; no cross-writer locking is needed.
+`appendFileSync`/`>>`, each an `O_APPEND` write, so lines never interleave
+mid-write; no cross-writer locking is needed.
 
 **Retention.** Not auto-rotated. Manual `mv events.jsonl events-prev.jsonl`
 if the file grows past concern. Roughly 50 KB per active session.

@@ -135,8 +135,8 @@
  *              MAX_TAIL_BYTES bytes (fs.readSync at a computed offset, not a
  *              full fs.readFileSync) before splitting into lines and further
  *              capping at MAX_SCAN_LINES lines. events.jsonl is a
- *              cross-session, append-only, single-writer-by-protocol file
- *              with NO size cap or rotation (see
+ *              cross-session, append-only, multi-writer file (this hook is
+ *              itself one of the writers) with NO size cap or rotation (see
  *              content/references/events-log.md "Atomicity" - "Records are
  *              not size-bounded") - it is NOT scoped to ~50KB per session in
  *              practice (a prior version of this comment claimed otherwise;
