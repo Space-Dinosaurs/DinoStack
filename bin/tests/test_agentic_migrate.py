@@ -653,9 +653,28 @@ class TestInitProjectStep9SingleSourced(unittest.TestCase):
     def test_step9_delegates_to_ds_migrate_apply(self):
         """Step 9 must invoke the real binary against the real manifest, not
         hand-copy a second gitignore block. This is the structural fix that
-        makes route divergence impossible for any manifest-covered path."""
+        makes route divergence impossible for any manifest-covered path.
+
+        MAJOR 1 (round 4): anchored on the FENCED EXECUTABLE BLOCK itself,
+        not the section's prose as a whole. The round-3 version of this test
+        asserted `"ds-migrate apply" in section`, which stayed GREEN when the
+        Skeptic replaced the executable block's content with
+        `echo 'nothing to do'` - the substring survived in three incidental
+        prose mentions elsewhere in the same section (the "This is the SAME
+        command..." paragraph, the "`ds-migrate apply` is:" bullet intro, and
+        the "seeds `.agentic/config.json`..." bullet). Finding exactly one
+        fenced block whose own content is the literal invocation closes that
+        gap - see the mutation proof in the round-4 rework return."""
         section = self._step9_section()
-        self.assertIn("ds-migrate apply", section)
+        fences = re.findall(r"```\n(.*?)```", section, re.DOTALL)
+        executable_fences = [f for f in fences if f.strip().startswith("ds-migrate apply")]
+        self.assertEqual(
+            len(executable_fences), 1,
+            "Step 9 must contain exactly one fenced block whose content IS "
+            "the literal `ds-migrate apply` invocation (not merely a prose "
+            f"mention elsewhere in the section); found {len(executable_fences)}.",
+        )
+        self.assertIn("--project-root", executable_fences[0])
         self.assertIn("content/project-scaffolding.yml", section)
 
     def test_step9_no_longer_hand_lists_agentic_ignore_patterns(self):
@@ -937,6 +956,116 @@ markers: []
         self.assertLess(
             lines.index(".agentic/*"), lines.index("!.agentic/qa.md"),
             "rewritten umbrella must still land above the existing negation",
+        )
+
+
+class TestPreexistingBareAgenticDirectiveRealGit(unittest.TestCase):
+    """MAJOR 3 (round 4): a repo that already has a bare `.agentic/`
+    directory-ignore line in its `.gitignore` BEFORE dinostack is adopted -
+    an entirely natural thing to have hand-written - defeats every
+    `!.agentic/<file>` negation `apply` writes, regardless of ordering,
+    because git will not descend into an excluded directory at all. Before
+    this fix, `apply` returned rc=0, `check` reported `{"status": "ok", ...}`,
+    and a real `git add -A` staged ONLY `.gitignore` - every knowledge file
+    (qa.md, config.json, learnings.md, team.yml, session-log/) silently never
+    got committed. Uses `git add -A` + `git status --porcelain` as the
+    oracle, per the Verification section's explicit instruction that
+    `git check-ignore` exit codes are unreliable here (measured, not
+    trusted)."""
+
+    def _seed_project(self, tmp: str, bare_pattern: str) -> Path:
+        project = Path(tmp)
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        # The hand-written bare form a real pre-existing .gitignore would
+        # carry - written BEFORE dinostack ever touches this file.
+        (project / ".gitignore").write_text(f"{bare_pattern}\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        return project
+
+    def test_apply_rewrites_preexisting_bare_form_and_tracks_knowledge_files(self):
+        for bare_pattern in (".agentic", ".agentic/", "/.agentic/"):
+            with self.subTest(bare_pattern=bare_pattern):
+                with tempfile.TemporaryDirectory() as tmp:
+                    project = self._seed_project(tmp, bare_pattern)
+
+                    result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+                    self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+                    gi_lines = (project / ".gitignore").read_text(encoding="utf-8").splitlines()
+                    self.assertNotIn(bare_pattern, gi_lines, "bare form must be rewritten, not left in place")
+                    self.assertIn(".agentic/*", gi_lines, "bare form must be rewritten to the *-suffixed umbrella")
+
+                    # Real oracle: git add -A + git status --porcelain, not
+                    # git check-ignore (measured unreliable under
+                    # umbrella+negation for a path `git add` accepts).
+                    for rel in (".agentic/qa.md", ".agentic/config.json", ".agentic/team.yml"):
+                        target = project / rel
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text("placeholder\n", encoding="utf-8")
+                    subprocess.run(["git", "add", "-A"], cwd=str(project), check=True)
+                    status = subprocess.run(
+                        ["git", "status", "--porcelain"],
+                        cwd=str(project), check=True, capture_output=True, text=True,
+                    ).stdout
+                    staged = {line[3:] for line in status.splitlines()}
+                    for rel in (".agentic/qa.md", ".agentic/config.json", ".agentic/team.yml"):
+                        self.assertIn(
+                            rel, staged,
+                            f"{rel} must be tracked after apply repairs the bare-form "
+                            f"defeater (bare_pattern={bare_pattern!r}); a bare form left "
+                            "unrepaired makes every knowledge file silently never commit.",
+                        )
+
+    def test_check_reports_drift_not_ok_when_bare_form_present_at_current_version(self):
+        """A project already stamped at the manifest's current version, whose
+        `.gitignore` nonetheless carries a bare-form defeater (e.g.
+        hand-edited after a prior apply, or the pre-adoption .gitignore case
+        above at a project that happens to already be stamped), must report
+        `status: drift`, never `status: ok` - version currency alone is not
+        the postcondition."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp)
+            agentic = project / ".agentic"
+            agentic.mkdir()
+            manifest_version = _manifest_version()
+            (agentic / "config.json").write_text(json.dumps({"scaffolding_version": manifest_version}) + "\n")
+            (project / ".gitignore").write_text(".agentic/*\n!.agentic/config.json\n.agentic/\n")
+            subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+
+            result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+            out = json.loads(result.stdout)
+            self.assertEqual(result.returncode, 1, msg=result.stdout)
+            self.assertEqual(out["status"], "drift")
+            self.assertTrue(out["gitignore_bare_defeater"])
+
+
+class TestSessionLogRecursiveNegationNotSilentlyDropped(unittest.TestCase):
+    """MAJOR 5 (round 4): the `!.agentic/session-log/**` negation is
+    redundant (measured: a plain `!.agentic/session-log/` directory negation
+    already recurses into nested files under `.agentic/*` on its own - see
+    the corrected prose in content/commands/ds-init-project.md Step 9), but
+    "redundant" is not "untested" - before this test, nothing in the suite
+    would go red if the manifest's `!.agentic/session-log/**` line were
+    silently dropped, because the outcome-parity test in
+    TestInitProjectStep9SingleSourced only asserts a top-level
+    `.agentic/session-log/example-dev.jsonl` file lands tracked, which the
+    single `!.agentic/session-log/` negation already guarantees on its own.
+    This test pins the manifest's own second negation line directly, so a
+    silent drop is caught here even though the functional outcome for a
+    top-level file would not change."""
+
+    def test_manifest_declares_recursive_session_log_negation(self):
+        manifest_text = Path(MANIFEST).read_text(encoding="utf-8")
+        self.assertIn(
+            '- pattern: "!.agentic/session-log/**"',
+            manifest_text,
+            "content/project-scaffolding.yml must keep the explicit "
+            "!.agentic/session-log/** negation even though it is redundant "
+            "with !.agentic/session-log/ - it documents nested-file coverage "
+            "explicitly. Dropping it silently is a manifest content "
+            "regression, not a behavior change to make freely.",
         )
 
 

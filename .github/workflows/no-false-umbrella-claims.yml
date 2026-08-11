@@ -1,0 +1,15 @@
+name: no-false-umbrella-claims
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+permissions:
+  contents: read
+jobs:
+  check-no-false-umbrella-claims:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Guard - no stale /ds-init-project Step 9 targeted-gitignore-block claims
+        run: bash scripts/check-no-false-umbrella-claims.sh

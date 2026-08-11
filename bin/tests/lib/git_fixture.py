@@ -97,36 +97,35 @@ DUMMY_NAME = "AE Test Fixture"
 DUMMY_EMAIL = "ae-fixture@example.invalid"
 
 # The `.gitignore` block a fresh /ds-init-project-scaffolded consumer repo
-# carries (content/commands/ds-init-project.md Step 9): a targeted denylist,
-# NOT an umbrella. `.agentic/session-log/` is not ignored by anything in this
-# block - it is tracked by default. Trimmed to the entries load-bearing for
-# this harness; the full block also lists loop-state/tasks/events/etc, which
-# are irrelevant here.
+# carries (content/commands/ds-init-project.md Step 9, delegated to
+# `ds-migrate apply` against content/project-scaffolding.yml v7 as of round 3
+# of fix/shipped-gitignore-umbrella-gaps): a default-deny `.agentic/*`
+# umbrella plus one `!.agentic/<file>` negation per tracked knowledge file,
+# not a hand-enumerated deny list. `.agentic/session-log/` IS negated
+# (tracked by default), same outcome as the pre-round-3 block, but every
+# OTHER path under
+# `.agentic/` (loop-state.json, tasks.jsonl, events.jsonl, context.md,
+# context.d/, tracker.yml, hud/, memory/, etc.) is ignored by the umbrella
+# with no enumeration required, rather than by an explicit deny line for
+# each. Verified verbatim against a real `ds-migrate apply` run
+# (round 4 rework) - re-derive with `ds-migrate apply --manifest
+# content/project-scaffolding.yml --project-root <scratch-dir>` if
+# content/project-scaffolding.yml's negation set changes.
 CONSUMER_GITIGNORE = """\
-# Agentic engineering runtime artifacts (must not be committed).
-.agentic/loop-state.json
-.agentic/loop-state-*.json
-.agentic/hud/
-.agentic/tasks.jsonl
-.agentic/events.jsonl
-.agentic/context.md
-.agentic/context.d/
-.agentic/_wrap.md
-.agentic/_foreign.md
-.agentic/memory/
-.agentic/memory.md
-.agentic/wrap/
-.agentic/preferences.json
-.agentic/compression-state.json
-.agentic/tracker.yml
-.agentic/tracker-states.json
+.agentic/*
+!.agentic/config.json
+!.agentic/qa-regressions.md
 !.agentic/session-log/
+!.agentic/session-log/**
 !.agentic/learnings.md
+!.agentic/team.yml
+!.agentic/skill-candidates.md
 !.agentic/qa.md
 !.agentic/deploy.md
 !.agentic/tracking.md
-!.agentic/qa-regressions.md
-!.agentic/config.json
+!.agentic/phase0-classifiers.yml
+!.agentic/deferred-work.jsonl
+!.agentic/presets.yml
 """
 
 # DinoStack's own `.gitignore` (root .gitignore:28-30): a root-anchored
@@ -416,9 +415,10 @@ def build_dinostack_shape(tmp_path: Path) -> Fixture:
 
 def build_consumer_shape(tmp_path: Path) -> Fixture:
     """(ii) A /ds-init-project-scaffolded consumer repo: session-log is
-    tracked (targeted denylist, no umbrella). $REPO stays on a non-target
-    default branch; PR_CHECKOUT resolves via WORKTREE_PATH, mirroring the
-    common single-engineer path. Correct positive path."""
+    tracked (negated under the default-deny umbrella - see CONSUMER_GITIGNORE
+    above). $REPO stays on a non-target default branch; PR_CHECKOUT resolves
+    via WORKTREE_PATH, mirroring the common single-engineer path. Correct
+    positive path."""
     branch_name = "feature/harness-fixture-ii"
     developer = "dev-consumer"
     repo_dir = tmp_path / "repo"

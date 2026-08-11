@@ -499,10 +499,23 @@ def test_tracker_yml_ignored_by_default_no_negation(init_project_text):
     # TestInitProjectStep9SingleSourced.test_step9_delegates_to_ds_migrate_apply
     # in bin/tests/test_agentic_migrate.py; re-asserted here narrowly so this
     # file does not depend on that one for its own non-vacuousness.
+    #
+    # MAJOR 1 (round 4): anchored on the fenced executable block, not a bare
+    # substring-in-section check. A bare `"ds-migrate apply" in section`
+    # check stayed green even with the executable block replaced by
+    # `echo 'nothing to do'`, because the substring survives in incidental
+    # prose mentions elsewhere in the section - see the sibling fix and
+    # mutation proof in bin/tests/test_agentic_migrate.py.
     section_start = init_project_text.index("### 9. Create `.gitignore`")
     section_end = init_project_text.index("\n### 10.", section_start)
     section = init_project_text[section_start:section_end]
-    assert "ds-migrate apply" in section
+    fences = re.findall(r"```\n(.*?)```", section, re.DOTALL)
+    executable_fences = [f for f in fences if f.strip().startswith("ds-migrate apply")]
+    assert len(executable_fences) == 1, (
+        "Step 9 must contain exactly one fenced block whose content IS the "
+        "literal `ds-migrate apply` invocation; found "
+        f"{len(executable_fences)}."
+    )
 
 # ---------------------------------------------------------------------------
 # PR2 prose assertions (DS-74): the .agentic/tracker.yml overlay merge rule,

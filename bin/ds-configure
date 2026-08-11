@@ -269,8 +269,9 @@ def main(argv: list[str]) -> int:
         print(
             "Edit freely; the default location (~/.agentic/role-models.yml) is "
             "outside any git repo, and a project-local .agentic/role-models.yml "
-            "(via --path) is gitignored - matching the .agentic/role-models.yml "
-            "pattern in /ds-init-project Step 9's targeted .gitignore block."
+            "(via --path) is ignored by default under the .agentic/* umbrella "
+            "/ds-init-project Step 9 writes (content/project-scaffolding.yml "
+            "carries no !.agentic/role-models.yml negation)."
         )
     return 0
 
