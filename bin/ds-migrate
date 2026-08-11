@@ -35,6 +35,7 @@ import json
 import os
 import re
 import shutil
+import subprocess
 import sys
 import tempfile
 from datetime import datetime, timezone
@@ -214,12 +215,26 @@ def _pattern_present(lines: list[str], pattern: str) -> bool:
 _AGENTIC_PREFIX_RE_STR = r"/?(\*\*/)*"
 
 # Recognizes only the *negatable* .agentic/ umbrella glob forms - patterns
-# that ignore the immediate (`*`) or full recursive (`**`, `**/*`) contents of
-# the directory while leaving the directory entry itself un-ignored, which is
-# what makes a later `!.agentic/<file>` negation able to work at all. See
-# _AGENTIC_BARE_DIR_RE below for the excluded bare-directory forms.
+# that ignore the immediate (`*`) or full recursive (`**`, `**/*`, `**/**`,
+# `**/**/*`, `***`) contents of the directory while leaving the directory
+# entry itself un-ignored, which is what makes a later `!.agentic/<file>`
+# negation able to work at all. See _AGENTIC_BARE_DIR_RE below for the
+# excluded bare-directory forms.
+#
+# Round 9 finding #5 (the round-10 brief's governing-invariant item 4):
+# `**/**`, `**/**/*`, and `***` are honored by git identically to `*`/`**`/
+# `**/*` but were previously unrecognized here, so a misordered file using
+# one of these suffixes silently defeated its negation with `check`/`diff`
+# reporting no drift. Detection of that class no longer depends on this
+# regex as of round 10 (see _compute_negations_defeated - git itself is now
+# asked directly), but this regex is still the REPAIR matcher (it decides
+# which line `_repair_gitignore_order`/`_repair_bare_agentic_lines` move or
+# rewrite), so it is widened here too to maximize repair coverage. Do not
+# widen this by hand for a newly-discovered spelling - add it to the
+# generated candidate set in TestUmbrellaPrefixSpellingAgreement instead.
+_AGENTIC_UMBRELLA_SUFFIX_RE_STR = r"(?:\*\*/\*\*/\*|\*\*/\*\*|\*\*/\*|\*\*\*|\*\*|\*)"
 _AGENTIC_UMBRELLA_RE = re.compile(
-    r"^" + _AGENTIC_PREFIX_RE_STR + r"\.agentic/(\*\*/\*|\*\*|\*)$"
+    r"^" + _AGENTIC_PREFIX_RE_STR + r"\.agentic/" + _AGENTIC_UMBRELLA_SUFFIX_RE_STR + r"$"
 )
 
 # A bare .agentic/ directory-ignore (no trailing glob), e.g. `.agentic`,
@@ -237,7 +252,21 @@ def _is_agentic_umbrella_pattern(pattern: str) -> bool:
     `/**/.agentic/*`), as opposed to a specific file or subdirectory pattern
     like `.agentic/qa.md` or `.agentic/session-log/`, or a bare directory form
     (see _is_agentic_bare_dir_pattern) for which negation can never work. See
-    _AGENTIC_PREFIX_RE_STR for the measured basis of the accepted prefixes."""
+    _AGENTIC_PREFIX_RE_STR for the measured basis of the accepted prefixes.
+
+    KNOWN OVER-BROAD DIRECTION (pre-existing, documented not fixed in round
+    10): the `.strip()` here treats leading whitespace as inert, so
+    `"  .agentic/*"` is recognized as an umbrella by this matcher even
+    though git treats indented gitignore patterns as literal text (an
+    indented line does not act as the pattern it appears to spell). This
+    only affects REPAIR targeting (this function is no longer used for
+    detection - see _compute_negations_defeated) and only in the
+    over-cautious direction: a REPAIR pass could move/rewrite an indented
+    line that git was actually treating as inert. Left as-is because
+    fixing it changes the character semantics of every regex here
+    simultaneously and the failure mode it would introduce (missing a
+    genuinely-indented real umbrella) is now caught by behavioral
+    detection regardless."""
     return bool(_AGENTIC_UMBRELLA_RE.match(pattern.strip()))
 
 
@@ -764,6 +793,218 @@ def _resolve_manifest_path(args: argparse.Namespace) -> Path | None:
 
 
 # ---------------------------------------------------------------------------
+# Behavioral gitignore-drift detection
+#
+# Round 10 rework. Rounds 6-9 each fixed one reported spelling of "a pattern
+# git honors but our regex doesn't recognize" and each shipped a new blind
+# spot in an axis nobody varied that round (comment placement, root-anchored
+# negations, `/**/`-prefixed forms, then the `**/**`/`**/**/*`/`***` suffix
+# axis). The common cause was inferring whether a negation is defeated by
+# recognizing gitignore pattern SYNTAX. That inference can only ever cover
+# the spellings someone thought to test.
+#
+# This section replaces that inference for DETECTION: instead of asking "is
+# this pattern shaped like an umbrella / negation", it asks git directly
+# whether each manifest-negated path is currently ignored. The outcome is
+# then correct for every spelling, prefix, suffix, comment placement, or
+# exotic construct git itself honors - the gitignore grammar becomes
+# irrelevant to detection. The syntactic matchers above (_AGENTIC_UMBRELLA_RE
+# / _AGENTIC_BARE_DIR_RE / _find_misordered_umbrella / _repair_*) remain in
+# use, but only for REPAIR - to move or rewrite an offending line you must
+# first identify it, and pattern matching is legitimate there.
+# ---------------------------------------------------------------------------
+
+# Timeout for every git subprocess this module invokes for verification.
+# check-ignore over a small, fixed-size path list is a few ms; this bound
+# exists so a hung git process (a credential prompt behind a symlinked repo,
+# a stuck fs) fails the check loudly in seconds rather than hanging the
+# caller (activation preflight, potentially every session start) forever.
+_GIT_VERIFY_TIMEOUT_SECONDS = 10
+
+
+def _manifest_negated_paths(manifest: dict) -> list[str]:
+    """Return the concrete probe path for every `!<path>` negation the
+    manifest declares, derived directly from the manifest's own gitignore
+    list - not a hand-picked list, so a manifest edit (adding or removing a
+    negation) changes what gets verified with no matching code change
+    required.
+
+    A negation that ends in `/**` (a recursive-contents carve-out, e.g.
+    `!.agentic/session-log/**`) or `/` (a directory carve-out, e.g.
+    `!.agentic/session-log/`) cannot be probed by pointing `git check-ignore`
+    at the glob or the bare directory itself in a way that proves nested
+    files are reachable - a directory's own ignore status does not imply its
+    contents', and check-ignore does not accept a glob as an input path. Both
+    forms are converted to a synthetic FILE path one level inside the
+    directory instead: this is exactly the shape a real knowledge file (or
+    any file dinostack writes under that directory) takes, and it is what
+    _repair_gitignore_order's docstring and TestManifestCarveOutsRealGit
+    already treat as the correct verification target for a directory-form
+    negation. The probe file need not exist on disk - git ignore matching is
+    purely pattern-based and does not require the target path to exist."""
+    seen: set[str] = set()
+    probes: list[str] = []
+    for entry in manifest.get("gitignore", []):
+        pattern = entry.get("pattern", "")
+        if not pattern.startswith("!"):
+            continue
+        path = pattern[1:]
+        if path.endswith("/**"):
+            probe = path[: -len("/**")].rstrip("/") + "/.ds-migrate-probe"
+        elif path.endswith("/"):
+            probe = path.rstrip("/") + "/.ds-migrate-probe"
+        else:
+            probe = path
+        if probe not in seen:
+            seen.add(probe)
+            probes.append(probe)
+    return probes
+
+
+def _is_git_available() -> bool:
+    return shutil.which("git") is not None
+
+
+def _is_git_worktree(project_root: Path) -> bool:
+    """True if `project_root` resolves inside a real git working tree.
+    False (never raises) on any failure - not-a-repo, git missing, a
+    permission error, or a timeout are all "no" from this function's
+    perspective; the caller distinguishes "not available" from "false" by
+    checking _is_git_available() separately."""
+    try:
+        result = subprocess.run(
+            ["git", "-C", str(project_root), "rev-parse", "--is-inside-work-tree"],
+            capture_output=True,
+            text=True,
+            timeout=_GIT_VERIFY_TIMEOUT_SECONDS,
+            stdin=subprocess.DEVNULL,
+        )
+    except Exception:
+        return False
+    return result.returncode == 0 and result.stdout.strip() == "true"
+
+
+def _git_check_ignore_batch(project_root: Path, paths: list[str]) -> set[str] | None:
+    """Return the subset of `paths` that `git check-ignore` currently reports
+    as ignored (i.e. NOT reachable by any negation, however that negation or
+    the umbrella above it is spelled), using one batched invocation
+    regardless of how many paths are checked. Returns None if the check
+    could not be performed at all (subprocess failure, unexpected exit code)
+    - callers MUST treat None as "cannot verify", never as "nothing is
+    ignored": conflating the two would silently reintroduce the exact class
+    of false-`ok` this rework closes.
+
+    `-z --stdin` (deliberately WITHOUT `-v`) frames both the input and the
+    output as NUL-terminated pathnames; the output lists exactly the
+    pathnames git considers ignored, one per record, and a path with a
+    working negation produces no output record at all.
+
+    `-v` is deliberately never added here. Measured directly (round 10,
+    against real git 2.55.0): `git check-ignore -v <path>` returns exit 0
+    (falsely "ignored") for a path that a correctly-ordered
+    `!.agentic/<file>` negation covers, whenever that exact path has never
+    been part of the index (the common case for most manifest-negated
+    files, which are not seeded and may not exist on disk yet at check
+    time) - reproduced with both positional-args and `--stdin` invocation,
+    with and without `--no-index`, independent of directory name or
+    umbrella spelling, and confirmed to disagree with EVERY other oracle
+    (`git add`, `git ls-files --others --exclude-standard`,
+    `git status --porcelain --ignored=matching`, and the same
+    `check-ignore` invocation with `-v` simply omitted - all of which
+    correctly report the path as reachable). Once the exact target path is
+    staged even once, subsequent `-v` calls become correct - consistent
+    with `-v`'s verbose per-match reporting following a different, buggier
+    internal path than the plain ignored/not-ignored determination `-z`
+    alone uses. Omitting `-v` sacrifices the matched-pattern/line-number
+    detail (not needed here - only the pathname is used) and sidesteps the
+    bug entirely; every regression test in this file that exercises a
+    genuinely-defeated negation confirms omitting `-v` still detects it."""
+    if not paths:
+        return set()
+    try:
+        stdin_payload = "".join(p + "\0" for p in paths)
+        result = subprocess.run(
+            ["git", "-C", str(project_root), "check-ignore", "--stdin", "-z"],
+            input=stdin_payload,
+            capture_output=True,
+            text=True,
+            timeout=_GIT_VERIFY_TIMEOUT_SECONDS,
+        )
+    except Exception:
+        return None
+    # 0 = at least one path ignored, 1 = none ignored, anything else = error
+    # (e.g. 128 for a malformed invocation) and must not be trusted.
+    if result.returncode not in (0, 1):
+        return None
+    ignored = {p for p in result.stdout.split("\0") if p != ""}
+    return ignored
+
+
+def _compute_negations_defeated(manifest: dict, project_root: Path) -> dict:
+    """Return the behavioral (git-oracle) verification result:
+    {
+      "verification": "behavioral" | "unavailable",
+      "defeated": bool,
+      "defeated_paths": [path, ...],
+      "reason": str | None,
+    }
+
+    "behavioral" means git itself was asked and its answer is authoritative
+    for the manifest's full negated-path set, regardless of which spelling,
+    prefix, suffix, comment placement, or exotic gitignore construct
+    produced the result - the class of bug that has recurred for five rounds
+    (see the section docstring above) cannot recur here because nothing
+    about this path infers pattern syntax.
+
+    "unavailable" means git is missing from PATH, `project_root` is not
+    inside a git working tree, or the check-ignore invocation itself could
+    not be trusted (see _git_check_ignore_batch). `defeated` is always False
+    in this branch - the caller falls back to the syntactic
+    (gitignore_misordered / gitignore_bare_defeater) signals it already
+    computes, which is the same protection level this tool had before round
+    10, not a regression. This is a deliberate, narrow scope for the
+    "unavailable" case: outside a git working tree nothing is actually being
+    tracked or ignored yet (the concept of a "defeated negation" is moot
+    until `git init` happens), so falling back to the pre-existing syntactic
+    signal - rather than unconditionally forcing every unavailable check to
+    report drift - avoids manufacturing drift for tooling (e.g. TestHappyPath
+    -style fixtures, or a manifest-only dry run) that never claimed to
+    verify real git state in the first place. Every code path that DOES
+    operate inside a real git repository - which is every project this tool
+    targets in production - gets the full behavioral guarantee."""
+    if not _is_git_available():
+        return {
+            "verification": "unavailable",
+            "defeated": False,
+            "defeated_paths": [],
+            "reason": "git binary not found on PATH",
+        }
+    if not _is_git_worktree(project_root):
+        return {
+            "verification": "unavailable",
+            "defeated": False,
+            "defeated_paths": [],
+            "reason": f"{project_root} is not inside a git working tree",
+        }
+    probes = _manifest_negated_paths(manifest)
+    ignored = _git_check_ignore_batch(project_root, probes)
+    if ignored is None:
+        return {
+            "verification": "unavailable",
+            "defeated": False,
+            "defeated_paths": [],
+            "reason": "git check-ignore invocation failed or returned an "
+            "untrusted result",
+        }
+    return {
+        "verification": "behavioral",
+        "defeated": bool(ignored),
+        "defeated_paths": sorted(ignored),
+        "reason": None,
+    }
+
+
+# ---------------------------------------------------------------------------
 # Core apply logic
 # ---------------------------------------------------------------------------
 
@@ -775,7 +1016,21 @@ def _compute_diff(manifest: dict, project_root: Path) -> dict:
       "files_missing": [{"path": ..., "seed": ...}, ...],
       "gitignore_misordered": bool,
       "gitignore_bare_defeater": bool,
+      "gitignore_negations_defeated": bool,
+      "gitignore_negations_defeated_paths": [path, ...],
+      "gitignore_verification": "behavioral" | "unavailable",
+      "gitignore_verification_reason": str | None,
     }
+
+    `gitignore_negations_defeated` is the AUTHORITATIVE, round-10 signal
+    (see _compute_negations_defeated) - it is what `check`/`apply` gate on.
+    When `gitignore_verification` is "behavioral" it reflects real
+    `git check-ignore` truth for every manifest-negated path, independent of
+    which gitignore spelling produced that truth. When "unavailable" (no git
+    on PATH, or project_root is not a git working tree), it falls back to
+    `gitignore_misordered or gitignore_bare_defeater` - the same syntactic
+    protection this tool had before round 10, not a regression, for the
+    narrow case where nothing is actually being tracked yet.
 
     `gitignore_misordered` is True when an .agentic/ umbrella pattern already
     present in .gitignore appears BELOW an existing `!.agentic/` negation line
@@ -783,6 +1038,9 @@ def _compute_diff(manifest: dict, project_root: Path) -> dict:
     docstring) - regardless of whether every individual pattern is otherwise
     present. This is independent of `gitignore_missing`: a file can have
     every required line present and still be drifted purely on ordering.
+    Retained as of round 10 for REPAIR guidance only (it tells `apply` which
+    line to move) - `check`/`apply`'s pass/fail decision no longer depends on
+    it directly when verification is "behavioral".
 
     `gitignore_bare_defeater` is True when .gitignore already contains a bare
     `.agentic/` directory-ignore line (see `_find_bare_agentic_line`) - which
@@ -790,6 +1048,8 @@ def _compute_diff(manifest: dict, project_root: Path) -> dict:
     strictly worse hazard than misordering because no reordering fixes it.
     Also independent of `gitignore_missing`: every manifest pattern can be
     textually present and the project can still be fully drifted this way.
+    Retained for REPAIR guidance only, same rationale as `gitignore_misordered`
+    above.
     """
     gitignore_path = project_root / ".gitignore"
     existing_lines = _gitignore_lines(gitignore_path)
@@ -809,27 +1069,42 @@ def _compute_diff(manifest: dict, project_root: Path) -> dict:
     gitignore_misordered = _find_misordered_umbrella(existing_lines) is not None
     gitignore_bare_defeater = _find_bare_agentic_line(existing_lines) is not None
 
+    negation_check = _compute_negations_defeated(manifest, project_root)
+    if negation_check["verification"] == "behavioral":
+        gitignore_negations_defeated = negation_check["defeated"]
+    else:
+        gitignore_negations_defeated = gitignore_misordered or gitignore_bare_defeater
+
     return {
         "gitignore_missing": gitignore_missing,
         "files_missing": files_missing,
         "gitignore_misordered": gitignore_misordered,
         "gitignore_bare_defeater": gitignore_bare_defeater,
+        "gitignore_negations_defeated": gitignore_negations_defeated,
+        "gitignore_negations_defeated_paths": negation_check["defeated_paths"],
+        "gitignore_verification": negation_check["verification"],
+        "gitignore_verification_reason": negation_check["reason"],
     }
 
 
 def cmd_check(args: argparse.Namespace) -> int:
     """
-    Exit 0 if project is at-or-ahead of manifest version AND .gitignore is
-    correctly ordered (no umbrella pattern below an existing negation) AND
-    .gitignore contains no bare `.agentic/` directory-ignore line (which
-    defeats every negation regardless of ordering - see
-    `_find_bare_agentic_line`).
-    Exit 1 if drift (version behind, OR .gitignore misordered, OR .gitignore
-    carries a bare-form defeater - all three are independent: a project can
-    be at the latest stamped version with every pattern textually present
-    and still be drifted purely on ordering or on a bare-form line, e.g. if
-    it was hand-edited after apply, or if the repo's pre-existing .gitignore
-    already carried a bare `.agentic/` line before dinostack was adopted).
+    Exit 0 if project is at-or-ahead of manifest version AND git itself
+    (when verifiable - see `_compute_negations_defeated`) reports that every
+    manifest-negated `.agentic/` path is currently reachable, not ignored.
+    When git verification is unavailable (no git on PATH, or project_root is
+    not a git working tree), falls back to the syntactic ordering/bare-form
+    signals this tool used before round 10 (see `_compute_diff`'s
+    docstring) - never a regression from prior behavior, and never
+    stronger than what is actually verifiable.
+
+    Exit 1 if drift: version behind, OR the negation check reports at least
+    one manifest-negated path is ignored (whichever verification mode
+    produced that answer) - independent axes: a project can be at the
+    latest stamped version with every pattern textually present and still be
+    drifted purely on ordering, on a bare-form line, or on any other
+    gitignore construct that defeats a negation, regardless of whether this
+    tool's syntactic matchers recognize its spelling.
     Exit 2 on error.
     """
     manifest_path = _resolve_manifest_path(args)
@@ -849,8 +1124,9 @@ def cmd_check(args: argparse.Namespace) -> int:
     diff = _compute_diff(manifest, project_root)
     gitignore_misordered = diff["gitignore_misordered"]
     gitignore_bare_defeater = diff["gitignore_bare_defeater"]
+    gitignore_negations_defeated = diff["gitignore_negations_defeated"]
 
-    if project_version >= manifest_version and not gitignore_misordered and not gitignore_bare_defeater:
+    if project_version >= manifest_version and not gitignore_negations_defeated:
         print(json.dumps({"status": "ok", "project_version": project_version, "manifest_version": manifest_version}))
         return 0
     else:
@@ -860,6 +1136,9 @@ def cmd_check(args: argparse.Namespace) -> int:
             "manifest_version": manifest_version,
             "gitignore_misordered": gitignore_misordered,
             "gitignore_bare_defeater": gitignore_bare_defeater,
+            "gitignore_negations_defeated": gitignore_negations_defeated,
+            "gitignore_negations_defeated_paths": diff["gitignore_negations_defeated_paths"],
+            "gitignore_verification": diff["gitignore_verification"],
         }))
         return 1
 
@@ -888,8 +1167,7 @@ def cmd_diff(args: argparse.Namespace) -> int:
     if (
         not diff["gitignore_missing"]
         and not diff["files_missing"]
-        and not diff["gitignore_misordered"]
-        and not diff["gitignore_bare_defeater"]
+        and not diff["gitignore_negations_defeated"]
     ):
         print("Status: up to date")
         return 0
@@ -914,6 +1192,16 @@ def cmd_diff(args: argparse.Namespace) -> int:
             "EVERY !.agentic/<file> negation regardless of position, because "
             "git will not descend into an excluded directory at all. `apply` "
             "will rewrite it to the *-suffixed equivalent (e.g. `.agentic/*`)."
+        )
+
+    if diff["gitignore_negations_defeated"] and diff["gitignore_verification"] == "behavioral":
+        paths = ", ".join(diff["gitignore_negations_defeated_paths"]) or "(none named)"
+        print(
+            "\ngit itself reports at least one manifest-negated path is "
+            f"still ignored: {paths}. `apply` will attempt its known "
+            "repairs (ordering fix, bare-form rewrite, missing-pattern "
+            "insertion); if git still reports the path ignored afterward, "
+            "`apply` will fail loudly rather than silently report success."
         )
 
     if diff["files_missing"]:
@@ -1025,9 +1313,33 @@ def cmd_apply(args: argparse.Namespace) -> int:
         all_satisfied = (
             not diff["gitignore_missing"]
             and not diff["files_missing"]
-            and not diff["gitignore_misordered"]
-            and not diff["gitignore_bare_defeater"]
+            and not diff["gitignore_negations_defeated"]
         )
+
+        # Detection (behavioral) and repair (syntactic) can disagree: the
+        # repairs above only know how to move/rewrite the line SHAPES they
+        # recognize, so a spelling neither matcher recognizes can leave git
+        # still reporting a manifest-negated path ignored after every known
+        # repair has run. Silently returning success in that case is exactly
+        # the round-6 Critical this rework closes - fail loudly instead, and
+        # name the affected paths so a human can fix .gitignore by hand.
+        if (
+            diff["gitignore_negations_defeated"]
+            and diff["gitignore_verification"] == "behavioral"
+        ):
+            errored = True
+            affected = ", ".join(diff["gitignore_negations_defeated_paths"]) or "(unknown)"
+            print(
+                "ds-migrate: ERROR - the following manifest-negated paths "
+                f"are still reported ignored by git after repair: {affected}. "
+                "Automatic repair (ordering fix, bare-form rewrite, "
+                "missing-pattern insertion) could not resolve this. Edit "
+                ".gitignore by hand: ensure an .agentic/ umbrella ignore "
+                "pattern is followed by a !.agentic/<file> negation for "
+                "each affected path, with no other ignore pattern below "
+                "that negation that re-ignores it.",
+                file=sys.stderr,
+            )
 
         if all_satisfied:
             _stamp_project_version(project_root, manifest_version)

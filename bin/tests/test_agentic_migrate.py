@@ -1770,20 +1770,52 @@ class TestUmbrellaPrefixSpellingAgreement(unittest.TestCase):
     `git check-ignore` showed the file still ignored. Three prior rounds each
     widened the regex by hand and the next round found a spelling it missed
     (round 6: comment-shaped guard; round 7: root-anchored negation; round 8:
-    `/**/`-prefixed umbrellas/negations found in round 9's own review).
+    `/**/`-prefixed umbrellas/negations found in round 9's own review); round
+    9's own generator then missed the SUFFIX axis (`.agentic/**/**`,
+    `.agentic/**/**/*`, `.agentic/***`), found immediately by the round-9
+    Skeptic.
 
-    This test stops the pattern of hand-widening: it derives ground truth
-    mechanically from real `git check-ignore` for a candidate set generated
-    from small prefix/suffix components (not hand-picked per round), and
-    asserts `_is_agentic_umbrella_pattern` / `_is_agentic_negation_line` agree
-    with git for every candidate. A future spelling gap is caught here by the
-    generator, not by a round-10 Skeptic finding.
+    ROUND 10 CORRECTION (Major finding on this docstring): the paragraph this
+    replaces claimed the candidate set was "generated ... not hand-picked
+    per round" and guaranteed "a future spelling gap is caught here by the
+    generator, not by a round-10 Skeptic finding." Both statements were
+    false the moment they were written: `NEGATABLE_SUFFIXES` below was (and
+    remains) a hand-picked list, not a generated one, and it was falsified
+    in the very round that wrote it. The honest statement is narrower:
+
+    As of round 10, DETECTION of a defeated negation no longer depends on
+    this regex, or on any pattern-syntax recognition, at all - `check` and
+    `apply` ask `git check-ignore` directly whether each manifest-negated
+    path is reachable (see `_compute_negations_defeated` in `bin/ds-migrate`
+    and `TestBehavioralNegationDetection` below), so a spelling this test's
+    generator does not enumerate can no longer cause a false `ok`. This
+    class still matters, but only for a narrower claim: it verifies that
+    `_is_agentic_umbrella_pattern` / `_is_agentic_negation_line` - the
+    matchers `_repair_gitignore_order` / `_repair_bare_agentic_lines` use to
+    decide WHICH line to move or rewrite - agree with git for the
+    (prefix x suffix) candidates enumerated below. A future spelling this
+    generator does not cover can still degrade REPAIR (detection will still
+    correctly report drift; `apply` will then fail loudly per the
+    round-10 "detection and repair disagree" contract instead of silently
+    succeeding - see `TestApplyFailsLoudlyWhenRepairCannotResolveDetectedDrift`
+    below), it can no longer produce a false `ok`.
 
     No documented exceptions exist: every generated candidate below is
     asserted to agree with git. If a future candidate must legitimately
     diverge (a spelling git honors that we deliberately do NOT want treated
     as a scaffolding umbrella), it must be added to `_DOCUMENTED_EXCEPTIONS`
     below with its reason - never silently excluded from the generated set.
+
+    `_DOCUMENTED_EXCEPTIONS` key shapes (two different shapes are used by
+    the two tests below - not a typo, each test scopes its own key
+    namespace): `test_umbrella_regex_agrees_with_git_for_generated_prefixes`
+    keys on `(prefix, suffix)` - one entry per (prefix, suffix) candidate
+    pair, matching that test's nested-loop generation. `test_negation_regex_
+    agrees_with_git_for_generated_prefixes` keys on `(prefix, "negation")` -
+    the literal string `"negation"` as the second element, not a suffix,
+    because that test iterates PREFIXES alone (each prefix paired with the
+    fixed `/*` umbrella suffix and its own negation line, not the full
+    prefix x suffix cross product) - see that test's docstring for why.
     """
 
     # The six components specified for the prefix generator: no prefix, a
@@ -1798,7 +1830,14 @@ class TestUmbrellaPrefixSpellingAgreement(unittest.TestCase):
         "", "/", "**/", "/**/", "**/**/", "//",
         "/**/**/", "**//", "/**//",
     ]
-    NEGATABLE_SUFFIXES = ["/*", "/**", "/**/*"]
+    # NOT generated - see the class docstring's ROUND 10 CORRECTION. `/**`
+    # and `/**/*` were already here; `/**/**`, `/**/**/*`, and `/***` are the
+    # round-9 Skeptic's suffix finding, added so this test's own coverage
+    # matches what `_AGENTIC_UMBRELLA_SUFFIX_RE_STR` now accepts (see
+    # bin/ds-migrate). A suffix this list omits is not "caught here by the
+    # generator" - it is caught behaviorally at runtime instead (see the
+    # class docstring).
+    NEGATABLE_SUFFIXES = ["/*", "/**", "/**/*", "/**/**", "/**/**/*", "/***"]
     BARE_SUFFIXES = ["/", ""]
 
     # {(prefix, suffix): "reason"} - intentionally empty. See class docstring.
@@ -1917,6 +1956,21 @@ class TestUmbrellaPrefixSpellingAgreement(unittest.TestCase):
             "every prefix must be either asserted-on or explicitly skipped "
             "as moot (umbrella-only doesn't ignore anything)",
         )
+        # Round 10 fix: the equality assertion above passes vacuously if
+        # EVERY prefix goes moot (candidate_count == 0, skipped_moot ==
+        # len(PREFIXES)) - the test would then have asserted nothing about
+        # any actual negation behavior while still reporting green. Floor
+        # candidate_count at a known-nonzero minimum so a future change that
+        # somehow makes every prefix moot (e.g. a PREFIXES edit, or an
+        # environment where the umbrella never matches) fails loudly instead
+        # of silently asserting nothing.
+        self.assertGreater(
+            candidate_count, 0,
+            "every generated prefix went moot (umbrella-only ignored "
+            "nothing) - this test asserted nothing about negation behavior; "
+            "investigate PREFIXES or the git environment before trusting "
+            "a green run",
+        )
         print(
             f"[spelling-agreement] negation candidates checked: "
             f"{candidate_count} (skipped as moot: {skipped_moot})",
@@ -1957,6 +2011,292 @@ class TestUmbrellaPrefixSpellingAgreement(unittest.TestCase):
                 mod._is_agentic_negation_line(line),
                 f"{line!r} must not be recognized as an .agentic/ negation",
             )
+
+
+class TestManifestNegatedPathsDerivation(unittest.TestCase):
+    """Round 10: `_manifest_negated_paths` derives the behavioral-detection
+    probe set directly from the manifest's own `!`-prefixed gitignore
+    entries, not a hand-picked list - a manifest edit changes what gets
+    verified with no matching code change required."""
+
+    def test_probes_derived_from_live_manifest(self):
+        mod = _load_agentic_migrate_module()
+        manifest = mod._load_manifest(Path(MANIFEST))
+        probes = mod._manifest_negated_paths(manifest)
+
+        manifest_text = Path(MANIFEST).read_text(encoding="utf-8")
+        negation_patterns = re.findall(r'- pattern:\s*"(!\.agentic/[^"]+)"', manifest_text)
+        self.assertTrue(negation_patterns)
+
+        # Plain-file negations probe themselves directly.
+        self.assertIn(".agentic/qa.md", probes)
+        self.assertIn(".agentic/config.json", probes)
+        # Directory-form (`!.agentic/session-log/`) and recursive-glob-form
+        # (`!.agentic/session-log/**`) negations both probe a synthetic file
+        # one level inside the directory, and dedupe to the SAME probe -
+        # this is why len(probes) is one less than len(negation_patterns).
+        self.assertIn(".agentic/session-log/.ds-migrate-probe", probes)
+        self.assertEqual(len(probes), len(set(probes)), "probes must be deduped")
+        self.assertEqual(
+            len(probes), len(negation_patterns) - 1,
+            "session-log/ and session-log/** must dedupe to exactly one probe",
+        )
+
+    def test_directory_and_recursive_forms_produce_probe_paths_not_bare_dirs(self):
+        mod = _load_agentic_migrate_module()
+        manifest = {
+            "gitignore": [
+                {"pattern": "!.agentic/plain.md"},
+                {"pattern": "!.agentic/adir/"},
+                {"pattern": "!.agentic/bdir/**"},
+                {"pattern": ".agentic/*"},  # not a negation - must be skipped
+            ]
+        }
+        probes = mod._manifest_negated_paths(manifest)
+        self.assertEqual(
+            probes,
+            [".agentic/plain.md", ".agentic/adir/.ds-migrate-probe", ".agentic/bdir/.ds-migrate-probe"],
+        )
+
+
+class TestBehavioralNegationDetection(unittest.TestCase):
+    """Round 10 rework: `check`/`apply` ask `git check-ignore` directly
+    whether each manifest-negated path is reachable, closing the class of
+    bug that recurred across rounds 6-9 (a syntactic matcher missing a
+    spelling git itself honors)."""
+
+    def _git(self, args, cwd):
+        return subprocess.run(
+            ["git"] + args, cwd=str(cwd), capture_output=True, text=True, check=True
+        )
+
+    def _seeded_project(self, tmp, version=None):
+        project = Path(tmp) / "project"
+        agentic = project / ".agentic"
+        agentic.mkdir(parents=True)
+        version = _manifest_version() if version is None else version
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": version}) + "\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        return project
+
+    def test_round9_suffix_defeat_pre_fix_reproduction_now_caught(self):
+        """Pre-fix reproduction of the round-9 finding: `.agentic/**/**`
+        below an existing negation defeats it, but was unrecognized by
+        `_AGENTIC_UMBRELLA_RE` before round 10's suffix widening AND before
+        behavioral detection existed at all - `check` reported `ok` while
+        `.agentic/qa.md` was genuinely unstageable. Both closures are
+        exercised together here: even if a future suffix regresses the
+        syntactic matcher again, behavioral detection alone must still
+        catch this."""
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        (project / ".gitignore").write_text("!.agentic/qa.md\n.agentic/**/**\n")
+
+        result = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(out["gitignore_negations_defeated"])
+        self.assertEqual(out["gitignore_verification"], "behavioral")
+        self.assertIn(".agentic/qa.md", out["gitignore_negations_defeated_paths"])
+
+        # Staging oracle (never git check-ignore -v - see the dedicated test
+        # below for why): qa.md must NOT be stageable while defeated.
+        self._git(["add", "-A"], project)
+        status = self._git(["status", "--porcelain"], project).stdout
+        self.assertNotIn(".agentic/qa.md", status)
+
+    def test_apply_repairs_suffix_case_and_all_knowledge_files_stage(self):
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        (project / ".gitignore").write_text("!.agentic/qa.md\n.agentic/**/**\n")
+
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+
+        check = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(check.returncode, 0, msg=check.stdout)
+        self.assertEqual(json.loads(check.stdout)["status"], "ok")
+
+        manifest_text = Path(MANIFEST).read_text(encoding="utf-8")
+        negation_patterns = re.findall(r'- pattern:\s*"(!\.agentic/[^"]+)"', manifest_text)
+        for pattern in negation_patterns:
+            rel = pattern[1:]
+            if rel.endswith("/**"):
+                target = rel[: -len("/**")] + "/example-file.txt"
+                (project / rel[: -len("/**")]).mkdir(parents=True, exist_ok=True)
+            elif rel.endswith("/"):
+                target = rel.rstrip("/") + "/example-file.txt"
+                (project / rel.rstrip("/")).mkdir(parents=True, exist_ok=True)
+            else:
+                target = rel
+            (project / target).write_text("x\n")
+            self._git(["add", "--", target], project)
+        status = self._git(["status", "--porcelain"], project).stdout
+        for line in status.splitlines():
+            if line.endswith(" .gitignore"):
+                # .gitignore itself is deliberately never staged by this
+                # test - only the 12 knowledge-file targets are.
+                continue
+            self.assertTrue(line.startswith("A "), f"expected staged (A), got: {line!r}")
+
+    def test_check_ignore_dash_v_false_positive_is_not_relied_upon(self):
+        """Round 10 discovery, load-bearing for the whole design: real
+        `git check-ignore -v <path>` returns exit 0 (falsely "ignored") for
+        a path a correctly-ordered negation covers, whenever that exact
+        path has never been part of the index - reproduced directly here
+        (not via our code) so the fact is pinned. `git add`,
+        `git ls-files --others --exclude-standard`, and
+        `git status --porcelain --ignored=matching` all correctly disagree
+        with `-v`'s answer. `_git_check_ignore_batch` deliberately omits
+        `-v` to sidestep this; this test also asserts our function does not
+        reproduce the false positive. If the FIRST assertion below
+        (reproducing the raw git bug) ever fails, git's own behavior may
+        have changed upstream - re-verify before assuming a regression in
+        our code."""
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "project"
+        (project / ".agentic").mkdir(parents=True)
+        (project / ".agentic" / "qa.md").write_text("qa data\n")
+        (project / ".gitignore").write_text(".agentic/*\n!.agentic/qa.md\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+
+        # IMPORTANT ordering: the git -v quirk this test pins only
+        # reproduces before the target path has ever been staged (see the
+        # docstring above and _git_check_ignore_batch's own docstring for
+        # the measurement) - so both the raw-git reproduction AND our
+        # function's own call must happen BEFORE any `git add` of this
+        # path. Staging first would silently "fix" the quirk and this test
+        # would pass without exercising anything.
+        buggy = subprocess.run(
+            ["git", "check-ignore", "-v", ".agentic/qa.md"],
+            cwd=str(project), capture_output=True, text=True,
+        )
+        self.assertEqual(
+            buggy.returncode, 0,
+            "expected the documented git -v quirk to reproduce (exit 0, "
+            "falsely reporting .agentic/qa.md ignored) - if this is no "
+            "longer 0, git's -v behavior may have changed upstream; "
+            "re-verify before trusting the rest of this test",
+        )
+
+        mod = _load_agentic_migrate_module()
+        ignored = mod._git_check_ignore_batch(project, [".agentic/qa.md"])
+        self.assertEqual(
+            ignored, set(),
+            "_git_check_ignore_batch must not reproduce the -v false "
+            "positive - see its docstring",
+        )
+
+        # Ground truth, confirmed AFTER our function's own call (not
+        # before - see the ordering note above): git add succeeds without
+        # -f, proving the file was genuinely reachable all along.
+        added = subprocess.run(
+            ["git", "add", ".agentic/qa.md"], cwd=str(project),
+            capture_output=True, text=True,
+        )
+        self.assertEqual(added.returncode, 0, added.stderr)
+
+    def test_unavailable_outside_git_falls_back_without_manufacturing_drift(self):
+        """No `.git` at all: verification is 'unavailable', and the
+        syntactic fallback (misordered/bare_defeater, both False for a
+        correctly-ordered file) must not manufacture drift - same
+        protection level as before round 10, not a regression for tooling
+        that never claimed to verify real git state."""
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "project"
+        agentic = project / ".agentic"
+        agentic.mkdir(parents=True)
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        (project / ".gitignore").write_text("")
+
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertFalse((project / ".git").exists())
+
+        check = run(["check", "--manifest", MANIFEST, "--project-root", str(project)])
+        out = json.loads(check.stdout)
+        self.assertEqual(out["status"], "ok", msg=check.stdout)
+
+    def test_unavailable_outside_git_still_catches_known_shaped_misorder(self):
+        """No `.git` at all, but a misorder shape `_find_misordered_umbrella`
+        recognizes is still caught via the syntactic fallback."""
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "project"
+        agentic = project / ".agentic"
+        agentic.mkdir(parents=True)
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": 1}) + "\n")
+        (project / ".gitignore").write_text("!.agentic/qa.md\n.agentic/*\n")
+        manifest_text = (
+            "scaffolding_version: 1\n"
+            "gitignore:\n"
+            '  - pattern: ".agentic/*"\n'
+            '    purpose: "umbrella ignore"\n'
+            '  - pattern: "!.agentic/qa.md"\n'
+            '    purpose: "committed"\n'
+            "files: []\nmarkers: []\n"
+        )
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+        self.assertFalse((project / ".git").exists())
+
+        result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(out["gitignore_misordered"])
+        self.assertTrue(out["gitignore_negations_defeated"])
+        self.assertEqual(out["gitignore_verification"], "unavailable")
+
+
+class TestApplyFailsLoudlyWhenRepairCannotResolveDetectedDrift(unittest.TestCase):
+    """Round 10 requirement: when behavioral detection reports a negation
+    is defeated and the syntactic repair machinery cannot identify (and
+    therefore cannot fix) the offending line, `apply` must fail loudly
+    (non-zero exit, an actionable stderr message naming the affected
+    paths) rather than silently report success - the round-6 Critical this
+    whole rework closes was exactly a silent-success case."""
+
+    def test_apply_exits_nonzero_names_affected_path_and_does_not_stamp(self):
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "project"
+        agentic = project / ".agentic"
+        agentic.mkdir(parents=True)
+        # No scaffolding_version key at all - _read_project_version() -> 0,
+        # so a stamp to the manifest version would be an unambiguous signal
+        # apply considered itself successful.
+        (agentic / "config.json").write_text(json.dumps({}) + "\n")
+        # A custom character-class ignore pattern below the qa.md negation -
+        # not shaped like anything _is_agentic_umbrella_pattern recognizes,
+        # so repair cannot identify or move it, but it genuinely re-ignores
+        # qa.md per real gitignore semantics.
+        (project / ".gitignore").write_text(
+            ".agentic/*\n!.agentic/qa.md\n.agentic/[a-z]*.md\n"
+        )
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 3, msg=result.stdout + result.stderr)
+        self.assertIn("ERROR", result.stderr)
+        self.assertIn(".agentic/qa.md", result.stderr)
+
+        data = json.loads((agentic / "config.json").read_text())
+        self.assertNotIn(
+            "scaffolding_version", data,
+            "apply must not stamp scaffolding_version while a "
+            "manifest-negated path is still reported ignored by git",
+        )
+
+        # Every OTHER negation (appended after the exotic line) must still
+        # have been correctly repaired - only qa.md is genuinely unfixable
+        # here, and the error message must not overstate the failure.
+        subprocess.run(["git", "add", "-A"], cwd=str(project), check=True)
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=str(project),
+            capture_output=True, text=True,
+        ).stdout
+        self.assertNotIn(".agentic/qa.md", status)
+        self.assertIn(".gitignore", status)
 
 
 if __name__ == "__main__":
