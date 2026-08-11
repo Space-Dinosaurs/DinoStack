@@ -982,6 +982,7 @@ hr {
 <li>The primary agent tracks each finding by its text across all rounds</li>
 </ul>
 <p><strong>Loop-context override (inside <code>/ds-implement-ticket</code> Phase 6):</strong> the 2-re-route rule is replaced by a stricter contract - <strong>1 re-raise of a Critical finding after a claimed fix</strong> triggers convergence failure escalation immediately. Outside a named loop, the 2-re-route rule is unchanged.</p>
+<p><strong>Prose-scoped re-check:</strong> when every unresolved finding is prose-only (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code/test/behavior change, the next verification is narrowed to the changed prose lines plus a full end-to-end read of the enclosing manifest/section - not a full fresh round. The reviewer establishes the trigger itself by diffing the fix commit(s), never from engineer self-classification; any parsed/executed/byte-pinned hunk disqualifies the lever. The conductor names the mode and supplies the <code>sha1..sha2</code> fix range at spawn; sign-off carries a mandatory <code>Scope:</code> line. A code/test/behavior finding found during the narrower pass still escalates normally. Verification-cost lever only; severity tiers are unchanged.</p>
 <div class="callout">
 The 3-pass cap and the per-finding 2-re-route rule are separate ceilings. Either can trigger escalation first. Inside a persistence loop, convergence failure escalates even faster.
 </div>

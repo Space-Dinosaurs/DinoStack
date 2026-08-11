@@ -17742,6 +17742,16 @@
       "source_token": "Write"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "0c57f4c27747c4c7c2c64b753421c4683eb01fd2e9568896dc29e41f752700ed",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "apply_patch",
       "generated_token": "Write",
       "kind": "semantic-reference",
@@ -19912,16 +19922,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "8fb9c19a47184b190b92631a71c64126eb9dbf9cf3e2a7dbe05f109275fbbbf4",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": ".agentic/compression-state.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/compression-state.json",
       "kind": "operational",
@@ -20672,16 +20672,6 @@
       "source_token": "/ds-wrap"
     },
     {
-      "expected_target": "content/references/skeptic-protocol.md",
-      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
-      "kind": "operational",
-      "occurrence_hash": "c1aedb9be58f8aedecdc85091b5591eb7effe6152e4914ac4d4a7e187ec34330",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-wrap.md",
-      "source_token": "content/references/skeptic-protocol.md"
-    },
-    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -21300,6 +21290,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-wrap.md",
       "source_token": ".agentic/config.json>"
+    },
+    {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "eb96f1cfb46dfc7401d783bcb978735786ddfe439d7a03a3fad2e62802d65386",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-wrap.md",
+      "source_token": "content/references/skeptic-protocol.md"
     },
     {
       "expected_target": ".agentic/deploy.md",
