@@ -131,11 +131,13 @@ Run this check once at the first skill invocation (and every `/`-command). Read 
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
    - Any other combination (including `marker=none` with `mode=opt-out`, or `marker=opt-in` with `mode=opt-in`) - proceed with the methodology.
 
-   On any proceed branch: immediately run Step 5 (first-activation notice) and Step 6 (scaffolding-sync); read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the full implementation.
+   On any proceed branch: immediately run Step 5 (first-activation notice), Step 6 (scaffolding-sync), and Step 7 (prior-session learning-shard rollup); read `content/references/activation-detail.md` §Step 5: First-Activation Notice, §Step 6: Scaffolding-Sync Check, and §Step 7: Prior-Session Learning-Shard Rollup for the full implementation.
 
-   *(Steps 5-6 are deferred to `content/references/activation-detail.md` as a deliberate forcing-read exception - the breadcrumb above ensures every active session reads them.)*
+   *(Steps 5-7 are deferred to `content/references/activation-detail.md` as a deliberate forcing-read exception - the breadcrumb above ensures every active session reads them.)*
 
-7. **When no-opping, print one line and stop:** *(Steps 5-6 deferred above)*
+7. **Prior-session learning-shard rollup.** Runs only when Step 4 resolved to active. Make exactly one call - `ds-learning-shard rollup --repo <cwd>` - which prints a JSON array and exits 0 on every path. An empty array is the common case: stop there, print nothing, spawn nothing. On a non-empty array, classify each entry through `content/references/capture-classification.md` and forward only `Capture: MUST` items to `learnings-agent`. Soft-fail absolutely: a missing binary, a non-zero exit, or unparseable output is a silent no-op and never blocks session start. Detail: `content/references/activation-detail.md` §Step 7: Prior-Session Learning-Shard Rollup.
+
+8. **When no-opping, print one line and stop:** *(Steps 5-7 deferred above)*
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 

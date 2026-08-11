@@ -63,11 +63,13 @@ Run this check once at the first skill invocation (and every `/`-command). Read 
    - `mode=opt-in` AND `marker != opt-in` - skill no-ops silently; fall back to default behavior.
    - Any other combination (including `marker=none` with `mode=opt-out`, or `marker=opt-in` with `mode=opt-in`) - proceed with the methodology.
 
-   On any proceed branch: immediately run Step 5 (first-activation notice) and Step 6 (scaffolding-sync); read `content/references/activation-detail.md` §Step 5: First-Activation Notice and §Step 6: Scaffolding-Sync Check for the full implementation.
+   On any proceed branch: immediately run Step 5 (first-activation notice), Step 6 (scaffolding-sync), and Step 7 (prior-session learning-shard rollup); read `content/references/activation-detail.md` §Step 5: First-Activation Notice, §Step 6: Scaffolding-Sync Check, and §Step 7: Prior-Session Learning-Shard Rollup for the full implementation.
 
-   *(Steps 5-6 are deferred to `content/references/activation-detail.md` as a deliberate forcing-read exception - the breadcrumb above ensures every active session reads them.)*
+   *(Steps 5-7 are deferred to `content/references/activation-detail.md` as a deliberate forcing-read exception - the breadcrumb above ensures every active session reads them.)*
 
-7. **When no-opping, print one line and stop:** *(Steps 5-6 deferred above)*
+7. **Prior-session learning-shard rollup.** Runs only when Step 4 resolved to active. Make exactly one call - `ds-learning-shard rollup --repo <cwd>` - which prints a JSON array and exits 0 on every path. An empty array is the common case: stop there, print nothing, spawn nothing. On a non-empty array, classify each entry through `content/references/capture-classification.md` and forward only `Capture: MUST` items to `learnings-agent`. Soft-fail absolutely: a missing binary, a non-zero exit, or unparseable output is a silent no-op and never blocks session start. Detail: `content/references/activation-detail.md` §Step 7: Prior-Session Learning-Shard Rollup.
+
+8. **When no-opping, print one line and stop:** *(Steps 5-7 deferred above)*
 
 **Skill/command references:** Every file in `content/commands/` begins with a one-line reminder to run this preflight and no-op if inactive. The check is performed once per session - subsequent `/`-commands in the same session can trust the earlier result.
 
@@ -802,34 +804,39 @@ Read `content/references/conventions-detail.md` §External Comment Discipline fo
 Purpose: Detailed activation-preflight reference blocks extracted from
          content/sections/01-activation-preflight.md. Contains: Step 5
          (first-activation notice - TTY/QUIET gate, sentinel write contract,
-         sentinel body, notice text verbatim) and Step 6 (scaffolding-sync
+         sentinel body, notice text verbatim), Step 6 (scaffolding-sync
          check - ds-migrate check/apply flow, gitignore patterns,
-         AGENTS.md carve-out).
+         AGENTS.md carve-out) and Step 7 (prior-session learning-shard
+         rollup - single ds-learning-shard rollup call, conductor-side
+         classification, silent empty path).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/01-activation-preflight.md (inline pointers
-            replacing the Step 5 and Step 6 detail blocks).
+            replacing the Step 5, Step 6 and Step 7 detail blocks).
 
 Upstream deps: content/sections/01-activation-preflight.md (parent section;
-               read Steps 1-4 and Step 7 there for activation decision and
+               read Steps 1-4 and Step 8 there for activation decision and
                no-op path); bin/ds-migrate (scaffolding-sync binary
-               invoked in Step 6).
+               invoked in Step 6); bin/ds-learning-shard (shard store CLI
+               invoked in Step 7); content/references/capture-classification.md
+               (classification table applied in Step 7).
 
 Downstream consumers: every adapter that implements the activation preflight
                       (Claude, Codex, Cursor, Hermes, OpenCode, etc.) must
-                      implement Step 5 and Step 6 per this spec; CI checks
+                      implement Steps 5-7 per this spec; CI checks
                       adapter-sync against source.
 
 Failure modes: Sentinel write is create-only (O_EXCL / link() pattern);
                concurrent racers produce exactly one notice. Filesystem
                errors other than EEXIST are silently swallowed - the notice
-               may re-print on the next session. ds-migrate failures
-               are silently swallowed; methodology proceeds.
+               may re-print on the next session. ds-migrate and
+               ds-learning-shard failures are silently swallowed;
+               methodology proceeds.
 
 Performance: Standard (single file write + optional binary shell-out).
 -->
 
-> Parent section: `content/sections/01-activation-preflight.md`. Read Steps 1-4 and Step 7 there for the activation decision and no-op path.
+> Parent section: `content/sections/01-activation-preflight.md`. Read Steps 1-4 and Step 8 there for the activation decision and no-op path.
 
 ## Step 5: First-Activation Notice
 
@@ -869,6 +876,20 @@ Performance: Standard (single file write + optional binary shell-out).
    b. If status is "ok" (project version >= manifest version): no-op.
    c. If status is "drift": invoke `ds-migrate apply`. The binary acquires `~/.agentic/.scaffolding-apply.lock` (on EWOULDBLOCK: another session is applying - skip silently). It applies additive gitignore patterns (exact-line match, strip trailing whitespace), writes missing `.agentic/` seed files (never overwrites existing), updates `scaffolding_version` in `.agentic/config.json` when all additive rules satisfied, and appends a one-line audit entry to the `.agentic/context.d/scaffolding-notices.md` shard (NOT to `.agentic/context.md`, which is a derived rollup that would discard the entry on the next Stop turn). The `markers:` key in the manifest is IGNORED by this path (operator-owned; surface via `/ds-migrate-project --include-destructive` only).
    d. AGENTS.md is never modified by this step. Operator-owned scaffolding requires `/ds-migrate-project --include-destructive`.
+
+## Step 7: Prior-Session Learning-Shard Rollup
+
+7. **Prior-session learning-shard rollup.** Runs only when Step 4 resolved to active. This is what drains the per-session learning shards that write-capable subagents append in-flight (`bin/ds-learning-shard append`, per `content/references/learnings-capture-instruction.md`), so capture no longer depends on an operator remembering to run a wrap command at end of session. It fires at the top of the very next session of any kind, on every adapter, because every adapter has an activation-preflight moment by definition. Do not replace it with a daemon, a resume flag, or a harness-specific hook.
+
+   a. Make exactly ONE call: `ds-learning-shard rollup --repo <cwd>` (resolved from PATH or the adapter install `bin/`). Pass no `--session-key`. The CLI prints a JSON array to stdout and exits 0 on every path, soft-fails included.
+
+   b. **Prior sessions only.** An unscoped rollup can only see shards written before this session started, because the current session has appended nothing yet at preflight time. Repeat calls are non-events: `.rolled-up.json` bookkeeping is keyed on the SET of CLI-owned entry ids already emitted, so an entry is emitted exactly once. No extra scoping is needed; passing `--session-key` here would be wrong, since the key of interest belongs to a session that has already ended.
+
+   c. **Empty is the common case and must cost nothing.** On `[]`, stop immediately: print nothing, spawn nothing, write nothing. This step runs at the top of every session, so a chatty or expensive empty path is a step operators will disable.
+
+   d. **Classification is conductor-side; the CLI performs none.** For a non-empty array, apply the guardrail-first precedence chain and table in `content/references/capture-classification.md` to each entry. Forward only the entries whose verdict is `Capture: MUST` to `learnings-agent`, spawning it once for the batch if it is not already running. Entries classified `Capture: SKIP` are dropped silently. Do not invent a parallel classification path.
+
+   e. **Soft-fail absolutely.** Binary not found, non-zero exit, empty output, or output that does not parse as a JSON array: treat as `[]` and proceed. Never print a diagnostic, never retry, never block session start. A dropped rollup is recovered by the next session's preflight, since unemitted entries stay unmarked.
 
 ---
 
