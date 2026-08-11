@@ -22,7 +22,9 @@ Upstream dependencies: content/agents/*.md (real agent files, dispatched via
             expected_violations_snapshot.json (round-5: the exact per-file
             violation-string snapshot loaded into EXPECTED_VIOLATIONS -
             see generate_agent_return_contract_snapshot.py for how this
-            file is regenerated).
+            file is regenerated);
+            content/references/subagent-return-contract.md (read directly
+            at test time via CONTRACT_REF_PATH, round-6 addition).
 
 Downstream consumers: .github/workflows/bin-tests.yml python-bin-tests job,
             which runs `pytest bin/tests/ -q` - full-directory glob
@@ -269,10 +271,13 @@ Failure modes: pure static analysis, no I/O beyond reading .md files under
                 'never omit any section' instruction" sentence in
                 content/references/subagent-return-contract.md is DELETED
                 (not narrowed-and-left-alongside-its-own-correction) -
-                the accurate count (5) is folded directly into the
-                sentence it replaces, and the separate "Correction
-                (2026-08-11, round 5)" paragraph correcting a sentence
-                that no longer exists is removed with it.
+                the accurate per-file enumeration is folded directly into
+                the sentence it replaces (no numeral restated here, since
+                this manifest comment is itself a fourth unpinned copy of
+                that count and drifted stale once already), and the
+                separate "Correction (2026-08-11, round 5)" paragraph
+                correcting a sentence that no longer exists is removed
+                with it.
             (Minor) content/references/subagent-return-contract.md's
                 form-6-then/form-7-now vocabulary list is enumerated in
                 full (no trailing '...') and now matches
