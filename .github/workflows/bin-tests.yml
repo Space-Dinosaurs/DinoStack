@@ -139,6 +139,28 @@ jobs:
       - run: pip install pyyaml
       - name: install zsh (required for bash/zsh parity assertion in test_check_resident_budget.sh)
         run: sudo apt-get update && sudo apt-get install -y zsh
+      - name: install gitleaks CLI (required by test_gitleaks_allowlist_scope.sh)
+        # test_gitleaks_allowlist_scope.sh hard-fails under CI if gitleaks is
+        # missing on PATH (a silently-skipped security regression guard is
+        # indistinguishable from a passing one), so this step must always
+        # succeed here. Version and checksum are read from
+        # .github/workflows/gitleaks.yml at CI time rather than hardcoded, so
+        # bumping that pin cannot silently drift from this install step.
+        run: |
+          set -euo pipefail
+          version="$(grep -E '^[[:space:]]*GITLEAKS_VERSION:' .github/workflows/gitleaks.yml | head -1 | sed -E 's/^[^:]*:[[:space:]]*//')"
+          sha256="$(grep -E '^[[:space:]]*GITLEAKS_SHA256:' .github/workflows/gitleaks.yml | head -1 | sed -E 's/^[^:]*:[[:space:]]*//')"
+          if [ -z "$version" ] || [ -z "$sha256" ]; then
+            echo "ERROR: could not read GITLEAKS_VERSION/GITLEAKS_SHA256 out of .github/workflows/gitleaks.yml" >&2
+            exit 1
+          fi
+          tarball="gitleaks_${version}_linux_x64.tar.gz"
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${version}/${tarball}"
+          curl -sSfL "$url" -o "$tarball"
+          echo "${sha256}  ${tarball}" | sha256sum -c -
+          tar -xzf "$tarball" gitleaks
+          sudo install -m 0755 gitleaks /usr/local/bin/gitleaks
+          gitleaks version
       - name: run shell bin tests
         # This step measured 4m56s against the old 5-minute JOB timeout on a
         # single PR, and was cancelled outright on main under queue pressure.
