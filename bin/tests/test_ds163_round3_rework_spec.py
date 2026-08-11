@@ -133,8 +133,17 @@ def test_no_new_condition_position_placeholder_in_bash_fences():
     )
 
 
-def test_allowlist_entries_still_exist_and_still_fail_bash_n():
-    # If a pre-existing placeholder gets fixed (turned into valid bash or
+def test_allowlist_entries_still_exist():
+    # Renamed from test_allowlist_entries_still_exist_and_still_fail_bash_n
+    # (DS-163 round-4 rework): the original name promised a check of BOTH
+    # halves - that each allowlist entry still matches a fence, AND that
+    # the matched fence still fails `bash -n` - but the body below only
+    # ever asserted the first half. Rather than add the missing half (which
+    # would duplicate _bash_n_ok() calls already exercised by
+    # test_no_new_condition_position_placeholder_in_bash_fences() above),
+    # the name is narrowed to match what this test actually does: confirm
+    # every allowlist regex still matches SOME fence in the file. If a
+    # pre-existing placeholder gets fixed (turned into valid bash or
     # removed), its allowlist regex should stop matching anything - this
     # guards against the allowlist silently widening to cover a NEW,
     # unrelated failure after the original placeholder it was written for
