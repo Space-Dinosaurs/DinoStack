@@ -1649,5 +1649,315 @@ markers: []
         )
 
 
+class TestDoubleStarSlashPrefixedUmbrellaEndToEnd(unittest.TestCase):
+    """Round 9 rework, Major 1: CLI-level (`check`/`apply`) proof for the
+    exact reported shape - `.gitignore` = `!.agentic/qa.md` then
+    `/**/.agentic/*` below it. Before the fix, `check` reported `ok` while
+    `git check-ignore` showed the file still ignored (the negation was
+    silently defeated); this closes the loop past the unit-level matcher
+    tests above by exercising the real subcommands and a real git repo."""
+
+    def _misordered_double_star_slash_project(self, tmp):
+        project = Path(tmp) / "project"
+        project.mkdir()
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": 1}) + "\n")
+        (agentic / "qa.md").write_text("# qa\n")
+        gitignore_path = project / ".gitignore"
+        # Exact shape from the round-9 brief's reproduction: negation above,
+        # `/**/`-prefixed umbrella below it (misordered - the umbrella wins
+        # under last-match-wins and defeats the negation).
+        gitignore_path.write_text("!.agentic/qa.md\n/**/.agentic/*\n")
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        return project, gitignore_path
+
+    def _custom_manifest(self, tmp):
+        manifest_text = """
+scaffolding_version: 1
+gitignore:
+  - pattern: "/**/.agentic/*"
+    purpose: "umbrella ignore"
+  - pattern: "!.agentic/qa.md"
+    purpose: "committed"
+files: []
+markers: []
+"""
+        manifest_path = Path(tmp) / "test-manifest.yml"
+        manifest_path.write_text(manifest_text)
+        return manifest_path
+
+    def test_reproduces_pre_fix_defect_on_unpatched_matcher(self):
+        """Confirms the exact pre-fix reproduction from the round-9 brief
+        still reproduces against real git, independent of the matcher fix -
+        i.e. that `/**/.agentic/*` really does defeat `!.agentic/qa.md`
+        under last-match-wins when misordered. This is the ground-truth
+        half of "reproduce the Major before fixing"."""
+        tmp = tempfile.mkdtemp()
+        project, _ = self._misordered_double_star_slash_project(tmp)
+        check = subprocess.run(
+            ["git", "check-ignore", "-v", ".agentic/qa.md"],
+            cwd=str(project), capture_output=True, text=True,
+        )
+        self.assertEqual(
+            check.returncode, 0,
+            "ground truth: git must report .agentic/qa.md as ignored when "
+            "misordered below the /**/-prefixed umbrella",
+        )
+
+    def test_check_reports_drift_not_ok_on_double_star_slash_misordered_file(self):
+        tmp = tempfile.mkdtemp()
+        project, _ = self._misordered_double_star_slash_project(tmp)
+        manifest_path = self._custom_manifest(tmp)
+
+        result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(result.returncode, 1, msg=result.stdout)
+        out = json.loads(result.stdout)
+        self.assertEqual(out["status"], "drift")
+        self.assertTrue(
+            out["gitignore_misordered"],
+            "check must report misordering for a /**/-prefixed umbrella - "
+            "this is the exact round-9 Major: pre-fix it silently reported "
+            "'ok' while the negation was defeated",
+        )
+
+    def test_apply_repairs_ordering_negation_works_and_is_byte_stable_across_3_applies(self):
+        tmp = tempfile.mkdtemp()
+        project, gitignore_path = self._misordered_double_star_slash_project(tmp)
+        manifest_path = self._custom_manifest(tmp)
+
+        r1 = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(r1.returncode, 0, msg=r1.stderr)
+
+        check_result = run(["check", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(check_result.returncode, 0, msg=check_result.stdout)
+
+        # Staging oracle (never check-ignore's exit code alone) proves the
+        # negation actually works post-repair.
+        add = subprocess.run(["git", "add", "-A"], cwd=str(project))
+        self.assertEqual(add.returncode, 0)
+        status = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=str(project),
+            capture_output=True, text=True, check=True,
+        )
+        self.assertIn(
+            ".agentic/qa.md", status.stdout,
+            "qa.md must be stageable after /**/-prefixed ordering repair; "
+            f"git status --porcelain was:\n{status.stdout}",
+        )
+
+        # Byte-stable across 3 applies (idempotence is necessary but not
+        # sufficient per the round-9 brief - round 6 was idempotent and
+        # idempotently broken; this checks it alongside, not instead of, the
+        # staging proof above).
+        content_after_1 = gitignore_path.read_bytes()
+        r2 = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(r2.returncode, 0, msg=r2.stderr)
+        content_after_2 = gitignore_path.read_bytes()
+        self.assertEqual(content_after_1, content_after_2, "apply #2 must be a true no-op")
+        r3 = run(["apply", "--manifest", str(manifest_path), "--project-root", str(project)])
+        self.assertEqual(r3.returncode, 0, msg=r3.stderr)
+        content_after_3 = gitignore_path.read_bytes()
+        self.assertEqual(content_after_2, content_after_3, "apply #3 must be a true no-op")
+
+
+class TestUmbrellaPrefixSpellingAgreement(unittest.TestCase):
+    """Round 9 rework, Major 1 regression: `_AGENTIC_UMBRELLA_RE` and
+    `_AGENTIC_NEGATION_RE` previously hard-coded a hand-rolled prefix grammar
+    (`^(\\*\\*/)?/?`) that missed `/**/`-prefixed spellings git itself honors
+    identically to the bare/`/`/`**/` forms - e.g. `.gitignore` = `!.agentic/
+    qa.md` then `/**/.agentic/*` reported `check` status `ok` while
+    `git check-ignore` showed the file still ignored. Three prior rounds each
+    widened the regex by hand and the next round found a spelling it missed
+    (round 6: comment-shaped guard; round 7: root-anchored negation; round 8:
+    `/**/`-prefixed umbrellas/negations found in round 9's own review).
+
+    This test stops the pattern of hand-widening: it derives ground truth
+    mechanically from real `git check-ignore` for a candidate set generated
+    from small prefix/suffix components (not hand-picked per round), and
+    asserts `_is_agentic_umbrella_pattern` / `_is_agentic_negation_line` agree
+    with git for every candidate. A future spelling gap is caught here by the
+    generator, not by a round-10 Skeptic finding.
+
+    No documented exceptions exist: every generated candidate below is
+    asserted to agree with git. If a future candidate must legitimately
+    diverge (a spelling git honors that we deliberately do NOT want treated
+    as a scaffolding umbrella), it must be added to `_DOCUMENTED_EXCEPTIONS`
+    below with its reason - never silently excluded from the generated set.
+    """
+
+    # The six components specified for the prefix generator: no prefix, a
+    # single root anchor, a `**/` any-depth anchor, and their combinations,
+    # plus the negative control `//` (a bare double slash - no `**` between
+    # the slashes - which git does NOT treat as a valid anchor). Two adjacent
+    # boundary spellings (`/**/**/`  and the near-miss `**//` / `/**//`) are
+    # included beyond the specified six precisely because a hand-picked list
+    # is what produced three prior misses - the generator should probe wider
+    # than the minimum asked for.
+    PREFIXES = [
+        "", "/", "**/", "/**/", "**/**/", "//",
+        "/**/**/", "**//", "/**//",
+    ]
+    NEGATABLE_SUFFIXES = ["/*", "/**", "/**/*"]
+    BARE_SUFFIXES = ["/", ""]
+
+    # {(prefix, suffix): "reason"} - intentionally empty. See class docstring.
+    _DOCUMENTED_EXCEPTIONS: dict[tuple[str, str], str] = {}
+
+    def _git_check_ignore(self, gitignore_lines: list[str]) -> bool:
+        """Build a fresh scratch repo (outside this checkout) containing
+        `.agentic/qa.md`, write `gitignore_lines` verbatim to `.gitignore`,
+        and return whether `git check-ignore` reports the file as ignored.
+        This is the git-opinion oracle the round-9 brief explicitly sanctions
+        for spelling-agreement (as opposed to the staging oracle required for
+        the drift/repair assertions elsewhere in this file)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            project = Path(tmp) / "project"
+            project.mkdir()
+            (project / ".agentic").mkdir()
+            (project / ".agentic" / "qa.md").write_text("x\n", encoding="utf-8")
+            (project / ".gitignore").write_text(
+                "\n".join(gitignore_lines) + "\n", encoding="utf-8"
+            )
+            subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+            result = subprocess.run(
+                ["git", "check-ignore", "-q", ".agentic/qa.md"], cwd=str(project)
+            )
+            return result.returncode == 0
+
+    def test_umbrella_regex_agrees_with_git_for_generated_prefixes(self):
+        """For every (prefix, negatable-suffix) candidate, the umbrella
+        pattern alone (no negation present) must ignore `.agentic/qa.md`
+        according to git if and only if `_is_agentic_umbrella_pattern`
+        recognizes it."""
+        mod = _load_agentic_migrate_module()
+        candidate_count = 0
+        for prefix in self.PREFIXES:
+            for suffix in self.NEGATABLE_SUFFIXES:
+                candidate_count += 1
+                pattern = f"{prefix}.agentic{suffix}"
+                exception = self._DOCUMENTED_EXCEPTIONS.get((prefix, suffix))
+                git_ignores = self._git_check_ignore([pattern])
+                matcher_says_umbrella = mod._is_agentic_umbrella_pattern(pattern)
+                if exception is not None:
+                    self.assertNotEqual(
+                        git_ignores, matcher_says_umbrella,
+                        f"{pattern!r} was documented as an exception "
+                        f"({exception}) but now agrees with git - remove "
+                        "the now-stale exception entry",
+                    )
+                    continue
+                self.assertEqual(
+                    git_ignores, matcher_says_umbrella,
+                    f"pattern {pattern!r}: git check-ignore reports "
+                    f"ignored={git_ignores} but _is_agentic_umbrella_pattern "
+                    f"returned {matcher_says_umbrella} - undocumented "
+                    "disagreement between the matcher and git",
+                )
+        self.assertEqual(
+            candidate_count, len(self.PREFIXES) * len(self.NEGATABLE_SUFFIXES),
+            "candidate_count must reflect the full generated cross product",
+        )
+        print(
+            f"[spelling-agreement] umbrella candidates checked: "
+            f"{candidate_count}",
+            file=sys.stderr,
+        )
+
+    def test_negation_regex_agrees_with_git_for_generated_prefixes(self):
+        """For every prefix candidate, pair a `.agentic/*` umbrella (correct
+        order: umbrella above negation) with a `!<prefix>.agentic/qa.md`
+        negation using the SAME prefix spelling, and assert that git no
+        longer reporting the file as ignored (negation worked) if and only
+        if BOTH `_is_agentic_umbrella_pattern` and `_is_agentic_negation_line`
+        recognize their respective lines. This is the exact end-to-end shape
+        of the round-9 Major: an umbrella+negation pair that git honors but
+        the matcher silently fails to route through order-repair logic."""
+        mod = _load_agentic_migrate_module()
+        candidate_count = 0
+        skipped_moot = 0
+        for prefix in self.PREFIXES:
+            umbrella = f"{prefix}.agentic/*"
+            negation = f"!{prefix}.agentic/qa.md"
+            # A prefix that doesn't create a real ignore at all (e.g. the
+            # `//` negative control) makes the negation question moot: the
+            # file was never blocked, so git trivially "restores" it for a
+            # reason unrelated to negation working. Scope the assertion to
+            # prefixes where the umbrella genuinely ignores something -
+            # that's exactly what the first test above already verifies
+            # agrees with the matcher.
+            if not self._git_check_ignore([umbrella]):
+                skipped_moot += 1
+                continue
+            candidate_count += 1
+            exception = self._DOCUMENTED_EXCEPTIONS.get((prefix, "negation"))
+            still_ignored = self._git_check_ignore([umbrella, negation])
+            negation_works_per_git = not still_ignored
+            matcher_recognizes_both = (
+                mod._is_agentic_umbrella_pattern(umbrella)
+                and mod._is_agentic_negation_line(negation)
+            )
+            if exception is not None:
+                self.assertNotEqual(
+                    negation_works_per_git, matcher_recognizes_both,
+                    f"prefix {prefix!r} was documented as an exception "
+                    f"({exception}) but now agrees with git - remove the "
+                    "now-stale exception entry",
+                )
+                continue
+            self.assertEqual(
+                negation_works_per_git, matcher_recognizes_both,
+                f"prefix {prefix!r}: git {'restores' if negation_works_per_git else 'still ignores'} "
+                f"{umbrella!r}+{negation!r} but the matcher "
+                f"{'recognizes' if matcher_recognizes_both else 'does not recognize'} "
+                "both lines - undocumented disagreement",
+            )
+        self.assertEqual(
+            candidate_count + skipped_moot, len(self.PREFIXES),
+            "every prefix must be either asserted-on or explicitly skipped "
+            "as moot (umbrella-only doesn't ignore anything)",
+        )
+        print(
+            f"[spelling-agreement] negation candidates checked: "
+            f"{candidate_count} (skipped as moot: {skipped_moot})",
+            file=sys.stderr,
+        )
+
+    def test_bare_dir_suffixes_never_classified_as_negatable_umbrella(self):
+        """Sanity companion to the two tests above: a bare-directory form
+        (trailing `/` or no trailing glob at all) is ignored by git exactly
+        like a negatable umbrella, but per _AGENTIC_BARE_DIR_RE's own
+        docstring no negation placed anywhere can ever un-ignore a file
+        inside it. `_is_agentic_umbrella_pattern` must therefore return False
+        for every one of these, for every generated prefix - this is the
+        one place where "git ignores it" and "matcher recognizes it as a
+        negatable umbrella" are SUPPOSED to disagree, and that divergence is
+        the documented, intentional kind called for by the round-9 brief."""
+        mod = _load_agentic_migrate_module()
+        for prefix in self.PREFIXES:
+            for suffix in self.BARE_SUFFIXES:
+                pattern = f"{prefix}.agentic{suffix}"
+                self.assertFalse(
+                    mod._is_agentic_umbrella_pattern(pattern),
+                    f"bare-dir form {pattern!r} must never be classified as "
+                    "a negatable umbrella",
+                )
+
+    def test_negative_shapes_still_rejected_after_prefix_widening(self):
+        """The round-8 Skeptic verified these rejects hold; the round-9
+        prefix widening must not have loosened the regex into accepting
+        them. Included as negative cases in the same generated-test file so
+        a future prefix change is checked against them automatically."""
+        mod = _load_agentic_migrate_module()
+        for line in (
+            "!other/path", "!.agentic-other/x", "!agentic/x",
+            "! .agentic/x", "foo!.agentic/x", "#!.agentic/x",
+        ):
+            self.assertFalse(
+                mod._is_agentic_negation_line(line),
+                f"{line!r} must not be recognized as an .agentic/ negation",
+            )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

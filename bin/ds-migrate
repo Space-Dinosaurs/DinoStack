@@ -201,46 +201,60 @@ def _pattern_present(lines: list[str], pattern: str) -> bool:
     return any(line.rstrip() == needle for line in lines)
 
 
+# The anchor prefix accepted before `.agentic/` in every regex below. Derived
+# by measurement against real `git check-ignore`, not from a mental model of
+# gitignore syntax (see bin/tests/test_agentic_migrate.py's
+# TestUmbrellaPrefixSpellingAgreement, which enumerates candidate prefixes and
+# asserts this regex agrees with git for each one). git treats an optional
+# single leading `/` followed by zero or more `**/` segments as equivalent
+# anchors - `` , `/`, `**/`, `/**/`, `**/**/`, and `/**/**/` are all honored
+# identically; a bare `//` (no `**` between the slashes) is NOT. Do not widen
+# this by hand for a newly-discovered spelling - add it to the generated
+# candidate set instead and let the test drive the regex.
+_AGENTIC_PREFIX_RE_STR = r"/?(\*\*/)*"
+
 # Recognizes only the *negatable* .agentic/ umbrella glob forms - patterns
 # that ignore the immediate (`*`) or full recursive (`**`, `**/*`) contents of
 # the directory while leaving the directory entry itself un-ignored, which is
 # what makes a later `!.agentic/<file>` negation able to work at all. See
 # _AGENTIC_BARE_DIR_RE below for the excluded bare-directory forms.
-_AGENTIC_UMBRELLA_RE = re.compile(r"^(\*\*/)?/?\.agentic/(\*\*/\*|\*\*|\*)$")
+_AGENTIC_UMBRELLA_RE = re.compile(
+    r"^" + _AGENTIC_PREFIX_RE_STR + r"\.agentic/(\*\*/\*|\*\*|\*)$"
+)
 
 # A bare .agentic/ directory-ignore (no trailing glob), e.g. `.agentic`,
 # `.agentic/`, `/.agentic/`, `**/.agentic`. git will not descend into an
 # ignored directory at all, so no `!.agentic/<file>` negation placed at any
 # position in the file can ever un-ignore a file inside it - ordering cannot
 # fix this the way it fixes a `*`-suffixed umbrella.
-_AGENTIC_BARE_DIR_RE = re.compile(r"^(\*\*/)?/?\.agentic/?$")
+_AGENTIC_BARE_DIR_RE = re.compile(r"^" + _AGENTIC_PREFIX_RE_STR + r"\.agentic/?$")
 
 
 def _is_agentic_umbrella_pattern(pattern: str) -> bool:
     """True if `pattern` ignores the immediate or recursive contents of the
     .agentic/ directory via a negatable glob form (`.agentic/*`,
-    `.agentic/**`, `.agentic/**/*`, `/.agentic/*`, `**/.agentic/**`), as
-    opposed to a specific file or subdirectory pattern like `.agentic/qa.md`
-    or `.agentic/session-log/`, or a bare directory form (see
-    _is_agentic_bare_dir_pattern) for which negation can never work."""
+    `.agentic/**`, `.agentic/**/*`, `/.agentic/*`, `**/.agentic/**`,
+    `/**/.agentic/*`), as opposed to a specific file or subdirectory pattern
+    like `.agentic/qa.md` or `.agentic/session-log/`, or a bare directory form
+    (see _is_agentic_bare_dir_pattern) for which negation can never work. See
+    _AGENTIC_PREFIX_RE_STR for the measured basis of the accepted prefixes."""
     return bool(_AGENTIC_UMBRELLA_RE.match(pattern.strip()))
 
 
-# Recognizes a `!.agentic/<file>` negation line in any of the spellings git
-# itself accepts: bare (`!.agentic/`), root-anchored (`!/.agentic/`), and
-# `**/`-prefixed (`!**/.agentic/`) - symmetric with _AGENTIC_UMBRELLA_RE's own
-# optional `(\*\*/)?/?` prefix. A leading `!` with no `.agentic/` immediately
-# after it (e.g. `!other/path`) does not match.
-_AGENTIC_NEGATION_RE = re.compile(r"^!(\*\*/)?/?\.agentic/")
+# Recognizes a `!.agentic/<file>` negation line - symmetric with
+# _AGENTIC_UMBRELLA_RE's own _AGENTIC_PREFIX_RE_STR prefix. A leading `!` with
+# no `.agentic/` immediately after it (e.g. `!other/path`) does not match.
+_AGENTIC_NEGATION_RE = re.compile(r"^!" + _AGENTIC_PREFIX_RE_STR + r"\.agentic/")
 
 
 def _is_agentic_negation_line(line: str) -> bool:
     """True if `line` (any leading/trailing whitespace) is a `!.agentic/...`
-    negation in the bare, root-anchored (`!/.agentic/...`), or `**/`-prefixed
-    (`!**/.agentic/...`) spelling. All three are accepted by git identically;
-    a negation-lookup site that only recognizes the bare spelling silently
-    stops detecting misordering/insertion-point sites for a root-anchored
-    negation - see _find_misordered_umbrella's docstring."""
+    negation in the bare, root-anchored (`!/.agentic/...`), `**/`-prefixed
+    (`!**/.agentic/...`), or `/**/`-prefixed (`!/**/.agentic/...`) spelling -
+    see _AGENTIC_PREFIX_RE_STR. A negation-lookup site that only recognizes
+    the bare spelling silently stops detecting misordering/insertion-point
+    sites for a differently-anchored negation - see
+    _find_misordered_umbrella's docstring."""
     return bool(_AGENTIC_NEGATION_RE.match(line.strip()))
 
 
