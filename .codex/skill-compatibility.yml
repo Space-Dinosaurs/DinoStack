@@ -222,6 +222,16 @@
       "source_token": "~/DinoStack/.claude/skills/dinostack"
     },
     {
+      "expected_target": "content/references/capture-classification.md",
+      "generated_token": "$AE_REPO_DIR/content/references/capture-classification.md",
+      "kind": "operational",
+      "occurrence_hash": "1b2822cd9d31c7f4bcc73d58668b4a890fbbb324c80c65d59e39d5c908d15939",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/capture-classification.md"
+    },
+    {
       "expected_target": "dinostack",
       "generated_token": "$AE_CORE_SKILL_ROOT",
       "kind": "operational",
@@ -402,16 +412,6 @@
       "source_token": "Task"
     },
     {
-      "expected_target": "content/references/activation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "394405655311aa2367eb671524fcfc3e182bfc092fb4536dc3a34a2f38d87fb3",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/activation-detail.md"
-    },
-    {
       "expected_target": "content/references/worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
@@ -510,16 +510,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
-    },
-    {
-      "expected_target": "content/references/activation-detail.md",
-      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
-      "kind": "operational",
-      "occurrence_hash": "48595bdfb383783dd619dc6ffc5e5499c2db2881302e0a3e241c93fc6c6f0ab4",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "content/references/activation-detail.md"
     },
     {
       "expected_target": "content/sections/02-delegation.md",
@@ -1612,6 +1602,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "content/references/activation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "c431d6ea88823adfd370c7175cebcfc9357b210a82f4b69a07727f32feb492d9",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/activation-detail.md"
+    },
+    {
       "expected_target": "content/references/risk-config-and-tiers.md",
       "generated_token": "$AE_REPO_DIR/content/references/risk-config-and-tiers.md",
       "kind": "operational",
@@ -1782,6 +1782,16 @@
       "source_token": "content/sections/11-worktree-lifecycle.md"
     },
     {
+      "expected_target": "content/references/activation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "d3f9abb879f31bacb2501e6f91f635bb662991b6c6a3415e338b65da9642b562",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/activation-detail.md"
+    },
+    {
       "expected_target": ".agentic/",
       "generated_token": "$AE_PROJECT_DIR/.agentic/",
       "kind": "operational",
@@ -1900,6 +1910,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/rules/conventions.md"
+    },
+    {
+      "expected_target": "content/references/activation-detail.md",
+      "generated_token": "$AE_REPO_DIR/content/references/activation-detail.md",
+      "kind": "operational",
+      "occurrence_hash": "e16e7127fdee2e2ffc3d845599bf65a3651a76e5355d6456b4027444c14e36b0",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/activation-detail.md"
     },
     {
       "expected_target": "dinostack",
