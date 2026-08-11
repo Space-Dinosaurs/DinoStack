@@ -67,9 +67,14 @@ orchestration boundary: worker spawn, worker return, Skeptic finding/sign-off,
 QA result, /ds-wrap completion, finding fix.
 
 **The Stop hook** (`hooks/stop-context.js`) appends a single `session_total`
-event at session exit. This is the only sanctioned non-conductor writer;
-because the conductor turn has already ended when the hook fires, there is no
-contention.
+event at session exit.
+
+The Stop hook is not the only non-conductor writer: `hooks/pre-tool-use-spawn-emit.js`
+(`PreToolUse(Task/Agent)`) appends a hook-emitted `spawn_start` mid-turn on
+every subagent spawn, and `hooks/subagent-stop-spawn-emit.js` (`SubagentStop`,
+DS-160) appends a hook-emitted `spawn_complete` whenever a subagent finishes -
+both fire while the conductor's turn is still in progress, not only at
+session exit.
 
 Subagents do not write to `events.jsonl`.
 
@@ -94,6 +99,18 @@ Key `data` fields: `tier`, `tool_use_id`, `agent_id`, `model`,
 When `agent == "skeptic"`, additional calibration fields are present:
 `findings_count` (`{critical, major, minor}`), `diff_lines`, `signed_off`,
 `iteration`.
+
+**DS-160 hook-emitted variant.** `hooks/subagent-stop-spawn-emit.js`
+(`SubagentStop`) also emits a deterministic `spawn_complete` with
+`data.source:"hook"`, independent of the conductor-emitted event described
+above - both may exist for the same spawn. The hook variant carries
+`data.paired_spawn_id`, `data.wall_seconds` (real when paired, `null` if
+unmatched or if the paired duration exceeds a 24h sanity ceiling, in which
+case `data.suspect` is also `true`), and `data.tokens_note` (tokens are
+always unavailable - harness ceiling); it does NOT carry the `tier`/`model`/
+`status`/calibration fields above. See
+[content/references/events-log.md](../content/references/events-log.md) for
+the full schema and how consumers avoid double-counting the two variants.
 
 ### session_total
 
@@ -142,8 +159,10 @@ all developers whose telemetry has landed on the branch via pull after merge.
 
 ## Practical notes
 
-**Append discipline.** Plain shell `>>` append. No fsync, no lock file.
-Single-writer-by-protocol means contention is structurally impossible.
+**Append discipline.** No fsync, no lock file. Multiple writers append
+(conductor, the Stop hook, and the two spawn-telemetry hooks noted above) via
+`appendFileSync`/`>>`, each a single atomic small write, so lines never
+interleave mid-write; no cross-writer locking is needed.
 
 **Retention.** Not auto-rotated. Manual `mv events.jsonl events-prev.jsonl`
 if the file grows past concern. Roughly 50 KB per active session.

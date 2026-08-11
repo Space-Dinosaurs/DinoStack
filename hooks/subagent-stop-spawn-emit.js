@@ -54,10 +54,10 @@
  *          DS-160's own fallback allowance) with wall_seconds:null and
  *          paired_spawn_id:null, so a real completion signal exists even
  *          when pairing fails. A computed wall_seconds beyond
- *          MAX_SANE_WALL_SECONDS (86400 = 24h) is capped at that ceiling and
- *          `data.suspect` is set true, rather than trusted outright - guards
- *          against a stale/mismatched pairing silently inflating a
- *          cost/telemetry rollup.
+ *          MAX_SANE_WALL_SECONDS (86400 = 24h) yields wall_seconds:null
+ *          (never a fabricated ceiling value) with `data.suspect` set true,
+ *          rather than trusted outright - guards against a stale/mismatched
+ *          pairing silently inflating a cost/telemetry rollup.
  *
  * Public API: run() - invoked immediately at module load via run() call at
  *             the bottom of the file. Not imported in production; executed

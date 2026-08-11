@@ -65,10 +65,11 @@ from pathlib import Path
 V1_FOOTER = (
     "Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; "
     "conductor spawn_complete for /ds-implement-ticket sessions). "
-    "Hook-spawn tokens are always unavailable (harness ceiling) and render as n/a. "
-    "Hook-spawn wall-time renders as n/a UNLESS a paired hook-emitted spawn_complete "
-    "(DS-160) supplied a real wall_seconds figure for that spawn, in which case the "
-    "real duration is shown."
+    "Hook-spawn tokens are always unavailable (harness ceiling) and render as n/a in "
+    "the unpriced table (zeros in the priced table). "
+    "Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS "
+    "a paired hook-emitted spawn_complete (DS-160) supplied a real wall_seconds figure "
+    "for that spawn, in which case the real duration is shown."
 )
 
 EVENTS_PATH = Path(".agentic/events.jsonl")
