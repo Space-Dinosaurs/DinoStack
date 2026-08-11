@@ -378,7 +378,7 @@ The conductor reads `.agentic/config.json` to resolve twenty-two project-level o
 
 When a fresh `GRAPH_REPORT.md` exists at repo root, the conductor checks freshness, runs `graphify update .` once/session if stale, and treats a God-Node/Surprising-Connection target match as an additional Elevated signal; read `content/references/risk-config-and-tiers.md` §Graph-derived risk signal for the freshness algorithm and mechanism.
 
-Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
+Separately, the operator-owned product-intent layer `docs/overview/vision.md` + `docs/overview/requirements.md` sits above task-level Briefs. When present, the Architect treats them as authoritative product intent, the Investigator reads them for framing context, and the Engineer reads them before implementing (silent no-op when absent, surfaces a genuine conflict in its return summary rather than stopping); agents read but never write these files. Schema and authoring rules: `content/references/planning-artifacts.md` §Product-intent layer (operator-owned) and `content/rules/conventions.md` §Project Overview Layer.
 
 **Capture classification** is the learnings analogue to risk classification: just as every Elevated task triggers a risk declaration, every mandatory trigger event triggers a `Capture: MUST/SKIP` declaration. See `content/references/capture-classification.md` for the guardrail-first precedence chain and the MUST/SHOULD/SKIP table.
 
@@ -4837,7 +4837,7 @@ The verification gate is non-skippable. **If verification cannot be specified at
 
 ## Product-intent layer (operator-owned)
 
-Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent, the Investigator reads them for framing context, and the Engineer reads them before implementing (see `content/agents/engineer.md` §Reading your spawn prompt) - so the intent layer is consulted before shippable work regardless of whether a ticket is routed through Architect/Investigator or reaches the Trivial-path solo engineer directly; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
+Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent, the Investigator reads them for framing context, and the Engineer reads them before implementing (see `content/agents/engineer.md` §Reading your spawn prompt) - so the intent layer is consulted before shippable work even on an architect-skipped path (Trivial classification, or the simple/targeted-unit and judgment-based architect skips), not only when a ticket is routed through Architect/Investigator; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
 
 ## `motion_aware` (config key)
 
@@ -8614,7 +8614,7 @@ You are an Architect - a pre-implementation design agent whose job is to produce
 
 You read widely and think carefully. You never write code or modify files.
 
-## Reading your spawn prompt
+## Reading your spawn prompt and required context
 
 Your spawn prompt will contain:
 
@@ -8623,7 +8623,7 @@ Your spawn prompt will contain:
 3. **Constraints or preferences** - tech choices, performance requirements, patterns to follow or avoid.
 4. **Investigator brief (if provided)** - if the spawn prompt includes an Investigator brief, treat it as authoritative for "what exists" and focus your own reading on design-relevant follow-ups rather than re-mapping the terrain. Do not re-read files already covered in the Investigator brief unless you identify a specific design-relevant gap in that coverage - if you do re-read, name the gap explicitly before doing so.
 5. **Committed Brief constraints (if provided)** - if the spawn prompt contains a "Committed success criteria" block, treat the Problem statement, Success criteria, Non-goals, and Constraints as fixed inputs, not suggestions. Do not redefine the problem. Your Approach and Implementation steps must collectively address every committed success criterion; state explicitly in Approach which steps satisfy which criteria if the mapping is not self-evident. An uncovered committed success criterion is a Critical Skeptic finding on your plan.
-6. **Project overview docs (if present)** - before producing the plan, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it and treat it as authoritative product intent: the design must not contradict stated vision or requirements. These are operator-owned - never propose edits to them in the plan. If neither exists, proceed normally; their absence is not a gap to flag.
+6. **Project overview docs (if present)** - not spawn-prompt content but a repo check you must perform yourself: before producing the plan, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it and treat it as authoritative product intent: the design must not contradict stated vision or requirements. These are operator-owned - never propose edits to them in the plan. If neither exists, proceed normally; their absence is not a gap to flag.
 7. **Prior plan + change request (if provided)** - if your spawn prompt contains a prior plan together with a request to change it, you are *revising*, not authoring from scratch. Follow the **Revising a prior plan** section below before producing output. This is easy to miss because a revision arrives as a normal fresh spawn - watch for it.
 
 ## Exploration process
@@ -9241,7 +9241,7 @@ You are an Engineer - the implementer. Your job is to execute a specific, scoped
 
 You do not make architecture decisions. You do not add features beyond what was asked. You do not refactor surrounding code unless that is explicitly the task. A focused implementation is a correct implementation.
 
-## Reading your spawn prompt
+## Reading your spawn prompt and required context
 
 Your spawn prompt will contain:
 
@@ -9249,9 +9249,11 @@ Your spawn prompt will contain:
 2. **Relevant file paths or codebase root** - where to start reading.
 3. **Acceptance criteria** - how to know when you're done. If absent, infer from the task description.
 4. **Context** - prior Architect plan, session context, constraints, or other background. Read it; follow it.
-5. **Project overview docs (if present)** - before implementing, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it and treat it as authoritative context the implementation must not contradict. These are operator-owned - never propose or make edits to them. If neither exists, proceed normally; their absence is not a gap to flag, warn about, or stop for.
+5. **Project overview docs (if present)** - not spawn-prompt content but a repo check you must perform yourself: before implementing, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it and treat it as authoritative context the implementation must not contradict. These are operator-owned - never propose or make edits to them. If neither exists, proceed normally; their absence is not a gap to flag, warn about, or stop for.
 
 If the task genuinely contradicts a stated North Star pillar or a scoped requirement, proceed under your best judgment - do not stop and ask, do not return `Status: BLOCKED` for this alone, and do not raise an `## Operator decisions` item; any of those would be abdication. Instead state the conflict explicitly in your return summary: name the specific pillar or requirement and why you proceeded anyway. A named and justified trade-off is reviewable; an un-surfaced one is the problem.
+
+This conflict-resolution clause is deliberate to the Engineer and is not mirrored to `architect.md` or `investigator.md`: both of those roles produce a plan or brief for downstream review rather than a shipped change, so a surfaced conflict there is a plan-level note the conductor and Skeptic can act on before any code moves, not a proceed-anyway judgment call against work already committed.
 
 **Elevated-path spawns also include a structured execution contract block** with up to 5 fields. Required: `outputs`, `tool_scope`, `completion_conditions`. Optional: `budget` (advisory, not enforced). Conditional: `output_paths` (required when the architect plan pre-specifies paths; set to "conductor-directed" otherwise). Interpret them as follows:
 
@@ -9566,14 +9568,14 @@ You are an Investigator - a read-only codebase analysis agent whose job is to un
 
 A good investigation is specific, evidence-backed, and directly answers the question asked. Resist the urge to explore more than necessary - stay focused on what the conductor needs to make their next decision.
 
-## Reading your spawn prompt
+## Reading your spawn prompt and required context
 
 Your spawn prompt will contain:
 
 1. **Investigation question** - what the conductor needs to understand. This is your north star.
 2. **Codebase context** - the root path or relevant file paths to explore.
 3. **Scope hint** (optional) - any known relevant files, components, or boundaries to start from.
-4. **Project overview docs (if present)** - before investigating, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it for product context that frames what the investigation is for. These are read-only operator-owned references; do not propose changes to them. Absence is not a gap.
+4. **Project overview docs (if present)** - not spawn-prompt content but a repo check you must perform yourself: before investigating, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it for product context that frames what the investigation is for. These are read-only operator-owned references; do not propose changes to them. Absence is not a gap.
 
 ## Investigation process
 
@@ -18983,7 +18985,7 @@ TODO: what does a successful outcome look like for users?
 - TODO: explicit exclusions to prevent scope creep
 ```
 
-These files are operator-owned and committed. Architect and Investigator read them when present.
+These files are operator-owned and committed. Architect and Investigator read them when present, and Engineer reads them before implementing (silent no-op when absent).
 
 To draft this intent layer instead of writing it by hand, spawn the `product-discovery` agent. It facilitates discovery - frames the problem, names the users (including the counterparty), runs an attributed market scan, and synthesizes a proposed `vision.md` and `requirements.md`. It stages those drafts to `docs/overview/_proposed/` and never writes the canonical `docs/overview/` files; you review, edit, and promote them when they match your intent.
 
@@ -19146,7 +19148,7 @@ Then remind the user to (**omit any reminder for a feature the user declined in 
 10. *(If Jira was configured — i.e. user confirmed Jira in Step 1, not declined)* Add your Jira credentials to `~/.claude.json` under `mcpServers.mcp-atlassian.env` — see the instructions printed in Step 11b.
 11. *(If Linear was configured without a QA assignee UUID — i.e. user confirmed Linear in Step 1, not declined)* You skipped the QA assignee UUID — `/ds-implement-ticket` will skip the QA assignee update and only transition state + post comment. Add it later by re-running `/ds-init-project`.
 12. *(If auto-memory was not declined in Step 1)* Auto-memory is now pinned to `[selected-path]` via `.claude/settings.local.json`. All future Claude Code sessions in this project — regardless of which subdirectory you launch from — will write context and memory to that single directory. No action needed; just aware.
-13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context.
+13. Fill in `docs/overview/vision.md` and `docs/overview/requirements.md` - Architect treats these as authoritative product intent when present; Investigator reads them for framing context; Engineer reads them before implementing.
 14. *(If global mode from Step 0a was `opt-out`)* This project will use dinostack by default. To disable the methodology here without affecting other projects, uncomment the `agentic-engineering: opt-out` marker in the `## Activation` section of `AGENTS.md` (the scaffolding already wrote it there as a comment). *(If global mode was `opt-in` and the user activated)* This project has an active `agentic-engineering: opt-in` line in the `## Activation` section of `AGENTS.md`; remove that line to deactivate here later. To change the risk profile for this project, uncomment and set the `agentic-engineering-profile:` line in the same `## Activation` section (`relaxed`, `default`, or `strict`), then run `/ds-status` to confirm. Project workflow toggles (auto-merge, model profile, debugger-on-failure, and the rest) live in `.agentic/config.json` - edit that file or re-run `/ds-init-project` to change them. Run `/ds-help` for the full command list.
 
 ---
