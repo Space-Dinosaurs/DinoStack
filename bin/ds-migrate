@@ -9,7 +9,9 @@
 #   ds-migrate diff   [--manifest PATH] [--project-root PATH]
 # Upstream: content/project-scaffolding.yml (canonical) or adapter-replicated copy.
 #           Shared helpers: bin/_lib (atomic_write).
-# Downstream: invoked by Activation preflight Step 6 and /ds-migrate-project command
+# Downstream: invoked by Activation preflight Step 6, /ds-migrate-project command,
+#             and /ds-init-project Step 9 (as of v7) as the sole mechanism for a
+#             fresh project's .agentic/ gitignore
 # Failure modes: silent-fail discipline; never throws to caller; exit codes signal status
 #   0 = success / no-op
 #   1 = drift detected (check subcommand only)
@@ -160,6 +162,21 @@ def _gitignore_byte_lines(gitignore_path: Path) -> list[bytes]:
     if not gitignore_path.is_file():
         return []
     return gitignore_path.read_bytes().splitlines(keepends=True)
+
+
+def _dominant_line_terminator(gitignore_path: Path) -> bytes:
+    """Return the line terminator (b'\\r\\n' or b'\\n') used by the majority
+    of already-terminated lines in `gitignore_path`, defaulting to b'\\n' for
+    an empty, all-terminator-less, or non-existent file (or a tie). Used by
+    `_append_gitignore`'s EOF-append branch so an appended line matches a
+    CRLF file's dominant convention instead of always writing a bare `\\n` -
+    unlike the insert-above-negation branch, which already reuses a specific
+    neighboring line's own terminator via `_line_terminator` and needs no
+    fix."""
+    lines = _gitignore_byte_lines(gitignore_path)
+    crlf = sum(1 for line in lines if line.endswith(b"\r\n"))
+    lf = sum(1 for line in lines if line.endswith(b"\n") and not line.endswith(b"\r\n"))
+    return b"\r\n" if crlf > lf else b"\n"
 
 
 def _line_terminator(line: bytes) -> bytes:
@@ -318,6 +335,16 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
       since relocating the original terminator-less last line elsewhere
       would otherwise silently change that convention.
 
+    Deduplicates on move: if an identical umbrella pattern (exact text match
+    after strip()) already exists elsewhere in the file - e.g. a bare
+    `.agentic/` line sitting below a negation, just rewritten by
+    `_repair_bare_agentic_lines` to `.agentic/*`, when a correctly-placed
+    `.agentic/*` already sits at the top of the file - the misordered
+    duplicate is dropped instead of being reinserted as a second copy.
+    Without this, the two repairs running back to back would otherwise leave
+    two adjacent `.agentic/*` lines: harmless (both match the same content;
+    matching is idempotent past the first line), but cosmetic noise.
+
     Idempotent - a call on an already-ordered file (or one with no negation
     lines) is a no-op and returns False.
     """
@@ -340,6 +367,15 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
                 i for i, line in enumerate(str_lines) if line.strip().startswith("!.agentic/")
             )
             line = byte_lines.pop(misordered_idx)
+            line_text = line.decode("utf-8", errors="replace").strip()
+            if any(
+                b.decode("utf-8", errors="replace").strip() == line_text for b in byte_lines
+            ):
+                # An identical umbrella pattern already exists elsewhere
+                # (e.g. the correctly-placed line at the top of the file) -
+                # drop this duplicate instead of reinserting a second copy.
+                changed = True
+                continue
             if not line.endswith(b"\n"):
                 # Terminator-less line relocated away from EOF: it would
                 # otherwise fuse with the line it now precedes.
@@ -379,12 +415,14 @@ def _append_gitignore(gitignore_path: Path, pattern: str) -> None:
     idempotent - a pattern already present is a no-op.
 
     Byte-preserving: operates on raw bytes throughout (see
-    _gitignore_byte_lines / _line_terminator), so a CRLF file stays CRLF, a
-    file with no trailing newline is not gratuitously terminated beyond what
-    the append branch already required, and no line's terminator is altered
-    except the newly-inserted line's own (which reuses the terminator of the
-    negation line it is inserted above). No other line is reordered or
-    otherwise touched.
+    _gitignore_byte_lines / _line_terminator / _dominant_line_terminator), so
+    a CRLF file stays CRLF, a file with no trailing newline is not
+    gratuitously terminated beyond what the append branch already required,
+    and no line's terminator is altered except the newly-inserted line's own
+    (which reuses the terminator of the negation line it is inserted above,
+    or - when appending fresh at EOF with no negation to insert above - the
+    file's dominant terminator, so a CRLF file does not grow a stray
+    LF-terminated tail). No other line is reordered or otherwise touched.
 
     A bare .agentic/ directory-ignore form (e.g. `.agentic`, `.agentic/`) is
     rewritten to its `*`-suffixed equivalent before insertion, with a warning
@@ -433,16 +471,17 @@ def _append_gitignore(gitignore_path: Path, pattern: str) -> None:
 
         raw = gitignore_path.read_bytes() if gitignore_path.exists() else b""
         needs_leading_newline = bool(raw) and not raw.endswith(b"\n")
+        terminator = _dominant_line_terminator(gitignore_path)
         with open(gitignore_path, "ab") as f:
             if needs_leading_newline:
-                f.write(b"\n")
+                f.write(terminator)
             if _is_agentic_umbrella_pattern(pattern):
                 f.write(
                     b"# dinostack (agentic-engineering) - .agentic/ runtime "
                     b"state; see the !.agentic/<file> negations below for "
-                    b"what is committed\n"
+                    b"what is committed" + terminator
                 )
-            f.write(pattern.encode("utf-8") + b"\n")
+            f.write(pattern.encode("utf-8") + terminator)
     except Exception:
         pass
 

@@ -182,6 +182,47 @@ def test_extraction_is_non_vacuous():
 
 
 # ---------------------------------------------------------------------------
+# git_fixture.DINOSTACK_GITIGNORE / DINOSTACK_KNOWLEDGE_GITIGNORE are
+# hard-copies of this repo's own root .gitignore, not a derivation from it -
+# nothing re-checks the copy against reality automatically (see the note on
+# each constant in lib/git_fixture.py). A prior round removed the dead
+# `!/.agentic/team.yml` negation from the live .gitignore (c9bf29b9) and left
+# both fixture constants asserting the old shape for four more commits before
+# this test existed. Assert the copies against the live file directly so a
+# future divergence fails loudly instead of silently.
+# ---------------------------------------------------------------------------
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+
+
+def test_dinostack_gitignore_constants_match_live_root_gitignore():
+    live_lines = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    live_agentic_lines = [
+        line
+        for line in live_lines
+        if line.strip() and (line.startswith("/.agentic") or line.startswith("!/.agentic"))
+    ]
+    assert live_agentic_lines == ["/.agentic/*"], (
+        "live root .gitignore's .agentic/-related lines changed shape; "
+        f"got {live_agentic_lines!r} - update git_fixture.DINOSTACK_GITIGNORE "
+        "and DINOSTACK_KNOWLEDGE_GITIGNORE (and their comments) to match, "
+        "then update this assertion's expected value"
+    )
+    assert git_fixture.DINOSTACK_GITIGNORE == "/.agentic/*\n", (
+        "git_fixture.DINOSTACK_GITIGNORE has drifted from the live root "
+        ".gitignore's .agentic/-related lines"
+    )
+    assert git_fixture.DINOSTACK_KNOWLEDGE_GITIGNORE == (
+        "/.agentic/*\n/decisions.md\n/MEMORY.md\n"
+    ), (
+        "git_fixture.DINOSTACK_KNOWLEDGE_GITIGNORE has drifted from the live "
+        "root .gitignore's .agentic/, decisions.md, and MEMORY.md lines"
+    )
+    assert "/decisions.md" in live_lines, "live root .gitignore no longer ignores decisions.md"
+    assert "/MEMORY.md" in live_lines, "live root .gitignore no longer ignores MEMORY.md"
+
+
+# ---------------------------------------------------------------------------
 # A second @harness: marker extracts, parses, and executes.
 # ---------------------------------------------------------------------------
 

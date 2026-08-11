@@ -11,13 +11,25 @@
 #
 # What it catches (the FIVE live sites found in round 4, generalized to a
 # pattern rather than five literal strings, so a close paraphrase is caught
-# too):
-#   1. "targeted .gitignore block" / "targeted `.gitignore` block" - Step 9
-#      no longer produces one; it delegates to a default-deny umbrella.
-#   2. "targeted denylist" - same stale shape, describing Step 9's CURRENT
-#      gitignore output rather than its pre-inversion history.
-#   3. "Step 9's own block" / "this Step's own block" - a self-reference to a
-#      hand-copied enumeration block inside Step 9 that no longer exists.
+# too; widened in round 5 after four more same-meaning paraphrases survived
+# the round-4 patterns unscathed - "the scoped .gitignore block from Step 9",
+# "Step 9's own gitignore block", "a targeted gitignore denylist block", and
+# "a targeted DENYLIST" - none of which matched because the round-4 patterns
+# required adjacent words ("own block", "targeted denylist") rather than
+# allowing intervening words, and matched only lowercase "denylist"):
+#   1. "targeted .gitignore block" / "targeted `.gitignore` block" / "scoped
+#      .gitignore block" (with or without intervening words, e.g. "the
+#      scoped .gitignore block from Step 9") - Step 9 no longer produces one;
+#      it delegates to a default-deny umbrella.
+#   2. "targeted denylist" / "targeted ... denylist block" (any case,
+#      allowing intervening words, e.g. "a targeted gitignore denylist
+#      block" or "a targeted DENYLIST") - same stale shape, describing
+#      Step 9's CURRENT gitignore output rather than its pre-inversion
+#      history.
+#   3. "Step 9's own block" / "this Step's own block" / "Step 9's own
+#      gitignore block" (allowing intervening words between "own" and
+#      "block") - a self-reference to a hand-copied enumeration block inside
+#      Step 9 that no longer exists.
 #   4. The specific dangling forward/backward-references introduced and
 #      caught in round 4: "`.agentic/.activated` line above" (no such line
 #      exists) and "see the drift test below" (no such test exists in that
@@ -52,23 +64,32 @@ cd "$REPO_ROOT"
 # Extended-regex alternation, one pattern per finding shape above. Kept as
 # separate `-e` clauses (not one giant alternation) so a future addition is a
 # one-line diff and the failure message below can name which shape matched.
+# Case-sensitivity per pattern: most patterns below are matched with `grep
+# -i` (case-insensitive) since round 5 found an uppercase "DENYLIST"
+# paraphrase the round-4 lowercase-only pattern missed, and there is no
+# legitimate reason for "targeted"/"scoped"/"denylist"/"block" to appear
+# case-varied in prose describing this specific stale claim. The two
+# dangling-reference patterns stay literal (no case variance expected in
+# those specific phrases) but are run through the same `-i` pass for
+# uniformity - reviewed for false positives below.
 PATTERNS=(
   'targeted[^.]{0,2}\.?gitignore[^.]{0,2}block'
-  'targeted denylist'
-  "Step 9['’]?s own block"
-  "this Step['’]?s own block"
+  'scoped[^.]{0,2}\.?gitignore[^.]{0,2}block'
+  'targeted[[:space:]].{0,25}denylist'
+  "Step 9['’]?s own.{0,25}block"
+  "this Step['’]?s own.{0,25}block"
   '\.activated. line above'
   'see the drift test below'
 )
 
-SCAN_PATHS=(content bin docs README.md)
+SCAN_PATHS=(content bin docs README.md AGENTS.md CONTRIBUTING.md hooks scripts)
 
 fail=0
 for pattern in "${PATTERNS[@]}"; do
-  # -I: skip binary files. -n: line numbers. Case-sensitive by design (the
-  # five known sites are all lowercase/mixed-case as written; loosen with -i
-  # only if a future paraphrase needs it, after checking for new FPs).
-  matches="$(grep -rnI -E "$pattern" "${SCAN_PATHS[@]}" 2>/dev/null | grep -v -- '<!-- false-umbrella-claim-ok -->' || true)"
+  # -I: skip binary files. -n: line numbers. -i: case-insensitive (see note
+  # above - round 5 widened from case-sensitive after an uppercase
+  # "DENYLIST" paraphrase was found).
+  matches="$(grep -rnI -i -E "$pattern" "${SCAN_PATHS[@]}" 2>/dev/null | grep -v -- '<!-- false-umbrella-claim-ok -->' || true)"
   # Exclude this script's own pattern definitions, and its regression test's
   # deliberate mutation fixtures, from matching themselves.
   matches="$(echo "$matches" | grep -v -e '^scripts/check-no-false-umbrella-claims.sh:' -e '^bin/tests/test_check_no_false_umbrella_claims.sh:' || true)"

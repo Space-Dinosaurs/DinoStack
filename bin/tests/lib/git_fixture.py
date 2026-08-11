@@ -128,28 +128,35 @@ CONSUMER_GITIGNORE = """\
 !.agentic/presets.yml
 """
 
-# DinoStack's own `.gitignore` (root .gitignore:28-30): a root-anchored
-# umbrella that ignores the ENTIRE .agentic/ directory except team.yml -
-# `.agentic/session-log/**` is ignored by this, unlike the consumer shape.
+# DinoStack's own `.gitignore` (root .gitignore:28): a root-anchored
+# umbrella that ignores the ENTIRE .agentic/ directory with no negation -
+# the dead `!/.agentic/team.yml` line was removed in c9bf29b9 (team.yml has
+# never existed in any commit here). `.agentic/session-log/**` is ignored by
+# this, unlike the consumer shape.
+#
+# This is a hard-copy, not a derivation from the live file - if the umbrella
+# shape changes again, re-derive by hand and update this comment; nothing
+# re-checks the copy against reality automatically.
 DINOSTACK_GITIGNORE = """\
 /.agentic/*
-!/.agentic/team.yml
 """
 
 # The subset of DinoStack's own root `.gitignore` that governs all THREE
 # knowledge files, not just the `.agentic/` umbrella. Verified verbatim
-# against the live root .gitignore of this repo (the `/.agentic/*` +
-# `!/.agentic/team.yml` pair, the `/decisions.md` rule, and the `/MEMORY.md`
-# rule - interleaving comments omitted, rule ORDER preserved because git
-# ignore matching is last-match-wins).
+# against the live root .gitignore of this repo (the un-negated `/.agentic/*`
+# umbrella, the `/decisions.md` rule, and the `/MEMORY.md` rule -
+# interleaving comments omitted, rule ORDER preserved because git ignore
+# matching is last-match-wins).
 #
 # Deliberately NOT a reuse of DINOSTACK_GITIGNORE above: that constant covers
 # only `.agentic/`, so under it MEMORY.md and decisions.md would be TRACKABLE
 # and a "DinoStack shape" fixture built from it would silently exercise the
 # consumer path for two of the three knowledge files.
+#
+# This is a hard-copy, not a derivation from the live file - see the note on
+# DINOSTACK_GITIGNORE above; the same staleness risk applies here.
 DINOSTACK_KNOWLEDGE_GITIGNORE = """\
 /.agentic/*
-!/.agentic/team.yml
 /decisions.md
 /MEMORY.md
 """
