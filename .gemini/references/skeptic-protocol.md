@@ -430,6 +430,12 @@ The number of permitted Skeptic rounds scales with task complexity:
 
 **Loop contract override:** When operating inside the `/ds-implement-ticket` persistence loop (Phase 6), the loop contract overrides this rule. One re-raise after a claimed fix (convergence failure as defined in the loop contract) is sufficient to trigger escalation. The loop already consumes iteration budget on each fix pass; requiring a second re-raise would waste an additional pass on a finding the Engineer has already failed to address. Outside the loop context (ad-hoc Skeptic re-routes not inside a named loop), the 2-re-route rule applies unchanged.
 
+### Prose-scoped re-check
+
+When a round's only unresolved findings are prose-only (stale module manifest, doc-sync attestation, comment/count wording) and the fix diff has no code, test, or behavior change, the next verification is a **prose-scoped re-check**: the reviewer verifies only the changed prose lines against live tree facts, plus that the fix did not introduce a new false claim in the same file's header/manifest - not a full fresh adversarial pass. This is a verification-cost lever only; the Major classification for stale manifest/doc-sync findings (`content/agents/skeptic.md` Step 8, `content/references/doc-sync-obligation.md`) is unchanged, and any code/test/behavior finding found during the narrower pass still escalates normally. It does not apply while any code/test/behavior finding remains unresolved.
+
+**Recurrence rule.** On the second occurrence of a count/enumeration-staleness finding against the same file, the recommended fix is deleting or de-numeralizing the claim, not re-correcting the number again - "fewer claims beats better claims" (see this repo's own `AGENTS.md` lesson of the same name). This is the default expectation for both the engineer and the Skeptic, not a hard mandate.
+
 ### Worker decomposition rule
 
 If a Worker discovers mid-task that its work requires decomposition into independent sub-tasks, it should note this and return its partial output with an explicit decomposition request. The primary agent then handles parallel decomposition — spawning multiple Workers and synthesizing results — before routing the assembled output back through Skeptic review.

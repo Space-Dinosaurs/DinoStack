@@ -1365,6 +1365,7 @@
             <li>Resolved Issues Preflight prevents re-raising fixed items, but Skeptic can contest insufficient resolutions</li>
             <li>Same finding contested 2+ re-routes &rarr; escalate to human (prevents infinite loops)</li>
             <li>Simple/targeted changes: capped at 1 Skeptic round. Standard Elevated: 2-re-route limit</li>
+            <li><strong>Prose-scoped re-check</strong> - when every unresolved finding is prose-only (stale module manifest, doc-sync attestation, comment/count wording) with no code/test/behavior change in the fix diff, the next round is narrowed to those prose lines plus the file's own header/manifest instead of a full fresh adversarial pass; any code/test/behavior finding found during it still escalates normally, and severity tiers are unchanged</li>
           </ul>
         </div>
         <div class="rel-card" style="border-color: rgba(176,107,255,0.2); margin-top: 10px;">
