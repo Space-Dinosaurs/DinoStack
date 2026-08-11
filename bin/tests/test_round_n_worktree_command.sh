@@ -111,8 +111,20 @@ check_prose_wiring() {
     echo "PROSE-WIRING VIOLATION: $doc re-introduced the measured-false checkout -B already-checked-out-fatal claim" >&2
     ok=1
   fi
-  if ! grep -q -- 'does NOT share `worktree add`.s already-checked-out protection' "$doc"; then
-    echo "PROSE-WIRING VIOLATION: $doc does not state the corrected checkout -B vs worktree add asymmetry" >&2
+  if ! grep -q -- 'already-checked-out behavior is git-version-dependent' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not state that checkout -B's already-checked-out behavior is git-version-dependent" >&2
+    ok=1
+  fi
+  if ! grep -q -- 'OLDER git.*does NOT refuse' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not document the older-git (non-refusing) checkout -B arm" >&2
+    ok=1
+  fi
+  if ! grep -q -- 'NEWER git.*now refuses' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not document the newer-git (refusing) checkout -B arm" >&2
+    ok=1
+  fi
+  if ! grep -q -- 'MANDATORY.*under BOTH behaviors' "$doc"; then
+    echo "PROSE-WIRING VIOLATION: $doc does not state the precheck is mandatory under both git-version behaviors" >&2
     ok=1
   fi
 
@@ -222,13 +234,23 @@ if [ "$r1" != "0" ] || [ -z "$head_sha" ] || [ "$head_sha" != "$origin_tip" ]; t
   note_fail "scenario 1: -B form did not exit 0 or did not land on origin tip"
 fi
 
-echo "== Scenario 2: already-checked-out fatal reproduces on a second worktree add for the same branch =="
+echo "== Scenario 2: already-checked-out fatal reproduces on a second worktree add for the same branch (version-tolerant message match) =="
 git -C "$S1/repo" worktree add "$S1/wt-roundn-second" -B feat/test origin/feat/test >"$SCRATCH/s2-err.log" 2>&1
 r2=$?
-already_checked_out="$(grep -c 'already checked out at' "$SCRATCH/s2-err.log" 2>/dev/null || true)"
+# The fatal's message wording is NOT stable across git versions - measured
+# "fatal: '<branch>' is already checked out at '<path>'" on git 2.39.5 and
+# "fatal: '<branch>' is already used by worktree at '<path>'" on git 2.55.0
+# (also observed matching the CI runner's git 2.54.0 behavior: same rc, this
+# gate does not depend on the exact wording). `worktree add`'s REFUSAL
+# behavior (nonzero exit) is what this scenario pins - not one version's
+# exact message text.
+already_checked_out="$(grep -Eic "already (checked out|used by worktree)" "$SCRATCH/s2-err.log" 2>/dev/null || true)"
 echo "scenario2 exit=$r2 already_checked_out_matches=$already_checked_out"
-if [ "$r2" = "0" ] || [ "${already_checked_out:-0}" -lt 1 ]; then
-  note_fail "scenario 2: already-checked-out fatal did not reproduce"
+if [ "$r2" = "0" ]; then
+  note_fail "scenario 2: worktree add did not refuse (already-checked-out fatal did not reproduce)"
+fi
+if [ "${already_checked_out:-0}" -lt 1 ]; then
+  note_fail "scenario 2: worktree add's failure message did not match either known wording (checked out / used by worktree) - a THIRD wording may exist; investigate before accepting"
 fi
 
 echo "== Scenario 3: awk-based reuse guard (as documented) identifies the existing worktree PATH for feat/test =="
@@ -343,33 +365,89 @@ if [ "$fixed_action6" = "RESET" ] || [ "$head_after_fixed6" != "$sha_before_6b" 
   note_fail "scenario 6: current logic did not avoid RESET / preserve HEAD in the absent-tracking-ref case"
 fi
 
-echo "== Scenario 7: Trivial-path checkout -B collision - pins the TRUE (measured) semantics, not the round-3 false claim =="
-S7="$SCRATCH/s7"
-mkdir -p "$S7"
-setup_bare_and_repo "$S7"
-git -C "$S7/repo" worktree add -q -b feat/test "$S7/wtA" origin/main
-git -C "$S7/wtA" commit -q --allow-empty -m c1
-git -C "$S7/wtA" push -q origin feat/test
-git -C "$S7/wtA" commit -q --allow-empty -m "unpushed-in-wtA"
-wtA_head_before="$(git -C "$S7/wtA" rev-parse HEAD)"
+# run_checkout_b_collision: runs the Trivial-path round-N `checkout -B`
+# collision scenario against a specific git binary in its own scratch repo,
+# and asserts the DICHOTOMY that is actually true across git versions rather
+# than pinning one version's behavior:
+#   - older git (measured: 2.39.5) does NOT refuse: exits 0, force-moves the
+#     shared branch ref, and drags the other worktree's HEAD along with it -
+#     the round-3 Critical fix's whole point is that the mandatory porcelain
+#     precheck is the ONLY thing standing between this and silent data loss.
+#   - newer git (measured: 2.55.0, and observed matching CI's 2.54.0 exit
+#     code) now refuses (exit 128, matching worktree add's protection) -
+#     the other worktree's HEAD is left untouched.
+# The dichotomy is exhaustive: the checkout's exit code is either 0 or non-zero, there
+# is no third case. Each branch below asserts something that would fail for
+# real if violated - neither arm is a vacuous no-op placeholder.
+run_checkout_b_collision() {
+  local git_bin="$1" label="$2" dir="$3"
+  mkdir -p "$dir"
+  "$git_bin" init -q --bare "$dir/origin.git"
+  "$git_bin" clone -q "$dir/origin.git" "$dir/repo"
+  "$git_bin" -C "$dir/repo" config user.email spec@example.com
+  "$git_bin" -C "$dir/repo" config user.name spec
+  "$git_bin" -C "$dir/repo" commit -q --allow-empty -m init
+  "$git_bin" -C "$dir/repo" branch -M main
+  "$git_bin" -C "$dir/repo" push -q origin main
+  "$git_bin" -C "$dir/repo" worktree add -q -b feat/test "$dir/wtA" origin/main
+  "$git_bin" -C "$dir/wtA" commit -q --allow-empty -m c1
+  "$git_bin" -C "$dir/wtA" push -q origin feat/test
+  "$git_bin" -C "$dir/wtA" commit -q --allow-empty -m "unpushed-in-wtA"
+  local head_before head_after rc
+  head_before="$("$git_bin" -C "$dir/wtA" rev-parse HEAD)"
 
-# From a DIFFERENT worktree of the same repo (main, not feat/test), run the
-# Trivial-path round-N form directly - this must NOT refuse (unlike
-# `worktree add -B`), per the round-3 Critical fix.
-git -C "$S7/repo" fetch origin >/dev/null 2>&1
-git -C "$S7/repo" checkout -B feat/test origin/feat/test >/dev/null 2>&1
-checkout_rc=$?
-wtA_head_after="$(git -C "$S7/wtA" rev-parse HEAD)"
-echo "scenario7 checkout_rc=$checkout_rc wtA_head_before=$wtA_head_before wtA_head_after=$wtA_head_after"
-if [ "$checkout_rc" != "0" ]; then
-  note_fail "scenario 7: checkout -B unexpectedly refused (rc=$checkout_rc) - the documented asymmetry no longer matches measured git behavior; re-verify against this git version"
-fi
-if [ "$wtA_head_after" = "$wtA_head_before" ]; then
-  note_fail "scenario 7: checkout -B did not drag the other worktree's HEAD as documented/measured - re-verify against this git version"
-fi
+  "$git_bin" -C "$dir/repo" fetch origin >/dev/null 2>&1
+  "$git_bin" -C "$dir/repo" checkout -B feat/test origin/feat/test >/dev/null 2>&1
+  rc=$?
+  head_after="$("$git_bin" -C "$dir/wtA" rev-parse HEAD)"
+  echo "scenario7[$label] git=$("$git_bin" --version) rc=$rc head_before=$head_before head_after=$head_after"
+
+  if [ "$rc" = "0" ]; then
+    # Old-git arm: checkout -B must have force-moved the shared ref and
+    # dragged the other worktree's HEAD - if it did NOT, this fixture is
+    # not exercising the bypass this scenario exists to pin.
+    if [ "$head_after" = "$head_before" ]; then
+      note_fail "scenario 7[$label]: checkout -B exited 0 (old-git arm) but did NOT drag the other worktree's HEAD as measured - fixture not exercising the bypass"
+    else
+      echo "scenario7[$label]: OLD-GIT ARM confirmed - checkout -B bypassed the collision and dragged the other worktree's HEAD (this is exactly why the mandatory precheck exists)"
+    fi
+  else
+    # New-git arm: checkout -B refused, so the other worktree's HEAD must be
+    # untouched - if it moved anyway, something refused AND still mutated
+    # state, which would be worse than either measured behavior.
+    if [ "$head_after" != "$head_before" ]; then
+      note_fail "scenario 7[$label]: checkout -B refused (rc=$rc, new-git arm) but the other worktree's HEAD moved anyway - unexpected third behavior"
+    else
+      echo "scenario7[$label]: NEW-GIT ARM confirmed - checkout -B refused (rc=$rc) and the other worktree's HEAD was left untouched"
+    fi
+  fi
+}
+
+echo "== Scenario 7: Trivial-path checkout -B collision - version-tolerant, pins the TRUE (measured) dichotomy, not the round-3 false single-behavior claim =="
+run_checkout_b_collision "$(command -v git)" "default" "$SCRATCH/s7-default"
+checkout_rc_report="see scenario7[default] above"
+
+# Best-effort: if a second git binary with a DIFFERENT version is available
+# on this machine (common in local dev after installing a newer git
+# alongside the OS-bundled one), exercise it too - this makes BOTH arms
+# fire for real in one run wherever both git versions happen to be present,
+# rather than relying on whichever single version the current environment
+# ships.
+default_git="$(command -v git)"
+default_git_version="$("$default_git" --version)"
+for candidate in /usr/bin/git /opt/homebrew/bin/git /usr/local/bin/git; do
+  if [ -x "$candidate" ] && [ "$candidate" != "$default_git" ]; then
+    candidate_version="$("$candidate" --version)"
+    if [ "$candidate_version" != "$default_git_version" ]; then
+      echo "== Scenario 7 (alt git): $candidate ($candidate_version) differs from default ($default_git_version) - exercising it too for dual-arm coverage =="
+      run_checkout_b_collision "$candidate" "alt:$candidate" "$SCRATCH/s7-alt"
+      break
+    fi
+  fi
+done
 
 echo "== Results =="
-echo "prose-wiring=$r0 scenario1_exit=$r1 scenario2_exit=$r2 scenario3_guard=[$guard_path] scenario4=$fixed_action scenario5=$fixed_action5 scenario6=$fixed_action6 scenario7_rc=$checkout_rc"
+echo "prose-wiring=$r0 scenario1_exit=$r1 scenario2_exit=$r2 scenario3_guard=[$guard_path] scenario4=$fixed_action scenario5=$fixed_action5 scenario6=$fixed_action6 scenario7=$checkout_rc_report"
 
 if [ "$FAIL" = "0" ]; then
   echo "PASS: all scenarios hold - prose-wiring clean; -B form correct; already-checked-out fatal reproduces for worktree add; awk reuse guard resolves the path; dirty/unpushed/absent-ref cases all reproduce data loss under their respective pre-fix baselines and are protected under current logic; checkout -B's TRUE (non-refusing, HEAD-dragging) semantics are pinned"
