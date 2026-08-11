@@ -2490,6 +2490,120 @@ check(
 )
 
 # ---------------------------------------------------------------------------
+# z. DS-159: identity-line TRAILING bare completion sentence suppresses the
+#    status-only ADVISORY without granting the `completion` WARRANT (same
+#    posture as DS-157's y-block above, for the sibling gap where the
+#    completion is the identity line's own second sentence, not the body's
+#    first paragraph). See hooks/enforce-turn-shape.py's
+#    _identity_line_trailing_completion docstring for the corpus method.
+# ---------------------------------------------------------------------------
+
+# z1. The reported symptom, reproduced verbatim: identity line "All three
+# shipped. Done." does NOT match _LEADING_COMPLETION_RE at position 0 (the
+# `\A` anchor never scans past "All three shipped." to reach the second
+# sentence "Done."), and the first BODY paragraph is a markdown table, not
+# prose, so _has_body_completion_declaration's DS-157 body-paragraph check
+# also misses it. Must be QUIET (was ADVISORY pre-fix).
+z1_msg = (
+    "All three shipped. Done.\n"
+    "\n"
+    "| ticket | what landed |\n"
+    "|---|---|\n"
+    "| **DS-156** | Conductor turn shape bound to warrant. |\n"
+    "| **DS-157** | Body-paragraph completion detection. |\n"
+)
+rc, out, err = run_hook(make_payload(z1_msg))
+check(
+    "z1. DS-159 reported symptom - identity line's SECOND sentence is a "
+    "bare completion declaration, first body paragraph is a table -> "
+    "QUIET (was ADVISORY pre-fix)",
+    is_quiet(rc, out),
+)
+
+# z2. REGRESSION (measured false positive, non-bare trailing sentence):
+# "Both mechanical fixes are done." as a MIDDLE sentence followed by "Now
+# finalizing..." on the same identity line must NOT be recognised - the
+# bare-word-only shape (_BARE_TRAILING_COMPLETION_RE) requires the FINAL
+# sentence to be nothing but the completion word itself, and this sentence
+# both has extra leading words ("Both mechanical fixes are") and is not
+# the identity line's last sentence.
+z2_msg = (
+    "PR pushed successfully. Both mechanical fixes are done. Now "
+    "finalizing state files and the run summary.\n"
+    "\n"
+    "Extra detail line one.\n"
+    "Extra detail line two.\n"
+    "Extra detail line three.\n"
+)
+rc, out, err = run_hook(make_payload(z2_msg))
+check(
+    "z2. non-bare, non-final trailing sentence ('Both mechanical fixes "
+    "are done. Now finalizing...') is NOT suppressed -> ADVISORY "
+    "(status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# z3. REGRESSION (measured false positive, partial-word absorption): "Status
+# while it completes:" would match _LEADING_COMPLETION_RE.match (the regex's
+# optional trailing-word group silently absorbs the "s" in "completes"
+# before the terminal ":"), but _BARE_TRAILING_COMPLETION_RE's closed
+# single-word vocabulary correctly rejects it - "completes" is not
+# "complete"/"completed"/"done"/"finished".
+z3_msg = (
+    "Validation still running. Status while it completes:\n"
+    "\n"
+    "Wave 1 complete: 63 components authored.\n"
+    "Extra detail line one.\n"
+    "Extra detail line two.\n"
+)
+rc, out, err = run_hook(make_payload(z3_msg))
+check(
+    "z3. 'Status while it completes:' (partial-word, not a bare "
+    "completion token) is NOT suppressed -> ADVISORY (status-only)",
+    is_advisory(rc, out, "status-only"),
+)
+
+# z4. BLOCKING-PATH SAFETY REGRESSION (this ticket's central concern,
+# mirrors y6 above): the z1 shape must NEVER grant the `completion`
+# WARRANT, even though _has_body_completion_declaration is True for it -
+# only _status_only_flag may consume the DS-159 signal.
+_z1_warrants = _mod._classify_warrants(z1_msg)
+check(
+    "z4a. _has_body_completion_declaration is True for the z1 fixture "
+    "(precondition for z4b/z4c to be meaningful)",
+    _mod._has_body_completion_declaration(z1_msg) is True,
+)
+check(
+    "z4b. the `completion` warrant key is NOT granted for the z1 fixture",
+    _z1_warrants["completion"] is False,
+)
+# z4c. Directly verifies the blocking-path danger this ticket required be
+# analyzed: simulating the z1 warrant dict with `completion` forced True
+# trips _execution_prose_flag (BLOCKING) on this exact genuine-completion
+# turn (the table row is not a State:/Running:/Blocked:/Waiting: slot
+# line).
+_z1_warrants_if_granted = dict(_z1_warrants)
+_z1_warrants_if_granted["completion"] = True
+check(
+    "z4c. _execution_prose_flag BLOCKS the z1 fixture under a synthetic "
+    "completion=True warrant dict - shows why z4b's fix must NOT widen "
+    "the warrant",
+    _mod._execution_prose_flag(z1_msg, _z1_warrants_if_granted) is not None,
+)
+
+# z5. A single-sentence identity line ("Done.") must not be treated as a
+# TRAILING completion (there is no earlier sentence to trail) - this
+# shape is already covered by _LEADING_COMPLETION_RE's own `\A` match on
+# the identity line itself, so _identity_line_trailing_completion's
+# len(sentences) < 2 guard must return False here (not double-count).
+check(
+    "z5. a single-sentence identity line does not trigger "
+    "_identity_line_trailing_completion (already covered by the "
+    "leading-declaration path)",
+    _mod._identity_line_trailing_completion("Done.") is False,
+)
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
