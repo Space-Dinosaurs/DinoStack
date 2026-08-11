@@ -54,7 +54,7 @@ This is a **standing every-round check**, not a fix-round-only check. Apply the 
 - Tripped + correctly updated -> no finding.
 - Tripped + missing/incomplete -> classify (reusing the module-manifest Minor/Major/Critical tier model and intent-debt vocabulary):
   - **Minor** - non-misleading omission: existing text still true but incomplete, no stated count wrong. Does not block sign-off.
-  - **Major** - a count/list/path/convention/behavior assertion is now stale or false. Blocks sign-off absent a compelling documented deferral. When every unresolved finding in the round is prose-only (this class or module-manifest staleness) with no code/test/behavior change in the diff, the next verification is a prose-scoped re-check, not a full fresh round - see `content/references/skeptic-protocol.md` §Prose-scoped re-check; the Major classification itself is unchanged.
+  - **Major** - a count/list/path/convention/behavior assertion is now stale or false. Blocks sign-off absent a compelling documented deferral. When every unresolved finding in the round is prose-only (this class, module-manifest staleness, or comment/count wording) with no code/test/behavior change in the diff, the next verification is a prose-scoped re-check, not a full fresh round - see `content/references/skeptic-protocol.md` §Prose-scoped re-check; the Major classification itself is unchanged.
   - **Critical** - a stale assertion on a load-bearing public-facing doc that actively misleads on how to use, install, or extend the system (e.g. README install steps, documented command/agent surface, canonical path).
 
 Finding string format:
