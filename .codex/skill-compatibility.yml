@@ -192,16 +192,6 @@
       "source_token": "/ds-implement-ticket"
     },
     {
-      "expected_target": ".agentic/",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/",
-      "kind": "operational",
-      "occurrence_hash": "171aeb8c7506603872e11c1c334f88aaf73f406308dea2bf5ac6aed13548151e",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/"
-    },
-    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -210,16 +200,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
-    },
-    {
-      "expected_target": "hooks/stop-context.js",
-      "generated_token": "$AE_REPO_DIR/hooks/stop-context.js",
-      "kind": "operational",
-      "occurrence_hash": "18637f4de4b1ca26c91e288127aede94042a6b57b5ea3913ec9aa87cb416d085",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/stop-context.js"
     },
     {
       "expected_target": "AE_CODEX_CONFIG_DIR",
@@ -300,16 +280,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "METHODOLOGY.md"
-    },
-    {
-      "expected_target": "hooks/subagent-stop-spawn-emit.js",
-      "generated_token": "$AE_REPO_DIR/hooks/subagent-stop-spawn-emit.js",
-      "kind": "operational",
-      "occurrence_hash": "245e73aaa92b12b8668e4a0c2c78ade70b477d834f202910e21a2fae573166f1",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/subagent-stop-spawn-emit.js"
     },
     {
       "expected_target": "Task",
@@ -1042,16 +1012,6 @@
       "source_token": "METHODOLOGY.md"
     },
     {
-      "expected_target": ".agentic/events.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/events.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "80c026003ad366ddc87b4c862b56241a62f69788ccc16dc4180c782ea1327c97",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/events.jsonl"
-    },
-    {
       "expected_target": "shell",
       "generated_token": "Bash",
       "kind": "semantic-reference",
@@ -1190,16 +1150,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/risk-config-and-tiers.md"
-    },
-    {
-      "expected_target": "hooks/pre-tool-use-spawn-emit.js",
-      "generated_token": "$AE_REPO_DIR/hooks/pre-tool-use-spawn-emit.js",
-      "kind": "operational",
-      "occurrence_hash": "95b05579675a96e9d89e5b6d021f55aeb034e9a41c0ef6311f38699b071c2ae6",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/pre-tool-use-spawn-emit.js"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -1440,6 +1390,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "Read"
+    },
+    {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "**Writer scope (Codex runtime boundary).** `$AE_PROJECT_DIR/.agentic/events.jsonl` has four writers on Claude Code (the conductor, the Stop hook, and two spawn-telemetry hooks), but the current Codex Stop hook writes session continuity only to `~/.codex/projects/[hash]/context.md`. It does not append `session_total` events, run the spawn-telemetry hooks, or mirror project-local orchestration state. The project-local writer migration is deferred to `context-writer-migration`. Subagents do not write the events log.",
+      "kind": "operational",
+      "occurrence_hash": "adc1f0fa9e00e7e354dd2669fa64beb37fe83cade81359cb9f8edca971769745",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "**Writer scope: `.agentic/events.jsonl` has four writers** - the conductor (inline appends at each orchestration boundary), the Stop hook (`hooks/stop-context.js`, a `session_total` event on every TURN), and the two spawn-telemetry hooks that fire mid-turn: `hooks/pre-tool-use-spawn-emit.js` (`spawn_start` on every subagent spawn) and `hooks/subagent-stop-spawn-emit.js` (`spawn_complete` on every subagent completion, added DS-160). Safety comes from append-only writes - no writer rewrites the file - not turn timing. Subagent agents never write to it themselves; only these hooks do, on their behalf. Other `.agentic/` files retain their own writers (qa.md by conductor, tasks.jsonl by conductor, the per-ticket `loop-state-<LOOP_KEY>.json` and the legacy `loop-state.json` by conductor + Stop hook (per-turn liveness refresh) + SessionEnd hook (terminal interrupted-mark))."
     },
     {
       "expected_target": "content/references/conductor-operating-rules.md",
@@ -7672,16 +7632,6 @@
       "source_token": "git"
     },
     {
-      "expected_target": "hooks/stop-context.js",
-      "generated_token": "$AE_REPO_DIR/hooks/stop-context.js",
-      "kind": "operational",
-      "occurrence_hash": "58696f3e102f2bea5ecd49a47e9bd32b6faf1e37489c375e1b7f6544ed3e85e4",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "hooks/stop-context.js"
-    },
-    {
       "expected_target": "true",
       "generated_token": "true",
       "kind": "operational",
@@ -7860,16 +7810,6 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "--arg"
-    },
-    {
-      "expected_target": "hooks/lib/state-mark.js",
-      "generated_token": "$AE_REPO_DIR/hooks/lib/state-mark.js",
-      "kind": "operational",
-      "occurrence_hash": "5c847fdac574993ec6bc93eb566fd77725a34fc7311afcedc4796290076da224",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "hooks/lib/state-mark.js"
     },
     {
       "expected_target": "fi",
@@ -9490,6 +9430,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "echo"
+    },
+    {
+      "expected_target": "~/.codex/projects/[hash]/context.md",
+      "generated_token": "**Contract D - Codex runtime boundary.**\n\nThe current Codex Stop hook writes only `~/.codex/projects/[hash]/context.md`. It does not mark `loop-state.json` interrupted or mirror `batch-state.json` (the Claude Code Stop hook's per-turn liveness refresh and the separate SessionEnd hook's terminal interrupted-mark are both Claude-only); stale active state is recovered by the existing age-based resume path. Project-local state writer migration is deferred to `context-writer-migration`.",
+      "kind": "operational",
+      "occurrence_hash": "760cb429547bb421657c4ebcd615e1b150fa8ffc7d84caca9d80c6858f99beb3",
+      "resolution_mode": "codex-stop-hook-runtime",
+      "scope": "codex-harness",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "**Contract D \u2014 Stop hook / SessionEnd hook mirror.**\n\nThe Claude Code Stop hook (`hooks/stop-context.js`) fires once per TURN, not once per session. It no longer marks the loop-state / `batch-state.json` files interrupted on every turn. Instead it is wired with `--cadence=turn`, which dispatches to `hooks/lib/state-mark.js`'s `refreshLiveness(cwd, sessionId)`: a per-turn liveness-only touch that updates `last_updated` (every loop-state candidate) or `updated_at` (`batch-state.json`) ONLY when the file is `status=active` AND its on-disk `session_id` is a non-empty string EQUAL to the current session's id (POSITIVE match required - absent/null/empty/differing all skip). It never sets `status=interrupted`."
     },
     {
       "expected_target": "gh",

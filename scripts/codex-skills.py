@@ -275,36 +275,48 @@ def rewrite_workflow_references(text: str, repo: Path) -> str:
     return re.sub(pattern, replacement, text)
 
 
-def add_codex_stop_hook_occurrences(
-    doc: Document,
-    found: list[Occurrence],
-    occupied: list[tuple[int, int]],
-) -> None:
-    paragraph_rules = (
+# Module-level so the pattern list has a single canonical identity shared by
+# both the matcher (add_codex_stop_hook_occurrences, below) and the
+# unmatched-rule assertion (assert_paragraph_rules_reachable). Each entry is
+# (anchor_regex, generated_override_text); the anchor regex targets a
+# specific paragraph opener in the canonical (Claude) prose that describes
+# Stop-hook/writer behavior the current Codex Stop hook does not (yet)
+# implement. If a canonical prose edit changes an anchored opener's exact
+# text, the corresponding pattern here silently stops matching and the
+# Codex-specific override vanishes - re.finditer has no built-in "this
+# pattern matched nothing" signal. assert_paragraph_rules_reachable() closes
+# that gap: every rule here must match at least once somewhere across
+# reachability_corpus() (a purpose-built union of every document any rule
+# could conceivably target - it is NOT the same as either actual generation
+# corpus: current_inventory()'s documents() excludes content/rules/*.md, and
+# render_runtime_guidance()'s $AGENTS_RAW excludes the WORKFLOWS.values()
+# command files - see reachability_corpus() for why a dedicated corpus is
+# needed instead of widening either real scan), or the check/build/inventory
+# subcommands fail loudly instead of silently reverting to unqualified
+# canonical text somewhere downstream.
+PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
         (
-            r"\*\*Writer scope: the conductor is the primary writer of `\.agentic/events\.jsonl`\.\*\*"
+            r"\*\*Writer scope: `\.agentic/events\.jsonl` has four writers\*\*"
             r".*?(?=\n\n)",
             (
-                "**Writer scope: the conductor is the primary writer of "
-                "`$AE_PROJECT_DIR/.agentic/events.jsonl`.** The current Codex Stop hook writes "
-                f"session continuity only to `{CODEX_CONTEXT_PATH}`. It does not append "
-                "`session_total` events or mirror project-local orchestration state. The "
-                "project-local writer migration is deferred to "
-                f"`{CONTEXT_WRITER_MIGRATION}`. Subagents do not write the events log."
+                "**Writer scope (Codex runtime boundary).** "
+                "`$AE_PROJECT_DIR/.agentic/events.jsonl` has four writers on Claude Code (the "
+                "conductor, the Stop hook, and two spawn-telemetry hooks), but the current Codex "
+                f"Stop hook writes session continuity only to `{CODEX_CONTEXT_PATH}`. It does not "
+                "append `session_total` events, run the spawn-telemetry hooks, or mirror "
+                "project-local orchestration state. The project-local writer migration is "
+                f"deferred to `{CONTEXT_WRITER_MIGRATION}`. Subagents do not write the events log."
             ),
         ),
-        (
-            r"\*\*Session context\*\* is auto-written by the Stop hook.*?(?=\n\n)",
-            (
-                "**Session context.** The current Codex Stop hook writes lightweight session "
-                f"continuity to `{CODEX_CONTEXT_PATH}` after each Stop event. Project-local "
-                "`$AE_PROJECT_DIR/.agentic/context.md` is richer output written intentionally "
-                f"by `$wrap`; automatic project-local writing is deferred to "
-                f"`{CONTEXT_WRITER_MIGRATION}`. Update root `MEMORY.md` when stable facts were "
-                "learned. Close the session cleanly so the current Codex Stop hook can finish "
-                "its hashed global continuity write."
-            ),
-        ),
+        # NOTE (Skeptic round 7 discovery, verified against the true reachability
+        # corpus - not just current_inventory()'s narrower scan): the
+        # "**Session context** is auto-written by the Stop hook" rule previously
+        # here was DELETED, not fixed - genuinely obsolete, not reworded. It
+        # described a pre-redesign context.md write model (Stop hook writing
+        # context.md directly); that model is superseded by the "context.md is
+        # now a DERIVED ROLLUP" paragraph (rule below, still matches). Confirmed
+        # absent from assembled methodology, all 3 WORKFLOWS.values() command
+        # files, and both content/rules/*.md files.
         (
             r"\*\*Session context\.\*\* \*\*The read contract is unchanged:.*?(?=\n\n)",
             (
@@ -337,17 +349,10 @@ def add_codex_stop_hook_occurrences(
                 f"deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
-        (
-            r"The Stop hook auto-writes `<cwd>/\.agentic/context\.md`.*?(?=\n\n)",
-            (
-                f"The current Codex Stop hook writes raw continuity to `{CODEX_CONTEXT_PATH}`. "
-                "`$wrap` intentionally writes or merges the richer project-local "
-                "`$AE_PROJECT_DIR/.agentic/context.md`; automatic project-local writing is "
-                f"deferred to `{CONTEXT_WRITER_MIGRATION}`. It is also the ongoing counterpart "
-                "to the project scaffolding workflow and populates AGENTS.md with durable "
-                "decisions, conventions, stack details, and gotchas."
-            ),
-        ),
+        # NOTE (Skeptic round 7 discovery): the "The Stop hook auto-writes
+        # `<cwd>/.agentic/context.md`" rule previously here was DELETED for the
+        # same reason as the block noted above - genuinely obsolete pre-redesign
+        # text, confirmed absent from the true reachability corpus.
         (
             r"Use when you want a richer context file than the auto-hook provides "
             r"— e\.g\. before handing off complex in-progress work to a future session\.",
@@ -418,15 +423,10 @@ def add_codex_stop_hook_occurrences(
                 f"consume this sentinel; migration is deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
-        (
-            r"\*\*Output path \(context\.md\):\*\* `<cwd>/\.agentic/context\.md`\..*?(?=\n\n)",
-            (
-                "**Output path (context.md):** `$AE_PROJECT_DIR/.agentic/context.md`. "
-                "Project-local and written intentionally by `$wrap`. The current Codex Stop "
-                f"hook instead writes `{CODEX_CONTEXT_PATH}`. Automatic project-local writing "
-                f"is deferred to `{CONTEXT_WRITER_MIGRATION}`."
-            ),
-        ),
+        # NOTE (Skeptic round 7 discovery): the "**Output path (context.md):**"
+        # rule previously here was DELETED for the same reason as the blocks
+        # noted above - genuinely obsolete pre-redesign text, confirmed absent
+        # from the true reachability corpus.
         (
             r"`<cwd>/\.agentic/context\.md` is now a DERIVED ROLLUP:.*?(?=\n\n)",
             (
@@ -471,13 +471,16 @@ def add_codex_stop_hook_occurrences(
             ),
         ),
         (
-            r"\*\*Contract D — Stop hook mirror\.\*\*\n\nThe Stop hook .*?(?=\n\n)",
+            r"\*\*Contract D — Stop hook / SessionEnd hook mirror\.\*\*\n\nThe Claude Code Stop "
+            r"hook .*?(?=\n\n)",
             (
                 "**Contract D - Codex runtime boundary.**\n\n"
                 f"The current Codex Stop hook writes only `{CODEX_CONTEXT_PATH}`. It does not "
-                "mark `loop-state.json` interrupted or mirror `batch-state.json`; stale active "
-                "state is recovered by the existing age-based resume path. Project-local state "
-                f"writer migration is deferred to `{CONTEXT_WRITER_MIGRATION}`."
+                "mark `loop-state.json` interrupted or mirror `batch-state.json` (the Claude Code "
+                "Stop hook's per-turn liveness refresh and the separate SessionEnd hook's terminal "
+                "interrupted-mark are both Claude-only); stale active state is recovered by the "
+                "existing age-based resume path. Project-local state writer migration is deferred "
+                f"to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
         (
@@ -490,8 +493,61 @@ def add_codex_stop_hook_occurrences(
                 f"migration is deferred to `{CONTEXT_WRITER_MIGRATION}`."
             ),
         ),
-    )
-    for pattern, generated in paragraph_rules:
+)
+
+
+def reachability_corpus(repo: Path) -> str:
+    """Concatenation of every source document any PARAGRAPH_RULES anchor
+    could conceivably target, for assert_paragraph_rules_reachable() ONLY.
+    NOT used for actual generation. The two real generation-facing scans each
+    cover a different, narrower slice: current_inventory()'s documents()
+    excludes content/rules/conventions.md and content/rules/code-standards.md
+    (several rules' sole target), while render_runtime_guidance()'s
+    $AGENTS_RAW (built by .codex/build.sh from the assembled methodology plus
+    both rules files) excludes the WORKFLOWS.values() command files (several
+    OTHER rules' sole target, e.g. content/commands/ds-wrap.md). Neither
+    scan's corpus is a superset of the other, so neither is a valid single
+    scope for "every rule matches somewhere" - and widening either one would
+    change real generated/inventoried output as an unreviewed side effect of
+    a reachability check. This function exists to answer only "does this
+    anchor match ANYTHING, anywhere" in isolation from both real scans."""
+    parts = [assembled_methodology(repo)]
+    parts.extend(read_text(repo / path) for path in WORKFLOWS.values())
+    parts.append(read_text(repo / "content/rules/conventions.md"))
+    parts.append(read_text(repo / "content/rules/code-standards.md"))
+    return "\n\n".join(parts)
+
+
+def assert_paragraph_rules_reachable(repo: Path) -> None:
+    """Fail loudly if any PARAGRAPH_RULES anchor matches zero times anywhere
+    in reachability_corpus(repo). A zero-hit rule means its Codex-specific
+    override has silently stopped applying wherever its target document is
+    actually scanned - almost always because the canonical (Claude) prose it
+    anchors to was reworded and the regex opener here was not updated to
+    match (the CRITICAL this closes: content/sections/09-events-log.md's
+    "Writer scope" paragraph was reworded and .codex/AGENTS.md /
+    .codex/skills/dinostack/METHODOLOGY.md silently reverted to telling
+    Codex agents about hook telemetry Codex does not have)."""
+    corpus = reachability_corpus(repo)
+    unmatched = [pattern for pattern, _ in PARAGRAPH_RULES if not re.search(pattern, corpus, re.S)]
+    if unmatched:
+        previews = "\n".join(f"  - {pattern[:100]!r}" for pattern in unmatched)
+        raise SkillError(
+            f"{len(unmatched)} of {len(PARAGRAPH_RULES)} PARAGRAPH_RULES anchor(s) in "
+            "scripts/codex-skills.py matched ZERO times anywhere in the reachability corpus - "
+            "the canonical prose these anchors target was likely reworded without updating "
+            "the matching regex here, silently reverting the Codex-specific override to "
+            "canonical (Claude-only) text. Update the anchor pattern(s) to the current "
+            "canonical wording:\n" + previews
+        )
+
+
+def add_codex_stop_hook_occurrences(
+    doc: Document,
+    found: list[Occurrence],
+    occupied: list[tuple[int, int]],
+) -> None:
+    for pattern, generated in PARAGRAPH_RULES:
         for match in re.finditer(pattern, doc.text, re.S):
             add_occurrence(
                 found,
@@ -1235,6 +1291,7 @@ def inventory_document(doc: Document, repo: Path) -> list[Occurrence]:
 
 
 def current_inventory(repo: Path) -> tuple[list[dict[str, str]], dict[str, list[Occurrence]]]:
+    assert_paragraph_rules_reachable(repo)
     by_source: dict[str, list[Occurrence]] = {}
     for doc in documents(repo):
         by_source[doc.source] = inventory_document(doc, repo)

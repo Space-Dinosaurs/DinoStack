@@ -286,6 +286,28 @@ class CodexSkillGenerationTests(unittest.TestCase):
                 self.build()
                 self.check()
 
+    def test_unmatched_paragraph_rule_anchor_fails_loudly(self) -> None:
+        """Regression for the round-7 CRITICAL: a PARAGRAPH_RULES anchor in
+        scripts/codex-skills.py that stops matching its canonical prose target
+        (because the target was reworded) must fail the build loudly instead of
+        silently reverting the Codex-specific override to unqualified canonical
+        text. Mutates the canonical opener the "Writer scope" rule anchors on -
+        the exact class of drift that caused the round-7 CRITICAL - and asserts
+        both `check` and `inventory` fail with a message naming the unmatched
+        rule."""
+        target = self.repo / "content/sections/09-events-log.md"
+        text = target.read_text(encoding="utf-8")
+        anchor = "**Writer scope: `.agentic/events.jsonl` has four writers**"
+        self.assertIn(anchor, text, "fixture repo's canonical opener must match the live anchor")
+        target.write_text(text.replace(anchor, "**Writer scope: something else entirely**"), encoding="utf-8")
+
+        result = self.check(expected=1)
+        self.assertIn("PARAGRAPH_RULES", result.stderr)
+        self.assertIn("matched ZERO times", result.stderr)
+
+        inventory = run(self.repo, "inventory", "--repo", str(self.repo), expected=1)
+        self.assertIn("PARAGRAPH_RULES", inventory.stderr)
+
     def test_frontmatter_and_link_mutations_fail(self) -> None:
         frontmatter = self.repo / ".codex/skill-frontmatter/brief.yml"
         frontmatter.write_text("---\nname: wrong\ndescription: broken\n---\n", encoding="utf-8")
