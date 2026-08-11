@@ -1004,5 +1004,34 @@ def test_ledger_write_failure_halts_further_deletions_but_exits_zero(tmp_path, m
     assert not (repo / ".agentic" / "branch-prune-ledger.txt").exists()
 
 
+# --------------------------------------------------------------------------
+# Mode-label reporting: `degraded` and `--dry-run` are independent axes, and
+# the summary line's `mode=` field must reflect both without collapsing them.
+# --------------------------------------------------------------------------
+
+
+def test_dry_run_summary_never_reports_mode_live(tmp_path):
+    repo, pr_path, _, _ = build_clean_squash(tmp_path)
+    proc = run_prune(repo, pr_data=pr_path, dry_run=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "mode=live" not in proc.stdout
+
+
+def test_normal_run_summary_reports_mode_live(tmp_path):
+    repo, pr_path, _, _ = build_clean_squash(tmp_path)
+    proc = run_prune(repo, pr_data=pr_path, dry_run=False)
+    assert proc.returncode == 0, proc.stderr
+    assert "mode=live" in proc.stdout
+
+
+def test_degraded_dry_run_summary_surfaces_both_facts(tmp_path):
+    repo, pr_path, _, _ = build_squash_then_main_diverges(tmp_path)
+    proc = run_prune(repo, no_gh=True, dry_run=True)
+    assert proc.returncode == 0, proc.stderr
+    assert "degraded" in proc.stdout.lower()
+    assert "dry-run" in proc.stdout.lower()
+    assert "mode=live" not in proc.stdout
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))
