@@ -46,8 +46,8 @@
 #          IN THIS FILE, and the required `scan` check fails on its own
 #          regression guard. Runtime generation means no high-entropy
 #          literal ever exists on disk in this file, in any commit that
-#          contains it, so the finding cannot recur. See _gen_alnum() and
-#          _gen_alnum_mixed() below.
+#          contains it, so the finding cannot recur. See _gen_alnum_mixed()
+#          and _gen_strong_secret() below.
 #
 # Public API: ./bin/tests/test_gitleaks_allowlist_scope.sh
 #             Exits 0 on all pass, 1 on any failure.
@@ -126,23 +126,83 @@ _cleanup() {
 }
 trap _cleanup EXIT
 
-# Generates $1 lowercase alphanumeric characters from /dev/urandom. Used for
-# the generic-api-key-shaped probes (assertions 0-2, 4, 5): measured against
-# the real generic-api-key rule to actually trigger it at this length and
-# entropy (see the engineer's return summary for the measured entropy and
-# RuleID observed). No literal secret value is ever hardcoded - every call
-# produces a fresh value, so re-running this file never reproduces the same
-# bytes twice.
-_gen_alnum() {
-  LC_ALL=C tr -dc 'a-z0-9' < /dev/urandom | head -c "$1"
+# Generates $1 mixed-case alphanumeric characters from /dev/urandom. `2>
+# /dev/null` on `tr` here is scoped to the generator itself, not to any
+# comparison/assertion step: `head -c "$1"` closes the pipe as soon as it
+# has read $1 bytes, and `tr` (still writing past that point) reliably logs
+# "tr: write error: Broken pipe" to stderr - expected SIGPIPE noise, not a
+# tooling failure, and it carries no information about whether the
+# generated value is usable (that is verified separately by
+# _gen_strong_secret below). Suppressing it here cannot mask a real
+# assertion failure, unlike a `2>/dev/null` on a scan/comparison step, which
+# this repo's convention forbids as a vacuous-pass vector.
+_gen_alnum_mixed() {
+  LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom 2>/dev/null | head -c "$1"
 }
 
-# Generates $1 mixed-case alphanumeric characters from /dev/urandom. Used
-# for the github-pat-shaped probe (assertion 3): real GitHub PATs are
-# mixed-case alphanumeric, and this shape was measured to trigger the
-# github-pat rule at 36 characters (see the engineer's return summary).
-_gen_alnum_mixed() {
-  LC_ALL=C tr -dc 'a-zA-Z0-9' < /dev/urandom | head -c "$1"
+# Oracle check: is $1 actually flagged by the REAL gitleaks binary's default
+# ruleset (no .gitleaks.toml involved - this is checking the raw secret
+# content's own detectability, independent of any allowlist scoping) when
+# embedded in a minimal generic-api-key-shaped line? Written as its own
+# function rather than inlined so _gen_strong_secret below can retry against
+# real ground truth instead of a re-derived proxy.
+#
+# Why an oracle rather than an entropy formula: an earlier version of this
+# fix computed Shannon entropy locally (bits/char, matching gitleaks'
+# entropy=3.5 threshold - extracted from the pinned binary's embedded
+# default config via `strings <gitleaks binary> | grep -A6 'id =
+# "generic-api-key"'`) and required a hard margin above it (4.5) before
+# accepting a probe. That closed the ORIGINAL flake (lowercase-only probes
+# occasionally landing under 3.5) but a mixed-case probe measured at ~4.7
+# bits/char - comfortably above both thresholds - still, rarely, went
+# uncaught (reproduced deterministically for a fixed value via `gitleaks
+# stdin`; see the engineer's return summary). Neither of the rule's own two
+# allowlist legs (the "Allowlist for Generic API Keys" regexes, checked
+# against `regexTarget = "match"`; and its stopwords list, checked against
+# the extracted secret) matched that reproduced miss on inspection, so the
+# exact mechanism is not fully attributed - which is itself the reason an
+# entropy formula can't be trusted as a sufficient proxy here. Asking the
+# real binary is unconditionally correct regardless of which internal
+# gitleaks mechanism is responsible, including ones this comment doesn't
+# name.
+_oracle_would_be_caught() {
+  local secret="$1"
+  local oracle_dir="$TMP_ROOT/_oracle"
+  mkdir -p "$oracle_dir"
+  printf 'other_token = "sk-%s"\n' "$secret" > "$oracle_dir/probe.txt"
+  gitleaks stdin --report-format json --report-path "$oracle_dir/report.json" \
+    < "$oracle_dir/probe.txt" >/dev/null 2>&1
+  python3 - "$oracle_dir/report.json" <<'PYEOF'
+import json
+import sys
+
+try:
+    with open(sys.argv[1]) as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    data = []
+sys.exit(0 if len(data) > 0 else 1)
+PYEOF
+}
+
+# Generates a mixed-case alphanumeric probe secret of length $1, VERIFIED
+# against the real gitleaks binary (via _oracle_would_be_caught above) to
+# actually trip generic-api-key's default detection before use - never
+# assumed from entropy math or charset/length alone. Retries with a bounded
+# attempt count (15) so a pathological draw can never spin forever; on
+# exhaustion, hard-fails loudly rather than silently falling back to an
+# unverified value (that would just relocate the original flake).
+_gen_strong_secret() {
+  local len="$1" attempt v
+  for attempt in $(seq 1 15); do
+    v="$(_gen_alnum_mixed "$len")"
+    if _oracle_would_be_caught "$v"; then
+      printf '%s' "$v"
+      return 0
+    fi
+  done
+  echo "FATAL: could not generate a probe secret of length $len that gitleaks' default ruleset actually flags, in 15 attempts" >&2
+  exit 1
 }
 
 # Assembles a github-pat-shaped token: the literal "ghp_" marker is itself
@@ -253,8 +313,8 @@ PYEOF
 A0_DIR="$TMP_ROOT/a0-baseline-suppressed"
 _init_scratch_repo "$A0_DIR"
 mkdir -p "$A0_DIR/.codex"
-A0_SECRET_1="$(_gen_alnum 40)"
-A0_SECRET_2="$(_gen_alnum 40)"
+A0_SECRET_1="$(_gen_strong_secret 40)"
+A0_SECRET_2="$(_gen_strong_secret 40)"
 cat > "$A0_DIR/.codex/skill-compatibility.yml" <<EOF
 {
   "source_token": "sk-${A0_SECRET_1}",
@@ -280,7 +340,7 @@ fi
 A1_DIR="$TMP_ROOT/a1-non-exempt-key"
 _init_scratch_repo "$A1_DIR"
 mkdir -p "$A1_DIR/.codex"
-A1_SECRET="$(_gen_alnum 40)"
+A1_SECRET="$(_gen_strong_secret 40)"
 cat > "$A1_DIR/.codex/skill-compatibility.yml" <<EOF
 {
   "other_token": "sk-${A1_SECRET}"
@@ -303,7 +363,7 @@ fi
 A2_DIR="$TMP_ROOT/a2-wrong-file"
 _init_scratch_repo "$A2_DIR"
 mkdir -p "$A2_DIR/.codex"
-A2_SECRET="$(_gen_alnum 40)"
+A2_SECRET="$(_gen_strong_secret 40)"
 cat > "$A2_DIR/.codex/other-inventory.yml" <<EOF
 {
   "source_token": "sk-${A2_SECRET}"
@@ -358,7 +418,7 @@ fi
 A4_DIR="$TMP_ROOT/a4-eval-boundary"
 _init_scratch_repo "$A4_DIR"
 mkdir -p "$A4_DIR/evals/fixtures" "$A4_DIR/evals/skill-comparison/tasks" "$A4_DIR/evals/skill-comparison/harness"
-A4_SECRET="$(_gen_alnum 40)"
+A4_SECRET="$(_gen_strong_secret 40)"
 SECRET_LINE="other_token: \"sk-${A4_SECRET}\""
 echo "$SECRET_LINE" > "$A4_DIR/evals/fixtures/probe.yml"
 echo "$SECRET_LINE" > "$A4_DIR/evals/skill-comparison/tasks/probe.yml"
@@ -404,8 +464,8 @@ fi
 A5_DIR="$TMP_ROOT/a5-real-code-paths"
 _init_scratch_repo "$A5_DIR"
 mkdir -p "$A5_DIR/hooks" "$A5_DIR/bin"
-A5_SECRET_1="$(_gen_alnum 40)"
-A5_SECRET_2="$(_gen_alnum 40)"
+A5_SECRET_1="$(_gen_strong_secret 40)"
+A5_SECRET_2="$(_gen_strong_secret 40)"
 cat > "$A5_DIR/hooks/probe.sh" <<EOF
 #!/usr/bin/env bash
 TOKEN="sk-${A5_SECRET_1}"
