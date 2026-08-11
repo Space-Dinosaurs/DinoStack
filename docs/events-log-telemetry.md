@@ -144,6 +144,21 @@ workaround - no file contents, no output, no secrets), `session_uuid`.
 This feeds the skill-candidate detection system. See
 [docs/skill-candidates.md](skill-candidates.md).
 
+### tracker_writeback
+
+Emitted by the conductor at the W1 (Phase 1, In Progress) tracker-writeback
+call site in `content/commands/ds-implement-ticket.md`, one event per W1 gate
+evaluation the conductor actually reaches. It does NOT detect, and nothing
+currently emits a signal for, the case where the conductor never reaches the
+W1 prose at all.
+
+Key `data` fields: `site` (currently always `"W1"`), `outcome`
+(`"skipped"` | `"dispatched"` | `"dispatch_failed"`), `reason` (populated
+only when `outcome == "skipped"`; one of `tracker_none`, `ticket_id_format`,
+`prefix_mismatch`, `fetch_failed` - `null` for `dispatched`/`dispatch_failed`),
+and `target_state`. Does not carry `session_uuid` - this is a boundary event,
+not a spawn-bracketing one.
+
 ## ds-cost
 
 `ds-cost` reads `events.jsonl` and the per-developer session logs to

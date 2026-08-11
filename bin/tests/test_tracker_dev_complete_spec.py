@@ -213,17 +213,21 @@ TARGET_RE = re.compile(
 # Derived, not hardcoded: every content/ file that names any TRACKER_STATE_
 # variable at all. A grep of a hardcoded list can only confirm the members
 # already in it, never surface the one that is missing. Measured against the
-# live tree: SIX files, not three. The last three match only on the literal
+# live tree: SEVEN files, not three. The last three match only on the literal
 # TRACKER_STATE_* inside the tracker_state_diagnostic and pending_merge_sweep
 # toggle descriptions; they contain zero TARGET_RE matches before or after
 # this change, so including them widens the universe without changing the
-# scan's outcome.
+# scan's outcome. content/references/events-log.md (DS-163) documents the W1
+# `tracker_writeback` breadcrumb's `target_state` field descriptively
+# ("the resolved `$TRACKER_STATE_IN_PROGRESS` value)") with no colon between
+# `target_state` and the value, so it also contributes zero TARGET_RE matches.
 EXPECTED_TRACKER_STATE_FILES = {
     "content/commands/ds-implement-ticket.md",
     "content/commands/ds-init-project.md",
     "content/commands/ds-ticket-status-sync.md",
     "content/commands/ds-wrap.md",
     "content/references/conventions-detail.md",
+    "content/references/events-log.md",
     "content/references/risk-config-and-tiers.md",
     "content/references/tracker-writeback.md",
 }

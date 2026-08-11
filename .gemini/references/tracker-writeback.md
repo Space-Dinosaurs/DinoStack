@@ -48,7 +48,7 @@ Reusable subagent invocation pattern. Used by Phase 11 (existing), the 7 W1-W7 s
 **Invocation contract:**
 
 When the conductor reaches a writeback boundary:
-1. Skip entirely if `TRACKER == none`.
+1. Skip entirely if `TRACKER == none`. At the W1 call site (`content/commands/ds-implement-ticket.md` Phase 1) this skip is recorded, not silent: it emits a `tracker_writeback` event (`outcome:"skipped"`, `reason:"tracker_none"` - see `content/references/events-log.md`) and a one-line operator-visible advisory on the conductor's next status turn. The other W2-W7 call sites and Phase 11 do not yet carry this instrumentation.
 2. Spawn the tracker-writeback subagent (Tier 1, `general-purpose`) in background (fire-and-forget; do NOT wait for return before continuing the phase). Fire-and-forget applies at W1-W7 and Phase 11; awaiting callers - 3 modes of `/ds-ticket-status-sync` (single-ticket, `--all`, `--pending-merge`) plus `/ds-wrap` Part F - are enumerated in the guard's step 4.d.iv below.
 3. Pass to the subagent:
    - `tracker`: `linear` | `jira`

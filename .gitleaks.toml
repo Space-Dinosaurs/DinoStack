@@ -13,13 +13,45 @@
 #   - evals/skill-comparison/tasks/: task corpus (git SHAs misread as api keys);
 #                                    the rest of skill-comparison is real harness
 #                                    code and is deliberately NOT allowlisted.
+#   - .codex/skill-compatibility.yml: generated inventory (produced by
+#                                    `python3 scripts/codex-skills.py inventory`,
+#                                    never hand-authored). Its `source_token`
+#                                    and `generated_token` fields are structural
+#                                    key names holding shell-variable
+#                                    placeholders (e.g. $AE_REPO_DIR), file
+#                                    paths, or display-only literal tokens
+#                                    (e.g. W1_FETCH_FAILED) - not credentials.
+#                                    The generic-api-key rule's entropy/regex
+#                                    heuristic occasionally matches one of
+#                                    these literal token values. Rather than
+#                                    allowlisting the whole file (which would
+#                                    also blind the scanner to a real secret
+#                                    landing under any OTHER key in it), the
+#                                    entry below is scoped to the
+#                                    generic-api-key rule AND this one file
+#                                    path AND the exact `source_token`/
+#                                    `generated_token` key match text - a real
+#                                    secret under a different key in this same
+#                                    file would still be flagged.
 
 [extend]
 useDefault = true
 
-[allowlist]
+[[allowlists]]
 description = "Intentional fake secrets / public git SHAs in eval fixture corpora - not real credentials"
 paths = [
   '''evals/fixtures/.*''',
   '''evals/skill-comparison/tasks/.*''',
+]
+
+[[allowlists]]
+description = "Generated codex-skills inventory: source_token/generated_token are structural key names (shell vars, file paths, display-only literals), not credentials"
+targetRules = ["generic-api-key"]
+condition = "AND"
+regexTarget = "match"
+paths = [
+  '''^\.codex/skill-compatibility\.yml$''',
+]
+regexes = [
+  '''(?:source|generated)_token":\s*"[^"]*"''',
 ]

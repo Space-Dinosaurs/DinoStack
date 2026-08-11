@@ -115,20 +115,20 @@ TOGGLE_SURFACES = [
 ]
 
 
-def _extract_w1_block(text: str) -> str:
-    """Extract the '### Tracker writeback (W1)' subsection: from the exact
-    heading line up to (exclusive) the next line that is itself a '## ' or
-    '### ' heading. Matches on an exact-stripped heading line so inline
-    backtick mentions elsewhere (e.g. in a fused multi-command embed like
-    .hermes/SKILL.md) are not mistaken for the heading itself."""
+def _extract_subsection(text: str, heading: str) -> str:
+    """Extract a subsection: from the exact heading line up to (exclusive)
+    the next line that is itself a '## ' or '### ' heading. Matches on an
+    exact-stripped heading line so inline backtick mentions elsewhere (e.g.
+    in a fused multi-command embed like .hermes/SKILL.md) are not mistaken
+    for the heading itself."""
     lines = text.splitlines()
     start = None
     for i, line in enumerate(lines):
-        if line.strip() == W1_HEADING:
+        if line.strip() == heading:
             start = i
             break
     if start is None:
-        raise AssertionError(f"heading {W1_HEADING!r} not found")
+        raise AssertionError(f"heading {heading!r} not found")
     end = len(lines)
     for j in range(start + 1, len(lines)):
         stripped = lines[j].strip()
@@ -136,6 +136,12 @@ def _extract_w1_block(text: str) -> str:
             end = j
             break
     return "\n".join(lines[start:end])
+
+
+def _extract_w1_block(text: str) -> str:
+    """Extract the '### Tracker writeback (W1)' subsection. See
+    _extract_subsection for the extraction rule."""
+    return _extract_subsection(text, W1_HEADING)
 
 
 def _section(text: str, heading: str) -> str:
@@ -171,6 +177,14 @@ def status_sync_text() -> str:
 @pytest.fixture(scope="module")
 def w1_block(implement_ticket_text) -> str:
     return _extract_w1_block(implement_ticket_text)
+
+
+@pytest.fixture(scope="module")
+def per_ticket_reset_block(implement_ticket_text) -> str:
+    return _extract_subsection(
+        implement_ticket_text,
+        "### Per-ticket variable reset (binding, runs FIRST on every entry)",
+    )
 
 
 @pytest.fixture(scope="module")
@@ -238,6 +252,272 @@ def test_w1_subsection_has_guard_and_cites_phase_0_regex_site(w1_block):
         "W1 subsection's regex citation should name the TICKET_PREFIX sites "
         "it is cross-referencing"
     )
+
+
+def test_site_w1_precedes_phase_3_3b_5_headings(implement_ticket_text):
+    # DS-163 observability follow-up: W1 must fire before the architect
+    # (Phase 3), orchestration-planner (Phase 3b), and engineer (Phase 5)
+    # spawn sites - the ordering fix this pins is already shipped (PR #517);
+    # this test is a regression guard against it silently moving back.
+    w1_idx = implement_ticket_text.index("site: W1")
+    phase3_idx = implement_ticket_text.index("## Phase 3: Architecture plan")
+    phase3b_idx = implement_ticket_text.index("## Phase 3b: Orchestration plan")
+    phase5_idx = implement_ticket_text.index("## Phase 5: Implement")
+    assert w1_idx < phase3_idx < phase3b_idx < phase5_idx, (
+        f"expected offset ordering W1({w1_idx}) < Phase 3({phase3_idx}) < "
+        f"Phase 3b({phase3b_idx}) < Phase 5({phase5_idx})"
+    )
+
+
+def _assert_no_w1_site_in_phase5(text: str) -> None:
+    """The real production assertion: Phase 5 must not carry a 'site: W1'
+    fire site. Extracted into a standalone function (rather than inlined in
+    a test body) so a mutation test can call it directly against a poisoned
+    fixture and confirm it actually raises - see
+    test_phase_5_no_w1_site_guard_catches_reintroduction below. The prior
+    version of this guard built a `poisoned` string and asserted against
+    that same string - a same-source tautology that could never redden."""
+    phase5_idx = text.index("## Phase 5: Implement")
+    phase6_idx = text.index("## Phase 6:")
+    phase5_text = text[phase5_idx:phase6_idx]
+    assert "site: W1" not in phase5_text, (
+        "Phase 5 must not carry a 'site: W1' fire site - In Progress is "
+        "written at Phase 1 only"
+    )
+
+
+def test_phase_5_has_no_w1_site_and_carries_the_anti_regression_note(implement_ticket_text):
+    _assert_no_w1_site_in_phase5(implement_ticket_text)
+    phase5_idx = implement_ticket_text.index("## Phase 5: Implement")
+    phase6_idx = implement_ticket_text.index("## Phase 6:")
+    phase5_text = implement_ticket_text[phase5_idx:phase6_idx]
+    assert (
+        "Phase 5 deliberately has no W1 site. Do not re-add one."
+        in phase5_text
+    ), (
+        "Phase 5 must retain the anti-regression note against re-adding a "
+        "W1 fire site"
+    )
+
+
+def test_phase_5_no_w1_site_guard_catches_reintroduction():
+    # Non-vacuous proof: call the REAL production assertion helper
+    # (_assert_no_w1_site_in_phase5, the same function the passing test
+    # above calls) against a poisoned fixture that DOES re-add a Phase-5
+    # W1 site, and confirm it actually raises AssertionError. Unlike the
+    # prior version of this test, both operands here do not trace to the
+    # same source: the helper is the live production check, and the
+    # fixture is a synthetic input constructed independently of it.
+    poisoned = (
+        "## Phase 5: Implement\n\n"
+        "[phase: tracker-writeback | site: W1 | target: $TRACKER_STATE_IN_PROGRESS]\n\n"
+        "## Phase 6: Something\n"
+    )
+    with pytest.raises(AssertionError):
+        _assert_no_w1_site_in_phase5(poisoned)
+
+
+def _assert_w1_outcome_mechanism(w1_block: str, reset_block: str) -> None:
+    """The real production assertion: pins the MECHANISM that produces each
+    outcome/reason, not merely the English prose that names it. Extracted
+    into a standalone function so a mutation test can call it directly -
+    see test_w1_outcome_breadcrumb_mechanism_mutation_guard below.
+
+    A prior version of this check asserted only bare substring membership
+    (e.g. `"prefix_mismatch" in w1_block`), which the surrounding English
+    prose already satisfies even with the entire W1 resolution block
+    deleted, a single elif branch deleted, or every reason code renamed
+    throughout. This version pins the literal shell assignment statements
+    that actually produce each value."""
+    assert "ds-emit tracker_writeback" in w1_block, (
+        "W1 subsection must invoke `ds-emit tracker_writeback`"
+    )
+
+    # --- skip-reason mechanism: each reason must be an actual elif-branch
+    # assignment, in the correct mutually-exclusive if/elif chain, not just
+    # a word appearing anywhere in prose.
+    reason_assignments = [
+        ('W1_REASON="tracker_none"', 'if [ "$TRACKER" = "none" ]'),
+        (
+            'W1_REASON="ticket_id_format"',
+            "elif ! printf '%s' \"${TICKET_ID:-}\" | grep -qE",
+        ),
+        (
+            'W1_REASON="prefix_mismatch"',
+            'elif [ -n "${TICKET_PREFIX:-}" ]',
+        ),
+        (
+            'W1_REASON="fetch_failed"',
+            'elif [ "${W1_FETCH_FAILED:-false}" = "true" ]',
+        ),
+    ]
+    for assignment, guarding_condition in reason_assignments:
+        assert assignment in w1_block, (
+            f"W1 subsection must contain the literal assignment {assignment!r} "
+            "- prose naming the reason is not sufficient"
+        )
+        assert guarding_condition in w1_block, (
+            f"W1 subsection must contain the literal guarding condition "
+            f"{guarding_condition!r} that produces {assignment!r}"
+        )
+
+    # --- skip-outcome mechanism: the skip emit line must fire only inside
+    # the `if [ -n "$W1_REASON" ]` guard and carry the literal "skipped"
+    # outcome plus the resolved $W1_REASON as its reason.
+    assert 'if [ -n "$W1_REASON" ]' in w1_block, (
+        "W1 subsection must gate the skip emit on a non-empty $W1_REASON"
+    )
+    assert (
+        '\\"outcome\\":\\"skipped\\",\\"reason\\":\\"$W1_REASON\\"' in w1_block
+    ), (
+        "W1 subsection's skip emit line must carry outcome:skipped paired "
+        "with the resolved $W1_REASON as reason"
+    )
+
+    # --- dispatch-outcome mechanism (the Critical finding): both branches
+    # of W1_DISPATCH_OUTCOME must be explicit literal assignments, and the
+    # emit line's expansion must be set -u-safe (a bare $W1_DISPATCH_OUTCOME
+    # would abort the whole step under `set -u` if either assignment above
+    # were ever skipped).
+    assert 'W1_DISPATCH_OUTCOME="dispatched"' in w1_block, (
+        "W1 subsection must explicitly assign W1_DISPATCH_OUTCOME=\"dispatched\" "
+        "on the tool-call-accepted branch"
+    )
+    assert 'W1_DISPATCH_OUTCOME="dispatch_failed"' in w1_block, (
+        "W1 subsection must explicitly assign W1_DISPATCH_OUTCOME=\"dispatch_failed\" "
+        "on the tool-call-error branch"
+    )
+    assert (
+        '\\"outcome\\":\\"${W1_DISPATCH_OUTCOME:-dispatch_failed}\\"' in w1_block
+    ), (
+        "the dispatch emit line must use the set -u-safe "
+        "${W1_DISPATCH_OUTCOME:-dispatch_failed} expansion, not a bare "
+        "$W1_DISPATCH_OUTCOME reference"
+    )
+    assert "$W1_DISPATCH_OUTCOME}" not in w1_block.replace(
+        "${W1_DISPATCH_OUTCOME:-dispatch_failed}", ""
+    ), (
+        "found a bare, non-defaulted $W1_DISPATCH_OUTCOME expansion outside "
+        "the set -u-safe form - this is exactly the unassigned-reference "
+        "defect the Critical finding flagged"
+    )
+
+    # --- per-ticket reset: W1_DISPATCH_OUTCOME (like W1_FETCH_FAILED) must
+    # be reset at the top of every entry, or a batch ticket that never
+    # reaches the dispatch branch inherits the previous ticket's value.
+    assert 'W1_DISPATCH_OUTCOME=""' in reset_block, (
+        "the per-ticket variable reset block must reset W1_DISPATCH_OUTCOME "
+        "alongside W1_FETCH_FAILED"
+    )
+    assert "W1_FETCH_FAILED=false" in reset_block, (
+        "sanity check: the per-ticket variable reset block must still reset "
+        "W1_FETCH_FAILED"
+    )
+
+
+def test_w1_outcome_breadcrumb_covers_all_three_outcomes(w1_block, per_ticket_reset_block):
+    # DS-163 (round 2): every W1 evaluation must emit exactly one ds-emit
+    # `tracker_writeback` breadcrumb, distinctly covering all three
+    # outcomes - skipped, dispatched, and dispatch_failed - via the actual
+    # assignment mechanism, not prose that merely names the outcome.
+    _assert_w1_outcome_mechanism(w1_block, per_ticket_reset_block)
+
+
+def test_w1_outcome_breadcrumb_mechanism_mutation_guard():
+    # Non-vacuous proof: call the REAL production assertion helper
+    # (_assert_w1_outcome_mechanism, the same function the passing test
+    # above calls) against poisoned fixtures that preserve the surrounding
+    # prose but break the mechanism, and confirm each one actually raises.
+    real_w1_block = _extract_w1_block(
+        IMPLEMENT_TICKET_PATH.read_text(encoding="utf-8")
+    )
+    real_reset_block = _extract_subsection(
+        IMPLEMENT_TICKET_PATH.read_text(encoding="utf-8"),
+        "### Per-ticket variable reset (binding, runs FIRST on every entry)",
+    )
+
+    # Mutation 1: delete the entire W1_REASON resolution block (the exact
+    # class of deletion the Skeptic used to falsify the round-1 assertions).
+    poisoned_1 = real_w1_block.replace(
+        'W1_REASON="tracker_none"', "# deleted"
+    ).replace(
+        'W1_REASON="ticket_id_format"', "# deleted"
+    ).replace(
+        'W1_REASON="prefix_mismatch"', "# deleted"
+    ).replace(
+        'W1_REASON="fetch_failed"', "# deleted"
+    )
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_1, real_reset_block)
+
+    # Mutation 2: delete just the prefix_mismatch elif branch's assignment.
+    poisoned_2 = real_w1_block.replace('W1_REASON="prefix_mismatch"', "# deleted")
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_2, real_reset_block)
+
+    # Mutation 3: rename prefix_mismatch throughout (simulates the
+    # substring-satisfying-prose failure mode the Skeptic identified).
+    poisoned_3 = real_w1_block.replace("prefix_mismatch", "prefix_mismatch_renamed")
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_3, real_reset_block)
+
+    # Mutation 4 (the Critical finding): delete the dispatched-branch
+    # assignment, leaving only the bare set -u-safe fallback.
+    poisoned_4 = real_w1_block.replace('W1_DISPATCH_OUTCOME="dispatched"', "# deleted")
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_4, real_reset_block)
+
+    # Mutation 5: delete the dispatch_failed-branch assignment.
+    poisoned_5 = real_w1_block.replace(
+        'W1_DISPATCH_OUTCOME="dispatch_failed"', "# deleted"
+    )
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_5, real_reset_block)
+
+    # Mutation 6: revert the emit line to a bare, non-defaulted expansion
+    # (the exact shape the Critical finding was filed against).
+    poisoned_6 = real_w1_block.replace(
+        '${W1_DISPATCH_OUTCOME:-dispatch_failed}', "$W1_DISPATCH_OUTCOME"
+    )
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(poisoned_6, real_reset_block)
+
+    # Mutation 7: drop the per-ticket reset for W1_DISPATCH_OUTCOME.
+    poisoned_reset = real_reset_block.replace('W1_DISPATCH_OUTCOME=""', "")
+    with pytest.raises(AssertionError):
+        _assert_w1_outcome_mechanism(real_w1_block, poisoned_reset)
+
+    # Sanity: the unmodified real blocks must pass (proves the helper is
+    # not simply always-raising).
+    _assert_w1_outcome_mechanism(real_w1_block, real_reset_block)
+
+
+def test_w1_tracker_none_advisory_present_and_scoped(w1_block):
+    # The tracker_none skip must be operator-visible via a one-line advisory,
+    # and that advisory must be scoped to tracker_none only (not fired for
+    # the other three skip reasons).
+    assert "TRACKER is none for this project" in w1_block, (
+        "W1 subsection must carry the tracker_none advisory line"
+    )
+    assert (
+        "No advisory line fires for the other three reasons" in w1_block
+    ), (
+        "W1 subsection must explicitly scope the advisory to tracker_none "
+        "only, not the other three skip reasons"
+    )
+
+
+def test_w1_outcome_breadcrumb_soft_fail(w1_block):
+    # A missing or failing ds-emit must never block Phase 1 - every emit
+    # call site must be soft-failed.
+    emit_lines = [
+        line for line in w1_block.splitlines() if "ds-emit tracker_writeback" in line
+    ]
+    assert emit_lines, "expected at least one ds-emit tracker_writeback call site"
+    for line in emit_lines:
+        assert "2>/dev/null || true" in line, (
+            f"ds-emit tracker_writeback call site must be soft-failed: {line!r}"
+        )
 
 
 def test_w1_subsection_cited_phase_0_sites_actually_exist(implement_ticket_text):
@@ -677,4 +957,34 @@ def test_config_cmd_out_of_scope_names_agentic_tracker():
     assert out_of_scope_idx < identity_idx < tracker_idx, (
         "ds-tracker must be named in the ds-config.md Out-of-scope "
         "clause, after the identity clause it extends"
+    )
+
+
+def test_no_duplicate_top_level_test_function_names():
+    # DS-163 round-3 rework: no F811 lint runs on bin/tests/, so a second
+    # `def test_foo` in this module silently shadows the first (Python
+    # keeps only the last binding; pytest collects only the survivor). A
+    # duplicate copy of test_phase_5_has_no_w1_site_and_carries_the_anti_
+    # regression_note shipped this way in round 2. Guard against a repeat
+    # by parsing this file's own AST and asserting every top-level
+    # function name is unique.
+    import ast
+
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source, filename=str(Path(__file__)))
+    names = [
+        node.name
+        for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    seen = set()
+    dupes = set()
+    for name in names:
+        if name in seen:
+            dupes.add(name)
+        seen.add(name)
+    assert not dupes, (
+        f"duplicate top-level function definition(s) in this test module: "
+        f"{sorted(dupes)} - Python silently shadows the earlier definition "
+        f"and pytest only collects the survivor"
     )
