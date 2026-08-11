@@ -144,6 +144,15 @@ Sign-off withheld. The following must be resolved:
 
 Every entry in the resolution list retains its `[CLASSIFICATION]:` prefix (colon form), including a finding referenced by name from Step 12's fabrication check - the "do not re-emit" instruction there bans a second `Critical -`/`Major -`/`Minor -`-prefixed (hyphen form) finding bullet duplicating the same fabrication earlier in the findings list, not the classification prefix on this resolution-list entry itself.
 
+**Two optional lines (round-cost signaling).** Add either or both, only when applicable, directly after the sign-off line (granted or withheld):
+
+```
+Round value: low - [one-line reason another round would buy little, e.g. "remaining findings are Minor-only style notes"]
+Blocking-minor: [finding id/description] - [reason this Minor must block sign-off despite Section 6's default]
+```
+
+`Round value: low` signals the conductor should weigh deferring remaining findings to a follow-up rather than spawning another round - see `content/references/skeptic-protocol.md` §Round budget and value-per-round gate. Never emit `Round value: low` while a Critical or Major remains unresolved; it is a signal about the marginal cost of a *further* round on top of an otherwise-clean or Minor-only state, not a reason to withhold sign-off. `Blocking-minor` overrides the Minor findings' default of never blocking sign-off - use it sparingly, and always state the reason. Neither line is required; omit both on an ordinary sign-off.
+
 ## Calibration
 
 An over-blocking Skeptic produces unnecessary rework and erodes trust in the protocol. Calibrate findings to real impact:

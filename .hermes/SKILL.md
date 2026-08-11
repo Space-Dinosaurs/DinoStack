@@ -436,7 +436,9 @@ For Low or Trivial units, the Skeptic applies its inline self-check. QA is not s
 
 ### Re-route limits
 
-**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes before escalating to the human. This applies to loops inside `/ds-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context. When the cap is reached with open findings, the conductor does not spawn another Engineer - it surfaces the stall with the open findings list and waits for human direction.
+**Re-route limits.** Within any loop (Skeptic re-route or QA re-route), the conductor applies a max of 3 fix passes before escalating to the human. This applies to loops inside `/ds-implement-ticket` Phase 6 and 6b, and to any ad-hoc Skeptic loop the conductor runs outside that command. The conductor tracks re-route count in-context.
+
+**At the cap, the conductor takes exactly one of two actions - never silent continuation.** (a) Ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This ship-or-escalate choice governs ad-hoc Skeptic loops directly; `/ds-implement-ticket` Phase 6's cap_reached step is not yet updated to offer the ship branch mechanically and still escalates unconditionally at cap - until that step is updated, treat option (a) inside Phase 6 as a conductor override the operator must approve, not an automatic path. Full policy, including the value-per-round gate that governs whether a round is spawned at all and the ordering rule for enforcement-only units, is in `content/references/skeptic-protocol.md` §Round budget and value-per-round gate.
 
 **Convergence failure.** A convergence failure occurs when a Skeptic raises the same finding unchanged after the Engineer claimed to have addressed it. Convergence failures bypass the remaining iteration budget and escalate immediately. They indicate either a misunderstanding between the Engineer and the finding, or a design-level conflict that requires human arbitration. Within the persistence loop, one re-raise after a claimed fix is sufficient (overrides the 2-re-route rule in skeptic-protocol.md Section 5 - see that section for the override note).
 
@@ -6009,6 +6011,18 @@ The number of permitted Skeptic rounds scales with task complexity:
 **Uncertainty rule for categorization:** The simple/targeted-unit metric is computed mechanically from the actual diff, not estimated. If the unit fails any clause of the metric - touches more than 1 file (or more than 1 file plus its colocated test/snapshot), exceeds 40 changed lines, or matches any of the 5 Mandatory Tier-3 escalation signal categories - apply the standard Elevated round limit (the 2-re-route rule). "Looks simple" is not a sufficient basis for the simple/targeted category; the metric's clauses are the only basis.
 
 **Loop contract override:** When operating inside the `/ds-implement-ticket` persistence loop (Phase 6), the loop contract overrides this rule. One re-raise after a claimed fix (convergence failure as defined in the loop contract) is sufficient to trigger escalation. The loop already consumes iteration budget on each fix pass; requiring a second re-raise would waste an additional pass on a finding the Engineer has already failed to address. Outside the loop context (ad-hoc Skeptic re-routes not inside a named loop), the 2-re-route rule applies unchanged.
+
+### Round budget and value-per-round gate
+
+**Why this exists.** A single session spent ~10 hours and ~15 Skeptic rounds on a 6-unit change. Seven of those rounds went to ONE unit whose entire output was an enforcement gate that shipped zero user-visible behavior change, and it blocked the three units that carried the actual value. Every finding, including Minors, got its own full engineer+Skeptic cycle. The conductor set an explicit stop condition at round 5 and then abandoned it under review pressure. The methodology has extensive machinery against UNDER-verification (the re-route counter, the cognitive-surrender audit note, the calibration sampling) and had no brake at all on OVER-verification. This subsection is that brake.
+
+**1. Round budget.** Default cap of 3 Skeptic rounds per unit (the same cap named in `content/sections/05-qa-gate.md` §Re-route limits and `/ds-implement-ticket` Phase 6's `max_iterations`). On reaching the cap, the conductor takes exactly one of two actions, never silent continuation: (a) ship, recording every unresolved non-Critical finding in the PR body as explicit accepted debt; or (b) escalate to the human, stating cost-to-date (rounds consumed, wall-clock or token cost if available) and what the next round is expected to buy. **An unresolved Critical always blocks - the cap never ships a Critical.** This is the one exception to "the cap always terminates the loop" and must never be missed: a cap-reached escalation with an open Critical is `termination_reason: cap_reached` per the loop contract, not a ship decision.
+
+**2. Value-per-round gate.** Before spawning round N+1, the conductor states, in one line, what shipped value that round buys - e.g. `[round-value: round 3 fixes the auth-bypass Critical, ships]`. If the honest answer is only "hardens infrastructure" or "improves a gate" with no behavior change reaching a user, the default is to defer the remaining findings to a follow-up rather than spend the round. This gate applies per round, independent of whether the 3-round cap has been reached - a unit can be argued out of round 2 on value grounds alone.
+
+**3. Infrastructure-after-value ordering.** A unit whose sole output is enforcement (a gate, a pin, a spec test, a CI check with no accompanying behavior change) must NOT block the change it enforces. Ship the behavior-changing units first; enforcement follows in a later PR. A gate protecting a change that has not shipped protects nothing, and an inert gate is worse than no gate because it looks like coverage. When ordering a multi-unit plan, the conductor sequences enforcement-only units after every unit that changes shipped behavior, not before or interleaved.
+
+**4. Finding-tier round policy.** A Critical finding earns a dedicated round. Majors batch within a round - route all open Majors to the same Worker spawn rather than one Worker spawn per Major. Minors do NOT earn their own engineer+Skeptic cycle - per Section 6, they batch into the next unit or a follow-up PR via the Minor-fix Worker path, unless the Skeptic explicitly marks one as blocking with a stated reason (see the `Blocking-minor:` sign-off line in `content/agents/skeptic.md` §Sign-off format). A Minor marked blocking behaves as a Major for round-spending purposes for that one round only - it does not change the finding's permanent classification.
 
 ### Prose-scoped re-check
 
@@ -12644,6 +12658,15 @@ Sign-off withheld. The following must be resolved:
 ```
 
 Every entry in the resolution list retains its `[CLASSIFICATION]:` prefix (colon form), including a finding referenced by name from Step 12's fabrication check - the "do not re-emit" instruction there bans a second `Critical -`/`Major -`/`Minor -`-prefixed (hyphen form) finding bullet duplicating the same fabrication earlier in the findings list, not the classification prefix on this resolution-list entry itself.
+
+**Two optional lines (round-cost signaling).** Add either or both, only when applicable, directly after the sign-off line (granted or withheld):
+
+```
+Round value: low - [one-line reason another round would buy little, e.g. "remaining findings are Minor-only style notes"]
+Blocking-minor: [finding id/description] - [reason this Minor must block sign-off despite Section 6's default]
+```
+
+`Round value: low` signals the conductor should weigh deferring remaining findings to a follow-up rather than spawning another round - see `content/references/skeptic-protocol.md` §Round budget and value-per-round gate. Never emit `Round value: low` while a Critical or Major remains unresolved; it is a signal about the marginal cost of a *further* round on top of an otherwise-clean or Minor-only state, not a reason to withhold sign-off. `Blocking-minor` overrides the Minor findings' default of never blocking sign-off - use it sparingly, and always state the reason. Neither line is required; omit both on an ordinary sign-off.
 
 ## Calibration
 

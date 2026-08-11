@@ -192,6 +192,16 @@
       "source_token": "content/references/spawn-presets-example.yml"
     },
     {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "15834776a2e63a565358019a9fbef88834fcafa0c3851a42cc1f9582175f7fd8",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
+    },
+    {
       "expected_target": "content/references/worktree-lifecycle.md",
       "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
       "kind": "operational",
@@ -200,16 +210,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
-      "expected_target": "implement-ticket",
-      "generated_token": "$implement-ticket",
-      "kind": "operational",
-      "occurrence_hash": "166b294202b4074de36ac458ea4b2cf60eff5e7b485606cdde6b3898ec26bb26",
-      "resolution_mode": "native-skill",
-      "scope": "dinostack-repository",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -1082,6 +1082,16 @@
       "source_token": ".agentic/config.json"
     },
     {
+      "expected_target": "content/references/skeptic-protocol.md",
+      "generated_token": "$AE_REPO_DIR/content/references/skeptic-protocol.md",
+      "kind": "operational",
+      "occurrence_hash": "8a5159b5b8ed89ee3e64a34732208138de7fb596ad0a984dd7f7b15a724af7d9",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "content/references/skeptic-protocol.md"
+    },
+    {
       "expected_target": "METHODOLOGY.md",
       "generated_token": "$AE_CORE_SKILL_ROOT/METHODOLOGY.md",
       "kind": "operational",
@@ -1520,6 +1530,16 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "isolation: \"worktree\""
+    },
+    {
+      "expected_target": "implement-ticket",
+      "generated_token": "$implement-ticket",
+      "kind": "operational",
+      "occurrence_hash": "b89d71ccf549b2844ebb11762a91c39a0f7a344832355a08632d434081f87a74",
+      "resolution_mode": "native-skill",
+      "scope": "dinostack-repository",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "/ds-implement-ticket"
     },
     {
       "expected_target": "content/references/cross-session-loop-resume.md",
