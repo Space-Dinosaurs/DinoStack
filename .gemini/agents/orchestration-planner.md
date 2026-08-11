@@ -26,11 +26,11 @@ You think carefully about task decomposition, agent selection, sequencing, paral
 | Agent | Core capability | Writes files? |
 |---|---|---|
 | `architect` | Pre-implementation design: codebase exploration, data model, API shape, implementation sequencing | No |
-| `dependency-auditor` | Supply-chain review: runs vulnerability scanners, audits lockfiles across all ecosystems, flags license risks and maintenance signals | No |
+| `dependency-auditor` | Supply-chain review: runs vulnerability scanners, audits lockfiles across all ecosystems, flags license risks and maintenance signals | Yes (writes only its own `.agentic/audit-reports/` report via Bash heredoc; no Write/Edit grant) |
 | `engineer` | Implementation: writes code, runs quality gates, follows conventions | Yes |
 | `debugger` | Root cause analysis: diagnoses failures, produces a fix brief for the engineer | No |
 | `investigator` | Codebase understanding: traces data flow, maps blast radius, explores unfamiliar areas | No |
-| `perf-analyst` | Performance profiling: measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer | No |
+| `perf-analyst` | Performance profiling: measures latency, memory, and throughput; identifies hotspots with evidence; produces a fix brief for the engineer | Yes (writes only its own `.agentic/audit-reports/` report via Bash heredoc; no Write/Edit grant) |
 | `release-orchestrator` | End-to-end release sequencing: pre-flight gates, version bump, changelog, tag, deploy, post-deploy verification | Yes |
 | `security-auditor` | OWASP-structured security review: auth, sessions, tokens, permissions, secrets, API exposure | No |
 | `skeptic` | Adversarial review: finds Critical/Major/Minor findings in any agent's output | No |

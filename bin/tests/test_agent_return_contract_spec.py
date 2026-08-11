@@ -22,7 +22,9 @@ Upstream dependencies: content/agents/*.md (real agent files, dispatched via
             expected_violations_snapshot.json (round-5: the exact per-file
             violation-string snapshot loaded into EXPECTED_VIOLATIONS -
             see generate_agent_return_contract_snapshot.py for how this
-            file is regenerated).
+            file is regenerated);
+            content/references/subagent-return-contract.md (read directly
+            at test time via CONTRACT_REF_PATH, round-6 addition).
 
 Downstream consumers: .github/workflows/bin-tests.yml python-bin-tests job,
             which runs `pytest bin/tests/ -q` - full-directory glob
@@ -269,10 +271,13 @@ Failure modes: pure static analysis, no I/O beyond reading .md files under
                 'never omit any section' instruction" sentence in
                 content/references/subagent-return-contract.md is DELETED
                 (not narrowed-and-left-alongside-its-own-correction) -
-                the accurate count (5) is folded directly into the
-                sentence it replaces, and the separate "Correction
-                (2026-08-11, round 5)" paragraph correcting a sentence
-                that no longer exists is removed with it.
+                the accurate per-file enumeration is folded directly into
+                the sentence it replaces (no numeral restated here, since
+                this manifest comment is itself a fourth unpinned copy of
+                that count and drifted stale once already), and the
+                separate "Correction (2026-08-11, round 5)" paragraph
+                correcting a sentence that no longer exists is removed
+                with it.
             (Minor) content/references/subagent-return-contract.md's
                 form-6-then/form-7-now vocabulary list is enumerated in
                 full (no trailing '...') and now matches
@@ -350,16 +355,20 @@ CAP_RE = re.compile(
 # Report" heading - not "no such section under any name"; skeptic.md's
 # six conductor-validated Sign-off format lines were confirmed verbatim
 # against content/commands/ds-skeptic.md:68 and
-# content/commands/ds-wrap.md:439,443.) ---
+# content/commands/ds-wrap.md:439,443.
+# Unit 4 (return-contract migration) moved dependency-auditor.md and
+# perf-analyst.md from Shape 1 to Shape 2: both retired their free-prose
+# "## Report structure" narrative for the pointer JSON schema (report
+# written to .agentic/audit-reports/ via Bash heredoc - neither agent has
+# a Write/Edit grant - plus a small structured return), matching
+# adr-drift-detector.md's own Shape 2 shape unchanged by this move. ---
 
 SHAPE_ASSIGNMENTS = {
     # Shape 1 - tagged prose fields.
     "architect.md": 1,
     "debugger.md": 1,
-    "dependency-auditor.md": 1,
     "investigator.md": 1,
     "orchestration-planner.md": 1,
-    "perf-analyst.md": 1,
     "product-discovery.md": 1,
     "qa-engineer.md": 1,
     "security-auditor.md": 1,
@@ -369,6 +378,8 @@ SHAPE_ASSIGNMENTS = {
     "learnings-agent.md": 2,
     "wrap-ticket.md": 2,
     "adr-drift-detector.md": 2,
+    "dependency-auditor.md": 2,
+    "perf-analyst.md": 2,
     # Shape 3 - fixed literal-line template.
     "goal-condition-evaluator.md": 3,
     "skeptic.md": 3,
@@ -1676,12 +1687,157 @@ def test_shape4_missing_cap_is_flagged():
     assert violations, "expected a violation for the uncapped 'Failures and blockers' placeholder"
 
 
-def test_shape4_release_orchestrator_is_not_yet_migrated():
+def test_shape4_release_orchestrator_is_now_compliant():
+    """Unit 4 (return-contract migration) added an explicit cap to each of
+    release-orchestrator.md's three genuinely open-ended Shape-4
+    placeholders (the '<message>' half of its two commit-listing lines,
+    the QA report summary placeholder, and the Failures-and-blockers
+    placeholder) without touching any bounded-by-nature placeholder
+    (sha/url/timestamp/tag/environment name/remote name/exact command/
+    exact rollback command) or the '## Status:' closed-enum line -
+    release-orchestrator.md is now fully Shape-4 compliant."""
     path = AGENTS_DIR / "release-orchestrator.md"
     violations = check_contract(path.read_text(), "release-orchestrator.md")
-    assert violations != [], (
-        "release-orchestrator.md is listed in NOT_YET_MIGRATED but its "
-        "Shape-4 checker found it fully compliant"
+    assert violations == [], violations
+
+
+def test_shape2_dependency_auditor_is_now_compliant():
+    """Unit 4 (return-contract migration) retired dependency-auditor.md's
+    free-prose '## Report structure' (Summary/Findings/Upgrade plan/Open
+    questions/Scan gaps, none tagged) for the pointer-JSON Shape 2 return:
+    the full report is written to .agentic/audit-reports/ via a Bash
+    heredoc (this agent has no Write/Edit grant), and the small returned
+    object declares an enum or bound on every field (scan_completeness/
+    maintenance_signal/verdict as closed enums, critical_count/major_count/
+    minor_count/report_path as bounded-by-nature '<count>'/'<path>'
+    literals, notes as a capped, omit-when-empty field)."""
+    path = AGENTS_DIR / "dependency-auditor.md"
+    violations = check_contract(path.read_text(), "dependency-auditor.md")
+    assert violations == [], violations
+
+
+def test_critical_findings_cap_never_suppresses_a_critical():
+    """Round 3 (Skeptic Major 1) - a Critical finding must never be
+    suppressed by a bounded findings-list cap. security-auditor.md's
+    '### Critical findings' section and dependency-auditor.md's
+    critical_findings pointer field both carry a hard item cap (10 and
+    5 respectively); each must also carry an unconditional "report all
+    of them anyway" clause, with grouping offered only as a compression
+    means, that takes precedence over the cap. Without this clause, an
+    auditor with more Criticals than the cap has no compliant path
+    except dropping the overflow."""
+    for filename in ("security-auditor.md", "dependency-auditor.md"):
+        text = (AGENTS_DIR / filename).read_text()
+        assert "must never be suppressed" in text, (
+            f"{filename} is missing the anti-suppression clause for its "
+            "capped Critical findings list"
+        )
+        assert "report all of them anyway" in text, (
+            f"{filename}'s anti-suppression clause must instruct reporting "
+            "all Criticals, not just acknowledge the cap"
+        )
+        assert "takes precedence over it" in text, (
+            f"{filename}'s anti-suppression clause must explicitly take "
+            "precedence over the cap, not merely coexist with it"
+        )
+
+
+def test_shape2_perf_analyst_is_now_compliant():
+    """Unit 4 (return-contract migration) retired perf-analyst.md's
+    free-prose '## Report structure' (Summary/Methodology/Measurements/
+    Perf budget verdict/Hotspot/Root cause/Evidence/Fix brief for
+    engineer/Confidence, none tagged) for the pointer-JSON Shape 2 return:
+    the full report is written to .agentic/audit-reports/ via a Bash
+    heredoc (this agent has no Write/Edit grant), and the small returned
+    object declares an enum or bound on every field (verdict/confidence as
+    closed enums, hotspot/root_cause/fix_brief as explicitly capped
+    strings matching debugger's Root cause/Fix brief precedent, report_path
+    as a bounded-by-nature '<path>' literal, notes as a capped,
+    omit-when-empty field)."""
+    path = AGENTS_DIR / "perf-analyst.md"
+    violations = check_contract(path.read_text(), "perf-analyst.md")
+    assert violations == [], violations
+
+
+def test_shape2_adr_drift_detector_is_now_compliant():
+    """Unit 4 (return-contract migration) retired adr-drift-detector.md's
+    free-prose 'Phase 6: Produce the Drift Report' narrative (which
+    previously had no fenced yaml/json return block at all - the
+    NO_STRUCTURED_RETURN_SECTION defect the Unit-0 amendment corrected to
+    NOT_YET_MIGRATED) for the pointer-JSON Shape 2 return: the full report
+    is written to .agentic/audit-reports/ via a Bash heredoc (this agent
+    has no Write/Edit grant), and the small returned object declares an
+    enum or bound on every field (verdict as a closed enum,
+    adrs_scanned/violations_count/partial_count/unverifiable_count/
+    report_path as bounded-by-nature '<count>'/'<path>' literals, notes
+    as a capped, omit-when-empty field)."""
+    path = AGENTS_DIR / "adr-drift-detector.md"
+    violations = check_contract(path.read_text(), "adr-drift-detector.md")
+    assert violations == [], violations
+
+
+# --- "Don't omit" instruction count pin (round-2 rework of Unit 4) ---
+
+DONT_OMIT_PATTERN = re.compile(
+    r"never omit|do not omit|don't omit|do not skip sections?", re.IGNORECASE
+)
+
+
+def test_dont_omit_instruction_count_matches_prose():
+    """subagent-return-contract.md's 'Why this file exists' section states
+    an exact count and file set of content/agents/*.md files still
+    carrying some form of a "don't omit" instruction. That count has been
+    wrong or arguably-wrong across three consecutive PRs (undercounting
+    debugger.md's distinct field-scoped 'Never omit the location' line and
+    missing adr-generator.md's 'Do not skip sections' entirely). This
+    grep-based pin catches drift mechanically instead of relying on manual
+    re-verification: update both this test's `expected` set and the prose
+    paragraph together whenever either changes."""
+    hits = {
+        path.name
+        for path in AGENTS_DIR.glob("*.md")
+        if DONT_OMIT_PATTERN.search(path.read_text())
+    }
+    expected = {"architect.md", "skeptic.md", "debugger.md", "adr-generator.md"}
+    assert hits == expected, (
+        f"missing: {sorted(expected - hits)}; unexpected: {sorted(hits - expected)}"
+    )
+
+
+CONTRACT_REF_PATH = REPO_ROOT / "content" / "references" / "subagent-return-contract.md"
+
+DONT_OMIT_PROSE_COUNT_PATTERN = re.compile(
+    r"(\d+)\s+carry some\s*\nform of a \"don't omit\" instruction",
+)
+
+
+def test_dont_omit_instruction_count_matches_prose_number():
+    """Round 3 (Skeptic Minor 2) - the prior count pin
+    (test_dont_omit_instruction_count_matches_prose, above) only pins the
+    live tree against a hardcoded `expected` set; it does not verify that
+    `expected`'s cardinality matches the number subagent-return-contract.md
+    itself states in prose ("of the 18 files ..., 4 carry some form of a
+    ...instruction"). Editing that paragraph's "4" alone - without touching
+    this test file - left the prior test green. This test parses the
+    numeral out of the prose file and asserts it against the same
+    mechanically-measured hit set, so a prose-only edit reddens here."""
+    prose_text = CONTRACT_REF_PATH.read_text()
+    match = DONT_OMIT_PROSE_COUNT_PATTERN.search(prose_text)
+    assert match, (
+        "could not find the '<N> carry some form of a \"don't omit\" "
+        f"instruction' sentence in {CONTRACT_REF_PATH}"
+    )
+    prose_count = int(match.group(1))
+
+    hits = {
+        path.name
+        for path in AGENTS_DIR.glob("*.md")
+        if DONT_OMIT_PATTERN.search(path.read_text())
+    }
+    assert prose_count == len(hits), (
+        f"subagent-return-contract.md claims {prose_count} files carry a "
+        f"'don't omit' instruction, but the live tree has {len(hits)}: "
+        f"{sorted(hits)}"
     )
 
 
@@ -1796,8 +1952,14 @@ def test_fully_compliant_files_are_exactly_the_snapshot_empty_set():
     migrated to its shape's tagging/enum/cap obligation with the boilerplate
     "never omit any section" rule deleted from its own Rules section (where
     present) and folded ADVISORY content moved into a single `Notes` block.
-    A future migration legitimately grows this set further; this test
-    exists so that growth is asserted explicitly rather than assumed."""
+    Unit 4 (same migration) grew it by four more: dependency-auditor.md,
+    perf-analyst.md, and adr-drift-detector.md each retired a free-prose
+    report shape for the pointer-JSON Shape 2 return (report written to
+    .agentic/audit-reports/ via Bash heredoc - none of the three has a
+    Write/Edit grant); release-orchestrator.md added an explicit cap to
+    its three previously-unbounded Shape-4 placeholders. A future
+    migration legitimately grows this set further; this test exists so
+    that growth is asserted explicitly rather than assumed."""
     compliant_now = {name for name, v in EXPECTED_VIOLATIONS.items() if v == []}
     assert compliant_now == {
         "architect.md",
@@ -1806,4 +1968,8 @@ def test_fully_compliant_files_are_exactly_the_snapshot_empty_set():
         "orchestration-planner.md",
         "security-auditor.md",
         "skeptic.md",
+        "dependency-auditor.md",
+        "perf-analyst.md",
+        "adr-drift-detector.md",
+        "release-orchestrator.md",
     }, f"unexpected 'compliant now' set: {sorted(compliant_now)}"

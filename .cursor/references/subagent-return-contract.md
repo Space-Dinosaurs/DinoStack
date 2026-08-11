@@ -34,19 +34,34 @@ repo's `AGENTS.md` entries on the Elevated-signal table and on plan/brief
 duplication). The rule below - which field in a subagent's return is
 always present versus optional - is exactly that kind of rule. It does not
 yet exist as a widespread per-agent restatement: verified against the
-live tree, of the 18 files under `content/agents/*.md`, 3 carry some
-form of a "don't omit" instruction - `adr-drift-detector.md` carries a
-section-scoped "do not omit the section" instruction, `architect.md`
-carries the equivalent "Do not omit the block" for its `qa_criteria`
-section, and `skeptic.md` carries a narrower, LINE-scoped instance
-("Never omit the 'Active search:' line"). `debugger.md` and
-`investigator.md` previously carried the section-scoped form too, but
-Unit 1 of this migration deleted both as the direct source of their
-always-present empty sections. Filenames only, deliberately - a
+live tree, of the 18 files under `content/agents/*.md`, 4 carry some
+form of a "don't omit" instruction - `architect.md` carries a
+section-scoped "Do not omit the block" for its `qa_criteria` section,
+`skeptic.md` carries a narrower, LINE-scoped instance ("Never omit the
+'Active search:' line"), `adr-generator.md` carries a section-scoped
+instance ("Do not skip sections or use placeholders"), and `debugger.md`
+carries a distinct FIELD-scoped instance ("Never omit the location" in
+its Root cause section) - separate from, and never removed by, the
+section-scoped "always output every section" boilerplate that Unit 1 of
+this migration deleted from `debugger.md` and `investigator.md` as the
+direct source of their always-present empty sections. That deletion is
+why earlier revisions of this paragraph undercounted `debugger.md`:
+the field-scoped line at line 107 was never the deleted instruction and
+survived Unit 1 untouched. `adr-drift-detector.md` and `perf-analyst.md`
+previously carried the section-scoped form too ("do not omit the
+section" and "Do not skip sections" respectively), but Unit 4 of this
+migration deleted both when retiring their free-prose report shape for
+the pointer-JSON Shape 2 return. Filenames only, deliberately - a
 line-number citation drifts on the next unrelated edit to any of these
 files, and this passage has already gone stale once from exactly that.
 This file single-sources that concern going forward, before it spreads
-further as an ad hoc per-agent restatement.
+further as an ad hoc per-agent restatement. This count has now been
+wrong or arguably-wrong in three consecutive PRs; it is mechanically
+pinned by `test_dont_omit_instruction_count_matches_prose` in
+`bin/tests/test_agent_return_contract_spec.py`, which greps every
+`content/agents/*.md` file for the pattern and asserts the exact file
+set - update both this paragraph and that test's `expected` set together
+on any future change to either.
 
 Every one of `content/agents/*.md`'s return-contract sections should carry
 a **one-line pointer** to this file, never a restated copy of the test
@@ -255,11 +270,10 @@ every `SHAPE_ASSIGNMENTS` file, asserted verbatim by
 reviewed update procedure (never a silent one-command refresh). Per-shape
 summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
 
-- **Shape 1** (tag every `###` field): `dependency-auditor.md`,
-  `perf-analyst.md`, `product-discovery.md`, `qa-engineer.md` - not yet
-  migrated. `architect.md`, `debugger.md`, `investigator.md`,
-  `orchestration-planner.md`, and `security-auditor.md` are now fully
-  migrated and compliant: every `###` field is tagged
+- **Shape 1** (tag every `###` field): `product-discovery.md`,
+  `qa-engineer.md` - not yet migrated. `architect.md`, `debugger.md`,
+  `investigator.md`, `orchestration-planner.md`, and `security-auditor.md`
+  are now fully migrated and compliant: every `###` field is tagged
   `[MECHANICAL, cap: <N> ...]`/`[MECHANICAL, enum]`, the boilerplate
   "never omit any section" rule was deleted from each file's own Rules
   section (where one existed), and each file's status/narration fields
@@ -269,19 +283,25 @@ summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
   `investigator.md` also gained a `coverage: complete | partial | blocked`
   enum field; `security-auditor.md` gained a
   `dependency_scan: clean | cves_found | not_run` enum field.
+  `dependency-auditor.md` and `perf-analyst.md` migrated OUT of Shape 1
+  entirely (Unit 4) - see Shape 2 below.
 - **Shape 2** (schema-object): `engineer.md`, `learning-extractor.md`,
-  `learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md` have a
-  real structured return (under a `### N. Return` workflow sub-step or a
-  non-synonym `##` phase heading) but are not yet migrated to this
-  shape's enum/cap obligation. `engineer.md` now carries FOUR genuine
-  violations, not one - round 6's Major-1 fix (a bare type declaration is
-  not itself a bound) correctly re-flags `task_id` (`<string or null>`)
-  and `branch_name` (`<string, or null>`), and round 6's Major-2 fix
-  (schema/doc-pointer form deleted outright) correctly re-flags
-  `learnings_candidate`, alongside the pre-existing `pr_description_body`
-  gap. Round 5's `files_modified.path` (`<repo-relative path>`) fix
-  stands unchanged - it is a genuine bounded-by-nature value literal and
-  is still not flagged.
+  `learnings-agent.md`, `wrap-ticket.md` have a real structured return
+  (under a `### N. Return` workflow sub-step or a non-synonym `##` phase
+  heading) but are not yet migrated to this shape's enum/cap obligation.
+  `engineer.md` now carries FOUR genuine violations, not one - round 6's
+  Major-1 fix (a bare type declaration is not itself a bound) correctly
+  re-flags `task_id` (`<string or null>`) and `branch_name` (`<string, or
+  null>`), and round 6's Major-2 fix (schema/doc-pointer form deleted
+  outright) correctly re-flags `learnings_candidate`, alongside the
+  pre-existing `pr_description_body` gap. Round 5's `files_modified.path`
+  (`<repo-relative path>`) fix stands unchanged - it is a genuine
+  bounded-by-nature value literal and is still not flagged.
+  `adr-drift-detector.md`, `dependency-auditor.md`, and `perf-analyst.md`
+  (Unit 4) are now fully migrated and compliant: each writes its full
+  human-readable report to a `.agentic/audit-reports/` file via a Bash
+  heredoc and returns only a small, fully enum/cap-tagged pointer JSON
+  object - zero violations in the current snapshot for all three.
 - **Shape 3** (fixed literal-line template): `skeptic.md` is now fully
   compliant - Unit 1 added one narrow, additive cap declaration on
   finding-description length (300 chars) to the Calibration section,
@@ -298,14 +318,13 @@ summary as of 2026-08-11 (Unit 1 of the DS return-contract migration):
   line (see "Shape 3" above) and is no longer flagged. Its Evidence-value
   gap remains genuine and unmigrated - Unit 1 scoped `skeptic.md` only.
 - **Shape 4** (markdown-sectioned flat report): `release-orchestrator.md`
-  carries THREE genuine violations, not two as earlier claimed - an
-  explicit cap on its "Failures and blockers" free-text section, a bound
-  on its "QA report" placeholder (`<summary or "see spawned qa-engineer
-  output">`), and (round 6 Minor fix) a bound on its `<message>`
-  placeholder in the commit-listing lines under "What shipped" (appears
-  twice) - a commit message is not bounded by nature the way a SHA/URL/
-  timestamp/tag is, so `message`/`commit message` were removed from the
-  bounded-by-nature-value-literal vocabulary.
+  is now fully compliant, zero violations (Unit 4 narrowed fix) - its
+  previously-flagged `<message>` placeholder in the commit-listing lines
+  under "What shipped" (appears twice) now carries an explicit cap,
+  closing out the last of the three genuine violations from the prior
+  round (an explicit cap on its "Failures and blockers" free-text
+  section, a bound on its "QA report" placeholder, and this `<message>`
+  bound).
 - **Exempt** (file-artifact output, not a return payload): `adr-generator.md`
   - its deliverable is the generated ADR document itself, not a
   conductor-parsed return.
