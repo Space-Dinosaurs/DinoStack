@@ -66,15 +66,15 @@ Each line is one JSON object:
 orchestration boundary: worker spawn, worker return, Skeptic finding/sign-off,
 QA result, /ds-wrap completion, finding fix.
 
-**The Stop hook** (`hooks/stop-context.js`) appends a single `session_total`
-event at session exit.
+**The Stop hook** (`hooks/stop-context.js`) appends a `session_total` event
+on every TURN (it runs once per Stop invocation, which fires on every turn,
+not once per session).
 
 The Stop hook is not the only non-conductor writer: `hooks/pre-tool-use-spawn-emit.js`
 (`PreToolUse(Task/Agent)`) appends a hook-emitted `spawn_start` mid-turn on
 every subagent spawn, and `hooks/subagent-stop-spawn-emit.js` (`SubagentStop`,
 DS-160) appends a hook-emitted `spawn_complete` whenever a subagent finishes -
-both fire while the conductor's turn is still in progress, not only at
-session exit.
+both fire while the conductor's turn is still in progress.
 
 Subagent agents never emit events themselves; hooks firing on their spawns
 and completions do.
@@ -115,7 +115,8 @@ the full schema and how consumers avoid double-counting the two variants.
 
 ### session_total
 
-Emitted exactly once per session by the Stop hook.
+Emitted by the Stop hook on every TURN (the Stop hook fires once per turn,
+not once per session).
 
 Key `data` fields: `wall_seconds`, summed `tokens`, `spawn_count`,
 `by_agent` rollup (per-agent `spawns`, `wall_seconds`, `tokens_total`).

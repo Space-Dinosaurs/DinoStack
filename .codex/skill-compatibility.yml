@@ -192,6 +192,16 @@
       "source_token": "/ds-implement-ticket"
     },
     {
+      "expected_target": ".agentic/",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/",
+      "kind": "operational",
+      "occurrence_hash": "171aeb8c7506603872e11c1c334f88aaf73f406308dea2bf5ac6aed13548151e",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/"
+    },
+    {
       "expected_target": "content/references/delegation-detail.md",
       "generated_token": "$AE_REPO_DIR/content/references/delegation-detail.md",
       "kind": "operational",
@@ -200,6 +210,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/delegation-detail.md"
+    },
+    {
+      "expected_target": "hooks/stop-context.js",
+      "generated_token": "$AE_REPO_DIR/hooks/stop-context.js",
+      "kind": "operational",
+      "occurrence_hash": "18637f4de4b1ca26c91e288127aede94042a6b57b5ea3913ec9aa87cb416d085",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/stop-context.js"
     },
     {
       "expected_target": "AE_CODEX_CONFIG_DIR",
@@ -280,6 +300,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "METHODOLOGY.md"
+    },
+    {
+      "expected_target": "hooks/subagent-stop-spawn-emit.js",
+      "generated_token": "$AE_REPO_DIR/hooks/subagent-stop-spawn-emit.js",
+      "kind": "operational",
+      "occurrence_hash": "245e73aaa92b12b8668e4a0c2c78ade70b477d834f202910e21a2fae573166f1",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/subagent-stop-spawn-emit.js"
     },
     {
       "expected_target": "Task",
@@ -1012,6 +1042,16 @@
       "source_token": "METHODOLOGY.md"
     },
     {
+      "expected_target": ".agentic/events.jsonl",
+      "generated_token": "$AE_PROJECT_DIR/.agentic/events.jsonl",
+      "kind": "operational",
+      "occurrence_hash": "80c026003ad366ddc87b4c862b56241a62f69788ccc16dc4180c782ea1327c97",
+      "resolution_mode": "invoked-project-path",
+      "scope": "invoked-project",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": ".agentic/events.jsonl"
+    },
+    {
       "expected_target": "shell",
       "generated_token": "Bash",
       "kind": "semantic-reference",
@@ -1050,16 +1090,6 @@
       "scope": "invoked-project",
       "source": "assembled:METHODOLOGY.md",
       "source_token": ".agentic/qa-regressions.md"
-    },
-    {
-      "expected_target": ".agentic/events.jsonl",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/events.jsonl",
-      "kind": "operational",
-      "occurrence_hash": "883ccef477f30fb298497d8ae6a8d4ff65b4ed7bf874bb72b0716afe71e68b72",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/events.jsonl"
     },
     {
       "expected_target": "content/references/delegation-detail.md",
@@ -1160,6 +1190,16 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/risk-config-and-tiers.md"
+    },
+    {
+      "expected_target": "hooks/pre-tool-use-spawn-emit.js",
+      "generated_token": "$AE_REPO_DIR/hooks/pre-tool-use-spawn-emit.js",
+      "kind": "operational",
+      "occurrence_hash": "95b05579675a96e9d89e5b6d021f55aeb034e9a41c0ef6311f38699b071c2ae6",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "assembled:METHODOLOGY.md",
+      "source_token": "hooks/pre-tool-use-spawn-emit.js"
     },
     {
       "expected_target": "METHODOLOGY.md",
@@ -1392,16 +1432,6 @@
       "source_token": "content/references/cross-harness-teams.md"
     },
     {
-      "expected_target": ".agentic/",
-      "generated_token": "$AE_PROJECT_DIR/.agentic/",
-      "kind": "operational",
-      "occurrence_hash": "abe2a24e75c85bd957e37de7ae39d76b2d7d46804a0ec69aaf2b515b1c8af021",
-      "resolution_mode": "invoked-project-path",
-      "scope": "invoked-project",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": ".agentic/"
-    },
-    {
       "expected_target": "filesystem read",
       "generated_token": "Read",
       "kind": "semantic-reference",
@@ -1462,16 +1492,6 @@
       "source_token": "Task"
     },
     {
-      "expected_target": "hooks/stop-context.js",
-      "generated_token": "$AE_REPO_DIR/hooks/stop-context.js",
-      "kind": "operational",
-      "occurrence_hash": "b12abb0bd80c6da0287c6ea5aac12b47ec99ab150465bbc2774dfe1302e71ab0",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/stop-context.js"
-    },
-    {
       "expected_target": "Task",
       "generated_token": "Task",
       "kind": "semantic-reference",
@@ -1530,16 +1550,6 @@
       "scope": "codex-harness",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "isolation: \"worktree\""
-    },
-    {
-      "expected_target": "hooks/subagent-stop-spawn-emit.js",
-      "generated_token": "$AE_REPO_DIR/hooks/subagent-stop-spawn-emit.js",
-      "kind": "operational",
-      "occurrence_hash": "b8ac648b11daa85948d5458d01eb03de60dc6acc57c7e4cdce4dddb54afbc143",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/subagent-stop-spawn-emit.js"
     },
     {
       "expected_target": "content/references/cross-session-loop-resume.md",
@@ -2060,16 +2070,6 @@
       "scope": "canonical-source",
       "source": "assembled:METHODOLOGY.md",
       "source_token": "content/references/conductor-turn-format.md"
-    },
-    {
-      "expected_target": "hooks/pre-tool-use-spawn-emit.js",
-      "generated_token": "$AE_REPO_DIR/hooks/pre-tool-use-spawn-emit.js",
-      "kind": "operational",
-      "occurrence_hash": "efe55ad2705925c73351b82ce43ca104287571f8060163c49f3fd3974303412a",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "assembled:METHODOLOGY.md",
-      "source_token": "hooks/pre-tool-use-spawn-emit.js"
     },
     {
       "expected_target": "filesystem read",
