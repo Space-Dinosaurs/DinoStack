@@ -940,6 +940,37 @@ for spawn_matcher in ("Task", "Agent"):
         f"PostToolUse({spawn_matcher}) capture-nudge hook",
     )
 
+# ---- SubagentStop spawn-complete telemetry hook (DS-160) --------------------
+# Fires when a subagent actually FINISHES (unlike PostToolUse(Task/Agent),
+# which fires at spawn LAUNCH - see hooks/pre-tool-use-spawn-emit.js header).
+# Emits a hook-sourced spawn_complete event with a real wall_seconds figure,
+# closing the gap where spawn_complete previously depended entirely on the
+# conductor LLM remembering to run `ds-emit spawn_complete ...` inline (an
+# LLM-semantic event with no deterministic trigger). Fully fail-open, no
+# stdout, no deny - matcher "*" since SubagentStop has no tool-name matcher.
+SUBAGENT_STOP_SPAWN_EMIT_CMD = f"node {hooks_root}/hooks/subagent-stop-spawn-emit.js"
+
+subagent_stop_list = hooks.setdefault("SubagentStop", [])
+
+subagent_stop_star = None
+for block in subagent_stop_list:
+    if block.get("matcher") == "*":
+        subagent_stop_star = block
+        break
+
+if subagent_stop_star is None:
+    subagent_stop_star = {"matcher": "*", "hooks": []}
+    subagent_stop_list.append(subagent_stop_star)
+
+subagent_stop_star.setdefault("hooks", [])
+
+upsert_hook(
+    subagent_stop_star["hooks"],
+    "subagent-stop-spawn-emit.js",
+    {"type": "command", "command": SUBAGENT_STOP_SPAWN_EMIT_CMD, "timeout": 5},
+    "SubagentStop spawn-emit telemetry hook",
+)
+
 # ---- PreToolUse AskUserQuestion default-enforcement hook --------------------
 ptu_list = hooks.setdefault("PreToolUse", [])
 ENFORCE_AUQ_CMD = f"python3 {hooks_root}/hooks/enforce-askuserquestion-default.py"
