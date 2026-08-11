@@ -4002,6 +4002,16 @@
       "source_token": ".agentic/loop-state-"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "17ba8bb0bf347eadb0008f5e4be5643a62c441bb9a99dfb716019cd5999f596b",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": ".agentic/loop-state-<LOOP_KEY>.json",
       "generated_token": "$AE_PROJECT_DIR/.agentic/loop-state-<LOOP_KEY>.json",
       "kind": "operational",
@@ -7762,16 +7772,6 @@
       "source_token": "except"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "5ae989176360ed682cbffe7205ebfeba14159e21c7b03aefed0a51087e35810f",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "cfg",
       "kind": "display-only",
@@ -8190,6 +8190,16 @@
       "scope": "invoked-project",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": ".agentic/qa-regressions.md"
+    },
+    {
+      "expected_target": "awk",
+      "generated_token": "awk",
+      "kind": "operational",
+      "occurrence_hash": "60fe012edc1c8d373b850fe5cb345935acaa08ef57c9e9ee486e9f85ec743700",
+      "resolution_mode": "PATH-provided",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "awk"
     },
     {
       "expected_target": "shell",
@@ -9302,6 +9312,16 @@
       "source_token": "content/references/delegation-detail.md"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "7122d60cdb7486d7379e1cbd7806dc6b2d956e8e472667a71ce41d83f0c8a157",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "bin/ds-codex-session-id",
       "generated_token": "$AE_SESSION_ID",
       "kind": "operational",
@@ -9932,16 +9952,6 @@
       "source_token": "pr"
     },
     {
-      "expected_target": "content/references/worktree-lifecycle.md",
-      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
-      "kind": "operational",
-      "occurrence_hash": "7e65d2da444acc869bda7dcb8636a83889379aef2d42912a5e2dd3af27898694",
-      "resolution_mode": "validated-repository",
-      "scope": "canonical-source",
-      "source": "content/commands/ds-implement-ticket.md",
-      "source_token": "content/references/worktree-lifecycle.md"
-    },
-    {
       "expected_target": ".agentic/tasks.jsonl",
       "generated_token": "$AE_PROJECT_DIR/.agentic/tasks.jsonl",
       "kind": "operational",
@@ -10300,6 +10310,16 @@
       "scope": "display-only",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "/unavailable"
+    },
+    {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "8695a542a363c11092f139ecf077dd1a58a9afea0ae38bab6aebe7aa121c1add",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
     },
     {
       "expected_target": "try",
@@ -13042,6 +13062,16 @@
       "source_token": "/ds-wrap"
     },
     {
+      "expected_target": "content/references/worktree-lifecycle.md",
+      "generated_token": "$AE_REPO_DIR/content/references/worktree-lifecycle.md",
+      "kind": "operational",
+      "occurrence_hash": "b44c3b402e264d372b8466d67ae4d68906d7e8710c19b5500cf680b09abd9905",
+      "resolution_mode": "validated-repository",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "content/references/worktree-lifecycle.md"
+    },
+    {
       "expected_target": "hashed-source-occurrence",
       "generated_token": "length",
       "kind": "display-only",
@@ -13710,6 +13740,16 @@
       "scope": "canonical-source",
       "source": "content/commands/ds-implement-ticket.md",
       "source_token": "KC_STATUS"
+    },
+    {
+      "expected_target": "hashed-source-occurrence",
+      "generated_token": "-C",
+      "kind": "display-only",
+      "occurrence_hash": "bf0cd1cba3003fc2efd284dcaf98f36d1cf52f9e075984b877b55a50347f3561",
+      "resolution_mode": "display-only",
+      "scope": "canonical-source",
+      "source": "content/commands/ds-implement-ticket.md",
+      "source_token": "-C"
     },
     {
       "expected_target": "if",
