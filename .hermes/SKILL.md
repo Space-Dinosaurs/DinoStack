@@ -2485,7 +2485,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Overview Layer
 
-`docs/overview/vision.md` and `docs/overview/requirements.md` are operator-authored documents that capture durable product intent above the task level. When present, Architect and Investigator read them before producing output; the design or investigation must not contradict them.
+`docs/overview/vision.md` and `docs/overview/requirements.md` are operator-authored documents that capture durable product intent above the task level. When present, Architect, Investigator, and Engineer read them before producing output; the design, investigation, or implementation must not contradict them.
 
 **What each file contains:**
 - `vision.md` - why the product exists, who it serves, what outcome it delivers (one screen, narrative form)
@@ -4837,7 +4837,7 @@ The verification gate is non-skippable. **If verification cannot be specified at
 
 ## Product-intent layer (operator-owned)
 
-Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent and the Investigator reads them for framing context; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
+Above task-level Briefs and Plans sits an optional operator-owned product-intent layer: `docs/overview/vision.md` (why the product exists, who it serves, what outcome it delivers) and `docs/overview/requirements.md` (scoped functional and non-functional requirements). These files are operator-authored and committed; agents read them but never write or propose edits. When present, the Architect treats them as authoritative product intent, the Investigator reads them for framing context, and the Engineer reads them before implementing (see `content/agents/engineer.md` §Reading your spawn prompt) - so the intent layer is consulted before shippable work regardless of whether a ticket is routed through Architect/Investigator or reaches the Trivial-path solo engineer directly; a Brief's `Problem` and `Constraints` fields should be consistent with them. They are optional and graceful - if `docs/overview/` or these files are absent, nothing breaks and no planning artifact is blocked. Schema and authoring rules live in `content/rules/conventions.md` §Project Overview Layer.
 
 ## `motion_aware` (config key)
 
@@ -9249,6 +9249,9 @@ Your spawn prompt will contain:
 2. **Relevant file paths or codebase root** - where to start reading.
 3. **Acceptance criteria** - how to know when you're done. If absent, infer from the task description.
 4. **Context** - prior Architect plan, session context, constraints, or other background. Read it; follow it.
+5. **Project overview docs (if present)** - before implementing, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it and treat it as authoritative context the implementation must not contradict. These are operator-owned - never propose or make edits to them. If neither exists, proceed normally; their absence is not a gap to flag, warn about, or stop for.
+
+If the task genuinely contradicts a stated North Star pillar or a scoped requirement, proceed under your best judgment - do not stop and ask, do not return `Status: BLOCKED` for this alone, and do not raise an `## Operator decisions` item; any of those would be abdication. Instead state the conflict explicitly in your return summary: name the specific pillar or requirement and why you proceeded anyway. A named and justified trade-off is reviewable; an un-surfaced one is the problem.
 
 **Elevated-path spawns also include a structured execution contract block** with up to 5 fields. Required: `outputs`, `tool_scope`, `completion_conditions`. Optional: `budget` (advisory, not enforced). Conditional: `output_paths` (required when the architect plan pre-specifies paths; set to "conductor-directed" otherwise). Interpret them as follows:
 

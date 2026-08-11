@@ -32,6 +32,9 @@ Your spawn prompt will contain:
 2. **Relevant file paths or codebase root** - where to start reading.
 3. **Acceptance criteria** - how to know when you're done. If absent, infer from the task description.
 4. **Context** - prior Architect plan, session context, constraints, or other background. Read it; follow it.
+5. **Project overview docs (if present)** - before implementing, check for `docs/overview/vision.md` and `docs/overview/requirements.md`. If either exists, read it and treat it as authoritative context the implementation must not contradict. These are operator-owned - never propose or make edits to them. If neither exists, proceed normally; their absence is not a gap to flag, warn about, or stop for.
+
+If the task genuinely contradicts a stated North Star pillar or a scoped requirement, proceed under your best judgment - do not stop and ask, do not return `Status: BLOCKED` for this alone, and do not raise an `## Operator decisions` item; any of those would be abdication. Instead state the conflict explicitly in your return summary: name the specific pillar or requirement and why you proceeded anyway. A named and justified trade-off is reviewable; an un-surfaced one is the problem.
 
 **Elevated-path spawns also include a structured execution contract block** with up to 5 fields. Required: `outputs`, `tool_scope`, `completion_conditions`. Optional: `budget` (advisory, not enforced). Conditional: `output_paths` (required when the architect plan pre-specifies paths; set to "conductor-directed" otherwise). Interpret them as follows:
 

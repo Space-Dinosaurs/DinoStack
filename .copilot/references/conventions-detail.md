@@ -58,7 +58,7 @@ Together these form the project's **intent layer**. Drift in any of them is **in
 
 ### Project Overview Layer
 
-`docs/overview/vision.md` and `docs/overview/requirements.md` are operator-authored documents that capture durable product intent above the task level. When present, Architect and Investigator read them before producing output; the design or investigation must not contradict them.
+`docs/overview/vision.md` and `docs/overview/requirements.md` are operator-authored documents that capture durable product intent above the task level. When present, Architect, Investigator, and Engineer read them before producing output; the design, investigation, or implementation must not contradict them.
 
 **What each file contains:**
 - `vision.md` - why the product exists, who it serves, what outcome it delivers (one screen, narrative form)
