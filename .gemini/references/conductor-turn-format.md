@@ -34,7 +34,7 @@ Which of the four warrants fired (§2) determines the turn's shape, not just whe
 An execution turn (Answer warrant ABSENT, at least one of Decision/Stoppage/Completion PRESENT) follows this fixed order, and **the structured block IS the entire turn - zero prose**:
 
 1. **Identity line first**: `ticket · branch · [phase: x]`. The `[phase: label]` breadcrumb itself is governed by `content/references/subagent-protocol.md` Rule 6 - read it there for firing points and the crash-recovery rationale; it is not restated here to avoid two copies drifting. **This is a documented CONVENTION, not a mechanically-enforced one (DS-155 round 3).** `hooks/enforce-turn-shape.py` no longer flags a missing or malformed identity line - see §10's history note for why the mechanical check was removed rather than repaired a third time. Following it remains expected practice; nothing on this repo's Stop-hook path will tell the conductor when it does not.
-2. **Status slots**: `State`, `Running`, `Blocked` - one line each, omitted when empty. Capped at **1-3 status lines per turn**, with the forced-yield shape (§7) as the sole exception to the cap itself, not merely to its line contents: a forced-yield turn drops `State`/`Running`/`Blocked` entirely and instead carries one `Waiting:` line per agent, however many that is - the count is unbounded, not re-capped at 1-3.
+2. **Status slots**: `State`, `Running`, `Blocked` - one line each, omitted when empty. Capped at **1-3 status lines per turn**, with the forced-yield shape (§7) as the sole exception to the cap itself, not merely to its line contents: a forced-yield turn drops `State`/`Running`/`Blocked` entirely and instead carries one `Waiting:` line per agent, however many that is - the count is unbounded, not re-capped at 1-3. A single blank line separates the identity line from the first status slot, and each status slot (or `Waiting:` line) from the next.
 3. **`## Operator decisions`, last.** Placement and internal formatting are governed by `content/sections/02-delegation.md` - read it there rather than here. When present, it terminates the turn: nothing follows it.
 
 **The status region is every non-blank, unfenced line after the identity line and before `## Operator decisions` (or before end-of-message when no decisions heading is present)** - the block governed by step 2 above (`State`/`Running`/`Blocked`) plus any `Waiting:` lines. This is the same region `hooks/enforce-turn-shape.py` computes via `_segment`/`_regions`; a trailing pre-heading aside sits INSIDE it, not outside.
@@ -95,8 +95,11 @@ Closing line, verbatim, and now read as governing relevance rather than a raw co
 
 ```
 DS-123 · fix/foo · [phase: skeptic-review]
+
 State: 2 of 3 units merged, unit 3 in review
+
 Running: skeptic on unit 3 (~4 min)
+
 Blocked: nothing
 
 ## Operator decisions
@@ -123,6 +126,7 @@ No identity line, no `State:`/`Running:`/`Blocked:` slots, no line cap - the ans
 
 ```
 DS-140 · fix/bar · [phase: skeptic-review]
+
 State: unit 2 merged, unit 3 skeptic sign-off received
 
 Nice, that closes out the last blocking finding from round 2. I went ahead and
@@ -141,6 +145,7 @@ This is a Completion-warrant (unit merged) turn carrying a narrative paragraph b
 
 ```
 DS-140 · fix/bar · [phase: skeptic-review]
+
 State: unit 2 merged, unit 3 skeptic sign-off received
 
 ## Operator decisions
@@ -156,7 +161,9 @@ When all work is with background agents and the conductor must end its turn - no
 
 ```
 DS-123 · fix/foo · [phase: skeptic-review]
+
 Waiting: skeptic - unit 3 correctness review
+
 Waiting: qa-engineer - unit 3 browser scenarios
 ```
 
@@ -170,6 +177,7 @@ Each `Waiting:` line must be <=120 characters (`WAITING_LINE_MAX_CHARS`) to coun
 
 ```
 DS-123 · fix/foo · [phase: engineer-spawned]
+
 State: engineer returned unit 2, spawning skeptic now
 ```
 
