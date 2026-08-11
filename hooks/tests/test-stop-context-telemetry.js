@@ -33,6 +33,16 @@
  *  10. ad-hoc-lost-subagent-stop-still-counts (DS-160 Critical): an ad-hoc
  *      session with one completed spawn and one spawn whose SubagentStop
  *      never fired -> both spawns counted, not silently dropped.
+ *  11. adhoc-no-session-id-unpaired-complete-not-double-counted (DS-160
+ *      round-2 Major 1): an unpaired hook spawn_complete (paired_spawn_id:
+ *      null, e.g. emitted when the SubagentStop payload carried no
+ *      session_id) co-present with a real spawn_start for the same visible
+ *      spawn -> counted once (via the spawn_start), not twice.
+ *  12. paired-complete-resolves-to-nothing-not-double-counted (DS-160
+ *      round-2 Major 1): a spawn_complete whose paired_spawn_id does not
+ *      match any spawn_start in this session's view (e.g. the hook's own
+ *      2MB tail window missed it) -> dropped as completion metadata, does
+ *      NOT create a new spawn count.
  *
  * Run with: node hooks/tests/test-stop-context-telemetry.js
  */
@@ -481,6 +491,89 @@ console.log('\nTest 10: ad-hoc-lost-subagent-stop-still-counts');
       `by_agent.skeptic.spawns === 1 (lost-stop spawn still counted) (got: ${agg.by_agent['skeptic'] && agg.by_agent['skeptic'].spawns})`);
     assert(agg.wall_seconds === 42,
       `wall_seconds === 42 (spawn-a's paired complete; spawn-b contributes 0) (got: ${agg.wall_seconds})`);
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// Test 11: adhoc-no-session-id-unpaired-complete-not-double-counted
+// ---------------------------------------------------------------------------
+console.log('\nTest 11: adhoc-no-session-id-unpaired-complete-not-double-counted');
+{
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-adhoc-011';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+
+  // One real spawn: its spawn_start. Its SubagentStop fired but the payload
+  // carried NO session_id, so subagent-stop-spawn-emit.js could not pair it
+  // (findMatch returns null unconditionally when sessionId is absent) - the
+  // resulting spawn_complete has paired_spawn_id:null AND session_uuid:null
+  // (mirrors `session_uuid: sessionId || null` in the real hook). Before the
+  // fix, this unpaired complete was counted as its OWN spawn (agent
+  // "unknown") in addition to the real spawn_start -> spawn_count 2 for 1
+  // real spawn.
+  fs.writeFileSync(eventsPath,
+    makeHookSpawnStart('engineer', sessionId, 'spawn-only-real') + '\n'
+    + JSON.stringify({
+      ts: new Date().toISOString(),
+      phase: 'hook',
+      event: 'spawn_complete',
+      agent: 'unknown',
+      task_id: null,
+      data: {
+        source: 'hook', session_uuid: null, tool_use_id: null,
+        agent_id: null, paired_spawn_id: null, wall_seconds: null,
+        tokens_note: 'unavailable (harness)',
+      },
+    }) + '\n',
+    'utf8'
+  );
+
+  const agg = scanSessionAggregate(eventsPath, sessionId);
+  assert(agg !== null, 'aggregate not null');
+  if (agg) {
+    assert(agg.spawn_count === 1,
+      `spawn_count === 1 (unpaired complete from a session-id-less SubagentStop `
+      + `must not add a second spawn) (got: ${agg.spawn_count})`);
+    assert(!agg.by_agent['unknown'],
+      `no "unknown" agent row from the unpaired complete (got: ${JSON.stringify(agg.by_agent)})`);
+    assert(agg.by_agent['engineer'] && agg.by_agent['engineer'].spawns === 1,
+      `by_agent.engineer.spawns === 1 (got: ${agg.by_agent['engineer'] && agg.by_agent['engineer'].spawns})`);
+  }
+  cleanup(tmpDir);
+}
+
+// ---------------------------------------------------------------------------
+// Test 12: paired-complete-resolves-to-nothing-not-double-counted
+// ---------------------------------------------------------------------------
+console.log('\nTest 12: paired-complete-resolves-to-nothing-not-double-counted');
+{
+  const tmpDir = makeTmpProject();
+  const sessionId = 'sess-adhoc-012';
+  const eventsPath = path.join(tmpDir, '.agentic', 'events.jsonl');
+
+  // One real spawn (spawn-real). A SECOND spawn_complete claims
+  // paired_spawn_id "spawn-vanished" - a spawn_id with NO corresponding
+  // spawn_start anywhere in this session's view (simulates the hook's own
+  // bounded tail window missing the original spawn_start when it emitted
+  // this record). Before the fix, "existing not found -> still count it
+  // once" created a phantom second spawn.
+  fs.writeFileSync(eventsPath,
+    makeHookSpawnStart('engineer', sessionId, 'spawn-real') + '\n'
+    + makeHookSpawnComplete('skeptic', sessionId, 'spawn-vanished', 99) + '\n',
+    'utf8'
+  );
+
+  const agg = scanSessionAggregate(eventsPath, sessionId);
+  assert(agg !== null, 'aggregate not null');
+  if (agg) {
+    assert(agg.spawn_count === 1,
+      `spawn_count === 1 (a paired_spawn_id resolving to nothing is dropped, `
+      + `not counted as a phantom spawn) (got: ${agg.spawn_count})`);
+    assert(!agg.by_agent['skeptic'],
+      `no "skeptic" agent row from the phantom-paired complete (got: ${JSON.stringify(agg.by_agent)})`);
+    assert(agg.by_agent['engineer'] && agg.by_agent['engineer'].spawns === 1,
+      `by_agent.engineer.spawns === 1 (got: ${agg.by_agent['engineer'] && agg.by_agent['engineer'].spawns})`);
   }
   cleanup(tmpDir);
 }

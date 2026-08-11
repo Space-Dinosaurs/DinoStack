@@ -555,17 +555,45 @@ function skillCandidateDetectionEnabled(cwd) {
  *     hooks/subagent-stop-spawn-emit.js started emitting hook spawn_complete
  *     too, the guard had to be extended to cover it as well - a hook
  *     spawn_complete for a spawn the conductor already reported would
- *     otherwise be counted a second time.)
+ *     otherwise be counted a second time.) This still leaves a mild
+ *     UNDERCOUNT in genuinely mixed sessions: a hook-only ad-hoc spawn that
+ *     co-occurs in the same session as a conductor-ticketed spawn is
+ *     excluded entirely, not reconciled against the conductor's spawn - the
+ *     same accepted tradeoff as the pre-DS-160 guard (per-spawn
+ *     reconciliation across the conductor/hook boundary is not attempted;
+ *     per plan deferred default, since a harness-provided cross-source
+ *     correlation id does not exist).
  *   - In a pure ad-hoc session (zero conductor-emitted spawn_complete), hook
- *     spawn_start and hook spawn_complete events are DEDUPED by
- *     data.spawn_id / data.paired_spawn_id so each real spawn counts exactly
- *     once: a spawn with both a spawn_start and a paired spawn_complete uses
- *     the spawn_complete's wall_seconds (a completed spawn); a spawn_start
- *     with no matching spawn_complete yet (SubagentStop still pending, or
- *     permanently lost) still counts once with wall_seconds 0 - it is NOT
- *     silently dropped. An unpaired spawn_complete (paired_spawn_id: null,
- *     e.g. its matching spawn_start rotated out of the scan window) counts
- *     once on its own.
+ *     spawn_start events are the authoritative "this spawn happened" signal
+ *     and are DEDUPED by data.spawn_id so each real spawn counts exactly
+ *     once: a spawn_start with no matching spawn_complete yet (SubagentStop
+ *     still pending, or permanently lost) still counts once with
+ *     wall_seconds 0 - it is NOT silently dropped. A PAIRED spawn_complete
+ *     (data.paired_spawn_id referencing a spawn_start already counted via
+ *     the dedup above) enriches that same spawn's record with a real
+ *     wall_seconds - it does NOT add a second spawn.
+ *   - DS-160 round-2 fix: an UNPAIRED hook spawn_complete (paired_spawn_id:
+ *     null) does NOT contribute a spawn count of its own. Earlier this
+ *     function counted it as a distinct spawn on the theory that its
+ *     spawn_start had "rotated out of the [hook's 2MB tail] scan window" -
+ *     but this consumer reads the WHOLE file (no tail bound), so exactly the
+ *     case the hook's tail-window comment describes is the case where the
+ *     spawn_start IS still visible here and would be double-counted (once
+ *     via the spawn_start dedup, once via the unpaired-complete branch).
+ *     Pairing can also fail for reasons that have nothing to do with a
+ *     rotated-out spawn_start (a null session_id on the SubagentStop side,
+ *     or a same-session concurrency race - see hooks/subagent-stop-spawn-emit.js
+ *     Failure modes) - in every one of those cases the spawn's spawn_start is
+ *     either already counted here or was never written at all, and there is
+ *     no reliable way to distinguish "genuinely spawn_start-less" from
+ *     "spawn_start present but pairing failed" from this side. Given
+ *     pre-tool-use-spawn-emit.js fires unconditionally on every real spawn
+ *     (fail-open, but deterministic on the happy path), the spawn_start-less
+ *     case is treated as rare enough that undercounting it is the safer
+ *     failure mode than double-counting the common case. Unpaired
+ *     spawn_complete events are therefore treated as completion METADATA
+ *     only (available for forensic inspection directly in events.jsonl) and
+ *     contribute nothing to spawn_count/wall_seconds/by_agent here.
  *
  * The returned by_agent map uses the rich token structure (4 bands) needed by
  * writeSessionTotal. writeSessionLog re-shapes it to its own output format.
@@ -666,42 +694,42 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
     // dedup possible without a correlation id.
     let legacySyntheticCounter = 0;
     const bySpawnId = new Map();
-    const unpairedCompletes = [];
+    // First pass: every hook spawn_start is the counted spawn. Built first
+    // so the enrichment pass below can always tell whether a spawn_complete's
+    // paired_spawn_id resolves to an already-counted spawn.
     for (const obj of parsed) {
       const data = obj.data || {};
-      if (obj.event === 'spawn_start' && data.source === 'hook') {
-        const key = data.spawn_id || `__legacy_${legacySyntheticCounter++}__`;
-        if (!bySpawnId.has(key)) {
-          bySpawnId.set(key, { agent: obj.agent, wall: 0 });
-        }
-      } else if (obj.event === 'spawn_complete' && data.source === 'hook') {
-        if (data.paired_spawn_id) {
-          const existing = bySpawnId.get(data.paired_spawn_id);
-          if (existing) {
-            existing.wall = Number(data.wall_seconds) || 0;
-            existing.agent = obj.agent || existing.agent;
-          } else {
-            // Paired spawn_start not present in this scan window/session -
-            // still count this spawn once, keyed by its paired_spawn_id.
-            bySpawnId.set(data.paired_spawn_id, {
-              agent: obj.agent,
-              wall: Number(data.wall_seconds) || 0,
-            });
-          }
-        } else {
-          // Genuinely unpaired (data.paired_spawn_id === null) - count once,
-          // independent of the spawn_id keyspace.
-          unpairedCompletes.push(obj);
-        }
+      if (obj.event !== 'spawn_start' || data.source !== 'hook') continue;
+      const key = data.spawn_id || `__legacy_${legacySyntheticCounter++}__`;
+      if (!bySpawnId.has(key)) {
+        bySpawnId.set(key, { agent: obj.agent, wall: 0 });
       }
+    }
+    // Second pass: a spawn_complete NEVER creates a new spawn count. When its
+    // paired_spawn_id resolves to a spawn already counted above, it enriches
+    // that spawn's wall_seconds (completion metadata). Any other
+    // spawn_complete - unpaired (paired_spawn_id: null) OR paired to a
+    // spawn_id not present in this session's spawn_starts - is dropped from
+    // the aggregate entirely (see the DS-160 round-2 fix note in the doc
+    // comment above for why: this consumer reads the whole file, so a
+    // "missing" spawn_start here is not a scan-window artifact, and treating
+    // it as a new spawn risks double-counting far more often than it
+    // recovers a genuinely spawn_start-less spawn).
+    for (const obj of parsed) {
+      const data = obj.data || {};
+      if (obj.event !== 'spawn_complete' || data.source !== 'hook') continue;
+      if (!data.paired_spawn_id) continue;
+      const existing = bySpawnId.get(data.paired_spawn_id);
+      if (!existing) continue;
+      // A capped/suspect wall_seconds (see hooks/subagent-stop-spawn-emit.js)
+      // is emitted as null, not a fabricated ceiling value; Number(null)||0
+      // naturally contributes 0 here rather than injecting a false duration.
+      existing.wall = Number(data.wall_seconds) || 0;
+      existing.agent = obj.agent || existing.agent;
     }
     for (const rec of bySpawnId.values()) {
       // Hook spawn_starts/completes carry no token data (harness ceiling).
       recordSpawn(rec.agent, rec.wall, null);
-    }
-    for (const obj of unpairedCompletes) {
-      const data = obj.data || {};
-      recordSpawn(obj.agent, Number(data.wall_seconds) || 0, null);
     }
   }
 

@@ -65,7 +65,10 @@ from pathlib import Path
 V1_FOOTER = (
     "Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; "
     "conductor spawn_complete for /ds-implement-ticket sessions). "
-    "Hook-spawn wall-time and tokens are unavailable (harness ceiling) and render as n/a."
+    "Hook-spawn tokens are always unavailable (harness ceiling) and render as n/a. "
+    "Hook-spawn wall-time renders as n/a UNLESS a paired hook-emitted spawn_complete "
+    "(DS-160) supplied a real wall_seconds figure for that spawn, in which case the "
+    "real duration is shown."
 )
 
 EVENTS_PATH = Path(".agentic/events.jsonl")
@@ -141,13 +144,29 @@ def _aggregate_by_agent(events: list[dict]) -> dict:
     conductor-sourced spawn_complete specifically, not "any spawn_complete").
 
     For sessions with NO conductor-emitted spawn_complete (pure ad-hoc
-    sessions), hook-emitted spawn_start/spawn_complete events are deduped by
-    data.spawn_id / data.paired_spawn_id so each real spawn counts exactly
-    once: a spawn_start with a matching spawn_complete uses the
-    spawn_complete's wall_seconds; a spawn_start with no matching
-    spawn_complete (SubagentStop still pending or permanently lost) still
-    counts once with wall_seconds=0 rather than being silently dropped.
+    sessions), a hook spawn_start is the authoritative "this spawn happened"
+    signal and is deduped by data.spawn_id so each real spawn counts exactly
+    once - including one with no matching spawn_complete yet (SubagentStop
+    still pending or permanently lost), which is NOT silently dropped.
     Tokens are always 0 for hook-emitted events (harness ceiling).
+
+    DS-160 round-2 fix: a spawn_complete NEVER creates a spawn count of its
+    own - it only ENRICHES an already-counted spawn_start's wall_seconds when
+    its paired_spawn_id resolves to one. Earlier this function counted a
+    spawn_complete whose paired_spawn_id didn't resolve (including a
+    genuinely unpaired one, paired_spawn_id=None) as its own spawn, on the
+    theory that its spawn_start had "rotated out of the [hook's 2MB tail]
+    scan window" - but this function is handed the FULL parsed events list
+    (no tail bound), so that is exactly the case where the spawn_start is
+    still visible and gets counted twice: once via spawn_start dedup, once
+    via the unresolved-complete fallback. A null/absent session_id on the
+    SubagentStop side also produces an unpaired complete regardless of
+    whether its spawn_start is visible. Given pre-tool-use-spawn-emit.js
+    fires unconditionally on every real spawn, a spawn_complete with no
+    resolvable spawn_start is treated as completion metadata only (inspect
+    events.jsonl directly for forensics) rather than a phantom spawn -
+    undercounting the rare truly-spawn_start-less case is judged safer than
+    double-counting the common case.
 
     Returns {agent: {spawns, tokens, wall_seconds, models}}.
     """
@@ -201,48 +220,45 @@ def _aggregate_by_agent(events: list[dict]) -> dict:
                 _bump(agent, wall, tokens, model)
             continue
 
-        # Pure ad-hoc session: dedup hook-emitted spawn_start/spawn_complete
-        # by spawn_id so each real spawn counts exactly once. Legacy
-        # spawn_start events written before DS-160 (no data.spawn_id) get a
-        # synthetic per-event key so they still count individually - back
-        # compat, no dedup possible without a correlation id.
+        # Pure ad-hoc session: dedup hook-emitted spawn_start events by
+        # spawn_id so each real spawn counts exactly once. Legacy spawn_start
+        # events written before DS-160 (no data.spawn_id) get a synthetic
+        # per-event key so they still count individually - back compat, no
+        # dedup possible without a correlation id.
         _legacy_synthetic = itertools.count()
         by_spawn_id: dict[str, dict] = {}
-        unpaired_completes: list[dict] = []
         for ev in session_events:
-            ev_type = ev.get("event")
             data = ev.get("data") or {}
-            if ev_type == "spawn_start" and data.get("source") == "hook":
-                sid = data.get("spawn_id") or f"__legacy_{next(_legacy_synthetic)}__"
-                if sid not in by_spawn_id:
-                    by_spawn_id[sid] = {
-                        "agent": ev.get("agent") or "(unknown)",
-                        "wall": 0.0,
-                    }
-            elif ev_type == "spawn_complete" and data.get("source") == "hook":
-                paired = data.get("paired_spawn_id")
-                wall = float(data.get("wall_seconds") or 0)
-                agent = ev.get("agent") or "(unknown)"
-                if paired:
-                    existing = by_spawn_id.get(paired)
-                    if existing:
-                        existing["wall"] = wall
-                        existing["agent"] = agent
-                    else:
-                        # Paired spawn_start not present in this window -
-                        # still count once, keyed by its paired_spawn_id.
-                        by_spawn_id[paired] = {"agent": agent, "wall": wall}
-                else:
-                    # Genuinely unpaired - count once, independent keyspace.
-                    unpaired_completes.append(ev)
+            if ev.get("event") != "spawn_start" or data.get("source") != "hook":
+                continue
+            sid = data.get("spawn_id") or f"__legacy_{next(_legacy_synthetic)}__"
+            if sid not in by_spawn_id:
+                by_spawn_id[sid] = {
+                    "agent": ev.get("agent") or "(unknown)",
+                    "wall": 0.0,
+                }
+        # A spawn_complete NEVER creates a new spawn count (see DS-160
+        # round-2 fix note above) - it only enriches an already-counted
+        # spawn_start when its paired_spawn_id resolves to one. Any other
+        # spawn_complete (unpaired, or paired to a spawn_id not present in
+        # by_spawn_id) is dropped.
+        for ev in session_events:
+            data = ev.get("data") or {}
+            if ev.get("event") != "spawn_complete" or data.get("source") != "hook":
+                continue
+            paired = data.get("paired_spawn_id")
+            if not paired:
+                continue
+            existing = by_spawn_id.get(paired)
+            if not existing:
+                continue
+            # A capped/suspect wall_seconds is emitted as None, not a
+            # fabricated ceiling value; `or 0` naturally contributes 0.
+            existing["wall"] = float(data.get("wall_seconds") or 0)
+            existing["agent"] = ev.get("agent") or existing["agent"]
 
         for rec in by_spawn_id.values():
             _bump(rec["agent"], rec["wall"], None, None)
-        for ev in unpaired_completes:
-            data = ev.get("data") or {}
-            agent = ev.get("agent") or "(unknown)"
-            wall = float(data.get("wall_seconds") or 0)
-            _bump(agent, wall, None, None)
 
     return agg
 

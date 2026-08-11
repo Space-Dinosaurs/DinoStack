@@ -182,8 +182,18 @@ function readRecentEvents(eventsPath) {
       try {
         const start = size - MAX_TAIL_BYTES;
         const buf = Buffer.alloc(MAX_TAIL_BYTES);
-        fs.readSync(fd, buf, 0, MAX_TAIL_BYTES, start);
-        raw = buf.toString('utf8');
+        // fs.readSync's return value is the ACTUAL bytes read, which can be
+        // less than requested (e.g. the file was concurrently truncated
+        // between the stat() above and this read - events.jsonl is
+        // append-only by protocol but this hook does not assume that
+        // holds under every failure mode). Buffer.alloc zero-fills, so
+        // ignoring bytesRead and stringifying the whole buffer would splice
+        // NUL padding onto the END of the read - which is the NEWEST data
+        // (the read starts partway through the file and reads toward EOF),
+        // silently corrupting the very lines this hook most needs to parse
+        // correctly. Slice to bytesRead before decoding.
+        const bytesRead = fs.readSync(fd, buf, 0, MAX_TAIL_BYTES, start);
+        raw = buf.subarray(0, bytesRead).toString('utf8');
         truncatedHead = true;
       } finally {
         fs.closeSync(fd);
@@ -270,10 +280,18 @@ function findMatch(events, sessionId, toolUseId) {
 // beyond this is almost certainly a stale/mismatched pair (e.g. a spawn_start
 // that was never cleaned up across an interrupted session) rather than a
 // genuine 24h+ subagent run. Rather than reject the pairing outright (the
-// completion signal itself is still real and should not be lost), mark the
-// event with data.suspect:true and cap the reported wall_seconds so a single
-// bad pairing cannot silently inflate a cost/telemetry rollup by orders of
-// magnitude. 86400 = 24 hours, generously above any real subagent run.
+// completion signal itself is still real and should not be lost, and
+// paired_spawn_id is still useful for forensics), the event is marked
+// data.suspect:true with data.wall_seconds:null - NOT a fabricated ceiling
+// value. A round-2 Skeptic fix: an earlier version of this ceiling clamped
+// wall_seconds to 86400 instead of nulling it, which silently injected a
+// false 24h duration into consumer aggregates (hooks/stop-context.js
+// scanSessionAggregate, bin/ds-cost) for every suspect pairing - worse than
+// the unbounded figure it replaced, since it was indistinguishable from a
+// real measurement. Consumers already treat wall_seconds:null as a 0
+// contribution (Number(null)||0), which is the correct behavior for a
+// suspect pairing: count the spawn, contribute nothing to its duration.
+// 86400 = 24 hours, generously above any real subagent run.
 const MAX_SANE_WALL_SECONDS = 86400;
 
 /**
@@ -323,11 +341,12 @@ async function run() {
       const nowMs = Date.parse(nowIso);
       if (!Number.isNaN(startMs) && !Number.isNaN(nowMs) && nowMs >= startMs) {
         wallSeconds = Number(((nowMs - startMs) / 1000).toFixed(3));
-        // Sanity ceiling: cap and flag rather than trust a pairing that
-        // implies an implausibly long-running spawn (see MAX_SANE_WALL_SECONDS
-        // comment above findMatch).
+        // Sanity ceiling: null out (never fabricate a ceiling value) and
+        // flag rather than trust a pairing that implies an implausibly
+        // long-running spawn (see MAX_SANE_WALL_SECONDS comment above
+        // findMatch).
         if (wallSeconds > MAX_SANE_WALL_SECONDS) {
-          wallSeconds = MAX_SANE_WALL_SECONDS;
+          wallSeconds = null;
           suspect = true;
         }
       }

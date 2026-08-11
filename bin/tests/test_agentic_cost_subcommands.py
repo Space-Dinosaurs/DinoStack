@@ -721,6 +721,78 @@ def test_adhoc_lost_subagent_stop_still_counts():
     print("PASS test_adhoc_lost_subagent_stop_still_counts")
 
 
+def test_adhoc_no_session_id_unpaired_complete_not_double_counted():
+    """(DS-160 round-2 Major 1) An unpaired hook spawn_complete (paired_spawn_id
+    None, session_uuid None - mirrors subagent-stop-spawn-emit.js emitting
+    `session_uuid: sessionId or None` when the SubagentStop payload itself
+    carried no session_id) co-present with a real spawn_start for the SAME
+    visible spawn -> counted once, not twice."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        unpaired_complete = json.dumps({
+            "ts": "2026-06-01T10:00:05Z",
+            "phase": "hook",
+            "event": "spawn_complete",
+            "agent": "(unknown)",
+            "task_id": None,
+            "data": {
+                "source": "hook", "session_uuid": None, "tool_use_id": None,
+                "agent_id": None, "paired_spawn_id": None, "wall_seconds": None,
+                "tokens_note": "unavailable (harness)",
+            },
+        })
+        events_path.write_text(
+            _make_hook_spawn_start("engineer", "adhoc-uuid-3",
+                                    "2026-06-01T10:00:00Z", spawn_id="spawn-only-real") + "\n"
+            + unpaired_complete + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        lines = out.splitlines()
+        eng_line = next((l for l in lines if l.startswith("engineer")), None)
+        unknown_line = next((l for l in lines if l.startswith("(unknown)")), None)
+        assert eng_line is not None, "engineer row missing"
+        assert unknown_line is None, (
+            f"no (unknown) agent row from the unpaired complete: {out!r}"
+        )
+        assert eng_line.split()[1] == "1", (
+            f"Expected engineer spawns=1 (not double-counted), got: {eng_line!r}"
+        )
+    print("PASS test_adhoc_no_session_id_unpaired_complete_not_double_counted")
+
+
+def test_paired_complete_resolves_to_nothing_not_double_counted():
+    """(DS-160 round-2 Major 1) A spawn_complete whose paired_spawn_id does
+    not match any spawn_start in this session's view (e.g. the hook's own
+    2MB tail window missed it) -> dropped as completion metadata, does NOT
+    create a phantom spawn."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        events_path.write_text(
+            _make_hook_spawn_start("engineer", "adhoc-uuid-4",
+                                    "2026-06-01T10:00:00Z", spawn_id="spawn-real") + "\n"
+            + _make_hook_spawn_complete("skeptic", "adhoc-uuid-4",
+                                         "2026-06-01T10:00:10Z",
+                                         paired_spawn_id="spawn-vanished",
+                                         wall_seconds=99.0) + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        lines = out.splitlines()
+        eng_line = next((l for l in lines if l.startswith("engineer")), None)
+        skeptic_line = next((l for l in lines if l.startswith("skeptic")), None)
+        assert eng_line is not None, "engineer row missing"
+        assert skeptic_line is None, (
+            f"no skeptic row from the phantom-paired complete: {out!r}"
+        )
+        assert eng_line.split()[1] == "1", (
+            f"Expected engineer spawns=1 (phantom pairing dropped), got: {eng_line!r}"
+        )
+    print("PASS test_paired_complete_resolves_to_nothing_not_double_counted")
+
+
 if __name__ == "__main__":
     # session
     test_session_no_events_empty_table()
@@ -757,4 +829,6 @@ if __name__ == "__main__":
     # DS-160 Critical fix regression tests
     test_ticketed_session_hook_complete_not_double_counted()
     test_adhoc_lost_subagent_stop_still_counts()
+    test_adhoc_no_session_id_unpaired_complete_not_double_counted()
+    test_paired_complete_resolves_to_nothing_not_double_counted()
     print("All agentic-cost session/task/project/operator tests passed.")

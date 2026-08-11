@@ -31,7 +31,8 @@
  *                                    candidate in the scan window.
  *  12. wall-seconds-sanity-cap (Major 1 wall_seconds ceiling): a matched
  *                                    spawn_start from ~11 months ago ->
- *                                    wall_seconds capped at 86400 and
+ *                                    wall_seconds:null (NOT a fabricated
+ *                                    86400 ceiling value) and
  *                                    data.suspect === true.
  *  13. fifo-pairs-oldest-first: two unmatched same-session candidates with no
  *                                    tool_use_id on the SubagentStop side ->
@@ -39,6 +40,23 @@
  *                                    spawn_start, not the newer one (pins
  *                                    the FIFO direction so a LIFO mutation
  *                                    would redden this test).
+ *  14. tail-read-path-large-file:  events.jsonl exceeds MAX_TAIL_BYTES (2MB)
+ *                                    -> the fs.readSync tail-window path (not
+ *                                    the fs.readFileSync whole-file path) is
+ *                                    exercised, and pairing still succeeds
+ *                                    correctly for a spawn_start near the end
+ *                                    of the file. This is an end-to-end
+ *                                    exercise of the bytesRead-sliced read,
+ *                                    not an independent reproduction of the
+ *                                    short-read/NUL-padding defect itself
+ *                                    (that requires forcing fs.readSync to
+ *                                    return fewer bytes than requested, which
+ *                                    is not reliably forceable from outside
+ *                                    the hook's own process in a fast unit
+ *                                    test - the fix is defensive/reviewed by
+ *                                    inspection, disposed rather than
+ *                                    independently reproduced per the
+ *                                    Skeptic's Minor finding).
  *
  * Run with: node hooks/tests/test-subagent-stop-spawn-emit.js
  */
@@ -329,8 +347,8 @@ console.log('\nTest 12: wall-seconds-sanity-cap');
   if (complete) {
     assert((complete.data || {}).paired_spawn_id === 'spawn-stale',
       `pairs to the stale spawn_start (got: ${(complete.data || {}).paired_spawn_id})`);
-    assert((complete.data || {}).wall_seconds === 86400,
-      `wall_seconds capped at 86400 (got: ${(complete.data || {}).wall_seconds})`);
+    assert((complete.data || {}).wall_seconds === null,
+      `wall_seconds is null, NOT a fabricated 86400 ceiling value (got: ${(complete.data || {}).wall_seconds})`);
     assert((complete.data || {}).suspect === true,
       `data.suspect === true for a capped pairing (got: ${(complete.data || {}).suspect})`);
   }
@@ -359,6 +377,53 @@ console.log('\nTest 13: fifo-pairs-oldest-first');
       + `(got: ${(complete.data || {}).paired_spawn_id}) - a LIFO mutation would return "spawn-new" here`);
     assert(complete.agent === 'engineer',
       `agent copied from the OLDER matched spawn_start (got: ${complete.agent})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 14: tail-read-path-large-file');
+{
+  const cwd = makeTmpProject();
+  const agenticDir = path.join(cwd, '.agentic');
+  fs.mkdirSync(agenticDir, { recursive: true });
+  const eventsPath = path.join(agenticDir, 'events.jsonl');
+
+  // Pad events.jsonl past MAX_TAIL_BYTES (2MB) with filler lines from an
+  // UNRELATED session, so the real spawn_start below is only reachable via
+  // the tail-read path, not a full-file read.
+  const filler = JSON.stringify({
+    ts: new Date(Date.now() - 3600000).toISOString(),
+    phase: 'hook', event: 'spawn_start', agent: 'filler', task_id: null,
+    data: { source: 'hook', session_uuid: 'sess-filler', spawn_id: 'x', tool_use_id: null, parent_agent_id: null },
+  }) + '\n';
+  const fillerBytesNeeded = 2 * 1024 * 1024 + 4096; // just over MAX_TAIL_BYTES
+  const fd = fs.openSync(eventsPath, 'w');
+  let written = 0;
+  while (written < fillerBytesNeeded) {
+    fs.writeSync(fd, filler);
+    written += filler.length;
+  }
+  fs.closeSync(fd);
+
+  // Now append the REAL spawn_start near the end of the file (within the
+  // tail window).
+  appendRaw(cwd, hookSpawnStart('sess-014', 'spawn-tail', 'engineer'));
+
+  const sizeBefore = fs.statSync(eventsPath).size;
+  assert(sizeBefore > 2 * 1024 * 1024, `fixture file exceeds MAX_TAIL_BYTES (got ${sizeBefore} bytes)`);
+
+  const { status } = runHook(stopPayload(cwd, 'sess-014'), cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  const complete = events[events.length - 1];
+  assert(!!complete && complete.event === 'spawn_complete',
+    `spawn_complete emitted as the newest line (got: ${complete && complete.event})`);
+  if (complete) {
+    assert((complete.data || {}).paired_spawn_id === 'spawn-tail',
+      `pairs to the real spawn_start via the tail-read path (got: ${(complete.data || {}).paired_spawn_id})`);
+    assert(typeof (complete.data || {}).wall_seconds === 'number',
+      `wall_seconds is a real number, not corrupted by the tail read (got: ${JSON.stringify((complete.data || {}).wall_seconds)})`);
   }
   cleanup(cwd);
 }
