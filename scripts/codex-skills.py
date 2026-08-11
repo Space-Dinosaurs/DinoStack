@@ -8,8 +8,12 @@ Public API: ``build --repo ROOT [--output DIR]``, ``check --repo ROOT``,
             --repo ROOT`` for translating stdin through the workflow contract.
 
 Upstream deps: canonical content/SKILL.md, content/sections, three canonical
-               command bodies, .codex/skill-frontmatter, and the reviewed
-               .codex/skill-compatibility.yml inventory. Standard library only.
+               command bodies, content/rules/conventions.md and
+               content/rules/code-standards.md (hard-read by
+               reachability_corpus() - 4 of the 19 PARAGRAPH_RULES anchors
+               target conventions.md exclusively), .codex/skill-frontmatter,
+               and the reviewed .codex/skill-compatibility.yml inventory.
+               Standard library only.
 
 Downstream consumers: .codex/build.sh, scripts/check-codex-skill-sync.sh, CI,
                       scripts/test/test_codex_skills.py, and the repo-owned
@@ -20,7 +24,13 @@ Failure modes: refuses symlinked/special generated roots, unmatched source
                occurrences, invalid frontmatter, escaping resources, or drift.
                Check is read-only. A canonical-output build replaces only its
                owned generated tree; an arbitrary-output build also creates or atomically replaces
-               .agentic/codex-skill-root-ownership.json.
+               .agentic/codex-skill-root-ownership.json. A PARAGRAPH_RULES
+               anchor that matches zero times anywhere in
+               reachability_corpus() (assert_paragraph_rules_reachable(),
+               called from current_inventory()) aborts build, check, AND
+               inventory alike with a SkillError naming the unmatched
+               pattern(s) - current_inventory() is the common choke point
+               all three subcommands share.
 
 Performance: linear in canonical source and generated-tree size.
 """
@@ -286,14 +296,20 @@ def rewrite_workflow_references(text: str, repo: Path) -> str:
 # Codex-specific override vanishes - re.finditer has no built-in "this
 # pattern matched nothing" signal. assert_paragraph_rules_reachable() closes
 # that gap: every rule here must match at least once somewhere across
-# reachability_corpus() (a purpose-built union of every document any rule
-# could conceivably target - it is NOT the same as either actual generation
-# corpus: current_inventory()'s documents() excludes content/rules/*.md, and
-# render_runtime_guidance()'s $AGENTS_RAW excludes the WORKFLOWS.values()
-# command files - see reachability_corpus() for why a dedicated corpus is
-# needed instead of widening either real scan), or the check/build/inventory
-# subcommands fail loudly instead of silently reverting to unqualified
-# canonical text somewhere downstream.
+# reachability_corpus() - NOT "every document any rule could conceivably
+# target": that corpus is specifically assembled_methodology() +
+# WORKFLOWS.values() + content/rules/conventions.md +
+# content/rules/code-standards.md, and deliberately excludes content/SKILL.md
+# even though content/SKILL.md IS part of the real generation corpus
+# (current_inventory()'s documents() scans it). No PARAGRAPH_RULES anchor
+# currently targets content/SKILL.md-only text, so this is not live drift,
+# but it is a documented limitation: a future rule anchored solely in
+# content/SKILL.md would fail this assertion spuriously (fails safe, not
+# silent - a false alarm forces investigation rather than a missed one) until
+# reachability_corpus() is extended to include it. See reachability_corpus()'s
+# own docstring for why neither real generation-facing scan
+# (current_inventory()'s documents(), render_runtime_guidance()'s
+# $AGENTS_RAW) is itself a valid scope for this assertion.
 PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
         (
             r"\*\*Writer scope: `\.agentic/events\.jsonl` has four writers\*\*"
@@ -497,11 +513,17 @@ PARAGRAPH_RULES: tuple[tuple[str, str], ...] = (
 
 
 def reachability_corpus(repo: Path) -> str:
-    """Concatenation of every source document any PARAGRAPH_RULES anchor
-    could conceivably target, for assert_paragraph_rules_reachable() ONLY.
-    NOT used for actual generation. The two real generation-facing scans each
-    cover a different, narrower slice: current_inventory()'s documents()
-    excludes content/rules/conventions.md and content/rules/code-standards.md
+    """Concatenation of assembled_methodology() + WORKFLOWS.values() +
+    content/rules/conventions.md + content/rules/code-standards.md, for
+    assert_paragraph_rules_reachable() ONLY. NOT used for actual generation,
+    and NOT every document a PARAGRAPH_RULES anchor could ever target -
+    notably content/SKILL.md is excluded here even though it IS part of the
+    real generation corpus (current_inventory()'s documents() scans it); no
+    current rule targets content/SKILL.md-only text, but one that did would
+    fail this assertion spuriously until this function is extended (fails
+    safe, not silent). The two real generation-facing scans each cover a
+    different, narrower slice: current_inventory()'s documents() excludes
+    content/rules/conventions.md and content/rules/code-standards.md
     (several rules' sole target), while render_runtime_guidance()'s
     $AGENTS_RAW (built by .codex/build.sh from the assembled methodology plus
     both rules files) excludes the WORKFLOWS.values() command files (several
