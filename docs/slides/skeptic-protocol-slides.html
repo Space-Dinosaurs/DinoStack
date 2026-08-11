@@ -1799,7 +1799,7 @@ hr {
 
 <p>The audit-note Minor is the per-spawn defense against rubber-stamping. The <strong>calibration layer</strong> is the long-horizon backstop - it detects drift in aggregate over time without enlarging the per-spawn review surface.</p>
 <ul>
-<li><strong>Findings counters in <code>events.jsonl</code></strong> - every Skeptic <code>spawn_complete</code> carries <code>findings_count</code>, <code>diff_lines</code>, <code>signed_off</code>, and <code>iteration</code> inside <code>data</code>. Conductor builds the merged JSON inline; subagents do not write to <code>.agentic/</code>.</li>
+<li><strong>Findings counters in <code>events.jsonl</code></strong> - every Skeptic <strong>conductor-emitted</strong> <code>spawn_complete</code> carries <code>findings_count</code>, <code>diff_lines</code>, <code>signed_off</code>, and <code>iteration</code> inside <code>data</code>. Conductor builds the merged JSON inline; subagents do not write to <code>.agentic/</code>. (A separate, deterministic hook-emitted <code>spawn_complete</code> variant also exists as of DS-160 and does NOT carry these calibration fields.)</li>
 <li><strong>5% sampled meta-Skeptic</strong> - deterministic bucket from <code>hash(task_id+iteration) % 100 &lt; 5</code>. Background fire-and-forget; conductor declares the unit complete without waiting. Meta-Skeptic returns text only; conductor parses and emits <code>meta_review_complete</code>.</li>
 </ul>
 <div class="callout">

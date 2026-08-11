@@ -538,17 +538,34 @@ function skillCandidateDetectionEnabled(cwd) {
  * Returns null if the file is absent, empty, or unreadable.
  *
  * Counting rules:
- *   - spawn_complete events contribute wall_seconds + tokens + spawn count.
+ *   - conductor-emitted spawn_complete events (data.source !== 'hook') always
+ *     contribute wall_seconds + tokens + spawn count. Their presence in a
+ *     session (data.source !== 'hook') is what defines a "ticketed" session
+ *     for the double-count guard below - NOT the mere presence of ANY
+ *     spawn_complete (see DS-160 fix note).
  *   - conductor_direct events are NO LONGER counted (deprecated; hook-emitted
  *     spawn_start events replace them for ad-hoc session tracking).
- *   - spawn_start events with data.source === 'hook' contribute spawn count
- *     (wall_seconds 0, no tokens) ONLY when the session has zero spawn_complete
- *     events (ad-hoc session double-count guard). In /ds-implement-ticket sessions
- *     that carry conductor spawn_complete events the hook spawn_starts are
- *     skipped to avoid inflating counts with unverified duplicates. The resulting
- *     mild undercount of advisory spawn counts in mixed sessions is accepted
- *     (per plan deferred default: per-spawn reconciliation is impossible without
- *     a harness-provided correlation id).
+ *   - DS-160 double-count guard: when the session has at least one
+ *     conductor-emitted spawn_complete (a ticketed session), ALL hook-emitted
+ *     telemetry (both spawn_start AND spawn_complete, data.source === 'hook')
+ *     is excluded entirely - the conductor's own richer spawn_complete is
+ *     authoritative and the hook variant would otherwise double-count the
+ *     same spawn. (Prior to DS-160 this guard only existed for spawn_start
+ *     because spawn_complete had no hook-emitted variant; once
+ *     hooks/subagent-stop-spawn-emit.js started emitting hook spawn_complete
+ *     too, the guard had to be extended to cover it as well - a hook
+ *     spawn_complete for a spawn the conductor already reported would
+ *     otherwise be counted a second time.)
+ *   - In a pure ad-hoc session (zero conductor-emitted spawn_complete), hook
+ *     spawn_start and hook spawn_complete events are DEDUPED by
+ *     data.spawn_id / data.paired_spawn_id so each real spawn counts exactly
+ *     once: a spawn with both a spawn_start and a paired spawn_complete uses
+ *     the spawn_complete's wall_seconds (a completed spawn); a spawn_start
+ *     with no matching spawn_complete yet (SubagentStop still pending, or
+ *     permanently lost) still counts once with wall_seconds 0 - it is NOT
+ *     silently dropped. An unpaired spawn_complete (paired_spawn_id: null,
+ *     e.g. its matching spawn_start rotated out of the scan window) counts
+ *     once on its own.
  *
  * The returned by_agent map uses the rich token structure (4 bands) needed by
  * writeSessionTotal. writeSessionLog re-shapes it to its own output format.
@@ -582,68 +599,110 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
   const totalTokens = { input: 0, output: 0, cache_creation: 0, cache_read: 0 };
   const byAgent = {};
 
-  // First pass: count spawn_complete events to determine session type.
-  // If any spawn_complete exists this is a ticketed/mixed session; hook
-  // spawn_starts will be skipped in the second pass (double-count guard).
-  let hasSpawnComplete = false;
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj;
-    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-    if (obj && obj.event === 'spawn_complete') {
-      const data = (obj && obj.data) || {};
-      if (sessionId && data.session_uuid && data.session_uuid !== sessionId) continue;
-      hasSpawnComplete = true;
-      break;
-    }
-  }
-
-  for (const line of lines) {
-    const trimmed = line.trim();
-    if (!trimmed) continue;
-    let obj;
-    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
-    const ev = obj && obj.event;
-    const data = (obj && obj.data) || {};
-
-    // Determine whether this line is a hook-emitted spawn_start.
-    const isHookSpawn = ev === 'spawn_start' && data.source === 'hook';
-
-    // Count: spawn_complete always; hook spawn_start only in ad-hoc sessions
-    // (no spawn_complete in this session). conductor_direct is no longer counted.
-    if (ev !== 'spawn_complete' && !isHookSpawn) continue;
-    if (isHookSpawn && hasSpawnComplete) continue; // double-count guard
-
-    // Filter to current session when session_uuid is present on the
-    // event payload. Events without session_uuid are included
-    // unconditionally (tolerant of pre-instrumentation events).
-    if (sessionId && data.session_uuid && data.session_uuid !== sessionId) {
-      continue;
-    }
-    const wall = Number(data.wall_seconds) || 0;
+  function recordSpawn(agentName, wall, tokens) {
     totalWall += wall;
-    const tokens = data.tokens || {};
-    for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
-      totalTokens[k] += Number(tokens[k]) || 0;
+    if (tokens) {
+      for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
+        totalTokens[k] += Number(tokens[k]) || 0;
+      }
     }
-    // Count the spawn (both spawn_complete and hook spawn_start count as spawns).
     spawnCount += 1;
-    const agentName = obj.agent || 'unknown';
-    if (!byAgent[agentName]) {
-      byAgent[agentName] = {
+    const name = agentName || 'unknown';
+    if (!byAgent[name]) {
+      byAgent[name] = {
         spawns: 0, wall_seconds: 0,
         tokens: { input: 0, output: 0, cache_creation: 0, cache_read: 0 },
       };
     }
-    byAgent[agentName].spawns += 1;
-    byAgent[agentName].wall_seconds += wall;
-    if (ev === 'spawn_complete') {
+    byAgent[name].spawns += 1;
+    byAgent[name].wall_seconds += wall;
+    if (tokens) {
       for (const k of ['input', 'output', 'cache_creation', 'cache_read']) {
-        byAgent[agentName].tokens[k] += Number(tokens[k]) || 0;
+        byAgent[name].tokens[k] += Number(tokens[k]) || 0;
       }
     }
-    // Hook spawn_starts carry no token data (harness ceiling) - tokens stay 0.
+  }
+
+  // Parse once, filtering to the current session (events without a
+  // session_uuid are tolerated/included for back-compat with
+  // pre-instrumentation lines).
+  const parsed = [];
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    let obj;
+    try { obj = JSON.parse(trimmed); } catch (_) { continue; }
+    if (!obj) continue;
+    const data = obj.data || {};
+    if (sessionId && data.session_uuid && data.session_uuid !== sessionId) continue;
+    parsed.push(obj);
+  }
+
+  // Session-type determination: ONLY a conductor-emitted (non-hook)
+  // spawn_complete marks this a "ticketed" session. A hook-emitted
+  // spawn_complete does NOT, by itself, imply the conductor also reported
+  // this spawn (see DS-160 fix note above).
+  const hasConductorSpawnComplete = parsed.some(
+    obj => obj.event === 'spawn_complete' && (obj.data || {}).source !== 'hook'
+  );
+
+  if (hasConductorSpawnComplete) {
+    // Ticketed/mixed session: count ONLY conductor-emitted spawn_complete
+    // events. ALL hook-emitted telemetry (spawn_start and spawn_complete)
+    // is excluded - double-count guard.
+    for (const obj of parsed) {
+      if (obj.event !== 'spawn_complete') continue;
+      const data = obj.data || {};
+      if (data.source === 'hook') continue;
+      recordSpawn(obj.agent, Number(data.wall_seconds) || 0, data.tokens || {});
+    }
+  } else {
+    // Pure ad-hoc session: dedup hook-emitted spawn_start/spawn_complete by
+    // spawn_id so each real spawn counts exactly once, and a spawn whose
+    // SubagentStop was lost (spawn_start with no paired spawn_complete)
+    // still counts rather than being silently dropped. Legacy spawn_start
+    // events written before DS-160 (no data.spawn_id) get a synthetic
+    // per-event key so they still count individually - back-compat, no
+    // dedup possible without a correlation id.
+    let legacySyntheticCounter = 0;
+    const bySpawnId = new Map();
+    const unpairedCompletes = [];
+    for (const obj of parsed) {
+      const data = obj.data || {};
+      if (obj.event === 'spawn_start' && data.source === 'hook') {
+        const key = data.spawn_id || `__legacy_${legacySyntheticCounter++}__`;
+        if (!bySpawnId.has(key)) {
+          bySpawnId.set(key, { agent: obj.agent, wall: 0 });
+        }
+      } else if (obj.event === 'spawn_complete' && data.source === 'hook') {
+        if (data.paired_spawn_id) {
+          const existing = bySpawnId.get(data.paired_spawn_id);
+          if (existing) {
+            existing.wall = Number(data.wall_seconds) || 0;
+            existing.agent = obj.agent || existing.agent;
+          } else {
+            // Paired spawn_start not present in this scan window/session -
+            // still count this spawn once, keyed by its paired_spawn_id.
+            bySpawnId.set(data.paired_spawn_id, {
+              agent: obj.agent,
+              wall: Number(data.wall_seconds) || 0,
+            });
+          }
+        } else {
+          // Genuinely unpaired (data.paired_spawn_id === null) - count once,
+          // independent of the spawn_id keyspace.
+          unpairedCompletes.push(obj);
+        }
+      }
+    }
+    for (const rec of bySpawnId.values()) {
+      // Hook spawn_starts/completes carry no token data (harness ceiling).
+      recordSpawn(rec.agent, rec.wall, null);
+    }
+    for (const obj of unpairedCompletes) {
+      const data = obj.data || {};
+      recordSpawn(obj.agent, Number(data.wall_seconds) || 0, null);
+    }
   }
 
   return {

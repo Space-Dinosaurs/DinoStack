@@ -131,11 +131,23 @@ def _filter_events(events: list[dict], filt) -> list[dict]:
 def _aggregate_by_agent(events: list[dict]) -> dict:
     """Aggregate spawn events by agent name.
 
-    For sessions with spawn_complete events (ticketed /ds-implement-ticket path),
-    count spawn_complete events and skip any co-present hook spawn_start events
-    to avoid double-counting.  For sessions with NO spawn_complete events
-    (ad-hoc sessions), count hook-emitted spawn_start events whose
-    data.source == "hook" with wall_seconds=0 and tokens=0.
+    For sessions with a CONDUCTOR-emitted spawn_complete (data.source !=
+    "hook") - the ticketed /ds-implement-ticket path - count only those
+    conductor spawn_complete events; ALL hook-emitted telemetry (both
+    spawn_start and spawn_complete, data.source == "hook") is skipped
+    entirely to avoid double-counting the same spawn (DS-160: a hook
+    spawn_complete's mere presence does NOT by itself mean the conductor
+    also reported the spawn, so the double-count guard must key off
+    conductor-sourced spawn_complete specifically, not "any spawn_complete").
+
+    For sessions with NO conductor-emitted spawn_complete (pure ad-hoc
+    sessions), hook-emitted spawn_start/spawn_complete events are deduped by
+    data.spawn_id / data.paired_spawn_id so each real spawn counts exactly
+    once: a spawn_start with a matching spawn_complete uses the
+    spawn_complete's wall_seconds; a spawn_start with no matching
+    spawn_complete (SubagentStop still pending or permanently lost) still
+    counts once with wall_seconds=0 rather than being silently dropped.
+    Tokens are always 0 for hook-emitted events (harness ceiling).
 
     Returns {agent: {spawns, tokens, wall_seconds, models}}.
     """
@@ -151,48 +163,86 @@ def _aggregate_by_agent(events: list[dict]) -> dict:
         sessions.setdefault(uuid, []).append(ev)
 
     agg: dict = {}
-    for _uuid, session_events in sessions.items():
-        has_complete = any(
-            e.get("event") == "spawn_complete" for e in session_events
-        )
-        for ev in session_events:
-            ev_type = ev.get("event")
-            data = ev.get("data") or {}
 
-            if ev_type == "spawn_complete":
-                # Ticketed path: always count.
+    def _bump(agent: str, wall: float, tokens: dict | None, model: str | None) -> None:
+        bucket = agg.setdefault(
+            agent,
+            {"spawns": 0, "tokens": _empty_tokens(),
+             "wall_seconds": 0.0, "models": {}},
+        )
+        bucket["spawns"] += 1
+        bucket["wall_seconds"] += wall
+        if tokens:
+            _add_tokens(bucket["tokens"], tokens)
+            if model:
+                mb = bucket["models"].setdefault(model, _empty_tokens())
+                _add_tokens(mb, tokens)
+
+    for _uuid, session_events in sessions.items():
+        has_conductor_complete = any(
+            e.get("event") == "spawn_complete"
+            and (e.get("data") or {}).get("source") != "hook"
+            for e in session_events
+        )
+
+        if has_conductor_complete:
+            # Ticketed/mixed session: count ONLY conductor-emitted
+            # spawn_complete events. ALL hook-emitted telemetry is excluded.
+            for ev in session_events:
+                if ev.get("event") != "spawn_complete":
+                    continue
+                data = ev.get("data") or {}
+                if data.get("source") == "hook":
+                    continue
                 agent = ev.get("agent") or "(unknown)"
                 tokens = data.get("tokens") or {}
                 wall = float(data.get("wall_seconds") or 0)
                 model = data.get("model")
-                bucket = agg.setdefault(
-                    agent,
-                    {"spawns": 0, "tokens": _empty_tokens(),
-                     "wall_seconds": 0.0, "models": {}},
-                )
-                bucket["spawns"] += 1
-                _add_tokens(bucket["tokens"], tokens)
-                bucket["wall_seconds"] += wall
-                if model:
-                    mb = bucket["models"].setdefault(model, _empty_tokens())
-                    _add_tokens(mb, tokens)
+                _bump(agent, wall, tokens, model)
+            continue
 
-            elif (
-                ev_type == "spawn_start"
-                and data.get("source") == "hook"
-                and not has_complete
-            ):
-                # Ad-hoc path: session has no spawn_complete events so use hook
-                # spawn_start as the spawn signal.  Tokens and wall_seconds are
-                # unavailable from the hook; record zeros so the renderer shows n/a.
+        # Pure ad-hoc session: dedup hook-emitted spawn_start/spawn_complete
+        # by spawn_id so each real spawn counts exactly once. Legacy
+        # spawn_start events written before DS-160 (no data.spawn_id) get a
+        # synthetic per-event key so they still count individually - back
+        # compat, no dedup possible without a correlation id.
+        _legacy_synthetic = itertools.count()
+        by_spawn_id: dict[str, dict] = {}
+        unpaired_completes: list[dict] = []
+        for ev in session_events:
+            ev_type = ev.get("event")
+            data = ev.get("data") or {}
+            if ev_type == "spawn_start" and data.get("source") == "hook":
+                sid = data.get("spawn_id") or f"__legacy_{next(_legacy_synthetic)}__"
+                if sid not in by_spawn_id:
+                    by_spawn_id[sid] = {
+                        "agent": ev.get("agent") or "(unknown)",
+                        "wall": 0.0,
+                    }
+            elif ev_type == "spawn_complete" and data.get("source") == "hook":
+                paired = data.get("paired_spawn_id")
+                wall = float(data.get("wall_seconds") or 0)
                 agent = ev.get("agent") or "(unknown)"
-                bucket = agg.setdefault(
-                    agent,
-                    {"spawns": 0, "tokens": _empty_tokens(),
-                     "wall_seconds": 0.0, "models": {}},
-                )
-                bucket["spawns"] += 1
-                # tokens remain zero; wall_seconds remains 0.0
+                if paired:
+                    existing = by_spawn_id.get(paired)
+                    if existing:
+                        existing["wall"] = wall
+                        existing["agent"] = agent
+                    else:
+                        # Paired spawn_start not present in this window -
+                        # still count once, keyed by its paired_spawn_id.
+                        by_spawn_id[paired] = {"agent": agent, "wall": wall}
+                else:
+                    # Genuinely unpaired - count once, independent keyspace.
+                    unpaired_completes.append(ev)
+
+        for rec in by_spawn_id.values():
+            _bump(rec["agent"], rec["wall"], None, None)
+        for ev in unpaired_completes:
+            data = ev.get("data") or {}
+            agent = ev.get("agent") or "(unknown)"
+            wall = float(data.get("wall_seconds") or 0)
+            _bump(agent, wall, None, None)
 
     return agg
 

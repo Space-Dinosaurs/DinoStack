@@ -22,6 +22,23 @@
  *   8. session-scoped-matching:     a spawn_start from a DIFFERENT session_uuid is
  *                                    never matched, even if it is the only candidate
  *   9. creates-agentic-dir:         .agentic/ does not exist -> mkdir + events.jsonl
+ *  10. null-session-id-never-pairs (Major 1 regression): SubagentStop payload
+ *                                    with NO session_id -> never pairs, even
+ *                                    when a same-cwd spawn_start exists.
+ *  11. candidate-missing-session-uuid-not-eligible (Major 1 regression): a
+ *                                    spawn_start with NO data.session_uuid is
+ *                                    never selected, even if it is the only
+ *                                    candidate in the scan window.
+ *  12. wall-seconds-sanity-cap (Major 1 wall_seconds ceiling): a matched
+ *                                    spawn_start from ~11 months ago ->
+ *                                    wall_seconds capped at 86400 and
+ *                                    data.suspect === true.
+ *  13. fifo-pairs-oldest-first: two unmatched same-session candidates with no
+ *                                    tool_use_id on the SubagentStop side ->
+ *                                    pairs to the OLDER (first-appended)
+ *                                    spawn_start, not the newer one (pins
+ *                                    the FIFO direction so a LIFO mutation
+ *                                    would redden this test).
  *
  * Run with: node hooks/tests/test-subagent-stop-spawn-emit.js
  */
@@ -246,6 +263,103 @@ console.log('\nTest 9: creates-agentic-dir');
   const { status } = runHook(stopPayload(cwd, 'sess-009'), cwd);
   assert(status === 0, 'hook exits 0');
   assert(fs.existsSync(path.join(cwd, '.agentic')), '.agentic/ created by hook');
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 10: null-session-id-never-pairs');
+{
+  const cwd = makeTmpProject();
+  appendRaw(cwd, hookSpawnStart('sess-010', 'spawn-010', 'engineer'));
+  // SubagentStop payload with NO session_id at all.
+  const payload = { cwd, hook_event_name: 'SubagentStop' };
+  const { status } = runHook(payload, cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete still emitted');
+  if (complete) {
+    assert((complete.data || {}).paired_spawn_id === null,
+      `never pairs when SubagentStop carries no session_id (got: ${(complete.data || {}).paired_spawn_id})`);
+    assert((complete.data || {}).wall_seconds === null,
+      `wall_seconds null when unpaired due to missing session_id (got: ${(complete.data || {}).wall_seconds})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 11: candidate-missing-session-uuid-not-eligible');
+{
+  const cwd = makeTmpProject();
+  // spawn_start with data.session_uuid explicitly ABSENT (legacy/malformed
+  // line) - must never be selected, even as the sole candidate.
+  appendRaw(cwd, {
+    ts: new Date(Date.now() - 5000).toISOString(),
+    phase: 'hook',
+    event: 'spawn_start',
+    agent: 'engineer',
+    task_id: null,
+    data: { source: 'hook', spawn_id: 'spawn-no-session', tool_use_id: null, parent_agent_id: null },
+  });
+  const { status } = runHook(stopPayload(cwd, 'sess-011'), cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete still emitted');
+  if (complete) {
+    assert((complete.data || {}).paired_spawn_id === null,
+      `candidate with no session_uuid is never eligible (got: ${(complete.data || {}).paired_spawn_id})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 12: wall-seconds-sanity-cap');
+{
+  const cwd = makeTmpProject();
+  // A spawn_start from ~11 months ago in the SAME session - a stale/leaked
+  // record that should never produce an 11-month wall_seconds figure.
+  const staleTs = new Date(Date.now() - 330 * 24 * 3600 * 1000).toISOString();
+  appendRaw(cwd, hookSpawnStart('sess-012', 'spawn-stale', 'engineer', staleTs));
+  const { status } = runHook(stopPayload(cwd, 'sess-012'), cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).paired_spawn_id === 'spawn-stale',
+      `pairs to the stale spawn_start (got: ${(complete.data || {}).paired_spawn_id})`);
+    assert((complete.data || {}).wall_seconds === 86400,
+      `wall_seconds capped at 86400 (got: ${(complete.data || {}).wall_seconds})`);
+    assert((complete.data || {}).suspect === true,
+      `data.suspect === true for a capped pairing (got: ${(complete.data || {}).suspect})`);
+  }
+  cleanup(cwd);
+}
+
+// ---------------------------------------------------------------------------
+console.log('\nTest 13: fifo-pairs-oldest-first');
+{
+  const cwd = makeTmpProject();
+  const tOld = new Date(Date.now() - 20000).toISOString();
+  const tNew = new Date(Date.now() - 5000).toISOString();
+  // Append OLDER candidate first, NEWER candidate second (file order =
+  // append order = chronological order, as events.jsonl always is).
+  appendRaw(cwd, hookSpawnStart('sess-013', 'spawn-old', 'engineer', tOld));
+  appendRaw(cwd, hookSpawnStart('sess-013', 'spawn-new', 'skeptic', tNew));
+  // No tool_use_id on either side, so FIFO decides.
+  const { status } = runHook(stopPayload(cwd, 'sess-013'), cwd);
+  assert(status === 0, 'hook exits 0');
+  const events = readEvents(cwd);
+  const complete = events.find(e => e.event === 'spawn_complete');
+  assert(!!complete, 'spawn_complete emitted');
+  if (complete) {
+    assert((complete.data || {}).paired_spawn_id === 'spawn-old',
+      `pairs to the OLDER (first-appended) spawn_start, not the newer one `
+      + `(got: ${(complete.data || {}).paired_spawn_id}) - a LIFO mutation would return "spawn-new" here`);
+    assert(complete.agent === 'engineer',
+      `agent copied from the OLDER matched spawn_start (got: ${complete.agent})`);
+  }
   cleanup(cwd);
 }
 
