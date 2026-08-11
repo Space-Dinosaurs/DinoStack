@@ -298,7 +298,12 @@ def _find_misordered_umbrella(lines: list[str]) -> int | None:
     """Return the index of the first .agentic/ umbrella pattern line that
     appears BELOW an existing `!.agentic/` negation line (an ordering
     violation that silently defeats the negation - see _append_gitignore's
-    docstring), or None if there is no negation line or no such violation."""
+    docstring), or None if there is no negation line or no such violation.
+
+    A candidate line immediately preceded by a user comment (a line whose
+    stripped text starts with `#`) is excluded from consideration - see
+    _repair_gitignore_order's docstring "Exception" paragraph for why moving
+    or dropping such a line is worse than leaving it misordered."""
     first_negation_idx = next(
         (i for i, line in enumerate(lines) if line.strip().startswith("!.agentic/")),
         None,
@@ -310,6 +315,7 @@ def _find_misordered_umbrella(lines: list[str]) -> int | None:
             i
             for i in range(first_negation_idx + 1, len(lines))
             if _is_agentic_umbrella_pattern(lines[i].strip())
+            and not (i > 0 and lines[i - 1].strip().startswith("#"))
         ),
         None,
     )
@@ -344,6 +350,17 @@ def _repair_gitignore_order(gitignore_path: Path) -> bool:
     Without this, the two repairs running back to back would otherwise leave
     two adjacent `.agentic/*` lines: harmless (both match the same content;
     matching is idempotent past the first line), but cosmetic noise.
+
+    Exception: a misordered umbrella line immediately preceded by a
+    user-authored comment line (`#...`) is left untouched entirely - not
+    moved, and not deduped/dropped. Moving OR dropping it would leave the
+    comment behind describing a line that no longer exists there (an
+    orphaned comment); silently deleting a user's own comment to fix
+    cosmetic noise is a worse surprise than leaving one line's negation
+    ordering unrepaired, especially since a correctly-ordered umbrella
+    covering the same pattern typically already exists elsewhere in the
+    file. `_find_misordered_umbrella` excludes any such comment-attached
+    line from consideration so this repair is a true no-op on it.
 
     Idempotent - a call on an already-ordered file (or one with no negation
     lines) is a no-op and returns False.

@@ -135,8 +135,11 @@ CONSUMER_GITIGNORE = """\
 # this, unlike the consumer shape.
 #
 # This is a hard-copy, not a derivation from the live file - if the umbrella
-# shape changes again, re-derive by hand and update this comment; nothing
-# re-checks the copy against reality automatically.
+# shape changes again, re-derive by hand and update this comment. This copy
+# (and DINOSTACK_KNOWLEDGE_GITIGNORE below) IS re-checked against the live
+# root .gitignore automatically in CI, by
+# test_dinostack_gitignore_constants_match_live_root_gitignore in
+# bin/tests/test_knowledge_harness_smoke.py.
 DINOSTACK_GITIGNORE = """\
 /.agentic/*
 """
@@ -154,7 +157,8 @@ DINOSTACK_GITIGNORE = """\
 # consumer path for two of the three knowledge files.
 #
 # This is a hard-copy, not a derivation from the live file - see the note on
-# DINOSTACK_GITIGNORE above; the same staleness risk applies here.
+# DINOSTACK_GITIGNORE above; the same staleness risk applies here, and the
+# same CI re-check covers this constant too.
 DINOSTACK_KNOWLEDGE_GITIGNORE = """\
 /.agentic/*
 /decisions.md

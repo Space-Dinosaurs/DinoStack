@@ -6,8 +6,15 @@
 #          a default-deny `.agentic/*` umbrella delegated to `ds-migrate
 #          apply` (content/project-scaffolding.yml). Three independent manual
 #          sweeps each found sites the next round found - a fourth manual
-#          sweep is not a fix; this makes the recurring claim shape
-#          mechanically unrepresentable instead.
+#          sweep is not a fix. This is a literal-shape RE-INTRODUCTION
+#          guard, not a semantic one: it blocks the known-false wordings
+#          (and close paraphrases of them) from silently returning via a
+#          revert or a stale copy-paste. It is NOT exhaustive against novel
+#          paraphrases of the same false claim - a fresh wording that
+#          doesn't match one of the patterns below will still pass this
+#          gate. Do not widen it chasing every possible paraphrase; that
+#          produces false positives instead. An honest narrow gate beats an
+#          overclaiming one.
 #
 # What it catches (the FIVE live sites found in round 4, generalized to a
 # pattern rather than five literal strings, so a close paraphrase is caught
@@ -48,9 +55,8 @@
 # Upstream deps: grep -E (POSIX extended regex, portable across the
 #                GNU/BSD grep this repo's CI and local dev machines run).
 #
-# Downstream consumers: .github/workflows/no-planning-docs.yml sibling
-#                        (wired as its own job - see
-#                        .github/workflows/no-false-umbrella-claims.yml).
+# Downstream consumers: .github/workflows/no-false-umbrella-claims.yml
+#                        (wired as its own job).
 #
 # Failure modes: a forbidden phrase found in content/, bin/, docs/, or
 #                README.md and not allow-listed on that line -> exit 1,
@@ -83,6 +89,16 @@ PATTERNS=(
 )
 
 SCAN_PATHS=(content bin docs README.md AGENTS.md CONTRIBUTING.md hooks scripts)
+
+# A typo'd or later-removed scan path makes `grep -r` scan nothing for it,
+# silently - the gate would stay green having asserted less than it claims.
+# Hard-fail up front instead of letting that pass unnoticed.
+for scan_path in "${SCAN_PATHS[@]}"; do
+  if [ ! -e "$scan_path" ]; then
+    echo "ERROR: SCAN_PATHS entry '$scan_path' does not exist - fix the path" >&2
+    exit 1
+  fi
+done
 
 fail=0
 for pattern in "${PATTERNS[@]}"; do

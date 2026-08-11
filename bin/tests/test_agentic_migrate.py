@@ -1299,5 +1299,59 @@ markers: []
         )
 
 
+class TestOrderRepairCommentAttachedDuplicateNotOrphaned(unittest.TestCase):
+    """Round-6 Minor 3 regression: a misordered `.agentic/*` duplicate that is
+    immediately preceded by a user-authored comment must be left untouched
+    entirely by _repair_gitignore_order - not moved, and not dropped as a
+    dedup - so the comment is never left describing a line that no longer
+    exists at that position. Asserts against the pure function directly."""
+
+    def test_comment_attached_duplicate_is_untouched(self):
+        mod = _load_agentic_migrate_module()
+        tmp = tempfile.mkdtemp()
+        gitignore_path = Path(tmp) / ".gitignore"
+        original = (
+            ".agentic/*\n"
+            "!.agentic/config.json\n"
+            "# intentional re-ignore\n"
+            ".agentic/*\n"
+        )
+        gitignore_path.write_text(original)
+
+        changed = mod._repair_gitignore_order(gitignore_path)
+
+        self.assertFalse(
+            changed, "a comment-attached duplicate must not be reported as repaired"
+        )
+        self.assertEqual(
+            gitignore_path.read_text(),
+            original,
+            "a comment-attached duplicate must be byte-identical to the input - "
+            "not moved, and not dropped, so the comment stays attached to its line",
+        )
+
+    def test_non_comment_duplicate_still_deduplicated(self):
+        """Regression guard for the opposite direction: a misordered duplicate
+        with NO preceding comment must still be dropped as before - the
+        comment-attached exception must not silently disable dedup entirely."""
+        mod = _load_agentic_migrate_module()
+        tmp = tempfile.mkdtemp()
+        gitignore_path = Path(tmp) / ".gitignore"
+        gitignore_path.write_text(
+            ".agentic/*\n"
+            "!.agentic/config.json\n"
+            ".agentic/*\n"
+        )
+
+        changed = mod._repair_gitignore_order(gitignore_path)
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            gitignore_path.read_text(),
+            ".agentic/*\n!.agentic/config.json\n",
+            "a non-comment-attached duplicate must still be deduplicated away",
+        )
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

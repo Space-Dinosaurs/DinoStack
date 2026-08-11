@@ -197,16 +197,23 @@ REPO_ROOT = Path(__file__).resolve().parent.parent.parent
 
 def test_dinostack_gitignore_constants_match_live_root_gitignore():
     live_lines = (REPO_ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    # Only checks the two root-ANCHORED forms (`/.agentic...` and
+    # `!/.agentic...`) - the current live shape. A future non-anchored form
+    # (e.g. `.agentic/*` or `!.agentic/team.yml`, with no leading `/`) would
+    # not be matched by this filter and would drift undetected; if the live
+    # file's .agentic/ shape ever moves to a non-anchored form, widen this
+    # filter in the same change.
     live_agentic_lines = [
         line
         for line in live_lines
         if line.strip() and (line.startswith("/.agentic") or line.startswith("!/.agentic"))
     ]
     assert live_agentic_lines == ["/.agentic/*"], (
-        "live root .gitignore's .agentic/-related lines changed shape; "
-        f"got {live_agentic_lines!r} - update git_fixture.DINOSTACK_GITIGNORE "
-        "and DINOSTACK_KNOWLEDGE_GITIGNORE (and their comments) to match, "
-        "then update this assertion's expected value"
+        "live root .gitignore's root-anchored .agentic/-related lines "
+        f"changed shape; got {live_agentic_lines!r} - update "
+        "git_fixture.DINOSTACK_GITIGNORE and DINOSTACK_KNOWLEDGE_GITIGNORE "
+        "(and their comments) to match, then update this assertion's "
+        "expected value"
     )
     assert git_fixture.DINOSTACK_GITIGNORE == "/.agentic/*\n", (
         "git_fixture.DINOSTACK_GITIGNORE has drifted from the live root "

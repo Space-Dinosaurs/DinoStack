@@ -75,9 +75,14 @@ _cleanup() {
 trap _cleanup EXIT
 
 SCRATCH="$TMP_ROOT/repo"
-mkdir -p "$SCRATCH/scripts" "$SCRATCH/content/commands" "$SCRATCH/bin" "$SCRATCH/docs"
+# Every entry in the gate's own SCAN_PATHS must exist in the scratch tree -
+# the gate now hard-fails (round 6 Minor 5) if one of them doesn't, so the
+# scratch fixture must materialize all of them, not just the ones this
+# test's mutations actually write into.
+mkdir -p "$SCRATCH/scripts" "$SCRATCH/content/commands" "$SCRATCH/bin" \
+  "$SCRATCH/docs" "$SCRATCH/hooks"
 cp "$GATE_SCRIPT" "$SCRATCH/scripts/check-no-false-umbrella-claims.sh"
-touch "$SCRATCH/README.md"
+touch "$SCRATCH/README.md" "$SCRATCH/AGENTS.md" "$SCRATCH/CONTRIBUTING.md"
 
 cat > "$SCRATCH/content/commands/ds-init-project.md" <<'EOF'
 ### 9. Create `.gitignore`
@@ -140,6 +145,9 @@ _assert_paraphrase_reddens "uppercase DENYLIST" "a targeted DENYLIST"
 #     a phrase placed in each newly-added path. ---
 rm -f "$SCRATCH/content/commands/ds-init-project.md"
 rmdir "$SCRATCH/content/commands" "$SCRATCH/content" 2>/dev/null
+# content/ is itself a required SCAN_PATHS entry (round 6 Minor 5) - recreate
+# it empty so its removal above doesn't trip the gate's own existence check.
+mkdir -p "$SCRATCH/content"
 for newpath in "AGENTS.md" "CONTRIBUTING.md" "hooks/some-hook.md" "scripts/some-script.md"; do
   mkdir -p "$SCRATCH/$(dirname "$newpath")"
   printf 'a targeted DENYLIST\n' > "$SCRATCH/$newpath"
@@ -155,6 +163,33 @@ for newpath in "AGENTS.md" "CONTRIBUTING.md" "hooks/some-hook.md" "scripts/some-
   fi
   rm -f "$SCRATCH/$newpath"
 done
+
+# --- Mutation 5 (round 6 Minor 5): a SCAN_PATHS entry that does not exist
+#     (a typo, or a path later removed from the repo) must hard-fail the
+#     gate rather than silently scanning nothing for it. Mutation 4's loop
+#     above deletes AGENTS.md/CONTRIBUTING.md/hooks/... after testing each -
+#     re-materialize every real SCAN_PATHS entry here so this mutation's
+#     failure is actually about 'nonexistent-typo-path', not a leftover
+#     missing path from an earlier mutation. ---
+touch "$SCRATCH/AGENTS.md" "$SCRATCH/CONTRIBUTING.md"
+mkdir -p "$SCRATCH/hooks"
+sed \
+  's|^SCAN_PATHS=(content bin docs README.md AGENTS.md CONTRIBUTING.md hooks scripts)$|SCAN_PATHS=(content bin docs README.md AGENTS.md CONTRIBUTING.md hooks scripts nonexistent-typo-path)|' \
+  "$GATE_SCRIPT" > "$SCRATCH/scripts/check-no-false-umbrella-claims.sh"
+if ! grep -q 'nonexistent-typo-path' "$SCRATCH/scripts/check-no-false-umbrella-claims.sh"; then
+  _fail "sed substitution of SCAN_PATHS did not apply - test fixture itself is broken, not the gate"
+else
+  out="$(cd "$SCRATCH" && bash "scripts/check-no-false-umbrella-claims.sh" 2>&1)"
+  rc=$?
+  if [[ $rc -ne 0 ]] && printf '%s' "$out" | grep -q 'nonexistent-typo-path'; then
+    _pass "gate hard-fails with a named-path error when a SCAN_PATHS entry does not exist"
+  else
+    _fail "gate exited $rc (expected non-zero, with the missing path named) when a SCAN_PATHS entry does not exist - a typo'd path would silently scan nothing"
+  fi
+fi
+# Restore the un-mutated gate copy for cleanliness (scratch dir is removed
+# by the trap regardless; explicit for readability).
+cp "$GATE_SCRIPT" "$SCRATCH/scripts/check-no-false-umbrella-claims.sh"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
