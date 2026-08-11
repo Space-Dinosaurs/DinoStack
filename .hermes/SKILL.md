@@ -501,7 +501,7 @@ Emit calls are inline shell snippets in command/agent specs that reach the relev
 
 Claude Code locks each isolation worktree while its agent is running, so git refuses the non-force removal and branch-deletion commands this methodology uses against it from any concurrent session for the duration (a double-force `git worktree remove -f -f` would override the lock, which is why no cleanup path here uses it). Per Claude Code's own worktree documentation and its v2.1.157 changelog, once the agent finishes the harness releases the lock and then auto-cleans the worktree via `git worktree remove` (not a raw directory delete) if it is unchanged, and a periodic orphan sweep also skips any still-locked worktree. Isolation worktrees with changes persist until the conductor explicitly removes them.
 
-**Lifecycle rules are methodology-owned, not project-overridable** - see `content/references/worktree-lifecycle.md` §Project-override policy. **Worktree reuse across rounds is out of scope here (DS-123).**
+**Lifecycle rules are methodology-owned, not project-overridable** - see `content/references/worktree-lifecycle.md` §Project-override policy. **Worktree reuse across rounds is out of scope here (DS-123)** - the DS-123 harness worktree-fallback quirk remains open and unresolved. The canonical round-N mechanic for landing a same-approach fix commit on an already-open PR's branch (mitigation, not a fix for DS-123 itself) is documented in `content/rules/conventions.md` §Git Workflow and `content/references/worktree-lifecycle.md` §Round-N rework mechanic.
 
 ## Protocol Details (read on trigger)
 
@@ -784,7 +784,9 @@ git branch -d <branch-name>
 
 **Temp-file ownership.** Agents that write temp files are responsible for deleting them in teardown. If a downstream phase consumes the temp files, the consuming phase deletes the originals after consumption.
 
-**Superseding an open PR's work means close + rebase, never bundle.** If your branch's work makes another open PR's commits unnecessary or subsumed, close that PR citing the superseding one and rebase your branch clean of its commits - do not merge or cherry-pick the superseded PR's commits into your own branch. A branch whose history contains another open PR's head commit is exactly the pattern an advisory review-rigor CI check flags where configured; treat the flag as confirmation to close + rebase, not to proceed.
+**Superseding an open PR's work means close + rebase, never bundle.** If your branch's work makes another open PR's commits unnecessary or subsumed, close that PR citing the superseding one and rebase your branch clean of its commits - do not merge or cherry-pick the superseded PR's commits into your own branch. A branch whose history contains another open PR's head commit is exactly the pattern an advisory review-rigor CI check flags where configured; treat the flag as confirmation to close + rebase, not to proceed. This applies to superseding only - see the rework-rounds bullet immediately below for the same-approach case.
+
+**Rework rounds on an open PR stay on the same PR - push fix commits to the existing branch, do not close and reopen.** Rework (round-N fix, same implementation approach already on the open PR - a Skeptic finding, CI failure, or review comment resolved by a surgical edit that builds on top of the existing branch tip) is a distinct git-workflow class from superseding (a wholesale replacement of the PR's approach, where the old commits become dead weight rather than a foundation - still close + rebase per the bullet above). Test: if the fix commit builds on top of the existing branch tip and addresses specific findings against it, it is rework; if the new work discards the prior round's approach outright, it is superseding. See `content/references/worktree-lifecycle.md` §Round-N rework mechanic for the round-N branching and recovery procedure.
 
 ## Context Economy
 
@@ -5684,7 +5686,7 @@ Applying adversarial review.
 
 The Skeptic Protocol is an adversarial review loop for multi-agent systems. A Worker implements; the primary agent spawns a fresh Skeptic to critique; if findings remain, the primary agent routes them to a new Worker. The primary agent drives the loop until a clean sign-off is achieved.
 
-The core thesis: **the value of an adversarial reviewer is independence**. A reviewer who has already heard the implementer's justifications is no longer independent — they have been partially anchored to that framing. This is why the Skeptic is always a fresh invocation, never a continuation of a prior round. Workers cannot spawn subagents (platform constraint), so the primary agent is the sole orchestrator: it spawns Workers, spawns Skeptics, and routes findings between them. The Skeptic's independence is guaranteed by its fresh context — it sees only the output and the adversarial brief, never the Worker's reasoning process.
+The core thesis: **the value of an adversarial reviewer is independence**. A reviewer who has already heard the implementer's justifications is no longer independent — they have been partially anchored to that framing. This is why the Skeptic is always a fresh invocation, never a continuation of a prior round. Workers cannot spawn subagents (platform constraint), so the primary agent is the sole orchestrator: it spawns Workers, spawns Skeptics, and routes findings between them. The Skeptic's independence is guaranteed by its fresh context — it sees only the output and the adversarial brief, never the Worker's reasoning process. Skeptic context freshness (never a continuation of a prior round) is independent of branch/PR identity - a fresh Skeptic reviewing round N still reviews the same open PR's branch; see `content/rules/conventions.md` §Git Workflow for the round-N git mechanic.
 
 This pattern is applicable to any multi-agent system capable of invoking subagents or secondary model calls. The terminology used here is system-agnostic.
 
@@ -7637,8 +7639,13 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          isolation worktree cleanup commands, feature worktree cleanup commands,
          the session-start prune script, the Standing authorizations section
          (the enumerated set of routine-hygiene operations pre-authorized for
-         every session, satisfying a harness confirm-first carve-out), and the
-         local-branch prune block.
+         every session, satisfying a harness confirm-first carve-out), the
+         local-branch prune block, and the Round-N rework mechanic (the
+         conductor-side SHA-push recovery procedure and failure-mode table for
+         landing a same-approach fix commit on an already-open PR's branch;
+         the literal `create_commands` branching forms live in
+         content/commands/ds-implement-ticket.md's canonical definition site,
+         not here - see the Round-N rework mechanic section itself).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -7646,7 +7653,9 @@ Public API: Read-only reference document. Cross-referenced from:
             content/sections/12-protocol-details.md (Worktree lifecycle Protocol
             Details entry),
             content/sections/02-delegation.md §Standing authorizations,
-            content/references/conductor-operating-rules.md:20.
+            content/references/conductor-operating-rules.md:20,
+            content/rules/conventions.md §Git Workflow (rework-vs-superseding
+            bullet points here for the round-N mechanic).
 
 Upstream deps: content/sections/11-worktree-lifecycle.md (parent section; read
                that section first for the two-class summary, isolation mandate,
@@ -7656,7 +7665,10 @@ Downstream consumers: conductor preflight (session-start prune script and
                       branch prune block); conductor cleanup flows (isolation
                       and feature worktree removal commands);
                       /ds-cleanup-worktrees command; /ds-implement-ticket lifecycle
-                      cleanup.
+                      cleanup; every /ds-implement-ticket fix-pass spawn site that
+                      re-seeds an engineer worktree against an already-open PR's
+                      branch (Phase 6/6b Skeptic and QA fix passes, Phase 7
+                      quality-gate fix passes) via the Round-N rework mechanic.
 
 Failure modes: Prose + bash blocks; does not auto-execute. Using force-remove
                without the status check first risks losing uncommitted work.
@@ -7716,6 +7728,45 @@ git worktree prune             # clean up any stale metadata
 ```
 
 This `git branch -D` is likewise exempt from the general disposition model (as the isolation-worktree pattern above is): it runs only as a fallback AFTER `gh pr merge --delete-branch` has already succeeded on this exact branch, so the merge itself - not a bare "a PR merged" signal - is the proof of subsumption.
+
+Same-PR rework rounds (see §Round-N rework mechanic below) mean one persistent branch per ticket instead of `-rN` siblings that each needed their own worktree, so `-rN` proliferation should drop. This is unaffected by the squash-merge-defeats-prune hazard: the branch-gone-from-origin / four-layer subsumption predicate (§Branch prune below) remains the correct predicate for cleanup either way, and prune logic itself is untouched by this change.
+
+## Round-N rework mechanic
+
+When a Skeptic finding, CI failure, or QA failure needs a fix pass against an already-open PR's branch (round N>=2 of the SAME approach - see `content/rules/conventions.md` §Git Workflow for the rework-vs-superseding boundary test), the fix commit lands on the existing branch's remote tip instead of a fresh branch off `$BASE_BRANCH`. Phase 10a's post-PR CI fix loop already does this ("commit and push to the same branch") - this section generalizes that same mechanic to the pre-PR Phase 6/6b/7 fix-pass spawn sites.
+
+**Branching logic (`worktree_setup.create_commands` population rule).** The literal `create_commands` forms (initial spawn / `PLAN_PRESEEDED` / round-N rework), the already-checked-out guard, and the precheck-gated reuse remedy are NOT restated here - `content/commands/ds-implement-ticket.md`'s Phase 5 `worktree_setup` field definition (§Elevated-path engineer-contract extensions) is the sole canonical definition site for all of it. See that site for the full form and guard.
+
+Verified empirically (git 2.39.5, scratch repo with a bare-clone origin, a lagging local `feat/test` ref, and a fresh `worktree add`): the `-B` form exits 0 and the resulting worktree's `HEAD` matches `origin/$BRANCH_NAME`'s tip exactly, even when the local `feat/test` ref pointed at an older commit before the run. The already-checked-out fatal (exit 128, `fatal: '<branch>' is already checked out at '<path>'`) reproduces when a second `worktree add` targets a branch already checked out elsewhere under the same `$REPO`, and `git worktree list --porcelain`'s `branch refs/heads/<name>` line reliably identifies the existing worktree path for the reuse guard.
+
+**Recovery procedure (conductor-side, for when the branching logic above wasn't applied or the DS-123 worktree-fallback quirk fired).**
+
+```bash
+# 1. Confirm the engineer produced a commit.
+ENGINEER_SHA=$(git -C "$ENGINEER_WORKTREE" rev-parse HEAD)
+
+# 2. Confirm this SHA is NOT already an ancestor of the branch remote tip.
+git -C "$REPO" fetch origin
+if git -C "$REPO" merge-base --is-ancestor "$ENGINEER_SHA" "origin/$BRANCH_NAME"; then
+  echo "SHA already on branch - nothing to push."
+  exit 0
+fi
+
+# 3. Push the engineer's commit SHA directly onto the existing branch remote tip.
+#    By explicit SHA, never local branch name (local ref can lag remote tip).
+git -C "$REPO" push origin "$ENGINEER_SHA:refs/heads/$BRANCH_NAME"
+```
+
+Failure-mode table:
+
+| Failure | Cause | Recovery |
+|---|---|---|
+| push rejected, non-fast-forward | origin/$BRANCH_NAME moved since worktree seeded | fetch; then (a) cherry-pick $ENGINEER_SHA onto fresh checkout of origin/$BRANCH_NAME and push NEW SHA by-SHA, or (b) re-spawn fix-pass engineer with current branch tip per the branching logic above. NEVER force-push (blanket-denied for conductor and subagents; chat authorization cannot clear it). |
+| Engineer worktree silently started from main (branching logic not applied / DS-123) | mis-populated create_commands or harness fallback quirk | Do NOT push the SHA directly - main-based, could silently revert intervening branch commits. Fetch, checkout origin/$BRANCH_NAME in scratch location, cherry-pick $ENGINEER_SHA; if the cherry-pick conflicts, re-delegate to a correctly-seeded engineer rather than resolving it conductor-side (no conductor-exempt path exists for shippable-tree conflict resolution - conventions.md's shippable/exempt classifier and `enforce-shippable-edit.py` both deny it); push resulting SHA by-SHA. |
+| DCO fails on pushed commit | commit without -s, or cherry-pick trailer mismatch | Amend BEFORE push: `git commit --amend -s --no-edit`, push new SHA. Never amend a commit already on the shared remote tip - re-derive and re-push. |
+| Strict checks: base moved since last green run | orthogonal, governed by near-merge rebase policy | Unchanged: `gh pr update-branch --rebase` before merge. NOT eliminated by this mechanic. |
+
+Deliberately unchanged by this mechanic: Skeptic review rigor (a fresh Skeptic invocation still reviews the same open PR's branch on round N - see `content/references/skeptic-protocol.md`), the CI check set, strict required-checks + near-merge rebase policy, the force-push prohibition, and DCO. Superseding (a wholesale approach replacement) still closes + rebases per `content/rules/conventions.md` §Git Workflow - this mechanic applies to rework only. DS-123 (the harness worktree-fallback quirk) remains open and unresolved by this mechanic; the recovery procedure above is mitigation, not a fix.
 
 ## Session-start prune script
 
@@ -15695,9 +15746,9 @@ fi
 
 This subsection is reached exactly once per ticket, on every ticket path, before any engineer spawns - it is the fix for gaps 1 and 2 (Plan-tier directories and the promotion-gate path had no commit step), not for gap 3 (re-commit on revision - see DS-124).
 
-**Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands.
+**Elevated single-engineer path.** The conductor does NOT run `git checkout -b` on this path. Branch and worktree creation are delegated to the engineer via the new `worktree_setup` execution-contract field (see Phase 5). The conductor passes the resolved `BRANCH_NAME` and `BASE_BRANCH` in the engineer brief; the engineer runs the literal git commands. The literal `create_commands` form (initial spawn vs. preseeded vs. round-N rework) is NOT restated here - Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) is the sole canonical definition site; every other spawn site points there.
 
-**Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH` command. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
+**Trivial single-engineer path.** Branch and worktree creation are delegated to the worktree-isolated Trivial `engineer` (the conductor never runs `nvm use`/`git checkout -b` itself). Because the Trivial engineer carries the lightweight contract and therefore has NO `worktree_setup` contract field (see the Trivial-path carve-out, STEP 9c), the conductor conveys the create sequence as plain prose in the lightweight engineer brief: the resolved `BRANCH_NAME`, `BASE_BRANCH`, AND the literal create-commands sequence INCLUDING the `export NVM_DIR="$HOME/.nvm" && [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh" && nvm use 20` bootstrap line followed by the create command. Initial spawn (branch does not yet exist on origin): `git -C $REPO checkout -b [BRANCH_NAME per AGENTS.md convention] origin/$BASE_BRANCH`. Round-N rework fix pass on a Trivial-path branch that already exists on origin (same `git ls-remote --exit-code --heads origin "$BRANCH_NAME"` existence check as the canonical definition in `content/references/worktree-lifecycle.md` §Round-N rework mechanic): `git -C $REPO checkout -B $BRANCH_NAME origin/$BRANCH_NAME` instead - this resets/checks out the existing branch at the origin tip rather than branching fresh from `$BASE_BRANCH`. **`checkout -B`'s already-checked-out behavior is git-version-dependent - do not assume it matches `worktree add`'s protection.** `git worktree add -B` refuses (exit 128, "already checked out at ..." on older git / "already used by worktree at ..." on newer git - the wording is not stable across versions either, but the refusal is) when `$BRANCH_NAME` is checked out in another worktree, on every measured version. `git checkout -B $BRANCH_NAME origin/$BRANCH_NAME` is different: on OLDER git (observed: 2.39.5), it does NOT refuse - it exits 0, force-moves the shared `refs/heads/$BRANCH_NAME` ref to `origin/$BRANCH_NAME`'s tip, and silently drags that OTHER worktree's `HEAD` along with it, so an unpushed commit sitting in that other worktree becomes unreachable from the branch tip (still recoverable via reflog, but silently dropped from the branch). On NEWER git (observed: 2.55.0, and matching the exit behavior seen on a CI runner's 2.54.0), `checkout -B` now refuses the same way `worktree add` does (non-zero exit, other worktree's `HEAD` untouched) - this protection was added upstream at some point between those two measured versions; the exact boundary release is not verified here, so it is not named. **The porcelain precheck is MANDATORY (not a convenience) on the Trivial path before running `checkout -B` under BOTH behaviors**: on older git it is the ONLY thing preventing silent data loss; on newer git it converts what would otherwise be a hard, unhandled fatal into the guarded reuse-vs-recovery path instead of an unhandled failure. Locate any existing worktree for `$BRANCH_NAME` via the same `git -C $REPO worktree list --porcelain` awk extraction documented in the canonical Elevated-path definition above, and if one exists, apply the same precheck-gated reuse-vs-recovery logic (never running `checkout -B` from a location other than that existing worktree while it may hold local-only state) rather than assuming a clean switch. The engineer runs that sequence verbatim in its own worktree. The lightweight Trivial contract (no Skeptic, no brief file, no heavy `worktree_setup`/`quality_gates`/`git_finalization` block) is preserved.
 
 **Phase 5 parallel fan-out path.** Conductor-side worktree creation is preserved as today; the fan-out logic lives in Phase 5 itself.
 
@@ -15771,9 +15822,34 @@ The engineer is never asked to handle a rename mid-implementation. The conductor
 
 - `worktree_setup`: `{ branch_name, base_branch, worktree_path, create_commands }` — the engineer creates the branch and worktree (or in-place branch if no worktree) using these literal git commands. The conductor populates `branch_name` and `base_branch`; `worktree_path` is set when worktree isolation is in use, otherwise null; `create_commands` is the literal `git -C $REPO checkout -b ...` (or `git -C $REPO worktree add ...`) sequence. The engineer return shape echoes `worktree_setup.worktree_path` back as `worktree_path` so Phase 8 cleanup can resolve the worktree even after branch renames.
 
-  **`PLAN_PRESEEDED` gates which literal form `create_commands` uses (Elevated single-engineer path only - fan-out per-unit sub-branches are always freshly cut from `origin/$BASE_BRANCH` regardless of this flag, see "Create one worktree per unit" below).** `PLAN_PRESEEDED` is set in Phase 4's "Commit and push the planning artifact" subsection (step 4 there).
-  - `PLAN_PRESEEDED == false` (no Brief/Plan, or the commit-and-push hit the gitignore no-op branch): `create_commands` is the standard create-from-base form: `git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH`.
-  - `PLAN_PRESEEDED == true` (the Phase 4 procedure already pushed a plan commit to `$BRANCH_NAME`): `create_commands` tracks the existing remote branch instead of creating it from base: `git -C $REPO worktree add $WORKTREE_PATH $BRANCH_NAME` (no `-b`, no base ref - the branch already exists on origin, seeded with the plan commit). Using the create-from-base form here would either fail (branch already exists) or silently orphan the plan commit depending on git version; tracking the existing ref is the only correct form once `PLAN_PRESEEDED` is true.
+  **This bullet is the single canonical definition site for which literal `create_commands` form applies in each situation.** Every other reference to `create_commands` form in this file or in `content/references/worktree-lifecycle.md` §Round-N rework mechanic points back here rather than restating the forms.
+
+  **Which form applies (Elevated single-engineer path only - fan-out per-unit sub-branches are always freshly cut from `origin/$BASE_BRANCH` regardless of the below, see "Create one worktree per unit" below).** Determine branch existence via `git ls-remote --exit-code --heads origin "$BRANCH_NAME"` (the same check Phase 4's stale-remote-branch preflight already uses). `PLAN_PRESEEDED` is set in Phase 4's "Commit and push the planning artifact" subsection (step 4 there).
+  - **Branch does not yet exist on origin** (`PLAN_PRESEEDED == false`, or the commit-and-push hit the gitignore no-op branch): `create_commands` is the standard create-from-base form: `git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH`.
+  - **Branch already exists on origin** - this covers BOTH `PLAN_PRESEEDED == true` (Phase 4 already pushed a plan commit to `$BRANCH_NAME`) AND round N>=2 rework fix passes (Phase 6 Step 4, Phase 6b Step 4, Phase 7 fix passes) against an already-open PR's branch - mechanically identical, since both start the engineer's worktree from an already-existing remote branch tip: `create_commands` is `git -C $REPO fetch origin && git -C $REPO worktree add $WORKTREE_PATH -B $BRANCH_NAME origin/$BRANCH_NAME`. Use `-B` (force-reset-and-checkout), never a bare `worktree add $WORKTREE_PATH $BRANCH_NAME` with no branch flag and never `--track origin/$BRANCH_NAME` as a positional (that form is a git syntax error, exits 129 - `--track` takes no argument). `-B` is required, not cosmetic: a bare form checks out whatever the LOCAL branch ref currently points at in `$REPO`, which can lag `origin/$BRANCH_NAME`'s tip if `$REPO` branched or fetched earlier and never advanced that local ref; `-B origin/$BRANCH_NAME` guarantees the new worktree starts from the current origin tip regardless of local staleness (verified empirically, git 2.39.5 - see `content/references/worktree-lifecycle.md` §Round-N rework mechanic for the reproduction). **Trade-off:** `-B` force-resets the local branch ref, discarding anything the local ref alone was holding - which is exactly why the already-checked-out remedy below is precheck-gated rather than resetting unconditionally.
+
+    **Guard (already checked out):** `git worktree add` fails fatally (exit 128, `already checked out at ...` on older git / `already used by worktree at ...` on newer git - the wording is not stable across versions, but the refusal is) if `$BRANCH_NAME` is already checked out in another worktree under `$REPO` (e.g. a prior round's worktree was never cleaned up). Before running the add, locate the existing worktree's path from `git -C $REPO worktree list --porcelain` (matched by exact string equality on the `branch` line, not a shell-interpolated regex, to avoid `$BRANCH_NAME` metacharacters mis-parsing):
+
+    ```bash
+    EXISTING_WT="$(git -C $REPO worktree list --porcelain | awk -v b="refs/heads/$BRANCH_NAME" '/^worktree /{p=$2} $0=="branch "b{print p}')"
+    ```
+
+    If `$EXISTING_WT` is empty, no reuse conflict exists - run the `worktree add` above normally. If `$EXISTING_WT` is non-empty, do NOT reset it unconditionally: that worktree may hold a local-only commit from a round whose push failed (non-fast-forward, a pending DCO amend, an auth failure) - exactly the state the §Recovery procedure in `content/references/worktree-lifecycle.md` §Round-N rework mechanic exists to rescue, and a bare `reset --hard` would destroy it. Precheck in `$EXISTING_WT`, **fetch FIRST, then evaluate both predicates, fail-closed on either command's failure:**
+
+    ```bash
+    git -C $EXISTING_WT fetch origin
+    DIRTY="$(git -C $EXISTING_WT status --porcelain)"
+    UNPUSHED="$(git -C $EXISTING_WT log origin/$BRANCH_NAME..HEAD --oneline)"
+    UNPUSHED_RC=$?
+    ```
+
+    Fetching BEFORE the predicates matters: a stale or absent `refs/remotes/origin/$BRANCH_NAME` tracking ref (never fetched yet in `$EXISTING_WT`, or pruned by an earlier `--delete-branch` cleanup) makes `git log origin/$BRANCH_NAME..HEAD` exit 128 with EMPTY stdout - indistinguishable from "no unpushed commits" if only the stdout is checked. Fetching first eliminates the ordinary case of this; capturing `$UNPUSHED_RC` explicitly and treating a non-zero exit as unsafe (never as empty-means-safe) closes the residual case where the ref is still unresolvable after the fetch.
+
+    Evaluate in this order - a checked command's failure is never read as "safe to reset":
+    - If `$UNPUSHED_RC` is non-zero: do NOT reset. Route to the §Recovery procedure in `content/references/worktree-lifecycle.md` §Round-N rework mechanic and escalate - a failed check is not evidence of safety.
+    - Else if `$DIRTY` is non-empty (uncommitted work that was never committed): do NOT reset. Escalate directly and leave `$EXISTING_WT` untouched - there is no commit to push here, so a push does not rescue this state; preservation means not touching the worktree, not pushing.
+    - Else if `$UNPUSHED` is non-empty (a local-only commit exists): do NOT reset. Push the existing local `HEAD` SHA onto `$BRANCH_NAME` first per `content/references/worktree-lifecycle.md` §Round-N rework mechanic's Recovery procedure, then escalate to confirm before proceeding.
+    - Else (both checks succeeded and both are empty): reuse is safe - `git -C $EXISTING_WT reset --hard origin/$BRANCH_NAME`.
 - `quality_gates`: `{ command, cwd, must_pass: true }` — the engineer runs `$QUALITY_CMD` itself before declaring done. The conductor never re-runs gates on this path (Phase 7 verifies from the return shape; see Phase 7).
 - `git_finalization`: `{ commit_message_template, files_to_stage, push }` — the engineer commits and pushes. `push: true` for the Elevated path. `commit_message_template` MUST include a `Signed-off-by: $SO_NAME <$SO_EMAIL>` line populated from `git config user.name` / `git config user.email` (required for DCO CI gate). When developer identity is confirmed (non-provisional - `ds-identity show` emits no `provisional:   true` line), also include a `Developer: <handle>` trailer. Use the `NL=$'\n'` pattern for multi-line templates (not `<<'EOF'` heredoc, which blocks variable expansion). Guard: if `git config user.email` returns empty, surface a warning and skip the commit.
 
@@ -16117,7 +16193,7 @@ Tracker append is a single line per `original_task_id`; the file is created if a
 
 See `content/references/skeptic-protocol.md` Section 14 for the full calibration specification.
 
-**Step 4. Engineer fix pass.** Spawn a fresh `engineer` agent with:
+**Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn a fresh `engineer` agent with:
 - The open Critical and Major findings from `findings_log` (status=open)
 - The `last_engineer_summary` from the prior iteration
 - **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input — not a summary, not a paraphrase, not "the prior engineer changed files X, Y, Z". Paste the prior return summary in full (or, when the prior output was committed code, paste the full diff or list the committed files plus their relevant excerpts). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a Skeptic finding listed below. Each edit you make must trace to a specific finding id."* Rationale: a fresh subagent has no session context, so a brief that says "address findings and return revised outputs" causes the Engineer to regenerate from scratch — producing output that diverges from the scoped change because it has no access to prior-iteration state. Anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes.
@@ -16310,7 +16386,7 @@ Match by the info string `qa-screenshots-json`; do not require a specific fence 
 
 Parse the JSON array into `QA_SCREENSHOT_PATHS` (array of `{path, description, criterion_id, result}` objects). Retain only entries where `result == "PASS"` on overall PASS. If the block is absent, malformed, or the JSON fails to parse, set `QA_SCREENSHOT_PATHS=()` and continue without error. This is an in-context variable only - do NOT write `QA_SCREENSHOT_PATHS` to `.agentic/loop-state-$LOOP_KEY.json` or any other state file.
 
-**Step 4. Engineer fix pass.** Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
+**Step 4. Engineer fix pass.** This is round N>=2 of the same branch. Populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. Spawn `engineer` with the QA failure description, prior fix summary, and instruction to fix only the failing acceptance criteria. The fix engineer spawn brief MUST cite `content/references/qa-regression-obligation.md` - the engineer adds a regression test that targets the failing scenario (id, description) or, if a regression test is genuinely infeasible, appends a documented exception entry to `.agentic/qa-regressions.md` using the canonical schema in that reference. A missing test with no explanation and no curated-index entry is a Major Skeptic finding on the QA-fix iteration. **Iter N (N >= 2) surgical-edit directive.** When `iteration >= 2`, the brief MUST include the iter N-1 Engineer output VERBATIM as input - not a summary, not a paraphrase. Paste the prior return summary in full (or the prior diff plus committed-file excerpts when the prior output was code). Then include this instruction verbatim: *"APPLY SURGICAL EDITS to the iter N-1 output above. Do NOT regenerate from scratch. Do NOT change anything not directly tied to a QA failure listed below. Each edit you make must trace to a specific failure id."* Same rationale as Phase 6: a fresh subagent without prior-iteration context regenerates from scratch and diverges from the scoped change; anchoring on the prior output verbatim is the only reliable way to scope a fresh subagent to surgical fixes. Bracket the **Agent call** with `ds-emit spawn_start engineer <task_id> ...` and `ds-emit spawn_complete engineer <task_id> ...` per the Phase 6 emit pattern. Apply the same BLOCKED/NEEDS_CONTEXT handling as Phase 6:
 - If `Status: BLOCKED`: set `termination_reason: blocked`. Before escalating, apply the "Batch-mode escalation routing (mark-blocked-and-continue)" subsection in Phase 6. **Tracker writeback (W5):** if `TRACKER != none`, invoke the Tracker Writeback Helper with `target_state: $TRACKER_STATE_BLOCKED`, `forward_only_guard: true`. Fire-and-forget. `[phase: tracker-writeback | site: W5 | target: $TRACKER_STATE_BLOCKED]` Escalate immediately. Do NOT increment `iteration`.
 - If `Status: NEEDS_CONTEXT`: re-supply context and re-spawn without incrementing `iteration`. If context cannot be supplied, escalate to human.
 
@@ -16363,7 +16439,7 @@ This phase runs after Phase 6 and 6b loops have already exited cleanly. A qualit
 **When `DEBUGGER_ON_FAILURE` is `false` OR the path is Trivial** - preserve existing behavior exactly:
 
 1. Before spawning the Phase 7 engineer: write `.agentic/loop-state-$LOOP_KEY.json` with `last_phase=quality_gate`, `last_phase_action=engineer_spawned` (atomic write).
-2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: "worktree"` on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble).
+2. Spawn one `engineer` fix pass scoped to the quality gate failure output (passing the captured `raw_output` on the Elevated path). The Skeptic has already signed off on the implementation - this is a targeted quality gate fix, not a Skeptic-loop re-entry. The Agent tool call MUST set `isolation: "worktree"` on the Elevated path (mandatory per METHODOLOGY.md §Delegation > Worker preamble). **On the Elevated path**, this is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. **On the Trivial path**, there is no `worktree_setup` field (see Phase 4/5 "Trivial single-engineer path"); use that section's own round-N prose-conveyed form instead.
 3. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).
 4. Before verifying the re-run: write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). On resume from this state, the conductor waits for the fix-engineer return rather than executing `$QUALITY_CMD` itself (Elevated path) - the engineer reports `quality_gate_results` from its own re-run.
 5. Verify the fix engineer's `quality_gate_results` (Elevated path) or re-run `$QUALITY_CMD` (Trivial path).
@@ -16384,7 +16460,7 @@ For each debug-fix cycle (cycle count tracked in-context; escalate to human afte
    - The failing context (branch diff, relevant files, prior cycle summaries if any)
 3. After Debugger returns: write `last_phase=quality_gate`, `last_phase_action=debugger_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).
 4. Write `last_phase=quality_gate`, `last_phase_action=engineer_spawned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).
-5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: "worktree"` (mandatory on Elevated path per METHODOLOGY.md §Delegation > Worker preamble).
+5. Spawn one `engineer` fix pass with the Debugger's Fix brief appended to the scoped brief. The Agent tool call MUST set `isolation: "worktree"` (mandatory on Elevated path per METHODOLOGY.md §Delegation > Worker preamble). This is round N>=2 of the same branch: populate `worktree_setup.create_commands` per the "branch already exists on origin" form in Phase 5's `worktree_setup` field definition (§Elevated-path engineer-contract extensions) - the sole canonical definition site. (This branch of Phase 7 is Elevated-path only - see the "Trivial-path exclusion" note above.)
 6. After the engineer returns and commits: write `last_phase=quality_gate`, `last_phase_action=engineer_returned` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write).
 7. Write `last_phase=quality_gate`, `last_phase_action=rerun_pending` to `.agentic/loop-state-$LOOP_KEY.json` (atomic write). The engineer re-runs gates and reports `quality_gate_results`.
 8. Verify the fix engineer's `quality_gate_results`.
