@@ -3,30 +3,48 @@
 #          configures the `scan` CI job (a required status check on `main`) and
 #          carries two [[allowlists]] blocks: one exempting eval fixture
 #          corpora (evals/fixtures/** and evals/skill-comparison/tasks/**),
-#          and one narrowly exempting .codex/skill-compatibility.yml's
-#          source_token/generated_token fields from the generic-api-key rule
-#          only. Nothing previously pinned this file - a future edit could
-#          silently broaden the allowlist (e.g. to a whole-file path
-#          exemption, or dropping targetRules so it exempts every rule) and
-#          no gate would notice, leaving a permanent hole in a required
-#          security check.
+#          unconstrained by targetRules/regexes (path-only, so a match there
+#          exempts EVERY rule); and one narrowly exempting
+#          .codex/skill-compatibility.yml's source_token/generated_token
+#          fields from the generic-api-key rule only. Nothing previously
+#          pinned this file - a future edit could silently broaden the
+#          allowlist and no gate would notice, leaving a permanent hole in a
+#          required security check. The most dangerous broadening is adding
+#          a real-code path (e.g. hooks/.* or bin/.*) to the FIRST,
+#          unconstrained allowlist block: because that block has no
+#          targetRules/regexes, any path added to it is exempted from every
+#          rule outright. Assertion 5 below pins against exactly that
+#          (mutation-verified: adding '''hooks/.*''' or '''bin/.*''' to that
+#          block turns this assertion red). Dropping targetRules from the
+#          SECOND block does NOT, by itself, broaden its coverage the same
+#          way - see the note at assertion 3 for why (github-pat's match
+#          text never contains the source_token/generated_token key prefix,
+#          so the narrow regexes leg guards it independently of targetRules).
 #
 #          This guard runs the real gitleaks binary (never parses the TOML)
 #          against small scratch git repos, each seeded with the REAL,
 #          unmodified .gitleaks.toml from this repo plus one planted probe
 #          secret, and asserts the probe is caught or suppressed as
-#          expected. Mirrors the CI job's scan mode (`gitleaks git .`,
+#          expected. Approximates the CI job's scan mode (`gitleaks git .`,
 #          history scan of committed blobs - see .github/workflows/
 #          gitleaks.yml) rather than a worktree/no-git scan, since a
 #          worktree-mode probe would not exercise the same code path the
-#          required check actually runs.
+#          required check actually runs. It is not a byte-for-byte flag
+#          match: this guard passes --report-format json (the CI job uses
+#          sarif) because assertions here need to parse per-finding "File"
+#          fields, and omits --redact=100/--exit-code 1 (gitleaks already
+#          exits 1 on any finding by default, so --exit-code 1 is a no-op
+#          for this guard's purposes, and --redact only masks the "Secret"
+#          field, never the "File" field these assertions read).
 #
 # Public API: ./bin/tests/test_gitleaks_allowlist_scope.sh
 #             Exits 0 on all pass, 1 on any failure.
 #
-# Upstream deps: bash, git, mktemp, python3 (fixture file authoring), and the
-#                `gitleaks` CLI on PATH. If gitleaks is missing: hard FAIL
-#                under CI=true (this is a security regression guard - a
+# Upstream deps: bash, git, mktemp, python3 (parses gitleaks' JSON report in
+#                _leaks_contain_path and _report_is_valid_json; fixtures
+#                themselves are authored as plain heredocs, not python), and
+#                the `gitleaks` CLI on PATH. If gitleaks is missing: hard
+#                FAIL under CI=true (this is a security regression guard - a
 #                silently skipped assertion here is indistinguishable from a
 #                passing one, and the whole point is not to have that hole
 #                again); locally, SKIP with a message so contributors
@@ -140,6 +158,29 @@ sys.exit(0 if any(entry.get("File") == target for entry in data) else 1)
 PYEOF
 }
 
+# Asserts $1/leaks.json exists and parses as a JSON array (empty array is
+# valid - it means "gitleaks ran and found nothing"). Used alongside the
+# suppression assertions below: without this check, a scenario where
+# gitleaks fails outright (bad flags, unreadable config, etc.) and never
+# writes a report reads identically to "ran and suppressed everything" -
+# `_leaks_contain_path` returns "not found" for both a missing file and a
+# genuinely empty report. This makes the two distinguishable.
+_report_is_valid_json() {
+  local dir="$1"
+  python3 - "$dir/leaks.json" <<'PYEOF'
+import json
+import sys
+
+report_path = sys.argv[1]
+try:
+    with open(report_path) as f:
+        data = json.load(f)
+except (FileNotFoundError, json.JSONDecodeError):
+    sys.exit(1)
+sys.exit(0 if isinstance(data, list) else 1)
+PYEOF
+}
+
 # NOTE on fixture shape: the real .codex/skill-compatibility.yml is JSON
 # despite its .yml extension (it is machine-generated by
 # scripts/codex-skills.py as a JSON document) - keys are double-quoted,
@@ -170,10 +211,10 @@ EOF
 _commit_scratch_repo "$A0_DIR"
 _run_scan "$A0_DIR"
 
-if ! _leaks_contain_path "$A0_DIR" ".codex/skill-compatibility.yml"; then
+if _report_is_valid_json "$A0_DIR" && ! _leaks_contain_path "$A0_DIR" ".codex/skill-compatibility.yml"; then
   _pass "assertion 0 (baseline): source_token/generated_token in the allowlisted file, quoted-key shape, is suppressed"
 else
-  _fail "assertion 0 (baseline): source_token/generated_token in the allowlisted file was caught (expected suppressed - allowlist may not be matching at all): $GITLEAKS_OUTPUT"
+  _fail "assertion 0 (baseline): source_token/generated_token in the allowlisted file was caught, OR gitleaks did not run/produce a valid report (expected suppressed with a valid report - allowlist may not be matching at all, or the scan itself failed): rc=$GITLEAKS_RC: $GITLEAKS_OUTPUT"
 fi
 
 # ---------------------------------------------------------------------------
@@ -268,22 +309,64 @@ echo "$SECRET_LINE" > "$A4_DIR/evals/skill-comparison/harness/probe.yml"
 _commit_scratch_repo "$A4_DIR"
 _run_scan "$A4_DIR"
 
-if ! _leaks_contain_path "$A4_DIR" "evals/fixtures/probe.yml"; then
+if _report_is_valid_json "$A4_DIR" && ! _leaks_contain_path "$A4_DIR" "evals/fixtures/probe.yml"; then
   _pass "assertion 4a: secret under evals/fixtures/ is suppressed"
 else
-  _fail "assertion 4a: secret under evals/fixtures/ was caught (expected suppressed): $GITLEAKS_OUTPUT"
+  _fail "assertion 4a: secret under evals/fixtures/ was caught, OR gitleaks did not run/produce a valid report (expected suppressed with a valid report): rc=$GITLEAKS_RC: $GITLEAKS_OUTPUT"
 fi
 
-if ! _leaks_contain_path "$A4_DIR" "evals/skill-comparison/tasks/probe.yml"; then
+if _report_is_valid_json "$A4_DIR" && ! _leaks_contain_path "$A4_DIR" "evals/skill-comparison/tasks/probe.yml"; then
   _pass "assertion 4b: secret under evals/skill-comparison/tasks/ is suppressed"
 else
-  _fail "assertion 4b: secret under evals/skill-comparison/tasks/ was caught (expected suppressed): $GITLEAKS_OUTPUT"
+  _fail "assertion 4b: secret under evals/skill-comparison/tasks/ was caught, OR gitleaks did not run/produce a valid report (expected suppressed with a valid report): rc=$GITLEAKS_RC: $GITLEAKS_OUTPUT"
 fi
 
 if _leaks_contain_path "$A4_DIR" "evals/skill-comparison/harness/probe.yml"; then
   _pass "assertion 4c: secret under evals/skill-comparison/ outside tasks/ is caught"
 else
   _fail "assertion 4c: secret under evals/skill-comparison/ outside tasks/ was NOT caught (expected caught, rc=$GITLEAKS_RC): $GITLEAKS_OUTPUT"
+fi
+
+# ---------------------------------------------------------------------------
+# Assertion 5: real-code paths (hooks/, bin/) are still CAUGHT. The first
+# [[allowlists]] block (the eval-fixture one) has no targetRules/regexes -
+# it is a bare path match that exempts EVERY rule for anything under it.
+# .gitleaks.toml's own comment says "allowlist ONLY eval fixture corpora,
+# never real-code paths", but nothing previously pinned that boundary: a
+# future edit adding a real-code glob (e.g. '''hooks/.*''' or '''bin/.*''')
+# to that same block would silently exempt the whole directory from every
+# rule, and every other assertion in this file would stay green (they only
+# probe .codex/ and evals/ paths). This is the gap this assertion closes.
+#
+# Mutation-verified: temporarily adding '''hooks/.*''' (and, separately,
+# '''bin/.*''') to the first allowlist block's `paths` turns this assertion
+# red; restoring .gitleaks.toml (confirmed byte-identical via diff) turns
+# it green again. See the engineer's return summary for the exact commands
+# run.
+# ---------------------------------------------------------------------------
+A5_DIR="$TMP_ROOT/a5-real-code-paths"
+_init_scratch_repo "$A5_DIR"
+mkdir -p "$A5_DIR/hooks" "$A5_DIR/bin"
+cat > "$A5_DIR/hooks/probe.sh" <<'EOF'
+#!/usr/bin/env bash
+TOKEN="sk-ABCDEFGHIJKLMNOPQRSTUVWX1234567890abcd"
+EOF
+cat > "$A5_DIR/bin/probe.py" <<'EOF'
+TOKEN = "sk-ABCDEFGHIJKLMNOPQRSTUVWX1234567890abcd"
+EOF
+_commit_scratch_repo "$A5_DIR"
+_run_scan "$A5_DIR"
+
+if [[ $GITLEAKS_RC -eq 1 ]] && _leaks_contain_path "$A5_DIR" "hooks/probe.sh"; then
+  _pass "assertion 5a: secret under hooks/ (real-code path) is caught"
+else
+  _fail "assertion 5a: secret under hooks/ (real-code path) was NOT caught (rc=$GITLEAKS_RC): $GITLEAKS_OUTPUT"
+fi
+
+if [[ $GITLEAKS_RC -eq 1 ]] && _leaks_contain_path "$A5_DIR" "bin/probe.py"; then
+  _pass "assertion 5b: secret under bin/ (real-code path) is caught"
+else
+  _fail "assertion 5b: secret under bin/ (real-code path) was NOT caught (rc=$GITLEAKS_RC): $GITLEAKS_OUTPUT"
 fi
 
 echo ""
