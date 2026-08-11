@@ -84,6 +84,56 @@ git worktree prune             # clean up any stale metadata
 
 This `git branch -D` is likewise exempt from the general disposition model (as the isolation-worktree pattern above is): it runs only as a fallback AFTER `gh pr merge --delete-branch` has already succeeded on this exact branch, so the merge itself - not a bare "a PR merged" signal - is the proof of subsumption.
 
+Same-PR rework rounds (see §Round-N rework mechanic below) mean one persistent branch per ticket instead of `-rN` siblings that each needed their own worktree, so `-rN` proliferation should drop. This is unaffected by the squash-merge-defeats-prune hazard: the branch-gone-from-origin / four-layer subsumption predicate (§Branch prune below) remains the correct predicate for cleanup either way, and prune logic itself is untouched by this change.
+
+## Round-N rework mechanic
+
+When a Skeptic finding, CI failure, or QA failure needs a fix pass against an already-open PR's branch (round N>=2 of the SAME approach - see `content/rules/conventions.md` §Git Workflow for the rework-vs-superseding boundary test), the fix commit lands on the existing branch's remote tip instead of a fresh branch off `$BASE_BRANCH`. Phase 10a's post-PR CI fix loop already does this ("commit and push to the same branch") - this section generalizes that same mechanic to the pre-PR Phase 6/6b/7 fix-pass spawn sites.
+
+**Branching logic (`worktree_setup.create_commands` population rule).** Determine branch existence via `git ls-remote --exit-code --heads origin "$BRANCH_NAME"` - the same check Phase 4's stale-remote-branch preflight already uses.
+
+```
+IF the branch already exists on origin (round N >= 2, same approach - rework):
+  create_commands = """
+    git -C $REPO fetch origin
+    git -C $REPO worktree add $WORKTREE_PATH $BRANCH_NAME --track origin/$BRANCH_NAME
+  """
+  # No -b, no base_branch ref. Checks out the EXISTING branch tip.
+
+ELSE (initial spawn, branch does not yet exist):
+  create_commands = the standard create-from-base form (Phase 4/5):
+    git -C $REPO worktree add $WORKTREE_PATH -b $BRANCH_NAME origin/$BASE_BRANCH
+```
+
+**Recovery procedure (conductor-side, for when the branching logic above wasn't applied or the DS-123 worktree-fallback quirk fired).**
+
+```bash
+# 1. Confirm the engineer produced a commit.
+ENGINEER_SHA=$(git -C "$ENGINEER_WORKTREE" rev-parse HEAD)
+
+# 2. Confirm this SHA is NOT already an ancestor of the branch remote tip.
+git -C "$REPO" fetch origin
+if git -C "$REPO" merge-base --is-ancestor "$ENGINEER_SHA" "origin/$BRANCH_NAME"; then
+  echo "SHA already on branch - nothing to push."
+  exit 0
+fi
+
+# 3. Push the engineer's commit SHA directly onto the existing branch remote tip.
+#    By explicit SHA, never local branch name (local ref can lag remote tip).
+git -C "$REPO" push origin "$ENGINEER_SHA:refs/heads/$BRANCH_NAME"
+```
+
+Failure-mode table:
+
+| Failure | Cause | Recovery |
+|---|---|---|
+| push rejected, non-fast-forward | origin/$BRANCH_NAME moved since worktree seeded | fetch; then (a) cherry-pick $ENGINEER_SHA onto fresh checkout of origin/$BRANCH_NAME and push NEW SHA by-SHA, or (b) re-spawn fix-pass engineer with current branch tip per the branching logic above. NEVER force-push (blanket-denied for conductor and subagents; chat authorization cannot clear it). |
+| Engineer worktree silently started from main (branching logic not applied / DS-123) | mis-populated create_commands or harness fallback quirk | Do NOT push the SHA directly - main-based, could silently revert intervening branch commits. Fetch, checkout origin/$BRANCH_NAME in scratch location, cherry-pick $ENGINEER_SHA, resolve conflicts (conductor-exempt recovery or re-delegate to correctly-seeded engineer), push resulting SHA by-SHA. |
+| DCO fails on pushed commit | commit without -s, or cherry-pick trailer mismatch | Amend BEFORE push: `git commit --amend -s --no-edit`, push new SHA. Never amend a commit already on the shared remote tip - re-derive and re-push. |
+| Strict checks: base moved since last green run | orthogonal, governed by near-merge rebase policy | Unchanged: `gh pr update-branch --rebase` before merge. NOT eliminated by this mechanic. |
+
+Deliberately unchanged by this mechanic: Skeptic review rigor (a fresh Skeptic invocation still reviews the same open PR's branch on round N - see `content/references/skeptic-protocol.md`), the CI check set, strict required-checks + near-merge rebase policy, the force-push prohibition, and DCO. Superseding (a wholesale approach replacement) still closes + rebases per `content/rules/conventions.md` §Git Workflow - this mechanic applies to rework only. DS-123 (the harness worktree-fallback quirk) remains open and unresolved by this mechanic; the recovery procedure above is mitigation, not a fix.
+
 ## Session-start prune script
 
 Run at session start (conductor preflight) - ONCE per session, not before every subagent spawn:
