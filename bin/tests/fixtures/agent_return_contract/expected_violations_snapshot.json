@@ -1,0 +1,119 @@
+{
+  "adr-drift-detector.md": [
+    "adr-drift-detector.md: no fenced ```yaml or ```json return block found in the Shape-2 return section"
+  ],
+  "architect.md": [
+    "architect.md: field 'Approach' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'Codebase context' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'Data model' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'API / interface design' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'Implementation steps' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'QA criteria' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'Trade-offs and constraints' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'Open questions' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'Deferred defaults' has no [MECHANICAL] or [ADVISORY] tag",
+    "architect.md: field 'Verification footer' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "debugger.md": [
+    "debugger.md: field 'Root cause' has no [MECHANICAL] or [ADVISORY] tag",
+    "debugger.md: field 'Evidence' has no [MECHANICAL] or [ADVISORY] tag",
+    "debugger.md: field 'Hypotheses considered' has no [MECHANICAL] or [ADVISORY] tag",
+    "debugger.md: field 'Fix brief' has no [MECHANICAL] or [ADVISORY] tag",
+    "debugger.md: field 'Confidence' has no [MECHANICAL] or [ADVISORY] tag",
+    "debugger.md: field 'Learnings candidates' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "dependency-auditor.md": [
+    "dependency-auditor.md: field 'Summary' has no [MECHANICAL] or [ADVISORY] tag",
+    "dependency-auditor.md: field 'Findings' has no [MECHANICAL] or [ADVISORY] tag",
+    "dependency-auditor.md: field 'Upgrade plan' has no [MECHANICAL] or [ADVISORY] tag",
+    "dependency-auditor.md: field 'Open questions' has no [MECHANICAL] or [ADVISORY] tag",
+    "dependency-auditor.md: field 'Scan gaps' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "engineer.md": [
+    "engineer.md: field 'pr_description_body' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer"
+  ],
+  "goal-condition-evaluator.md": [
+    "goal-condition-evaluator.md: Shape-3 line 'Evidence:' (block 2) value '\"evaluator-error: <reason>\"' is neither a closed enum, a bare count, nor bounded to one line by its own placeholder text",
+    "goal-condition-evaluator.md: Shape-3 line 'BLOCKED' (block 3) is not a 'Label: value' line"
+  ],
+  "investigator.md": [
+    "investigator.md: field 'Answer' has no [MECHANICAL] or [ADVISORY] tag",
+    "investigator.md: field 'Key findings' has no [MECHANICAL] or [ADVISORY] tag",
+    "investigator.md: field 'Component map' has no [MECHANICAL] or [ADVISORY] tag",
+    "investigator.md: field 'Per-consumer impact' has no [MECHANICAL] or [ADVISORY] tag",
+    "investigator.md: field 'Risks and gotchas' has no [MECHANICAL] or [ADVISORY] tag",
+    "investigator.md: field 'Gaps and unknowns' has no [MECHANICAL] or [ADVISORY] tag",
+    "investigator.md: field 'Recommended next steps' has no [MECHANICAL] or [ADVISORY] tag",
+    "investigator.md: field 'Confidence' has no [MECHANICAL] or [ADVISORY] tag",
+    "investigator.md: field 'Learnings candidates' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "learning-extractor.md": [
+    "learning-extractor.md: field 'learnings_written' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "learning-extractor.md: field 'learning_ids' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "learning-extractor.md: field 'writer_actions' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "learning-extractor.md: classification field 'skipped_reason' declares no closed enum (expected an inline 'X | Y | Z' value list or an adjacent JSON-Schema 'enum:')"
+  ],
+  "learnings-agent.md": [
+    "learnings-agent.md: field 'learnings_written' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "learnings-agent.md: field 'learning_ids' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "learnings-agent.md: field 'writer_actions' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "learnings-agent.md: classification field 'skipped_reason' declares no closed enum (expected an inline 'X | Y | Z' value list or an adjacent JSON-Schema 'enum:')"
+  ],
+  "orchestration-planner.md": [
+    "orchestration-planner.md: field 'Task summary' has no [MECHANICAL] or [ADVISORY] tag",
+    "orchestration-planner.md: field 'Risk classification' has no [MECHANICAL] or [ADVISORY] tag",
+    "orchestration-planner.md: field 'Agent roster' has no [MECHANICAL] or [ADVISORY] tag",
+    "orchestration-planner.md: field 'Execution plan' has no [MECHANICAL] or [ADVISORY] tag",
+    "orchestration-planner.md: field 'Skeptic checkpoints' has no [MECHANICAL] or [ADVISORY] tag",
+    "orchestration-planner.md: field 'Parallelization opportunities' has no [MECHANICAL] or [ADVISORY] tag",
+    "orchestration-planner.md: field 'Conductor actions' has no [MECHANICAL] or [ADVISORY] tag",
+    "orchestration-planner.md: field 'Open questions' has no [MECHANICAL] or [ADVISORY] tag",
+    "orchestration-planner.md: field 'Deferred defaults' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "perf-analyst.md": [
+    "perf-analyst.md: field 'Summary' has no [MECHANICAL] or [ADVISORY] tag",
+    "perf-analyst.md: field 'Methodology' has no [MECHANICAL] or [ADVISORY] tag",
+    "perf-analyst.md: field 'Measurements' has no [MECHANICAL] or [ADVISORY] tag",
+    "perf-analyst.md: field 'Perf budget verdict' has no [MECHANICAL] or [ADVISORY] tag",
+    "perf-analyst.md: field 'Hotspot' has no [MECHANICAL] or [ADVISORY] tag",
+    "perf-analyst.md: field 'Root cause' has no [MECHANICAL] or [ADVISORY] tag",
+    "perf-analyst.md: field 'Evidence' has no [MECHANICAL] or [ADVISORY] tag",
+    "perf-analyst.md: field 'Fix brief for engineer' has no [MECHANICAL] or [ADVISORY] tag",
+    "perf-analyst.md: field 'Confidence' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "product-discovery.md": [
+    "product-discovery.md: field 'vision.md (one screen, narrative)' has no [MECHANICAL] or [ADVISORY] tag",
+    "product-discovery.md: field 'requirements.md (scoped, checkable)' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "qa-engineer.md": [
+    "qa-engineer.md: field '1. [Criterion description]' has no [MECHANICAL] or [ADVISORY] tag",
+    "qa-engineer.md: field '2. [Next criterion]' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "release-orchestrator.md": [
+    "release-orchestrator.md: '## Verification' placeholder '<summary or \"see spawned qa-engineer output\">' is open-ended free text and declares no closed enum, bounded-by-nature value type, or numeric cap",
+    "release-orchestrator.md: '## Failures and blockers' placeholder '<If status is not SUCCESS: which gate failed, what the error was, what was done>' is open-ended free text and declares no closed enum, bounded-by-nature value type, or numeric cap"
+  ],
+  "security-auditor.md": [
+    "security-auditor.md: field 'Threat model' has no [MECHANICAL] or [ADVISORY] tag",
+    "security-auditor.md: field 'Critical findings' has no [MECHANICAL] or [ADVISORY] tag",
+    "security-auditor.md: field 'High findings' has no [MECHANICAL] or [ADVISORY] tag",
+    "security-auditor.md: field 'Medium findings' has no [MECHANICAL] or [ADVISORY] tag",
+    "security-auditor.md: field 'Informational' has no [MECHANICAL] or [ADVISORY] tag",
+    "security-auditor.md: field 'Positive controls noted' has no [MECHANICAL] or [ADVISORY] tag",
+    "security-auditor.md: field 'OWASP Top 10 coverage' has no [MECHANICAL] or [ADVISORY] tag",
+    "security-auditor.md: field 'Dependency scan' has no [MECHANICAL] or [ADVISORY] tag"
+  ],
+  "skeptic.md": [
+    "skeptic.md: Calibration section declares no explicit numeric cap on finding-description length"
+  ],
+  "wrap-ticket.md": [
+    "wrap-ticket.md: field 'memory_md_appends' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "wrap-ticket.md: field 'decisions_md_appends' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "wrap-ticket.md: field 'context_md_recent_focus_addition' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "wrap-ticket.md: field 'writer_actions' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "wrap-ticket.md: classification field 'skipped_reason' declares no closed enum (expected an inline 'X | Y | Z' value list or an adjacent JSON-Schema 'enum:')",
+    "wrap-ticket.md: field 'size_advisory' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "wrap-ticket.md: field 'cluster_results' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer",
+    "wrap-ticket.md: field 'resolved_paths' is capable of open-ended or repeated content but declares no cap, one-line marker, or schema pointer"
+  ]
+}

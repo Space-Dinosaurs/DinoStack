@@ -1,11 +1,14 @@
 """
 Purpose: Mutation-testing harness for
          bin/tests/test_agent_return_contract_spec.py's check_contract()
-         gate. Three prior rounds of that spec gate each shipped a
-         defect where the checker was green because it checked nothing
-         (round 1: 18/18 structural parse failure; round 2: fence-blind
-         silent pass; round 3: a `pass`-bodied guard plus three
-         auto-passing heuristics) - and every round's own fixtures were
+         gate. Four prior rounds of that spec gate each shipped a defect
+         where the checker was green because it checked nothing, or
+         checked too permissively (round 1: 18/18 structural parse
+         failure; round 2: fence-blind silent pass; round 3: a
+         `pass`-bodied guard plus three auto-passing heuristics; round 4:
+         a shape-level scalar auto-pass, plus three "keyword/phrase
+         present ANYWHERE" regexes that claimed adjacency/specificity
+         they never enforced) - and every round's own fixtures were
          hand-authored by the same agent, in the same commit, as the
          checker they exercised, so they only ever probed the shape the
          author already had in mind. This file instead mechanically
@@ -15,7 +18,17 @@ Purpose: Mutation-testing harness for
          corpus file for the six-prefix masking bug) and asserts every
          mutant is rejected. A mutant that survives (the checker returns
          [] on genuinely non-compliant text) is a defect in the checker
-         under test, never a false report from this harness.
+         under test, never a false report from this harness. Round 5
+         adds four regression mutations (shape2_scalar_leaf_unbounded_
+         no_auto_pass, shape2_cap_keyword_requires_adjacent_digit,
+         shape2_enum_pipe_inside_narrative_placeholder_not_recognized,
+         shape2_pointer_requires_md_or_schema_reference) encoding the
+         four falsifying probes a reviewing Skeptic used to demonstrate
+         the round-4 permissive branches, PLUS a CI floor on
+         len(MUTATIONS) (.github/workflows/bin-tests.yml) - round 4's own
+         fix removed one operator from this file with the suite still
+         reporting `42 passed` and nothing red, because nothing pinned
+         the catalog's size.
 
 Public API: MUTATIONS (list of (id, run) pairs, each `run()` returning
             (baseline_violations, mutant_violations, caught: bool));
@@ -64,7 +77,11 @@ import test_agent_return_contract_spec as contract  # noqa: E402
 
 def _replace_once(text, old, new):
     assert old in text, f"mutation anchor text not found in seed: {old!r}"
-    return text.replace(old, new, 1)
+    mutant = text.replace(old, new, 1)
+    assert mutant != text, (
+        f"mutation produced no change - old and new are identical: {old!r}"
+    )
+    return mutant
 
 
 # --- Shape 1: strip tag / strip cap (compliant_agent.md fixture seed) ---
@@ -317,7 +334,7 @@ MUTATIONS = [
         _shape4_mutation(
             "which gate failed, what the error was, what was\ndone - max 500 chars>",
             "which gate failed, what the error was, what was\ndone - max chars>",
-            "declares no numeric cap",
+            "declares no closed enum, bounded-by-nature value type, or numeric cap",
         ),
     ),
     (
@@ -326,7 +343,39 @@ MUTATIONS = [
             "<If status is not SUCCESS: which gate failed, what the error was, "
             "what was\ndone - max 500 chars>",
             "<Details of the blocker text>",
-            "declares no numeric cap",
+            "declares no closed enum, bounded-by-nature value type, or numeric cap",
+        ),
+    ),
+    (
+        "shape2_scalar_leaf_unbounded_no_auto_pass",
+        _shape2_mutation(
+            "summary: <one-line summary, cap: 200 chars>",
+            "summary: <full narrative account with no declared bound at all>",
+            "'summary'",
+        ),
+    ),
+    (
+        "shape2_cap_keyword_requires_adjacent_digit",
+        _shape2_mutation(
+            "note: <one-line finding, cap: 150 chars>",
+            "note: <detailed account; 3 records were truncated from the source system>",
+            "'findings'",
+        ),
+    ),
+    (
+        "shape2_enum_pipe_inside_narrative_placeholder_not_recognized",
+        _shape2_mutation(
+            "owner: <one-line name>",
+            "owner: <what happened | why it matters, unbounded>",
+            "'metadata'",
+        ),
+    ),
+    (
+        "shape2_pointer_requires_md_or_schema_reference",
+        _shape2_mutation(
+            "deep_note: <one-line deep note, max 50 chars>",
+            "deep_note: <free-form prose, the term is defined in the glossary>",
+            "'nested'",
         ),
     ),
 ]

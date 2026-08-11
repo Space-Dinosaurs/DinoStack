@@ -74,6 +74,19 @@ jobs:
         timeout-minutes: 2
         run: |
           python3 -m pytest bin/tests/test_phase11e_knowledge_commit_shell.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 47) { print "expected >= 47 collected tests (22 functions x 2 shells + 3 static), got " $1; exit 1 } }'
+      - name: floor collected test_agent_return_contract_mutation.py count at 22
+        # 16 mutation entries in MUTATIONS (one test_mutation_<id> each) plus
+        # test_no_survivors (1) plus 4 seed-baseline sanity tests plus 1
+        # skeptic-baseline sanity test = 22 collected IDs. Removing an
+        # operator from MUTATIONS without shrinking this floor is exactly
+        # the failure mode this gate exists to catch (round-5 finding:
+        # removing one operator left the suite green with `len(MUTATIONS)
+        # == 12` and nothing red). Adding or removing a mutation in
+        # bin/tests/test_agent_return_contract_mutation.py's MUTATIONS list
+        # obliges updating the floor below in the same PR.
+        timeout-minutes: 2
+        run: |
+          python3 -m pytest bin/tests/test_agent_return_contract_mutation.py --collect-only -q | grep -c '::test_' | awk '{ if ($1 < 22) { print "expected >= 22 collected tests (16 mutations + 1 aggregate + 4 seed + 1 skeptic baseline), got " $1; exit 1 } }'
   # Python hook tests live here (shared python toolchain with bin-tests); JS/sh
   # hook tests live in hooks-tests.yml.
   hooks-python-tests:

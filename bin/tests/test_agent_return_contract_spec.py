@@ -17,21 +17,30 @@ Public API: check_contract(text, filename, shape=None) -> list[str]
 Upstream dependencies: content/agents/*.md (real agent files, dispatched via
             SHAPE_ASSIGNMENTS/EXEMPT_FILE_ARTIFACT below);
             bin/tests/fixtures/agent_return_contract/*.md (fixtures used to
-            verify each checker's logic independent of the real corpus).
+            verify each checker's logic independent of the real corpus);
+            bin/tests/fixtures/agent_return_contract/
+            expected_violations_snapshot.json (round-5: the exact per-file
+            violation-string snapshot loaded into EXPECTED_VIOLATIONS -
+            see generate_agent_return_contract_snapshot.py for how this
+            file is regenerated).
 
 Downstream consumers: .github/workflows/bin-tests.yml python-bin-tests job,
             which runs `pytest bin/tests/ -q` - full-directory glob
             discovery, no per-file wiring required for a new test_*.py file.
+            The same job also floors test_agent_return_contract_mutation.py's
+            collected test count (round-5 structural change 3).
 
 Failure modes: pure static analysis, no I/O beyond reading .md files under
             this repo.
-            NOT_YET_MIGRATED allowlists every real agent file that HAS a
-            recognized return-contract shape as of Unit 0 but is not yet
-            migrated to its shape's tagging/enum/cap obligation - Unit 1/3/4
-            remove a file once it is actually migrated; leaving a migrated
-            file in the allowlist silently disables enforcement for it
-            (test_allowlist_has_no_stale_entries only catches files that no
-            longer exist, not files that were migrated but never removed).
+            SHAPE_ASSIGNMENTS dispatches every real agent file that HAS a
+            recognized return-contract shape to its shape's checker.
+            EXPECTED_VIOLATIONS (round-5, replaces the NOT_YET_MIGRATED
+            boolean allowlist retired this round) pins the EXACT violation
+            set per file - test_expected_violations_snapshot_matches_reality
+            fails loudly, by name, on either a violation silently
+            disappearing (laxness) or a new one silently appearing
+            (over-strictness); a boolean allowlist could only ever detect
+            "flagged vs not flagged", not which specific violations fired.
             EXEMPT_FILE_ARTIFACT separately tracks files whose deliverable is
             a file they write to disk, not a conductor-parsed return - never
             expected to gain a shape at all.
@@ -107,9 +116,87 @@ Failure modes: pure static analysis, no I/O beyond reading .md files under
                 independently VERIFIED (via M3's recursion) rather than
                 merely asserted alongside a since-corrected compliant-now
                 verdict.
+            CORRECTION (round-5): the M3 paragraph above claimed
+                "SHAPE2_CAP_KEYWORDS_RE now requires an adjacent digit" -
+                this was FALSE. The round-4 code required a cap keyword
+                AND a digit to both appear ANYWHERE in the same combined
+                line+body text, with no adjacency check at all; the
+                violation message made the same false claim. Round 5
+                fixes this for real - see below.
+            Round-5 fixes (structural rewrite, not another permissive
+            branch - see the four falsifying probes below, each
+            independently confirmed RED post-fix, plus four new
+            regression mutations added to MUTATIONS in
+            test_agent_return_contract_mutation.py):
+            (1) Every leaf-boundedness check (Shape 2's schema leaves,
+                Shape 3's literal-line values, Shape 4's report
+                placeholders) now goes through the SAME closed set of
+                seven explicitly named forms (see the block above
+                CLASSIFICATION_FIELD_NAME_RE): enum list, true-adjacent
+                numeric cap, fixed-length spec ('40-char'), one-line
+                marker, schema/doc pointer, bounded-by-nature value
+                literal, nullable-type placeholder. Anything matching
+                none of these fails by default - there is no remaining
+                shape-level auto-pass. Specifically: `_shape2_is_bounded`
+                no longer returns True unconditionally for the 'scalar'
+                shape (probe: 'note: <full narrative account with no
+                declared bound at all>' now correctly flagged, where it
+                previously passed unconditionally).
+            (2) SHAPE_NUMERIC_CAP_RE requires the digit+unit to appear
+                TRUE-adjacent to the cap keyword (immediately following
+                it), not merely present anywhere in the combined text
+                (probe: 'x: <full narrative; note that 3 records were
+                truncated from the source system>' now correctly
+                rejected).
+            (3) _is_enum_list() replaces the bare '\\S+\\s*\\|\\s*\\S+'
+                search: an enum is recognized only as (a) the value
+                standing ALONE as a bare '|'-delimited token list, never
+                inside a '<...>' narrative placeholder bracket, or (b) an
+                explicit 'enum:' label preceding a pipe list (probe:
+                'summary: <what happened | why it matters, unbounded>'
+                now correctly rejected - it satisfies neither form).
+            (4) SHAPE2_POINTER_RE now requires 'defined in'/'defined
+                once' to be followed, within a short window, by a
+                concrete '.md' path or the word 'schema' - not accepted
+                bare anywhere (probe: 'x: <free-form prose, the term is
+                defined in the glossary>' now correctly rejected).
+            (5) check_shape4's placeholder loop now applies the same
+                closed-whitelist check instead of an unconditional
+                numeric-cap-only requirement - implementing the doc's
+                actual Shape-4 scope ("every OTHER section WITH
+                OPEN-ENDED FREE TEXT"), not "every placeholder
+                unconditionally" (which round 4 had regressed to after
+                deleting the gameable narrative-hint-word heuristic).
+            (6) check_shape3 now inspects EVERY fenced block in the
+                section, not just blocks[0] - goal-condition-evaluator.md
+                has three templates, and the second's Evidence value
+                ('"evaluator-error: <reason>"') was never checked before
+                this fix. goal-condition-evaluator.md is RECLASSIFIED
+                from compliant-now to genuinely non-compliant as a
+                result (it was never actually fully compliant, only
+                under-checked).
+            (7) NOT_YET_MIGRATED (a boolean membership set) is RETIRED,
+                replaced by an exact per-file expected-violations
+                SNAPSHOT (bin/tests/fixtures/agent_return_contract/
+                expected_violations_snapshot.json) - a boolean allowlist
+                cannot detect a checker becoming more permissive (a
+                violation silently disappearing) or more strict (a
+                violation silently appearing) for a file that stays
+                flagged either way, which is exactly the failure mode
+                that shipped in rounds 1-4. See
+                bin/tests/generate_agent_return_contract_snapshot.py for
+                the deliberate, reviewed snapshot-update procedure.
+            (8) The mutation catalog's size is now floored in CI
+                (.github/workflows/bin-tests.yml, "floor collected
+                test_agent_return_contract_mutation.py count") - removing
+                an operator from MUTATIONS without shrinking the floor is
+                caught, closing the gap where the suite went green with
+                one operator deleted and `len(MUTATIONS) == 12` unchecked
+                anywhere.
 
 Performance: negligible - reads <30 small text files.
 """
+import json
 import re
 from pathlib import Path
 
@@ -208,39 +295,34 @@ EXEMPT_FILE_ARTIFACT = {
     "adr-generator.md",
 }
 
-# Files with a shape assignment above but not yet migrated to that shape's
-# affirmative obligation - genuinely non-compliant today (see
-# test_not_yet_migrated_entries_are_actually_unmigrated).
-# goal-condition-evaluator.md is deliberately NOT listed here - it is
-# already compliant under its shape's checker. engineer.md is DELIBERATELY
-# BACK in this set as of round 4 (M1 fix): the
-# SHAPE2_PASSTHROUGH_EXEMPT_FIELDS exemption that previously manufactured
-# its compliant-now status was deleted (falsified rationale - no downstream
-# consumer forwards pr_description_body verbatim; grep confirms the only
-# hits are engineer.md's own definition). Unit 0 does not edit agent files,
-# so engineer.md's cap is not added this round.
-NOT_YET_MIGRATED = {
-    # Shape 1
-    "architect.md",
-    "debugger.md",
-    "dependency-auditor.md",
-    "investigator.md",
-    "orchestration-planner.md",
-    "perf-analyst.md",
-    "product-discovery.md",
-    "qa-engineer.md",
-    "security-auditor.md",
-    # Shape 2 (target)
-    "engineer.md",
-    "learning-extractor.md",
-    "learnings-agent.md",
-    "wrap-ticket.md",
-    "adr-drift-detector.md",
-    # Shape 3 (narrow - additive cap sentence only, six validated lines untouched)
-    "skeptic.md",
-    # Shape 4 (narrow - one field's cap addition)
-    "release-orchestrator.md",
-}
+# --- Round-5 structural change 2: NOT_YET_MIGRATED (a boolean membership
+# set) is RETIRED. A boolean allowlist can only ever say "this file is
+# still non-compliant" - it cannot detect a checker becoming MORE
+# permissive (violations silently disappearing) or MORE strict
+# (violations silently appearing) for a file that stays on the list
+# either way. Four consecutive rounds of THIS spec gate shipped exactly
+# that failure mode: a permissive branch added to make the real corpus
+# green, invisible to any test that only asks "is this file still
+# flagged at all". The replacement is an exact per-file
+# expected-violations SNAPSHOT (every violation string, not just a
+# boolean) in
+# bin/tests/fixtures/agent_return_contract/expected_violations_snapshot.json,
+# loaded below and compared to the live checker output for every
+# SHAPE_ASSIGNMENTS file in test_expected_violations_snapshot_matches_
+# reality. ANY drift - a violation disappearing (widening/laxness) or a
+# new one appearing (narrowing/over-strictness) - fails that test loudly
+# and by name, and must be reviewed and re-approved deliberately via
+# bin/tests/generate_agent_return_contract_snapshot.py (see that
+# script's module docstring for the exact update procedure - it is
+# deliberately NOT a silent one-command refresh). The mutation harness
+# in test_agent_return_contract_mutation.py is kept alongside this,
+# unchanged in purpose: the two are complementary, not redundant - the
+# snapshot catches drift in the REAL corpus; the mutation harness proves
+# the checker can still fire on synthetic non-compliant text the real
+# corpus may never happen to contain.
+EXPECTED_VIOLATIONS = json.loads(
+    (FIXTURES_DIR / "expected_violations_snapshot.json").read_text()
+)
 
 
 class UnbalancedFenceError(ValueError):
@@ -424,25 +506,177 @@ CLASSIFICATION_FIELD_NAME_RE = re.compile(
     r"(?:^|_)(status|verdict|result|outcome[_-]?type|skipped[_-]?reason|decision)(?:_|$)",
     re.IGNORECASE,
 )
-ENUM_VALUE_LIST_RE = re.compile(r"\S+\s*\|\s*\S+")
-# Round-4 M3/M4 fix: requires an adjacent digit (mirrors Shape 1's
-# digit-requiring CAP_RE) so a bare 'max'/'cap' keyword with no numeric
-# bound cannot satisfy the obligation - see _shape2_has_cap_with_digit.
-# 'truncated (to)' is recognized alongside cap/max/maxLength - the real
-# corpus phrases numeric caps this way (engineer.md's raw_output field:
-# "truncated to 4000 chars").
-SHAPE2_CAP_KEYWORDS_RE = re.compile(
-    r"\b(cap(?:ped)?|max(?:imum)?|maxLength|truncated(?:\s+to)?)\b",
+
+# --- Round-5 rewrite: closed whitelist of recognized bound forms. ---
+#
+# Every leaf-boundedness check in this module (Shape 2's schema leaves,
+# Shape 3's literal-line values, Shape 4's report placeholders) now goes
+# through this same small set of explicitly named, independently
+# falsifiable forms. A leaf is bounded ONLY when it matches one of these
+# forms; anything unrecognized FAILS by default - there is no
+# shape-level auto-pass left anywhere in this file (the round-4
+# `_shape2_is_bounded` `return True` for the 'scalar' shape is removed;
+# see `_shape2_is_bounded` below). A new bound syntax is added
+# deliberately, by naming a new form here AND in the matching
+# "Compliance shapes" list in
+# content/references/subagent-return-contract.md - never by widening an
+# existing pattern to silence a false positive.
+#
+# Form 1 - closed enum list, `_is_enum_list()`. Recognizes exactly two
+# shapes: (a) the field's own value STANDS ALONE as a bare
+# '|'-delimited list of simple tokens (no embedded spaces/commas per
+# token) - e.g. 'DONE | FAILED | BLOCKED', 'pass | fail | not_run' - and
+# never when the whole value is wrapped in a '<...>' narrative
+# placeholder bracket; or (b) an explicit 'enum:' label (inline or on a
+# '#'-prefixed comment line) precedes a '|'-delimited list, regardless
+# of quoting - e.g. '# enum: null | "zero-substance" | "no-consumer"'.
+# Round-5 fix: the prior ENUM_VALUE_LIST_RE (`\S+\s*\|\s*\S+`) matched a
+# bare pipe ANYWHERE in the combined text, so
+# 'summary: <what happened | why it matters, unbounded>' satisfied both
+# the bound obligation and the closed-enum obligation purely because it
+# contained ' | ' - neither form above accepts that text: it has no
+# 'enum:' label, and the whole value is bracket-wrapped narrative, not a
+# bare token list.
+def _is_enum_list(text):
+    t = text.strip()
+    enum_label_m = re.search(r"\benum\s*:\s*(.+)$", t, re.IGNORECASE | re.MULTILINE)
+    if enum_label_m and "|" in enum_label_m.group(1):
+        return True
+    if t.startswith("<") and t.endswith(">"):
+        return False
+    if "|" not in t:
+        return False
+    value_part = t.split("#", 1)[0].strip()
+    if not value_part or "|" not in value_part:
+        return False
+    parts = value_part.split("|")
+    if len(parts) < 2:
+        return False
+    for p in parts:
+        p = p.strip()
+        if not p or not re.fullmatch(r'"?[A-Za-z0-9_.\-]+"?', p):
+            return False
+    return True
+
+
+# Form 2 - numeric cap with a keyword TRUE-adjacent to its digit.
+# Round-5 fix: the prior SHAPE2_CAP_KEYWORDS_RE was a bare keyword
+# search (cap/max/maxLength/truncated) combined with a SEPARATE
+# `\d` search anywhere in the same combined line+body text
+# (`_shape2_has_cap_with_digit`) - the code comment and the emitted
+# violation string both claimed "adjacent digit", but nothing enforced
+# adjacency: 'x: <full narrative; note that 3 records were truncated
+# from the source system>' satisfied it (keyword 'truncated' and digit
+# '3' both present, nowhere near each other). This pattern requires the
+# digit and its unit to appear immediately after the keyword (mirrors
+# Shape 1's CAP_RE discipline, which was always anchored this way).
+SHAPE_NUMERIC_CAP_RE = re.compile(
+    r"\b(?:cap(?:ped)?\s*(?:at)?\s*[:\-]?\s*|max(?:imum)?\s*(?:of)?\s*[:\-]?\s*|"
+    r"maxLength\s*[:=]?\s*|truncated\s+to\s*[:\-]?\s*)"
+    r"(\d+)\s*(chars?|characters?|items?|steps?|entries|words)\b",
     re.IGNORECASE,
 )
+
+# Form 3 - a fixed-length spec written as "<N>-char[acter][s]" (e.g.
+# engineer.md's "full 40-char SHA") - a digit directly modifying "char"
+# is itself an explicit, self-describing bound, distinct from the
+# keyword-led cap form above.
+SHAPE_FIXED_LENGTH_RE = re.compile(r"\b\d+-char(?:acter)?s?\b", re.IGNORECASE)
+
+# Form 4 - a `<one-line ...>` / `<single-line ...>` placeholder marker -
+# unchanged from prior rounds.
 SHAPE2_ONE_LINE_RE = re.compile(r"<\s*(one|single)[- ]line\b", re.IGNORECASE)
-# Round-4 M3 fix: the bare '\.md\b' alternative accepted ANY line
-# mentioning a '.md' path as a declared bound (round-4 Major finding) - a
-# file's cap declaration must use the explicit 'defined in'/'defined once'
-# pointer phrasing, never an incidental filename mention.
+
+# Form 5 - an explicit schema/doc pointer: 'defined in'/'defined once'
+# followed, within a short window, by a concrete reference (a '.md'
+# path or the word 'schema'). Round-5 fix: the prior SHAPE2_POINTER_RE
+# accepted the bare phrase 'defined in'/'defined once' ANYWHERE, so
+# 'x: <free-form prose, the term is defined in the glossary>' satisfied
+# it - "the glossary" is not a concrete schema/doc reference. Real
+# corpus usage (engineer.md's learnings_candidate: "...cap are defined
+# in # references/learnings-capture-instruction.md") still matches,
+# since the '.md' reference follows within the window.
 SHAPE2_POINTER_RE = re.compile(
-    r"\bdefined in\b|\bdefined once\b", re.IGNORECASE
+    r"\bdefined\s+(?:in|once)\b(?:.{0,100}?)(?:\.md\b|\bschema\b)",
+    re.IGNORECASE | re.DOTALL,
 )
+
+# Form 6 - bounded-by-nature value-type placeholders: a '<...>'
+# placeholder whose ENTIRE body (nothing more) names one of these
+# well-known, syntactically-constrained value types is bounded by
+# construction - it cannot carry open-ended narrative regardless of
+# length, so no numeric cap is required. This is a closed enumeration
+# of value TYPES (fullmatch, not substring), never a keyword-anywhere
+# search - "<full narrative; note the sha format>" does NOT match,
+# because the placeholder body as a whole is not one of these literal
+# phrases. Extending this list is a deliberate, visible edit here plus
+# a matching update to subagent-return-contract.md.
+SHAPE_BOUNDED_VALUE_LITERALS = frozenset({
+    "sha", "from-sha", "to-sha", "commit sha",
+    "url",
+    "timestamp",
+    "tag",
+    "path", "repo-relative path", "file path",
+    "environment name", "remote name",
+    "exact command run", "exact rollback command",
+    "message", "commit message",
+    "count",
+    "version",
+})
+
+
+def _strip_inline_comment(text):
+    """Return the portion of `text` before any '#'-led inline comment,
+    trimmed - a value's own placeholder must be matched against its
+    real content, not a comment trailing it on the same physical line
+    (e.g. engineer.md's 'task_id: <string or null>            # echoed
+    from execution contract; null on single-unit')."""
+    return text.split("#", 1)[0].strip()
+
+
+def _is_bounded_value_literal(text):
+    t = _strip_inline_comment(text)
+    if t.startswith("<") and t.endswith(">"):
+        t = t[1:-1].strip()
+    return t.lower() in SHAPE_BOUNDED_VALUE_LITERALS
+
+
+# Form 7 - a nullable-type declaration `<TYPE or null>` (optionally
+# `<TYPE, or null>`), where TYPE is 1-2 words drawn from a closed
+# vocabulary of type names. This is a type annotation, not open-ended
+# narrative - e.g. engineer.md's 'task_id: <string or null>' and
+# 'branch_name: <string, or null>'. TYPE is restricted to known type
+# words specifically so this form cannot be gamed by appending " or
+# null" to an otherwise-narrative placeholder
+# ("<full narrative or null>" does NOT match - "full"/"narrative" are
+# not type words).
+_SHAPE_TYPE_WORDS = frozenset({
+    "string", "str", "number", "int", "integer", "boolean", "bool",
+    "date", "timestamp", "sha", "url", "path", "tag", "id", "name",
+    "object", "array",
+})
+_SHAPE_NULLABLE_TYPE_RE = re.compile(
+    r"^<\s*([\w\s]{1,30}?),?\s+or\s+null\s*>$", re.IGNORECASE
+)
+
+
+def _is_nullable_type_placeholder(text):
+    m = _SHAPE_NULLABLE_TYPE_RE.match(_strip_inline_comment(text))
+    if not m:
+        return False
+    words = m.group(1).lower().split()
+    return 1 <= len(words) <= 2 and all(w in _SHAPE_TYPE_WORDS for w in words)
+
+
+def _shape2_has_cap_with_digit(text):
+    """True when a cap-shaped keyword is TRUE-adjacent to its digit+unit
+    (SHAPE_NUMERIC_CAP_RE), or the text carries an explicit fixed-length
+    spec (SHAPE_FIXED_LENGTH_RE, e.g. '40-char'). See the round-5
+    docstrings on those two patterns above for what changed and why."""
+    return bool(SHAPE_NUMERIC_CAP_RE.search(text)) or bool(
+        SHAPE_FIXED_LENGTH_RE.search(text)
+    )
+
 
 TOP_LEVEL_YAML_KEY_RE = re.compile(r"^(\w+):(.*)$")
 TOP_LEVEL_JSON_KEY_RE = re.compile(r'^  "(\w+)":(.*?),?$')
@@ -506,10 +740,10 @@ def _parse_top_level_entries(block_text):
 
 
 def _shape2_has_enum(name, rest, body, schema_text):
-    if ENUM_VALUE_LIST_RE.search(rest):
+    if _is_enum_list(rest):
         return True
     for bl in body:
-        if bl.strip().startswith("#") and ENUM_VALUE_LIST_RE.search(bl):
+        if bl.strip().startswith("#") and _is_enum_list(bl):
             return True
     if schema_text:
         m = re.search(
@@ -544,13 +778,6 @@ def _shape2_field_shape(rest, body):
     return "scalar"
 
 
-def _shape2_has_cap_with_digit(text):
-    """True only when a cap-shaped keyword AND a digit both appear in
-    `text` (round-4 M3/M4 fix - SHAPE2_CAP_KEYWORDS_RE alone requires no
-    digit, unlike Shape 1's CAP_RE, so a bare 'max'/'cap' with no numeric
-    bound previously satisfied the obligation)."""
-    return bool(SHAPE2_CAP_KEYWORDS_RE.search(text)) and bool(re.search(r"\d", text))
-
 
 def _shape2_text_is_bounded(full_line, rest, body):
     """Shared leaf-boundedness check, used both for a top-level scalar/
@@ -569,8 +796,13 @@ def _shape2_text_is_bounded(full_line, rest, body):
     A '|'-delimited value list in `rest` is itself a closed, bounded set -
     recognized here regardless of field name, not only via
     CLASSIFICATION_FIELD_NAME_RE (needed for nested non-classification-
-    named enum-shaped fields like 'lint: pass | fail | not_run')."""
-    if ENUM_VALUE_LIST_RE.search(rest):
+    named enum-shaped fields like 'lint: pass | fail | not_run').
+
+    Round-5: every check below is one of the explicitly named, closed
+    forms defined above `_shape2_has_cap_with_digit` - there is no
+    remaining shape-level auto-pass anywhere in this function; a leaf
+    that matches none of the seven recognized forms is unbounded."""
+    if _is_enum_list(rest):
         return True
     combined = full_line + " " + " ".join(body)
     if _shape2_has_cap_with_digit(combined):
@@ -578,6 +810,10 @@ def _shape2_text_is_bounded(full_line, rest, body):
     if SHAPE2_ONE_LINE_RE.search(combined):
         return True
     if SHAPE2_POINTER_RE.search(combined):
+        return True
+    if _is_bounded_value_literal(rest):
+        return True
+    if _is_nullable_type_placeholder(rest):
         return True
     return False
 
@@ -640,10 +876,13 @@ def _shape2_is_bounded(name, full_line, rest, body, schema_text):
             if not _shape2_text_is_bounded(n_line, n_rest, n_body):
                 return False
         return True
-    if shape == "scalar":
-        # A single physical schema line is itself a one-line bound, the
-        # same logic '<one-line ...>' states explicitly.
-        return True
+    # Round-5 structural fix: the 'scalar' shape previously auto-passed
+    # unconditionally here ("a single physical schema line is itself a
+    # one-line bound") - that auto-pass is deleted. A scalar field's
+    # text is now run through the SAME closed-whitelist check
+    # (_shape2_text_is_bounded) as every other shape; a scalar value
+    # that is not itself an enum/cap/one-line/pointer/bounded-literal/
+    # nullable-type form is unbounded, exactly like a nested leaf.
     return _shape2_text_is_bounded(full_line, rest, body)
 
 
@@ -726,18 +965,32 @@ def _shape3_value_bounded(value):
     v = value.strip()
     if not v:
         return False
+    if v.lower() in ("true", "false"):
+        return True
     if re.fullmatch(r"true\|false", v, re.IGNORECASE):
         return True
-    if ENUM_VALUE_LIST_RE.search(v):
+    if _is_enum_list(v):
         return True
     if re.fullmatch(r"<?\s*\d+\s*>?", v):
         return True
     if SHAPE2_ONE_LINE_RE.search(v):
         return True
+    # A value with no '<...>' placeholder at all is a fully realized
+    # literal (fixed boilerplate text, e.g. a hardcoded escape-hatch
+    # message) - there is no open narrative slot to overflow, so it is
+    # bounded by construction. A value containing '<' still has an open
+    # placeholder slot and must satisfy one of the forms above.
+    if "<" not in v:
+        return True
     return False
 
 
 def check_shape3(text, filename="<fixture>"):
+    """Round-5 Minor fix: every fenced block in the section is now
+    checked, not just blocks[0] - goal-condition-evaluator.md has three
+    fenced return templates and the second ('Evidence: "evaluator-error:
+    <reason>"') carries an unbounded placeholder that was never
+    inspected under the pre-fix blocks[0]-only check."""
     try:
         section = extract_output_format_section(text)
     except UnbalancedFenceError as e:
@@ -753,28 +1006,33 @@ def check_shape3(text, filename="<fixture>"):
         return [f"{filename}: {e}"]
     if not blocks:
         return [f"{filename}: no fenced literal-line template found"]
-    _lang, content = blocks[0]
-    lines = [ln for ln in content.split("\n") if ln.strip()]
-    if len(lines) > 8:
-        return [
-            f"{filename}: Shape-3 template has {len(lines)} lines, expected "
-            "<= 8 for a fixed literal-line template"
-        ]
+
     violations = []
-    for ln in lines:
-        m = SHAPE3_LINE_RE.match(ln)
-        if not m:
+    for block_idx, (_lang, content) in enumerate(blocks, start=1):
+        lines = [ln for ln in content.split("\n") if ln.strip()]
+        if len(lines) > 8:
             violations.append(
-                f"{filename}: Shape-3 line '{ln}' is not a 'Label: value' line"
+                f"{filename}: Shape-3 template (block {block_idx}) has "
+                f"{len(lines)} lines, expected <= 8 for a fixed "
+                "literal-line template"
             )
             continue
-        label, value = m.group(1), m.group(2)
-        if not _shape3_value_bounded(value):
-            violations.append(
-                f"{filename}: Shape-3 line '{label}:' value '{value}' is "
-                "neither a closed enum, a bare count, nor bounded to one "
-                "line by its own placeholder text"
-            )
+        for ln in lines:
+            m = SHAPE3_LINE_RE.match(ln)
+            if not m:
+                violations.append(
+                    f"{filename}: Shape-3 line '{ln}' (block {block_idx}) "
+                    "is not a 'Label: value' line"
+                )
+                continue
+            label, value = m.group(1), m.group(2)
+            if not _shape3_value_bounded(value):
+                violations.append(
+                    f"{filename}: Shape-3 line '{label}:' (block "
+                    f"{block_idx}) value '{value}' is neither a closed "
+                    "enum, a bare count, nor bounded to one line by its "
+                    "own placeholder text"
+                )
     return violations
 
 
@@ -890,7 +1148,7 @@ def check_shape4(text, filename="<fixture>"):
         violations.append(
             f"{filename}: no '## Status: ...' line found in the report template"
         )
-    elif not ENUM_VALUE_LIST_RE.search(status_m.group(1)):
+    elif not _is_enum_list(status_m.group(1)):
         violations.append(
             f"{filename}: '## Status:' line declares no closed enum "
             f"('{status_m.group(1)}')"
@@ -910,22 +1168,27 @@ def check_shape4(text, filename="<fixture>"):
         body = content[body_start:body_end]
         for placeholder_m in re.finditer(r"<([^<>]+)>", body):
             placeholder = placeholder_m.group(1)
-            # Round-4 M4 fix: the cap requirement is now unconditional for
-            # EVERY placeholder in every subsequent '##' sub-section (per
-            # amendment §5), not gated behind a narrative-hint-word
-            # heuristic - the deleted SHAPE4_NARRATIVE_HINT_RE heuristic
-            # let release-orchestrator.md's placeholder escape detection
-            # whenever its wording happened not to contain
-            # which/what/why/how/describe/explain/summary/reason.
-            # _shape2_has_cap_with_digit also requires an adjacent digit,
-            # so a bare 'cap'/'max' keyword with no numeric bound no
-            # longer satisfies the requirement.
-            if not _shape2_has_cap_with_digit(placeholder):
-                violations.append(
-                    f"{filename}: '## {title}' placeholder '<{placeholder}>' "
-                    "declares no numeric cap (expected a cap/max keyword "
-                    "with an adjacent digit)"
-                )
+            # Round-5 fix: the requirement is now the closed whitelist of
+            # recognized bound forms (bounded-by-nature value literal,
+            # closed enum, or a true-adjacent numeric/fixed-length cap) -
+            # replacing round-4's unconditional numeric-cap-only
+            # requirement, which forced a cap onto every placeholder
+            # regardless of whether its value type is already bounded by
+            # nature (a SHA, a URL, a timestamp, a tag, an exact command,
+            # ...). This is the scope the doc's Shape-4 obligation always
+            # stated ("every OTHER section with open-ended free text"),
+            # not "every placeholder unconditionally".
+            if _is_bounded_value_literal(placeholder):
+                continue
+            if _is_enum_list(placeholder):
+                continue
+            if _shape2_has_cap_with_digit(placeholder):
+                continue
+            violations.append(
+                f"{filename}: '## {title}' placeholder '<{placeholder}>' "
+                "is open-ended free text and declares no closed enum, "
+                "bounded-by-nature value type, or numeric cap"
+            )
     return violations
 
 
@@ -1109,7 +1372,13 @@ def test_shape2_engineer_is_not_yet_migrated():
     bound is correctly recognized despite being nested inside the
     quality_gate_results object - the M3 recursion fix walks into that
     container instead of treating it as an unconditionally-bounded
-    structural field."""
+    structural field.
+
+    Round-5: files_modified.path (`<repo-relative path>`) and task_id
+    (`<string or null>`) must NOT be flagged - both are now recognized
+    bounded-by-nature/nullable-type forms (round-5 over-strictness fix);
+    prior to that fix, files_modified was flagged SOLELY because of the
+    'path' leaf."""
     path = AGENTS_DIR / "engineer.md"
     violations = check_contract(path.read_text(), "engineer.md")
     assert violations, (
@@ -1121,6 +1390,19 @@ def test_shape2_engineer_is_not_yet_migrated():
         "raw_output declares an explicit 'truncated to 4000 chars' bound "
         f"nested inside quality_gate_results - it must not be flagged: {violations}"
     )
+    assert not any("files_modified" in v for v in violations), (
+        f"files_modified.path is '<repo-relative path>', a bounded-by-nature "
+        f"value literal - it must not be flagged: {violations}"
+    )
+    assert not any("task_id" in v for v in violations), (
+        f"task_id is '<string or null>', a recognized nullable-type "
+        f"placeholder - it must not be flagged: {violations}"
+    )
+    assert violations == [
+        "engineer.md: field 'pr_description_body' is capable of open-ended "
+        "or repeated content but declares no cap, one-line marker, or "
+        "schema pointer"
+    ], violations
 
 
 # --- Shape 3 fixture tests ---
@@ -1138,13 +1420,29 @@ def test_shape3_missing_bound_is_flagged():
     assert violations, "expected a violation for an unbounded Evidence value"
 
 
-def test_shape3_goal_condition_evaluator_is_contract_compliant():
-    """goal-condition-evaluator.md is claimed COMPLIANT NOW - verified
-    independently: GOAL_MET: true|false is a closed enum, and
-    Evidence: <one-line ...> is explicitly bounded to one line."""
+def test_shape3_goal_condition_evaluator_is_genuinely_not_yet_migrated():
+    """Round-5 Minor fix: check_shape3 previously inspected only
+    blocks[0] - goal-condition-evaluator.md has THREE fenced return
+    templates (the two-line success/failure form, the evaluator-error
+    escape hatch, and the no-confirmed-sign-off escape hatch), and the
+    second's Evidence value ('"evaluator-error: <reason>"') carries an
+    unbounded placeholder that was never inspected before this fix.
+    goal-condition-evaluator.md is therefore RECLASSIFIED here from
+    'compliant now' to genuinely non-compliant - it was never actually
+    fully compliant, only under-checked. The third block's bare
+    'BLOCKED' line (no colon) is also flagged as not a 'Label: value'
+    line, a pre-existing structural mismatch this file's escape-hatch
+    format carries."""
     path = AGENTS_DIR / "goal-condition-evaluator.md"
     violations = check_contract(path.read_text(), "goal-condition-evaluator.md")
-    assert violations == [], violations
+    assert violations == [
+        "goal-condition-evaluator.md: Shape-3 line 'Evidence:' (block 2) "
+        'value \'"evaluator-error: <reason>"\' is neither a closed enum, '
+        "a bare count, nor bounded to one line by its own placeholder "
+        "text",
+        "goal-condition-evaluator.md: Shape-3 line 'BLOCKED' (block 3) "
+        "is not a 'Label: value' line",
+    ], violations
 
 
 def test_shape3_skeptic_is_not_yet_migrated():
@@ -1184,69 +1482,87 @@ def test_shape4_release_orchestrator_is_not_yet_migrated():
     )
 
 
-# --- Real content/agents/*.md enforcement ---
+# --- Real content/agents/*.md enforcement (round-5 snapshot model) ---
 
 
-def test_not_yet_migrated_files_are_accounted_for():
-    """
-    Every discovered content/agents/*.md file is either contract-compliant
-    under its own shape, present in NOT_YET_MIGRATED, or present in
-    EXEMPT_FILE_ARTIFACT. A file that is in none of those (e.g. a new agent
-    file added without a shape assignment, or with an unrecognized heading)
-    fails here rather than silently passing unnoticed.
-    """
-    for path in _real_agent_files():
-        if path.name in NOT_YET_MIGRATED or path.name in EXEMPT_FILE_ARTIFACT:
-            continue
-        violations = check_contract(path.read_text(), path.name)
-        assert violations == [], (
-            f"{path.name} is not in NOT_YET_MIGRATED or "
-            f"EXEMPT_FILE_ARTIFACT and is not contract-compliant: "
-            f"{violations}"
-        )
-
-
-def test_not_yet_migrated_entries_are_actually_unmigrated():
-    """
-    The other half of the migration contract: every file listed in
-    NOT_YET_MIGRATED must still be genuinely non-compliant when checked
-    directly (independent of the skip in
-    test_not_yet_migrated_files_are_accounted_for above). Migrating a
-    file's return-contract section makes it contract-compliant; if that
-    file is left on NOT_YET_MIGRATED anyway, THIS assertion goes red - a
-    migration that forgets to shrink NOT_YET_MIGRATED for a file it just
-    migrated is caught here, not silently passed. Shrinking the allowlist
-    (removing the now-migrated file) is the only way to make this suite
-    green again for that file.
-    """
-    for name in sorted(NOT_YET_MIGRATED):
-        path = AGENTS_DIR / name
-        violations = check_contract(path.read_text(), name)
-        assert violations != [], (
-            f"{name} is listed in NOT_YET_MIGRATED but its return-contract "
-            "section is already fully contract-compliant - remove it from "
-            "NOT_YET_MIGRATED so test_not_yet_migrated_files_are_accounted_for "
-            "starts enforcing it"
-        )
-
-
-def test_allowlist_has_no_stale_entries():
-    """NOT_YET_MIGRATED and EXEMPT_FILE_ARTIFACT must only name files that
-    currently exist."""
+def test_shape_assignments_and_exemption_cover_all_real_files():
+    """Every discovered content/agents/*.md file is either in
+    SHAPE_ASSIGNMENTS (has a recognized shape, checked below against the
+    snapshot) or in EXEMPT_FILE_ARTIFACT. A file in neither (e.g. a new
+    agent file added without a shape assignment, or with an unrecognized
+    heading) fails here rather than silently passing unnoticed. This is
+    the 18-file tally check."""
     discovered = {p.name for p in _real_agent_files()}
-    stale = (NOT_YET_MIGRATED | EXEMPT_FILE_ARTIFACT) - discovered
-    assert stale == set(), (
-        "NOT_YET_MIGRATED/EXEMPT_FILE_ARTIFACT name files that no longer "
-        f"exist: {sorted(stale)}"
+    classified = set(SHAPE_ASSIGNMENTS) | EXEMPT_FILE_ARTIFACT
+    assert discovered == classified, (
+        f"unclassified files: {sorted(discovered - classified)}; "
+        f"stale allowlist entries: {sorted(classified - discovered)}"
     )
 
 
-def test_allowlists_are_disjoint():
-    """A file must not be classified as both 'has an unmigrated shape' and
-    'exempt from all shapes' - the two allowlists are mutually exclusive by
+def test_expected_violations_snapshot_matches_reality():
+    """The core round-5 regression guard: for every SHAPE_ASSIGNMENTS
+    file, the LIVE checker output must equal the committed snapshot
+    EXACTLY - not 'both empty' or 'both non-empty', the same set of
+    violation strings. Any drift is reported by name and by exact
+    string-level diff:
+      - a violation DISAPPEARING (the checker got more permissive, or
+        the file was genuinely migrated - the snapshot must be updated
+        deliberately via generate_agent_return_contract_snapshot.py,
+        reviewed, in the SAME PR as whatever caused the change);
+      - a violation APPEARING (the checker got more strict, or a
+        regression was introduced into the agent file - same review
+        obligation).
+    This is what a boolean NOT_YET_MIGRATED set could never do: four
+    consecutive prior rounds shipped a permissive branch that a boolean
+    "is this file still flagged at all" test cannot see, because the
+    file stayed flagged (just for fewer, or different, reasons)."""
+    mismatches = []
+    for name in sorted(SHAPE_ASSIGNMENTS):
+        path = AGENTS_DIR / name
+        live = check_contract(path.read_text(), name)
+        expected = EXPECTED_VIOLATIONS.get(name)
+        if expected is None:
+            mismatches.append(f"{name}: no snapshot entry at all")
+            continue
+        if live != expected:
+            missing = [v for v in expected if v not in live]
+            extra = [v for v in live if v not in expected]
+            detail = []
+            if missing:
+                detail.append(f"disappeared (now unflagged): {missing}")
+            if extra:
+                detail.append(f"appeared (newly flagged): {extra}")
+            mismatches.append(f"{name}: " + "; ".join(detail))
+    assert mismatches == [], (
+        "expected_violations_snapshot.json drifted from the live checker "
+        "output - review each entry below, and if the change is "
+        "intentional, regenerate via "
+        "bin/tests/generate_agent_return_contract_snapshot.py --write "
+        "after reviewing its diff:\n" + "\n".join(mismatches)
+    )
+
+
+def test_snapshot_has_no_stale_or_missing_entries():
+    """expected_violations_snapshot.json's key set must equal
+    SHAPE_ASSIGNMENTS exactly - a stale entry for a renamed/deleted file,
+    or a missing entry for a newly shape-assigned file, is caught here
+    rather than silently ignored by the per-file loop above."""
+    snapshot_keys = set(EXPECTED_VIOLATIONS)
+    assigned = set(SHAPE_ASSIGNMENTS)
+    assert snapshot_keys == assigned, (
+        f"snapshot has entries with no shape assignment: "
+        f"{sorted(snapshot_keys - assigned)}; shape-assigned files with "
+        f"no snapshot entry: {sorted(assigned - snapshot_keys)}"
+    )
+
+
+def test_shape_assignments_and_exempt_are_disjoint():
+    """A file must not be classified as both 'has a recognized shape' and
+    'exempt from all shapes' - the two sets are mutually exclusive by
     construction."""
-    overlap = NOT_YET_MIGRATED & EXEMPT_FILE_ARTIFACT
-    assert overlap == set(), f"files present in both allowlists: {sorted(overlap)}"
+    overlap = set(SHAPE_ASSIGNMENTS) & EXEMPT_FILE_ARTIFACT
+    assert overlap == set(), f"files present in both sets: {sorted(overlap)}"
 
 
 def test_exempt_file_artifact_set_is_adr_generator_only():
@@ -1263,31 +1579,17 @@ def test_exempt_file_artifact_set_is_adr_generator_only():
     )
 
 
-def test_shape_assignments_and_allowlists_cover_all_real_files():
-    """Every real content/agents/*.md file is exactly one of: compliant now
-    (no allowlist entry, no exemption), listed in NOT_YET_MIGRATED, or
-    listed in EXEMPT_FILE_ARTIFACT. This is the 18-file tally check.
-
-    Round-4 M1 fix: engineer.md moved OUT of the 'compliant now' set (its
-    SHAPE2_PASSTHROUGH_EXEMPT_FIELDS exemption was deleted as a spec
-    deviation) and back into NOT_YET_MIGRATED - see
-    test_shape2_engineer_is_not_yet_migrated."""
-    discovered = {p.name for p in _real_agent_files()}
-    compliant_now = discovered - NOT_YET_MIGRATED - EXEMPT_FILE_ARTIFACT
-    assert compliant_now == {"goal-condition-evaluator.md"}, (
+def test_fully_compliant_files_are_exactly_the_snapshot_empty_set():
+    """Cross-check against the snapshot from the other direction: the set
+    of files with an empty violations list in the snapshot is the
+    project's actual 'compliant now' set. As of round 5 this is the
+    EMPTY set - goal-condition-evaluator.md, the only remaining
+    candidate, was reclassified to genuinely non-compliant by the
+    check_shape3 all-blocks fix (see
+    test_shape3_goal_condition_evaluator_is_genuinely_not_yet_migrated).
+    A future migration legitimately grows this set; this test exists so
+    that growth is asserted explicitly rather than assumed."""
+    compliant_now = {name for name, v in EXPECTED_VIOLATIONS.items() if v == []}
+    assert compliant_now == set(), (
         f"unexpected 'compliant now' set: {sorted(compliant_now)}"
     )
-
-
-# Note: there is deliberately no `discovered == NOT_YET_MIGRATED |
-# EXEMPT_FILE_ARTIFACT` equality test here without the "compliant now"
-# carve-out above. That was the shape of the pre-fix bug
-# (test_allowlist_covers_all_discovered_agent_files_today): it would go red
-# on every successful migration, since a migrated file is correctly REMOVED
-# from NOT_YET_MIGRATED without being added anywhere else, legitimately
-# shrinking the union over time.
-# test_shape_assignments_and_allowlists_cover_all_real_files above pins the
-# union PLUS the exact "compliant now" set, which is what actually catches
-# an unclassified new agent file without blocking legitimate migrations -
-# a migration moves a name out of NOT_YET_MIGRATED and into the
-# "compliant now" set, both sides of which this test tracks explicitly.

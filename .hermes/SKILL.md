@@ -7137,6 +7137,17 @@ shapes" below, and `bin/tests/test_agent_return_contract_spec.py`'s
 `HEADING_SYNONYMS` for the recognized alternate headings (`Sign-off
 format`, `Report structure`, `Output templates`).
 
+Correction (2026-08-11, round 5): the claim above ("of the 18 files, only
+3 carry any 'never omit any section' instruction") undercounted. Verified
+directly: `debugger.md:110` and `investigator.md:126` carry a
+section-scoped "never omit any section" instruction; `adr-drift-detector.md:259`
+carries the equivalent "do not omit the section"; `architect.md:238`
+carries the equivalent "Do not omit the block" for its `qa_criteria`
+section. `skeptic.md:167` carries a narrower, LINE-scoped instance
+("Never omit the 'Active search:' line"), not a section-scoped one. The
+accurate count is 5 files carrying some form of a "don't omit"
+instruction (4 section/block-scoped, 1 line-scoped), not 3.
+
 ## The governing source: North Star Goal 1
 
 This file does not invent a new rule - it operationalizes one that already
@@ -7204,12 +7215,47 @@ as above - the fence is not a boundary that exempts fields from tagging.
 **Shape 2 - Structured schema-object return.** The return is a single
 literal fenced ` ```yaml ` or ` ```json ` block (optionally with a
 JSON-Schema fragment) - no narrative `###` fields. Obligation: (a) every
-classification/status-bearing field declares a closed enum (inline
-`enum: [...]` or an `X | Y | Z` value list on the field's own line); (b)
-every field capable of open-ended or repeated content declares an explicit
-bound - a numeric cap (`cap`, `capped`, `max`, `maxLength`) or a
-`<one-line ...>` / `<single-line ...>` placeholder, which itself counts as
-a bound.
+classification/status-bearing field declares a closed enum; (b) every
+field capable of open-ended or repeated content declares an explicit
+bound. Both obligations are checked against a CLOSED whitelist of
+recognized bound forms (round 5 - previously several of these were
+keyword/phrase-anywhere searches with no adjacency or specificity
+requirement, despite claiming otherwise; see
+`bin/tests/test_agent_return_contract_spec.py` for the code, which this
+list must stay identical to):
+
+1. **Closed enum list** - either the field's value stands ALONE as a bare
+   `X | Y | Z` token list (never inside a `<...>` narrative placeholder
+   bracket), or an explicit `enum:` label (inline or on a `#`-prefixed
+   comment line) precedes a `|`-delimited list.
+2. **True-adjacent numeric cap** - a `cap`/`capped`/`max`/`maximum`/
+   `maxLength`/`truncated to` keyword IMMEDIATELY followed by a digit and
+   a unit (`chars`, `items`, `steps`, `entries`, `words`) - not merely
+   present anywhere in the same field's text.
+3. **Fixed-length spec** - a digit directly modifying `char`/`chars`/
+   `character(s)` (e.g. "full 40-char SHA") - a self-describing bound,
+   distinct from form 2.
+4. **One-line marker** - a `<one-line ...>` / `<single-line ...>`
+   placeholder.
+5. **Schema/doc pointer** - `defined in`/`defined once` followed, within
+   a short window, by a concrete `.md` path or the word `schema` - never
+   the bare phrase alone.
+6. **Bounded-by-nature value literal** - a `<...>` placeholder whose
+   ENTIRE body names one of a closed vocabulary of well-known,
+   syntactically-constrained value types: `sha`/`from-sha`/`to-sha`/
+   `commit sha`, `url`, `timestamp`, `tag`, `path`/`repo-relative path`/
+   `file path`, `environment name`/`remote name`, `exact command run`/
+   `exact rollback command`, `message`/`commit message`, `count`,
+   `version`.
+7. **Nullable-type placeholder** - `<TYPE or null>` (optionally `<TYPE,
+   or null>`), where TYPE is 1-2 words drawn from a closed vocabulary of
+   type names (`string`, `number`, `boolean`, `date`, `sha`, `url`,
+   `path`, `tag`, `id`, `name`, `object`, `array`, ...).
+
+Anything matching none of the seven forms above is unbounded and flagged.
+Extending this list is a deliberate edit: add the new form to the code
+AND to this list in the same change - never widen an existing form's
+matching to silence a specific false positive.
 
 **Shape 3 - Fixed literal-line template.** A short (`<= 8` lines), fixed
 `Label: <value>` sequence - not JSON/YAML, not `###`-tagged. Obligation:
@@ -7227,7 +7273,14 @@ report template of multiple `##`-level sections, fixed in count (not a
 repeated per-item structure), not machine-parsed as JSON. Obligation: the
 report's top status line declares a closed enum; every other section with
 open-ended free text declares an explicit bound in its own placeholder
-bracket text.
+bracket text - checked against the SAME closed whitelist as Shape 2 above
+(a placeholder naming a bounded-by-nature value type, like a SHA, URL,
+timestamp, tag, or exact command, needs no separate cap; only genuinely
+open-ended narrative does). Round 4 regressed this to an unconditional
+numeric-cap requirement on every placeholder after deleting a gameable
+narrative-hint-word heuristic - round 5 restores the doc's actual scope
+("every OTHER section WITH open-ended free text") via the whitelist
+instead of a keyword heuristic.
 
 **Exemption - file-artifact output.** A file is exempt from all four
 shapes only when its deliverable is a file it writes to disk, not a
@@ -7245,10 +7298,21 @@ verdict is a human judgment the gate cannot make).
 ## Migration status
 
 This file and its spec gate ship independently of any agent-file edits.
-Per-shape status as of 2026-08-11 (see
-`bin/tests/test_agent_return_contract_spec.py`'s `SHAPE_ASSIGNMENTS`,
-`NOT_YET_MIGRATED`, and `EXEMPT_FILE_ARTIFACT` for the authoritative,
-current per-file classification):
+
+**Round 5 (2026-08-11) structural change:** the boolean `NOT_YET_MIGRATED`
+allowlist referenced by earlier revisions of this section is RETIRED. A
+boolean set can only say "still flagged" - it cannot detect a checker
+becoming more permissive (a violation silently disappearing) or more
+strict (a new violation silently appearing) for a file that remains
+flagged either way, and four consecutive rounds of the spec gate shipped
+exactly that failure mode. The authoritative, current per-file status is
+now `bin/tests/fixtures/agent_return_contract/expected_violations_snapshot.json`
+- an exact snapshot of every violation string the live checker emits for
+every `SHAPE_ASSIGNMENTS` file, asserted verbatim by
+`test_expected_violations_snapshot_matches_reality`. See
+`bin/tests/generate_agent_return_contract_snapshot.py` for the deliberate,
+reviewed update procedure (never a silent one-command refresh). Per-shape
+summary as of 2026-08-11:
 
 - **Shape 1** (tag every `###` field): `architect.md`, `debugger.md`,
   `dependency-auditor.md`, `investigator.md`, `orchestration-planner.md`,
@@ -7258,20 +7322,35 @@ current per-file classification):
   `learnings-agent.md`, `wrap-ticket.md`, `adr-drift-detector.md` have a
   real structured return (under a `### N. Return` workflow sub-step or a
   non-synonym `##` phase heading) but are not yet migrated to this
-  shape's enum/cap obligation. `engineer.md`'s `pr_description_body`
-  field declares no cap, one-line marker, or schema pointer; a prior
-  round's `SHAPE2_PASSTHROUGH_EXEMPT_FIELDS` gate exemption for this
-  field was removed as a spec deviation (no downstream consumer forwards
-  it verbatim - the field is read and re-wrapped by the conductor, not
-  passed through unread) - see `bin/tests/test_agent_return_contract_spec.py`.
-- **Shape 3** (fixed literal-line template): `goal-condition-evaluator.md`
-  is already compliant, no change needed. `skeptic.md` needs one narrow,
-  additive cap declaration on finding-description length, in the
+  shape's enum/cap obligation. `engineer.md` carries exactly ONE genuine
+  violation now (`pr_description_body` declares no cap, one-line marker,
+  or schema pointer) - round 5 also fixed two over-strictness defects
+  that had nothing to do with a real gap: `files_modified.path`
+  (`<repo-relative path>`) is a bounded-by-nature value literal, and
+  `task_id` (`<string or null>`) is a recognized nullable-type
+  placeholder; neither should ever have been flagged.
+- **Shape 3** (fixed literal-line template): `skeptic.md` needs one
+  narrow, additive cap declaration on finding-description length, in the
   Calibration section - its six conductor-validated structural lines are
-  never altered.
+  never altered. `goal-condition-evaluator.md` was previously claimed
+  COMPLIANT NOW; round 5's `check_shape3` fix (now inspects every fenced
+  block in the section, not just the first) found it genuinely
+  non-compliant - its second template's Evidence value
+  (`"evaluator-error: <reason>"`) declares no bound, and its third
+  template's `BLOCKED` line is not a `Label: value` line. It was never
+  actually fully compliant, only under-checked; there is no longer a
+  "compliant now" file in the corpus.
 - **Shape 4** (markdown-sectioned flat report): `release-orchestrator.md`
-  needs one narrow addition - an explicit cap on its "Failures and
-  blockers" free-text section.
+  carries TWO genuine violations, not one as earlier claimed - an
+  explicit cap on its "Failures and blockers" free-text section, AND a
+  bound on its "QA report" placeholder (`<summary or "see spawned
+  qa-engineer output">`), which is likewise open-ended narrative and was
+  never actually covered by the "one narrow addition" claim; round 4's
+  unconditional-cap regression masked the real scope of this file's
+  gap by over-flagging every other placeholder alongside it (13 false
+  positives - SHAs, a URL, a timestamp, a tag, exact commands, names,
+  and a commit message - none of which need a cap under the round-5
+  bounded-by-nature whitelist).
 - **Exempt** (file-artifact output, not a return payload): `adr-generator.md`
   - its deliverable is the generated ADR document itself, not a
   conductor-parsed return.
