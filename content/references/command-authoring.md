@@ -71,11 +71,11 @@ setting up projects, managing dependencies, writing scripts, or any task
 that involves reading, writing, or reasoning about code and systems.
 ```
 
-### Command files carry the same field
+### Command files use the same trigger principle
 
-Command files express the trigger as a "When to use" field. Every command file
-should answer "use when X, Y, or Z holds" before it explains what the command
-does. Reference example (`content/commands/ds-update-agentic-engineering.md`):
+Where a command file needs a trigger, express it as a "When to use" field. Every
+command file should answer "use when X, Y, or Z holds" before it explains what
+the command does. Reference example (`content/commands/ds-update-agentic-engineering.md`):
 
 ```
 **When to use - use whenever ANY of these hold:**
@@ -139,7 +139,9 @@ consumers, Failure modes, Performance).
 file with a complete manifest.
 
 A new command is not done when its file is written. It must also be wired in:
-registered in `bin/ds-help`, listed in `content/SKILL.md` (Commands section),
-and covered by the docs update check in `content/commands/ds-update-agentic-engineering.md`
-Step 3.5. The two principles above apply to the command's description during
-that wiring.
+registered in `bin/ds-help` (the full command inventory), and covered by the
+docs update check in `content/commands/ds-update-agentic-engineering.md`
+Step 3.5. `content/SKILL.md`'s Commands section is a curated subset - only a few
+commands warrant prominent placement there, so add a command to it only when
+that is the case. The two principles above apply to the command's description
+during that wiring.
