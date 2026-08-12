@@ -1,1 +1,1 @@
-{"compatibility_inventory_sha256":"06c29f618206d96910c63d3d28e1d1664015b866b352e1dca0cb461f3743d041","resources":{"core":{"path":"resources","type":"directory"},"workflow":{"path":"resources/commands/ds-wrap.md","type":"file"}},"schema_version":1,"skill":"wrap"}
+{"resources":{"core":{"path":"resources","type":"directory"},"workflow":{"path":"resources/commands/ds-wrap.md","type":"file"}},"schema_version":1,"skill":"wrap"}

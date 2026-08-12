@@ -2339,7 +2339,7 @@ class CodexSkillGenerationTests(unittest.TestCase):
         self.addCleanup(sys.modules.pop, module_name, None)
         spec.loader.exec_module(module)
 
-        resource_map = module.resource_map("dinostack", "inventory-hash")
+        resource_map = module.resource_map("dinostack")
         resources = resource_map["resources"]
         manifest_descriptor = resources["project-scaffolding.yml"]
         skill_root = self.repo / ".codex/skills/dinostack"
