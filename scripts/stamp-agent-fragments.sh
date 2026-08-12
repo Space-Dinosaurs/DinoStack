@@ -20,19 +20,31 @@
 #
 # Downstream consumers: scripts/build-all.sh (runs this FIRST, before the
 #                        ADAPTERS loop, so every adapter build sees the
-#                        stamped content); .github/workflows/
-#                        agent-fragment-sync.yml (runs this then diffs
-#                        content/agents/engineer.md and content/agents/
-#                        skeptic.md against the working tree to catch a
-#                        hand-edit that skipped the stamp).
+#                        stamped content); hooks/pre-commit (runs this before
+#                        the adapter-build loop when content/ is staged, so a
+#                        local commit stamps before adapters build from it);
+#                        .github/workflows/agent-fragment-sync.yml (runs
+#                        this then diffs content/agents/*.md against the
+#                        working tree to catch a hand-edit that skipped the
+#                        stamp).
 #
 # Failure modes: exits non-zero if a `<!-- shared:<id> -->` span in any
 #                content/agents/*.md file references a fragment id with no
 #                matching `<!-- FRAGMENT:<id> -->` definition in the kernels
-#                file - fails loud rather than silently leaving the span
-#                unstamped. Exits non-zero if the kernels file is missing.
-#                Read-only against the kernels file; writes only the
-#                content/agents/*.md files whose spans actually changed.
+#                file. Exits non-zero if a file's `<!-- shared: -->` opener
+#                and `<!-- /shared -->` closer counts don't match, or if a
+#                span's body contains a nested `<!-- shared: -->` opener -
+#                both cases fail loud (per-file opener/closer counts printed
+#                to stderr) rather than silently corrupting or skipping a
+#                span, which is what the non-greedy span regex would
+#                otherwise do on a missing closer. Exits non-zero if a
+#                `<!-- FRAGMENT: -->` body in the kernels file itself
+#                contains a marker-like string, which would otherwise make
+#                stamping non-convergent (the target file grows a little on
+#                every re-run, each exiting 0). Exits non-zero if the
+#                kernels file is missing. Read-only against the kernels
+#                file; writes only the content/agents/*.md files whose
+#                spans actually changed.
 #
 # Performance: O(total size of content/agents/*.md); single regex pass per file.
 

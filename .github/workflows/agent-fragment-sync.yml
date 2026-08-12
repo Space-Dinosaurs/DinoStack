@@ -18,7 +18,7 @@ jobs:
         run: bash scripts/stamp-agent-fragments.sh
       - name: Fail on agent-check fragment drift
         run: |
-          if ! git diff --exit-code -- content/agents/engineer.md content/agents/skeptic.md; then
-            echo "::error::content/agents/engineer.md and/or content/agents/skeptic.md are out of sync with content/fragments/pre-submit-check-kernels.md. Run 'bash scripts/stamp-agent-fragments.sh' locally and commit the result." >&2
+          if ! git diff --exit-code -- content/agents/; then
+            echo "::error::one or more content/agents/*.md files are out of sync with content/fragments/pre-submit-check-kernels.md. Run 'bash scripts/stamp-agent-fragments.sh' locally and commit the result." >&2
             exit 1
           fi

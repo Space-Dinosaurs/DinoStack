@@ -5,7 +5,9 @@
 #
 # Upstream deps: the staged Git index, project lint/type tools when installed,
 #                native-skill and prompt-wrapper generators, their sync check,
-#                and all adapter build scripts.
+#                scripts/stamp-agent-fragments.sh (runs before the adapter
+#                builds so they see stamped content/agents/*.md), and all
+#                adapter build scripts.
 #
 # Downstream consumers: local Git commits and worktree-isolated engineer commits.
 #
@@ -164,6 +166,7 @@ fi
 # Only run if content/ files were modified
 if git diff --cached --name-only | grep -q "^content/"; then
   echo "[pre-commit] content/ changes detected - running builds..."
+  bash "$REPO_DIR/scripts/stamp-agent-fragments.sh"
   bash "$REPO_DIR/.claude/build.sh"
   bash "$REPO_DIR/.codex/build.sh"
   bash "$REPO_DIR/.cursor/build.sh"
@@ -179,6 +182,7 @@ if git diff --cached --name-only | grep -q "^content/"; then
 
   # Stage generated files
   git add \
+    "$REPO_DIR/content/agents/"*.md \
     "$REPO_DIR/.claude/commands/"*.md \
     "$REPO_DIR/.claude/skills/dinostack/METHODOLOGY.md" \
     "$REPO_DIR/.claude/skills/dinostack/SKILL.md" \
