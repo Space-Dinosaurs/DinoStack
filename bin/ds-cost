@@ -65,8 +65,9 @@ from pathlib import Path
 V1_FOOTER = (
     "Note: all agent types are counted (hook-emitted spawn_start for ad-hoc sessions; "
     "conductor spawn_complete for /ds-implement-ticket sessions). "
-    "Hook-spawn tokens are always unavailable (harness ceiling) and render as n/a in "
-    "the unpriced table (zeros in the priced table). "
+    "Hook-spawn tokens render as n/a in the unpriced table (zeros in the priced table) "
+    "UNLESS a paired hook-emitted spawn_complete resolved a real subagent transcript "
+    "(post-DS-160 token resolution), in which case the real summed tokens are shown. "
     "Hook-spawn wall-time renders as n/a (unpriced table) or 0.0 (priced table) UNLESS "
     "a paired hook-emitted spawn_complete (DS-160) supplied a real wall_seconds figure "
     "for that spawn, in which case the real duration is shown."
@@ -149,7 +150,11 @@ def _aggregate_by_agent(events: list[dict]) -> dict:
     signal and is deduped by data.spawn_id so each real spawn counts exactly
     once - including one with no matching spawn_complete yet (SubagentStop
     still pending or permanently lost), which is NOT silently dropped.
-    Tokens are always 0 for hook-emitted events (harness ceiling).
+    Tokens for hook-emitted events are populated when the paired hook
+    spawn_complete resolved a real subagent transcript (post-DS-160 token
+    resolution in hooks/subagent-stop-spawn-emit.js); ABSENT (not
+    zero-filled) when it could not, so a session with no resolvable
+    transcript still renders as "n/a" here rather than a false zero.
 
     DS-160 round-2 fix: a spawn_complete NEVER creates a spawn count of its
     own - it only ENRICHES an already-counted spawn_start's wall_seconds when
@@ -237,10 +242,17 @@ def _aggregate_by_agent(events: list[dict]) -> dict:
                 by_spawn_id[sid] = {
                     "agent": ev.get("agent") or "(unknown)",
                     "wall": 0.0,
+                    "tokens": None,
                 }
         # A spawn_complete NEVER creates a new spawn count (see DS-160
         # round-2 fix note above) - it only enriches an already-counted
-        # spawn_start when its paired_spawn_id resolves to one. Any other
+        # spawn_start's wall_seconds AND tokens (tokens as of the
+        # post-DS-160 token-resolution addition to
+        # hooks/subagent-stop-spawn-emit.js; see that file's header for how
+        # data.tokens is resolved, and why it is ABSENT rather than
+        # zero-filled when unresolvable - `data.get("tokens")` returns None
+        # in that case, which is exactly what keeps this enrichment from
+        # manufacturing a false zero-token contribution). Any other
         # spawn_complete (unpaired, or paired to a spawn_id not present in
         # by_spawn_id) is dropped.
         for ev in session_events:
@@ -257,9 +269,15 @@ def _aggregate_by_agent(events: list[dict]) -> dict:
             # fabricated ceiling value; `or 0` naturally contributes 0.
             existing["wall"] = float(data.get("wall_seconds") or 0)
             existing["agent"] = ev.get("agent") or existing["agent"]
+            tokens = data.get("tokens")
+            if tokens:
+                existing["tokens"] = tokens
 
         for rec in by_spawn_id.values():
-            _bump(rec["agent"], rec["wall"], None, None)
+            # No model on hook-emitted tokens (the hook does not read model
+            # off the transcript) - per-model dollar breakdown stays
+            # unavailable for hook-only sessions even once tokens resolve.
+            _bump(rec["agent"], rec["wall"], rec["tokens"], None)
 
     return agg
 

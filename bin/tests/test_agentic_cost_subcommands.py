@@ -93,23 +93,34 @@ def _make_hook_spawn_complete(
     ts: str,
     paired_spawn_id: str | None = None,
     wall_seconds: float = 3.0,
+    tokens: dict | None = None,
 ) -> str:
-    """Hook-emitted spawn_complete event (DS-160; from subagent-stop-spawn-emit.js)."""
+    """Hook-emitted spawn_complete event (DS-160; from subagent-stop-spawn-emit.js).
+
+    tokens=None (the default) mirrors an unresolved transcript - the event
+    carries tokens_note, never a zero-filled tokens object. Pass a real
+    tokens dict to simulate the post-DS-160 token-resolution path where the
+    hook found and summed the subagent's own transcript.
+    """
+    data = {
+        "source": "hook",
+        "session_uuid": session_uuid,
+        "tool_use_id": None,
+        "agent_id": None,
+        "paired_spawn_id": paired_spawn_id,
+        "wall_seconds": wall_seconds,
+    }
+    if tokens is not None:
+        data["tokens"] = tokens
+    else:
+        data["tokens_note"] = "unavailable (transcript not found)"
     return json.dumps({
         "ts": ts,
         "phase": "hook",
         "event": "spawn_complete",
         "agent": agent,
         "task_id": None,
-        "data": {
-            "source": "hook",
-            "session_uuid": session_uuid,
-            "tool_use_id": None,
-            "agent_id": None,
-            "paired_spawn_id": paired_spawn_id,
-            "wall_seconds": wall_seconds,
-            "tokens_note": "unavailable (harness)",
-        },
+        "data": data,
     })
 
 
@@ -793,6 +804,38 @@ def test_paired_complete_resolves_to_nothing_not_double_counted():
     print("PASS test_paired_complete_resolves_to_nothing_not_double_counted")
 
 
+def test_hook_spawn_complete_with_resolved_tokens_renders_real_numbers():
+    """(post-DS-160 token resolution) A hook spawn_complete carrying a real
+    resolved data.tokens object (not tokens_note) enriches the paired
+    spawn_start's row with real token counts, not n/a. Regression gate: a
+    prior version of _aggregate_by_agent's ad-hoc branch always passed
+    tokens=None into _bump for hook-emitted spawns, hardcoding "harness
+    ceiling" even after the hook itself started resolving real tokens."""
+    with tempfile.TemporaryDirectory() as tmp:
+        events_path = Path(tmp) / "events.jsonl"
+        events_path.write_text(
+            _make_hook_spawn_start("engineer", "adhoc-uuid-5",
+                                    "2026-06-01T10:00:00Z", spawn_id="spawn-tok") + "\n"
+            + _make_hook_spawn_complete(
+                "engineer", "adhoc-uuid-5", "2026-06-01T10:00:05Z",
+                paired_spawn_id="spawn-tok", wall_seconds=5.0,
+                tokens={"input": 321, "output": 111, "cache_creation": 0, "cache_read": 0},
+            ) + "\n"
+        )
+        args = types.SimpleNamespace(session_uuid=None)
+        rc, out, _ = _capture_cmd(_mod.cmd_session, args, events_path=events_path)
+        assert rc == 0, f"Expected rc=0, got {rc}"
+        lines = out.splitlines()
+        eng_line = next((l for l in lines if l.startswith("engineer")), None)
+        assert eng_line is not None, "engineer row missing"
+        assert "n/a" not in eng_line, (
+            f"expected real token numbers, not n/a, once the hook resolved tokens: {eng_line!r}"
+        )
+        assert "321" in eng_line, f"Expected 321 input tokens in row: {eng_line!r}"
+        assert "111" in eng_line, f"Expected 111 output tokens in row: {eng_line!r}"
+    print("PASS test_hook_spawn_complete_with_resolved_tokens_renders_real_numbers")
+
+
 if __name__ == "__main__":
     # session
     test_session_no_events_empty_table()
@@ -831,4 +874,6 @@ if __name__ == "__main__":
     test_adhoc_lost_subagent_stop_still_counts()
     test_adhoc_no_session_id_unpaired_complete_not_double_counted()
     test_paired_complete_resolves_to_nothing_not_double_counted()
+    # post-DS-160 token resolution
+    test_hook_spawn_complete_with_resolved_tokens_renders_real_numbers()
     print("All agentic-cost session/task/project/operator tests passed.")

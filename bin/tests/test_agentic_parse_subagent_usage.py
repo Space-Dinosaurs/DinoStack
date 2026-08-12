@@ -245,9 +245,22 @@ def test_resolve_transcript_primary_path(tmp_path: Path | None = None):
         transcript = subagent_dir / f"agent-{agent_id}.jsonl"
         transcript.write_text(_make_assistant_turn("claude-3", 5, 2) + "\n")
 
-        # Patch HOME so Path("~").expanduser() resolves to tmp_p
+        # Patch HOME so the ~/.claude fallback (no config-dir env var set)
+        # resolves to tmp_p. Also clear the config-dir env vars that now take
+        # precedence over HOME (resolve_claude_config_dir) - this test is
+        # specifically exercising the no-env-var fallback path; the
+        # env-var-precedence path has its own test
+        # (test_resolve_transcript_honors_claude_config_dir_env).
         old_home = os.environ.get("HOME")
+        old_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+        old_agentic_cfg = os.environ.get("AGENTIC_CONFIG_DIR")
+        old_codex_home = os.environ.get("CODEX_HOME")
+        old_pi_dir = os.environ.get("PI_CODING_AGENT_DIR")
         os.environ["HOME"] = tmp
+        os.environ.pop("CLAUDE_CONFIG_DIR", None)
+        os.environ.pop("AGENTIC_CONFIG_DIR", None)
+        os.environ.pop("CODEX_HOME", None)
+        os.environ.pop("PI_CODING_AGENT_DIR", None)
         try:
             result = _mod._resolve_transcript(session_uuid, agent_id)
         finally:
@@ -255,10 +268,90 @@ def test_resolve_transcript_primary_path(tmp_path: Path | None = None):
                 os.environ.pop("HOME", None)
             else:
                 os.environ["HOME"] = old_home
+            if old_cfg is None:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            else:
+                os.environ["CLAUDE_CONFIG_DIR"] = old_cfg
+            if old_agentic_cfg is None:
+                os.environ.pop("AGENTIC_CONFIG_DIR", None)
+            else:
+                os.environ["AGENTIC_CONFIG_DIR"] = old_agentic_cfg
+            if old_codex_home is None:
+                os.environ.pop("CODEX_HOME", None)
+            else:
+                os.environ["CODEX_HOME"] = old_codex_home
+            if old_pi_dir is None:
+                os.environ.pop("PI_CODING_AGENT_DIR", None)
+            else:
+                os.environ["PI_CODING_AGENT_DIR"] = old_pi_dir
 
         assert result is not None, "Expected transcript to be found at primary path"
         assert result == str(transcript), f"Unexpected path: {result}"
     print("PASS test_resolve_transcript_primary_path")
+
+
+def test_resolve_transcript_honors_claude_config_dir_env():
+    """_resolve_transcript follows CLAUDE_CONFIG_DIR, not a hardcoded ~/.claude.
+
+    Regression gate for the DS bug: ds-parse-subagent-usage hardcoded
+    ~/.claude/projects/... unconditionally and ignored CLAUDE_CONFIG_DIR, so
+    a session whose harness config dir was redirected elsewhere (a real,
+    common setup - see AGENTS.md) silently found nothing even though the
+    real transcript (with real per-turn usage blocks) existed on disk under
+    the redirected dir. HOME is deliberately left unset/irrelevant here so
+    a regression to reading HOME instead of CLAUDE_CONFIG_DIR would fail
+    this test (the transcript exists ONLY under the redirected dir).
+    """
+    import os
+    with tempfile.TemporaryDirectory() as redirected, tempfile.TemporaryDirectory() as decoy_home:
+        redirected_p = Path(redirected)
+        session_uuid = "cfgdir-session"
+        agent_id = "cfgdir-agent"
+        cwd_hash = os.getcwd().replace("/", "-")
+        subagent_dir = redirected_p / "projects" / cwd_hash / session_uuid / "subagents"
+        subagent_dir.mkdir(parents=True)
+        transcript = subagent_dir / f"agent-{agent_id}.jsonl"
+        transcript.write_text(_make_assistant_turn("claude-3", 7, 3) + "\n")
+
+        # Also plant a decoy transcript under ~/.claude for the SAME
+        # session/agent id, so a bug that ignores CLAUDE_CONFIG_DIR and
+        # falls back to HOME would still (wrongly) resolve - proving the
+        # test actually exercises the env-var precedence, not just
+        # "transcript found somewhere."
+        decoy_dir = Path(decoy_home) / ".claude" / "projects" / cwd_hash / session_uuid / "subagents"
+        decoy_dir.mkdir(parents=True)
+        (decoy_dir / f"agent-{agent_id}.jsonl").write_text(
+            _make_assistant_turn("claude-3", 999, 999) + "\n"
+        )
+
+        old_home = os.environ.get("HOME")
+        old_cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+        old_agentic_cfg = os.environ.get("AGENTIC_CONFIG_DIR")
+        os.environ["HOME"] = decoy_home
+        os.environ["CLAUDE_CONFIG_DIR"] = redirected
+        os.environ.pop("AGENTIC_CONFIG_DIR", None)
+        try:
+            result = _mod._resolve_transcript(session_uuid, agent_id)
+        finally:
+            if old_home is None:
+                os.environ.pop("HOME", None)
+            else:
+                os.environ["HOME"] = old_home
+            if old_cfg is None:
+                os.environ.pop("CLAUDE_CONFIG_DIR", None)
+            else:
+                os.environ["CLAUDE_CONFIG_DIR"] = old_cfg
+            if old_agentic_cfg is None:
+                os.environ.pop("AGENTIC_CONFIG_DIR", None)
+            else:
+                os.environ["AGENTIC_CONFIG_DIR"] = old_agentic_cfg
+
+        assert result is not None, "Expected transcript to resolve under CLAUDE_CONFIG_DIR"
+        assert result == str(transcript), (
+            f"Expected CLAUDE_CONFIG_DIR-scoped path {transcript}, got {result} "
+            "(a hardcoded ~/.claude bug would instead resolve the decoy path)"
+        )
+    print("PASS test_resolve_transcript_honors_claude_config_dir_env")
 
 
 if __name__ == "__main__":
@@ -275,4 +368,5 @@ if __name__ == "__main__":
     test_parse_iso_valid_timestamps()
     test_parse_iso_invalid_returns_none()
     test_resolve_transcript_primary_path()
+    test_resolve_transcript_honors_claude_config_dir_env()
     print("All agentic-parse-subagent-usage tests passed.")

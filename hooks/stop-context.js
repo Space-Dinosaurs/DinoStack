@@ -702,12 +702,17 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
       if (obj.event !== 'spawn_start' || data.source !== 'hook') continue;
       const key = data.spawn_id || `__legacy_${legacySyntheticCounter++}__`;
       if (!bySpawnId.has(key)) {
-        bySpawnId.set(key, { agent: obj.agent, wall: 0 });
+        bySpawnId.set(key, { agent: obj.agent, wall: 0, tokens: null });
       }
     }
     // Second pass: a spawn_complete NEVER creates a new spawn count. When its
     // paired_spawn_id resolves to a spawn already counted above, it enriches
-    // that spawn's wall_seconds (completion metadata). Any other
+    // that spawn's wall_seconds AND tokens (completion metadata - tokens as
+    // of the post-DS-160 token-resolution addition to
+    // hooks/subagent-stop-spawn-emit.js; see that file's header for how
+    // data.tokens is resolved, and why it is ABSENT rather than zero-filled
+    // when unresolvable, which is exactly why `data.tokens || null` below
+    // never manufactures a false zero-token enrichment). Any other
     // spawn_complete - unpaired (paired_spawn_id: null) OR paired to a
     // spawn_id not present in this session's spawn_starts - is dropped from
     // the aggregate entirely (see the DS-160 round-2 fix note in the doc
@@ -726,10 +731,14 @@ function scanSessionAggregate(eventsPath, sessionId, cachedRaw) {
       // naturally contributes 0 here rather than injecting a false duration.
       existing.wall = Number(data.wall_seconds) || 0;
       existing.agent = obj.agent || existing.agent;
+      // data.tokens is present ONLY when the hook resolved a real
+      // transcript; absent (not zero-filled) otherwise - `|| null` here
+      // preserves that distinction rather than coercing an absent value
+      // into a false zero-token enrichment.
+      if (data.tokens) existing.tokens = data.tokens;
     }
     for (const rec of bySpawnId.values()) {
-      // Hook spawn_starts/completes carry no token data (harness ceiling).
-      recordSpawn(rec.agent, rec.wall, null);
+      recordSpawn(rec.agent, rec.wall, rec.tokens);
     }
   }
 
