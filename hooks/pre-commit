@@ -166,7 +166,17 @@ fi
 # Only run if content/ files were modified
 if git diff --cached --name-only | grep -q "^content/"; then
   echo "[pre-commit] content/ changes detected - running builds..."
-  bash "$REPO_DIR/scripts/stamp-agent-fragments.sh"
+  # Capture the stamp script's own "stamped <relpath>" lines rather than
+  # globbing content/agents/*.md wholesale below - the glob would silently
+  # sweep in ANY unstaged edit to ANY of the 18 hand-authored agent files,
+  # including files the stamp script did not touch (unlike every other
+  # entry in the git-add list below, which are all generated artifacts).
+  STAMP_OUTPUT="$(bash "$REPO_DIR/scripts/stamp-agent-fragments.sh")"
+  echo "$STAMP_OUTPUT"
+  STAMPED_AGENT_FILES=()
+  while IFS= read -r line; do
+    STAMPED_AGENT_FILES+=("$REPO_DIR/$line")
+  done < <(echo "$STAMP_OUTPUT" | sed -n 's/^stamp-agent-fragments: stamped //p')
   bash "$REPO_DIR/.claude/build.sh"
   bash "$REPO_DIR/.codex/build.sh"
   bash "$REPO_DIR/.cursor/build.sh"
@@ -181,8 +191,14 @@ if git diff --cached --name-only | grep -q "^content/"; then
   bash "$REPO_DIR/scripts/check-codex-skill-sync.sh"
 
   # Stage generated files
+  # content/agents/*.md is hand-authored source, not generated - stage only
+  # the files the stamp script actually reported as changed (empty-array
+  # expansion is bash-3.2-safe via the ${arr[@]+"${arr[@]}"} idiom, since
+  # macOS ships bash 3.2 and this script runs under `set -u`).
+  if [[ ${#STAMPED_AGENT_FILES[@]} -gt 0 ]]; then
+    git add "${STAMPED_AGENT_FILES[@]+"${STAMPED_AGENT_FILES[@]}"}"
+  fi
   git add \
-    "$REPO_DIR/content/agents/"*.md \
     "$REPO_DIR/.claude/commands/"*.md \
     "$REPO_DIR/.claude/skills/dinostack/METHODOLOGY.md" \
     "$REPO_DIR/.claude/skills/dinostack/SKILL.md" \

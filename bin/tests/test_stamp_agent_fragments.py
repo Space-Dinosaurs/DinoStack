@@ -92,6 +92,37 @@ class TestFragmentBodyRejectsMarkerLikeStrings(unittest.TestCase):
         self.assertEqual(fragments["ok"], "some plain text")
 
 
+# Expected `<!-- shared:<id> -->` span-id set per agent file. Pinned here
+# (not derived by iterating the live files) so that deleting a span's
+# markers entirely - or replacing a whole span with plain prose - reds this
+# test instead of silently vanishing from every iteration-based assertion
+# below. Without this, a removed span makes SHARED_RE.finditer() yield
+# nothing to check, so every other assertion in this class passes vacuously
+# ("green means the check did not run"). Derived by reading the live tree;
+# update this map in the same commit as any deliberate span addition or
+# removal.
+EXPECTED_SPAN_IDS = {
+    "engineer.md": frozenset(
+        {
+            "async-primitive-list",
+            "identifier-rename-trigger",
+            "identifier-type-list",
+            "rename-exemption-clause",
+            "test-file-glob-list",
+        }
+    ),
+    "skeptic.md": frozenset(
+        {
+            "async-primitive-list",
+            "identifier-rename-trigger",
+            "identifier-type-list",
+            "rename-exemption-clause",
+            "test-file-glob-list",
+        }
+    ),
+}
+
+
 class TestLiveTreeIsStamped(unittest.TestCase):
     """The committed content/agents/*.md tree must already reflect
     content/fragments/pre-submit-check-kernels.md - re-derives expected
@@ -101,6 +132,30 @@ class TestLiveTreeIsStamped(unittest.TestCase):
     def setUp(self):
         kernels_text = stamp_agent_fragments.KERNELS_FILE.read_text(encoding="utf-8")
         self.fragments = stamp_agent_fragments.parse_fragments(kernels_text)
+
+    def test_expected_span_ids_are_present(self):
+        """Guard against a span's markers being deleted entirely (or a span
+        being replaced with plain prose) - that state is invisible to every
+        SHARED_RE.finditer()-based assertion below because there is nothing
+        left to iterate."""
+        for filename, expected_ids in EXPECTED_SPAN_IDS.items():
+            path = stamp_agent_fragments.AGENTS_DIR / filename
+            with self.subTest(path=filename):
+                text = path.read_text(encoding="utf-8")
+                found_ids = {
+                    match.group("id")
+                    for match in stamp_agent_fragments.SHARED_RE.finditer(text)
+                }
+                self.assertEqual(
+                    found_ids,
+                    expected_ids,
+                    f"{filename}'s set of '<!-- shared:<id> -->' spans "
+                    f"({sorted(found_ids)}) does not match the expected set "
+                    f"({sorted(expected_ids)}) - a span's markers may have "
+                    "been deleted or a span replaced with unmarked prose. "
+                    "If this is a deliberate span addition/removal, update "
+                    "EXPECTED_SPAN_IDS in this file in the same commit.",
+                )
 
     def test_every_shared_span_matches_its_fragment_source(self):
         for path in sorted(stamp_agent_fragments.AGENTS_DIR.glob("*.md")):

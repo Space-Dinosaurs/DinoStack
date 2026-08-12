@@ -5,16 +5,26 @@
 #          heredoc/regex gymnastics for multiline HTML-comment span
 #          replacement).
 #
-# Public API: python3 scripts/lib/stamp_agent_fragments.py
+# Public API: python3 scripts/lib/stamp_agent_fragments.py (CLI entrypoint)
 #             Exits 0 on success (including the idempotent no-op case),
 #             non-zero if any `<!-- shared:<id> -->` span references an
 #             undefined fragment id, if the kernels file is missing, or if a
 #             file's shared-marker openers/closers are unbalanced or nested.
+#             Also importable: check_marker_balance(), parse_fragments(),
+#             SHARED_RE, KERNELS_FILE, AGENTS_DIR are consumed directly by
+#             bin/tests/test_stamp_agent_fragments.py.
 #
 # Upstream deps: content/fragments/pre-submit-check-kernels.md;
 #                content/agents/*.md; python3 stdlib only (re, pathlib, sys).
 #
-# Downstream consumers: scripts/stamp-agent-fragments.sh (sole caller).
+# Downstream consumers: scripts/stamp-agent-fragments.sh (the CLI entry
+#                        point, `exec`'d as a subprocess); also imported
+#                        directly by bin/tests/test_stamp_agent_fragments.py
+#                        (loaded via importlib, not shelled out to), which
+#                        calls check_marker_balance(), parse_fragments(),
+#                        and reads SHARED_RE/KERNELS_FILE/AGENTS_DIR - that
+#                        test runs under the required `python-bin-tests` CI
+#                        check.
 
 import re
 import sys
