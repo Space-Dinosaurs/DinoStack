@@ -37,15 +37,16 @@ Evaluates the methodology's effectiveness against the North Star pillars. The co
 
 ## Positioning: the effectiveness-per-pillar axis
 
-The methodology already measures two axes of agent work; this command adds the third:
+The methodology already measures three axes of agent work; this command adds the fourth:
 
 | Axis | Command / tool | What it measures |
 |---|---|---|
 | Cost | `/ds-cost` (`bin/ds-cost`) | token and wall-time rollups per agent/session/task from `.agentic/events.jsonl` |
+| Friction-to-skill | `/ds-skill-candidates` | recurring workflow-friction domains (lifetime counts, accumulate >= 3) |
 | Failure modes | `/ds-failure-audit` | failure modes per model/harness with quantified frequency |
 | **Pillar effectiveness** | **`/ds-evaluate`** | **methodology effectiveness against the North Star pillars, per pillar** |
 
-This command is the effectiveness-per-pillar axis, alongside `/ds-failure-audit` (failure modes per model/harness) and `/ds-cost` (tokens). It reuses their telemetry via the deterministic collector and cross-references both - it does NOT re-implement failure-mode categorization or token rollups. `/ds-failure-audit` answers "which model/harness failed, how often, in what way"; this command answers "how well does the methodology serve each North Star pillar".
+This command is the effectiveness-per-pillar axis, alongside `/ds-failure-audit` (failure modes per model/harness), `/ds-skill-candidates` (friction-to-skill), and `/ds-cost` (tokens). It reuses their telemetry via the deterministic collector and cross-references them - it does NOT re-implement failure-mode categorization, friction-to-skill detection, or token rollups. `/ds-failure-audit` answers "which model/harness failed, how often, in what way"; `/ds-skill-candidates` answers "what workflow friction recurs"; this command answers "how well does the methodology serve each North Star pillar".
 
 ## Step 1 - Activation preflight
 
@@ -68,7 +69,7 @@ If the collector fails or returns an empty rollup, treat the invocation as a spa
 
 ## Step 3 - Pillar-lens scoring
 
-Extract the North Star pillar list from `docs/overview/vision.md` (the "North Star" section) at runtime. Spawn ONE `general-purpose` subagent per pillar, in parallel (background), each briefed with:
+Extract the North Star pillar list from `docs/overview/vision.md` (the "North Star" section) at runtime. Spawn ONE `investigator` subagent per pillar, in parallel (background), each briefed with:
 
 - the pillar's verbatim text (from the live vision.md read in this invocation - never from memory)
 - the signal JSON rollup verbatim

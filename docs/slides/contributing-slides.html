@@ -568,7 +568,7 @@ code {
   rules/        3 rule files (module-manifest, code-standards, conventions)
   references/   39 reference docs (agent-team, base-branch-sync, skeptic-protocol,
                     qa-gate, capability-preflight, events-log, planning-artifacts, ...)
-  commands/     26 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
+  commands/     27 command files (ds-implement-ticket, ds-init-project, ds-wrap, ds-brief, ...)
   agents/       18 agent definitions (architect, engineer, skeptic, qa-engineer, ...)
 </code></pre>
 <p>Build scripts regenerate adapter files from <code>content/</code>. The pre-commit hook runs all 11 adapter builds automatically when <code>content/</code> files are staged. Slide <code>.md</code> sources have a separate <code>slides-sync</code> CI gate: after editing, run <code>bash scripts/build-slides.sh</code> and commit the regenerated <code>.html</code>.</p>

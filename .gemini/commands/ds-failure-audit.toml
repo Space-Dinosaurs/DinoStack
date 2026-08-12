@@ -86,7 +86,7 @@ The audit subagent runs under the model/harness the operator chooses. For object
 
 ## Step 3 - Spawn the audit agent
 
-Spawn a single `general-purpose` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
+Spawn a single `investigator` Worker in background with the following execution contract (NLH format per `METHODOLOGY.md`):
 
 *"You are a Worker agent. Produce a failure-mode audit of this operator's session telemetry and return your complete report. The main agent will present the report to the user."*
 
