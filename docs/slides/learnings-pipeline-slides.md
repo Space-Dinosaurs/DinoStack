@@ -190,6 +190,8 @@ The pipeline is not a logging system. It is a self-improving loop: each closed t
   .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.5em; }
 </style>
 
+Capture starts in flight: four write-capable roles (`engineer`, `adr-generator`, `product-discovery`, `release-orchestrator`) append learnings the moment they occur via `ds-learning-shard append --session-key <SESSION_KEY>` - the key arrives in every spawn brief - into the external store `~/.agentic/learnings-shards/`. Shards drain at `/ds-implement-ticket` Phase 11e and at the activation-preflight rollup; `content/references/learnings-capture-instruction.md` governs which roles append vs declare `learnings_candidate[]`.
+
 <div class="columns">
 <div class="card">
 <strong>learning-extractor</strong><br/>
@@ -312,13 +314,15 @@ If either gate fails, drop to SHOULD or SKIP. MUST is genuinely rare.
   pre { font-size: 0.72em; padding: 0.4em 0.7em; line-height: 1.3; margin: 0.2em 0 0.5em 0; }
 </style>
 
-Three distinct knowledge stores - each with a different writer and lifecycle:
+Four distinct knowledge stores - each with a different writer and lifecycle:
 
+- **`~/.agentic/learnings-shards/`** - in-flight capture buffer, external to the repo. Written by `ds-learning-shard append` from the four capture roles the moment a learning occurs. Never committed itself; drained at `/ds-implement-ticket` Phase 11e and by the activation-preflight rollup.
 - **`.agentic/learnings.md`** - primary destination. Committed to git. Written by `learning-extractor` (LRN) and `learnings-agent` (LRN + KNW). Teammates inherit it on pull after merge.
 - **`MEMORY.md`** (root `<cwd>/MEMORY.md`) - canonical durable facts. Committed. Loaded at session start via the `@MEMORY.md` import in the project root `CLAUDE.md`. Written by `learnings-agent` (at most one entry per invocation, when the event is project-affecting - not a later promotion) and, as of DS-90, by `/ds-wrap` Part B (staging-drain promotion, capped 3/run).
 - **`.agentic/memory.md`** - deferred-wrap daemon staging only, written exclusively by `/ds-wrap-deferred`. Gitignored. NOT auto-injected. NOT the same as root `MEMORY.md`; drained into it by the next synchronous `/ds-wrap`.
 
 ```
+ds-learning-shard (4 roles) ──> shard entry ──> ~/.agentic/learnings-shards/ (external; drained at Phase 11e + preflight rollup)
 learning-extractor ──> LRN entry ──> .agentic/learnings.md (committed)
 learnings-agent    ──> LRN entry ──> .agentic/learnings.md (committed)
 learnings-agent    ──> KNW/LRN entry ──> .agentic/learnings.md (always)
@@ -326,7 +330,7 @@ learnings-agent    ──> project-affecting? ──> MEMORY.md (same invocation
 ```
 
 <div class="callout">
-Three stores, three writers, three audiences. Mixing them corrupts the `@MEMORY.md` import contract that keeps MEMORY.md clean for every session start.
+Four stores, four writers, four audiences. The shard buffer is the only external one - it feeds the durable stores through a classified drain, never directly. Mixing the durable stores corrupts the `@MEMORY.md` import contract that keeps MEMORY.md clean for every session start.
 </div>
 
 ---

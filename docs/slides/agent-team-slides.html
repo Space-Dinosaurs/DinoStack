@@ -1124,7 +1124,7 @@ hr {
 <li>A resumed Skeptic has seen its own previous criticism - it gets polite and misses things.</li>
 <li>Fresh context = adversarial teeth.</li>
 <li>Classifies findings Critical / Major / Minor. Critical blocks sign-off. Major blocks sign-off until resolved.</li>
-<li><strong>Two new obligations:</strong> (1) tiered manifest enforcement on non-trivial files (missing = Minor, stale = Major, stale-on-correctness/security path = Critical); (2) verifies regression tests exist for any Critical/Major fix before granting sign-off.</li>
+<li><strong>Five standing checks:</strong> (1) module manifest - tiered enforcement on non-trivial files (missing = Minor, stale = Major, stale-on-correctness/security path = Critical); (2) regression test - verifies a regression test exists for any Critical/Major fix before sign-off; (3) doc-sync - standing every round, docs stay consistent with the diff; (4) smoke-test gate - <code>smoke_test: not_run</code> on a runtime-capable diff is a Major; (5) new-test-CI-wiring - every new test file must be wired into a CI workflow.</li>
 <li><strong>Domain fit comes from the adversarial brief</strong>, not the agent. The conductor writes a brief tailored to the change - auth flow, migration, perf regression - and the Skeptic reviews through that lens.</li>
 </ul>
 <div class="callout">

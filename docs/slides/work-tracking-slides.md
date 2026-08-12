@@ -200,6 +200,8 @@ If it exists at either path, read it and follow its instructions.
 
 The planner is otherwise strictly read-only. `tracking.md` is the **one file** that can instruct it to run commands (curl a ticket API, update a status, post a comment).
 
+Two newer mechanisms complete the tracker picture. `.agentic/tracker.yml` (via `bin/ds-tracker`) is a local overlay for resolving `TRACKER` - sole source when `AGENTS.md` declares no tracker, field-merged when it declares the same one; it refuses to write any path git tracks. The Tracker Writeback Helper (`content/references/tracker-writeback.md`) is the reusable subagent pattern behind every state transition - gated on `TRACKER != none`, forward-only so a ticket never moves backward.
+
 <div class="callout">
 No file = no tracker actions. The protocol degrades cleanly for projects that don't care.
 </div>
