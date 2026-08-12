@@ -2399,10 +2399,11 @@ class TestDirectoryNegationProbeGuessingResidualLimit(unittest.TestCase):
 
     def test_unguessed_defeater_with_no_real_file_reads_ok_undetected(self):
         """The residual itself: three defeater spellings, none of which
-        collide with any of the four synthesized probe names
+        collide with any of the three SYNTHESIZED probe names
         (`.ds-migrate-probe`, `.ds-migrate-probe.jsonl`,
-        `.ds-migrate-probe/.ds-migrate-probe.jsonl`, or a real file - none
-        exist here), each left undetected with `status: ok` and
+        `.ds-migrate-probe/.ds-migrate-probe.jsonl`) - the fourth probe
+        shape, a real file discovered on disk, is not synthesized and does
+        not exist here either - each left undetected with `status: ok` and
         `gitignore_verification: behavioral` despite genuinely defeating a
         knowledge file at the name it targets."""
         defeaters = [
@@ -2560,6 +2561,211 @@ class TestApplyFailureAppendsShardEntry(unittest.TestCase):
             "apply #2's rc=3 failure must add a NEW line to the shard, "
             "not leave it unchanged from apply #1's success entry",
         )
+
+
+class TestVerifyCommitPath(unittest.TestCase):
+    """`ds-migrate verify-commit-path` - the point-of-use, exact-path check
+    consumed by content/commands/ds-implement-ticket.md Phase 8 and Phase
+    11e, and content/commands/ds-wrap.md Part G. Closes the operational
+    consequence of the probe-guessing residual pinned by
+    TestDirectoryNegationProbeGuessingResidualLimit: at a commit site the
+    exact path is known, so no guessing is needed."""
+
+    def _seeded_project(self, tmp):
+        project = Path(tmp) / "project"
+        project.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=str(project), check=True)
+        subprocess.run(["git", "config", "user.name", "T"], cwd=str(project), check=True)
+        return project
+
+    def test_no_negation_attempted_is_not_flagged(self):
+        """DinoStack's own repo shape: a categorical `.agentic/*` exclusion
+        with ZERO negations - not a defect, must not be flagged as
+        'defeated'. This is the false-positive this check must avoid: a
+        repo that opted out of the negation scheme entirely must not get a
+        loud error on every commit-site invocation."""
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        (project / ".gitignore").write_text(".agentic/*\n")
+        agentic = project / ".agentic"
+        agentic.mkdir()
+        (agentic / "learnings.md").write_text("# Learnings\n")
+
+        result = run(
+            ["verify-commit-path", ".agentic/learnings.md", "--project-root", str(project)]
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), "ok")
+
+    def test_defeated_negation_on_exact_known_path_is_caught(self):
+        """The residual case: a directory-form negation is declared, but an
+        exact-path defeater (a spelling the manifest-wide probe sweep can
+        miss when no real file exists yet) re-ignores the real, exactly-
+        known file. verify-commit-path must catch this - no guessing
+        involved, the caller supplies the real path directly."""
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        agentic = project / ".agentic" / "session-log"
+        agentic.mkdir(parents=True)
+        (agentic / "alice.jsonl").write_text('{"event":"x"}\n')
+        (project / ".gitignore").write_text(
+            ".agentic/*\n"
+            "!.agentic/session-log/\n"
+            "!.agentic/session-log/**\n"
+            ".agentic/session-log/alice.*\n"
+        )
+
+        result = run(
+            [
+                "verify-commit-path",
+                ".agentic/session-log/alice.jsonl",
+                "--project-root",
+                str(project),
+            ]
+        )
+        self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+        self.assertIn("defeated", result.stdout)
+        self.assertIn(".agentic/session-log/alice.jsonl", result.stdout)
+
+    def test_working_negation_reports_ok(self):
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        agentic = project / ".agentic" / "session-log"
+        agentic.mkdir(parents=True)
+        (agentic / "alice.jsonl").write_text('{"event":"x"}\n')
+        (project / ".gitignore").write_text(
+            ".agentic/*\n!.agentic/session-log/\n!.agentic/session-log/**\n"
+        )
+
+        result = run(
+            [
+                "verify-commit-path",
+                ".agentic/session-log/alice.jsonl",
+                "--project-root",
+                str(project),
+            ]
+        )
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        self.assertEqual(result.stdout.strip(), "ok")
+
+    def test_not_a_git_worktree_is_unavailable_not_a_false_ok_or_defeated(self):
+        tmp = tempfile.mkdtemp()
+        # A plain directory, never git-init'd.
+        result = run(
+            ["verify-commit-path", "MEMORY.md", "--project-root", tmp]
+        )
+        self.assertEqual(result.returncode, 2, msg=result.stdout + result.stderr)
+        self.assertIn("unavailable", result.stdout)
+
+    def test_exact_path_negation_defeated_by_reingoring_pattern_below(self):
+        """Exact-path negation form (not directory-form) - e.g.
+        `!.agentic/learnings.md` - defeated by a re-ignoring line placed
+        below it."""
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_project(tmp)
+        (project / ".agentic").mkdir()
+        (project / ".agentic" / "learnings.md").write_text("# Learnings\n")
+        (project / ".gitignore").write_text(
+            ".agentic/*\n!.agentic/learnings.md\n.agentic/learnings.md\n"
+        )
+
+        result = run(
+            ["verify-commit-path", ".agentic/learnings.md", "--project-root", str(project)]
+        )
+        self.assertEqual(result.returncode, 1, msg=result.stdout + result.stderr)
+        self.assertIn("defeated", result.stdout)
+
+
+class TestApplyFailedShardTimestampDedupAndResolution(unittest.TestCase):
+    """Round-12 fix (formerly a non-blocking Minor): the FAILED
+    notices-shard entry now carries a timestamp, is deduped across
+    consecutive `apply` runs while the same drift persists (preflight
+    calls `apply` every session), and a since-resolved defeat appends a
+    RESOLVED line even when the fix needed no further gitignore/file
+    writes (wrote_anything stays False)."""
+
+    def _seeded_defeated_project(self, tmp):
+        project = Path(tmp) / "project"
+        agentic = project / ".agentic"
+        agentic.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=str(project), check=True)
+        subprocess.run(["git", "config", "user.name", "T"], cwd=str(project), check=True)
+        version = _manifest_version()
+        (agentic / "config.json").write_text(json.dumps({"scaffolding_version": version}) + "\n")
+        # Defeated exact-path negation from the very first apply.
+        (project / ".gitignore").write_text(
+            ".agentic/*\n!.agentic/learnings.md\n.agentic/learnings.md\n"
+        )
+        return project
+
+    def _shard_text(self, project):
+        shard = project / ".agentic" / "context.d" / "scaffolding-notices.md"
+        return shard.read_text(encoding="utf-8") if shard.exists() else ""
+
+    def test_failed_entry_carries_a_timestamp(self):
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_defeated_project(tmp)
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 3, msg=result.stdout + result.stderr)
+        text = self._shard_text(project)
+        self.assertIn("FAILED", text)
+        self.assertRegex(text, r"Detected at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\.")
+
+    def test_repeated_apply_does_not_duplicate_the_failed_line(self):
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_defeated_project(tmp)
+        r1 = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(r1.returncode, 3, msg=r1.stdout + r1.stderr)
+        text1 = self._shard_text(project)
+        r2 = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(r2.returncode, 3, msg=r2.stdout + r2.stderr)
+        text2 = self._shard_text(project)
+        self.assertEqual(
+            text1.count("FAILED"),
+            text2.count("FAILED"),
+            "a second apply against the SAME unresolved drift must not "
+            "append a second near-identical FAILED line",
+        )
+        self.assertEqual(
+            text1.count("\n"), text2.count("\n"),
+            "no new line should be appended at all on the deduped repeat",
+        )
+
+    def test_hand_fix_with_no_further_writes_appends_resolved_line(self):
+        tmp = tempfile.mkdtemp()
+        project = self._seeded_defeated_project(tmp)
+        r1 = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(r1.returncode, 3, msg=r1.stdout + r1.stderr)
+
+        # Hand-fix: remove the re-ignoring defeater line. Nothing else
+        # needs to change - the manifest's other rules are already
+        # satisfied, so wrote_anything will be False on the next apply.
+        (project / ".gitignore").write_text(".agentic/*\n!.agentic/learnings.md\n")
+
+        r2 = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(r2.returncode, 0, msg=r2.stdout + r2.stderr)
+        text = self._shard_text(project)
+        self.assertIn("RESOLVED", text)
+        self.assertRegex(text, r"Resolved at \d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\.")
+
+    def test_never_defeated_project_gets_no_spurious_resolved_line(self):
+        """A project that was never in a defeated state must not get a
+        RESOLVED line out of nowhere - the transition marker only fires on
+        an actual FAILED -> resolved transition."""
+        tmp = tempfile.mkdtemp()
+        project = Path(tmp) / "project"
+        agentic = project / ".agentic"
+        agentic.mkdir(parents=True)
+        subprocess.run(["git", "init", "-q"], cwd=str(project), check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=str(project), check=True)
+        subprocess.run(["git", "config", "user.name", "T"], cwd=str(project), check=True)
+
+        result = run(["apply", "--manifest", MANIFEST, "--project-root", str(project)])
+        self.assertEqual(result.returncode, 0, msg=result.stdout + result.stderr)
+        text = self._shard_text(project)
+        self.assertNotIn("RESOLVED", text)
 
 
 if __name__ == "__main__":

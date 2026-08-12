@@ -406,6 +406,39 @@ def _stub_ds_identity(
     env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
 
 
+def install_ds_migrate_stub(tmp_path: Path, env: dict[str, str], defeated_path: str) -> None:
+    """Install a PATH-shadowing fake `ds-migrate` executable so a block's
+    bare `ds-migrate verify-commit-path <path> ...` call reports "defeated"
+    (exit 1) when `<path>` equals `defeated_path`, and "ok" (exit 0) for
+    every other path - deterministic in tests, not dependent on this
+    machine's real dinostack install being on PATH. Mirrors
+    `_stub_ds_identity`'s PATH-shadowing pattern exactly: the production
+    call sites invoke `ds-migrate` as a bare PATH lookup (same convention
+    as `ds-identity`, `ds-learning-shard`, etc. elsewhere in these blocks),
+    not by an absolute-ish `$REPO_DIR`-prefixed path, so PATH-shadowing is
+    the correct stubbing mechanism here."""
+    bin_dir = tmp_path / "ds-migrate-stub-bin"
+    bin_dir.mkdir(parents=True, exist_ok=True)
+    stub = bin_dir / "ds-migrate"
+    if "'" in defeated_path:
+        raise AssertionError("defeated_path contains a single quote")
+    stub.write_text(
+        "#!/bin/sh\n"
+        "# Fake ds-migrate verify-commit-path for shell-harness testing.\n"
+        f"DEFEATED_PATH='{defeated_path}'\n"
+        'if [ "$1" = "verify-commit-path" ] && [ "$2" = "$DEFEATED_PATH" ]; then\n'
+        '  echo "defeated: $2 has a negation in .gitignore that appears to '
+        'target it, but git still reports it ignored"\n'
+        "  exit 1\n"
+        "fi\n"
+        'echo "ok"\n'
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    stub.chmod(stub.stat().st_mode | stat.S_IEXEC | stat.S_IXGRP | stat.S_IXOTH)
+    env["PATH"] = f"{bin_dir}{os.pathsep}{env['PATH']}"
+
+
 def build_dinostack_shape(tmp_path: Path) -> Fixture:
     """(i) DinoStack itself: `/.agentic/*` umbrella ignores session-log, so
     both the feature-commit `git add` and the telemetry `git add` hit the

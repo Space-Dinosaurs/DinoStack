@@ -17005,17 +17005,31 @@ if [ "$COMMIT_TELEMETRY" = "true" ] && [ -n "$DEVELOPER" ]; then
   fi
 
   if [ -n "$PR_CHECKOUT" ] && [ -f "$PR_CHECKOUT/.agentic/session-log/${DEVELOPER}.jsonl" ]; then
-    git -C "$PR_CHECKOUT" add ".agentic/session-log/${DEVELOPER}.jsonl"
-    # Only commit if the index has a diff (avoids empty-commit on no new sessions).
-    if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
-      if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
-        echo "WARNING: git user.name or user.email not set; skipping telemetry commit to avoid malformed DCO trailer."
-        git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
-      else
-        NL=$'
+    # Point-of-use defeated-negation check (exact path, no probe-guessing -
+    # see bin/ds-migrate's cmd_verify_commit_path). Without this, `git add`
+    # on a defeated-negation path silently no-ops and the following
+    # `diff --cached --quiet` skips the commit with NO visible signal at
+    # all - this is the exact residual _compute_negations_defeated's
+    # probe-based sweep can miss for the 2 directory-form negations, closed
+    # here because the exact path is already known. Never redirect this
+    # check's own stdout/stderr to /dev/null.
+    TELEM_VERIFY_OUT=$(ds-migrate verify-commit-path ".agentic/session-log/${DEVELOPER}.jsonl" --project-root "$PR_CHECKOUT" 2>&1)
+    TELEM_VERIFY_RC=$?
+    if [ "$TELEM_VERIFY_RC" -eq 1 ]; then
+      echo "ERROR: [phase-8-telemetry] .agentic/session-log/${DEVELOPER}.jsonl has a negation in .gitignore that appears to target it, but git still reports it ignored (DEFEATED NEGATION) - telemetry commit skipped this run. Fix .gitignore by hand, then re-run \`ds-migrate apply\`. Detail: $TELEM_VERIFY_OUT"
+    else
+      git -C "$PR_CHECKOUT" add ".agentic/session-log/${DEVELOPER}.jsonl"
+      # Only commit if the index has a diff (avoids empty-commit on no new sessions).
+      if ! git -C "$PR_CHECKOUT" diff --cached --quiet; then
+        if [ -z "$SO_EMAIL" ] || [ -z "$SO_NAME" ]; then
+          echo "WARNING: git user.name or user.email not set; skipping telemetry commit to avoid malformed DCO trailer."
+          git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
+        else
+          NL=$'
 '
-        TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
-        git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||           git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
+          TELEM_MSG="chore(telemetry): add session log for ${DEVELOPER}${NL}${NL}Signed-off-by: ${SO_NAME} <${SO_EMAIL}>${NL}${DEVTRAILER:+${DEVTRAILER}${NL}}"
+          git -C "$PR_CHECKOUT" commit -m "$TELEM_MSG" ||           git -C "$PR_CHECKOUT" restore --staged ".agentic/session-log/${DEVELOPER}.jsonl"
+        fi
       fi
     fi
     # Push only on single-engineer paths (fan-out push handled in its own block).
@@ -17050,6 +17064,8 @@ fi
 `Signed-off-by` satisfies the DCO CI gate. `Developer:` records the operator handle (omitted when identity is absent or provisional).
 
 **Telemetry commit:** After the main commit, a separate `chore(telemetry):` commit stages `.agentic/session-log/<developer_id>.jsonl` on the PR branch when `commit_telemetry: true` (default in `.agentic/config.json`) and identity is confirmed (non-provisional). The block is path-aware: on the fan-out path `$REPO` is already on the feature branch (after the "Merge phase (all-done join)" `git checkout $FEATURE_BRANCH`), so `$PR_CHECKOUT=$REPO`; on single-engineer paths the conductor must capture `$WORKTREE_PATH` from the engineer's return summary before Phase 8 runs, and the file is copied into the worktree before staging (git cannot stage files outside the work tree). A `rev-parse --abbrev-ref HEAD == $BRANCH_NAME` guard fires before every commit - if `$PR_CHECKOUT` is on a different branch the commit is skipped with a one-line warning and the feature commit is never affected. On single-engineer paths only, the telemetry commit is pushed in the same block; fan-out push is handled in the fan-out push block. A `git config user.name`/`user.email` guard mirrors the feature commit's own DCO-identity guard above - if either is empty the telemetry commit is skipped (staged file unstaged) with a visible WARNING, never emitting a malformed `Signed-off-by` trailer. **Note on eventual consistency:** the Phase 8 commit contains only sessions that ended before it runs. The current session's line is written by the Stop hook at session end and lands in the next ticket's Phase 8 commit - this is a known property, not a bug.
+
+**Point-of-use defeated-negation check.** Before staging, the block runs `ds-migrate verify-commit-path .agentic/session-log/<developer_id>.jsonl --project-root $PR_CHECKOUT`. This is the exact-path counterpart to `bin/ds-migrate check`/`apply`'s manifest-wide, probe-based negation-defeat detection: `_compute_negations_defeated` must synthesize candidate probe paths for the 2 directory-form negations (`!.agentic/session-log/` and its `/**` twin) when no real file exists yet, and a defeater keyed to an unguessed name returns "ok" undetected - see that function's docstring for the full residual. At this exact commit site the target path is already known, so no guessing is needed. Exit 1 (a negation targets this path but git still reports it ignored) prints a visible `ERROR:` line and skips the commit this run - loud, unlike the silent `git add` no-op this replaces. Exit 0 covers both a genuinely reachable path and a path this project's `.gitignore` never attempted to reach at all (e.g. DinoStack's own repo, which categorically excludes `.agentic/*` by decision with zero negations) - neither is a defect, and the existing `git add` / `diff --cached --quiet` handling below is unchanged for both. Exit 2 (git missing, not a worktree, or an untrusted check result) is treated the same as exit 0 - a tooling-unavailability soft-fail must never itself block a commit that would otherwise have succeeded.
 
 Commit message types: `feat`, `fix`, `refactor`, `docs`, `chore`, `test`.
 
@@ -17860,7 +17876,8 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Per-file gating.** Each check skips THAT FILE ONLY and never aborts the sweep:
 - File absent from disk -> skip silently.
-- `git check-ignore -q -- <f>` succeeds -> skip, and print a VISIBLE diagnostic quoting the matched rule from `git check-ignore -v -- <f>`. **Never redirect this to `/dev/null`.** This gate is load-bearing for correctness, not merely for diagnostics: `git add` refuses an ignored path without `-f`, so the gate is what keeps the staging step from failing on a path that was never committable. In DinoStack itself all three candidates are gitignored, which makes Phase 11e a deliberate and **audible** no-op in this repo; consumer projects track all three and get the commit.
+- `ds-migrate verify-commit-path <f> --project-root $REPO` exits 1 -> a negation in the live `.gitignore` appears to target `<f>`, but git still reports it ignored (a DEFEATED negation - the point-of-use, exact-path counterpart to `bin/ds-migrate check`/`apply`'s manifest-wide, probe-based sweep, which must synthesize candidate probe paths for the 2 directory-form negations and can miss an unguessed spelling; see `_compute_negations_defeated`'s docstring for that residual). Print a VISIBLE `ERROR:` diagnostic naming `<f>` and skip - this is a loud failure, distinct from the ordinary gitignore skip below. **Never redirect this to `/dev/null`.**
+- `git check-ignore -q -- <f>` succeeds -> skip, and print a VISIBLE diagnostic quoting the matched rule from `git check-ignore -v -- <f>`. **Never redirect this to `/dev/null`.** This gate is load-bearing for correctness, not merely for diagnostics: `git add` refuses an ignored path without `-f`, so the gate is what keeps the staging step from failing on a path that was never committable. In DinoStack itself all three candidates are gitignored with no negation attempted at all, which makes this bullet (not the DEFEATED-negation bullet above, which only fires when a negation was attempted and failed) a deliberate and **audible** no-op in this repo; consumer projects track all three and get the commit.
 - `git cat-file -e origin/$BRANCH_NAME:<f>` fails (the path is absent from the tip) -> the file **survives gating**; it is new content. This probe must run BEFORE the diff, because a path absent from the tip is equally absent from the temp index and `diff-index` would report no difference for it.
 - Path present at the tip -> refresh the temp index for that path, then `git diff-index --quiet`. Identical -> skip. Different -> stage.
 
@@ -17868,7 +17885,7 @@ A successful push leaves the operator's LOCAL `$BRANCH_NAME` one commit behind `
 
 **Idempotency.** A second run over unchanged state stages nothing and, if it somehow stages something whose resulting tree equals the branch tip's tree, short-circuits on the tree comparison. Neither path produces an empty commit.
 
-**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` records the gitignore-gate skips regardless of overall status. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
+**Event field semantics.** The `knowledge_commit` event carries `site: "phase-11e"`, `files_staged` (everything staged before the commit attempt), and `files_committed` (files that were **actually committed and pushed** - populated on the success path and only there, so it is empty on every non-success status). `files_skipped_ignored` records the gitignore-gate skips regardless of overall status, and now includes both the ordinary gitignore skip and the DEFEATED-negation skip (the loud one) - the field does not distinguish which of the two fired for a given file; the `ERROR:`-vs-plain-diagnostic distinction in the printed output is the only place that distinction is visible. `deleted_lines` is `-1` when the revert guard could not be evaluated (fail-closed). `status: "no-branch"` is deliberately distinct from `"no-changes"`: the ref-absence warning is printed to stdout, which is not durable, so without a separate status `events.jsonl` could not distinguish "there was no PR branch to commit onto" from "nothing changed".
 
 ### Phase 11e step 0: shard rollup (soft-fail, runs BEFORE the candidate-file sweep)
 
@@ -17984,7 +18001,21 @@ else
       # Single LITERAL-list loop: gate and stage in one pass (zsh-safe).
       for KC_F in MEMORY.md decisions.md .agentic/learnings.md; do
         if [ -f "$REPO/$KC_F" ]; then
-          if git -C "$REPO" check-ignore -q -- "$KC_F"; then
+          # Point-of-use defeated-negation check, BEFORE the ordinary
+          # check-ignore gate below. Exit 1 means a negation in the live
+          # .gitignore appears to target $KC_F but git still reports it
+          # ignored - a DEFEATED negation, distinct from a legitimate
+          # categorical exclusion with no negation attempted at all (e.g.
+          # DinoStack's own repo, which the ordinary gate below already
+          # handles as an intentional, audible skip). See
+          # bin/ds-migrate's cmd_verify_commit_path docstring. Never
+          # redirect this check's own stdout/stderr to /dev/null.
+          KC_DEFEAT_OUT=$(ds-migrate verify-commit-path "$KC_F" --project-root "$REPO" 2>&1)
+          KC_DEFEAT_RC=$?
+          if [ "$KC_DEFEAT_RC" -eq 1 ]; then
+            echo "ERROR: [phase: knowledge-commit] $KC_F has a negation in .gitignore that appears to target it, but git still reports it ignored (DEFEATED NEGATION) - not committed. Fix .gitignore by hand, then re-run \`ds-migrate apply\`. Detail: $KC_DEFEAT_OUT"
+            if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
+          elif git -C "$REPO" check-ignore -q -- "$KC_F"; then
             KC_RULE=$(git -C "$REPO" check-ignore -v -- "$KC_F")
             echo "[phase: knowledge-commit] $KC_F is gitignored (rule: $KC_RULE) - not committed."
             if [ -z "$KC_JSON_IGN" ]; then KC_JSON_IGN="\"$KC_F\""; else KC_JSON_IGN="$KC_JSON_IGN,\"$KC_F\""; fi
@@ -22900,7 +22931,8 @@ Write-ordering among the three files is not a `/ds-wrap`-internal question, beca
 
 **Per-file gating** - each check is a hard skip for THAT FILE ONLY; it never aborts the sweep of the remaining candidates:
 - File does not exist -> skip silently (no log line; this is the common case).
-- `git check-ignore -q -- <f>` succeeds (exit 0, file is gitignored) -> skip, but print a VISIBLE one-line diagnostic quoting the matched rule: run `git check-ignore -v -- <f>` and print `[wrap: Part G] <f> is gitignored (rule: <matched-rule-output>) - not committed.` **Do not redirect this to `/dev/null` or otherwise suppress it** - a gitignored knowledge file is exactly the silent-strand failure mode this unit exists to make audible.
+- `ds-migrate verify-commit-path <f> --project-root <cwd>` exits 1 -> a negation in the live `.gitignore` appears to target `<f>`, but git still reports it ignored (a DEFEATED negation - the point-of-use, exact-path counterpart to `bin/ds-migrate check`/`apply`'s manifest-wide, probe-based sweep, which must synthesize candidate probe paths for the 2 directory-form negations and can miss an unguessed spelling; see `_compute_negations_defeated`'s docstring in `bin/ds-migrate` for that residual). Skip THIS FILE ONLY, but print a VISIBLE one-line diagnostic: `[wrap: Part G] ERROR: <f> has a negation in .gitignore that appears to target it, but git still reports it ignored (DEFEATED NEGATION) - not committed. Fix .gitignore by hand, then re-run \`ds-migrate apply\`.` **Do not redirect this to `/dev/null` or otherwise suppress it.** Exit 0 or exit 2 (git missing, not a worktree, or an untrusted check result - a soft-fail that must never itself block a commit) both fall through unchanged to the ordinary gitignore bullet below.
+- `git check-ignore -q -- <f>` succeeds (exit 0, file is gitignored) -> skip, but print a VISIBLE one-line diagnostic quoting the matched rule: run `git check-ignore -v -- <f>` and print `[wrap: Part G] <f> is gitignored (rule: <matched-rule-output>) - not committed.` **Do not redirect this to `/dev/null` or otherwise suppress it** - a gitignored knowledge file is exactly the silent-strand failure mode this unit exists to make audible. This bullet fires only when the DEFEATED-negation bullet above did not - i.e. either no negation targets `<f>` at all (e.g. DinoStack's own repo, which categorically excludes all three candidates by decision with zero negations attempted - a deliberate, audible no-op, not a defect) or the negation works and this bullet's own `check-ignore` simply does not trigger.
 - File exists and is not gitignored, but is byte-identical to its `origin/<BASE_BRANCH>` version -> skip silently, nothing to ship. Check with `git cat-file -e origin/<BASE_BRANCH>:<f>` first: if the path does not exist at that ref (non-zero exit), the file is entirely new content and is NOT unchanged - it survives gating regardless of what `git diff --quiet` would report, because `git diff --quiet origin/<BASE_BRANCH> -- <f>` exits 0 (falsely "unchanged") for a path absent from the ref, which would otherwise silently defeat this feature for a project's first-ever `decisions.md` or `.agentic/learnings.md`. Only when the path exists at that ref does the byte-identity check apply: `git diff --quiet origin/<BASE_BRANCH> -- <f>` exits 0 -> skip.
 - File exists, is not gitignored, and DOES differ from `origin/<BASE_BRANCH>`, but was already captured onto a ticket PR branch by `/ds-implement-ticket` Phase 11e -> skip, and print a VISIBLE one-line diagnostic naming the file, the branch, and the commit: `[wrap: Part G] <f> already captured on the ticket PR branch <branch> (commit <sha>) - not committed again.` This bullet is deliberately LAST in the gating order, so an unchanged file still reports "unchanged" via the preceding bullet and only a genuinely changed file can ever report "already captured". Determine the answer from `.agentic/knowledge-commit-state.json` (written by Phase 11e on its push-success path only). The gate fires ONLY when ALL of the following hold: the file exists and parses as JSON; its `commit` field is non-empty; `git cat-file -e <commit>^{commit}` succeeds (the branch may have been squash-merged and deleted, leaving the commit unreachable); `git cat-file -e <commit>:<f>` succeeds; and `git diff --quiet <commit> -- <f>` exits 0. **Any other condition means the gate does NOT fire and Part G proceeds exactly as it does today** - the gate is deliberately fail-open toward committing, because a duplicate commit is a reviewable diff a human resolves in the PR, whereas failing open toward skipping would silently drop knowledge, which is the exact failure Part G exists to prevent. `deleted_lines` is NOT consulted: this gate is content-based, not risk-based.
 
@@ -22931,7 +22963,7 @@ If NO file survives gating, Part G is a no-op: emit the `[phase: wrap-part-g]` b
 
 **Residual coverage.** `/ds-wrap` is manual and synchronous (see line 13, "Manual `/ds-wrap` is synchronous"), and the deferred-wrap daemon that can complete a forgotten wrap headlessly is Claude-only and opt-in, defaulting to `deferred_wrap_daemon: false` (see the "Claude-host + opt-in + non-daemon guard" note under Step 0a). So a session that ends without ever invoking `/ds-wrap` still strands its knowledge-file writes until a LATER session's start-up sweep fires the read-only notice (`content/rules/conventions.md` §Session Context and Memory, the knowledge-strand sweep) - and permanently, if no later session ever runs. Part G narrows this gap; it does not close it.
 
-Relay confirmation to the user. Include all paths written (`_wrap.md`, root `MEMORY.md`, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"), and the Part G outcome (files committed and the pushed branch name plus ready-to-paste `gh pr create` command, or the no-op/soft-fail reason: "no knowledge-file changes this session" / "<file> is gitignored" / "setup failed" / "git user.name/user.email not configured" / "git commit failed" / "push failed" / "skipped - zero-substance path" / "<file> already captured on the ticket PR branch"). Also include the cleanup summary if Step 5 ran.
+Relay confirmation to the user. Include all paths written (`_wrap.md`, root `MEMORY.md`, any AGENTS.md files updated or skipped, and any deferred-write paths at `.agentic/memory-pending.md` and `.agentic/agents-md-pending.md`), the marker transition outcome (`done` tombstone retained, or "no marker staged" when the Step 0a guard was false), the Part F outcome (ticket keys detected and any transitions fired, or "no tracker configured" / "no ticket keys detected this session" / "skipped - zero-substance path"), and the Part G outcome (files committed and the pushed branch name plus ready-to-paste `gh pr create` command, or the no-op/soft-fail reason: "no knowledge-file changes this session" / "<file> is gitignored" / "<file> has a defeated negation - fix .gitignore by hand" / "setup failed" / "git user.name/user.email not configured" / "git commit failed" / "push failed" / "skipped - zero-substance path" / "<file> already captured on the ticket PR branch"). Also include the cleanup summary if Step 5 ran.
 
 **Commit-ownership notice.** When Part B or Part E modified root `MEMORY.md` this session, the confirmation MUST also state that file's Part G commit status - read from Part G's actual status enum below (`committed`, `no-changes`, `setup-failed`, `commit-failed`, `push-failed`, `failed`; never invent a value outside that enum). If the status is anything other than `committed`, append: "Commit it before ending the session - the next session's git preflight may stash or reset it."
 
