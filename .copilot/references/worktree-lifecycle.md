@@ -10,12 +10,17 @@ Purpose: Full reference for worktree and branch lifecycle command blocks
          landing a same-approach fix commit on an already-open PR's branch;
          the literal `create_commands` branching forms live in
          content/commands/ds-implement-ticket.md's canonical definition site,
-         not here - see the Round-N rework mechanic section itself), and the
+         not here - see the Round-N rework mechanic section itself), the
          Ad-hoc (non-`/ds-implement-ticket`) worktree cleanup obligation
          (the process-discipline trigger for cleaning up an isolation
          worktree spawned outside the ticket flow, where Phase 8's own
          automatic cleanup never fires - closing the single largest
-         confirmed source of orphaned worktrees observed in this repo).
+         confirmed source of orphaned worktrees observed in this repo),
+         and The unproven class, and archiving it (the opt-in
+         `--archive-unproven` mechanism that extends bin/ds-branch-prune's
+         own verified-git-bundle-then-delete precedent from branches to
+         worktrees, for the `SKIP_UNPROVEN` class that every other gate
+         cannot resolve).
 
 Public API: Read-only reference document. Cross-referenced from:
             content/sections/11-worktree-lifecycle.md (inline pointers replacing
@@ -196,6 +201,19 @@ fi
 **Round-N rework coverage.** The Round-N rework mechanic above already establishes that rework rounds reuse the SAME branch and worktree rather than creating a fresh `-rN` sibling each round - this is what makes `-rN` proliferation a legacy failure mode rather than a live one. When a round is genuinely SUPERSEDED (a wholesale approach replacement per `content/rules/conventions.md` §Git Workflow's rework-vs-superseding test, not a same-approach fix), the superseded round's worktree is now abandoned and must be cleaned up at that moment - the close+rebase step that supersedes it is exactly the natural completion point this obligation attaches to, not a "later" pass.
 
 **Backstop, not a substitute:** the session-start prune script, `bin/ds-branch-prune`, and `bin/ds-reap-worktrees` (invoked directly, via `/ds-cleanup-worktrees`, or surfaced by the `ds-base-sync` advisory note and the SessionStart worktree-count nudge - see their own docs) all remain in place specifically because this obligation is process discipline, not a structural guarantee - a crashed session, an interrupted spawn, or a conductor that simply forgets still needs a backstop that eventually reclaims the worktree without relying on the obligation having been honored.
+
+## The unproven class, and archiving it (`--archive-unproven`)
+
+Even with every prior gate passing (clean, unlocked, past the age floor, not self, not protected-content), `bin/ds-reap-worktrees` still refuses to remove a worktree whose branch carries real, unmerged commits that were never pushed anywhere and have no matching PR - `disposition_for` correctly reports `SKIP_UNPROVEN` rather than guessing. Measured against this repo's own live checkout, this is the dominant remaining blocker once the `.agentic/`-content correction landed: `skipped-protected-content` dropped to 0, but `removed` stayed 0, because most of the remaining worktrees carry exactly this class of branch (default-named `worktree-agent-<id>` branches and legacy `ds-round8`..`ds-round12` rework branches - see §Ad-hoc worktree cleanup obligation above for how they accumulated). Left alone, `SKIP_UNPROVEN` worktrees never resolve - they simply persist.
+
+This repo already solved the identical problem for BRANCHES: `bin/ds-branch-prune` (DS-153) archived 75 branches its own four-layer subsumption predicate could not prove into one verified `git bundle` (`.agentic/branch-archive/`) before deleting them, rather than leaving them unresolved forever. `bin/ds-reap-worktrees --archive-unproven` extends that exact pattern to WORKTREES - OPT-IN, never the default:
+
+1. For each `SKIP_UNPROVEN` entry, `git bundle create .agentic/worktree-archive/<branch>-<timestamp>.bundle <branch>` captures the FULL branch, not just its tip.
+2. The bundle is VERIFIED with `git bundle verify` BEFORE any removal - a create failure, a missing/empty bundle, or a failed verification leaves the entry `SKIP_UNPROVEN`, worktree untouched, same discipline as the telemetry-salvage guard: a failed archive must never become a silent deletion of the only copy of unproven work.
+3. Only then is the worktree removed - and ONLY the worktree. `bin/ds-reap-worktrees` never deletes the branch itself; the archived branch's own local ref remains `bin/ds-branch-prune`'s responsibility to resolve, same as every other branch in this repo.
+4. The exact restore command is printed, braced per this repo's own documented zsh refspec gotcha: `git fetch <bundle> "refs/heads/${BRANCH}:refs/heads/${BRANCH}"`.
+
+`.agentic/worktree-archive/` is gitignored (the existing `/.agentic/*` umbrella already covers it - no new carve-out) and grows unbounded, exactly like `.agentic/branch-archive/` before it - pruning it is the operator's own responsibility, not something either tool does automatically. Without `--archive-unproven`, `SKIP_UNPROVEN` entries are reported and never touched - this is unchanged default behavior. See `bin/ds-reap-worktrees`'s own module docstring ("Archiving unproven branches") for the full mechanism.
 
 ## Guardrail: never force-override the harness lock
 

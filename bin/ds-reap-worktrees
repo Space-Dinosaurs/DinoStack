@@ -118,10 +118,43 @@ the data it was trying to preserve. `--dry-run` skips salvage entirely
 repo's existing `/.agentic/*`-style umbrella already covers any new
 top-level entry under `.agentic/`.
 
+Archiving unproven branches (round-5 requirement, `--archive-unproven`,
+OPT-IN, NEVER the default): round 4's `SKIP_UNPROVEN` verdict on a
+never-pushed branch with real commits is correct and this tool does not
+weaken it - nothing about the predicate above changes. The gap is that
+nothing ever RESOLVES that class on its own, which is why worktrees
+accumulate indefinitely even after every other gate is passing. This repo
+already solved the identical problem for BRANCHES (`bin/ds-branch-prune`
+archived 75 unprovable branches into one verified bundle before deleting
+them, DS-153/`.agentic/branch-archive/`) - `--archive-unproven` extends
+that exact pattern to WORKTREES. When passed, for every entry that is
+still `SKIP_UNPROVEN` after every other gate above (clean, unlocked, past
+the age floor, not self, not protected-content - i.e. the ONLY thing
+blocking it is unprovable branch evidence): (1) `git bundle create
+<repo>/.agentic/worktree-archive/<branch>-<timestamp>.bundle <branch>`
+captures the FULL branch, not just its tip; (2) the bundle is VERIFIED
+with `git bundle verify` BEFORE any removal - a create failure, a
+missing/empty bundle, or a failed verification leaves the entry
+`SKIP_UNPROVEN`, reported, worktree untouched (same discipline as the
+telemetry-salvage guard above: a failed archive must never become a
+silent deletion of the only copy of unproven work); (3) only then is the
+worktree removed, reclassified to `ARCHIVED_AND_REMOVED` (its own
+reported bucket, `archived-and-removed=N`, keeping the bucket-sum-
+equals-entries invariant intact) and the exact restore command
+(`git fetch <bundle> "refs/heads/<branch>:refs/heads/<branch>"` - braced,
+per this repo's own documented zsh-mangling gotcha) is printed. This tool
+NEVER deletes the branch itself, only the worktree - reclaiming the
+archived branch's own local ref remains `bin/ds-branch-prune`'s job, same
+as it already is for every other path in this tool. `--dry-run` creates
+no bundle but reports the would-be count. `.agentic/worktree-archive/`
+needs no new `.gitignore` carve-out (same umbrella as
+`.agentic/reaped-telemetry/`) and grows unbounded - pruning it is the
+operator's own responsibility, exactly like `.agentic/branch-archive/`.
+
 Public API (CLI):
   ds-reap-worktrees [--repo <path>] [--base <ref>] [--dry-run] [--no-gh]
                     [--explain] [--count-only] [--min-age-hours <float>]
-                    [--strict-ignored]
+                    [--strict-ignored] [--archive-unproven]
 
   --repo <path>          Repository to operate on. Default: cwd.
   --base <ref>           Base ref to prove ancestor-of-base evidence
@@ -169,6 +202,18 @@ Public API (CLI):
                           bypass mechanism this flag does not use at all;
                           under `--strict-ignored` `.agentic/events.jsonl`
                           blocks removal exactly like round 2, unchanged.
+  --archive-unproven      OPT-IN, NEVER the default (see "Archiving
+                          unproven branches" above for the full mechanism
+                          and rationale). For every entry that is
+                          `SKIP_UNPROVEN` and nothing else - the branch
+                          content itself is the ONLY unresolved question -
+                          archives the full branch into a verified `git
+                          bundle` under `.agentic/worktree-archive/`
+                          before removing the worktree. Removes WORKTREES
+                          ONLY, never branches (`bin/ds-branch-prune`
+                          remains responsible for branch deletion). A
+                          failed bundle create/verify never removes
+                          anything - the entry stays `SKIP_UNPROVEN`.
 
 Locked handling: per `content/references/worktree-lifecycle.md`
 §Guardrail, `git worktree unlock` may be used ONLY on a worktree whose
@@ -624,6 +669,72 @@ def _salvage_telemetry(repo: str, worktree_path: str, branch: Optional[str]) -> 
     return True, f"salvaged to {dest}"
 
 
+def _restore_command(bundle_path: str, branch: str) -> str:
+    """The exact restore command for a bundle archived by
+    `_archive_branch_bundle` below. Per this repo's own documented
+    gotcha (AGENTS.md: "Brace any shell expansion followed by a literal
+    `:` in a refspec"), the branch variable is braced in the refspec -
+    an unbraced `$VAR:` is mangled by zsh.
+    """
+    return f'git fetch {bundle_path} "refs/heads/{branch}:refs/heads/{branch}"'
+
+
+def _archive_branch_bundle(repo: str, branch: str) -> Tuple[bool, str, Optional[str]]:
+    """Round-5 requirement: archives the FULL branch `branch` (not just
+    its tip) into `<repo>/.agentic/worktree-archive/<branch>-<timestamp>.
+    bundle` via `git bundle create`, then VERIFIES the bundle with
+    `git bundle verify` BEFORE the caller may remove anything - same
+    discipline as `_salvage_telemetry`'s own guard: this tool proves
+    subsumption is unprovable (`SKIP_UNPROVEN`) for these branches, so
+    the archive is the ONLY remaining copy of unpushed work once the
+    worktree is gone. This tool archives and removes WORKTREES only - it
+    never deletes the branch itself (`git branch -D` is deliberately not
+    called here); reclaiming the archived branch's own local ref remains
+    `bin/ds-branch-prune`'s job (DS-153), same as it already is for every
+    other worktree-removal path in this tool.
+
+    Returns (ok, detail, bundle_path). `ok=False` on ANY failure (archive
+    directory uncreatable, `git bundle create` error, a missing/empty
+    bundle file after create, or `git bundle verify` failing) - the
+    caller MUST NOT remove the worktree when `ok=False`; a failed archive
+    must never become a silent deletion of the only copy of unproven
+    work. `bundle_path` is None whenever `ok=False`.
+
+    `.agentic/worktree-archive/` needs no new `.gitignore` carve-out for
+    the same reason `.agentic/reaped-telemetry/` does not (see
+    `_salvage_telemetry`'s docstring): the existing `/.agentic/*`
+    umbrella already covers any new top-level entry under `.agentic/`.
+    This directory grows unbounded - pruning it is the operator's own
+    responsibility, exactly like `.agentic/branch-archive/`
+    (`bin/ds-branch-prune`'s own precedent for this exact pattern).
+    """
+    archive_dir = Path(repo) / ".agentic" / "worktree-archive"
+    branch_safe = _BRANCH_SAFE_CHARS_RE.sub("_", branch)
+    timestamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
+    bundle_path = archive_dir / f"{branch_safe}-{timestamp}.bundle"
+
+    try:
+        archive_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        return False, f"could not create archive directory {archive_dir}: {exc}", None
+
+    proc = _run(["git", "-C", repo, "bundle", "create", str(bundle_path), branch])
+    if proc.returncode != 0:
+        return False, f"git bundle create failed: {proc.stderr.strip()}", None
+
+    try:
+        if not bundle_path.is_file() or bundle_path.stat().st_size == 0:
+            return False, f"bundle {bundle_path} missing or empty after create", None
+    except OSError as exc:
+        return False, f"could not stat {bundle_path}: {exc}", None
+
+    verify_proc = _run(["git", "-C", repo, "bundle", "verify", str(bundle_path)])
+    if verify_proc.returncode != 0:
+        return False, f"git bundle verify failed: {verify_proc.stderr.strip()}", None
+
+    return True, "archived and verified", str(bundle_path)
+
+
 # --------------------------------------------------------------------------
 # Per-entry evidence + evaluation (round-2: delegates the LOCKED/DIRTY/
 # branch-evidence decision entirely to worktree_model.disposition_for -
@@ -746,6 +857,7 @@ def parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     p.add_argument("--count-only", action="store_true")
     p.add_argument("--min-age-hours", type=float, default=24.0)
     p.add_argument("--strict-ignored", action="store_true")
+    p.add_argument("--archive-unproven", action="store_true")
     return p.parse_args(argv)
 
 
@@ -763,6 +875,7 @@ _ALL_OUTCOMES = (
     "SKIP_DIRTY",
     "SKIP_PROTECTED_CONTENT",
     "SKIP_UNPROVEN",
+    "ARCHIVED_AND_REMOVED",
     "REMOVE",
 )
 
@@ -891,6 +1004,57 @@ def main(argv: Optional[List[str]] = None) -> int:
         # WOULD be salvaged if this were a live run (round-4 requirement).
         salvage_would = sum(1 for r in remove_results if _worktree_has_salvageable_telemetry(r["path"]))
 
+    # --archive-unproven (round-5, OPT-IN, never the default): for every
+    # entry that is still SKIP_UNPROVEN at this point - which, by
+    # evaluate_entry's own gate order, already passed self/age/dirty/
+    # locked/protected-content and only failed the branch-evidence gate -
+    # archive the FULL branch into a verified git bundle, and only THEN
+    # remove the worktree. A bundle-create or bundle-verify failure never
+    # removes anything; the entry stays SKIP_UNPROVEN, reported.
+    archived_and_removed = 0
+    archive_would = 0
+    if args.archive_unproven:
+        unproven_results = [r for r in results if r["outcome"] == "SKIP_UNPROVEN"]
+        if not args.dry_run:
+            for r in unproven_results:
+                path = r["path"]
+                branch = r.get("branch")
+                if not branch:
+                    # No branch to bundle (detached HEAD) - nothing this
+                    # leg can do; stays SKIP_UNPROVEN, already reported.
+                    continue
+                archive_ok, archive_detail, bundle_path = _archive_branch_bundle(repo, branch)
+                if not archive_ok:
+                    print(
+                        f"WARNING: archive failed for {path} (branch={branch}): "
+                        f"{archive_detail} - worktree NOT removed",
+                        file=sys.stderr,
+                    )
+                    continue
+                proc = _run(["git", "-C", repo, "worktree", "remove", path])
+                if proc.returncode == 0:
+                    archived_and_removed += 1
+                    r["outcome"] = "ARCHIVED_AND_REMOVED"
+                    r["reason"] = f"archived to {bundle_path}"
+                    print(
+                        f"ARCHIVED+REMOVED {path} (branch={branch}) - restore with: "
+                        f"{_restore_command(bundle_path, branch)}"
+                    )
+                else:
+                    print(
+                        f"WARNING: failed to remove {path} after successful archive "
+                        f"(branch={branch}, bundle={bundle_path}): {proc.stderr.strip()}",
+                        file=sys.stderr,
+                    )
+            # Recompute for the same reason the salvage loop above does -
+            # an archive success may have reclassified a SKIP_UNPROVEN
+            # entry to ARCHIVED_AND_REMOVED, already a member of
+            # _ALL_OUTCOMES.
+            outcome_counts = Counter(r["outcome"] for r in results)
+        else:
+            # --dry-run: create nothing, report the would-be count only.
+            archive_would = sum(1 for r in unproven_results if r.get("branch"))
+
     # Unlock any directory-missing locked entries so the admin-prune pass
     # below can reclaim them (the sole permitted unlock case - see the
     # Locked handling note in the module docstring). Real action, real
@@ -939,6 +1103,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(
             f"NOTE: {salvage_would} .agentic/events.jsonl file(s) would be salvaged to "
             ".agentic/reaped-telemetry/ before removal if this were a live run."
+        )
+
+    if args.archive_unproven and args.dry_run and archive_would:
+        print(
+            f"NOTE: {archive_would} unproven branch(es) would be archived to "
+            ".agentic/worktree-archive/ (as a verified git bundle) and their worktrees "
+            "removed if this were a live run with --archive-unproven."
         )
 
     if args.explain:

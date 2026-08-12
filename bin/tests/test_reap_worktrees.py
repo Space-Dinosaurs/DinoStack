@@ -44,6 +44,7 @@ import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -943,3 +944,246 @@ def test_run_timeout_wrapper_bounds_a_slow_command():
     elapsed = time.monotonic() - start
     assert proc.returncode != 0
     assert elapsed < 4.0, f"timeout wrapper did not bound the slow command (elapsed={elapsed:.2f}s)"
+
+
+def _load_module_directly():
+    """Imports bin/ds-reap-worktrees as a Python module (not a subprocess)
+    for tests that need to monkeypatch its internals - notably forcing a
+    `git bundle verify` failure specifically, which cannot be triggered
+    reliably by any real filesystem manipulation (a bundle `git bundle
+    create` just wrote in the SAME repo will always verify successfully;
+    its prerequisites are trivially satisfied)."""
+    import importlib.machinery as _ilm
+    import importlib.util as _ilu
+
+    loader = _ilm.SourceFileLoader("ds_reap_worktrees_direct", str(SCRIPT))
+    spec = _ilu.spec_from_loader("ds_reap_worktrees_direct", loader)
+    mod = _ilu.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def _make_unproven_branch_worktree(repo: Path, rel_path: str, branch: str) -> Path:
+    """A worktree on a NEVER-PUSHED branch carrying a genuine unique
+    commit - resolves SKIP_UNPROVEN under the default (offline-leaning)
+    predicate, the exact class --archive-unproven targets."""
+    wt = add_worktree(repo, rel_path, branch, push=False)
+    (wt / "unique-work.txt").write_text(f"real work on {branch}\n")
+    _git(wt, "add", "unique-work.txt")
+    _git(wt, "commit", "-q", "-m", f"unique commit on {branch}")
+    return wt
+
+
+# --------------------------------------------------------------------------
+# 19. (round-5) --archive-unproven is OPT-IN: without the flag, an unproven
+#     branch is reported and untouched, exactly as before round 5.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_is_opt_in_default_behavior_unchanged(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-no-flag"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-no-flag", branch)
+
+    proc = run_reap(repo, dry_run=False)  # no --archive-unproven
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_AMBIGUOUS_NO_PR)"
+    assert str(wt) in worktree_paths(repo)
+    assert not (repo / ".agentic" / "worktree-archive").exists()
+
+
+# --------------------------------------------------------------------------
+# 20. (round-5) --archive-unproven success path: the branch is archived
+#     into a verified bundle, the worktree is removed, the entry lands in
+#     the archived-and-removed bucket, and the exact restore command is
+#     printed.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_success_archives_and_removes(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-archive-ok"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-ok", branch)
+
+    proc = run_reap(repo, dry_run=False, extra=["--archive-unproven"])
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
+    assert str(wt) not in worktree_paths(repo)
+
+    archive_dir = repo / ".agentic" / "worktree-archive"
+    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    assert len(bundles) == 1, f"expected exactly one bundle, found {bundles}"
+    verify = subprocess.run(
+        ["git", "-C", str(repo), "bundle", "verify", str(bundles[0])], capture_output=True, text=True
+    )
+    assert verify.returncode == 0, verify.stderr
+
+    assert "archived-and-removed=1" in summary_line(proc.stdout)
+    assert "ARCHIVED+REMOVED" in proc.stdout
+    assert "restore with:" in proc.stdout
+    assert f'"refs/heads/{branch}:refs/heads/{branch}"' in proc.stdout, "restore refspec must be braced (zsh gotcha)"
+
+
+# --------------------------------------------------------------------------
+# 21. (round-5) --dry-run creates NO bundle and removes nothing, but
+#     reports the would-be count.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_dry_run_creates_no_bundle(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-archive-dry"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-dry", branch)
+
+    proc = run_reap(repo, dry_run=True, extra=["--archive-unproven"])
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_AMBIGUOUS_NO_PR)"
+    assert str(wt) in worktree_paths(repo)
+    assert not (repo / ".agentic" / "worktree-archive").exists()
+    assert "archived-and-removed=0" in summary_line(proc.stdout)
+    assert "1 unproven branch(es) would be archived" in proc.stdout
+
+
+# --------------------------------------------------------------------------
+# 22. (round-5) Bucket-sum-equals-entries invariant holds when an entry is
+#     reclassified to ARCHIVED_AND_REMOVED.
+# --------------------------------------------------------------------------
+
+
+def test_archive_unproven_bucket_sum_still_reconciles(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-sum-a", "worktree-agent-sum-a")
+    add_worktree(repo, ".claude/worktrees/agent-sum-b", "worktree-agent-sum-b", push=False)  # REMOVE-eligible
+    dirty_wt = add_worktree(repo, ".claude/worktrees/agent-sum-c", "worktree-agent-sum-c", push=False)
+    (dirty_wt / "uncommitted.txt").write_text("dirty\n")
+
+    proc = run_reap(repo, dry_run=False, extra=["--archive-unproven"])
+    assert proc.returncode == 0, proc.stderr
+    line = summary_line(proc.stdout)
+    counts = bucket_counts(line)
+    entries = counts.pop("entries")
+    removed = counts.pop("removed")
+    counts.pop("pruned-admin", None)
+    counts.pop("salvaged", None)
+    archived_and_removed = counts.pop("archived-and-removed", 0)
+    skip_sum = sum(v for k, v in counts.items() if k.startswith("skipped-"))
+    total = removed + archived_and_removed + skip_sum
+    assert total == entries, f"bucket sum {total} != entries {entries} (line: {line})"
+    assert archived_and_removed == 1
+
+
+# --------------------------------------------------------------------------
+# 23. (round-5) A bundle-verify failure blocks removal entirely - direct
+#     unit test of `_archive_branch_bundle`, monkeypatching `_run` to force
+#     JUST the `git bundle verify` step to fail after a REAL `git bundle
+#     create` succeeds (the only reliable way to trigger this specific
+#     failure mode - a bundle just created in the same repo always
+#     verifies successfully against real content, so no filesystem trick
+#     alone can force this branch). This is the assertion round 5 asks to
+#     be mutation-tested specifically.
+# --------------------------------------------------------------------------
+
+
+def test_archive_bundle_verify_failure_blocks_archival():
+    mod = _load_module_directly()
+
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp_path = Path(tmp)
+        repo, _origin = init_repo_with_origin(tmp_path)
+        branch = "worktree-agent-verify-fail"
+        _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-verify-fail", branch)
+
+        real_run = mod._run
+
+        def fake_run(args, cwd=None, timeout=None):
+            if "bundle" in args and "verify" in args:
+                return subprocess.CompletedProcess(args, returncode=1, stdout="", stderr="simulated corrupt bundle")
+            return real_run(args, cwd=cwd, timeout=timeout)
+
+        mod._run = fake_run
+        try:
+            ok, detail, bundle_path = mod._archive_branch_bundle(str(repo), branch)
+        finally:
+            mod._run = real_run
+
+        assert ok is False, f"expected verify failure to block archival, got ok={ok} detail={detail!r}"
+        assert "verify" in detail.lower()
+        assert bundle_path is None
+
+
+# --------------------------------------------------------------------------
+# 24. (round-5) Same failure class end-to-end through the real CLI: an
+#     uncreatable archive directory (a real filesystem failure, like
+#     round 4's salvage-failure test) blocks removal entirely - the entry
+#     stays SKIP_UNPROVEN, never a silent deletion of the only copy of
+#     unproven work.
+# --------------------------------------------------------------------------
+
+
+def test_archive_directory_uncreatable_blocks_removal_end_to_end(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-archive-fail"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-archive-fail", branch)
+
+    primary_agentic = repo / ".agentic"
+    primary_agentic.mkdir(exist_ok=True)
+    os.chmod(primary_agentic, 0o555)
+    try:
+        proc = run_reap(repo, dry_run=False, extra=["--archive-unproven"])
+        assert proc.returncode == 0, proc.stderr
+        result = outcomes(proc.stdout)
+        assert result[str(wt)] == "SKIP_UNPROVEN (SKIP_AMBIGUOUS_NO_PR)"
+        assert str(wt) in worktree_paths(repo), "a failed archive must NEVER become a silent deletion"
+        assert "WARNING: archive failed" in proc.stderr
+        assert "worktree NOT removed" in proc.stderr
+    finally:
+        os.chmod(primary_agentic, 0o755)
+
+
+# --------------------------------------------------------------------------
+# 25. (round-5) The restore path actually works end-to-end: create a
+#     branch with a unique commit, archive it, remove the worktree, THEN
+#     restore from the bundle into a fresh clone and assert the restored
+#     SHA matches the original exactly - not merely "the bundle file
+#     exists".
+# --------------------------------------------------------------------------
+
+
+def test_archive_restore_path_recovers_the_exact_original_sha(tmp_path):
+    repo, _origin = init_repo_with_origin(tmp_path)
+    branch = "worktree-agent-restore-e2e"
+    wt = _make_unproven_branch_worktree(repo, ".claude/worktrees/agent-restore-e2e", branch)
+    original_sha = _git(wt, "rev-parse", "HEAD").stdout.strip()
+
+    proc = run_reap(repo, dry_run=False, extra=["--archive-unproven"])
+    assert proc.returncode == 0, proc.stderr
+    result = outcomes(proc.stdout)
+    assert result[str(wt)].startswith("ARCHIVED_AND_REMOVED")
+    assert str(wt) not in worktree_paths(repo)
+    # The branch ref itself still exists locally (this tool never deletes
+    # branches) - remove it too, to prove the restore below is genuinely
+    # recovering from the BUNDLE, not just reading the still-present ref.
+    _git(repo, "branch", "-D", branch)
+    branch_gone = subprocess.run(
+        ["git", "-C", str(repo), "rev-parse", "--verify", f"refs/heads/{branch}"], capture_output=True, text=True
+    )
+    assert branch_gone.returncode != 0, "precondition: branch must be genuinely gone before restoring"
+
+    archive_dir = repo / ".agentic" / "worktree-archive"
+    bundles = sorted(archive_dir.glob(f"{branch}-*.bundle"))
+    assert len(bundles) == 1
+    bundle_path = str(bundles[0])
+
+    # The exact restore command this tool prints, executed for real.
+    restore_cmd = ["git", "-C", str(repo), "fetch", bundle_path, f"refs/heads/{branch}:refs/heads/{branch}"]
+    restore_proc = subprocess.run(restore_cmd, capture_output=True, text=True)
+    assert restore_proc.returncode == 0, restore_proc.stderr
+
+    restored_sha = _git(repo, "rev-parse", f"refs/heads/{branch}").stdout.strip()
+    assert restored_sha == original_sha, (
+        f"restored SHA {restored_sha} does not match the original {original_sha} - "
+        "a bundle file merely existing is not proof of a working restore path"
+    )

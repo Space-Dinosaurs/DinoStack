@@ -355,6 +355,29 @@ Report is automatic; removal is not. The backstop closes the "I forgot" gap with
 
 ---
 
+## The unproven class: archive, don't accumulate
+
+<style scoped>
+  ul { font-size: 0.86em; }
+  ul li { margin: 0.2em 0; }
+  .callout { font-size: 0.82em; padding: 0.4em 1em; margin-top: 0.4em; }
+</style>
+
+Even a worktree that passes every gate can still be stuck `SKIP_UNPROVEN`: a real, unmerged, never-pushed branch with no matching PR - `disposition_for` correctly refuses to guess. Left alone, these never resolve.
+
+`bin/ds-branch-prune` already solved this for BRANCHES: archive into a verified `git bundle`, prove the restore path, then delete (`.agentic/branch-archive/`, DS-153). `ds-reap-worktrees --archive-unproven` - OPT-IN, never the default - extends that exact pattern to WORKTREES:
+
+- `git bundle create` captures the FULL branch, then `git bundle verify` runs BEFORE any removal - a failed create or verify blocks removal entirely, same discipline as the telemetry-salvage guard
+- Removes the WORKTREE only, never the branch - `bin/ds-branch-prune` still owns branch deletion
+- Prints the exact (braced) restore command: `git fetch <bundle> "refs/heads/${BRANCH}:refs/heads/${BRANCH}"`
+- `.agentic/worktree-archive/` is gitignored and grows unbounded - pruning it is the operator's job, same as `.agentic/branch-archive/`
+
+<div class="callout">
+Without --archive-unproven, SKIP_UNPROVEN worktrees are reported and never touched - unchanged default behavior.
+</div>
+
+---
+
 <!-- _class: lead -->
 
 # Isolated. Pruned. Clean.
