@@ -53,4 +53,4 @@ jobs:
       - name: Reminder - route methodology-shaping work through /ds-update-agentic-engineering
         if: always() && steps.alignment-check.outputs.triggered == 'true'
         run: |
-          echo "::notice::This PR touches methodology-shaping paths. If this work was ad hoc rather than ticket-driven, confirm it was routed through /ds-update-agentic-engineering (git-sync, vision-alignment review, explicit human approval before commit). Ticket-driven work is expected to satisfy this via the Skeptic's step 3.6 instead. This notice is informational only and cannot verify which path was actually taken."
+          echo "::notice::This PR touches methodology-shaping paths. If this work was ad hoc rather than ticket-driven, confirm it was routed through /ds-update-agentic-engineering (git-sync, vision-alignment review, explicit human approval before commit). Ticket-driven work is expected to satisfy the vision-alignment portion of this via the Skeptic's step 3.6 instead. This notice is informational only and cannot verify which path was actually taken."
